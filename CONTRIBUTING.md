@@ -13,8 +13,8 @@ Keep the filetree small and direct until a larger application boundary is justif
 Install the pinned Rust toolchain:
 
 ```bash
-rustup toolchain install 1.92.0
-rustup override set 1.92.0
+rustup toolchain install 1.97.0
+rustup override set 1.97.0
 ```
 
 Confirm your environment:

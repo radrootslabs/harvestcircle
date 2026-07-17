@@ -3,7 +3,7 @@ name = "block"
 version = "0.1.6"
 authors = ["Steven Sheldon"]
 edition = "2024"
-rust-version = "1.92.0"
+rust-version = "1.97.0"
 
 description = "Rust interface for Apple's C language extension of blocks."
 keywords = ["blocks", "osx", "ios", "objective-c"]
@@ -22,7 +22,7 @@ patch_scope = [
     "make the Objective-C class marker inhabited",
     "declare Objective-C block runtime externs with an explicit C ABI",
     "remove unpackaged upstream test helper references",
-    "align the manifest with the Studio Rust 1.92.0 edition 2024 toolchain",
+    "align the manifest with the Studio Rust 1.97.0 edition 2024 toolchain",
 ]
 validation = [
     "cargo extbuild run -- cargo check -p block --all-targets",

@@ -48,7 +48,7 @@ Before making substantial changes:
 
 ## 7. Rust engineering rules
 
-- Use Rust `1.92.0`, edition `2024`, and safe Rust only.
+- Use Rust `1.97.0`, edition `2024`, and safe Rust only.
 - Keep state, data flow, and side effects explicit.
 - Avoid hidden panics in non-test code.
 - Keep code readable and direct.
