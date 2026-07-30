@@ -163,6 +163,12 @@ latest_log_path="${local_log_root}/apps/local/app/app-macos-native/latest.jsonl"
 stdout_file="${local_log_root}/apps/local/app/app-macos-native/raw/stdout.${date_utc}.log"
 stderr_file="${local_log_root}/apps/local/app/app-macos-native/raw/stderr.${date_utc}.log"
 
+mkdir -p "$(dirname "${structured_log_file}")"
+printf '%s\n' \
+  '{"event":"logging.initialized","source":"stale-test-fixture"}' \
+  '{"event":"runtime.launch","source":"stale-test-fixture"}' \
+  >"${structured_log_file}"
+
 RADROOTS_APP_RUNTIME_MODE="${runtime_mode}" \
 RADROOTS_APP_NOSTR_RELAY_URLS="${nostr_relay_urls}" \
 RADROOTS_APP_LOCAL_LOG_ROOT="${local_log_root}" \
@@ -173,6 +179,10 @@ runner_pid="$!"
 
 wait_for_log_event "${structured_log_file}" "runtime.launch" "${runner_pid}"
 wait_for_log_event "${structured_log_file}" "logging.initialized" "${runner_pid}"
+[[ "$(grep -c '"event":"runtime.launch"' "${structured_log_file}")" -ge 2 ]] || {
+  echo "run_host.sh accepted a stale runtime.launch event" >&2
+  exit 1
+}
 assert_latest_alias "${latest_log_path}"
 assert_raw_logs_exist "${stdout_file}" "${stderr_file}"
 terminate_runner "${runner_pid}"

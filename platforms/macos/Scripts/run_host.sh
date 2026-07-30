@@ -29,7 +29,8 @@ forward_signal() {
   fi
 }
 
-require_command grep
+require_command awk
+require_command wc
 require_command /usr/libexec/PlistBuddy
 require_env RADROOTS_APP_LOCAL_LOG_ROOT
 require_env RADROOTS_APP_NOSTR_RELAY_URLS
@@ -54,6 +55,12 @@ startup_attempts="${RADROOTS_APP_HOST_STARTUP_ATTEMPTS:-300}"
 mkdir -p "${app_log_root}/raw"
 export RUST_LOG="${RADROOTS_APP_RUST_LOG:-info}"
 
+structured_log_first_fresh_line=1
+if [[ -f "${structured_log_file}" ]]; then
+  existing_structured_log_lines="$(wc -l < "${structured_log_file}")"
+  structured_log_first_fresh_line="$((existing_structured_log_lines + 1))"
+fi
+
 trap 'forward_signal TERM' TERM
 trap 'forward_signal INT' INT
 trap 'forward_signal HUP' HUP
@@ -70,12 +77,23 @@ stop_app_with_error() {
   exit 1
 }
 
+fresh_log_contains_event() {
+  local expected_event="$1"
+
+  [[ -f "${structured_log_file}" ]] || return 1
+  awk \
+    -v first_line="${structured_log_first_fresh_line}" \
+    -v event="\"event\":\"${expected_event}\"" \
+    'NR >= first_line && index($0, event) { found = 1 } END { exit found ? 0 : 1 }' \
+    "${structured_log_file}"
+}
+
 "${executable_path}" "$@" >>"${stdout_file}" 2>>"${stderr_file}" &
 app_pid="$!"
 
 launch_confirmed=false
 for _ in $(seq 1 "${startup_attempts}"); do
-  if [[ -f "${structured_log_file}" ]] && grep -q '"event":"runtime.launch"' "${structured_log_file}" 2>/dev/null; then
+  if fresh_log_contains_event "runtime.launch"; then
     launch_confirmed=true
     break
   fi
@@ -92,7 +110,7 @@ if [[ "${launch_confirmed}" != "true" ]]; then
   stop_app_with_error "app launch did not emit runtime.launch within startup timeout"
 fi
 
-grep -q '"event":"logging.initialized"' "${structured_log_file}" 2>/dev/null || {
+fresh_log_contains_event "logging.initialized" || {
   stop_app_with_error "app launch did not emit logging.initialized in ${structured_log_file}"
 }
 
