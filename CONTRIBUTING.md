@@ -13,8 +13,8 @@ Keep the filetree small and direct until a larger application boundary is justif
 Install the pinned Rust toolchain:
 
 ```bash
-rustup toolchain install 1.97.0
-rustup override set 1.97.0
+rustup toolchain install 1.97.1
+rustup override set 1.97.1
 ```
 
 Confirm your environment:
@@ -27,6 +27,12 @@ rustc --version
 ## Development Commands
 
 Run these commands from the repository root.
+
+Before the initial Radroots crate cohort is published, the checked-in Cargo
+configuration resolves the SDK's registry dependencies from sibling `lib` and
+`sdk` checkouts. Keep all three repositories adjacent in a coordinated source
+checkout. Exact `=0.1.0-alpha` requirements remain enforced; the local patches
+change only dependency source selection.
 
 ```bash
 cargo metadata --format-version 1 --no-deps

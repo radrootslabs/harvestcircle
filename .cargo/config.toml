@@ -1,0 +1,25 @@
+# Migration-only local development overrides. The SDK retains registry-only
+# production manifests; these patches allow a coordinated sibling checkout to
+# resolve the canonical pre-publication Radroots cohort.
+[patch.crates-io]
+radroots_blossom = { path = "../lib/crates/blossom" }
+radroots_core = { path = "../lib/crates/core" }
+radroots_event_store = { path = "../lib/crates/event_store" }
+radroots_event = { path = "../lib/crates/event" }
+radroots_event_codec = { path = "../lib/crates/event_codec" }
+radroots_geocoder = { path = "../lib/crates/geocoder" }
+radroots_identity = { path = "../lib/crates/identity" }
+radroots_nostr = { path = "../lib/crates/nostr" }
+radroots_nostr_connect = { path = "../lib/crates/nostr_connect" }
+radroots_nostr_signer = { path = "../lib/crates/nostr_signer" }
+radroots_outbox = { path = "../lib/crates/outbox" }
+radroots_protocol = { path = "../lib/crates/protocol" }
+radroots_protected_store = { path = "../lib/crates/protected_store" }
+radroots_secret_vault = { path = "../lib/crates/secret_vault" }
+radroots_signing = { path = "../lib/crates/signing" }
+radroots_transport = { path = "../lib/crates/transport" }
+radroots_transport_nostr = { path = "../lib/crates/transport_nostr" }
+radroots_transport_reticulum = { path = "../lib/crates/transport_reticulum" }
+radroots_runtime_paths = { path = "../lib/crates/runtime_paths" }
+radroots_sql_core = { path = "../lib/crates/sql_core" }
+radroots_trade = { path = "../lib/crates/trade" }

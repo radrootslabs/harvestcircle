@@ -32,6 +32,7 @@ Before making substantial changes:
 - Run validation from the repository root.
 - Prefer the narrowest relevant validation first.
 - Use documented commands before inventing new ones.
+- `.github/**` and capsule-local CI workflows are forbidden; keep validation forge-agnostic, and place any required monorepo orchestration exclusively under the parent monorepo's root `.act/**` authority.
 - Current canonical commands are:
   - `cargo metadata --format-version 1 --no-deps`
   - `cargo check -p radroots_studio_app`
@@ -48,7 +49,7 @@ Before making substantial changes:
 
 ## 7. Rust engineering rules
 
-- Use Rust `1.92.0`, edition `2024`, and safe Rust only.
+- Use Rust `1.97.1`, edition `2024`, and safe Rust only.
 - Keep state, data flow, and side effects explicit.
 - Avoid hidden panics in non-test code.
 - Keep code readable and direct.

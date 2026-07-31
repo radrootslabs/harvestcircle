@@ -6,6 +6,48 @@ use std::{
 
 const ALLOWED_MENU_LITERALS: &[&str] = &["cmd-q", "settings window should open"];
 
+const SIBLING_RADROOTS_DEPENDENCIES: &[&str] = &[
+    "radroots_authority",
+    "radroots_core",
+    "radroots_event",
+    "radroots_event_codec",
+    "radroots_identity",
+    "radroots_nostr",
+    "radroots_nostr_accounts",
+    "radroots_nostr_connect",
+    "radroots_protected_store",
+    "radroots_runtime_paths",
+    "radroots_runtime_store",
+    "radroots_sdk",
+    "radroots_secret_vault",
+    "radroots_sql_core",
+    "radroots_trade",
+];
+const SIBLING_RADROOTS_VERSION_REQUIREMENT: &str = "=0.1.0-alpha";
+const LOCAL_RADROOTS_REGISTRY_PATCHES: &[&str] = &[
+    "radroots_blossom",
+    "radroots_core",
+    "radroots_event",
+    "radroots_event_codec",
+    "radroots_event_store",
+    "radroots_geocoder",
+    "radroots_identity",
+    "radroots_nostr",
+    "radroots_nostr_connect",
+    "radroots_nostr_signer",
+    "radroots_outbox",
+    "radroots_protected_store",
+    "radroots_protocol",
+    "radroots_runtime_paths",
+    "radroots_secret_vault",
+    "radroots_signing",
+    "radroots_sql_core",
+    "radroots_trade",
+    "radroots_transport",
+    "radroots_transport_nostr",
+    "radroots_transport_reticulum",
+];
+
 const ALLOWED_WINDOW_LITERALS: &[&str] = &[
     "",
     "  ",
@@ -1370,6 +1412,85 @@ const SDK_BOUNDARY_EXCEPTIONS: &[SdkBoundaryExceptionEntry] = &[
         removal_condition: "remove when app local_outbox enqueue is replaced by SDK canonical outbox enqueue APIs",
     },
 ];
+
+#[test]
+fn sibling_radroots_dependencies_use_the_canonical_release_cohort() {
+    let manifest_source = read_source_path(app_root().join("Cargo.toml").as_path());
+    let manifest: toml::Value =
+        toml::from_str(manifest_source.as_str()).expect("workspace Cargo.toml should parse");
+    let dependencies = manifest
+        .get("workspace")
+        .and_then(|workspace| workspace.get("dependencies"))
+        .and_then(toml::Value::as_table)
+        .expect("workspace.dependencies should be a TOML table");
+
+    let discovered = dependencies
+        .iter()
+        .filter_map(|(name, dependency)| {
+            dependency
+                .get("path")
+                .and_then(toml::Value::as_str)
+                .is_some_and(|path| path.starts_with("../lib/") || path.starts_with("../sdk/"))
+                .then_some(name.as_str())
+        })
+        .collect::<BTreeSet<_>>();
+    let expected = SIBLING_RADROOTS_DEPENDENCIES
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(
+        discovered, expected,
+        "every sibling Radroots dependency must be covered by the canonical release cohort guard"
+    );
+    for name in SIBLING_RADROOTS_DEPENDENCIES {
+        let requirement = dependencies
+            .get(*name)
+            .and_then(|dependency| dependency.get("version"))
+            .and_then(toml::Value::as_str);
+        assert_eq!(
+            requirement,
+            Some(SIBLING_RADROOTS_VERSION_REQUIREMENT),
+            "{name} must use the canonical exact Radroots release cohort"
+        );
+    }
+}
+
+#[test]
+fn local_registry_patches_cover_the_sdk_prepublication_cohort() {
+    let app_root = app_root();
+    let config_source = read_source_path(app_root.join(".cargo/config.toml").as_path());
+    let config: toml::Value =
+        toml::from_str(config_source.as_str()).expect(".cargo/config.toml should parse");
+    let patches = config
+        .get("patch")
+        .and_then(|patch| patch.get("crates-io"))
+        .and_then(toml::Value::as_table)
+        .expect("patch.crates-io should be a TOML table");
+    let discovered = patches.keys().map(String::as_str).collect::<BTreeSet<_>>();
+    let expected = LOCAL_RADROOTS_REGISTRY_PATCHES
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(
+        discovered, expected,
+        "local registry patches must cover exactly the SDK prepublication cohort"
+    );
+    for name in LOCAL_RADROOTS_REGISTRY_PATCHES {
+        let path = patches
+            .get(*name)
+            .and_then(|patch| patch.get("path"))
+            .and_then(toml::Value::as_str)
+            .unwrap_or_else(|| panic!("{name} must define a local patch path"));
+        let package_manifest = app_root.join(path).join("Cargo.toml");
+        assert!(
+            package_manifest.is_file(),
+            "{name} patch target must contain Cargo.toml: {}",
+            package_manifest.display()
+        );
+    }
+}
 
 #[test]
 fn desktop_menu_source_uses_localized_copy_paths() {

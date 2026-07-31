@@ -17,7 +17,7 @@ resolver = "2"
 version = "0.1.0"
 edition = "2024"
 authors = ["Radroots Authors"]
-rust-version = "1.97.0"
+rust-version = "1.97.1"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/radrootslabs/studio_app"
 homepage = "https://radroots.org"
@@ -32,21 +32,21 @@ gpui-component = "0.5.1"
 gpui-component-assets = "0.5.1"
 mf2_i18n = { version = "=0.1.0", git = "https://github.com/triesap/mf2_i18n.git", rev = "e95f0fe090764dc62f5f67f4ff9e207d7e1cd901", default-features = false }
 nostr = "0.44.2"
-radroots_core = { version = "=1.0.0-alpha.1", path = "../lib/crates/core", default-features = false, features = ["std"] }
-radroots_authority = { version = "=1.0.0-alpha.1", path = "../lib/crates/authority" }
-radroots_event = { version = "=1.0.0-alpha.1", path = "../lib/crates/event", default-features = false, features = ["serde", "std"] }
-radroots_event_codec = { version = "=1.0.0-alpha.1", path = "../lib/crates/event_codec", features = ["serde_json"] }
-radroots_identity = { version = "=1.0.0-alpha.1", path = "../lib/crates/identity" }
-radroots_runtime_store = { version = "=1.0.0-alpha.1", path = "../lib/crates/runtime_store", features = ["native"] }
-radroots_nostr = { version = "=1.0.0-alpha.1", path = "../lib/crates/nostr", features = ["client"] }
-radroots_nostr_accounts = { version = "=1.0.0-alpha.1", path = "../lib/crates/nostr_accounts" }
-radroots_nostr_connect = { version = "=1.0.0-alpha.1", path = "../lib/crates/nostr_connect" }
-radroots_protected_store = { version = "=1.0.0-alpha.1", path = "../lib/crates/protected_store" }
-radroots_runtime_paths = { version = "=1.0.0-alpha.1", path = "../lib/crates/runtime_paths" }
-radroots_secret_vault = { version = "=1.0.0-alpha.1", path = "../lib/crates/secret_vault", default-features = false, features = ["std"] }
-radroots_sdk = { path = "../sdk/crates/sdk", features = ["local-runtime"] }
-radroots_sql_core = { version = "=1.0.0-alpha.1", path = "../lib/crates/sql_core", features = ["native"] }
-radroots_trade = { version = "=1.0.0-alpha.1", path = "../lib/crates/trade", default-features = false, features = ["std", "serde", "serde_json"] }
+radroots_core = { version = "=0.1.0-alpha", path = "../lib/crates/core", default-features = false, features = ["std"] }
+radroots_authority = { version = "=0.1.0-alpha", path = "../lib/crates/authority" }
+radroots_event = { version = "=0.1.0-alpha", path = "../lib/crates/event", default-features = false, features = ["serde", "std"] }
+radroots_event_codec = { version = "=0.1.0-alpha", path = "../lib/crates/event_codec", features = ["json"] }
+radroots_identity = { version = "=0.1.0-alpha", path = "../lib/crates/identity" }
+radroots_runtime_store = { version = "=0.1.0-alpha", path = "../lib/crates/runtime_store", features = ["native"] }
+radroots_nostr = { version = "=0.1.0-alpha", path = "../lib/crates/nostr", features = ["client"] }
+radroots_nostr_accounts = { version = "=0.1.0-alpha", path = "../lib/crates/nostr_accounts" }
+radroots_nostr_connect = { version = "=0.1.0-alpha", path = "../lib/crates/nostr_connect" }
+radroots_protected_store = { version = "=0.1.0-alpha", path = "../lib/crates/protected_store" }
+radroots_runtime_paths = { version = "=0.1.0-alpha", path = "../lib/crates/runtime_paths" }
+radroots_secret_vault = { version = "=0.1.0-alpha", path = "../lib/crates/secret_vault", default-features = false, features = ["std"] }
+radroots_sdk = { version = "=0.1.0-alpha", path = "../sdk/crates/sdk", features = ["local-runtime"] }
+radroots_sql_core = { version = "=0.1.0-alpha", path = "../lib/crates/sql_core", features = ["native"] }
+radroots_trade = { version = "=0.1.0-alpha", path = "../lib/crates/trade", default-features = false, features = ["std", "serde", "serde_json"] }
 radroots_studio_app_core = { path = "crates/runtime", version = "0.1.0" }
 radroots_studio_app_i18n = { path = "crates/i18n", version = "0.1.0" }
 radroots_studio_app_types = { path = "crates/types", version = "0.1.0" }
