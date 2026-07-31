@@ -1,34 +1,17 @@
-/target/
-/.trunk/
-/assets/geocoder/geonames.db
-/assets/geocoder/geonames.revision
-/crates/**/.trunk/
-/crates/**/dist/
-/native/**/.build/
-/native/**/.swiftpm/
-/native/**/.gradle/
-/native/**/build/
-/native/**/local.properties
-/platforms/android/.gradle/
-/platforms/android/.tooling/
-/platforms/android/app/build/
-/platforms/android/build/
-/platforms/android/local.properties
-/platforms/ios/.derived-data*/
-/platforms/ios/*.xcodeproj/
-/platforms/macos/.derived-data*/
+.gradle/
+.kotlin/
+.idea/
+*.iml
+**/build/
+out/
+local.properties
+*.log
+.DS_Store
+Thumbs.db
 
 # Local environment files
 .env
 .env.*
-
-# OS and editor files
-.DS_Store
-Thumbs.db
-
-# Local development files
-.vscode/
-.idea/
 
 # Local secrets
 *.pem
