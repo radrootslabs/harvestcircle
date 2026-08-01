@@ -1,6 +1,5 @@
 package org.radroots.studio.application
 
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithText
@@ -12,7 +11,7 @@ class RadrootsApplicationTest {
     @Test
     fun composeUiTestRuntimeRendersContent() = runComposeUiTest {
         setContent {
-            BasicText("radroots")
+            RadrootsApplication()
         }
 
         onNodeWithText("radroots").assertIsDisplayed()

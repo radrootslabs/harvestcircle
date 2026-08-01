@@ -1,11 +1,6 @@
 package org.radroots.studio.desktop
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -13,6 +8,7 @@ import androidx.compose.ui.window.rememberWindowState
 import java.awt.Dimension
 import java.awt.Taskbar
 import javax.imageio.ImageIO
+import org.radroots.studio.application.RadrootsApplication
 
 private const val ApplicationName = "Radroots"
 private const val InitialWindowWidth = 1284
@@ -51,12 +47,7 @@ fun main() {
                 onDispose { }
             }
 
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                BasicText("radroots")
-            }
+            RadrootsApplication()
         }
     }
 }
