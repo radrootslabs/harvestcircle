@@ -172,6 +172,114 @@ class AccountsReducerTest {
         }
     }
 
+    @Test
+    fun removalRequestTargetsAnExistingAccountAndCanBeCancelled() {
+        val first = testAccount()
+        val second = testAccount(id = "account-2", displayName = "Second Account")
+        val base = testAccountsState(first, second)
+        val reducer = reducerWithIds("unused")
+
+        val firstRequest = reducer.reduce(
+            base,
+            AccountsAction.RequestRemoveAccount(first.id),
+        )
+        val replacedRequest = reducer.reduce(
+            firstRequest,
+            AccountsAction.RequestRemoveAccount(second.id),
+        )
+        val missingId = AccountId("missing")
+        val missingRequest = reducer.reduce(
+            replacedRequest,
+            AccountsAction.RequestRemoveAccount(missingId),
+        )
+        val cancelled = reducer.reduce(
+            replacedRequest.copy(problem = AccountsProblem.InvalidServerUrl),
+            AccountsAction.CancelRemoveAccount,
+        )
+
+        assertEquals(first.id, firstRequest.pendingRemovalAccountId)
+        assertEquals(second.id, replacedRequest.pendingRemovalAccountId)
+        assertEquals(second.id, missingRequest.pendingRemovalAccountId)
+        assertEquals(AccountsProblem.AccountNotFound(missingId), missingRequest.problem)
+        assertEquals(null, cancelled.pendingRemovalAccountId)
+        assertEquals(null, cancelled.problem)
+        assertEquals(base.accounts, cancelled.accounts)
+    }
+
+    @Test
+    fun confirmationRequiresThePendingExplicitTarget() {
+        val first = testAccount()
+        val second = testAccount(id = "account-2", displayName = "Second Account")
+        val reducer = reducerWithIds("unused")
+        val base = testAccountsState(first, second)
+
+        val withoutRequest = reducer.reduce(
+            base,
+            AccountsAction.ConfirmRemoveAccount(first.id),
+        )
+        val requested = reducer.reduce(
+            base,
+            AccountsAction.RequestRemoveAccount(first.id),
+        )
+        val mismatch = reducer.reduce(
+            requested,
+            AccountsAction.ConfirmRemoveAccount(second.id),
+        )
+
+        assertEquals(
+            AccountsProblem.RemovalTargetMismatch(null, first.id),
+            withoutRequest.problem,
+        )
+        assertEquals(base.accounts, withoutRequest.accounts)
+        assertEquals(
+            AccountsProblem.RemovalTargetMismatch(first.id, second.id),
+            mismatch.problem,
+        )
+        assertEquals(requested.accounts, mismatch.accounts)
+        assertEquals(first.id, mismatch.pendingRemovalAccountId)
+    }
+
+    @Test
+    fun removingSelectedAccountChoosesTheDeterministicNeighbor() {
+        val first = testAccount()
+        val second = testAccount(id = "account-2", displayName = "Second Account")
+        val third = testAccount(id = "account-3", displayName = "Third Account")
+        val reducer = reducerWithIds("unused")
+
+        val removedFirst = reducer.removeSelected(testAccountsState(first, second, third), first.id)
+        val removedMiddle = reducer.removeSelected(
+            testAccountsState(first, second, third, selectedAccountId = second.id),
+            second.id,
+        )
+        val removedFinal = reducer.removeSelected(
+            testAccountsState(first, second, third, selectedAccountId = third.id),
+            third.id,
+        )
+
+        assertEquals(listOf(second, third), removedFirst.accounts)
+        assertEquals(second.id, removedFirst.selectedAccountId)
+        assertEquals(listOf(first, third), removedMiddle.accounts)
+        assertEquals(third.id, removedMiddle.selectedAccountId)
+        assertEquals(listOf(first, second), removedFinal.accounts)
+        assertEquals(second.id, removedFinal.selectedAccountId)
+    }
+
+    @Test
+    fun removingUnselectedOrFinalAccountPreservesValidSelection() {
+        val first = testAccount()
+        val second = testAccount(id = "account-2", displayName = "Second Account")
+        val reducer = reducerWithIds("unused")
+
+        val unselected = reducer.removeSelected(testAccountsState(first, second), second.id)
+        val finalAccount = reducer.removeSelected(testAccountsState(first), first.id)
+
+        assertEquals(listOf(first), unselected.accounts)
+        assertEquals(first.id, unselected.selectedAccountId)
+        assertEquals(emptyList(), finalAccount.accounts)
+        assertEquals(null, finalAccount.selectedAccountId)
+        assertEquals(null, finalAccount.pendingRemovalAccountId)
+    }
+
     private fun draftState(
         displayName: String,
         serverUrl: String,
@@ -184,6 +292,14 @@ class AccountsReducerTest {
 
     private fun reducerWithIds(vararg ids: String) =
         AccountsReducer(RecordingIdFactory(*ids))
+
+    private fun AccountsReducer.removeSelected(
+        state: AccountsState,
+        accountId: AccountId,
+    ): AccountsState {
+        val requested = reduce(state, AccountsAction.RequestRemoveAccount(accountId))
+        return reduce(requested, AccountsAction.ConfirmRemoveAccount(accountId))
+    }
 }
 
 private class RecordingIdFactory(

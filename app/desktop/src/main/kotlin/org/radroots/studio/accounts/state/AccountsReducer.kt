@@ -38,8 +38,13 @@ class AccountsReducer(
                 accountId = action.accountId,
                 loginStatus = LoginStatus.LoggedOut,
             )
+            is AccountsAction.RequestRemoveAccount -> requestRemoval(state, action)
+            AccountsAction.CancelRemoveAccount -> state.copy(
+                pendingRemovalAccountId = null,
+                problem = null,
+            )
+            is AccountsAction.ConfirmRemoveAccount -> confirmRemoval(state, action)
             AccountsAction.DismissProblem -> state.copy(problem = null)
-            else -> state
         }
         return nextState.requireValid()
     }
@@ -100,6 +105,46 @@ class AccountsReducer(
                     account
                 }
             },
+            problem = null,
+        )
+    }
+
+    private fun requestRemoval(
+        state: AccountsState,
+        action: AccountsAction.RequestRemoveAccount,
+    ): AccountsState = if (state.accounts.any { it.id == action.accountId }) {
+        state.copy(
+            pendingRemovalAccountId = action.accountId,
+            problem = null,
+        )
+    } else {
+        state.copy(problem = AccountsProblem.AccountNotFound(action.accountId))
+    }
+
+    private fun confirmRemoval(
+        state: AccountsState,
+        action: AccountsAction.ConfirmRemoveAccount,
+    ): AccountsState {
+        if (state.pendingRemovalAccountId != action.accountId) {
+            return state.copy(
+                problem = AccountsProblem.RemovalTargetMismatch(
+                    expectedAccountId = state.pendingRemovalAccountId,
+                    actualAccountId = action.accountId,
+                ),
+            )
+        }
+
+        val removedIndex = state.accounts.indexOfFirst { it.id == action.accountId }
+        val remainingAccounts = state.accounts.filterNot { it.id == action.accountId }
+        val selectedAccountId = if (state.selectedAccountId != action.accountId) {
+            state.selectedAccountId
+        } else {
+            remainingAccounts.getOrNull(removedIndex)?.id ?: remainingAccounts.lastOrNull()?.id
+        }
+        return state.copy(
+            accounts = remainingAccounts,
+            selectedAccountId = selectedAccountId,
+            pendingRemovalAccountId = null,
             problem = null,
         )
     }
