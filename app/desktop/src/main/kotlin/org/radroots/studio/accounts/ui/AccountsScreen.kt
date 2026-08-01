@@ -1,5 +1,6 @@
 package org.radroots.studio.accounts.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.Role
@@ -26,6 +28,10 @@ import org.radroots.studio.accounts.model.AccountsState
 import org.radroots.studio.accounts.model.AccountsProblem
 import org.radroots.studio.accounts.model.LoginStatus
 
+private val WindowBackgroundColor = Color(0xFFF5F5F2)
+private val ButtonBackgroundColor = Color(0xFFE7E7E2)
+private val InputBackgroundColor = Color(0xFFFEFDF8)
+
 @Composable
 fun AccountsScreen(
     state: AccountsState,
@@ -34,6 +40,7 @@ fun AccountsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(WindowBackgroundColor)
             .padding(24.dp)
             .testTag("accounts-screen"),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -124,6 +131,7 @@ private fun AddAccountForm(
                 .fillMaxWidth()
                 .semantics { contentDescription = "Account display name" }
                 .testTag("add-display-name")
+                .background(InputBackgroundColor)
                 .padding(8.dp),
             decorationBox = { innerTextField ->
                 if (state.addDraft.displayName.isEmpty()) {
@@ -141,6 +149,7 @@ private fun AddAccountForm(
                 .fillMaxWidth()
                 .semantics { contentDescription = "Account server URL" }
                 .testTag("add-server-url")
+                .background(InputBackgroundColor)
                 .padding(8.dp),
             decorationBox = { innerTextField ->
                 if (state.addDraft.serverUrl.isEmpty()) {
@@ -169,6 +178,7 @@ private fun TextAction(
             .semantics { role = Role.Button }
             .testTag(testTag)
             .clickable(onClick = onClick)
+            .background(ButtonBackgroundColor)
             .padding(8.dp),
     )
 }
