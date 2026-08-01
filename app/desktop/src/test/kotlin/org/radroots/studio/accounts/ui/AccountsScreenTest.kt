@@ -20,6 +20,7 @@ import org.radroots.studio.accounts.model.AccountsProblem
 import org.radroots.studio.accounts.model.AccountsState
 import org.radroots.studio.accounts.state.AccountsReducer
 import org.radroots.studio.accounts.state.AccountsStore
+import org.radroots.studio.accounts.model.LoginStatus
 import org.radroots.studio.accounts.testAccount
 import org.radroots.studio.accounts.testAccountsState
 
@@ -133,5 +134,56 @@ class AccountsScreenTest {
 
         onNodeWithTag("account-row:account-1").assertIsDisplayed()
         onNodeWithTag("account-row:account-1").assertIsSelected()
+    }
+
+    @Test
+    fun statusControlsEmitExplicitAccountActions() = runComposeUiTest {
+        val loggedOut = testAccount()
+        val loggedIn = testAccount(
+            id = "account-2",
+            displayName = "Second Account",
+            loginStatus = LoginStatus.LoggedIn,
+        )
+        val actions = mutableListOf<AccountsAction>()
+        setContent {
+            AccountsScreen(
+                state = testAccountsState(loggedOut, loggedIn),
+                onAction = actions::add,
+            )
+        }
+
+        onNodeWithTag("account-login:${loggedOut.id.value}", useUnmergedTree = true)
+            .performClick()
+        onNodeWithTag("account-logout:${loggedIn.id.value}", useUnmergedTree = true)
+            .performClick()
+
+        assertEquals(
+            listOf(
+                AccountsAction.LogIn(loggedOut.id),
+                AccountsAction.LogOut(loggedIn.id),
+            ),
+            actions,
+        )
+    }
+
+    @Test
+    fun integratedStatusControlUpdatesAvailableAction() = runComposeUiTest {
+        val account = testAccount()
+        val store = AccountsStore(
+            initialState = testAccountsState(account),
+            reducer = AccountsReducer { AccountId("unused") },
+        )
+        setContent {
+            AccountsScreen(
+                state = store.state.value,
+                onAction = store::dispatch,
+            )
+        }
+
+        onNodeWithTag("account-login:${account.id.value}", useUnmergedTree = true)
+            .performClick()
+        onNodeWithTag("account-logout:${account.id.value}", useUnmergedTree = true)
+            .assertIsDisplayed()
+        onNodeWithText("Status: LoggedIn").assertIsDisplayed()
     }
 }

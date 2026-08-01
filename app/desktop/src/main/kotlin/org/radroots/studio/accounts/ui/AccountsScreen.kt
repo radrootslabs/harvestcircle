@@ -23,6 +23,7 @@ import org.radroots.studio.accounts.model.Account
 import org.radroots.studio.accounts.model.AccountsAction
 import org.radroots.studio.accounts.model.AccountsState
 import org.radroots.studio.accounts.model.AccountsProblem
+import org.radroots.studio.accounts.model.LoginStatus
 
 @Composable
 fun AccountsScreen(
@@ -72,6 +73,12 @@ fun AccountsScreen(
                             isSelected = account.id == state.selectedAccountId,
                             onSelect = {
                                 onAction(AccountsAction.SelectAccount(account.id))
+                            },
+                            onLogIn = {
+                                onAction(AccountsAction.LogIn(account.id))
+                            },
+                            onLogOut = {
+                                onAction(AccountsAction.LogOut(account.id))
                             },
                         )
                     }
@@ -167,6 +174,8 @@ private fun AccountRow(
     account: Account,
     isSelected: Boolean,
     onSelect: () -> Unit,
+    onLogIn: () -> Unit,
+    onLogOut: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -182,6 +191,18 @@ private fun AccountRow(
             BasicText(
                 text = "Selected",
                 modifier = Modifier.testTag("account-selected:${account.id.value}"),
+            )
+        }
+        when (account.loginStatus) {
+            LoginStatus.LoggedOut -> TextAction(
+                text = "Login",
+                testTag = "account-login:${account.id.value}",
+                onClick = onLogIn,
+            )
+            LoginStatus.LoggedIn -> TextAction(
+                text = "Logout",
+                testTag = "account-logout:${account.id.value}",
+                onClick = onLogOut,
             )
         }
     }
