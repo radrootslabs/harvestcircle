@@ -9,6 +9,7 @@ import org.radroots.studio.accounts.model.AccountsAction
 import org.radroots.studio.accounts.model.AccountsProblem
 import org.radroots.studio.accounts.model.AccountsState
 import org.radroots.studio.accounts.model.LoginStatus
+import org.radroots.studio.accounts.model.requireValid
 import org.radroots.studio.accounts.testAccount
 import org.radroots.studio.accounts.testAccountsState
 
@@ -278,6 +279,37 @@ class AccountsReducerTest {
         assertEquals(emptyList(), finalAccount.accounts)
         assertEquals(null, finalAccount.selectedAccountId)
         assertEquals(null, finalAccount.pendingRemovalAccountId)
+    }
+
+    @Test
+    fun completeActionTracePreservesEveryStateInvariant() {
+        val reducer = reducerWithIds("account-1", "account-2")
+        val actions = listOf(
+            AccountsAction.EditAddDisplayName("First Account"),
+            AccountsAction.EditAddServerUrl("https://first.example.test"),
+            AccountsAction.SubmitAddAccount,
+            AccountsAction.EditAddDisplayName("Second Account"),
+            AccountsAction.EditAddServerUrl("https://second.example.test"),
+            AccountsAction.SubmitAddAccount,
+            AccountsAction.SelectAccount(AccountId("account-1")),
+            AccountsAction.LogIn(AccountId("account-1")),
+            AccountsAction.LogIn(AccountId("account-1")),
+            AccountsAction.LogOut(AccountId("account-1")),
+            AccountsAction.RequestRemoveAccount(AccountId("account-2")),
+            AccountsAction.CancelRemoveAccount,
+            AccountsAction.RequestRemoveAccount(AccountId("account-1")),
+            AccountsAction.ConfirmRemoveAccount(AccountId("account-1")),
+            AccountsAction.SelectAccount(AccountId("missing")),
+            AccountsAction.DismissProblem,
+        )
+
+        val result = actions.fold(AccountsState()) { state, action ->
+            reducer.reduce(state, action).requireValid()
+        }
+
+        assertEquals(listOf(AccountId("account-2")), result.accounts.map { it.id })
+        assertEquals(AccountId("account-2"), result.selectedAccountId)
+        assertEquals(null, result.problem)
     }
 
     private fun draftState(
