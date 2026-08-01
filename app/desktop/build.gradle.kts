@@ -1,4 +1,5 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -10,6 +11,13 @@ plugins {
 dependencies {
     implementation(compose.desktop.currentOs)
     implementation(libs.compose.foundation)
+
+    testImplementation(kotlin("test-junit"))
+    testImplementation(libs.compose.ui.test.junit4)
+}
+
+tasks.withType<Test>().configureEach {
+    failOnNoDiscoveredTests.set(true)
 }
 
 kotlin {
