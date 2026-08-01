@@ -1,6 +1,7 @@
 package org.radroots.studio.accounts.state
 
 import org.radroots.studio.accounts.model.Account
+import org.radroots.studio.accounts.model.AccountId
 import org.radroots.studio.accounts.model.AccountsAction
 import org.radroots.studio.accounts.model.AccountsProblem
 import org.radroots.studio.accounts.model.AccountsState
@@ -26,6 +27,17 @@ class AccountsReducer(
                 addDraft = state.addDraft.copy(serverUrl = action.value),
             )
             AccountsAction.SubmitAddAccount -> submitAddAccount(state)
+            is AccountsAction.SelectAccount -> selectAccount(state, action)
+            is AccountsAction.LogIn -> setLoginStatus(
+                state = state,
+                accountId = action.accountId,
+                loginStatus = LoginStatus.LoggedIn,
+            )
+            is AccountsAction.LogOut -> setLoginStatus(
+                state = state,
+                accountId = action.accountId,
+                loginStatus = LoginStatus.LoggedOut,
+            )
             AccountsAction.DismissProblem -> state.copy(problem = null)
             else -> state
         }
@@ -56,6 +68,38 @@ class AccountsReducer(
             selectedAccountId = accountId,
             addDraft = AddAccountDraft(),
             pendingRemovalAccountId = null,
+            problem = null,
+        )
+    }
+
+    private fun selectAccount(
+        state: AccountsState,
+        action: AccountsAction.SelectAccount,
+    ): AccountsState = if (state.accounts.any { it.id == action.accountId }) {
+        state.copy(
+            selectedAccountId = action.accountId,
+            problem = null,
+        )
+    } else {
+        state.copy(problem = AccountsProblem.AccountNotFound(action.accountId))
+    }
+
+    private fun setLoginStatus(
+        state: AccountsState,
+        accountId: AccountId,
+        loginStatus: LoginStatus,
+    ): AccountsState {
+        if (state.accounts.none { it.id == accountId }) {
+            return state.copy(problem = AccountsProblem.AccountNotFound(accountId))
+        }
+        return state.copy(
+            accounts = state.accounts.map { account ->
+                if (account.id == accountId) {
+                    account.copy(loginStatus = loginStatus)
+                } else {
+                    account
+                }
+            },
             problem = null,
         )
     }

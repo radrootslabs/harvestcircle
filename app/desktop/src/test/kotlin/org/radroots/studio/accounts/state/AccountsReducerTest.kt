@@ -113,6 +113,65 @@ class AccountsReducerTest {
         assertEquals(state.copy(problem = null), result)
     }
 
+    @Test
+    fun selectionTargetsAnExplicitExistingAccount() {
+        val first = testAccount()
+        val second = testAccount(id = "account-2", displayName = "Second Account")
+        val base = testAccountsState(first, second)
+        val reducer = reducerWithIds("unused")
+
+        val selected = reducer.reduce(
+            base.copy(problem = AccountsProblem.InvalidServerUrl),
+            AccountsAction.SelectAccount(second.id),
+        )
+        val missingId = AccountId("missing")
+        val missing = reducer.reduce(
+            selected,
+            AccountsAction.SelectAccount(missingId),
+        )
+
+        assertEquals(second.id, selected.selectedAccountId)
+        assertEquals(null, selected.problem)
+        assertEquals(second.id, missing.selectedAccountId)
+        assertEquals(AccountsProblem.AccountNotFound(missingId), missing.problem)
+    }
+
+    @Test
+    fun loginAndLogoutUpdateOnlyTheExplicitAccount() {
+        val first = testAccount()
+        val second = testAccount(id = "account-2", displayName = "Second Account")
+        val base = testAccountsState(first, second)
+        val reducer = reducerWithIds("unused")
+
+        val loggedIn = reducer.reduce(base, AccountsAction.LogIn(second.id))
+        val idempotentLogin = reducer.reduce(loggedIn, AccountsAction.LogIn(second.id))
+        val loggedOut = reducer.reduce(idempotentLogin, AccountsAction.LogOut(second.id))
+        val idempotentLogout = reducer.reduce(loggedOut, AccountsAction.LogOut(second.id))
+
+        assertEquals(LoginStatus.LoggedOut, loggedIn.accounts[0].loginStatus)
+        assertEquals(LoginStatus.LoggedIn, loggedIn.accounts[1].loginStatus)
+        assertEquals(loggedIn, idempotentLogin)
+        assertEquals(LoginStatus.LoggedOut, loggedOut.accounts[1].loginStatus)
+        assertEquals(loggedOut, idempotentLogout)
+        assertEquals(first.id, loggedOut.selectedAccountId)
+    }
+
+    @Test
+    fun loginAndLogoutRejectMissingTargets() {
+        val base = testAccountsState(testAccount())
+        val missingId = AccountId("missing")
+        val reducer = reducerWithIds("unused")
+
+        listOf(
+            reducer.reduce(base, AccountsAction.LogIn(missingId)),
+            reducer.reduce(base, AccountsAction.LogOut(missingId)),
+        ).forEach { result ->
+            assertEquals(base.accounts, result.accounts)
+            assertEquals(base.selectedAccountId, result.selectedAccountId)
+            assertEquals(AccountsProblem.AccountNotFound(missingId), result.problem)
+        }
+    }
+
     private fun draftState(
         displayName: String,
         serverUrl: String,
