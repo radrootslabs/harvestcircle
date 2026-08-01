@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -121,6 +122,7 @@ private fun AddAccountForm(
             },
             modifier = Modifier
                 .fillMaxWidth()
+                .semantics { contentDescription = "Account display name" }
                 .testTag("add-display-name")
                 .padding(8.dp),
             decorationBox = { innerTextField ->
@@ -137,6 +139,7 @@ private fun AddAccountForm(
             },
             modifier = Modifier
                 .fillMaxWidth()
+                .semantics { contentDescription = "Account server URL" }
                 .testTag("add-server-url")
                 .padding(8.dp),
             decorationBox = { innerTextField ->

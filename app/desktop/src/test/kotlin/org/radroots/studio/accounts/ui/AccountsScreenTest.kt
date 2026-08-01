@@ -1,5 +1,6 @@
 package org.radroots.studio.accounts.ui
 
+import java.util.ArrayDeque
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
@@ -256,5 +257,49 @@ class AccountsScreenTest {
 
         onAllNodesWithTag("account-row:${second.id.value}").assertCountEquals(0)
         onNodeWithTag("account-row:${first.id.value}").assertIsSelected()
+    }
+
+    @Test
+    fun integratedAccountJourneyReturnsToTheEmptyState() = runComposeUiTest {
+        val generatedIds = ArrayDeque(listOf(AccountId("account-1"), AccountId("account-2")))
+        val store = AccountsStore(
+            initialState = AccountsState(),
+            reducer = AccountsReducer { generatedIds.removeFirst() },
+        )
+        setContent {
+            AccountsScreen(
+                state = store.state.value,
+                onAction = store::dispatch,
+            )
+        }
+
+        onNodeWithTag("accounts-empty").assertIsDisplayed()
+        addAccount("First Account", "https://first.example.test")
+        addAccount("Second Account", "https://second.example.test")
+
+        onNodeWithTag("account-row:account-1").performClick()
+        onNodeWithTag("account-row:account-1").assertIsSelected()
+        onNodeWithTag("account-login:account-1", useUnmergedTree = true).performClick()
+        onNodeWithTag("account-logout:account-1", useUnmergedTree = true).performClick()
+
+        onNodeWithTag("account-remove:account-2", useUnmergedTree = true).performClick()
+        onNodeWithTag("remove-cancel", useUnmergedTree = true).performClick()
+        onNodeWithTag("account-row:account-2").assertIsDisplayed()
+        onNodeWithTag("account-remove:account-2", useUnmergedTree = true).performClick()
+        onNodeWithTag("remove-confirm", useUnmergedTree = true).performClick()
+
+        onNodeWithTag("account-remove:account-1", useUnmergedTree = true).performClick()
+        onNodeWithTag("remove-confirm", useUnmergedTree = true).performClick()
+        onNodeWithTag("accounts-empty").assertIsDisplayed()
+        onAllNodesWithTag("accounts-list").assertCountEquals(0)
+    }
+
+    private fun androidx.compose.ui.test.ComposeUiTest.addAccount(
+        displayName: String,
+        serverUrl: String,
+    ) {
+        onNodeWithTag("add-display-name").performTextInput(displayName)
+        onNodeWithTag("add-server-url").performTextInput(serverUrl)
+        onNodeWithTag("add-submit").performClick()
     }
 }
