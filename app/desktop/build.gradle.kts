@@ -1,4 +1,13 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.gradle.api.DefaultTask
+import org.gradle.api.GradleException
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -18,7 +27,34 @@ dependencies {
     testImplementation(libs.compose.ui.test.junit4)
 }
 
+val testInventoryRoot = providers
+    .gradleProperty("testInventoryRoot")
+    .orElse("src/test/kotlin")
+val expectedTests = fileTree(testInventoryRoot.get()) {
+    include("**/*Test.kt")
+}
+abstract class VerifyTestInventory : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val testFiles: ConfigurableFileCollection
+
+    @get:Input
+    abstract val sourceRoot: Property<String>
+
+    @TaskAction
+    fun verify() {
+        if (testFiles.isEmpty) {
+            throw GradleException("No Kotlin tests found under ${sourceRoot.get()}")
+        }
+    }
+}
+val verifyTestInventory by tasks.registering(VerifyTestInventory::class) {
+    testFiles.from(expectedTests)
+    sourceRoot.set(testInventoryRoot)
+}
+
 tasks.withType<Test>().configureEach {
+    dependsOn(verifyTestInventory)
     failOnNoDiscoveredTests.set(true)
 }
 
