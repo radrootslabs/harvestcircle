@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import org.radroots.studio.accounts.testAccount
 
 class AccountsStateTest {
     @Test
@@ -34,7 +35,7 @@ class AccountsStateTest {
 
     @Test
     fun validStatePassesInvariantValidation() {
-        val account = validAccount()
+        val account = testAccount()
 
         assertEquals(
             AccountsState(
@@ -76,7 +77,7 @@ class AccountsStateTest {
 
     @Test
     fun duplicateIdsAreRejected() {
-        val account = validAccount()
+        val account = testAccount()
 
         assertFailsWith<IllegalArgumentException> {
             AccountsState(
@@ -88,7 +89,7 @@ class AccountsStateTest {
 
     @Test
     fun danglingSelectionAndRemovalTargetsAreRejected() {
-        val account = validAccount()
+        val account = testAccount()
         val missingId = AccountId("missing")
 
         listOf(
@@ -110,19 +111,12 @@ class AccountsStateTest {
         }
     }
 
-    private fun validAccount() = Account(
-        id = AccountId("account-1"),
-        displayName = "Farm Account",
-        serverUrl = "https://farm.example.test",
-        loginStatus = LoginStatus.LoggedOut,
-    )
-
     private fun invalidAccounts() = listOf(
-        validAccount().copy(id = AccountId("")),
-        validAccount().copy(id = AccountId(" account-1")),
-        validAccount().copy(displayName = ""),
-        validAccount().copy(displayName = " Farm Account"),
-        validAccount().copy(serverUrl = "ftp://farm.example.test"),
-        validAccount().copy(serverUrl = "HTTPS://FARM.EXAMPLE.TEST"),
+        testAccount().copy(id = AccountId("")),
+        testAccount().copy(id = AccountId(" account-1")),
+        testAccount().copy(displayName = ""),
+        testAccount().copy(displayName = " Farm Account"),
+        testAccount().copy(serverUrl = "ftp://farm.example.test"),
+        testAccount().copy(serverUrl = "HTTPS://FARM.EXAMPLE.TEST"),
     )
 }
