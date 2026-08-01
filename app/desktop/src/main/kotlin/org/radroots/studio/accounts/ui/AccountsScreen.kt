@@ -80,6 +80,16 @@ fun AccountsScreen(
                             onLogOut = {
                                 onAction(AccountsAction.LogOut(account.id))
                             },
+                            isPendingRemoval = account.id == state.pendingRemovalAccountId,
+                            onRequestRemoval = {
+                                onAction(AccountsAction.RequestRemoveAccount(account.id))
+                            },
+                            onConfirmRemoval = {
+                                onAction(AccountsAction.ConfirmRemoveAccount(account.id))
+                            },
+                            onCancelRemoval = {
+                                onAction(AccountsAction.CancelRemoveAccount)
+                            },
                         )
                     }
                 }
@@ -176,6 +186,10 @@ private fun AccountRow(
     onSelect: () -> Unit,
     onLogIn: () -> Unit,
     onLogOut: () -> Unit,
+    isPendingRemoval: Boolean,
+    onRequestRemoval: () -> Unit,
+    onConfirmRemoval: () -> Unit,
+    onCancelRemoval: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -203,6 +217,27 @@ private fun AccountRow(
                 text = "Logout",
                 testTag = "account-logout:${account.id.value}",
                 onClick = onLogOut,
+            )
+        }
+        if (isPendingRemoval) {
+            BasicText("Remove this account?")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextAction(
+                    text = "Confirm",
+                    testTag = "remove-confirm",
+                    onClick = onConfirmRemoval,
+                )
+                TextAction(
+                    text = "Cancel",
+                    testTag = "remove-cancel",
+                    onClick = onCancelRemoval,
+                )
+            }
+        } else {
+            TextAction(
+                text = "Remove",
+                testTag = "account-remove:${account.id.value}",
+                onClick = onRequestRemoval,
             )
         }
     }

@@ -3,6 +3,8 @@ package org.radroots.studio.accounts.ui
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -185,5 +187,74 @@ class AccountsScreenTest {
         onNodeWithTag("account-logout:${account.id.value}", useUnmergedTree = true)
             .assertIsDisplayed()
         onNodeWithText("Status: LoggedIn").assertIsDisplayed()
+    }
+
+    @Test
+    fun removalControlsEmitRequestCancelAndExplicitConfirmation() = runComposeUiTest {
+        val account = testAccount()
+        val actions = mutableListOf<AccountsAction>()
+        setContent {
+            var state by remember { mutableStateOf(testAccountsState(account)) }
+            AccountsScreen(
+                state = state,
+                onAction = { action ->
+                    actions.add(action)
+                    state = when (action) {
+                        is AccountsAction.RequestRemoveAccount -> state.copy(
+                            pendingRemovalAccountId = action.accountId,
+                        )
+                        AccountsAction.CancelRemoveAccount -> state.copy(
+                            pendingRemovalAccountId = null,
+                        )
+                        else -> state
+                    }
+                },
+            )
+        }
+
+        onNodeWithTag("account-remove:${account.id.value}", useUnmergedTree = true)
+            .performClick()
+        onNodeWithTag("remove-cancel", useUnmergedTree = true).performClick()
+        onNodeWithTag("account-remove:${account.id.value}", useUnmergedTree = true)
+            .performClick()
+        onNodeWithTag("remove-confirm", useUnmergedTree = true).performClick()
+
+        assertEquals(
+            listOf(
+                AccountsAction.RequestRemoveAccount(account.id),
+                AccountsAction.CancelRemoveAccount,
+                AccountsAction.RequestRemoveAccount(account.id),
+                AccountsAction.ConfirmRemoveAccount(account.id),
+            ),
+            actions,
+        )
+    }
+
+    @Test
+    fun integratedRemovalCanBeCancelledThenConfirmed() = runComposeUiTest {
+        val first = testAccount()
+        val second = testAccount(id = "account-2", displayName = "Second Account")
+        val store = AccountsStore(
+            initialState = testAccountsState(first, second),
+            reducer = AccountsReducer { AccountId("unused") },
+        )
+        setContent {
+            AccountsScreen(
+                state = store.state.value,
+                onAction = store::dispatch,
+            )
+        }
+
+        onNodeWithTag("account-remove:${second.id.value}", useUnmergedTree = true)
+            .performClick()
+        onNodeWithTag("remove-cancel", useUnmergedTree = true).performClick()
+        onNodeWithTag("account-row:${second.id.value}").assertIsDisplayed()
+
+        onNodeWithTag("account-remove:${second.id.value}", useUnmergedTree = true)
+            .performClick()
+        onNodeWithTag("remove-confirm", useUnmergedTree = true).performClick()
+
+        onAllNodesWithTag("account-row:${second.id.value}").assertCountEquals(0)
+        onNodeWithTag("account-row:${first.id.value}").assertIsSelected()
     }
 }
