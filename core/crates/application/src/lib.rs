@@ -7,8 +7,8 @@ pub mod state_machine;
 
 pub use app_core::{AppCore, AppObserver, ObserverHandle};
 pub use ports::{
-    AccountNamespaceRepository, AccountRepository, AppStateRepository, BoxFuture, Clock,
-    NostrClient, ProfileRepository, SecretStore,
+    AccountNamespaceRepository, AccountRepository, AppStateRepository, BoxFuture, CachedProfile,
+    Clock, NostrClient, ProfileRefreshStatus, ProfileRepository, SecretStore,
 };
 pub use snapshot::{
     ActiveAccountSnapshot, AppLifecycle, AppSnapshot, ProfileLoadState, RelayConfiguration,

@@ -2,11 +2,54 @@ use std::future::Future;
 use std::pin::Pin;
 
 use radroots_studio_domain::{
-    AccountSummary, Kind0ProfileCandidate, ProfileMetadata, PublicKey, RelayUrl, SafeError,
-    UnixTimestamp,
+    AccountSummary, Kind0ProfileCandidate, PublicKey, RelayUrl, SafeError, UnixTimestamp,
 };
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProfileRefreshStatus {
+    Success,
+    Offline,
+    InvalidData,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CachedProfile {
+    candidate: Kind0ProfileCandidate,
+    refreshed_at: UnixTimestamp,
+    refresh_status: ProfileRefreshStatus,
+}
+
+impl CachedProfile {
+    #[must_use]
+    pub const fn new(
+        candidate: Kind0ProfileCandidate,
+        refreshed_at: UnixTimestamp,
+        refresh_status: ProfileRefreshStatus,
+    ) -> Self {
+        Self {
+            candidate,
+            refreshed_at,
+            refresh_status,
+        }
+    }
+
+    #[must_use]
+    pub const fn candidate(&self) -> &Kind0ProfileCandidate {
+        &self.candidate
+    }
+
+    #[must_use]
+    pub const fn refreshed_at(&self) -> UnixTimestamp {
+        self.refreshed_at
+    }
+
+    #[must_use]
+    pub const fn refresh_status(&self) -> ProfileRefreshStatus {
+        self.refresh_status
+    }
+}
 
 pub trait AccountRepository: Send + Sync {
     /// Lists saved public account records in deterministic order.
@@ -48,13 +91,24 @@ pub trait ProfileRepository: Send + Sync {
     /// # Errors
     ///
     /// Returns a safe storage error when the cache cannot be read.
-    fn load_profile(&self, public_key: PublicKey) -> Result<Option<ProfileMetadata>, SafeError>;
+    fn load_profile(&self, public_key: PublicKey) -> Result<Option<CachedProfile>, SafeError>;
     /// Saves a verified kind-0 profile candidate.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when the cache cannot be committed.
-    fn save_profile(&self, candidate: &Kind0ProfileCandidate) -> Result<(), SafeError>;
+    fn save_profile(&self, profile: &CachedProfile) -> Result<(), SafeError>;
+    /// Records the result of a profile refresh without replacing cached metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe storage error when the cache cannot be committed.
+    fn record_refresh_status(
+        &self,
+        public_key: PublicKey,
+        refreshed_at: UnixTimestamp,
+        status: ProfileRefreshStatus,
+    ) -> Result<(), SafeError>;
     /// Removes cached profile metadata for an account.
     ///
     /// # Errors
@@ -118,13 +172,12 @@ mod tests {
     use std::sync::Mutex;
 
     use radroots_studio_domain::{
-        AccountSummary, Kind0ProfileCandidate, ProfileMetadata, PublicKey, RelayUrl, SafeError,
-        UnixTimestamp,
+        AccountSummary, Kind0ProfileCandidate, PublicKey, RelayUrl, SafeError, UnixTimestamp,
     };
 
     use super::{
-        AccountNamespaceRepository, AccountRepository, AppStateRepository, BoxFuture, Clock,
-        NostrClient, ProfileRepository, SecretStore,
+        AccountNamespaceRepository, AccountRepository, AppStateRepository, BoxFuture,
+        CachedProfile, Clock, NostrClient, ProfileRefreshStatus, ProfileRepository, SecretStore,
     };
 
     #[derive(Default)]
@@ -158,14 +211,20 @@ mod tests {
     }
 
     impl ProfileRepository for FakePorts {
-        fn load_profile(
-            &self,
-            _public_key: PublicKey,
-        ) -> Result<Option<ProfileMetadata>, SafeError> {
+        fn load_profile(&self, _public_key: PublicKey) -> Result<Option<CachedProfile>, SafeError> {
             Ok(None)
         }
 
-        fn save_profile(&self, _candidate: &Kind0ProfileCandidate) -> Result<(), SafeError> {
+        fn save_profile(&self, _profile: &CachedProfile) -> Result<(), SafeError> {
+            Ok(())
+        }
+
+        fn record_refresh_status(
+            &self,
+            _public_key: PublicKey,
+            _refreshed_at: UnixTimestamp,
+            _status: ProfileRefreshStatus,
+        ) -> Result<(), SafeError> {
             Ok(())
         }
 
