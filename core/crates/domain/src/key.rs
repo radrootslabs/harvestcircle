@@ -36,6 +36,11 @@ impl Npub {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    #[must_use]
+    pub fn short(&self) -> String {
+        format!("{}…{}", &self.0[..12], &self.0[self.0.len() - 8..])
+    }
 }
 
 impl Display for Npub {

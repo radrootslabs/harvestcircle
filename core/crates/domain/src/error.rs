@@ -6,6 +6,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 pub enum SafeErrorCode {
     InvalidPublicKey,
     InvalidSecretKey,
+    InvalidAccountMetadata,
     AccountAlreadyExists,
     AccountNotFound,
     KeyringUnavailable,

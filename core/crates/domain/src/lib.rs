@@ -7,6 +7,8 @@ pub mod profile;
 pub mod relay;
 pub mod time;
 
+pub use account::{AccountCreatedAt, AccountLabel, AccountSummary, KeyAvailability, SignerKind};
 pub use error::{SafeError, SafeErrorCode, SafeMessage};
 pub use key::{Npub, Nsec, PublicKey, SecretKeyInput, SecretKeyInputKind};
 pub use relay::{RelayUrl, normalize_relay_urls};
+pub use time::UnixTimestamp;
