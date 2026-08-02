@@ -7,7 +7,10 @@ pub mod secrets;
 pub mod snapshot;
 pub mod state_machine;
 
-pub use accounts::{GenerateAccountReceipt, ImportAccountReceipt, InMemoryAccountRepository};
+pub use accounts::{
+    GenerateAccountReceipt, ImportAccountReceipt, InMemoryAccountRepository,
+    InMemoryOperationJournal,
+};
 pub use app_core::{AppCore, AppObserver, ObserverHandle};
 pub use ports::{
     AccountNamespaceRepository, AccountOperationKind, AccountOperationPhase, AccountPreferenceKey,
