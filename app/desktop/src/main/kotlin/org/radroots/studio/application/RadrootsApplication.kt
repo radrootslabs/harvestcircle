@@ -1,11 +1,13 @@
 package org.radroots.studio.application
 
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.CoroutineScope
+import org.radroots.studio.accounts.ui.StudioScreen
+import org.radroots.studio.accounts.ui.StudioUiActions
+import org.radroots.studio.accounts.ui.toUiModel
 import org.radroots.studio.ffi.StudioAppCore
 
 internal typealias StudioStoreFactory = (CoroutineScope) -> StudioAppStore
@@ -21,7 +23,14 @@ fun RadrootsApplication(
         onDispose(store::close)
     }
 
-    BasicText("radroots")
+    StudioScreen(
+        model = store.state.value.toUiModel(),
+        actions = StudioUiActions(
+            editImportDraft = store::editImportDraft,
+            generateAccount = store::generateAccount,
+            importSecretKey = store::importSecretKey,
+        ),
+    )
 }
 
 internal fun createStudioAppStore(scope: CoroutineScope): StudioAppStore {
