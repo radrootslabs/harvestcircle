@@ -2,15 +2,27 @@ use std::sync::{Mutex, MutexGuard};
 
 use radroots_studio_domain::{
     AccountCreatedAt, AccountSummary, KeyAvailability, Nsec, PublicKey, SafeError, SafeErrorCode,
-    SafeMessage, SignerKind,
+    SafeMessage, SecretKeyInput, SignerKind,
 };
-use radroots_studio_nostr::generate_local_keypair;
+use radroots_studio_nostr::{generate_local_keypair, import_secret};
 
 use crate::{AccountRepository, AppCore, AppStateRepository, Clock, SecretStore, StateTransition};
 
 pub struct GenerateAccountReceipt {
     account: AccountSummary,
     generated_nsec: Nsec,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImportAccountReceipt {
+    account: AccountSummary,
+}
+
+impl ImportAccountReceipt {
+    #[must_use]
+    pub const fn account(&self) -> &AccountSummary {
+        &self.account
+    }
 }
 
 impl GenerateAccountReceipt {
@@ -61,6 +73,40 @@ impl AppCore {
             account,
             generated_nsec: nsec,
         })
+    }
+
+    /// Imports, stores, and selects one local Nostr account without activating it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe key, credential, persistence, or application-state error.
+    pub fn import_secret_key(
+        &self,
+        input: SecretKeyInput,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+        secrets: &(impl SecretStore + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<ImportAccountReceipt, SafeError> {
+        let imported = import_secret(input)?;
+        let (public_key, npub, secret) = imported.into_parts();
+        let account = AccountSummary::new(
+            public_key,
+            npub,
+            SignerKind::LocalSecret,
+            KeyAvailability::Available,
+            None,
+            AccountCreatedAt::new(clock.now()),
+            None,
+        );
+        secrets.put(public_key, secret)?;
+        accounts.insert_account(&account)?;
+        app_state.save_selected_account(Some(public_key))?;
+        self.apply_transition(StateTransition::ReplaceRegistry {
+            accounts: accounts.list_accounts()?,
+            selected: Some(public_key),
+        })?;
+        Ok(ImportAccountReceipt { account })
     }
 }
 
@@ -172,7 +218,7 @@ const fn account_not_found() -> SafeError {
 
 #[cfg(test)]
 mod tests {
-    use radroots_studio_domain::UnixTimestamp;
+    use radroots_studio_domain::{SafeErrorCode, SecretKeyInput, UnixTimestamp};
 
     use super::InMemoryAccountRepository;
     use crate::{
@@ -210,5 +256,49 @@ mod tests {
         assert!(core.snapshot().active_account().is_none());
         assert_eq!(receipt.generated_nsec().with_exposed_secret(str::len), 63);
         assert!(!format!("{:?}", core.snapshot()).contains("nsec1"));
+    }
+
+    #[test]
+    fn import_secret_key_accepts_nsec_and_hex_without_exposing_or_activating() {
+        for input in [
+            "nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5",
+            "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7",
+        ] {
+            let core = AppCore::in_memory(RelayConfiguration::default());
+            let accounts = InMemoryAccountRepository::default();
+            let secrets = InMemorySecretStore::default();
+            core.bootstrap().expect("bootstrap");
+            let receipt = core
+                .import_secret_key(
+                    SecretKeyInput::parse(input.to_owned()).expect("input"),
+                    &accounts,
+                    &accounts,
+                    &secrets,
+                    &FixedClock,
+                )
+                .expect("import");
+            let public_key = receipt.account().public_key();
+            assert!(secrets.contains(public_key).expect("credential"));
+            assert_eq!(core.snapshot().selected_account(), Some(public_key));
+            assert_eq!(core.snapshot().session(), SessionState::SignedOut);
+            assert!(!format!("{:?}", core.snapshot()).contains(input));
+        }
+    }
+
+    #[test]
+    fn import_secret_key_rejects_invalid_nsec_checksum_before_persistence() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        core.bootstrap().expect("bootstrap");
+        let input = SecretKeyInput::parse(
+            "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq".to_owned(),
+        )
+        .expect("domain shape");
+        let error = core
+            .import_secret_key(input, &accounts, &accounts, &secrets, &FixedClock)
+            .expect_err("invalid import");
+        assert_eq!(error.code(), SafeErrorCode::InvalidSecretKey);
+        assert!(core.snapshot().accounts().is_empty());
     }
 }
