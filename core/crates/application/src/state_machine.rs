@@ -22,6 +22,11 @@ pub enum StateTransition {
     BeginActivation(PublicKey),
     ActivationSucceeded(Box<ActiveAccountSnapshot>),
     ActivationFailed(SafeError),
+    UpdateActiveAccount {
+        expected: PublicKey,
+        active_account: Box<ActiveAccountSnapshot>,
+        problem: Option<SafeError>,
+    },
     SignOut,
     SetProblem(Option<SafeError>),
 }
@@ -92,6 +97,11 @@ impl StateMachine {
             StateTransition::ActivationFailed(problem) => {
                 self.activation_failed(next_revision, problem)?
             }
+            StateTransition::UpdateActiveAccount {
+                expected,
+                active_account,
+                problem,
+            } => self.update_active_account(next_revision, expected, *active_account, problem)?,
             StateTransition::SignOut => self.sign_out(next_revision)?,
             StateTransition::SetProblem(problem) => self.copy_ready(
                 next_revision,
@@ -268,6 +278,32 @@ impl StateMachine {
             SessionState::SignedOut,
             None,
             None,
+        )
+    }
+
+    fn update_active_account(
+        &self,
+        revision: crate::SnapshotRevision,
+        expected: PublicKey,
+        active_account: ActiveAccountSnapshot,
+        problem: Option<SafeError>,
+    ) -> Result<AppSnapshot, SafeError> {
+        if !matches!(self.snapshot.session(), SessionState::Active)
+            || self
+                .snapshot
+                .active_account()
+                .map(|active| active.account().public_key())
+                != Some(expected)
+            || active_account.account().public_key() != expected
+        {
+            return Err(invalid_application_state());
+        }
+        self.copy_ready(
+            revision,
+            self.snapshot.selected_account(),
+            SessionState::Active,
+            Some(active_account),
+            problem,
         )
     }
 

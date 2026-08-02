@@ -5,6 +5,7 @@ pub mod app_core;
 pub mod config;
 pub mod nostr_client;
 pub mod ports;
+mod profile_refresh;
 pub mod recovery;
 pub mod secrets;
 pub mod session;
