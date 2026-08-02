@@ -7,6 +7,18 @@ use crate::{
 };
 
 impl AppCore {
+    /// Drops the active session while retaining accounts, selection, and credentials.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe application-state error if the transition cannot be applied.
+    pub fn sign_out(&self) -> Result<AppSnapshot, SafeError> {
+        if matches!(self.snapshot().session(), crate::SessionState::SignedOut) {
+            return Ok(self.snapshot());
+        }
+        self.apply_transition(StateTransition::SignOut)
+    }
+
     /// Validates and prepares a saved local account before replacing the active session.
     ///
     /// # Errors
@@ -194,5 +206,45 @@ mod tests {
                 .map(|active| active.account().public_key()),
             Some(first)
         );
+    }
+
+    #[test]
+    fn sign_out_retains_saved_account_selection_and_credential() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        let profiles = EmptyProfiles;
+        core.bootstrap().expect("bootstrap");
+        let public_key = core
+            .import_secret_key(
+                input("7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7"),
+                &accounts,
+                &accounts,
+                &secrets,
+                &journal,
+                &FixedClock,
+            )
+            .expect("import")
+            .account()
+            .public_key();
+        core.activate_account(
+            public_key,
+            &accounts,
+            &accounts,
+            &profiles,
+            &secrets,
+            &FixedClock,
+        )
+        .expect("activate");
+
+        let signed_out = core.sign_out().expect("sign out");
+        let repeated = core.sign_out().expect("idempotent sign out");
+        assert_eq!(signed_out, repeated);
+        assert_eq!(signed_out.session(), SessionState::SignedOut);
+        assert!(signed_out.active_account().is_none());
+        assert_eq!(signed_out.accounts().len(), 1);
+        assert_eq!(signed_out.selected_account(), Some(public_key));
+        assert!(secrets.contains(public_key).expect("credential retained"));
     }
 }

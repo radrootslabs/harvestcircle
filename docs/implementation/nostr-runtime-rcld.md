@@ -507,7 +507,7 @@ handoff commit sequence.
 
 - [x] 31. Implement select account command.
 - [x] 32. Implement activate account with safe replacement ordering.
-- [ ] 33. Implement sign out command.
+- [x] 33. Implement sign out command.
 - [ ] 34. Implement revision-bound removal request/confirmation flow.
 - [ ] 35. Implement removal journal recovery.
 

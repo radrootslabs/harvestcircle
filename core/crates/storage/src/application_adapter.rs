@@ -119,6 +119,15 @@ impl PersistentAppCore {
         )
     }
 
+    /// Signs out while retaining durable account data and credentials.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe application-state error if sign out cannot complete.
+    pub fn sign_out(&self) -> Result<AppSnapshot, SafeError> {
+        self.core.sign_out()
+    }
+
     #[must_use]
     pub const fn core(&self) -> &AppCore {
         &self.core
