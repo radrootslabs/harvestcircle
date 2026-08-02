@@ -2,8 +2,8 @@
 
 ## Status
 
-Initial boundary contract. Generated names and paths will be recorded when the
-binding pipeline exists.
+The proc-macro UniFFI namespace is `radroots_studio_ffi`. Kotlin bindings use
+the package `org.radroots.studio.ffi`; generated sources remain build output.
 
 ## Contract
 
@@ -20,3 +20,8 @@ Potentially blocking storage, credential, and relay operations must not run on
 the Compose thread. Kotlin closes its observer and AppCore during application
 disposal. Tests cover native loading, callback ordering, re-entry,
 deregistration, cancellation, stale completion, and close races.
+
+The public snapshot DTO carries revisioned lifecycle, account, session, relay,
+profile, and safe-error values. It contains no credential field. A generated
+account's nsec is confined to the explicit one-time receipt added with the
+command boundary.

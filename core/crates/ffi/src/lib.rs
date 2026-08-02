@@ -1,9 +1,10 @@
 #![doc = "Radroots Studio `UniFFI` boundary."]
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn crate_is_available_to_the_workspace() {
-        assert_eq!(env!("CARGO_PKG_NAME"), "radroots-studio-ffi");
-    }
-}
+mod dto;
+
+pub use dto::{
+    AccountDto, ActiveAccountDto, AppLifecycleDto, AppSnapshotDto, KeyAvailabilityDto, ProfileDto,
+    ProfileLoadStateDto, RelayConnectionStateDto, SafeErrorDto, SessionStateDto, SignerKindDto,
+};
+
+uniffi::setup_scaffolding!();

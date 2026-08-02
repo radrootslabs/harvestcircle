@@ -34,6 +34,7 @@ secrecy = "=0.10.3"
 url = "=2.5.8"
 zeroize = "=1.9.0"
 tokio = "=1.47.1"
+uniffi = "=0.32.0"
 
 [patch.crates-io]
 nostr = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219" }
