@@ -4,7 +4,7 @@ use radroots_studio_application::{
     AppCore, AppSnapshot, Clock, GenerateAccountReceipt, ImportAccountReceipt, RelayConfiguration,
     SecretStore,
 };
-use radroots_studio_domain::{SafeError, SecretKeyInput};
+use radroots_studio_domain::{PublicKey, SafeError, SecretKeyInput};
 
 use crate::Database;
 
@@ -86,6 +86,16 @@ impl PersistentAppCore {
             &self.database,
             clock,
         )
+    }
+
+    /// Persists and publishes one saved-account selection without activation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe account, storage, or application-state error.
+    pub fn select_account(&self, public_key: PublicKey) -> Result<AppSnapshot, SafeError> {
+        self.core
+            .select_account(public_key, &self.database, &self.database)
     }
 
     #[must_use]

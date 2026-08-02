@@ -42,6 +42,24 @@ impl GenerateAccountReceipt {
 }
 
 impl AppCore {
+    /// Persists and publishes a saved account selection without activating it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe account, persistence, or application-state error.
+    pub fn select_account(
+        &self,
+        public_key: PublicKey,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+    ) -> Result<crate::AppSnapshot, SafeError> {
+        if accounts.find_account(public_key)?.is_none() {
+            return Err(account_not_found());
+        }
+        app_state.save_selected_account(Some(public_key))?;
+        self.apply_transition(StateTransition::Select(public_key))
+    }
+
     /// Generates, stores, and selects one local Nostr account without activating it.
     ///
     /// # Errors
@@ -725,5 +743,37 @@ mod tests {
         );
         assert!(!format!("{pending:?}").contains("nsec1"));
         assert!(core.snapshot().accounts().is_empty());
+    }
+
+    #[test]
+    fn select_account_persists_existing_choice_without_activating() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        core.bootstrap().expect("bootstrap");
+        let first = core
+            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect("first")
+            .account()
+            .public_key();
+        core.generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect("second");
+
+        let selected = core
+            .select_account(first, &accounts, &accounts)
+            .expect("select first");
+        assert_eq!(selected.selected_account(), Some(first));
+        assert_eq!(selected.session(), SessionState::SignedOut);
+        assert!(selected.active_account().is_none());
+        assert_eq!(
+            accounts.load_selected_account().expect("saved"),
+            Some(first)
+        );
+        let missing = core
+            .select_account(PublicKey::from_bytes([0xff; 32]), &accounts, &accounts)
+            .expect_err("missing account");
+        assert_eq!(missing.code(), SafeErrorCode::AccountNotFound);
+        assert_eq!(core.snapshot(), selected);
     }
 }
