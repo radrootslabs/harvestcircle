@@ -544,7 +544,7 @@ handoff commit sequence.
 
 ### RCLD-11
 
-- [ ] 58. Add full local-relay end-to-end integration test.
+- [x] 58. Add full local-relay end-to-end integration test.
 - [ ] 59. Add restart, account isolation, and FFI callback integration tests.
 
 ### RCLD-12
