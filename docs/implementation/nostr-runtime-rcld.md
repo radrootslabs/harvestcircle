@@ -539,7 +539,7 @@ handoff commit sequence.
 - [x] 53. Implement saved-account list, activation, and removal controls.
 - [x] 54. Implement active account home screen.
 - [x] 55. Implement switch account flow in UI.
-- [ ] 56. Remove canonical Kotlin account reducer/store usage.
+- [x] 56. Remove canonical Kotlin account reducer/store usage.
 - [ ] 57. Remove generic server-account remnants.
 
 ### RCLD-11
