@@ -16,15 +16,25 @@ Normal public DTOs contain no secret. The only exception is the direct,
 one-time generated-key receipt. Generated bindings belong under
 `build/generated` and are not committed.
 
-Potentially blocking storage, credential, and relay operations must not run on
-the Compose thread. Kotlin closes its observer and AppCore during application
-disposal. Tests cover native loading, callback ordering, re-entry,
-deregistration, cancellation, stale completion, and close races.
+Potentially blocking storage and credential operations use Rust blocking tasks;
+relay operations use the supervised Tokio runtime. UniFFI exports them as
+suspending Kotlin calls. `StudioAppStore` accepts at most one command at a
+time, keeps Compose state read-only to consumers, rejects stale observer
+revisions, and closes its removal ticket, subscription, gateway, and native
+core during application disposal.
 
 The public snapshot DTO carries revisioned lifecycle, account, session, relay,
 profile, and safe-error values. It contains no credential field. A generated
 account's nsec is confined to the explicit one-time receipt added with the
 command boundary.
+
+The exported command surface is bootstrap, snapshot, generate, import, select,
+activate, sign out, profile refresh, removal request/confirmation, subscribe,
+unsubscribe, and shutdown. `ObserverSubscription.unsubscribe` is idempotent;
+`StudioAppCore.shutdown` deregisters remaining observers and signs out before
+the generated object handle is closed. Callback tests re-enter `snapshot`,
+observe asynchronous profile refresh, and prove no callback arrives after
+unsubscribe.
 
 ## Native artifact
 
@@ -56,3 +66,8 @@ current-host library under JNA's platform resource prefix inside the desktop
 resources, allowing the packaged JVM runtime to extract and load it without a
 machine-specific absolute path. `NativeLoaderTest` crosses the generated ABI
 and verifies the native crate version without opening storage or credentials.
+
+Current platform resource prefixes are `darwin-aarch64`, `darwin-x86-64`,
+`linux-aarch64`, `linux-x86-64`, `win32-aarch64`, and `win32-x86-64`. The build
+stages only the current host artifact; each release platform must build and
+smoke its own package rather than reusing another platform's dynamic library.

@@ -2,8 +2,7 @@
 
 ## Status
 
-Initial security contract. Implementation-specific recovery phases and
-platform results will be added with their checkpoints.
+Implemented MVP security contract.
 
 ## Storage boundary
 
@@ -25,8 +24,12 @@ non-serializable values.
 
 Generated nsec is returned once in a direct operation receipt, displayed in
 non-saveable Kotlin state, and cleared after acknowledgement or disposal.
-Explicit clipboard copy uses conditional delayed clearing. Imported key input
-crosses an unavoidable JVM String boundary once and is cleared immediately.
+Explicit copy places the nsec in the operating-system clipboard, which is an
+additional user-authorized exposure that the application cannot reliably
+revoke. Imported key input crosses an unavoidable JVM `String` boundary once;
+the masked Compose draft is cleared immediately when the command is accepted,
+before the native coroutine executes. The in-flight JVM argument cannot be
+guaranteed zeroized and is never logged or added to public state.
 
 Keyring unavailability is a safe recoverable error. Cross-resource operations
 publish no partial success and use a non-secret journal for restart recovery.
@@ -46,3 +49,17 @@ An empty journal performs no keyring operation. Removal recovery retries an
 intent, continues honestly from `CredentialDeleted`, completes metadata and
 account-namespace cleanup, persists deterministic fallback selection, and then
 finalizes the entry. Keyring failure leaves the phase unchanged for retry.
+
+Add/import records intent before credential creation. After credential write it
+records `CredentialWritten`, writes public metadata and selection, records
+`MetadataWritten`, then finalizes. A metadata failure attempts credential
+compensation; a failed compensation leaves enough non-secret journal state for
+startup recovery. Removal records intent, signs out if necessary, deletes the
+credential, records `CredentialDeleted`, deletes public and account-owned data,
+records `MetadataDeleted`, persists fallback selection, and finalizes.
+
+Corrupt or inaccessible SQLite fails safely and is not silently recreated.
+Locked or unavailable credentials do not become watch-only accounts. Platform
+credential behavior must be checked on macOS, Windows, and Linux; the real
+keyring smoke remains ignored by default because it mutates user credential
+state.

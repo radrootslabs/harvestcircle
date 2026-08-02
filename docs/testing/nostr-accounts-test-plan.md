@@ -2,8 +2,9 @@
 
 ## Status
 
-Initial test contract. Record exact commands and completed coverage as the
-runtime is implemented.
+Implemented test contract. There is no numeric coverage threshold; the suite
+uses behavior-focused best-effort coverage and fails if no Kotlin tests are
+discovered.
 
 ## Required lanes
 
@@ -35,13 +36,32 @@ cargo clippy --manifest-path core/Cargo.toml --workspace --all-targets -- -D war
 cargo test --manifest-path core/Cargo.toml --workspace
 ```
 
-Run the existing desktop regression lane separately until the Makefile combines
-the Rust and desktop lifecycles:
+Run the desktop, generated binding, native loader, store, and Compose lanes:
 
 ```sh
 ./gradlew --no-daemon :app:desktop:test
 ```
 
-The capsule intentionally has no `.github/**` workflow and no validation
-script. The Makefile will become the combined human-facing command surface
-without changing these repository-owned Cargo and Gradle gates.
+Focused integration paths are:
+
+```sh
+cargo test --manifest-path core/Cargo.toml -p radroots-studio-storage local_relay_e2e
+cargo test --manifest-path core/Cargo.toml -p radroots-studio-storage restart_restores_selection
+cargo test --manifest-path core/Cargo.toml -p radroots-studio-ffi ffi_callback_receives_async_profile_refresh
+./gradlew --no-daemon :app:desktop:test --tests org.radroots.studio.ffi.NativeLoaderTest
+```
+
+`local_relay_e2e.rs` imports and activates a deterministic signer, reads signed
+kind-zero metadata through an ephemeral loopback relay, observes loading/fresh
+revisions, verifies SQLite cache, and checks public redaction.
+`restart_isolation.rs` reopens the database, restores selected accounts, proves
+owner-scoped values remain isolated, and scans bytes for known secrets. FFI
+tests cover callback re-entry, asynchronous refresh, unsubscribe, and shutdown.
+Compose tests cover the complete minimal UI surface and use fake actions rather
+than credentials or public relays.
+
+The real OS keyring smoke test is ignored by default and must be explicitly run
+on each supported target in an isolated test account. Packaging and native
+loader smoke are current-host checks; cross-platform results belong in the
+final validation ledger. The capsule intentionally has no `.github/**` workflow
+and no `scripts/**` command surface.
