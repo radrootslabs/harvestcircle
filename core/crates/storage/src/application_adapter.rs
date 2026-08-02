@@ -98,6 +98,27 @@ impl PersistentAppCore {
             .select_account(public_key, &self.database, &self.database)
     }
 
+    /// Activates a saved account after validating its credential and cached profile.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe account, credential, storage, or application-state error.
+    pub fn activate_account(
+        &self,
+        public_key: PublicKey,
+        secrets: &(impl SecretStore + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<AppSnapshot, SafeError> {
+        self.core.activate_account(
+            public_key,
+            &self.database,
+            &self.database,
+            &self.database,
+            secrets,
+            clock,
+        )
+    }
+
     #[must_use]
     pub const fn core(&self) -> &AppCore {
         &self.core

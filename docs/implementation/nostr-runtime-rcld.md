@@ -506,7 +506,7 @@ handoff commit sequence.
 ### RCLD-07
 
 - [x] 31. Implement select account command.
-- [ ] 32. Implement activate account with safe replacement ordering.
+- [x] 32. Implement activate account with safe replacement ordering.
 - [ ] 33. Implement sign out command.
 - [ ] 34. Implement revision-bound removal request/confirmation flow.
 - [ ] 35. Implement removal journal recovery.

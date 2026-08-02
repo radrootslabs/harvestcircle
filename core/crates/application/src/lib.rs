@@ -4,6 +4,7 @@ pub mod accounts;
 pub mod app_core;
 pub mod ports;
 pub mod secrets;
+pub mod session;
 pub mod snapshot;
 pub mod state_machine;
 
