@@ -308,7 +308,7 @@ failure-injection tests, database-byte secret guards, and workspace tests.
 
 ### RCLD-05: Credential boundary
 
-Status: pending.
+Status: completed.
 
 Scope: checkpoints 21 through 24. Add SecretStore, in-memory and
 failure-injection fakes, OS keyring adapter, safe platform errors, and global
@@ -486,7 +486,7 @@ handoff commit sequence.
 - [x] 21. Add SecretStore trait and in-memory fake.
 - [x] 22. Add failure-injection SecretStore fake.
 - [x] 23. Implement OS keyring secret adapter.
-- [ ] 24. Add global no-secret snapshot and storage assertions.
+- [x] 24. Add global no-secret snapshot and storage assertions.
 
 ### RCLD-06
 
@@ -555,7 +555,7 @@ handoff commit sequence.
 - [x] RCLD-02: Rust workspace and domain.
 - [x] RCLD-03: Application state machine.
 - [x] RCLD-04: SQLite persistence.
-- [ ] RCLD-05: Credential boundary.
+- [x] RCLD-05: Credential boundary.
 - [ ] RCLD-06: Account generation and import.
 - [ ] RCLD-07: Account lifecycle and recovery.
 - [ ] RCLD-08: Relay and profile runtime.

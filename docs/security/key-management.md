@@ -35,3 +35,8 @@ The journal contains only an operation identifier, operation kind, canonical
 public key, phase, safe timestamp, and optional safe diagnostic code. It cannot
 store credential text or arbitrary payloads, and it survives account metadata
 removal until cleanup has been finalized.
+
+Workspace redaction tests scan public snapshot and safe-error debug output plus
+the SQLite schema and representative durable records for known secret-hex,
+nsec, and secret-prefix fixtures. These guards run before account commands are
+allowed to carry production credentials.
