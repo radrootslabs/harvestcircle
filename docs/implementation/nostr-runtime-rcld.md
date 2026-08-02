@@ -462,7 +462,7 @@ handoff commit sequence.
 - [x] 07. Add NIP-19 public/secret display contract types.
 - [x] 08. Implement relay URL parser and policy.
 - [x] 09. Add account public metadata value types.
-- [ ] 10. Add profile metadata model and kind-0 selection rules.
+- [x] 10. Add profile metadata model and kind-0 selection rules.
 - [ ] 11. Define immutable AppSnapshot and state enums.
 
 ### RCLD-03

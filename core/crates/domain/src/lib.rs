@@ -10,5 +10,6 @@ pub mod time;
 pub use account::{AccountCreatedAt, AccountLabel, AccountSummary, KeyAvailability, SignerKind};
 pub use error::{SafeError, SafeErrorCode, SafeMessage};
 pub use key::{Npub, Nsec, PublicKey, SecretKeyInput, SecretKeyInputKind};
+pub use profile::{EventId, Kind0ProfileCandidate, ProfileMetadata, select_latest_kind0};
 pub use relay::{RelayUrl, normalize_relay_urls};
 pub use time::UnixTimestamp;
