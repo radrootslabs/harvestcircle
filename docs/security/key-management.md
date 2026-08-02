@@ -25,8 +25,9 @@ non-serializable values.
 Generated nsec is returned once in a direct operation receipt, displayed in
 non-saveable Kotlin state, and cleared after acknowledgement or disposal.
 Explicit copy places the nsec in the operating-system clipboard, which is an
-additional user-authorized exposure that the application cannot reliably
-revoke. Imported key input crosses an unavoidable JVM `String` boundary once;
+additional user-authorized exposure. A lifecycle-owned timer clears it after
+60 seconds only if the clipboard still contains the copied value; user-replaced
+content is preserved. Imported key input crosses an unavoidable JVM `String` boundary once;
 the masked Compose draft is cleared immediately when the command is accepted,
 before the native coroutine executes. The in-flight JVM argument cannot be
 guaranteed zeroized and is never logged or added to public state.

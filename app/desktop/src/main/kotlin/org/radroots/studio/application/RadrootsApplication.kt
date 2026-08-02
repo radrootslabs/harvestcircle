@@ -4,8 +4,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import java.awt.Toolkit
-import java.awt.datatransfer.StringSelection
 import kotlinx.coroutines.CoroutineScope
 import org.radroots.studio.accounts.ui.StudioScreen
 import org.radroots.studio.accounts.ui.StudioUiActions
@@ -30,9 +28,13 @@ fun RadrootsApplication(
         StartupFailureScreen(message)
         return
     }
+    val clipboard = remember { SecretClipboardController(scope) }
 
-    DisposableEffect(store) {
-        onDispose(store::close)
+    DisposableEffect(store, clipboard) {
+        onDispose {
+            clipboard.close()
+            store.close()
+        }
     }
 
     StudioScreen(
@@ -41,9 +43,7 @@ fun RadrootsApplication(
             editImportDraft = store::editImportDraft,
             generateAccount = store::generateAccount,
             importSecretKey = store::importSecretKey,
-            copyText = { value ->
-                Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(value), null)
-            },
+            copyText = clipboard::copy,
             acknowledgeGeneratedKeyBackup = store::acknowledgeGeneratedKeyBackup,
             selectAccount = store::selectAccount,
             activateAccount = store::activateAccount,

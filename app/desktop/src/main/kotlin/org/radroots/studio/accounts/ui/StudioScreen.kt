@@ -163,7 +163,7 @@ private fun InactiveAccountsScreen(
             text = "Generate new key",
             testTag = "generate-key",
             contentDescription = "Generate a new Nostr key",
-            enabled = !model.busy,
+            enabled = !model.busy && model.generatedKeyBackup == null,
             onClick = actions.generateAccount,
         )
 
