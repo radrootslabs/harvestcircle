@@ -346,7 +346,7 @@ restart failure-injection matrix, no-secret guards, and workspace regression.
 
 ### RCLD-07: Account lifecycle and recovery
 
-Status: pending.
+Status: completed.
 
 Scope: checkpoints 31 through 35. Implement selection, signed-out startup,
 safe replacement activation, sign out, revision-bound removal confirmation,
@@ -509,7 +509,7 @@ handoff commit sequence.
 - [x] 32. Implement activate account with safe replacement ordering.
 - [x] 33. Implement sign out command.
 - [x] 34. Implement revision-bound removal request/confirmation flow.
-- [ ] 35. Implement removal journal recovery.
+- [x] 35. Implement removal journal recovery.
 
 ### RCLD-08
 
@@ -563,7 +563,7 @@ handoff commit sequence.
 - [x] RCLD-04: SQLite persistence.
 - [x] RCLD-05: Credential boundary.
 - [x] RCLD-06: Account generation and import.
-- [ ] RCLD-07: Account lifecycle and recovery.
+- [x] RCLD-07: Account lifecycle and recovery.
 - [ ] RCLD-08: Relay and profile runtime.
 - [ ] RCLD-09: UniFFI and native build integration.
 - [ ] RCLD-10: Thin Kotlin shell and minimal UI.

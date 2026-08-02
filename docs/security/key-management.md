@@ -40,3 +40,9 @@ Workspace redaction tests scan public snapshot and safe-error debug output plus
 the SQLite schema and representative durable records for known secret-hex,
 nsec, and secret-prefix fixtures. These guards run before account commands are
 allowed to carry production credentials.
+
+Startup reads the non-secret operation journal before restoring public state.
+An empty journal performs no keyring operation. Removal recovery retries an
+intent, continues honestly from `CredentialDeleted`, completes metadata and
+account-namespace cleanup, persists deterministic fallback selection, and then
+finalizes the entry. Keyring failure leaves the phase unchanged for retry.

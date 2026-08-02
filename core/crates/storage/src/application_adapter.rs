@@ -44,7 +44,18 @@ impl PersistentAppCore {
     ///
     /// Returns a safe storage or application-state error after publishing a fatal
     /// snapshot when durable state cannot be restored.
-    pub fn bootstrap(&self) -> Result<AppSnapshot, SafeError> {
+    pub fn bootstrap(
+        &self,
+        secrets: &(impl SecretStore + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<AppSnapshot, SafeError> {
+        self.core.recover_pending_operations(
+            &self.database,
+            &self.database,
+            secrets,
+            &self.database,
+            clock,
+        )?;
         self.core.bootstrap_from(&self.database, &self.database)
     }
 
@@ -177,8 +188,9 @@ mod tests {
     use std::fs;
 
     use radroots_studio_application::{
-        AccountRepository, AppLifecycle, AppStateRepository, Clock, InMemorySecretStore,
-        RelayConfiguration, SecretStore, SessionState,
+        AccountOperationKind, AccountOperationPhase, AccountRepository, AppLifecycle,
+        AppStateRepository, Clock, FailureSecretStore, InMemorySecretStore, OperationJournal,
+        RelayConfiguration, SecretStore, SecretStoreOperation, SessionState,
     };
     use radroots_studio_domain::{
         AccountCreatedAt, AccountSummary, KeyAvailability, Npub, PublicKey, SafeErrorCode,
@@ -215,10 +227,13 @@ mod tests {
         let directory = tempdir().expect("directory");
         let path = directory.path().join("studio.sqlite3");
         let public_key = account().public_key();
+        let secrets = InMemorySecretStore::default();
         {
             let adapter = PersistentAppCore::open(&path, RelayConfiguration::default())
                 .expect("open adapter");
-            let fresh = adapter.bootstrap().expect("fresh bootstrap");
+            let fresh = adapter
+                .bootstrap(&secrets, &FixedClock)
+                .expect("fresh bootstrap");
             assert!(fresh.accounts().is_empty());
             adapter
                 .database()
@@ -232,7 +247,7 @@ mod tests {
 
         let adapter =
             PersistentAppCore::open(&path, RelayConfiguration::default()).expect("reopen adapter");
-        let restored = adapter.bootstrap().expect("restore");
+        let restored = adapter.bootstrap(&secrets, &FixedClock).expect("restore");
         assert_eq!(restored.lifecycle(), AppLifecycle::Ready);
         assert_eq!(restored.accounts().len(), 1);
         assert_eq!(restored.selected_account(), Some(public_key));
@@ -265,7 +280,7 @@ mod tests {
         {
             let adapter =
                 PersistentAppCore::open(&path, RelayConfiguration::default()).expect("adapter");
-            adapter.bootstrap().expect("bootstrap");
+            adapter.bootstrap(&secrets, &FixedClock).expect("bootstrap");
             let generated = adapter
                 .generate_account(&secrets, &FixedClock)
                 .expect("generate");
@@ -296,9 +311,110 @@ mod tests {
         }));
         let reopened =
             PersistentAppCore::open(&path, RelayConfiguration::default()).expect("reopen");
-        let restored = reopened.bootstrap().expect("restore");
+        let restored = reopened.bootstrap(&secrets, &FixedClock).expect("restore");
         assert_eq!(restored.accounts().len(), 2);
         assert_eq!(restored.selected_account(), Some(selected));
         assert_eq!(restored.session(), SessionState::SignedOut);
+    }
+
+    #[test]
+    fn bootstrap_recovery_completes_credential_deleted_removal_and_fallback() {
+        let directory = tempdir().expect("directory");
+        let path = directory.path().join("studio.sqlite3");
+        let secrets = InMemorySecretStore::default();
+        let first;
+        let removed;
+        {
+            let adapter =
+                PersistentAppCore::open(&path, RelayConfiguration::default()).expect("adapter");
+            adapter.bootstrap(&secrets, &FixedClock).expect("bootstrap");
+            first = adapter
+                .generate_account(&secrets, &FixedClock)
+                .expect("first")
+                .account()
+                .public_key();
+            removed = adapter
+                .generate_account(&secrets, &FixedClock)
+                .expect("removed")
+                .account()
+                .public_key();
+            let operation = adapter
+                .database()
+                .begin_operation(AccountOperationKind::Remove, removed, FixedClock.now())
+                .expect("intent");
+            secrets.delete(removed).expect("credential deletion");
+            adapter
+                .database()
+                .update_operation(
+                    operation,
+                    AccountOperationPhase::CredentialDeleted,
+                    FixedClock.now(),
+                    None,
+                )
+                .expect("phase");
+        }
+
+        let reopened =
+            PersistentAppCore::open(&path, RelayConfiguration::default()).expect("reopen");
+        let restored = reopened
+            .bootstrap(&secrets, &FixedClock)
+            .expect("recover and bootstrap");
+        assert_eq!(restored.accounts().len(), 1);
+        assert_eq!(restored.selected_account(), Some(first));
+        assert_eq!(restored.session(), SessionState::SignedOut);
+        assert!(
+            reopened
+                .database()
+                .list_pending_operations()
+                .expect("journal")
+                .is_empty()
+        );
+        assert!(
+            reopened
+                .database()
+                .find_account(removed)
+                .expect("removed")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn bootstrap_skips_keyring_when_journal_empty_and_retains_failed_intent() {
+        let empty = PersistentAppCore::in_memory(RelayConfiguration::default()).expect("empty");
+        let unavailable = FailureSecretStore::default();
+        unavailable.fail_next(SecretStoreOperation::Delete);
+        empty
+            .bootstrap(&unavailable, &FixedClock)
+            .expect("empty journal does not access keyring");
+
+        let adapter = PersistentAppCore::in_memory(RelayConfiguration::default()).expect("adapter");
+        adapter
+            .database()
+            .insert_account(&account())
+            .expect("account");
+        adapter
+            .database()
+            .save_selected_account(Some(account().public_key()))
+            .expect("selection");
+        adapter
+            .database()
+            .begin_operation(
+                AccountOperationKind::Remove,
+                account().public_key(),
+                FixedClock.now(),
+            )
+            .expect("intent");
+        let failing = FailureSecretStore::default();
+        failing.fail_next(SecretStoreOperation::Delete);
+        let error = adapter
+            .bootstrap(&failing, &FixedClock)
+            .expect_err("keyring unavailable");
+        assert_eq!(error.code(), SafeErrorCode::KeyringUnavailable);
+        let pending = adapter
+            .database()
+            .list_pending_operations()
+            .expect("pending");
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].phase(), AccountOperationPhase::IntentRecorded);
     }
 }

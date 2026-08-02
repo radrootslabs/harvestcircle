@@ -3,6 +3,7 @@
 pub mod accounts;
 pub mod app_core;
 pub mod ports;
+pub mod recovery;
 pub mod secrets;
 pub mod session;
 pub mod snapshot;
