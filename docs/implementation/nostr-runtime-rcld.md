@@ -497,7 +497,7 @@ handoff commit sequence.
 ### RCLD-06
 
 - [x] 25. Pin Nostr dependency and implement key generation/derivation adapter.
-- [ ] 26. Implement generate account command with in-memory storage.
+- [x] 26. Implement generate account command with in-memory storage.
 - [ ] 27. Implement import secret key command.
 - [ ] 28. Define and test duplicate import and credential-repair handling.
 - [ ] 29. Implement add/import transaction rollback across keyring and DB.

@@ -114,7 +114,10 @@ impl AppCore {
         self.lock_state().observers.remove(&handle).is_some()
     }
 
-    fn apply_transition(&self, transition: StateTransition) -> Result<AppSnapshot, SafeError> {
+    pub(crate) fn apply_transition(
+        &self,
+        transition: StateTransition,
+    ) -> Result<AppSnapshot, SafeError> {
         let (snapshot, observers) = {
             let mut state = self.lock_state();
             let previous_revision = state.state_machine.snapshot().revision();

@@ -1,11 +1,13 @@
 #![doc = "Radroots Studio application runtime."]
 
+pub mod accounts;
 pub mod app_core;
 pub mod ports;
 pub mod secrets;
 pub mod snapshot;
 pub mod state_machine;
 
+pub use accounts::{GenerateAccountReceipt, InMemoryAccountRepository};
 pub use app_core::{AppCore, AppObserver, ObserverHandle};
 pub use ports::{
     AccountNamespaceRepository, AccountOperationKind, AccountOperationPhase, AccountPreferenceKey,
