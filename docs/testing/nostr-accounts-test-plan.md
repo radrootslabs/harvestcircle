@@ -24,3 +24,24 @@ runtime is implemented.
 
 No test uses a public relay. There is no numeric coverage threshold; tests must
 provide strong best-effort behavioral coverage throughout RCL development.
+
+## Rust validation gates
+
+Run from the capsule root:
+
+```sh
+cargo fmt --manifest-path core/Cargo.toml --all --check
+cargo clippy --manifest-path core/Cargo.toml --workspace --all-targets -- -D warnings
+cargo test --manifest-path core/Cargo.toml --workspace
+```
+
+Run the existing desktop regression lane separately until the Makefile combines
+the Rust and desktop lifecycles:
+
+```sh
+./gradlew --no-daemon :app:desktop:test
+```
+
+The capsule intentionally has no `.github/**` workflow and no validation
+script. The Makefile will become the combined human-facing command surface
+without changing these repository-owned Cargo and Gradle gates.
