@@ -7,9 +7,15 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+nostr.workspace = true
+nostr-sdk.workspace = true
 radroots-studio-domain = { path = "../domain" }
 radroots-studio-nostr = { path = "../nostr" }
 secrecy.workspace = true
+
+[dev-dependencies]
+nostr-relay-builder.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 
 [lints]
 workspace = true

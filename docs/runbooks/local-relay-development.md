@@ -7,9 +7,14 @@ deduplicates while preserving first-seen order. Development and tests may use
 have no fallback and report `InvalidRelayConfiguration` until at least one
 valid relay is configured.
 
-## Status
+The Rust integration lane starts an in-process relay on an ephemeral loopback
+port, publishes a signed kind-0 event, fetches it through the production SDK
+adapter, and shuts both clients and the relay down before returning. Run it
+without any public-network dependency:
 
-Initial runbook contract. Exact commands will be added with the relay fixture.
+```sh
+cargo test --manifest-path core/Cargo.toml -p radroots-studio-application sdk_client
+```
 
 Development and tests use local WebSocket relays only. The default development
 endpoint is `ws://localhost:8080`; tests bind ephemeral loopback ports. Override
