@@ -164,6 +164,7 @@ tasks.withType<Test>().configureEach {
 }
 tasks.withType<JavaExec>().configureEach {
     dependsOn(buildRustCore)
+    systemProperty("radroots.studio.development", "true")
     systemProperty(
         "jna.library.path",
         rustDebugLibrary.asFile.parentFile.absolutePath,

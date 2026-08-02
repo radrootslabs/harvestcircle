@@ -1,42 +1,91 @@
 package org.radroots.studio.application
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runComposeUiTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
-import org.radroots.studio.accounts.model.AccountsAction
+import org.radroots.studio.ffi.AppLifecycleDto
+import org.radroots.studio.ffi.AppSnapshotDto
+import org.radroots.studio.ffi.SessionStateDto
 
 class RadrootsApplicationTest {
     @OptIn(ExperimentalTestApi::class)
     @Test
-    fun composeUiTestRuntimeRendersContent() = runComposeUiTest {
-        setContent {
-            RadrootsApplication()
+    fun applicationCreatesOneStoreAcrossRecompositionAndClosesItOnDisposal() =
+        runComposeUiTest {
+            var applicationVisible by mutableStateOf(true)
+            var factoryCalls = 0
+            var gateway: ApplicationGateway? = null
+
+            setContent {
+                if (applicationVisible) {
+                    RadrootsApplication { scope ->
+                        factoryCalls += 1
+                        val createdGateway = ApplicationGateway()
+                        gateway = createdGateway
+                        StudioAppStore(createdGateway, scope)
+                    }
+                }
+                BasicText(
+                    text = "Toggle",
+                    modifier = Modifier
+                        .testTag("toggle-application")
+                        .clickable { applicationVisible = !applicationVisible },
+                )
+            }
+
+            onNodeWithText("radroots").assertIsDisplayed()
+            onNodeWithTag("toggle-application").performClick()
+            waitForIdle()
+
+            assertEquals(1, factoryCalls)
+            assertEquals(true, gateway?.closed)
         }
+}
 
-        onNodeWithText("radroots").assertIsDisplayed()
-    }
+private class ApplicationGateway : StudioCoreGateway {
+    var closed = false
 
-    @Test
-    fun applicationStoresStartEmptyAndGenerateIndependentIds() {
-        val first = createAccountsStore()
-        val second = createAccountsStore()
+    override fun snapshot() = applicationSnapshot(0UL)
+    override fun subscribe(onSnapshot: (org.radroots.studio.ffi.AppSnapshotDto) -> Unit) =
+        AutoCloseable {}
+    override suspend fun bootstrap() = applicationSnapshot(1UL)
+    override suspend fun generateAccount(): org.radroots.studio.ffi.GeneratedAccountDto =
+        error("unused")
+    override suspend fun importSecretKey(secretKey: String) = error("unused")
+    override suspend fun selectAccount(publicKeyHex: String) = error("unused")
+    override suspend fun activateAccount(publicKeyHex: String) = error("unused")
+    override suspend fun signOut() = error("unused")
+    override suspend fun refreshActiveProfile() = error("unused")
+    override suspend fun requestAccountRemoval(publicKeyHex: String): RemovalTicket = error("unused")
+    override suspend fun confirmAccountRemoval(ticket: RemovalTicket) = error("unused")
 
-        listOf(first, second).forEach { store ->
-            assertEquals(emptyList(), store.state.value.accounts)
-            store.dispatch(AccountsAction.EditAddDisplayName("Farm Account"))
-            store.dispatch(
-                AccountsAction.EditAddServerUrl("https://farm.example.test"),
-            )
-            store.dispatch(AccountsAction.SubmitAddAccount)
-        }
-
-        assertNotEquals(
-            first.state.value.accounts.single().id,
-            second.state.value.accounts.single().id,
-        )
+    override fun close() {
+        closed = true
     }
 }
+
+private fun applicationSnapshot(revision: ULong) = AppSnapshotDto(
+    revision = revision,
+    lifecycle = AppLifecycleDto.READY,
+    lifecycleError = null,
+    configuredRelays = emptyList(),
+    accounts = emptyList(),
+    selectedPublicKeyHex = null,
+    session = SessionStateDto.SIGNED_OUT,
+    sessionSubjectPublicKeyHex = null,
+    sessionError = null,
+    activeAccount = null,
+    recoverableProblem = null,
+)

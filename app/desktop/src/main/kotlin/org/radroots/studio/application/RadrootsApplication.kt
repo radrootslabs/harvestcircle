@@ -1,30 +1,31 @@
 package org.radroots.studio.application
 
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
-import java.util.UUID
-import org.radroots.studio.accounts.model.AccountId
-import org.radroots.studio.accounts.model.AccountsState
-import org.radroots.studio.accounts.state.AccountIdFactory
-import org.radroots.studio.accounts.state.AccountsReducer
-import org.radroots.studio.accounts.state.AccountsStore
-import org.radroots.studio.accounts.ui.AccountsScreen
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.CoroutineScope
+import org.radroots.studio.ffi.StudioAppCore
+
+internal typealias StudioStoreFactory = (CoroutineScope) -> StudioAppStore
 
 @Composable
 fun RadrootsApplication(
-    store: AccountsStore = remember { createAccountsStore() },
+    storeFactory: StudioStoreFactory = ::createStudioAppStore,
 ) {
-    AccountsScreen(
-        state = store.state.value,
-        onAction = store::dispatch,
-    )
+    val scope = rememberCoroutineScope()
+    val store = remember { storeFactory(scope) }
+
+    DisposableEffect(store) {
+        onDispose(store::close)
+    }
+
+    BasicText("radroots")
 }
 
-internal fun createAccountsStore(
-    accountIdFactory: AccountIdFactory = AccountIdFactory {
-        AccountId(UUID.randomUUID().toString())
-    },
-) = AccountsStore(
-    initialState = AccountsState(),
-    reducer = AccountsReducer(accountIdFactory),
-)
+internal fun createStudioAppStore(scope: CoroutineScope): StudioAppStore {
+    val developmentMode = java.lang.Boolean.getBoolean("radroots.studio.development")
+    val core = StudioAppCore.open(developmentMode = developmentMode)
+    return StudioAppStore(NativeStudioCoreGateway(core), scope)
+}
