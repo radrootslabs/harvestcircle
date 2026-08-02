@@ -469,7 +469,7 @@ handoff commit sequence.
 
 - [x] 12. Add application ports for repositories, secrets, clock, and Nostr
   client.
-- [ ] 13. Implement in-memory AppCore bootstrap and observer registry.
+- [x] 13. Implement in-memory AppCore bootstrap and observer registry.
 - [ ] 14. Add state transition helpers and command trace tests.
 
 ### RCLD-04

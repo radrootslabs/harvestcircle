@@ -1,8 +1,10 @@
 #![doc = "Radroots Studio application runtime."]
 
+pub mod app_core;
 pub mod ports;
 pub mod snapshot;
 
+pub use app_core::{AppCore, AppObserver, ObserverHandle};
 pub use ports::{
     AccountNamespaceRepository, AccountRepository, AppStateRepository, BoxFuture, Clock,
     NostrClient, ProfileRepository, SecretStore,
