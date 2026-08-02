@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -211,13 +212,14 @@ private fun InactiveAccountsScreen(
 }
 
 @Composable
-private fun SavedAccountList(
+private fun ColumnScope.SavedAccountList(
     model: StudioUiModel,
     actions: StudioUiActions,
 ) {
     LazyColumn(
         modifier = Modifier
             .fillMaxWidth()
+            .weight(1f)
             .testTag("saved-account-list"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
