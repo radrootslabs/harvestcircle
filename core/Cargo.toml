@@ -25,6 +25,7 @@ pedantic = "deny"
 
 [workspace.dependencies]
 keyring = "=4.1.6"
+directories = "=6.0.0"
 nostr = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr" }
 nostr-sdk = "=0.44.1"
 nostr-relay-builder = "=0.44.1"
@@ -33,7 +34,7 @@ rusqlite = { version = "=0.39.0", features = ["bundled"] }
 secrecy = "=0.10.3"
 url = "=2.5.8"
 zeroize = "=1.9.0"
-tokio = "=1.47.1"
+tokio = { version = "=1.47.1", features = ["rt-multi-thread", "sync"] }
 uniffi = "=0.32.0"
 
 [patch.crates-io]

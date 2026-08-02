@@ -522,7 +522,7 @@ handoff commit sequence.
 ### RCLD-09
 
 - [x] 41. Create UniFFI scaffolding and DTO mapping.
-- [ ] 42. Expose approved AppCore commands through UniFFI.
+- [x] 42. Expose approved AppCore commands through UniFFI.
 - [ ] 43. Expose observer callback and deregistration through UniFFI.
 - [ ] 44. Build native library artifacts from Cargo.
 - [ ] 45. Add Gradle task for Cargo build.

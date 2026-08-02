@@ -10,9 +10,15 @@ repository.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+directories.workspace = true
 radroots-studio-application = { path = "../application" }
 radroots-studio-domain = { path = "../domain" }
+radroots-studio-storage = { path = "../storage" }
+tokio.workspace = true
 uniffi.workspace = true
+
+[dev-dependencies]
+tempfile = "=3.23.0"
 
 [lints]
 workspace = true
