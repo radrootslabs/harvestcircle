@@ -1,5 +1,11 @@
 # Nostr accounts architecture
 
+An import that resolves to an account with an existing credential returns
+`AccountAlreadyExists` and does not overwrite either resource. The sole repair
+path is an existing account explicitly marked `CredentialMissing` with no
+credential present; matching import restores that credential, changes the
+public availability state to `Available`, and retains the original metadata.
+
 ## Status
 
 Initial architecture contract. Update this document as each implemented

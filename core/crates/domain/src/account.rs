@@ -131,6 +131,19 @@ impl AccountSummary {
     }
 
     #[must_use]
+    pub fn with_key_availability(&self, key_availability: KeyAvailability) -> Self {
+        Self {
+            public_key: self.public_key,
+            npub: self.npub.clone(),
+            signer_kind: self.signer_kind,
+            key_availability,
+            label: self.label.clone(),
+            created_at: self.created_at,
+            last_used_at: self.last_used_at,
+        }
+    }
+
+    #[must_use]
     pub fn display_label(&self) -> String {
         self.label
             .as_ref()

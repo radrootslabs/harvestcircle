@@ -499,7 +499,7 @@ handoff commit sequence.
 - [x] 25. Pin Nostr dependency and implement key generation/derivation adapter.
 - [x] 26. Implement generate account command with in-memory storage.
 - [x] 27. Implement import secret key command.
-- [ ] 28. Define and test duplicate import and credential-repair handling.
+- [x] 28. Define and test duplicate import and credential-repair handling.
 - [ ] 29. Implement add/import transaction rollback across keyring and DB.
 - [ ] 30. Implement persisted generate/import using SQLite adapter.
 

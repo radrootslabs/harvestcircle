@@ -90,6 +90,25 @@ impl AppCore {
     ) -> Result<ImportAccountReceipt, SafeError> {
         let imported = import_secret(input)?;
         let (public_key, npub, secret) = imported.into_parts();
+        if let Some(existing) = accounts.find_account(public_key)? {
+            if existing.key_availability() != KeyAvailability::CredentialMissing
+                || secrets.contains(public_key)?
+            {
+                return Err(account_exists());
+            }
+            secrets.put(public_key, secret)?;
+            let repaired = existing.with_key_availability(KeyAvailability::Available);
+            accounts.update_account(&repaired)?;
+            app_state.save_selected_account(Some(public_key))?;
+            self.apply_transition(StateTransition::ReplaceRegistry {
+                accounts: accounts.list_accounts()?,
+                selected: Some(public_key),
+            })?;
+            return Ok(ImportAccountReceipt { account: repaired });
+        }
+        if secrets.contains(public_key)? {
+            return Err(account_exists());
+        }
         let account = AccountSummary::new(
             public_key,
             npub,
@@ -218,12 +237,15 @@ const fn account_not_found() -> SafeError {
 
 #[cfg(test)]
 mod tests {
-    use radroots_studio_domain::{SafeErrorCode, SecretKeyInput, UnixTimestamp};
+    use radroots_studio_domain::{
+        AccountCreatedAt, AccountSummary, KeyAvailability, SafeErrorCode, SecretKeyInput,
+        SignerKind, UnixTimestamp,
+    };
 
     use super::InMemoryAccountRepository;
     use crate::{
-        AppCore, AppStateRepository, Clock, InMemorySecretStore, RelayConfiguration, SecretStore,
-        SessionState,
+        AccountRepository, AppCore, AppStateRepository, Clock, InMemorySecretStore,
+        RelayConfiguration, SecretStore, SessionState, StateTransition,
     };
 
     struct FixedClock;
@@ -300,5 +322,72 @@ mod tests {
             .expect_err("invalid import");
         assert_eq!(error.code(), SafeErrorCode::InvalidSecretKey);
         assert!(core.snapshot().accounts().is_empty());
+    }
+
+    #[test]
+    fn duplicate_import_preserves_existing_credential_and_snapshot() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        core.bootstrap().expect("bootstrap");
+        let import = || {
+            SecretKeyInput::parse(
+                "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7".to_owned(),
+            )
+            .expect("input")
+        };
+        core.import_secret_key(import(), &accounts, &accounts, &secrets, &FixedClock)
+            .expect("first import");
+        let before = core.snapshot();
+        let error = core
+            .import_secret_key(import(), &accounts, &accounts, &secrets, &FixedClock)
+            .expect_err("duplicate");
+        assert_eq!(error.code(), SafeErrorCode::AccountAlreadyExists);
+        assert_eq!(core.snapshot(), before);
+        assert_eq!(core.snapshot().accounts().len(), 1);
+    }
+
+    #[test]
+    fn duplicate_import_repairs_only_explicit_missing_credential_account() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        core.bootstrap().expect("bootstrap");
+        let input = || {
+            SecretKeyInput::parse(
+                "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7".to_owned(),
+            )
+            .expect("input")
+        };
+        let imported = radroots_studio_nostr::import_secret(input()).expect("derive");
+        let (public_key, npub, _) = imported.into_parts();
+        let missing = AccountSummary::new(
+            public_key,
+            npub,
+            SignerKind::LocalSecret,
+            KeyAvailability::CredentialMissing,
+            None,
+            AccountCreatedAt::new(FixedClock.now()),
+            None,
+        );
+        accounts.insert_account(&missing).expect("missing metadata");
+        accounts
+            .save_selected_account(Some(public_key))
+            .expect("selection");
+        core.apply_transition(StateTransition::ReplaceRegistry {
+            accounts: vec![missing],
+            selected: Some(public_key),
+        })
+        .expect("registry");
+
+        let receipt = core
+            .import_secret_key(input(), &accounts, &accounts, &secrets, &FixedClock)
+            .expect("repair");
+        assert_eq!(
+            receipt.account().key_availability(),
+            KeyAvailability::Available
+        );
+        assert!(secrets.contains(public_key).expect("credential"));
+        assert_eq!(core.snapshot().accounts().len(), 1);
     }
 }
