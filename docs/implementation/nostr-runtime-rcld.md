@@ -536,7 +536,7 @@ handoff commit sequence.
 - [x] 50. Create UI model mapping helpers without server fields.
 - [x] 51. Implement inactive account screen generate/import controls.
 - [x] 52. Implement generated-key backup panel.
-- [ ] 53. Implement saved-account list, activation, and removal controls.
+- [x] 53. Implement saved-account list, activation, and removal controls.
 - [ ] 54. Implement active account home screen.
 - [ ] 55. Implement switch account flow in UI.
 - [ ] 56. Remove canonical Kotlin account reducer/store usage.

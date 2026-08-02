@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -87,6 +88,45 @@ class StudioScreenTest {
         onAllNodesWithTag("generated-key-backup").assertCountEquals(0)
         onAllNodesWithTag("generated-nsec").assertCountEquals(0)
     }
+
+    @Test
+    fun savedAccountsSelectActivateAndRequireRemovalConfirmation() = runComposeUiTest {
+        val first = accountUi("11".repeat(32), selected = true)
+        val second = accountUi("22".repeat(32), selected = false)
+        var pendingRemoval: String? by mutableStateOf(null)
+        val selected = mutableListOf<String>()
+        val activated = mutableListOf<String>()
+        var confirmations = 0
+        setContent {
+            StudioScreen(
+                model = emptyUiModel().copy(
+                    accounts = listOf(first, second),
+                    pendingRemovalPublicKeyHex = pendingRemoval,
+                ),
+                actions = StudioUiActions(
+                    selectAccount = selected::add,
+                    activateAccount = activated::add,
+                    requestAccountRemoval = { pendingRemoval = it },
+                    cancelAccountRemoval = { pendingRemoval = null },
+                    confirmAccountRemoval = { confirmations += 1 },
+                ),
+            )
+        }
+
+        onNodeWithTag("saved-account-list").assertIsDisplayed()
+        onNodeWithTag("account-row:${first.publicKeyHex}").assertIsSelected()
+        onNodeWithTag("account-row:${second.publicKeyHex}").performClick()
+        onNodeWithTag("activate-account:${second.publicKeyHex}", useUnmergedTree = true).performClick()
+        assertEquals(listOf(second.publicKeyHex), selected)
+        assertEquals(listOf(second.publicKeyHex), activated)
+
+        onNodeWithTag("remove-account:${second.publicKeyHex}", useUnmergedTree = true).performClick()
+        onNodeWithTag("remove-cancel", useUnmergedTree = true).performClick()
+        assertEquals(null, pendingRemoval)
+        onNodeWithTag("remove-account:${second.publicKeyHex}", useUnmergedTree = true).performClick()
+        onNodeWithTag("remove-confirm", useUnmergedTree = true).performClick()
+        assertEquals(1, confirmations)
+    }
 }
 
 private fun emptyUiModel(
@@ -102,4 +142,13 @@ private fun emptyUiModel(
     session = SessionStateDto.SIGNED_OUT,
     busy = false,
     problem = problem,
+)
+
+private fun accountUi(publicKeyHex: String, selected: Boolean) = AccountUiModel(
+    publicKeyHex = publicKeyHex,
+    npub = "npub1${publicKeyHex.take(12)}",
+    shortNpub = "npub1${publicKeyHex.take(12)}",
+    label = "Account ${publicKeyHex.take(2)}",
+    keyAvailability = "available",
+    selected = selected,
 )

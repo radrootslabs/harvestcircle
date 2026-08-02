@@ -35,6 +35,11 @@ fun RadrootsApplication(
                 Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(value), null)
             },
             acknowledgeGeneratedKeyBackup = store::acknowledgeGeneratedKeyBackup,
+            selectAccount = store::selectAccount,
+            activateAccount = store::activateAccount,
+            requestAccountRemoval = store::requestAccountRemoval,
+            cancelAccountRemoval = store::cancelAccountRemoval,
+            confirmAccountRemoval = store::confirmAccountRemoval,
         ),
     )
 }

@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
@@ -18,6 +20,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.password
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -32,6 +35,11 @@ data class StudioUiActions(
     val importSecretKey: () -> Unit = {},
     val copyText: (String) -> Unit = {},
     val acknowledgeGeneratedKeyBackup: () -> Unit = {},
+    val selectAccount: (String) -> Unit = {},
+    val activateAccount: (String) -> Unit = {},
+    val requestAccountRemoval: (String) -> Unit = {},
+    val cancelAccountRemoval: () -> Unit = {},
+    val confirmAccountRemoval: () -> Unit = {},
 )
 
 @Composable
@@ -103,6 +111,68 @@ private fun InactiveAccountsScreen(
 
         if (model.accounts.isEmpty()) {
             BasicText("No saved accounts.", Modifier.testTag("accounts-empty"))
+        } else {
+            SavedAccountList(model, actions)
+        }
+    }
+}
+
+@Composable
+private fun SavedAccountList(
+    model: StudioUiModel,
+    actions: StudioUiActions,
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("saved-account-list"),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(model.accounts, key = AccountUiModel::publicKeyHex) { account ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { selected = account.selected }
+                    .testTag("account-row:${account.publicKeyHex}")
+                    .clickable { actions.selectAccount(account.publicKeyHex) }
+                    .background(InputBackgroundColor)
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                BasicText(account.label)
+                BasicText(account.npub)
+                BasicText("Key: ${account.keyAvailability}")
+                if (account.selected) BasicText("Selected")
+                TextAction(
+                    text = "Activate",
+                    testTag = "activate-account:${account.publicKeyHex}",
+                    contentDescription = "Activate ${account.label}",
+                    enabled = !model.busy,
+                    onClick = { actions.activateAccount(account.publicKeyHex) },
+                )
+                TextAction(
+                    text = "Remove",
+                    testTag = "remove-account:${account.publicKeyHex}",
+                    contentDescription = "Remove ${account.label}",
+                    enabled = !model.busy,
+                    onClick = { actions.requestAccountRemoval(account.publicKeyHex) },
+                )
+                if (model.pendingRemovalPublicKeyHex == account.publicKeyHex) {
+                    BasicText("Remove this saved account and its local credential?")
+                    TextAction(
+                        text = "Cancel",
+                        testTag = "remove-cancel",
+                        contentDescription = "Cancel account removal",
+                        onClick = actions.cancelAccountRemoval,
+                    )
+                    TextAction(
+                        text = "Confirm removal",
+                        testTag = "remove-confirm",
+                        contentDescription = "Confirm account removal",
+                        onClick = actions.confirmAccountRemoval,
+                    )
+                }
+            }
         }
     }
 }
