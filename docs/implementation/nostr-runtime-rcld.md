@@ -216,6 +216,12 @@ licenses and primary-source provenance:
 - `zeroize` `1.9.0`;
 - `directories` `6.0.0`.
 
+Dependency-source deviation: crates.io has yanked `nostr` 0.44.1 and refuses a
+new exact registry resolution. The `nostr` crate is therefore pinned to the
+upstream rust-nostr commit `5bba5163eb77107f82c4a8262cf29d7f33a73219`,
+whose crate manifest declares version 0.44.1. This preserves the approved
+version and uses the upstream source rather than substituting a newer release.
+
 Notedeck and nostrdb are GPL clean-room references only. Do not copy their
 code. Reject optional disk-secret storage, nondeterministic account fallback,
 cache-before-persist publication, and delete-without-recovery patterns.
@@ -490,7 +496,7 @@ handoff commit sequence.
 
 ### RCLD-06
 
-- [ ] 25. Pin Nostr dependency and implement key generation/derivation adapter.
+- [x] 25. Pin Nostr dependency and implement key generation/derivation adapter.
 - [ ] 26. Implement generate account command with in-memory storage.
 - [ ] 27. Implement import secret key command.
 - [ ] 28. Define and test duplicate import and credential-repair handling.
