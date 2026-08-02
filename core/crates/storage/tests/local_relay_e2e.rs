@@ -102,18 +102,19 @@ async fn local_relay_e2e_imports_activates_refreshes_and_caches_profile() {
         cached.candidate().metadata().preferred_name(),
         Some("Farm Account")
     );
-    let observed = observer.0.lock().expect("observer snapshots");
-    assert!(observed.iter().any(|snapshot| {
+    let recorded_snapshots = observer.0.lock().expect("observer snapshots").clone();
+    assert!(recorded_snapshots.iter().any(|snapshot| {
         snapshot.active_account().is_some_and(|account| {
             account.profile_state() == ProfileLoadState::Loading
                 && account.relay_state() == RelayConnectionState::Connecting
         })
     }));
     assert_eq!(
-        observed.last().map(|snapshot| snapshot.revision()),
+        recorded_snapshots
+            .last()
+            .map(radroots_studio_application::AppSnapshot::revision),
         Some(refreshed.revision())
     );
-    drop(observed);
     assert!(adapter.core().unsubscribe(handle));
 
     let public_debug = format!("{refreshed:?}");
