@@ -52,6 +52,24 @@ class SecretClipboardControllerTest {
         assertEquals("", clipboard.value)
         controller.close()
     }
+
+    @Test
+    fun disposalClearsOnlyClipboardTextOwnedByController() = runTest {
+        val clipboard = FakeTextClipboard()
+        val controller = SecretClipboardController(this, clipboard)
+        controller.copy("nsec1generated")
+
+        controller.close()
+
+        assertEquals("", clipboard.value)
+
+        val replacedClipboard = FakeTextClipboard()
+        val replacedController = SecretClipboardController(this, replacedClipboard)
+        replacedController.copy("nsec1generated")
+        replacedClipboard.writeText("replacement")
+        replacedController.close()
+        assertEquals("replacement", replacedClipboard.value)
+    }
 }
 
 private class FakeTextClipboard : TextClipboard {

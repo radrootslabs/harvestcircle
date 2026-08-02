@@ -20,19 +20,25 @@ internal class SecretClipboardController(
     private val clearDelayMillis: Long = 60_000,
 ) : AutoCloseable {
     private var clearJob: Job? = null
+    private var copiedValue: String? = null
 
     fun copy(value: String) {
         clipboard.writeText(value)
+        copiedValue = value
         clearJob?.cancel()
         clearJob = scope.launch {
             delay(clearDelayMillis)
             if (clipboard.readText() == value) clipboard.writeText("")
+            if (copiedValue == value) copiedValue = null
         }
     }
 
     override fun close() {
         clearJob?.cancel()
         clearJob = null
+        val value = copiedValue
+        if (value != null && clipboard.readText() == value) clipboard.writeText("")
+        copiedValue = null
     }
 }
 
