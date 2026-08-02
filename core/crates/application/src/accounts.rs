@@ -168,11 +168,11 @@ impl AppCore {
             secret,
             None,
             accounts,
+            app_state,
             secrets,
             journal,
             clock,
         )?;
-        app_state.save_selected_account(Some(public_key))?;
         let registry = accounts.list_accounts()?;
         self.apply_transition(StateTransition::ReplaceRegistry {
             accounts: registry,
@@ -213,11 +213,11 @@ impl AppCore {
                 secret,
                 Some(&existing),
                 accounts,
+                app_state,
                 secrets,
                 journal,
                 clock,
             )?;
-            app_state.save_selected_account(Some(public_key))?;
             self.apply_transition(StateTransition::ReplaceRegistry {
                 accounts: accounts.list_accounts()?,
                 selected: Some(public_key),
@@ -242,11 +242,11 @@ impl AppCore {
             secret,
             None,
             accounts,
+            app_state,
             secrets,
             journal,
             clock,
         )?;
-        app_state.save_selected_account(Some(public_key))?;
         self.apply_transition(StateTransition::ReplaceRegistry {
             accounts: accounts.list_accounts()?,
             selected: Some(public_key),
@@ -261,11 +261,13 @@ impl AppCore {
         secret: SecretKeyInput,
         previous: Option<&AccountSummary>,
         accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
         secrets: &(impl SecretStore + ?Sized),
         journal: &(impl OperationJournal + ?Sized),
         clock: &(impl Clock + ?Sized),
     ) -> Result<(), SafeError> {
         let public_key = account.public_key();
+        let previous_selection = app_state.load_selected_account()?;
         let operation = journal.begin_operation(kind, public_key, clock.now())?;
         if let Err(error) = secrets.put(public_key, secret) {
             let _ = journal.finalize_operation(operation);
@@ -278,7 +280,16 @@ impl AppCore {
             None,
         ) {
             return compensate_account_write(
-                operation, public_key, error, None, accounts, secrets, journal, clock,
+                operation,
+                public_key,
+                error,
+                None,
+                previous_selection,
+                accounts,
+                app_state,
+                secrets,
+                journal,
+                clock,
             );
         }
         let metadata_result = previous.map_or_else(
@@ -287,7 +298,30 @@ impl AppCore {
         );
         if let Err(error) = metadata_result {
             return compensate_account_write(
-                operation, public_key, error, previous, accounts, secrets, journal, clock,
+                operation,
+                public_key,
+                error,
+                previous,
+                previous_selection,
+                accounts,
+                app_state,
+                secrets,
+                journal,
+                clock,
+            );
+        }
+        if let Err(error) = app_state.save_selected_account(Some(public_key)) {
+            return compensate_account_write(
+                operation,
+                public_key,
+                error,
+                previous,
+                previous_selection,
+                accounts,
+                app_state,
+                secrets,
+                journal,
+                clock,
             );
         }
         journal.update_operation(
@@ -306,17 +340,21 @@ fn compensate_account_write(
     public_key: PublicKey,
     original_error: SafeError,
     previous: Option<&AccountSummary>,
+    previous_selection: Option<PublicKey>,
     accounts: &(impl AccountRepository + ?Sized),
+    app_state: &(impl AppStateRepository + ?Sized),
     secrets: &(impl SecretStore + ?Sized),
     journal: &(impl OperationJournal + ?Sized),
     clock: &(impl Clock + ?Sized),
 ) -> Result<(), SafeError> {
-    if let Some(previous) = previous {
-        let _ = accounts.update_account(previous);
+    let metadata_rollback = if let Some(previous) = previous {
+        accounts.update_account(previous)
     } else {
-        let _ = accounts.remove_account(public_key);
-    }
-    if secrets.delete(public_key).is_err() {
+        accounts.remove_account(public_key)
+    };
+    let selection_rollback = app_state.save_selected_account(previous_selection);
+    let credential_rollback = secrets.delete(public_key);
+    if metadata_rollback.is_err() || selection_rollback.is_err() || credential_rollback.is_err() {
         let _ = journal.update_operation(
             operation,
             AccountOperationPhase::CompensationPending,
@@ -525,6 +563,8 @@ const fn recovery_required() -> SafeError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use radroots_studio_domain::{
         AccountCreatedAt, AccountSummary, KeyAvailability, PublicKey, SafeError, SafeErrorCode,
         SafeMessage, SecretKeyInput, SignerKind, UnixTimestamp,
@@ -548,6 +588,50 @@ mod tests {
     #[derive(Default)]
     struct FailingInsertRepository {
         inner: InMemoryAccountRepository,
+    }
+
+    #[derive(Default)]
+    struct FailingSelectionRepository {
+        inner: InMemoryAccountRepository,
+        fail_next_selection: AtomicBool,
+    }
+
+    impl AccountRepository for FailingSelectionRepository {
+        fn list_accounts(&self) -> Result<Vec<AccountSummary>, SafeError> {
+            self.inner.list_accounts()
+        }
+
+        fn find_account(&self, public_key: PublicKey) -> Result<Option<AccountSummary>, SafeError> {
+            self.inner.find_account(public_key)
+        }
+
+        fn insert_account(&self, account: &AccountSummary) -> Result<(), SafeError> {
+            self.inner.insert_account(account)
+        }
+
+        fn update_account(&self, account: &AccountSummary) -> Result<(), SafeError> {
+            self.inner.update_account(account)
+        }
+
+        fn remove_account(&self, public_key: PublicKey) -> Result<(), SafeError> {
+            self.inner.remove_account(public_key)
+        }
+    }
+
+    impl AppStateRepository for FailingSelectionRepository {
+        fn load_selected_account(&self) -> Result<Option<PublicKey>, SafeError> {
+            self.inner.load_selected_account()
+        }
+
+        fn save_selected_account(&self, public_key: Option<PublicKey>) -> Result<(), SafeError> {
+            if self.fail_next_selection.swap(false, Ordering::SeqCst) {
+                return Err(SafeError::new(
+                    SafeErrorCode::StorageUnavailable,
+                    SafeMessage::new("The test selection repository is unavailable."),
+                ));
+            }
+            self.inner.save_selected_account(public_key)
+        }
     }
 
     impl AccountRepository for FailingInsertRepository {
@@ -783,6 +867,36 @@ mod tests {
             .err()
             .expect("metadata failure");
         assert_eq!(error.code(), SafeErrorCode::StorageUnavailable);
+        let calls = secrets.calls();
+        assert_eq!(calls[0].operation(), SecretStoreOperation::Put);
+        assert_eq!(calls[1].operation(), SecretStoreOperation::Delete);
+        assert_eq!(calls[0].public_key(), calls[1].public_key());
+        assert!(core.snapshot().accounts().is_empty());
+        assert!(
+            journal
+                .list_pending_operations()
+                .expect("journal")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn account_transaction_rolls_back_metadata_and_credential_when_selection_fails() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = FailingSelectionRepository::default();
+        let secrets = FailureSecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        core.bootstrap().expect("bootstrap");
+        accounts.fail_next_selection.store(true, Ordering::SeqCst);
+
+        let error = core
+            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .err()
+            .expect("selection failure");
+
+        assert_eq!(error.code(), SafeErrorCode::StorageUnavailable);
+        assert!(accounts.list_accounts().expect("accounts").is_empty());
+        assert_eq!(accounts.load_selected_account().expect("selection"), None);
         let calls = secrets.calls();
         assert_eq!(calls[0].operation(), SecretStoreOperation::Put);
         assert_eq!(calls[1].operation(), SecretStoreOperation::Delete);
