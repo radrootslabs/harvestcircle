@@ -21,12 +21,19 @@ pub trait AccountRepository: Send + Sync {
     ///
     /// Returns a safe storage error when the lookup cannot complete.
     fn find_account(&self, public_key: PublicKey) -> Result<Option<AccountSummary>, SafeError>;
-    /// Inserts or updates one public account record.
+    /// Inserts one public account record.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when the durable write fails.
-    fn save_account(&self, account: &AccountSummary) -> Result<(), SafeError>;
+    fn insert_account(&self, account: &AccountSummary) -> Result<(), SafeError>;
+    /// Updates one existing public account record.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe storage or account-not-found error when the durable
+    /// update cannot complete.
+    fn update_account(&self, account: &AccountSummary) -> Result<(), SafeError>;
     /// Removes one public account record.
     ///
     /// # Errors
@@ -137,7 +144,11 @@ mod tests {
             Ok(None)
         }
 
-        fn save_account(&self, _account: &AccountSummary) -> Result<(), SafeError> {
+        fn insert_account(&self, _account: &AccountSummary) -> Result<(), SafeError> {
+            Ok(())
+        }
+
+        fn update_account(&self, _account: &AccountSummary) -> Result<(), SafeError> {
             Ok(())
         }
 

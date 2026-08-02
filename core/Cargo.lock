@@ -390,6 +390,7 @@ version = "0.1.0-alpha.0"
 name = "radroots-studio-storage"
 version = "0.1.0-alpha.0"
 dependencies = [
+ "radroots-studio-application",
  "radroots-studio-domain",
  "refinery",
  "rusqlite",

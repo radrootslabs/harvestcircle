@@ -475,7 +475,7 @@ handoff commit sequence.
 ### RCLD-04
 
 - [x] 15. Create SQLite storage crate and migration runner.
-- [ ] 16. Implement account and selected-account persistence.
+- [x] 16. Implement account and selected-account persistence.
 - [ ] 17. Implement profile cache persistence.
 - [ ] 18. Implement typed account-scoped namespace persistence.
 - [ ] 19. Add operation journal persistence.
