@@ -26,6 +26,102 @@ pub enum AccountPreferenceKey {
     NamespaceProbe,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AccountOperationKind {
+    Add,
+    Import,
+    Remove,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AccountOperationPhase {
+    IntentRecorded,
+    CredentialWritten,
+    MetadataCommitted,
+    CompensationPending,
+    CredentialDeleted,
+    MetadataDeleted,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OperationDiagnostic {
+    StorageUnavailable,
+    KeyringUnavailable,
+    CredentialMissing,
+    CompensationFailed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct OperationId(u64);
+
+impl OperationId {
+    #[must_use]
+    pub const fn from_raw(value: u64) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn as_raw(self) -> u64 {
+        self.0
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingAccountOperation {
+    id: OperationId,
+    kind: AccountOperationKind,
+    subject: PublicKey,
+    phase: AccountOperationPhase,
+    updated_at: UnixTimestamp,
+    diagnostic: Option<OperationDiagnostic>,
+}
+
+impl PendingAccountOperation {
+    #[must_use]
+    pub const fn new(
+        id: OperationId,
+        kind: AccountOperationKind,
+        subject: PublicKey,
+        phase: AccountOperationPhase,
+        updated_at: UnixTimestamp,
+        diagnostic: Option<OperationDiagnostic>,
+    ) -> Self {
+        Self {
+            id,
+            kind,
+            subject,
+            phase,
+            updated_at,
+            diagnostic,
+        }
+    }
+
+    #[must_use]
+    pub const fn id(&self) -> OperationId {
+        self.id
+    }
+    #[must_use]
+    pub const fn kind(&self) -> AccountOperationKind {
+        self.kind
+    }
+    #[must_use]
+    pub const fn subject(&self) -> PublicKey {
+        self.subject
+    }
+    #[must_use]
+    pub const fn phase(&self) -> AccountOperationPhase {
+        self.phase
+    }
+    #[must_use]
+    pub const fn updated_at(&self) -> UnixTimestamp {
+        self.updated_at
+    }
+    #[must_use]
+    pub const fn diagnostic(&self) -> Option<OperationDiagnostic> {
+        self.diagnostic
+    }
+}
+
 impl CachedProfile {
     #[must_use]
     pub const fn new(
@@ -167,6 +263,44 @@ pub trait AppStateRepository: Send + Sync {
     fn save_selected_account(&self, public_key: Option<PublicKey>) -> Result<(), SafeError>;
 }
 
+pub trait OperationJournal: Send + Sync {
+    /// Records one cross-resource account operation intent.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe storage error when the entry cannot be committed.
+    fn begin_operation(
+        &self,
+        kind: AccountOperationKind,
+        subject: PublicKey,
+        updated_at: UnixTimestamp,
+    ) -> Result<OperationId, SafeError>;
+    /// Advances an operation to a durable recovery phase.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe storage error when the entry cannot be updated.
+    fn update_operation(
+        &self,
+        id: OperationId,
+        phase: AccountOperationPhase,
+        updated_at: UnixTimestamp,
+        diagnostic: Option<OperationDiagnostic>,
+    ) -> Result<(), SafeError>;
+    /// Loads all unfinished operations in deterministic order.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe storage error when entries cannot be read.
+    fn list_pending_operations(&self) -> Result<Vec<PendingAccountOperation>, SafeError>;
+    /// Deletes one fully reconciled operation entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe storage error when finalization cannot be committed.
+    fn finalize_operation(&self, id: OperationId) -> Result<(), SafeError>;
+}
+
 pub trait SecretStore: Send + Sync {}
 
 pub trait NostrClient: Send + Sync {
@@ -190,9 +324,10 @@ mod tests {
     };
 
     use super::{
-        AccountNamespaceRepository, AccountPreferenceKey, AccountRepository, AppStateRepository,
-        BoxFuture, CachedProfile, Clock, NostrClient, ProfileRefreshStatus, ProfileRepository,
-        SecretStore,
+        AccountNamespaceRepository, AccountOperationKind, AccountOperationPhase,
+        AccountPreferenceKey, AccountRepository, AppStateRepository, BoxFuture, CachedProfile,
+        Clock, NostrClient, OperationDiagnostic, OperationId, OperationJournal,
+        PendingAccountOperation, ProfileRefreshStatus, ProfileRepository, SecretStore,
     };
 
     #[derive(Default)]
@@ -278,6 +413,35 @@ mod tests {
 
         fn save_selected_account(&self, public_key: Option<PublicKey>) -> Result<(), SafeError> {
             *self.selected.lock().expect("selected lock") = public_key;
+            Ok(())
+        }
+    }
+
+    impl OperationJournal for FakePorts {
+        fn begin_operation(
+            &self,
+            _kind: AccountOperationKind,
+            _subject: PublicKey,
+            _updated_at: UnixTimestamp,
+        ) -> Result<OperationId, SafeError> {
+            Ok(OperationId::from_raw(1))
+        }
+
+        fn update_operation(
+            &self,
+            _id: OperationId,
+            _phase: AccountOperationPhase,
+            _updated_at: UnixTimestamp,
+            _diagnostic: Option<OperationDiagnostic>,
+        ) -> Result<(), SafeError> {
+            Ok(())
+        }
+
+        fn list_pending_operations(&self) -> Result<Vec<PendingAccountOperation>, SafeError> {
+            Ok(Vec::new())
+        }
+
+        fn finalize_operation(&self, _id: OperationId) -> Result<(), SafeError> {
             Ok(())
         }
     }

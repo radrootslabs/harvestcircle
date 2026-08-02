@@ -3,6 +3,7 @@
 pub mod account_namespace;
 pub mod accounts;
 pub mod db;
+pub mod journal;
 pub mod profiles;
 
 pub use db::Database;

@@ -23,3 +23,8 @@ crosses an unavoidable JVM String boundary once and is cleared immediately.
 
 Keyring unavailability is a safe recoverable error. Cross-resource operations
 publish no partial success and use a non-secret journal for restart recovery.
+
+The journal contains only an operation identifier, operation kind, canonical
+public key, phase, safe timestamp, and optional safe diagnostic code. It cannot
+store credential text or arbitrary payloads, and it survives account metadata
+removal until cleanup has been finalized.

@@ -478,7 +478,7 @@ handoff commit sequence.
 - [x] 16. Implement account and selected-account persistence.
 - [x] 17. Implement profile cache persistence.
 - [x] 18. Implement typed account-scoped namespace persistence.
-- [ ] 19. Add operation journal persistence.
+- [x] 19. Add operation journal persistence.
 - [ ] 20. Implement storage adapter wiring for AppCore bootstrap.
 
 ### RCLD-05
