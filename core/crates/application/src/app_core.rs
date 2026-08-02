@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use radroots_studio_domain::{SafeError, SafeErrorCode, SafeMessage};
 
 use crate::{
-    AccountRepository, AppSnapshot, AppStateRepository, RelayConfiguration, StateMachine,
-    StateTransition,
+    AccountRepository, AppSnapshot, AppStateRepository, RelayConfiguration, SnapshotRevision,
+    StateMachine, StateTransition,
 };
 
 pub trait AppObserver: Send + Sync {
@@ -14,6 +14,12 @@ pub trait AppObserver: Send + Sync {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ObserverHandle(u64);
+
+pub struct RemovalConfirmationToken {
+    id: u64,
+    public_key: radroots_studio_domain::PublicKey,
+    revision: SnapshotRevision,
+}
 
 impl ObserverHandle {
     #[must_use]
@@ -26,6 +32,8 @@ struct CoreState {
     state_machine: StateMachine,
     observers: BTreeMap<ObserverHandle, Arc<dyn AppObserver>>,
     next_observer: u64,
+    removal_tokens: BTreeMap<u64, (radroots_studio_domain::PublicKey, SnapshotRevision)>,
+    next_removal_token: u64,
 }
 
 pub struct AppCore {
@@ -42,6 +50,8 @@ impl AppCore {
                 state_machine: StateMachine::booting(),
                 observers: BTreeMap::new(),
                 next_observer: 1,
+                removal_tokens: BTreeMap::new(),
+                next_removal_token: 1,
             }),
         }
     }
@@ -137,6 +147,51 @@ impl AppCore {
         Ok(snapshot)
     }
 
+    pub(crate) fn issue_removal_token(
+        &self,
+        public_key: radroots_studio_domain::PublicKey,
+    ) -> Result<RemovalConfirmationToken, SafeError> {
+        let mut state = self.lock_state();
+        if !state
+            .state_machine
+            .snapshot()
+            .accounts()
+            .iter()
+            .any(|account| account.public_key() == public_key)
+        {
+            return Err(account_not_found());
+        }
+        let id = state.next_removal_token;
+        state.next_removal_token = id.checked_add(1).ok_or_else(invalid_application_state)?;
+        let revision = state.state_machine.snapshot().revision();
+        state.removal_tokens.insert(id, (public_key, revision));
+        Ok(RemovalConfirmationToken {
+            id,
+            public_key,
+            revision,
+        })
+    }
+
+    #[allow(clippy::needless_pass_by_value)]
+    pub(crate) fn consume_removal_token(
+        &self,
+        token: RemovalConfirmationToken,
+    ) -> Result<radroots_studio_domain::PublicKey, SafeError> {
+        let RemovalConfirmationToken {
+            id,
+            public_key,
+            revision,
+        } = token;
+        let mut state = self.lock_state();
+        let stored = state.removal_tokens.remove(&id);
+        if stored != Some((public_key, revision))
+            || state.state_machine.snapshot().revision() != revision
+        {
+            return Err(invalid_application_state());
+        }
+        Ok(public_key)
+    }
+
     fn lock_state(&self) -> MutexGuard<'_, CoreState> {
         self.state
             .lock()
@@ -148,6 +203,20 @@ const fn observer_registration_failed() -> SafeError {
     SafeError::new(
         SafeErrorCode::ObserverRegistrationFailed,
         SafeMessage::new("The application observer could not be registered."),
+    )
+}
+
+const fn invalid_application_state() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::InvalidApplicationState,
+        SafeMessage::new("The account removal confirmation is no longer valid."),
+    )
+}
+
+const fn account_not_found() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::AccountNotFound,
+        SafeMessage::new("The account was not found."),
     )
 }
 

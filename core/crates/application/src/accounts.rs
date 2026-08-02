@@ -9,7 +9,7 @@ use radroots_studio_nostr::{generate_local_keypair, import_secret};
 use crate::{
     AccountOperationKind, AccountOperationPhase, AccountRepository, AppCore, AppStateRepository,
     Clock, OperationDiagnostic, OperationId, OperationJournal, PendingAccountOperation,
-    SecretStore, StateTransition,
+    RemovalConfirmationToken, SecretStore, StateTransition,
 };
 
 pub struct GenerateAccountReceipt {
@@ -42,6 +42,84 @@ impl GenerateAccountReceipt {
 }
 
 impl AppCore {
+    /// Issues a single-use confirmation bound to the target and current revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe account or application-state error.
+    pub fn request_account_removal(
+        &self,
+        public_key: PublicKey,
+    ) -> Result<RemovalConfirmationToken, SafeError> {
+        self.issue_removal_token(public_key)
+    }
+
+    /// Permanently removes a confirmed account and selects a deterministic fallback.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe confirmation, credential, persistence, recovery, or state error.
+    pub fn confirm_account_removal(
+        &self,
+        token: RemovalConfirmationToken,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+        secrets: &(impl SecretStore + ?Sized),
+        journal: &(impl OperationJournal + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<crate::AppSnapshot, SafeError> {
+        let public_key = self.consume_removal_token(token)?;
+        let registry = accounts.list_accounts()?;
+        let index = registry
+            .iter()
+            .position(|account| account.public_key() == public_key)
+            .ok_or_else(account_not_found)?;
+        let selected = if self.snapshot().selected_account() == Some(public_key) {
+            registry
+                .get(index + 1)
+                .or_else(|| index.checked_sub(1).and_then(|before| registry.get(before)))
+                .map(AccountSummary::public_key)
+        } else {
+            self.snapshot().selected_account()
+        };
+        let operation =
+            journal.begin_operation(AccountOperationKind::Remove, public_key, clock.now())?;
+        let was_active = self
+            .snapshot()
+            .active_account()
+            .is_some_and(|active| active.account().public_key() == public_key);
+        if was_active {
+            self.sign_out()?;
+        }
+        let account = &registry[index];
+        match secrets.delete(public_key) {
+            Ok(()) => {}
+            Err(error)
+                if error.code() == SafeErrorCode::CredentialMissing
+                    && account.key_availability() == KeyAvailability::CredentialMissing => {}
+            Err(error) => return Err(error),
+        }
+        journal.update_operation(
+            operation,
+            AccountOperationPhase::CredentialDeleted,
+            clock.now(),
+            None,
+        )?;
+        accounts.remove_account(public_key)?;
+        app_state.save_selected_account(selected)?;
+        journal.update_operation(
+            operation,
+            AccountOperationPhase::MetadataDeleted,
+            clock.now(),
+            None,
+        )?;
+        journal.finalize_operation(operation)?;
+        self.apply_transition(StateTransition::ReplaceRegistryPreservingSession {
+            accounts: accounts.list_accounts()?,
+            selected,
+        })
+    }
+
     /// Persists and publishes a saved account selection without activating it.
     ///
     /// # Errors
@@ -775,5 +853,45 @@ mod tests {
             .expect_err("missing account");
         assert_eq!(missing.code(), SafeErrorCode::AccountNotFound);
         assert_eq!(core.snapshot(), selected);
+    }
+
+    #[test]
+    fn remove_account_requires_fresh_single_use_confirmation_and_selects_next_fallback() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        core.bootstrap().expect("bootstrap");
+        let first = core
+            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect("first")
+            .account()
+            .public_key();
+        let second = core
+            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect("second")
+            .account()
+            .public_key();
+        core.select_account(first, &accounts, &accounts)
+            .expect("select first");
+        let stale = core.request_account_removal(first).expect("stale token");
+        core.select_account(second, &accounts, &accounts)
+            .expect("change revision");
+        let stale_error = core
+            .confirm_account_removal(stale, &accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect_err("stale token");
+        assert_eq!(stale_error.code(), SafeErrorCode::InvalidApplicationState);
+        assert_eq!(core.snapshot().accounts().len(), 2);
+
+        core.select_account(first, &accounts, &accounts)
+            .expect("reselect first");
+        let token = core.request_account_removal(first).expect("token");
+        let removed = core
+            .confirm_account_removal(token, &accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect("remove");
+        assert_eq!(removed.accounts().len(), 1);
+        assert_eq!(removed.selected_account(), Some(second));
+        assert!(!secrets.contains(first).expect("credential removed"));
+        assert_eq!(removed.session(), SessionState::SignedOut);
     }
 }

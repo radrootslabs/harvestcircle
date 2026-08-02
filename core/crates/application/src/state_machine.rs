@@ -14,6 +14,10 @@ pub enum StateTransition {
         accounts: Vec<AccountSummary>,
         selected: Option<PublicKey>,
     },
+    ReplaceRegistryPreservingSession {
+        accounts: Vec<AccountSummary>,
+        selected: Option<PublicKey>,
+    },
     Select(PublicKey),
     BeginActivation(PublicKey),
     ActivationSucceeded(Box<ActiveAccountSnapshot>),
@@ -74,6 +78,9 @@ impl StateMachine {
             }
             StateTransition::ReplaceRegistry { accounts, selected } => {
                 self.replace_registry(next_revision, accounts, selected)?
+            }
+            StateTransition::ReplaceRegistryPreservingSession { accounts, selected } => {
+                self.replace_registry_preserving_session(next_revision, accounts, selected)?
             }
             StateTransition::Select(public_key) => self.select(next_revision, public_key)?,
             StateTransition::BeginActivation(public_key) => {
@@ -152,6 +159,24 @@ impl StateMachine {
             selected,
             SessionState::SignedOut,
             None,
+            None,
+        )
+    }
+
+    fn replace_registry_preserving_session(
+        &mut self,
+        revision: crate::SnapshotRevision,
+        accounts: Vec<AccountSummary>,
+        selected: Option<PublicKey>,
+    ) -> Result<AppSnapshot, SafeError> {
+        self.pending_activation = None;
+        AppSnapshot::ready(
+            revision,
+            self.snapshot.relay_configuration().clone(),
+            accounts,
+            selected,
+            self.snapshot.session(),
+            self.snapshot.active_account().cloned(),
             None,
         )
     }

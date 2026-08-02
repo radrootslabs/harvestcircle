@@ -12,7 +12,7 @@ pub use accounts::{
     GenerateAccountReceipt, ImportAccountReceipt, InMemoryAccountRepository,
     InMemoryOperationJournal,
 };
-pub use app_core::{AppCore, AppObserver, ObserverHandle};
+pub use app_core::{AppCore, AppObserver, ObserverHandle, RemovalConfirmationToken};
 pub use ports::{
     AccountNamespaceRepository, AccountOperationKind, AccountOperationPhase, AccountPreferenceKey,
     AccountRepository, AppStateRepository, BoxFuture, CachedProfile, Clock, NostrClient,

@@ -2,7 +2,7 @@ use std::path::Path;
 
 use radroots_studio_application::{
     AppCore, AppSnapshot, Clock, GenerateAccountReceipt, ImportAccountReceipt, RelayConfiguration,
-    SecretStore,
+    RemovalConfirmationToken, SecretStore,
 };
 use radroots_studio_domain::{PublicKey, SafeError, SecretKeyInput};
 
@@ -126,6 +126,39 @@ impl PersistentAppCore {
     /// Returns a safe application-state error if sign out cannot complete.
     pub fn sign_out(&self) -> Result<AppSnapshot, SafeError> {
         self.core.sign_out()
+    }
+
+    /// Issues a revision-bound, single-use account-removal confirmation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe error when the target account is not saved.
+    pub fn request_account_removal(
+        &self,
+        public_key: PublicKey,
+    ) -> Result<RemovalConfirmationToken, SafeError> {
+        self.core.request_account_removal(public_key)
+    }
+
+    /// Permanently removes one confirmed account and its credential.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe confirmation, credential, storage, recovery, or state error.
+    pub fn confirm_account_removal(
+        &self,
+        token: RemovalConfirmationToken,
+        secrets: &(impl SecretStore + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<AppSnapshot, SafeError> {
+        self.core.confirm_account_removal(
+            token,
+            &self.database,
+            &self.database,
+            secrets,
+            &self.database,
+            clock,
+        )
     }
 
     #[must_use]
