@@ -242,7 +242,8 @@ fn validate_snapshot(
         || selected_account.is_some_and(|key| !unique_accounts.contains(&key))
         || active_account
             .is_some_and(|active| !unique_accounts.contains(&active.account().public_key()))
-        || (matches!(session, SessionState::Active) != active_account.is_some())
+        || (matches!(session, SessionState::Active) && active_account.is_none())
+        || (matches!(session, SessionState::SignedOut) && active_account.is_some())
     {
         return Err(invalid_snapshot());
     }

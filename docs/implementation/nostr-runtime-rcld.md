@@ -278,7 +278,7 @@ and focused domain tests.
 
 ### RCLD-03: Application state machine
 
-Status: in progress.
+Status: completed.
 
 Scope: checkpoints 12 through 14. Define repository, secret, clock, and Nostr
 ports; implement in-memory AppCore bootstrap, command serialization, monotonic
@@ -470,7 +470,7 @@ handoff commit sequence.
 - [x] 12. Add application ports for repositories, secrets, clock, and Nostr
   client.
 - [x] 13. Implement in-memory AppCore bootstrap and observer registry.
-- [ ] 14. Add state transition helpers and command trace tests.
+- [x] 14. Add state transition helpers and command trace tests.
 
 ### RCLD-04
 
@@ -553,7 +553,7 @@ handoff commit sequence.
 
 - [x] RCLD-01: Authority and dependency baseline.
 - [x] RCLD-02: Rust workspace and domain.
-- [ ] RCLD-03: Application state machine.
+- [x] RCLD-03: Application state machine.
 - [ ] RCLD-04: SQLite persistence.
 - [ ] RCLD-05: Credential boundary.
 - [ ] RCLD-06: Account generation and import.

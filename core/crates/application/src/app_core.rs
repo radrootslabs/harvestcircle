@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use radroots_studio_domain::{SafeError, SafeErrorCode, SafeMessage};
 
-use crate::{AppSnapshot, RelayConfiguration, SessionState};
+use crate::{AppSnapshot, RelayConfiguration, StateMachine, StateTransition};
 
 pub trait AppObserver: Send + Sync {
     fn on_snapshot_changed(&self, snapshot: AppSnapshot);
@@ -20,7 +20,7 @@ impl ObserverHandle {
 }
 
 struct CoreState {
-    snapshot: AppSnapshot,
+    state_machine: StateMachine,
     observers: BTreeMap<ObserverHandle, Arc<dyn AppObserver>>,
     next_observer: u64,
 }
@@ -36,7 +36,7 @@ impl AppCore {
         Self {
             relay_configuration,
             state: Mutex::new(CoreState {
-                snapshot: AppSnapshot::booting(),
+                state_machine: StateMachine::booting(),
                 observers: BTreeMap::new(),
                 next_observer: 1,
             }),
@@ -50,32 +50,12 @@ impl AppCore {
     /// Returns a safe application-state error if the ready snapshot invariant
     /// cannot be constructed.
     pub fn bootstrap(&self) -> Result<AppSnapshot, SafeError> {
-        let next_snapshot = {
-            let state = self.lock_state();
-            if !matches!(state.snapshot.lifecycle(), crate::AppLifecycle::Booting) {
-                return Ok(state.snapshot.clone());
-            }
-            AppSnapshot::ready(
-                state
-                    .snapshot
-                    .revision()
-                    .next()
-                    .ok_or_else(invalid_application_state)?,
-                self.relay_configuration.clone(),
-                Vec::new(),
-                None,
-                SessionState::SignedOut,
-                None,
-                None,
-            )?
-        };
-        self.publish(&next_snapshot);
-        Ok(next_snapshot)
+        self.apply_transition(StateTransition::Bootstrap)
     }
 
     #[must_use]
     pub fn snapshot(&self) -> AppSnapshot {
-        self.lock_state().snapshot.clone()
+        self.lock_state().state_machine.snapshot().clone()
     }
 
     /// Registers an observer and immediately supplies the current snapshot.
@@ -93,7 +73,7 @@ impl AppCore {
                 .ok_or_else(observer_registration_failed)?;
             let registered = Arc::clone(&observer);
             state.observers.insert(handle, observer);
-            (handle, state.snapshot.clone(), registered)
+            (handle, state.state_machine.snapshot().clone(), registered)
         };
         observer.on_snapshot_changed(snapshot);
         Ok(handle)
@@ -104,15 +84,24 @@ impl AppCore {
         self.lock_state().observers.remove(&handle).is_some()
     }
 
-    fn publish(&self, snapshot: &AppSnapshot) {
-        let observers = {
+    fn apply_transition(&self, transition: StateTransition) -> Result<AppSnapshot, SafeError> {
+        let (snapshot, observers) = {
             let mut state = self.lock_state();
-            state.snapshot.clone_from(snapshot);
-            state.observers.values().cloned().collect::<Vec<_>>()
+            let previous_revision = state.state_machine.snapshot().revision();
+            let snapshot = state
+                .state_machine
+                .apply(transition, &self.relay_configuration)?;
+            let observers = if snapshot.revision() == previous_revision {
+                Vec::new()
+            } else {
+                state.observers.values().cloned().collect::<Vec<_>>()
+            };
+            (snapshot, observers)
         };
         for observer in observers {
             observer.on_snapshot_changed(snapshot.clone());
         }
+        Ok(snapshot)
     }
 
     fn lock_state(&self) -> MutexGuard<'_, CoreState> {
@@ -120,13 +109,6 @@ impl AppCore {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
-}
-
-const fn invalid_application_state() -> SafeError {
-    SafeError::new(
-        SafeErrorCode::InvalidApplicationState,
-        SafeMessage::new("The application state is invalid."),
-    )
 }
 
 const fn observer_registration_failed() -> SafeError {
