@@ -7,7 +7,7 @@ use refinery::embed_migrations;
 use rusqlite::{Connection, OpenFlags};
 
 #[cfg(test)]
-const LATEST_SCHEMA_VERSION: u32 = 3;
+const LATEST_SCHEMA_VERSION: u32 = 4;
 
 mod migrations {
     use super::embed_migrations;

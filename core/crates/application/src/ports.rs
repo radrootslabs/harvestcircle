@@ -21,6 +21,11 @@ pub struct CachedProfile {
     refresh_status: ProfileRefreshStatus,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AccountPreferenceKey {
+    NamespaceProbe,
+}
+
 impl CachedProfile {
     #[must_use]
     pub const fn new(
@@ -123,13 +128,22 @@ pub trait AccountNamespaceRepository: Send + Sync {
     /// # Errors
     ///
     /// Returns a safe storage error when the value cannot be read.
-    fn get_value(&self, owner: PublicKey, key: &str) -> Result<Option<String>, SafeError>;
+    fn get_value(
+        &self,
+        owner: PublicKey,
+        key: AccountPreferenceKey,
+    ) -> Result<Option<String>, SafeError>;
     /// Writes one internal non-secret account-scoped value.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when the value cannot be committed.
-    fn set_value(&self, owner: PublicKey, key: &str, value: &str) -> Result<(), SafeError>;
+    fn set_value(
+        &self,
+        owner: PublicKey,
+        key: AccountPreferenceKey,
+        value: &str,
+    ) -> Result<(), SafeError>;
     /// Removes all internal values owned by an account.
     ///
     /// # Errors
@@ -176,8 +190,9 @@ mod tests {
     };
 
     use super::{
-        AccountNamespaceRepository, AccountRepository, AppStateRepository, BoxFuture,
-        CachedProfile, Clock, NostrClient, ProfileRefreshStatus, ProfileRepository, SecretStore,
+        AccountNamespaceRepository, AccountPreferenceKey, AccountRepository, AppStateRepository,
+        BoxFuture, CachedProfile, Clock, NostrClient, ProfileRefreshStatus, ProfileRepository,
+        SecretStore,
     };
 
     #[derive(Default)]
@@ -234,11 +249,20 @@ mod tests {
     }
 
     impl AccountNamespaceRepository for FakePorts {
-        fn get_value(&self, _owner: PublicKey, _key: &str) -> Result<Option<String>, SafeError> {
+        fn get_value(
+            &self,
+            _owner: PublicKey,
+            _key: AccountPreferenceKey,
+        ) -> Result<Option<String>, SafeError> {
             Ok(None)
         }
 
-        fn set_value(&self, _owner: PublicKey, _key: &str, _value: &str) -> Result<(), SafeError> {
+        fn set_value(
+            &self,
+            _owner: PublicKey,
+            _key: AccountPreferenceKey,
+            _value: &str,
+        ) -> Result<(), SafeError> {
             Ok(())
         }
 
