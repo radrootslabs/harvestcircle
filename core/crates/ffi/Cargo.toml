@@ -18,6 +18,9 @@ tokio.workspace = true
 uniffi.workspace = true
 
 [dev-dependencies]
+nostr.workspace = true
+nostr-relay-builder.workspace = true
+nostr-sdk.workspace = true
 tempfile = "=3.23.0"
 
 [lints]

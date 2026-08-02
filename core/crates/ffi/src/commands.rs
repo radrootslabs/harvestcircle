@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use directories::ProjectDirs;
 use radroots_studio_application::{
-    Clock, RelayRuntimeMode, RemovalConfirmationToken, SdkNostrClient,
+    Clock, RelayRuntimeMode, RemovalConfirmationToken, SdkNostrClient, SecretStore,
     relay_configuration_from_environment,
 };
 use radroots_studio_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
@@ -61,7 +61,7 @@ impl RemovalRequest {
 
 pub(crate) struct RuntimeCore {
     pub(crate) adapter: PersistentAppCore,
-    pub(crate) secrets: OsKeyringSecretStore,
+    pub(crate) secrets: Arc<dyn SecretStore>,
     pub(crate) clock: SystemClock,
     pub(crate) nostr: SdkNostrClient,
     pub(crate) observers: Mutex<BTreeSet<radroots_studio_application::ObserverHandle>>,
@@ -98,7 +98,7 @@ impl StudioAppCore {
         blocking(move || {
             inner
                 .adapter
-                .bootstrap(&inner.secrets, &inner.clock)
+                .bootstrap(inner.secrets.as_ref(), &inner.clock)
                 .map(|snapshot| (&snapshot).into())
         })
         .await
@@ -119,7 +119,7 @@ impl StudioAppCore {
         blocking(move || {
             let receipt = inner
                 .adapter
-                .generate_account(&inner.secrets, &inner.clock)?;
+                .generate_account(inner.secrets.as_ref(), &inner.clock)?;
             Ok(GeneratedAccountDto {
                 account: receipt.account().into(),
                 snapshot: (&inner.adapter.core().snapshot()).into(),
@@ -143,7 +143,7 @@ impl StudioAppCore {
         blocking(move || {
             inner
                 .adapter
-                .import_secret_key(input, &inner.secrets, &inner.clock)?;
+                .import_secret_key(input, inner.secrets.as_ref(), &inner.clock)?;
             Ok((&inner.adapter.core().snapshot()).into())
         })
         .await
@@ -183,7 +183,7 @@ impl StudioAppCore {
         blocking(move || {
             inner
                 .adapter
-                .activate_account(public_key, &inner.secrets, &inner.clock)
+                .activate_account(public_key, inner.secrets.as_ref(), &inner.clock)
                 .map(|snapshot| (&snapshot).into())
         })
         .await
@@ -260,7 +260,7 @@ impl StudioAppCore {
         blocking(move || {
             inner
                 .adapter
-                .confirm_account_removal(token, &inner.secrets, &inner.clock)
+                .confirm_account_removal(token, inner.secrets.as_ref(), &inner.clock)
                 .map(|snapshot| (&snapshot).into())
         })
         .await
@@ -279,7 +279,7 @@ impl StudioAppCore {
         Ok(Arc::new(Self {
             inner: Arc::new(RuntimeCore {
                 adapter,
-                secrets: OsKeyringSecretStore,
+                secrets: Arc::new(OsKeyringSecretStore),
                 clock: SystemClock,
                 nostr: SdkNostrClient::new(Duration::from_secs(5)),
                 observers: Mutex::new(BTreeSet::new()),
@@ -371,7 +371,7 @@ mod tests {
             inner: Arc::new(RuntimeCore {
                 adapter: PersistentAppCore::in_memory(RelayConfiguration::default())
                     .expect("in-memory core"),
-                secrets: radroots_studio_storage::OsKeyringSecretStore,
+                secrets: Arc::new(radroots_studio_application::InMemorySecretStore::default()),
                 clock: SystemClock,
                 nostr: radroots_studio_application::SdkNostrClient::new(
                     std::time::Duration::from_millis(10),

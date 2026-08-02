@@ -1733,6 +1733,9 @@ name = "radroots-studio-ffi"
 version = "0.1.0-alpha.0"
 dependencies = [
  "directories",
+ "nostr",
+ "nostr-relay-builder",
+ "nostr-sdk",
  "radroots-studio-application",
  "radroots-studio-domain",
  "radroots-studio-storage",

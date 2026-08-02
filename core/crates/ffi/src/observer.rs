@@ -114,12 +114,19 @@ fn closed_error() -> StudioError {
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
+    use nostr::{EventBuilder, Keys, Metadata};
+    use nostr_relay_builder::MockRelay;
+    use nostr_sdk::Client;
     use radroots_studio_application::RelayConfiguration;
+    use radroots_studio_domain::RelayUrl;
     use radroots_studio_storage::PersistentAppCore;
 
     use crate::commands::{RuntimeCore, SystemClock};
-    use crate::{AppSnapshotDto, StudioAppCore, StudioObserver};
+    use crate::{AppSnapshotDto, ProfileLoadStateDto, StudioAppCore, StudioObserver};
+
+    const SECRET_HEX: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
 
     #[derive(Default)]
     struct RecordingObserver {
@@ -137,10 +144,14 @@ mod tests {
     }
 
     fn core() -> Arc<StudioAppCore> {
+        core_with_relays(RelayConfiguration::default())
+    }
+
+    fn core_with_relays(relays: RelayConfiguration) -> Arc<StudioAppCore> {
         Arc::new(StudioAppCore {
             inner: Arc::new(RuntimeCore {
-                adapter: PersistentAppCore::in_memory(RelayConfiguration::default()).expect("core"),
-                secrets: radroots_studio_storage::OsKeyringSecretStore,
+                adapter: PersistentAppCore::in_memory(relays).expect("core"),
+                secrets: Arc::new(radroots_studio_application::InMemorySecretStore::default()),
                 clock: SystemClock,
                 nostr: radroots_studio_application::SdkNostrClient::new(
                     std::time::Duration::from_millis(10),
@@ -187,6 +198,62 @@ mod tests {
 
         assert!(core.subscribe(Box::new(ArcObserver(observer))).is_err());
         assert!(core.inner.observers.lock().expect("observers").is_empty());
+    }
+
+    #[tokio::test]
+    async fn ffi_callback_receives_async_profile_refresh_and_stops_after_unsubscribe() {
+        let local_relay = MockRelay::run().await.expect("local relay");
+        let relay_url = local_relay.url().await;
+        let publisher = Client::new(Keys::parse(SECRET_HEX).expect("known key"));
+        publisher
+            .add_relay(relay_url.clone())
+            .await
+            .expect("publisher relay");
+        publisher.connect().await;
+        publisher.wait_for_connection(Duration::from_secs(2)).await;
+        publisher
+            .send_event_builder(EventBuilder::metadata(
+                &Metadata::new().display_name("FFI Profile"),
+            ))
+            .await
+            .expect("publish profile");
+
+        let core = core_with_relays(RelayConfiguration::new(vec![
+            RelayUrl::parse(relay_url.as_str()).expect("relay URL"),
+        ]));
+        core.bootstrap().await.expect("bootstrap");
+        let observer = Arc::new(RecordingObserver::default());
+        *observer.core.lock().expect("core") = Some(Arc::clone(&core));
+        let subscription = core
+            .subscribe(Box::new(ArcObserver(observer.clone())))
+            .expect("subscribe");
+        let imported = core
+            .import_secret_key(SECRET_HEX.to_owned())
+            .await
+            .expect("import");
+        let public_key = imported.selected_public_key_hex.expect("selection");
+        core.activate_account(public_key).await.expect("activate");
+        core.refresh_active_profile().await.expect("refresh");
+
+        let snapshots = observer.snapshots.lock().expect("snapshots").clone();
+        assert!(snapshots.iter().any(|snapshot| {
+            snapshot.active_account.as_ref().is_some_and(|active| {
+                active.profile_state == ProfileLoadStateDto::Fresh
+                    && active
+                        .profile
+                        .as_ref()
+                        .and_then(|profile| profile.display_name.as_deref())
+                        == Some("FFI Profile")
+            })
+        }));
+        subscription.unsubscribe();
+        let count = observer.snapshots.lock().expect("snapshots").len();
+        core.sign_out().await.expect("sign out");
+        assert_eq!(observer.snapshots.lock().expect("snapshots").len(), count);
+
+        core.shutdown();
+        publisher.shutdown().await;
+        local_relay.shutdown();
     }
 
     struct ArcObserver(Arc<RecordingObserver>);

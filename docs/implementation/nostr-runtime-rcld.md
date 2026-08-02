@@ -414,7 +414,7 @@ guards, and native-loader smoke.
 
 ### RCLD-11: End-to-end integration hardening
 
-Status: pending.
+Status: completed.
 
 Scope: checkpoints 58 and 59. Add full local-relay end-to-end coverage plus
 restart, account isolation, FFI callback, cancellation, deregistration, stale
@@ -545,7 +545,7 @@ handoff commit sequence.
 ### RCLD-11
 
 - [x] 58. Add full local-relay end-to-end integration test.
-- [ ] 59. Add restart, account isolation, and FFI callback integration tests.
+- [x] 59. Add restart, account isolation, and FFI callback integration tests.
 
 ### RCLD-12
 
@@ -567,5 +567,5 @@ handoff commit sequence.
 - [x] RCLD-08: Relay and profile runtime.
 - [x] RCLD-09: UniFFI and native build integration.
 - [x] RCLD-10: Thin Kotlin shell and minimal UI.
-- [ ] RCLD-11: End-to-end integration hardening.
+- [x] RCLD-11: End-to-end integration hardening.
 - [ ] RCLD-12: Documentation and acceptance reconciliation.
