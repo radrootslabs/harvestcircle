@@ -44,6 +44,7 @@ data class StudioUiModel(
     val importDraft: String,
     val generatedKeyBackup: GeneratedKeyBackupUiModel?,
     val pendingRemovalPublicKeyHex: String?,
+    val accountChooserVisible: Boolean,
     val session: SessionStateDto,
     val busy: Boolean,
     val problem: String?,
@@ -61,6 +62,7 @@ fun StudioStoreState.toUiModel(): StudioUiModel {
             GeneratedKeyBackupUiModel(npub = it.npub, nsec = it.nsec)
         },
         pendingRemovalPublicKeyHex = pendingRemovalPublicKeyHex,
+        accountChooserVisible = accountChooserVisible,
         session = snapshot.session,
         busy = busy,
         problem = problem

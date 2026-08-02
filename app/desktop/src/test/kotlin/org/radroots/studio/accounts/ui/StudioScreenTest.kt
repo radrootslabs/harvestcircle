@@ -174,6 +174,47 @@ class StudioScreenTest {
         assertEquals(1, refreshCalls)
         assertEquals(1, signOutCalls)
     }
+
+    @Test
+    fun activeAccountCanOpenChooserWithoutDroppingCurrentSession() = runComposeUiTest {
+        val first = accountUi("44".repeat(32), selected = true)
+        val second = accountUi("55".repeat(32), selected = false)
+        val active = ActiveAccountUiModel(
+            account = first,
+            heading = first.label,
+            relayState = "connected",
+            profileState = "cached",
+            profile = ProfileUiModel("", "", "", "", ""),
+        )
+        var chooserVisible by mutableStateOf(false)
+        var activated: String? = null
+        setContent {
+            StudioScreen(
+                model = emptyUiModel().copy(
+                    accounts = listOf(first, second),
+                    activeAccount = active,
+                    session = SessionStateDto.ACTIVE,
+                    accountChooserVisible = chooserVisible,
+                ),
+                actions = StudioUiActions(
+                    showAccountChooser = { chooserVisible = true },
+                    hideAccountChooser = { chooserVisible = false },
+                    activateAccount = { activated = it },
+                ),
+            )
+        }
+
+        onNodeWithTag("switch-account").performClick()
+        onNodeWithTag("accounts-screen").assertIsDisplayed()
+        onNodeWithTag("activate-account:${second.publicKeyHex}", useUnmergedTree = true).performClick()
+        assertEquals(second.publicKeyHex, activated)
+        assertEquals(SessionStateDto.ACTIVE, emptyUiModel().copy(
+            activeAccount = active,
+            session = SessionStateDto.ACTIVE,
+        ).session)
+        onNodeWithTag("return-home").performClick()
+        onNodeWithTag("home-screen").assertIsDisplayed()
+    }
 }
 
 private fun emptyUiModel(
@@ -186,6 +227,7 @@ private fun emptyUiModel(
     importDraft = importDraft,
     generatedKeyBackup = null,
     pendingRemovalPublicKeyHex = null,
+    accountChooserVisible = false,
     session = SessionStateDto.SIGNED_OUT,
     busy = false,
     problem = problem,

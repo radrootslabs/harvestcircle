@@ -18,6 +18,7 @@ data class StudioStoreState(
     val importDraft: String = "",
     val generatedKeyBackup: GeneratedKeyBackup? = null,
     val pendingRemovalPublicKeyHex: String? = null,
+    val accountChooserVisible: Boolean = false,
     val busy: Boolean = false,
     val problem: String? = null,
 )
@@ -70,11 +71,27 @@ class StudioAppStore(
     }
 
     fun activateAccount(publicKeyHex: String) {
-        runCommand { gateway.activateAccount(publicKeyHex) }
+        runCommand {
+            gateway.activateAccount(publicKeyHex).also {
+                mutableState.value = mutableState.value.copy(accountChooserVisible = false)
+            }
+        }
     }
 
     fun signOut() {
-        runCommand { gateway.signOut() }
+        runCommand {
+            gateway.signOut().also {
+                mutableState.value = mutableState.value.copy(accountChooserVisible = false)
+            }
+        }
+    }
+
+    fun showAccountChooser() {
+        mutableState.value = mutableState.value.copy(accountChooserVisible = true, problem = null)
+    }
+
+    fun hideAccountChooser() {
+        mutableState.value = mutableState.value.copy(accountChooserVisible = false)
     }
 
     fun refreshActiveProfile() {

@@ -38,6 +38,7 @@ class AccountsUiModelTest {
         assertEquals("fresh", model.activeAccount?.profileState)
         assertEquals("alice@example.com", model.activeAccount?.profile?.nip05)
         assertEquals(listOf("ws://localhost:8080"), model.configuredRelays)
+        assertFalse(model.accountChooserVisible)
         assertFalse(model.accounts.single().label.contains("server", ignoreCase = true))
     }
 

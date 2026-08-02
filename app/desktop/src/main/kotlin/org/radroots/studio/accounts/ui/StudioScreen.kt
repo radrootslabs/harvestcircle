@@ -42,6 +42,8 @@ data class StudioUiActions(
     val confirmAccountRemoval: () -> Unit = {},
     val refreshActiveProfile: () -> Unit = {},
     val signOut: () -> Unit = {},
+    val showAccountChooser: () -> Unit = {},
+    val hideAccountChooser: () -> Unit = {},
 )
 
 @Composable
@@ -49,7 +51,11 @@ fun StudioScreen(
     model: StudioUiModel,
     actions: StudioUiActions,
 ) {
-    if (model.session == org.radroots.studio.ffi.SessionStateDto.ACTIVE && model.activeAccount != null) {
+    if (
+        model.session == org.radroots.studio.ffi.SessionStateDto.ACTIVE &&
+        model.activeAccount != null &&
+        !model.accountChooserVisible
+    ) {
         ActiveAccountHome(model, model.activeAccount, actions)
     } else {
         InactiveAccountsScreen(model, actions)
@@ -88,6 +94,13 @@ private fun ActiveAccountHome(
             model.configuredRelays.forEach { relay -> BasicText(relay) }
         }
         TextAction(
+            text = "Switch account",
+            testTag = "switch-account",
+            contentDescription = "Choose another saved account",
+            enabled = !model.busy,
+            onClick = actions.showAccountChooser,
+        )
+        TextAction(
             text = "Refresh metadata",
             testTag = "refresh-profile",
             contentDescription = "Refresh active Nostr profile metadata",
@@ -120,6 +133,16 @@ private fun InactiveAccountsScreen(
     ) {
         BasicText("radroots")
         BasicText("Accounts")
+
+        if (model.activeAccount != null) {
+            BasicText("Choose an account to activate. The current account remains active until replacement succeeds.")
+            TextAction(
+                text = "Back to active account",
+                testTag = "return-home",
+                contentDescription = "Return to the active account",
+                onClick = actions.hideAccountChooser,
+            )
+        }
 
         TextAction(
             text = "Generate new key",
