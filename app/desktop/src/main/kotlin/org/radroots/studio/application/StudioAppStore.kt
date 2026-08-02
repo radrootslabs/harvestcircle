@@ -58,12 +58,10 @@ class StudioAppStore(
     }
 
     fun importSecretKey() {
+        if (command?.isActive == true) return
         val input = mutableState.value.importDraft
-        runCommand {
-            gateway.importSecretKey(input).also {
-                mutableState.value = mutableState.value.copy(importDraft = "")
-            }
-        }
+        mutableState.value = mutableState.value.copy(importDraft = "")
+        runCommand { gateway.importSecretKey(input) }
     }
 
     fun selectAccount(publicKeyHex: String) {

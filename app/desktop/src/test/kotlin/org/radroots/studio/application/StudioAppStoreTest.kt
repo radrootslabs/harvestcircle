@@ -64,6 +64,22 @@ class StudioAppStoreTest {
         assertEquals(1, gateway.signOutCalls)
         store.close()
     }
+
+    @Test
+    fun `clears imported secret draft as soon as command is accepted`() = runTest {
+        val gateway = FakeStudioCoreGateway(snapshot(0UL))
+        val store = StudioAppStore(gateway, this)
+        advanceUntilIdle()
+        store.editImportDraft("nsec1secret")
+
+        store.importSecretKey()
+
+        assertEquals("", store.state.value.importDraft)
+        assertEquals(emptyList(), gateway.importedSecrets)
+        advanceUntilIdle()
+        assertEquals(listOf("nsec1secret"), gateway.importedSecrets)
+        store.close()
+    }
 }
 
 private class FakeStudioCoreGateway(
@@ -73,6 +89,7 @@ private class FakeStudioCoreGateway(
     var closed = false
     var subscriptionClosed = false
     var signOutCalls = 0
+    val importedSecrets = mutableListOf<String>()
 
     override fun snapshot(): AppSnapshotDto = current
 
@@ -94,7 +111,9 @@ private class FakeStudioCoreGateway(
         return GeneratedAccountDto(account(), next, "nsec1secret")
     }
 
-    override suspend fun importSecretKey(secretKey: String): AppSnapshotDto = current
+    override suspend fun importSecretKey(secretKey: String): AppSnapshotDto = current.also {
+        importedSecrets += secretKey
+    }
     override suspend fun selectAccount(publicKeyHex: String): AppSnapshotDto = current
     override suspend fun activateAccount(publicKeyHex: String): AppSnapshotDto = current
     override suspend fun signOut(): AppSnapshotDto = current.also { signOutCalls += 1 }
