@@ -263,7 +263,7 @@ checks, documentation link/path validation, and diff review.
 
 ### RCLD-02: Rust workspace and domain
 
-Status: pending.
+Status: in progress.
 
 Scope: checkpoints 2 through 11. Establish the Rust workspace and implement
 safe errors, public keys, secret input/redaction, NIP-19 types, relay URLs,
@@ -453,7 +453,7 @@ handoff commit sequence.
 
 ### RCLD-02
 
-- [ ] 02. Establish root Rust workspace skeleton.
+- [x] 02. Establish root Rust workspace skeleton.
 - [ ] 03. Add Rust formatting, lint, and governed check hooks. Use Cargo,
   Gradle, and Makefile; do not add CI workflows or scripts.
 - [ ] 04. Define domain module layout and safe error shell.

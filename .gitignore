@@ -3,6 +3,7 @@
 .idea/
 *.iml
 **/build/
+core/target/
 out/
 local.properties
 *.log
