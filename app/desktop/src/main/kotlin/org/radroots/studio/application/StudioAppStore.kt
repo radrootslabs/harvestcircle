@@ -28,7 +28,12 @@ class StudioAppStore(
     private val scope: CoroutineScope,
 ) : AutoCloseable {
     private val mutableState = mutableStateOf(StudioStoreState(snapshot = gateway.snapshot()))
-    private val subscription = gateway.subscribe(::acceptSnapshot)
+    private var closed = false
+    private val subscription = gateway.subscribe { snapshot ->
+        scope.launch {
+            if (!closed) acceptSnapshot(snapshot)
+        }
+    }
     private var pendingRemoval: RemovalTicket? = null
     private var command: Job? = null
 
@@ -100,7 +105,13 @@ class StudioAppStore(
         launchCommand {
             runCatching {
                 pendingRemoval?.close()
-                pendingRemoval = gateway.requestAccountRemoval(publicKeyHex)
+                pendingRemoval = null
+                val ticket = gateway.requestAccountRemoval(publicKeyHex)
+                if (closed) {
+                    ticket.close()
+                    return@runCatching
+                }
+                pendingRemoval = ticket
                 mutableState.value = mutableState.value.copy(
                     pendingRemovalPublicKeyHex = publicKeyHex,
                 )
@@ -124,6 +135,7 @@ class StudioAppStore(
                 }
             } finally {
                 ticket.close()
+                mutableState.value = mutableState.value.copy(pendingRemovalPublicKeyHex = null)
             }
         }
     }
@@ -137,7 +149,7 @@ class StudioAppStore(
     }
 
     private fun launchCommand(operation: suspend () -> Unit) {
-        if (command?.isActive == true) return
+        if (closed || command?.isActive == true) return
         mutableState.value = mutableState.value.copy(busy = true, problem = null)
         command = scope.launch {
             runCatching { operation() }
@@ -159,6 +171,8 @@ class StudioAppStore(
     }
 
     override fun close() {
+        if (closed) return
+        closed = true
         command?.cancel()
         pendingRemoval?.close()
         subscription.close()

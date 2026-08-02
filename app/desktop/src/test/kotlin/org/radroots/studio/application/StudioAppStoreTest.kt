@@ -26,6 +26,7 @@ class StudioAppStoreTest {
         advanceUntilIdle()
         gateway.emit(snapshot(1UL))
         gateway.emit(snapshot(0UL))
+        advanceUntilIdle()
 
         assertEquals(1UL, store.state.value.snapshot.revision)
         assertFalse(store.state.value.busy)
@@ -47,6 +48,40 @@ class StudioAppStoreTest {
         assertEquals("npub1account", store.state.value.generatedKeyBackup?.npub)
         store.acknowledgeGeneratedKeyBackup()
         assertNull(store.state.value.generatedKeyBackup)
+        store.close()
+    }
+
+    @Test
+    fun `ignores observer delivery after close`() = runTest {
+        val gateway = FakeStudioCoreGateway(snapshot(0UL))
+        val store = StudioAppStore(gateway, this)
+        advanceUntilIdle()
+        val revisionAtClose = store.state.value.snapshot.revision
+
+        store.close()
+        gateway.emit(snapshot(revisionAtClose + 1UL))
+        advanceUntilIdle()
+
+        assertEquals(revisionAtClose, store.state.value.snapshot.revision)
+    }
+
+    @Test
+    fun `failed removal confirmation clears consumed presentation state`() = runTest {
+        val gateway = FakeStudioCoreGateway(snapshot(0UL)).apply {
+            failRemovalConfirmation = true
+        }
+        val store = StudioAppStore(gateway, this)
+        advanceUntilIdle()
+
+        store.requestAccountRemoval("00".repeat(32))
+        advanceUntilIdle()
+        assertEquals("00".repeat(32), store.state.value.pendingRemovalPublicKeyHex)
+        store.confirmAccountRemoval()
+        advanceUntilIdle()
+
+        assertNull(store.state.value.pendingRemovalPublicKeyHex)
+        assertTrue(gateway.lastRemovalTicket?.closed == true)
+        assertEquals("The application command failed.", store.state.value.problem)
         store.close()
     }
 
@@ -90,6 +125,8 @@ private class FakeStudioCoreGateway(
     var subscriptionClosed = false
     var signOutCalls = 0
     val importedSecrets = mutableListOf<String>()
+    var failRemovalConfirmation = false
+    var lastRemovalTicket: FakeRemovalTicket? = null
 
     override fun snapshot(): AppSnapshotDto = current
 
@@ -119,11 +156,20 @@ private class FakeStudioCoreGateway(
     override suspend fun signOut(): AppSnapshotDto = current.also { signOutCalls += 1 }
     override suspend fun refreshActiveProfile(): AppSnapshotDto = current
     override suspend fun requestAccountRemoval(publicKeyHex: String): RemovalTicket =
-        object : RemovalTicket {
-            override fun close() = Unit
-        }
+        FakeRemovalTicket().also { lastRemovalTicket = it }
 
-    override suspend fun confirmAccountRemoval(ticket: RemovalTicket): AppSnapshotDto = current
+    override suspend fun confirmAccountRemoval(ticket: RemovalTicket): AppSnapshotDto {
+        if (failRemovalConfirmation) error("injected confirmation failure")
+        return current
+    }
+
+    override fun close() {
+        closed = true
+    }
+}
+
+private class FakeRemovalTicket : RemovalTicket {
+    var closed = false
 
     override fun close() {
         closed = true
