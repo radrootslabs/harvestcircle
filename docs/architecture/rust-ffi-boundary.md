@@ -39,3 +39,8 @@ On macOS this produces
 `core/target/debug/libradroots_studio_ffi.dylib`. Other desktop hosts use the
 platform-equivalent `radroots_studio_ffi` dynamic-library filename under the
 same Cargo profile directory.
+
+Gradle exposes the same operation as `:app:desktop:buildRustCore`. The task
+tracks Rust manifests, lockfile, sources, and migrations as inputs and the
+current-host debug dynamic library as its output. It does not redirect Cargo's
+target directory.

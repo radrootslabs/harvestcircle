@@ -5,6 +5,7 @@ import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
@@ -17,6 +18,33 @@ plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.compose.compiler)
+}
+
+val rustManifest = rootProject.layout.projectDirectory.file("core/Cargo.toml")
+val rustSources = rootProject.fileTree("core") {
+    include("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates/**/*.rs", "crates/**/*.sql")
+    exclude("target/**")
+}
+val rustLibraryName = when {
+    System.getProperty("os.name").startsWith("Mac") -> "libradroots_studio_ffi.dylib"
+    System.getProperty("os.name").startsWith("Windows") -> "radroots_studio_ffi.dll"
+    else -> "libradroots_studio_ffi.so"
+}
+val rustDebugLibrary = rootProject.layout.projectDirectory
+    .file("core/target/debug/$rustLibraryName")
+
+val buildRustCore by tasks.registering(Exec::class) {
+    workingDir(rootProject.projectDir)
+    commandLine(
+        "cargo",
+        "build",
+        "--manifest-path",
+        rustManifest.asFile.absolutePath,
+        "-p",
+        "radroots-studio-ffi",
+    )
+    inputs.files(rustSources)
+    outputs.file(rustDebugLibrary)
 }
 
 dependencies {

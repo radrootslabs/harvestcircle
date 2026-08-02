@@ -525,7 +525,7 @@ handoff commit sequence.
 - [x] 42. Expose approved AppCore commands through UniFFI.
 - [x] 43. Expose observer callback and deregistration through UniFFI.
 - [x] 44. Build native library artifacts from Cargo.
-- [ ] 45. Add Gradle task for Cargo build.
+- [x] 45. Add Gradle task for Cargo build.
 - [ ] 46. Add Gradle UniFFI binding generation and generated source set.
 - [ ] 47. Stage native library for development, tests, and packaged app.
 
