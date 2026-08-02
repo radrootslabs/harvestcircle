@@ -2,7 +2,7 @@
 
 ## Status
 
-- Program status: in progress.
+- Program status: completed.
 - Active RCLD: none.
 - Active atomic checkpoint: none.
 - Repository: `oss/studio_app` standalone Git repository.
@@ -128,9 +128,9 @@ RCLDs. Do not modify the parent repository or the legacy `/studio_app` tree.
   cleared on acknowledgement, replacement, or application disposal.
 - Copying generated nsec is explicit. Clear the clipboard after 60 seconds only
   when it still contains the copied value.
-- Imported key text is masked, submitted once, and cleared immediately after
-  the FFI call. The JVM limitation is documented and tested as far as the
-  platform permits.
+- Imported key text is masked, submitted once, and cleared as soon as the
+  command is accepted, before coroutine or native execution. The JVM
+  limitation is documented and tested as far as the platform permits.
 
 ### Persistence and recovery
 
@@ -430,7 +430,7 @@ Compose tests, native-loader smoke, and repeated runs for async determinism.
 
 ### RCLD-12: Documentation and acceptance reconciliation
 
-Status: pending.
+Status: completed.
 
 Scope: checkpoints 60 through 63. Complete dependency/license, architecture,
 security, testing, local-relay, FFI lifecycle, recovery, and platform validation
@@ -450,7 +450,7 @@ forbidden-path and forbidden-term guards, Git status, and full diff audit.
 
 ## Atomic checkpoint ledger
 
-All checkpoints are pending. Their order and titles are inherited from the
+All checkpoints are complete. Their order and titles are inherited from the
 handoff commit sequence.
 
 ### RCLD-01
@@ -553,9 +553,9 @@ handoff commit sequence.
 - [x] 61. Complete architecture, security, testing, and runbook documentation.
 - [x] 62. Add Makefile-governed final validation tasks and platform ledger. Do
   not add `.github/**` or `scripts/**`.
-- [ ] 63. Perform final source audit and acceptance reconciliation.
+- [x] 63. Perform final source audit and acceptance reconciliation.
 
-## Unfinished RCLD ledger
+## RCLD completion ledger
 
 - [x] RCLD-01: Authority and dependency baseline.
 - [x] RCLD-02: Rust workspace and domain.
@@ -568,4 +568,4 @@ handoff commit sequence.
 - [x] RCLD-09: UniFFI and native build integration.
 - [x] RCLD-10: Thin Kotlin shell and minimal UI.
 - [x] RCLD-11: End-to-end integration hardening.
-- [ ] RCLD-12: Documentation and acceptance reconciliation.
+- [x] RCLD-12: Documentation and acceptance reconciliation.
