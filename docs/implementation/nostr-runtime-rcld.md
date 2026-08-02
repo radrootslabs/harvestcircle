@@ -457,7 +457,7 @@ handoff commit sequence.
 - [x] 03. Add Rust formatting, lint, and governed check hooks. Use Cargo,
   Gradle, and Makefile; do not add CI workflows or scripts.
 - [x] 04. Define domain module layout and safe error shell.
-- [ ] 05. Implement Nostr public key value object.
+- [x] 05. Implement Nostr public key value object.
 - [ ] 06. Implement secret input boundary and redacted secret wrapper.
 - [ ] 07. Add NIP-19 public/secret display contract types.
 - [ ] 08. Implement relay URL parser and policy.

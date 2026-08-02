@@ -8,3 +8,4 @@ pub mod relay;
 pub mod time;
 
 pub use error::{SafeError, SafeErrorCode, SafeMessage};
+pub use key::PublicKey;
