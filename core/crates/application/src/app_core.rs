@@ -3,7 +3,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use radroots_studio_domain::{SafeError, SafeErrorCode, SafeMessage};
 
-use crate::{AppSnapshot, RelayConfiguration, StateMachine, StateTransition};
+use crate::{
+    AccountRepository, AppSnapshot, AppStateRepository, RelayConfiguration, StateMachine,
+    StateTransition,
+};
 
 pub trait AppObserver: Send + Sync {
     fn on_snapshot_changed(&self, snapshot: AppSnapshot);
@@ -51,6 +54,33 @@ impl AppCore {
     /// cannot be constructed.
     pub fn bootstrap(&self) -> Result<AppSnapshot, SafeError> {
         self.apply_transition(StateTransition::Bootstrap)
+    }
+
+    /// Loads the durable public registry and selection into a signed-out snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns the safe persistence error after publishing a fatal snapshot when
+    /// durable state cannot be read or violates application invariants.
+    pub fn bootstrap_from(
+        &self,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+    ) -> Result<AppSnapshot, SafeError> {
+        let loaded = accounts.list_accounts().and_then(|accounts| {
+            app_state
+                .load_selected_account()
+                .map(|selected| (accounts, selected))
+        });
+        match loaded {
+            Ok((accounts, selected)) => {
+                self.apply_transition(StateTransition::BootstrapRegistry { accounts, selected })
+            }
+            Err(error) => {
+                self.apply_transition(StateTransition::Fatal(error))?;
+                Err(error)
+            }
+        }
     }
 
     #[must_use]

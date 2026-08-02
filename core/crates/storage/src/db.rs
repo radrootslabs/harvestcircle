@@ -32,7 +32,7 @@ impl Database {
             | OpenFlags::SQLITE_OPEN_NO_MUTEX;
         let mut connection =
             Connection::open_with_flags(path, flags).map_err(|_| storage_error())?;
-        configure(&connection)?;
+        configure(&connection).map_err(|_| corrupt_storage_error())?;
         migrations::migrations::runner()
             .run(&mut connection)
             .map_err(|_| corrupt_storage_error())?;

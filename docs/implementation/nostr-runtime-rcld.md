@@ -293,7 +293,7 @@ re-entry tests, and workspace regression tests.
 
 ### RCLD-04: SQLite persistence
 
-Status: in progress.
+Status: completed.
 
 Scope: checkpoints 15 through 20. Add bundled SQLite and migrations, account and
 selection persistence, profile cache, typed account-scoped partitioning,
@@ -479,7 +479,7 @@ handoff commit sequence.
 - [x] 17. Implement profile cache persistence.
 - [x] 18. Implement typed account-scoped namespace persistence.
 - [x] 19. Add operation journal persistence.
-- [ ] 20. Implement storage adapter wiring for AppCore bootstrap.
+- [x] 20. Implement storage adapter wiring for AppCore bootstrap.
 
 ### RCLD-05
 
@@ -554,7 +554,7 @@ handoff commit sequence.
 - [x] RCLD-01: Authority and dependency baseline.
 - [x] RCLD-02: Rust workspace and domain.
 - [x] RCLD-03: Application state machine.
-- [ ] RCLD-04: SQLite persistence.
+- [x] RCLD-04: SQLite persistence.
 - [ ] RCLD-05: Credential boundary.
 - [ ] RCLD-06: Account generation and import.
 - [ ] RCLD-07: Account lifecycle and recovery.

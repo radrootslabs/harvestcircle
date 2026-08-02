@@ -5,6 +5,11 @@ use crate::{ActiveAccountSnapshot, AppLifecycle, AppSnapshot, RelayConfiguration
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StateTransition {
     Bootstrap,
+    BootstrapRegistry {
+        accounts: Vec<AccountSummary>,
+        selected: Option<PublicKey>,
+    },
+    Fatal(SafeError),
     ReplaceRegistry {
         accounts: Vec<AccountSummary>,
         selected: Option<PublicKey>,
@@ -61,6 +66,12 @@ impl StateMachine {
 
         let next = match transition {
             StateTransition::Bootstrap => self.bootstrap(next_revision, relay_configuration)?,
+            StateTransition::BootstrapRegistry { accounts, selected } => {
+                self.bootstrap_registry(next_revision, relay_configuration, accounts, selected)?
+            }
+            StateTransition::Fatal(error) => {
+                AppSnapshot::fatal(next_revision, relay_configuration.clone(), error)
+            }
             StateTransition::ReplaceRegistry { accounts, selected } => {
                 self.replace_registry(next_revision, accounts, selected)?
             }
@@ -100,6 +111,27 @@ impl StateMachine {
             relay_configuration.clone(),
             Vec::new(),
             None,
+            SessionState::SignedOut,
+            None,
+            None,
+        )
+    }
+
+    fn bootstrap_registry(
+        &self,
+        revision: crate::SnapshotRevision,
+        relay_configuration: &RelayConfiguration,
+        accounts: Vec<AccountSummary>,
+        selected: Option<PublicKey>,
+    ) -> Result<AppSnapshot, SafeError> {
+        if !matches!(self.snapshot.lifecycle(), AppLifecycle::Booting) {
+            return Ok(self.snapshot.clone());
+        }
+        AppSnapshot::ready(
+            revision,
+            relay_configuration.clone(),
+            accounts,
+            selected,
             SessionState::SignedOut,
             None,
             None,

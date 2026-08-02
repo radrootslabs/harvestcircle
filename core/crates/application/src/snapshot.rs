@@ -153,6 +153,24 @@ impl AppSnapshot {
         }
     }
 
+    #[must_use]
+    pub fn fatal(
+        revision: SnapshotRevision,
+        relay_configuration: RelayConfiguration,
+        error: SafeError,
+    ) -> Self {
+        Self {
+            revision,
+            lifecycle: AppLifecycle::Fatal(error),
+            relay_configuration,
+            accounts: Vec::new(),
+            selected_account: None,
+            session: SessionState::SignedOut,
+            active_account: None,
+            recoverable_problem: None,
+        }
+    }
+
     /// Constructs a ready immutable snapshot after validating state invariants.
     ///
     /// # Errors
