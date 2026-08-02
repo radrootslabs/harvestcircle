@@ -330,7 +330,7 @@ available, redaction tests, Cargo checks, and inherited storage tests.
 
 ### RCLD-06: Account generation and import
 
-Status: pending.
+Status: completed.
 
 Scope: checkpoints 25 through 30. Pin and adapt the selected Nostr library;
 implement generation, nsec and secret-hex import, duplicate and repair
@@ -501,7 +501,7 @@ handoff commit sequence.
 - [x] 27. Implement import secret key command.
 - [x] 28. Define and test duplicate import and credential-repair handling.
 - [x] 29. Implement add/import transaction rollback across keyring and DB.
-- [ ] 30. Implement persisted generate/import using SQLite adapter.
+- [x] 30. Implement persisted generate/import using SQLite adapter.
 
 ### RCLD-07
 
@@ -562,7 +562,7 @@ handoff commit sequence.
 - [x] RCLD-03: Application state machine.
 - [x] RCLD-04: SQLite persistence.
 - [x] RCLD-05: Credential boundary.
-- [ ] RCLD-06: Account generation and import.
+- [x] RCLD-06: Account generation and import.
 - [ ] RCLD-07: Account lifecycle and recovery.
 - [ ] RCLD-08: Relay and profile runtime.
 - [ ] RCLD-09: UniFFI and native build integration.
