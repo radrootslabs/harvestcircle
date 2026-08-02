@@ -5,6 +5,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -58,6 +60,32 @@ class StudioScreenTest {
 
         onNodeWithText("The secret key is invalid.").assertIsDisplayed()
         onNodeWithTag("accounts-empty").assertIsDisplayed()
+    }
+
+    @Test
+    fun generatedKeyBackupCopiesAndClearsOnlyAfterAcknowledgement() = runComposeUiTest {
+        var backup: GeneratedKeyBackupUiModel? by mutableStateOf(
+            GeneratedKeyBackupUiModel("npub1generated", "nsec1generated"),
+        )
+        var copied: String? = null
+        setContent {
+            StudioScreen(
+                model = emptyUiModel().copy(generatedKeyBackup = backup),
+                actions = StudioUiActions(
+                    copyText = { copied = it },
+                    acknowledgeGeneratedKeyBackup = { backup = null },
+                ),
+            )
+        }
+
+        onNodeWithTag("generated-key-backup").assertIsDisplayed()
+        onNodeWithTag("generated-nsec").assertIsDisplayed()
+        onNodeWithTag("copy-generated-key").performClick()
+        assertEquals("nsec1generated", copied)
+
+        onNodeWithTag("acknowledge-key-backup").performClick()
+        onAllNodesWithTag("generated-key-backup").assertCountEquals(0)
+        onAllNodesWithTag("generated-nsec").assertCountEquals(0)
     }
 }
 

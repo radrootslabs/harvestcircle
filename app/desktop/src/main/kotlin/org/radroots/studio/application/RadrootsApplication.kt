@@ -4,6 +4,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
 import kotlinx.coroutines.CoroutineScope
 import org.radroots.studio.accounts.ui.StudioScreen
 import org.radroots.studio.accounts.ui.StudioUiActions
@@ -29,6 +31,10 @@ fun RadrootsApplication(
             editImportDraft = store::editImportDraft,
             generateAccount = store::generateAccount,
             importSecretKey = store::importSecretKey,
+            copyText = { value ->
+                Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(value), null)
+            },
+            acknowledgeGeneratedKeyBackup = store::acknowledgeGeneratedKeyBackup,
         ),
     )
 }

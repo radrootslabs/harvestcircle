@@ -30,6 +30,8 @@ data class StudioUiActions(
     val editImportDraft: (String) -> Unit = {},
     val generateAccount: () -> Unit = {},
     val importSecretKey: () -> Unit = {},
+    val copyText: (String) -> Unit = {},
+    val acknowledgeGeneratedKeyBackup: () -> Unit = {},
 )
 
 @Composable
@@ -91,6 +93,10 @@ private fun InactiveAccountsScreen(
             onClick = actions.importSecretKey,
         )
 
+        model.generatedKeyBackup?.let { backup ->
+            GeneratedKeyBackupPanel(backup, actions)
+        }
+
         model.problem?.let {
             BasicText(it, Modifier.testTag("accounts-problem"))
         }
@@ -98,6 +104,38 @@ private fun InactiveAccountsScreen(
         if (model.accounts.isEmpty()) {
             BasicText("No saved accounts.", Modifier.testTag("accounts-empty"))
         }
+    }
+}
+
+@Composable
+private fun GeneratedKeyBackupPanel(
+    backup: GeneratedKeyBackupUiModel,
+    actions: StudioUiActions,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(InputBackgroundColor)
+            .padding(12.dp)
+            .testTag("generated-key-backup"),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        BasicText("Save this key")
+        BasicText("Losing this secret key means losing access to the account.")
+        BasicText(backup.npub)
+        BasicText(backup.nsec, Modifier.testTag("generated-nsec"))
+        TextAction(
+            text = "Copy",
+            testTag = "copy-generated-key",
+            contentDescription = "Copy generated Nostr secret key",
+            onClick = { actions.copyText(backup.nsec) },
+        )
+        TextAction(
+            text = "I have saved this key",
+            testTag = "acknowledge-key-backup",
+            contentDescription = "Confirm generated key backup",
+            onClick = actions.acknowledgeGeneratedKeyBackup,
+        )
     }
 }
 
