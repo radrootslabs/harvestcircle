@@ -29,7 +29,7 @@ pub struct ObserverSubscription {
 
 #[uniffi::export]
 impl ObserverSubscription {
-    pub fn close(&self) {
+    pub fn unsubscribe(&self) {
         let handle = self
             .handle
             .lock()
@@ -48,7 +48,7 @@ impl ObserverSubscription {
 
 impl Drop for ObserverSubscription {
     fn drop(&mut self) {
-        self.close();
+        self.unsubscribe();
     }
 }
 
@@ -86,7 +86,7 @@ impl StudioAppCore {
         }))
     }
 
-    pub fn close(&self) {
+    pub fn shutdown(&self) {
         if self.inner.closed.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -107,7 +107,7 @@ impl StudioAppCore {
 fn closed_error() -> StudioError {
     StudioError::Failure {
         code: "InvalidApplicationState".to_owned(),
-        message: "The application runtime is closed.".to_owned(),
+        safe_message: "The application runtime is closed.".to_owned(),
     }
 }
 
@@ -168,7 +168,7 @@ mod tests {
             .bootstrap()
             .expect("idempotent bootstrap");
         assert_eq!(observer.snapshots.lock().expect("snapshots").len(), 1);
-        subscription.close();
+        subscription.unsubscribe();
         core.inner.adapter.core().sign_out().expect("sign out");
         assert_eq!(observer.snapshots.lock().expect("snapshots").len(), 1);
     }
@@ -182,8 +182,8 @@ mod tests {
             .subscribe(Box::new(ArcObserver(observer.clone())))
             .expect("subscribe");
 
-        core.close();
-        core.close();
+        core.shutdown();
+        core.shutdown();
 
         assert!(core.subscribe(Box::new(ArcObserver(observer))).is_err());
         assert!(core.inner.observers.lock().expect("observers").is_empty());

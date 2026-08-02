@@ -1,6 +1,8 @@
 #![doc = "Pinned `UniFFI` binding generator entry point."]
 
-fn main() {}
+fn main() {
+    uniffi::uniffi_bindgen_main();
+}
 
 #[cfg(test)]
 mod tests {

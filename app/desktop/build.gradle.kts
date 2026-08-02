@@ -47,9 +47,41 @@ val buildRustCore by tasks.registering(Exec::class) {
     outputs.file(rustDebugLibrary)
 }
 
+val generatedUniFfiKotlin = layout.buildDirectory.dir("generated/uniffi/kotlin")
+val generateUniFfiKotlin by tasks.registering(Exec::class) {
+    dependsOn(buildRustCore)
+    workingDir(rootProject.projectDir)
+    commandLine(
+        "cargo",
+        "run",
+        "--manifest-path",
+        rustManifest.asFile.absolutePath,
+        "-p",
+        "radroots-studio-uniffi-bindgen",
+        "--",
+        "generate",
+        "--library",
+        "--language",
+        "kotlin",
+        "--metadata-no-deps",
+        "--no-format",
+        "--config",
+        rootProject.layout.projectDirectory
+            .file("core/crates/ffi/uniffi.toml")
+            .asFile.absolutePath,
+        "--out-dir",
+        generatedUniFfiKotlin.get().asFile.absolutePath,
+        rustDebugLibrary.asFile.absolutePath,
+    )
+    inputs.file(rustDebugLibrary)
+    inputs.file(rootProject.layout.projectDirectory.file("core/crates/ffi/uniffi.toml"))
+    outputs.dir(generatedUniFfiKotlin)
+}
+
 dependencies {
     implementation(compose.desktop.currentOs)
     implementation(libs.compose.foundation)
+    implementation(libs.jna)
 
     testImplementation(kotlin("test-junit"))
     testImplementation(libs.compose.ui.test.junit4)
@@ -87,11 +119,19 @@ tasks.withType<Test>().configureEach {
 }
 
 kotlin {
+    sourceSets.main {
+        kotlin.srcDir(generatedUniFfiKotlin)
+    }
+
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_21)
     }
 
     jvmToolchain(21)
+}
+
+tasks.named("compileKotlin") {
+    dependsOn(generateUniFfiKotlin)
 }
 
 compose.desktop {

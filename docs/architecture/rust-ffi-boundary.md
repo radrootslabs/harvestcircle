@@ -44,3 +44,9 @@ Gradle exposes the same operation as `:app:desktop:buildRustCore`. The task
 tracks Rust manifests, lockfile, sources, and migrations as inputs and the
 current-host debug dynamic library as its output. It does not redirect Cargo's
 target directory.
+
+`:app:desktop:generateUniFfiKotlin` runs the repository-pinned UniFFI 0.32
+generator against that dynamic library and writes Kotlin to
+`app/desktop/build/generated/uniffi/kotlin`. The main Kotlin source set reads
+that generated directory, and `compileKotlin` depends on generation. Generated
+bindings are ignored build output and are never committed.

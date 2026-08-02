@@ -17,13 +17,13 @@ use crate::{AccountDto, AppSnapshotDto};
 
 #[derive(Debug, uniffi::Error)]
 pub enum StudioError {
-    Failure { code: String, message: String },
+    Failure { code: String, safe_message: String },
 }
 
 impl Display for StudioError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Failure { message, .. } => formatter.write_str(message),
+            Self::Failure { safe_message, .. } => formatter.write_str(safe_message),
         }
     }
 }
@@ -34,7 +34,7 @@ impl From<SafeError> for StudioError {
     fn from(error: SafeError) -> Self {
         Self::Failure {
             code: format!("{:?}", error.code()),
-            message: error.message().as_str().to_owned(),
+            safe_message: error.message().as_str().to_owned(),
         }
     }
 }
@@ -339,21 +339,21 @@ fn runtime() -> &'static tokio::runtime::Runtime {
 fn path_unavailable() -> StudioError {
     StudioError::Failure {
         code: "StorageUnavailable".to_owned(),
-        message: "The application data directory is unavailable.".to_owned(),
+        safe_message: "The application data directory is unavailable.".to_owned(),
     }
 }
 
 fn runtime_unavailable() -> StudioError {
     StudioError::Failure {
         code: "InvalidApplicationState".to_owned(),
-        message: "The application runtime is unavailable.".to_owned(),
+        safe_message: "The application runtime is unavailable.".to_owned(),
     }
 }
 
 fn confirmation_expired() -> StudioError {
     StudioError::Failure {
         code: "InvalidApplicationState".to_owned(),
-        message: "The account removal confirmation is no longer valid.".to_owned(),
+        safe_message: "The account removal confirmation is no longer valid.".to_owned(),
     }
 }
 
