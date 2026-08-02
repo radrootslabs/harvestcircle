@@ -210,7 +210,7 @@ licenses and primary-source provenance:
 - stable `nostr` and `nostr-sdk` `0.44.1`;
 - UniFFI `0.32.0`;
 - `keyring` `4.1.6`, behind the Radroots `SecretStore`;
-- `rusqlite` `0.40.1` with bundled SQLite;
+- `rusqlite` `0.39.0` with bundled SQLite, constrained by Refinery `0.9.2`;
 - `refinery` `0.9.2`;
 - `secrecy` `0.10.3`;
 - `zeroize` `1.9.0`;
@@ -293,7 +293,7 @@ re-entry tests, and workspace regression tests.
 
 ### RCLD-04: SQLite persistence
 
-Status: pending.
+Status: in progress.
 
 Scope: checkpoints 15 through 20. Add bundled SQLite and migrations, account and
 selection persistence, profile cache, typed account-scoped partitioning,
@@ -474,7 +474,7 @@ handoff commit sequence.
 
 ### RCLD-04
 
-- [ ] 15. Create SQLite storage crate and migration runner.
+- [x] 15. Create SQLite storage crate and migration runner.
 - [ ] 16. Implement account and selected-account persistence.
 - [ ] 17. Implement profile cache persistence.
 - [ ] 18. Implement typed account-scoped namespace persistence.

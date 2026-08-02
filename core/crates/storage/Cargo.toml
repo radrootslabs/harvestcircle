@@ -6,5 +6,13 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[dependencies]
+radroots-studio-domain = { path = "../domain" }
+refinery.workspace = true
+rusqlite.workspace = true
+
+[dev-dependencies]
+tempfile = "=3.23.0"
+
 [lints]
 workspace = true

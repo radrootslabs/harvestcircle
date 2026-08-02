@@ -16,6 +16,10 @@ Use a non-secret operation journal because SQLite and the credential store
 cannot share an atomic transaction. Publish snapshots only after durable
 success. There is no ordinary-file secret fallback.
 
+Use `refinery 0.9.2` with bundled `rusqlite 0.39.0`. Refinery's supported
+Rusqlite range ends at 0.39, so this compatibility pin replaces the initially
+reviewed 0.40.1 candidate.
+
 ## Consequences
 
 Startup recovery is mandatory. Add/import and removal need failure injection at

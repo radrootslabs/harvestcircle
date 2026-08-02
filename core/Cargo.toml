@@ -24,6 +24,8 @@ all = "deny"
 pedantic = "deny"
 
 [workspace.dependencies]
+refinery = { version = "=0.9.2", default-features = false, features = ["rusqlite"] }
+rusqlite = { version = "=0.39.0", features = ["bundled"] }
 secrecy = "=0.10.3"
 url = "=2.5.8"
 zeroize = "=1.9.0"

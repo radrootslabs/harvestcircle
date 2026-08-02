@@ -103,7 +103,9 @@ and source audit will be reconciled again before final acceptance.
 - `nostr` and `nostr-sdk` `0.44.1`.
 - `uniffi` `0.32.0`.
 - `keyring` `4.1.6` behind the Radroots `SecretStore`.
-- `rusqlite` `0.40.1` with bundled SQLite.
+- `rusqlite` `0.39.0` with bundled SQLite. Refinery `0.9.2` constrains its
+  supported `rusqlite` range to `<=0.39`, so the originally reviewed `0.40.1`
+  cannot be used in the same migration adapter.
 - `refinery` `0.9.2`.
 - `secrecy` `0.10.3`.
 - `zeroize` `1.9.0`.
