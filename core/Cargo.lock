@@ -1709,7 +1709,7 @@ checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
 
 [[package]]
 name = "radroots-studio-application"
-version = "0.1.0-alpha.0"
+version = "0.1.0-alpha"
 dependencies = [
  "nostr",
  "nostr-relay-builder",
@@ -1722,7 +1722,7 @@ dependencies = [
 
 [[package]]
 name = "radroots-studio-domain"
-version = "0.1.0-alpha.0"
+version = "0.1.0-alpha"
 dependencies = [
  "secrecy",
  "url",
@@ -1730,7 +1730,7 @@ dependencies = [
 
 [[package]]
 name = "radroots-studio-ffi"
-version = "0.1.0-alpha.0"
+version = "0.1.0-alpha"
 dependencies = [
  "directories",
  "nostr",
@@ -1746,7 +1746,7 @@ dependencies = [
 
 [[package]]
 name = "radroots-studio-nostr"
-version = "0.1.0-alpha.0"
+version = "0.1.0-alpha"
 dependencies = [
  "nostr",
  "radroots-studio-domain",
@@ -1754,7 +1754,7 @@ dependencies = [
 
 [[package]]
 name = "radroots-studio-storage"
-version = "0.1.0-alpha.0"
+version = "0.1.0-alpha"
 dependencies = [
  "keyring",
  "nostr",
@@ -1770,7 +1770,7 @@ dependencies = [
 
 [[package]]
 name = "radroots-studio-uniffi-bindgen"
-version = "0.1.0-alpha.0"
+version = "0.1.0-alpha"
 dependencies = [
  "uniffi",
 ]

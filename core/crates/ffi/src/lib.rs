@@ -23,6 +23,6 @@ pub fn native_runtime_version() -> String {
 mod tests {
     #[test]
     fn native_runtime_reports_the_crate_version() {
-        assert_eq!(super::native_runtime_version(), "0.1.0-alpha.0");
+        assert_eq!(super::native_runtime_version(), "0.1.0-alpha");
     }
 }
