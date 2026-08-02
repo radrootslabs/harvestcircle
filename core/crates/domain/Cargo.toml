@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 secrecy.workspace = true
+url.workspace = true
 
 [lints]
 workspace = true

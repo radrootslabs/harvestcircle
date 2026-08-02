@@ -9,3 +9,4 @@ pub mod time;
 
 pub use error::{SafeError, SafeErrorCode, SafeMessage};
 pub use key::{Npub, Nsec, PublicKey, SecretKeyInput, SecretKeyInputKind};
+pub use relay::{RelayUrl, normalize_relay_urls};

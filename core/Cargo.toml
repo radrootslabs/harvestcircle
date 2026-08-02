@@ -25,4 +25,5 @@ pedantic = "deny"
 
 [workspace.dependencies]
 secrecy = "=0.10.3"
+url = "=2.5.8"
 zeroize = "=1.9.0"
