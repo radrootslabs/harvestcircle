@@ -47,6 +47,21 @@ data class StudioUiActions(
 )
 
 @Composable
+fun StartupFailureScreen(problem: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(WindowBackgroundColor)
+            .padding(24.dp)
+            .testTag("startup-failure"),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        BasicText("radroots")
+        BasicText(problem, Modifier.testTag("startup-problem"))
+    }
+}
+
+@Composable
 fun StudioScreen(
     model: StudioUiModel,
     actions: StudioUiActions,

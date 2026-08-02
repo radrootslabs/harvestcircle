@@ -9,6 +9,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -51,6 +53,21 @@ class RadrootsApplicationTest {
 
             assertEquals(1, factoryCalls)
             assertEquals(true, gateway?.closed)
+        }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun applicationRendersSafeStartupFailureWithoutLeakingInternalMessage() =
+        runComposeUiTest {
+            setContent {
+                RadrootsApplication {
+                    error("sensitive internal startup detail")
+                }
+            }
+
+            onNodeWithTag("startup-failure").assertIsDisplayed()
+            onNodeWithText("The application could not start.").assertIsDisplayed()
+            onAllNodesWithText("sensitive internal startup detail").assertCountEquals(0)
         }
 }
 

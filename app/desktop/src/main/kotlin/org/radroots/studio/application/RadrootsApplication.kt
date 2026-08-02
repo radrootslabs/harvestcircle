@@ -9,8 +9,10 @@ import java.awt.datatransfer.StringSelection
 import kotlinx.coroutines.CoroutineScope
 import org.radroots.studio.accounts.ui.StudioScreen
 import org.radroots.studio.accounts.ui.StudioUiActions
+import org.radroots.studio.accounts.ui.StartupFailureScreen
 import org.radroots.studio.accounts.ui.toUiModel
 import org.radroots.studio.ffi.StudioAppCore
+import org.radroots.studio.ffi.StudioException
 
 internal typealias StudioStoreFactory = (CoroutineScope) -> StudioAppStore
 
@@ -19,7 +21,15 @@ fun RadrootsApplication(
     storeFactory: StudioStoreFactory = ::createStudioAppStore,
 ) {
     val scope = rememberCoroutineScope()
-    val store = remember { storeFactory(scope) }
+    val storeResult = remember { runCatching { storeFactory(scope) } }
+    val store = storeResult.getOrNull()
+    if (store == null) {
+        val error = storeResult.exceptionOrNull()
+        val message = (error as? StudioException.Failure)?.safeMessage
+            ?: "The application could not start."
+        StartupFailureScreen(message)
+        return
+    }
 
     DisposableEffect(store) {
         onDispose(store::close)
