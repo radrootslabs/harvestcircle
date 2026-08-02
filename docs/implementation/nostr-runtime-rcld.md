@@ -2,7 +2,7 @@
 
 ## Status
 
-- Program status: approved and not started.
+- Program status: in progress.
 - Active RCLD: none.
 - Active atomic checkpoint: none.
 - Repository: `oss/studio_app` standalone Git repository.
@@ -248,7 +248,7 @@ lanes.
 
 ### RCLD-01: Authority and dependency baseline
 
-Status: pending.
+Status: completed.
 
 Scope: checkpoint 1. Record live repository state, authoritative handoff files,
 reference source SHAs and paths, adopted and rejected ideas, license boundaries,
@@ -449,7 +449,7 @@ handoff commit sequence.
 
 ### RCLD-01
 
-- [ ] 01. Audit live repository and reference sources.
+- [x] 01. Audit live repository and reference sources.
 
 ### RCLD-02
 
@@ -551,7 +551,7 @@ handoff commit sequence.
 
 ## Unfinished RCLD ledger
 
-- [ ] RCLD-01: Authority and dependency baseline.
+- [x] RCLD-01: Authority and dependency baseline.
 - [ ] RCLD-02: Rust workspace and domain.
 - [ ] RCLD-03: Application state machine.
 - [ ] RCLD-04: SQLite persistence.
