@@ -1,0 +1,1 @@
+//! Validated Nostr relay values.

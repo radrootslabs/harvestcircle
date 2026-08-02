@@ -1,9 +1,10 @@
 #![doc = "Radroots Studio Nostr account domain types."]
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn crate_is_available_to_the_workspace() {
-        assert_eq!(env!("CARGO_PKG_NAME"), "radroots-studio-domain");
-    }
-}
+pub mod account;
+pub mod error;
+pub mod key;
+pub mod profile;
+pub mod relay;
+pub mod time;
+
+pub use error::{SafeError, SafeErrorCode, SafeMessage};
