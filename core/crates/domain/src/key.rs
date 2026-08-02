@@ -9,6 +9,66 @@ use crate::{SafeError, SafeErrorCode, SafeMessage};
 
 pub const PUBLIC_KEY_BYTE_LENGTH: usize = 32;
 pub const PUBLIC_KEY_HEX_LENGTH: usize = PUBLIC_KEY_BYTE_LENGTH * 2;
+const NIP19_KEY_LENGTH: usize = 63;
+const BECH32_DATA_CHARSET: &[u8] = b"qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Npub(String);
+
+impl Npub {
+    /// Constructs a human-facing npub after structural validation.
+    ///
+    /// Cryptographic conversion and checksum validation are performed by the
+    /// selected Nostr adapter before this domain value is created in runtime
+    /// flows.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe invalid-public-key error for a malformed npub shape.
+    pub fn from_encoded(value: String) -> Result<Self, SafeError> {
+        if !is_nip19_key_shape(&value, "npub1") {
+            return Err(invalid_public_key());
+        }
+        Ok(Self(value))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Display for Npub {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+pub struct Nsec(SecretString);
+
+impl Nsec {
+    /// Constructs a secret nsec display value after structural validation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe invalid-secret-key error for a malformed nsec shape.
+    pub fn from_encoded(value: String) -> Result<Self, SafeError> {
+        if !is_nip19_key_shape(&value, "nsec1") {
+            return Err(invalid_secret_key());
+        }
+        Ok(Self(SecretString::from(value)))
+    }
+
+    pub fn with_exposed_secret<T>(&self, operation: impl FnOnce(&str) -> T) -> T {
+        operation(self.0.expose_secret())
+    }
+}
+
+impl fmt::Debug for Nsec {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str("Nsec([REDACTED])")
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SecretKeyInputKind {
@@ -38,7 +98,7 @@ impl SecretKeyInput {
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         {
             SecretKeyInputKind::Hex
-        } else if value.starts_with("nsec1") && value.len() > "nsec1".len() {
+        } else if is_nip19_key_shape(&value, "nsec1") {
             SecretKeyInputKind::Nsec
         } else {
             return Err(invalid_secret_key());
@@ -168,14 +228,26 @@ const fn decode_hex_digit(byte: u8) -> Option<u8> {
     }
 }
 
+fn is_nip19_key_shape(value: &str, prefix: &str) -> bool {
+    value.len() == NIP19_KEY_LENGTH
+        && value.starts_with(prefix)
+        && value[prefix.len()..]
+            .bytes()
+            .all(|byte| BECH32_DATA_CHARSET.contains(&byte))
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
 
-    use super::{PUBLIC_KEY_BYTE_LENGTH, PublicKey, SecretKeyInput, SecretKeyInputKind};
+    use super::{
+        Npub, Nsec, PUBLIC_KEY_BYTE_LENGTH, PublicKey, SecretKeyInput, SecretKeyInputKind,
+    };
     use crate::SafeErrorCode;
 
     const HEX: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
+    const NPUB: &str = "npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg";
+    const NSEC: &str = "nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5";
 
     #[test]
     fn public_key_round_trips_canonical_hex_and_bytes() {
@@ -226,7 +298,7 @@ mod tests {
 
     #[test]
     fn secret_input_accepts_nsec_shape_without_exposing_it() {
-        let secret = "nsec1known-test-secret".to_owned();
+        let secret = NSEC.to_owned();
         let input = SecretKeyInput::parse(secret.clone()).expect("nsec-shaped input");
 
         assert_eq!(input.kind(), SecretKeyInputKind::Nsec);
@@ -245,6 +317,36 @@ mod tests {
             if !value.is_empty() {
                 assert!(!format!("{error:?}").contains(value));
             }
+        }
+    }
+
+    #[test]
+    fn npub_is_public_display_data_but_not_canonical_identity() {
+        let npub = Npub::from_encoded(NPUB.to_owned()).expect("valid npub shape");
+
+        assert_eq!(npub.as_str(), NPUB);
+        assert_eq!(npub.to_string(), NPUB);
+    }
+
+    #[test]
+    fn nsec_is_redacted_and_exposed_only_to_a_scoped_operation() {
+        let nsec = Nsec::from_encoded(NSEC.to_owned()).expect("valid nsec shape");
+
+        assert_eq!(format!("{nsec:?}"), "Nsec([REDACTED])");
+        assert!(!format!("{nsec:?}").contains(NSEC));
+        assert_eq!(nsec.with_exposed_secret(str::len), NSEC.len());
+    }
+
+    #[test]
+    fn nip19_display_types_reject_wrong_prefix_length_and_charset() {
+        for invalid in [
+            "",
+            "npub1short",
+            "nsec1short",
+            "npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjp!g",
+        ] {
+            assert!(Npub::from_encoded(invalid.to_owned()).is_err());
+            assert!(Nsec::from_encoded(invalid.to_owned()).is_err());
         }
     }
 }

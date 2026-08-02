@@ -18,6 +18,10 @@ encoding, and an optional local label is not identity. Saved, selected, and
 active are separate states. Startup restores saved accounts and selection but
 starts signed out.
 
+Npub and nsec domain values enforce their expected NIP-19 shape. The Nostr
+adapter performs checksum and key conversion validation. Nsec remains redacted
+and is exposed only in the import adapter or one-time generated-key receipt.
+
 Activation prepares a candidate signer/session before atomically replacing the
 working session. Sign out retains the saved account and credential. Confirmed
 removal deletes account-private state and credential, then chooses a

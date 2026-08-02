@@ -459,7 +459,7 @@ handoff commit sequence.
 - [x] 04. Define domain module layout and safe error shell.
 - [x] 05. Implement Nostr public key value object.
 - [x] 06. Implement secret input boundary and redacted secret wrapper.
-- [ ] 07. Add NIP-19 public/secret display contract types.
+- [x] 07. Add NIP-19 public/secret display contract types.
 - [ ] 08. Implement relay URL parser and policy.
 - [ ] 09. Add account public metadata value types.
 - [ ] 10. Add profile metadata model and kind-0 selection rules.

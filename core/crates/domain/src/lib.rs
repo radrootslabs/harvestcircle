@@ -8,4 +8,4 @@ pub mod relay;
 pub mod time;
 
 pub use error::{SafeError, SafeErrorCode, SafeMessage};
-pub use key::{PublicKey, SecretKeyInput, SecretKeyInputKind};
+pub use key::{Npub, Nsec, PublicKey, SecretKeyInput, SecretKeyInputKind};
