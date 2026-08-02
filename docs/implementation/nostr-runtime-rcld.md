@@ -551,7 +551,7 @@ handoff commit sequence.
 
 - [x] 60. Add dependency and license documentation.
 - [x] 61. Complete architecture, security, testing, and runbook documentation.
-- [ ] 62. Add Makefile-governed final validation tasks and platform ledger. Do
+- [x] 62. Add Makefile-governed final validation tasks and platform ledger. Do
   not add `.github/**` or `scripts/**`.
 - [ ] 63. Perform final source audit and acceptance reconciliation.
 
