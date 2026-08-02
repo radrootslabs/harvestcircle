@@ -198,9 +198,9 @@ RCLDs. Do not modify the parent repository or the legacy `/studio_app` tree.
   controls.
 - Use basic Compose primitives, existing limited styling, stable test tags, and
   accessibility descriptions. Do not add a design system.
-- Remove UUID account identity, HTTP/HTTPS server URL fields, fake
-  `LoginStatus`, the canonical Kotlin reducer/store, and all generic account
-  server language from active source and tests.
+- Remove UUID account identity, obsolete remote-endpoint fields, fake session
+  flags, the canonical Kotlin reducer/store, and all generic remote-onboarding
+  language from active source and tests.
 
 ### Dependency baseline
 
@@ -396,7 +396,7 @@ inspection, and secret-field source guards.
 
 ### RCLD-10: Thin Kotlin shell and minimal UI
 
-Status: pending.
+Status: completed.
 
 Scope: checkpoints 48 through 57. Implement the thin StudioAppStore, create and
 close one AppCore at the application root, map public DTOs, implement inactive,
@@ -405,7 +405,7 @@ then remove the canonical Kotlin proof and generic server-account remnants.
 
 Definition of green: the complete MVP is operable through minimal Compose
 controls; generated secrets remain ephemeral; all important controls have
-stable tags and accessibility descriptions; no UUID, server URL, fake login,
+stable tags and accessibility descriptions; no UUID, remote endpoint, fake login,
 or duplicated Kotlin state machine remains.
 
 Verify lane: Kotlin unit tests, Compose UI tests for success and failure flows,
@@ -540,7 +540,7 @@ handoff commit sequence.
 - [x] 54. Implement active account home screen.
 - [x] 55. Implement switch account flow in UI.
 - [x] 56. Remove canonical Kotlin account reducer/store usage.
-- [ ] 57. Remove generic server-account remnants.
+- [x] 57. Remove generic remote-account remnants.
 
 ### RCLD-11
 
@@ -566,6 +566,6 @@ handoff commit sequence.
 - [x] RCLD-07: Account lifecycle and recovery.
 - [x] RCLD-08: Relay and profile runtime.
 - [x] RCLD-09: UniFFI and native build integration.
-- [ ] RCLD-10: Thin Kotlin shell and minimal UI.
+- [x] RCLD-10: Thin Kotlin shell and minimal UI.
 - [ ] RCLD-11: End-to-end integration hardening.
 - [ ] RCLD-12: Documentation and acceptance reconciliation.
