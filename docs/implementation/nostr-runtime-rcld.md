@@ -533,7 +533,7 @@ handoff commit sequence.
 
 - [x] 48. Add Kotlin StudioAppStore thin adapter.
 - [x] 49. Bootstrap AppCore once at application root.
-- [ ] 50. Create UI model mapping helpers without server fields.
+- [x] 50. Create UI model mapping helpers without server fields.
 - [ ] 51. Implement inactive account screen generate/import controls.
 - [ ] 52. Implement generated-key backup panel.
 - [ ] 53. Implement saved-account list, activation, and removal controls.
