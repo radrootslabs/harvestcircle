@@ -1,5 +1,7 @@
+use std::collections::BTreeSet;
 use std::fmt::{self, Display, Formatter};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -57,16 +59,18 @@ impl RemovalRequest {
     }
 }
 
-struct RuntimeCore {
-    adapter: PersistentAppCore,
-    secrets: OsKeyringSecretStore,
-    clock: SystemClock,
-    nostr: SdkNostrClient,
+pub(crate) struct RuntimeCore {
+    pub(crate) adapter: PersistentAppCore,
+    pub(crate) secrets: OsKeyringSecretStore,
+    pub(crate) clock: SystemClock,
+    pub(crate) nostr: SdkNostrClient,
+    pub(crate) observers: Mutex<BTreeSet<radroots_studio_application::ObserverHandle>>,
+    pub(crate) closed: AtomicBool,
 }
 
 #[derive(uniffi::Object)]
 pub struct StudioAppCore {
-    inner: Arc<RuntimeCore>,
+    pub(crate) inner: Arc<RuntimeCore>,
 }
 
 #[uniffi::export]
@@ -278,13 +282,15 @@ impl StudioAppCore {
                 secrets: OsKeyringSecretStore,
                 clock: SystemClock,
                 nostr: SdkNostrClient::new(Duration::from_secs(5)),
+                observers: Mutex::new(BTreeSet::new()),
+                closed: AtomicBool::new(false),
             }),
         }))
     }
 }
 
 #[derive(Clone, Copy)]
-struct SystemClock;
+pub(crate) struct SystemClock;
 
 impl Clock for SystemClock {
     fn now(&self) -> UnixTimestamp {
@@ -370,6 +376,8 @@ mod tests {
                 nostr: radroots_studio_application::SdkNostrClient::new(
                     std::time::Duration::from_millis(10),
                 ),
+                observers: std::sync::Mutex::new(std::collections::BTreeSet::new()),
+                closed: std::sync::atomic::AtomicBool::new(false),
             }),
         })
     }
