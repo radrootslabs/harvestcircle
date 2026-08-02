@@ -40,6 +40,8 @@ fun RadrootsApplication(
             requestAccountRemoval = store::requestAccountRemoval,
             cancelAccountRemoval = store::cancelAccountRemoval,
             confirmAccountRemoval = store::confirmAccountRemoval,
+            refreshActiveProfile = store::refreshActiveProfile,
+            signOut = store::signOut,
         ),
     )
 }

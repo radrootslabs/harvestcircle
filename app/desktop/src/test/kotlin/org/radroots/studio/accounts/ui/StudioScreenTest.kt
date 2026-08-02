@@ -127,6 +127,53 @@ class StudioScreenTest {
         onNodeWithTag("remove-confirm", useUnmergedTree = true).performClick()
         assertEquals(1, confirmations)
     }
+
+    @Test
+    fun activeHomeShowsIdentityProfileRelayAndCommands() = runComposeUiTest {
+        var refreshCalls = 0
+        var signOutCalls = 0
+        val account = accountUi("33".repeat(32), selected = true)
+        val active = ActiveAccountUiModel(
+            account = account,
+            heading = "Alice",
+            relayState = "connected",
+            profileState = "fresh",
+            profile = ProfileUiModel(
+                name = "alice",
+                displayName = "Alice",
+                nip05 = "alice@example.com",
+                about = "Local grower",
+                picture = "https://example.com/alice.png",
+            ),
+        )
+        setContent {
+            StudioScreen(
+                model = emptyUiModel().copy(
+                    accounts = listOf(account),
+                    activeAccount = active,
+                    configuredRelays = listOf("ws://localhost:8080"),
+                    session = SessionStateDto.ACTIVE,
+                ),
+                actions = StudioUiActions(
+                    refreshActiveProfile = { refreshCalls += 1 },
+                    signOut = { signOutCalls += 1 },
+                ),
+            )
+        }
+
+        onNodeWithTag("home-screen").assertIsDisplayed()
+        onNodeWithTag("active-npub").assertIsDisplayed()
+        onNodeWithTag("active-pubkey-hex").assertIsDisplayed()
+        onNodeWithTag("active-profile-name").assertIsDisplayed()
+        onNodeWithTag("active-profile-about").assertIsDisplayed()
+        onNodeWithTag("relay-state").assertIsDisplayed()
+        onNodeWithTag("profile-state").assertIsDisplayed()
+        onNodeWithText("ws://localhost:8080").assertIsDisplayed()
+        onNodeWithTag("refresh-profile").performClick()
+        onNodeWithTag("sign-out").performClick()
+        assertEquals(1, refreshCalls)
+        assertEquals(1, signOutCalls)
+    }
 }
 
 private fun emptyUiModel(

@@ -40,6 +40,8 @@ data class StudioUiActions(
     val requestAccountRemoval: (String) -> Unit = {},
     val cancelAccountRemoval: () -> Unit = {},
     val confirmAccountRemoval: () -> Unit = {},
+    val refreshActiveProfile: () -> Unit = {},
+    val signOut: () -> Unit = {},
 )
 
 @Composable
@@ -47,7 +49,60 @@ fun StudioScreen(
     model: StudioUiModel,
     actions: StudioUiActions,
 ) {
-    InactiveAccountsScreen(model, actions)
+    if (model.session == org.radroots.studio.ffi.SessionStateDto.ACTIVE && model.activeAccount != null) {
+        ActiveAccountHome(model, model.activeAccount, actions)
+    } else {
+        InactiveAccountsScreen(model, actions)
+    }
+}
+
+@Composable
+private fun ActiveAccountHome(
+    model: StudioUiModel,
+    active: ActiveAccountUiModel,
+    actions: StudioUiActions,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(WindowBackgroundColor)
+            .padding(24.dp)
+            .testTag("home-screen"),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        BasicText("radroots")
+        BasicText(active.heading)
+        BasicText(active.account.npub, Modifier.testTag("active-npub"))
+        BasicText(active.account.publicKeyHex, Modifier.testTag("active-pubkey-hex"))
+        BasicText("Name: ${active.profile.name}", Modifier.testTag("active-profile-name"))
+        BasicText("Display name: ${active.profile.displayName}")
+        BasicText("NIP-05: ${active.profile.nip05}")
+        BasicText("About: ${active.profile.about}", Modifier.testTag("active-profile-about"))
+        BasicText("Picture: ${active.profile.picture}")
+        BasicText("Relay: ${active.relayState}", Modifier.testTag("relay-state"))
+        BasicText("Profile: ${active.profileState}", Modifier.testTag("profile-state"))
+        BasicText("Configured relays")
+        if (model.configuredRelays.isEmpty()) {
+            BasicText("None")
+        } else {
+            model.configuredRelays.forEach { relay -> BasicText(relay) }
+        }
+        TextAction(
+            text = "Refresh metadata",
+            testTag = "refresh-profile",
+            contentDescription = "Refresh active Nostr profile metadata",
+            enabled = !model.busy,
+            onClick = actions.refreshActiveProfile,
+        )
+        TextAction(
+            text = "Sign out",
+            testTag = "sign-out",
+            contentDescription = "Sign out of the active account",
+            enabled = !model.busy,
+            onClick = actions.signOut,
+        )
+        model.problem?.let { BasicText(it, Modifier.testTag("home-problem")) }
+    }
 }
 
 @Composable
