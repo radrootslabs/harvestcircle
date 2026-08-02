@@ -32,6 +32,16 @@ val rustLibraryName = when {
 }
 val rustDebugLibrary = rootProject.layout.projectDirectory
     .file("core/target/debug/$rustLibraryName")
+val jnaPlatformPrefix = when {
+    System.getProperty("os.name").startsWith("Mac") &&
+        System.getProperty("os.arch") == "aarch64" -> "darwin-aarch64"
+    System.getProperty("os.name").startsWith("Mac") -> "darwin-x86-64"
+    System.getProperty("os.name").startsWith("Windows") &&
+        System.getProperty("os.arch") == "aarch64" -> "win32-aarch64"
+    System.getProperty("os.name").startsWith("Windows") -> "win32-x86-64"
+    System.getProperty("os.arch") == "aarch64" -> "linux-aarch64"
+    else -> "linux-x86-64"
+}
 
 val buildRustCore by tasks.registering(Exec::class) {
     workingDir(rootProject.projectDir)
@@ -48,6 +58,7 @@ val buildRustCore by tasks.registering(Exec::class) {
 }
 
 val generatedUniFfiKotlin = layout.buildDirectory.dir("generated/uniffi/kotlin")
+val generatedNativeResources = layout.buildDirectory.dir("generated/uniffi/native-resources")
 val generateUniFfiKotlin by tasks.registering(Exec::class) {
     dependsOn(buildRustCore)
     workingDir(rootProject.projectDir)
@@ -76,6 +87,11 @@ val generateUniFfiKotlin by tasks.registering(Exec::class) {
     inputs.file(rustDebugLibrary)
     inputs.file(rootProject.layout.projectDirectory.file("core/crates/ffi/uniffi.toml"))
     outputs.dir(generatedUniFfiKotlin)
+}
+val stageUniFfiNativeLibrary by tasks.registering(Copy::class) {
+    dependsOn(buildRustCore)
+    from(rustDebugLibrary)
+    into(generatedNativeResources.map { it.dir(jnaPlatformPrefix) })
 }
 
 dependencies {
@@ -121,6 +137,7 @@ tasks.withType<Test>().configureEach {
 kotlin {
     sourceSets.main {
         kotlin.srcDir(generatedUniFfiKotlin)
+        resources.srcDir(generatedNativeResources)
     }
 
     compilerOptions {
@@ -132,6 +149,23 @@ kotlin {
 
 tasks.named("compileKotlin") {
     dependsOn(generateUniFfiKotlin)
+}
+tasks.named("processResources") {
+    dependsOn(stageUniFfiNativeLibrary)
+}
+tasks.withType<Test>().configureEach {
+    dependsOn(buildRustCore)
+    systemProperty(
+        "jna.library.path",
+        rustDebugLibrary.asFile.parentFile.absolutePath,
+    )
+}
+tasks.withType<JavaExec>().configureEach {
+    dependsOn(buildRustCore)
+    systemProperty(
+        "jna.library.path",
+        rustDebugLibrary.asFile.parentFile.absolutePath,
+    )
 }
 
 compose.desktop {

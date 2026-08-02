@@ -50,3 +50,9 @@ generator against that dynamic library and writes Kotlin to
 `app/desktop/build/generated/uniffi/kotlin`. The main Kotlin source set reads
 that generated directory, and `compileKotlin` depends on generation. Generated
 bindings are ignored build output and are never committed.
+
+Development and tests point JNA at `core/target/debug`. Packaging stages the
+current-host library under JNA's platform resource prefix inside the desktop
+resources, allowing the packaged JVM runtime to extract and load it without a
+machine-specific absolute path. `NativeLoaderTest` crosses the generated ABI
+and verifies the native crate version without opening storage or credentials.

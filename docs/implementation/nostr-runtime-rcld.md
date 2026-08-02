@@ -378,7 +378,7 @@ async stale-result/cancellation tests, profile cache tests, and workspace tests.
 
 ### RCLD-09: UniFFI and native build integration
 
-Status: pending.
+Status: completed.
 
 Scope: checkpoints 41 through 47. Add UniFFI definitions and safe DTO mapping,
 expose supported AppCore commands, implement observer handles, build the native
@@ -527,7 +527,7 @@ handoff commit sequence.
 - [x] 44. Build native library artifacts from Cargo.
 - [x] 45. Add Gradle task for Cargo build.
 - [x] 46. Add Gradle UniFFI binding generation and generated source set.
-- [ ] 47. Stage native library for development, tests, and packaged app.
+- [x] 47. Stage native library for development, tests, and packaged app.
 
 ### RCLD-10
 
@@ -565,7 +565,7 @@ handoff commit sequence.
 - [x] RCLD-06: Account generation and import.
 - [x] RCLD-07: Account lifecycle and recovery.
 - [x] RCLD-08: Relay and profile runtime.
-- [ ] RCLD-09: UniFFI and native build integration.
+- [x] RCLD-09: UniFFI and native build integration.
 - [ ] RCLD-10: Thin Kotlin shell and minimal UI.
 - [ ] RCLD-11: End-to-end integration hardening.
 - [ ] RCLD-12: Documentation and acceptance reconciliation.
