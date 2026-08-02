@@ -278,7 +278,7 @@ and focused domain tests.
 
 ### RCLD-03: Application state machine
 
-Status: pending.
+Status: in progress.
 
 Scope: checkpoints 12 through 14. Define repository, secret, clock, and Nostr
 ports; implement in-memory AppCore bootstrap, command serialization, monotonic
@@ -467,7 +467,7 @@ handoff commit sequence.
 
 ### RCLD-03
 
-- [ ] 12. Add application ports for repositories, secrets, clock, and Nostr
+- [x] 12. Add application ports for repositories, secrets, clock, and Nostr
   client.
 - [ ] 13. Implement in-memory AppCore bootstrap and observer registry.
 - [ ] 14. Add state transition helpers and command trace tests.
