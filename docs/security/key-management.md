@@ -11,6 +11,13 @@ Production Nostr secret keys are stored only through Rust `SecretStore` in the
 OS credential store. The service is `org.radroots.studio.nostr`; the credential
 account key is canonical public-key hex. There is no ordinary-file fallback.
 
+The production adapter uses keyring 4.1.6 with the native macOS Keychain,
+Windows Credential Manager, or freedesktop Secret Service backend selected by
+the crate. Unsupported, locked, inaccessible, malformed, and platform-failure
+outcomes become a stable `KeyringUnavailable` error. No alternative storage is
+attempted. The real keyring smoke test is ignored by default because it mutates
+the invoking user's credential store and must be run explicitly on each target.
+
 Secrets are forbidden in SQLite, profile cache, operation journals, public
 snapshots, normal DTOs, logs, errors, filenames, preferences, fixtures, and
 golden files. Rust application secret wrappers are non-cloneable, redacted,
