@@ -13,7 +13,9 @@ pub use ports::{
     OperationDiagnostic, OperationId, OperationJournal, PendingAccountOperation,
     ProfileRefreshStatus, ProfileRepository,
 };
-pub use secrets::{InMemorySecretStore, SecretStore};
+pub use secrets::{
+    FailureSecretStore, InMemorySecretStore, SecretStore, SecretStoreCall, SecretStoreOperation,
+};
 pub use snapshot::{
     ActiveAccountSnapshot, AppLifecycle, AppSnapshot, ProfileLoadState, RelayConfiguration,
     RelayConnectionState, SessionState, SnapshotRevision,

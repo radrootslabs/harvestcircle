@@ -36,6 +36,110 @@ pub struct InMemorySecretStore {
     credentials: Mutex<BTreeMap<PublicKey, SecretString>>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum SecretStoreOperation {
+    Put,
+    Load,
+    Contains,
+    Delete,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SecretStoreCall {
+    operation: SecretStoreOperation,
+    public_key: PublicKey,
+}
+
+impl SecretStoreCall {
+    #[must_use]
+    pub const fn operation(self) -> SecretStoreOperation {
+        self.operation
+    }
+
+    #[must_use]
+    pub const fn public_key(self) -> PublicKey {
+        self.public_key
+    }
+}
+
+#[derive(Default)]
+pub struct FailureSecretStore {
+    inner: InMemorySecretStore,
+    remaining_failures: Mutex<BTreeMap<SecretStoreOperation, usize>>,
+    calls: Mutex<Vec<SecretStoreCall>>,
+}
+
+impl FailureSecretStore {
+    pub fn fail_next(&self, operation: SecretStoreOperation) {
+        *self
+            .remaining_failures
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(operation)
+            .or_default() += 1;
+    }
+
+    #[must_use]
+    pub fn calls(&self) -> Vec<SecretStoreCall> {
+        self.calls
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    fn record_and_should_fail(
+        &self,
+        operation: SecretStoreOperation,
+        public_key: PublicKey,
+    ) -> bool {
+        self.calls
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(SecretStoreCall {
+                operation,
+                public_key,
+            });
+        let mut failures = self
+            .remaining_failures
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let remaining = failures.entry(operation).or_default();
+        let should_fail = *remaining > 0;
+        *remaining = remaining.saturating_sub(1);
+        should_fail
+    }
+}
+
+impl SecretStore for FailureSecretStore {
+    fn put(&self, public_key: PublicKey, secret: SecretKeyInput) -> Result<(), SafeError> {
+        if self.record_and_should_fail(SecretStoreOperation::Put, public_key) {
+            return Err(keyring_unavailable());
+        }
+        self.inner.put(public_key, secret)
+    }
+
+    fn load(&self, public_key: PublicKey) -> Result<SecretKeyInput, SafeError> {
+        if self.record_and_should_fail(SecretStoreOperation::Load, public_key) {
+            return Err(keyring_unavailable());
+        }
+        self.inner.load(public_key)
+    }
+
+    fn contains(&self, public_key: PublicKey) -> Result<bool, SafeError> {
+        if self.record_and_should_fail(SecretStoreOperation::Contains, public_key) {
+            return Err(keyring_unavailable());
+        }
+        self.inner.contains(public_key)
+    }
+
+    fn delete(&self, public_key: PublicKey) -> Result<(), SafeError> {
+        if self.record_and_should_fail(SecretStoreOperation::Delete, public_key) {
+            return Err(keyring_unavailable());
+        }
+        self.inner.delete(public_key)
+    }
+}
+
 impl InMemorySecretStore {
     fn credentials(&self) -> MutexGuard<'_, BTreeMap<PublicKey, SecretString>> {
         self.credentials
@@ -89,11 +193,18 @@ const fn credential_missing() -> SafeError {
     )
 }
 
+const fn keyring_unavailable() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::KeyringUnavailable,
+        SafeMessage::new("The operating system credential store is unavailable."),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use radroots_studio_domain::{PublicKey, SafeErrorCode, SecretKeyInput};
 
-    use super::{InMemorySecretStore, SecretStore};
+    use super::{FailureSecretStore, InMemorySecretStore, SecretStore, SecretStoreOperation};
 
     const SECRET: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
 
@@ -138,5 +249,59 @@ mod tests {
         store.delete(public_key).expect("delete");
         let missing = store.delete(public_key).expect_err("missing delete");
         assert_eq!(missing.code(), SafeErrorCode::CredentialMissing);
+    }
+
+    #[test]
+    fn failure_secret_store_injects_each_boundary_without_mutating_state() {
+        let store = FailureSecretStore::default();
+        let public_key = PublicKey::from_bytes([3; 32]);
+        store.fail_next(SecretStoreOperation::Put);
+        let error = store
+            .put(
+                public_key,
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+            )
+            .expect_err("put failure");
+        assert_eq!(error.code(), SafeErrorCode::KeyringUnavailable);
+        assert!(!store.contains(public_key).expect("not written"));
+
+        store
+            .put(
+                public_key,
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+            )
+            .expect("put");
+        for operation in [
+            SecretStoreOperation::Load,
+            SecretStoreOperation::Contains,
+            SecretStoreOperation::Delete,
+        ] {
+            store.fail_next(operation);
+            let error = match operation {
+                SecretStoreOperation::Load => store.load(public_key).map(|_| ()),
+                SecretStoreOperation::Contains => store.contains(public_key).map(|_| ()),
+                SecretStoreOperation::Delete => store.delete(public_key),
+                SecretStoreOperation::Put => unreachable!("put tested separately"),
+            }
+            .expect_err("injected failure");
+            assert_eq!(error.code(), SafeErrorCode::KeyringUnavailable);
+        }
+        assert!(store.contains(public_key).expect("credential retained"));
+    }
+
+    #[test]
+    fn failure_secret_store_call_log_contains_only_public_identity() {
+        let store = FailureSecretStore::default();
+        let public_key = PublicKey::from_bytes([4; 32]);
+        store
+            .put(
+                public_key,
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+            )
+            .expect("put");
+        let calls = store.calls();
+        assert_eq!(calls[0].operation(), SecretStoreOperation::Put);
+        assert_eq!(calls[0].public_key(), public_key);
+        assert!(!format!("{calls:?}").contains(SECRET));
     }
 }

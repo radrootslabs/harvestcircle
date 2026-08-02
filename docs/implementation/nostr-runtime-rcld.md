@@ -484,7 +484,7 @@ handoff commit sequence.
 ### RCLD-05
 
 - [x] 21. Add SecretStore trait and in-memory fake.
-- [ ] 22. Add failure-injection SecretStore fake.
+- [x] 22. Add failure-injection SecretStore fake.
 - [ ] 23. Implement OS keyring secret adapter.
 - [ ] 24. Add global no-secret snapshot and storage assertions.
 
