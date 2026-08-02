@@ -531,7 +531,7 @@ handoff commit sequence.
 
 ### RCLD-10
 
-- [ ] 48. Add Kotlin StudioAppStore thin adapter.
+- [x] 48. Add Kotlin StudioAppStore thin adapter.
 - [ ] 49. Bootstrap AppCore once at application root.
 - [ ] 50. Create UI model mapping helpers without server fields.
 - [ ] 51. Implement inactive account screen generate/import controls.

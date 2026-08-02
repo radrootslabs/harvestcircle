@@ -98,9 +98,11 @@ dependencies {
     implementation(compose.desktop.currentOs)
     implementation(libs.compose.foundation)
     implementation(libs.jna)
+    implementation(libs.kotlinx.coroutines.core)
 
     testImplementation(kotlin("test-junit"))
     testImplementation(libs.compose.ui.test.junit4)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
 
 val testInventoryRoot = providers
