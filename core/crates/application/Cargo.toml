@@ -6,5 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[dependencies]
+radroots-studio-domain = { path = "../domain" }
+
 [lints]
 workspace = true

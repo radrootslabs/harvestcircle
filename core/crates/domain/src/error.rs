@@ -8,6 +8,7 @@ pub enum SafeErrorCode {
     InvalidSecretKey,
     InvalidAccountMetadata,
     InvalidProfileMetadata,
+    InvalidApplicationState,
     AccountAlreadyExists,
     AccountNotFound,
     KeyringUnavailable,

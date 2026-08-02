@@ -263,7 +263,7 @@ checks, documentation link/path validation, and diff review.
 
 ### RCLD-02: Rust workspace and domain
 
-Status: in progress.
+Status: completed.
 
 Scope: checkpoints 2 through 11. Establish the Rust workspace and implement
 safe errors, public keys, secret input/redaction, NIP-19 types, relay URLs,
@@ -463,7 +463,7 @@ handoff commit sequence.
 - [x] 08. Implement relay URL parser and policy.
 - [x] 09. Add account public metadata value types.
 - [x] 10. Add profile metadata model and kind-0 selection rules.
-- [ ] 11. Define immutable AppSnapshot and state enums.
+- [x] 11. Define immutable AppSnapshot and state enums.
 
 ### RCLD-03
 
@@ -552,7 +552,7 @@ handoff commit sequence.
 ## Unfinished RCLD ledger
 
 - [x] RCLD-01: Authority and dependency baseline.
-- [ ] RCLD-02: Rust workspace and domain.
+- [x] RCLD-02: Rust workspace and domain.
 - [ ] RCLD-03: Application state machine.
 - [ ] RCLD-04: SQLite persistence.
 - [ ] RCLD-05: Credential boundary.
