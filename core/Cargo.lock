@@ -368,6 +368,7 @@ name = "radroots-studio-application"
 version = "0.1.0-alpha.0"
 dependencies = [
  "radroots-studio-domain",
+ "secrecy",
 ]
 
 [[package]]

@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 radroots-studio-domain = { path = "../domain" }
+secrecy.workspace = true
 
 [lints]
 workspace = true

@@ -301,8 +301,6 @@ pub trait OperationJournal: Send + Sync {
     fn finalize_operation(&self, id: OperationId) -> Result<(), SafeError>;
 }
 
-pub trait SecretStore: Send + Sync {}
-
 pub trait NostrClient: Send + Sync {
     fn fetch_profile<'a>(
         &'a self,
@@ -327,7 +325,7 @@ mod tests {
         AccountNamespaceRepository, AccountOperationKind, AccountOperationPhase,
         AccountPreferenceKey, AccountRepository, AppStateRepository, BoxFuture, CachedProfile,
         Clock, NostrClient, OperationDiagnostic, OperationId, OperationJournal,
-        PendingAccountOperation, ProfileRefreshStatus, ProfileRepository, SecretStore,
+        PendingAccountOperation, ProfileRefreshStatus, ProfileRepository,
     };
 
     #[derive(Default)]
@@ -445,8 +443,6 @@ mod tests {
             Ok(())
         }
     }
-
-    impl SecretStore for FakePorts {}
 
     impl NostrClient for FakePorts {
         fn fetch_profile<'a>(

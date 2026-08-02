@@ -2,6 +2,7 @@
 
 pub mod app_core;
 pub mod ports;
+pub mod secrets;
 pub mod snapshot;
 pub mod state_machine;
 
@@ -10,8 +11,9 @@ pub use ports::{
     AccountNamespaceRepository, AccountOperationKind, AccountOperationPhase, AccountPreferenceKey,
     AccountRepository, AppStateRepository, BoxFuture, CachedProfile, Clock, NostrClient,
     OperationDiagnostic, OperationId, OperationJournal, PendingAccountOperation,
-    ProfileRefreshStatus, ProfileRepository, SecretStore,
+    ProfileRefreshStatus, ProfileRepository,
 };
+pub use secrets::{InMemorySecretStore, SecretStore};
 pub use snapshot::{
     ActiveAccountSnapshot, AppLifecycle, AppSnapshot, ProfileLoadState, RelayConfiguration,
     RelayConnectionState, SessionState, SnapshotRevision,
