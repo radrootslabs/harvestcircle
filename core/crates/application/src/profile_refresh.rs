@@ -7,6 +7,25 @@ use crate::{
 };
 
 impl AppCore {
+    /// Manually refreshes the active account's Nostr kind-0 profile.
+    ///
+    /// Cached public metadata remains visible while the asynchronous request is
+    /// running. Calling this command while signed out is an idempotent no-op.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe storage or application-state error. Relay and invalid-data
+    /// failures are represented as nonfatal snapshot state.
+    pub async fn refresh_active_profile(
+        &self,
+        profiles: &(impl ProfileRepository + ?Sized),
+        client: &(impl NostrClient + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<AppSnapshot, SafeError> {
+        self.refresh_profile_for_active_account(profiles, client, clock)
+            .await
+    }
+
     /// Refreshes the current active account while retaining any cached profile.
     ///
     /// Stale results are discarded when the account is replaced or signed out.
@@ -15,7 +34,7 @@ impl AppCore {
     ///
     /// Returns a safe storage or application-state error. Relay and invalid-data
     /// failures are represented as nonfatal snapshot state.
-    pub async fn refresh_profile_for_active_account(
+    async fn refresh_profile_for_active_account(
         &self,
         profiles: &(impl ProfileRepository + ?Sized),
         client: &(impl NostrClient + ?Sized),
@@ -364,5 +383,42 @@ mod tests {
                 .name(),
             Some("Cached")
         );
+    }
+
+    #[tokio::test]
+    async fn manual_refresh_is_repeatable_and_signed_out_safe() {
+        let profiles = MemoryProfiles::default();
+        let (core, public_key) = active_core(&profiles, None);
+        let first = core
+            .refresh_active_profile(
+                &profiles,
+                &FixedClient(Ok(Some(profile(public_key, "First", 10)))),
+                &FixedClock,
+            )
+            .await
+            .expect("first refresh");
+        let second = core
+            .refresh_active_profile(
+                &profiles,
+                &FixedClient(Ok(Some(profile(public_key, "Second", 20)))),
+                &FixedClock,
+            )
+            .await
+            .expect("second refresh");
+
+        assert!(second.revision() > first.revision());
+        assert_eq!(
+            second
+                .active_account()
+                .and_then(|active| active.profile())
+                .and_then(ProfileMetadata::name),
+            Some("Second")
+        );
+        let signed_out = core.sign_out().expect("sign out");
+        let no_op = core
+            .refresh_active_profile(&profiles, &FixedClient(Ok(None)), &FixedClock)
+            .await
+            .expect("signed-out no-op");
+        assert_eq!(no_op, signed_out);
     }
 }

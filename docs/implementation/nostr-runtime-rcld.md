@@ -362,7 +362,7 @@ and workspace tests.
 
 ### RCLD-08: Relay and profile runtime
 
-Status: pending.
+Status: completed.
 
 Scope: checkpoints 36 through 40. Add environment relay configuration, exact
 WebSocket policy, verified kind-0 parsing, deterministic local relay fixture,
@@ -517,7 +517,7 @@ handoff commit sequence.
 - [x] 37. Implement Nostr event verification and kind-0 parsing adapter.
 - [x] 38. Add Nostr client port implementation and local relay fixture.
 - [x] 39. Implement cache-first active profile refresh orchestration.
-- [ ] 40. Expose manual refreshActiveProfile command.
+- [x] 40. Expose manual refreshActiveProfile command.
 
 ### RCLD-09
 
@@ -564,7 +564,7 @@ handoff commit sequence.
 - [x] RCLD-05: Credential boundary.
 - [x] RCLD-06: Account generation and import.
 - [x] RCLD-07: Account lifecycle and recovery.
-- [ ] RCLD-08: Relay and profile runtime.
+- [x] RCLD-08: Relay and profile runtime.
 - [ ] RCLD-09: UniFFI and native build integration.
 - [ ] RCLD-10: Thin Kotlin shell and minimal UI.
 - [ ] RCLD-11: End-to-end integration hardening.
