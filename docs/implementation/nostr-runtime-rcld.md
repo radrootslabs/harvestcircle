@@ -549,7 +549,7 @@ handoff commit sequence.
 
 ### RCLD-12
 
-- [ ] 60. Add dependency and license documentation.
+- [x] 60. Add dependency and license documentation.
 - [ ] 61. Complete architecture, security, testing, and runbook documentation.
 - [ ] 62. Add Makefile-governed final validation tasks and platform ledger. Do
   not add `.github/**` or `scripts/**`.

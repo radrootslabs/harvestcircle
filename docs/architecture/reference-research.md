@@ -2,8 +2,8 @@
 
 ## Status
 
-Baseline recorded on 2026-08-02 before runtime implementation. The dependency
-and source audit will be reconciled again before final acceptance.
+Baseline recorded on 2026-08-02 and reconciled against the implemented runtime
+on the same date.
 
 ## Local baseline
 
@@ -11,9 +11,10 @@ and source audit will be reconciled again before final acceptance.
 - Branch: `master`.
 - Baseline commit: `9cd07ced24d62eca4cc89f09c82a3539c7fe9dcf`.
 - Runtime: Kotlin JVM 21 and Compose Desktop.
-- Current proof: UUID account IDs, user-entered display names, HTTP/HTTPS server
-  URLs, Kotlin `LoginStatus`, and a Kotlin-owned reducer/store.
-- Current persistence, credential store, relay client, Rust core, and FFI: none.
+- Current runtime: Rust-owned account state and command handling, SQLite public
+  persistence, OS credential storage, rust-nostr relay access, and UniFFI DTOs.
+- Kotlin is a thin Compose shell with presentation-only input, backup, chooser,
+  busy, and safe-problem state.
 - Baseline verification: `./gradlew --no-daemon :app:desktop:test` passed.
 
 ## Reviewed references
@@ -70,8 +71,10 @@ and source audit will be reconciled again before final acceptance.
 - Reviewed paths: workspace manifests, `nostr-keyring/**`, key types,
   `nostr-sdk/src/local_relay/**`, and SDK client/profile APIs.
 - License: MIT.
-- Dependency baseline: pin stable `nostr` and `nostr-sdk` `0.44.1`; do not adopt
-  the reviewed repository's `0.45.0-alpha` line without a later ADR change.
+- Dependency baseline: `nostr-sdk` remains at `0.44.1`. Because crates.io
+  yanked `nostr` `0.44.1`, the matching `nostr` workspace package is pinned to
+  upstream commit `5bba5163eb77107f82c4a8262cf29d7f33a73219`; do not adopt the reviewed
+  repository's `0.45.0-alpha` line without a later ADR change.
 - Adopt: maintained key/event/NIP implementations and SDK relay behavior.
 - Contain: upstream secret/key types may implement `Clone` or `Debug`; keep them
   behind a non-cloneable, redacted Radroots adapter boundary.
@@ -98,18 +101,44 @@ and source audit will be reconciled again before final acceptance.
 - Guard: invoke no observer while holding Rust locks; serialize revisions;
   verify JVM thread attachment, cancellation, deregistration, and close races.
 
-## Dependency baseline
+## Implemented dependency and license ledger
 
-- `nostr` and `nostr-sdk` `0.44.1`.
-- `uniffi` `0.32.0`.
-- `keyring` `4.1.6` behind the Radroots `SecretStore`.
-- `rusqlite` `0.39.0` with bundled SQLite. Refinery `0.9.2` constrains its
-  supported `rusqlite` range to `<=0.39`, so the originally reviewed `0.40.1`
-  cannot be used in the same migration adapter.
-- `refinery` `0.9.2`.
-- `secrecy` `0.10.3`.
-- `zeroize` `1.9.0`.
-- `directories` `6.0.0`.
+The following direct dependencies are pinned by `core/Cargo.toml`,
+`core/Cargo.lock`, and `gradle/libs.versions.toml`. License identifiers were
+reconciled from the checked-out upstream Cargo manifests or resolved Maven POMs.
 
-Exact transitive resolution is committed through `core/Cargo.lock`. Platform
-features and license metadata must be recorded before final acceptance.
+| Dependency | Pin | License | Runtime role |
+| --- | --- | --- | --- |
+| `nostr` | git `5bba5163eb77107f82c4a8262cf29d7f33a73219` (`0.44.1`) | MIT | keys, NIP-19, events |
+| `nostr-sdk` | `0.44.1` | MIT | relay client |
+| `nostr-relay-builder` | `0.44.1` | MIT | test-only local relay |
+| `uniffi` | `0.32.0` | MPL-2.0 | Rust/Kotlin bindings |
+| `keyring` | `4.1.6` | MIT OR Apache-2.0 | OS credential adapter |
+| `rusqlite` | `0.39.0` | MIT | bundled SQLite adapter |
+| `refinery` | `0.9.2` | MIT | SQLite migrations |
+| `secrecy` | `0.10.3` | Apache-2.0 OR MIT | redacted secret values |
+| `zeroize` | `1.9.0` | Apache-2.0 OR MIT | secret-memory cleanup support |
+| `directories` | `6.0.0` | MIT OR Apache-2.0 | canonical data location |
+| `url` | `2.5.8` | MIT OR Apache-2.0 | relay URL parsing |
+| `tokio` | `1.47.1` | MIT | async runtime |
+| `tempfile` | `3.23.0` | MIT OR Apache-2.0 | test-only isolated storage |
+| Kotlin/JVM | `2.4.10` | Apache-2.0 | JVM language and tooling |
+| Compose Multiplatform | `1.11.1` | Apache-2.0 | desktop UI |
+| kotlinx.coroutines | `1.9.0` | Apache-2.0 | thin-store command dispatch |
+| JNA | `5.17.0` | LGPL-2.1-or-later OR Apache-2.0 | native library loading |
+
+The workspace itself is GPL-3.0-only. SQLite's bundled C implementation is
+public domain; `rusqlite` remains MIT. Exact Rust transitive resolution is
+committed in `core/Cargo.lock`; Gradle dependency verification uses the pinned
+version catalog and wrapper distribution. A dependency upgrade requires
+re-running the license and compatibility review, including the UniFFI loader
+and current-platform package smoke.
+
+## Final selection rationale
+
+rust-nostr provides maintained protocol primitives and relay behavior while
+allowing Radroots to keep domain, persistence, secret, and lifecycle contracts
+behind its own ports. Notedeck supplied useful architectural comparison, but
+adopting its lower-level account/storage stack would duplicate the selected
+SQLite and state-machine ownership and would complicate clean-room provenance.
+No Notedeck or nostrdb source was copied.
