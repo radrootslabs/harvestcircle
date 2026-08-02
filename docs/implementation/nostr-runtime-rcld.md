@@ -458,7 +458,7 @@ handoff commit sequence.
   Gradle, and Makefile; do not add CI workflows or scripts.
 - [x] 04. Define domain module layout and safe error shell.
 - [x] 05. Implement Nostr public key value object.
-- [ ] 06. Implement secret input boundary and redacted secret wrapper.
+- [x] 06. Implement secret input boundary and redacted secret wrapper.
 - [ ] 07. Add NIP-19 public/secret display contract types.
 - [ ] 08. Implement relay URL parser and policy.
 - [ ] 09. Add account public metadata value types.

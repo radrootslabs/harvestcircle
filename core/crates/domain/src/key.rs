@@ -3,10 +3,72 @@
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
+use secrecy::{ExposeSecret, SecretString};
+
 use crate::{SafeError, SafeErrorCode, SafeMessage};
 
 pub const PUBLIC_KEY_BYTE_LENGTH: usize = 32;
 pub const PUBLIC_KEY_HEX_LENGTH: usize = PUBLIC_KEY_BYTE_LENGTH * 2;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SecretKeyInputKind {
+    Nsec,
+    Hex,
+}
+
+pub struct SecretKeyInput {
+    value: SecretString,
+    kind: SecretKeyInputKind,
+}
+
+impl SecretKeyInput {
+    /// Moves one secret input string into a zeroizing boundary.
+    ///
+    /// Nsec inputs receive complete NIP-19 validation in the Nostr adapter.
+    /// Hex input is structurally validated here to prevent ambiguous fallback.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe invalid-secret-key error when the input is neither an
+    /// nsec-looking value nor exactly 64 lowercase hexadecimal characters.
+    pub fn parse(value: String) -> Result<Self, SafeError> {
+        let kind = if value.len() == PUBLIC_KEY_HEX_LENGTH
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            SecretKeyInputKind::Hex
+        } else if value.starts_with("nsec1") && value.len() > "nsec1".len() {
+            SecretKeyInputKind::Nsec
+        } else {
+            return Err(invalid_secret_key());
+        };
+
+        Ok(Self {
+            value: SecretString::from(value),
+            kind,
+        })
+    }
+
+    #[must_use]
+    pub const fn kind(&self) -> SecretKeyInputKind {
+        self.kind
+    }
+
+    pub fn with_exposed_secret<T>(&self, operation: impl FnOnce(&str) -> T) -> T {
+        operation(self.value.expose_secret())
+    }
+}
+
+impl fmt::Debug for SecretKeyInput {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SecretKeyInput")
+            .field("value", &"[REDACTED]")
+            .field("kind", &self.kind)
+            .finish()
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct PublicKey([u8; PUBLIC_KEY_BYTE_LENGTH]);
@@ -91,6 +153,13 @@ const fn invalid_public_key() -> SafeError {
     )
 }
 
+const fn invalid_secret_key() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::InvalidSecretKey,
+        SafeMessage::new("The Nostr secret key is invalid."),
+    )
+}
+
 const fn decode_hex_digit(byte: u8) -> Option<u8> {
     match byte {
         b'0'..=b'9' => Some(byte - b'0'),
@@ -103,7 +172,7 @@ const fn decode_hex_digit(byte: u8) -> Option<u8> {
 mod tests {
     use std::str::FromStr;
 
-    use super::{PUBLIC_KEY_BYTE_LENGTH, PublicKey};
+    use super::{PUBLIC_KEY_BYTE_LENGTH, PublicKey, SecretKeyInput, SecretKeyInputKind};
     use crate::SafeErrorCode;
 
     const HEX: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
@@ -139,5 +208,43 @@ mod tests {
         let high = PublicKey::from_bytes([1_u8; PUBLIC_KEY_BYTE_LENGTH]);
 
         assert!(low < high);
+    }
+
+    #[test]
+    fn secret_input_is_redacted_and_exposed_only_to_a_scoped_operation() {
+        let secret = "11".repeat(PUBLIC_KEY_BYTE_LENGTH);
+        let input = SecretKeyInput::parse(secret.clone()).expect("valid secret hex");
+
+        assert_eq!(input.kind(), SecretKeyInputKind::Hex);
+        assert_eq!(input.with_exposed_secret(str::len), secret.len());
+        assert_eq!(
+            format!("{input:?}"),
+            "SecretKeyInput { value: \"[REDACTED]\", kind: Hex }"
+        );
+        assert!(!format!("{input:?}").contains(&secret));
+    }
+
+    #[test]
+    fn secret_input_accepts_nsec_shape_without_exposing_it() {
+        let secret = "nsec1known-test-secret".to_owned();
+        let input = SecretKeyInput::parse(secret.clone()).expect("nsec-shaped input");
+
+        assert_eq!(input.kind(), SecretKeyInputKind::Nsec);
+        assert!(!format!("{input:?}").contains(&secret));
+    }
+
+    #[test]
+    fn secret_input_rejects_invalid_hex_and_arbitrary_text() {
+        for value in [
+            "",
+            "very-sensitive-input",
+            &"GG".repeat(PUBLIC_KEY_BYTE_LENGTH),
+        ] {
+            let error = SecretKeyInput::parse(value.to_owned()).expect_err("invalid secret");
+            assert_eq!(error.code(), SafeErrorCode::InvalidSecretKey);
+            if !value.is_empty() {
+                assert!(!format!("{error:?}").contains(value));
+            }
+        }
     }
 }

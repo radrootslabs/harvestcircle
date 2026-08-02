@@ -22,3 +22,7 @@ unsafe_code = "forbid"
 [workspace.lints.clippy]
 all = "deny"
 pedantic = "deny"
+
+[workspace.dependencies]
+secrecy = "=0.10.3"
+zeroize = "=1.9.0"
