@@ -2,6 +2,7 @@
 
 pub mod accounts;
 pub mod app_core;
+pub mod config;
 pub mod ports;
 pub mod recovery;
 pub mod secrets;
@@ -14,6 +15,9 @@ pub use accounts::{
     InMemoryOperationJournal,
 };
 pub use app_core::{AppCore, AppObserver, ObserverHandle, RemovalConfirmationToken};
+pub use config::{
+    RelayRuntimeMode, relay_configuration_from_environment, relay_configuration_from_value,
+};
 pub use ports::{
     AccountNamespaceRepository, AccountOperationKind, AccountOperationPhase, AccountPreferenceKey,
     AccountRepository, AppStateRepository, BoxFuture, CachedProfile, Clock, NostrClient,

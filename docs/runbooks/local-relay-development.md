@@ -1,5 +1,12 @@
 # Local relay development
 
+Rust reads the ordered comma-separated relay list from
+`RADROOTS_NOSTR_RELAYS`, trims entries, validates the WebSocket policy, and
+deduplicates while preserving first-seen order. Development and tests may use
+`ws://localhost:8080` when the variable is absent or empty. Packaged builds
+have no fallback and report `InvalidRelayConfiguration` until at least one
+valid relay is configured.
+
 ## Status
 
 Initial runbook contract. Exact commands will be added with the relay fixture.

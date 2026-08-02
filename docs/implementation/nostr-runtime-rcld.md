@@ -513,7 +513,7 @@ handoff commit sequence.
 
 ### RCLD-08
 
-- [ ] 36. Add relay configuration source and environment parser.
+- [x] 36. Add relay configuration source and environment parser.
 - [ ] 37. Implement Nostr event verification and kind-0 parsing adapter.
 - [ ] 38. Add Nostr client port implementation and local relay fixture.
 - [ ] 39. Implement cache-first active profile refresh orchestration.
