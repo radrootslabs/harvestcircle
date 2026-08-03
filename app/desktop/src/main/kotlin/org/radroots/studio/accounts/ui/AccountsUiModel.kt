@@ -18,6 +18,7 @@ data class AccountUiModel(
     val label: String,
     val keyAvailability: String,
     val selected: Boolean,
+    val active: Boolean,
 )
 
 data class ProfileUiModel(
@@ -61,7 +62,13 @@ data class StudioUiModel(
 
 fun StudioStoreState.toUiModel(): StudioUiModel {
     val selectedPublicKeyHex = snapshot.selectedPublicKeyHex
-    val accounts = snapshot.accounts.map { it.toUiModel(it.publicKeyHex == selectedPublicKeyHex) }
+    val activePublicKeyHex = snapshot.activeAccount?.account?.publicKeyHex
+    val accounts = snapshot.accounts.map {
+        it.toUiModel(
+            selected = it.publicKeyHex == selectedPublicKeyHex,
+            active = it.publicKeyHex == activePublicKeyHex,
+        )
+    }
     return StudioUiModel(
         route = route,
         accounts = accounts,
@@ -98,17 +105,21 @@ private fun importGuidance(
 fun shortenNpub(npub: String): String =
     if (npub.length <= 24) npub else "${npub.take(14)}…${npub.takeLast(8)}"
 
-private fun AccountDto.toUiModel(selected: Boolean) = AccountUiModel(
+private fun AccountDto.toUiModel(selected: Boolean, active: Boolean = false) = AccountUiModel(
     publicKeyHex = publicKeyHex,
     npub = npub,
     shortNpub = shortenNpub(npub),
     label = displayLabel.ifBlank { shortenNpub(npub) },
     keyAvailability = keyAvailability.name.lowercase().replace('_', ' '),
     selected = selected,
+    active = active,
 )
 
 private fun ActiveAccountDto.toUiModel(selectedPublicKeyHex: String?) = ActiveAccountUiModel(
-    account = account.toUiModel(account.publicKeyHex == selectedPublicKeyHex),
+    account = account.toUiModel(
+        selected = account.publicKeyHex == selectedPublicKeyHex,
+        active = true,
+    ),
     heading = profile?.displayName?.takeIf(String::isNotBlank)
         ?: profile?.name?.takeIf(String::isNotBlank)
         ?: account.displayLabel.ifBlank { shortenNpub(account.npub) },

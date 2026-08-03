@@ -335,11 +335,12 @@ private fun ColumnScope.SavedAccountList(
                 BasicText(account.npub)
                 BasicText("Key: ${account.keyAvailability}")
                 if (account.selected) BasicText("Selected")
+                if (account.active) BasicText("Active")
                 TextAction(
-                    text = "Activate",
+                    text = if (account.active) "Active account" else "Activate",
                     testTag = "activate-account:${account.publicKeyHex}",
                     contentDescription = "Activate ${account.label}",
-                    enabled = !model.busy,
+                    enabled = !model.busy && !account.active,
                     onClick = { actions.activateAccount(account.publicKeyHex) },
                 )
                 TextAction(

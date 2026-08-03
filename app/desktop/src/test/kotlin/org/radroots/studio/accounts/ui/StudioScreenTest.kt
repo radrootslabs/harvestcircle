@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -241,7 +242,7 @@ class StudioScreenTest {
 
     @Test
     fun activeAccountCanOpenChooserWithoutDroppingCurrentSession() = runComposeUiTest {
-        val first = accountUi("44".repeat(32), selected = true)
+        val first = accountUi("44".repeat(32), selected = true, active = true)
         val second = accountUi("55".repeat(32), selected = false)
         val active = ActiveAccountUiModel(
             account = first,
@@ -271,6 +272,8 @@ class StudioScreenTest {
 
         onNodeWithTag("switch-account").performClick()
         onNodeWithTag("accounts-screen").assertIsDisplayed()
+        onNodeWithTag("activate-account:${first.publicKeyHex}", useUnmergedTree = true).assertIsNotEnabled()
+        onNodeWithText("Active").assertIsDisplayed()
         onNodeWithTag("activate-account:${second.publicKeyHex}", useUnmergedTree = true).performClick()
         assertEquals(second.publicKeyHex, activated)
         assertEquals(SessionStateDto.ACTIVE, emptyUiModel().copy(
@@ -302,11 +305,16 @@ private fun emptyUiModel(
     importGuidance = importGuidance,
 )
 
-private fun accountUi(publicKeyHex: String, selected: Boolean) = AccountUiModel(
+private fun accountUi(
+    publicKeyHex: String,
+    selected: Boolean,
+    active: Boolean = false,
+) = AccountUiModel(
     publicKeyHex = publicKeyHex,
     npub = "npub1${publicKeyHex.take(12)}",
     shortNpub = "npub1${publicKeyHex.take(12)}",
     label = "Account ${publicKeyHex.take(2)}",
     keyAvailability = "available",
     selected = selected,
+    active = active,
 )

@@ -3,6 +3,7 @@ package org.radroots.studio.accounts.ui
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlin.test.assertNull
 import org.radroots.studio.application.GeneratedKeyBackup
 import org.radroots.studio.application.StudioStoreState
@@ -42,6 +43,8 @@ class AccountsUiModelTest {
         assertEquals(listOf("ws://localhost:8080"), model.configuredRelays)
         assertFalse(model.accountChooserVisible)
         assertFalse(model.accounts.single().label.contains("server", ignoreCase = true))
+        assertTrue(model.accounts.single().selected)
+        assertTrue(model.accounts.single().active)
     }
 
     @Test
