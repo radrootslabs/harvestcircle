@@ -2,10 +2,38 @@ use radroots_studio_domain::{PublicKey, SafeError};
 
 use crate::{
     AccountOperationKind, AccountOperationPhase, AccountRepository, AppCore, AppStateRepository,
-    Clock, OperationJournal, SecretStore,
+    Clock, DurableAccountOperation, DurableOperationKind, DurableOperationPhase,
+    DurableOperationRepository, DurableTerminalOutcome, OperationJournal, SecretStore,
 };
 
 impl AppCore {
+    /// Reconciles durable request operations before public state is restored.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe credential, persistence, or recovery error while retaining the operation
+    /// at its last durable phase for a later retry.
+    pub fn recover_durable_operations(
+        &self,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+        secrets: &(impl SecretStore + ?Sized),
+        operations: &(impl DurableOperationRepository + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<(), SafeError> {
+        for operation in operations.list_unfinished_durable_operations()? {
+            match operation.kind() {
+                DurableOperationKind::Create
+                | DurableOperationKind::Import
+                | DurableOperationKind::Repair => recover_durable_addition(
+                    &operation, accounts, app_state, secrets, operations, clock,
+                )?,
+                DurableOperationKind::Remove => {}
+            }
+        }
+        Ok(())
+    }
+
     /// Reconciles non-secret cross-resource journal entries before bootstrap.
     ///
     /// An empty journal does not access the credential store.
@@ -34,6 +62,148 @@ impl AppCore {
         }
         Ok(())
     }
+}
+
+fn recover_durable_addition(
+    operation: &DurableAccountOperation,
+    accounts: &(impl AccountRepository + ?Sized),
+    app_state: &(impl AppStateRepository + ?Sized),
+    secrets: &(impl SecretStore + ?Sized),
+    operations: &(impl DurableOperationRepository + ?Sized),
+    clock: &(impl Clock + ?Sized),
+) -> Result<(), SafeError> {
+    let request = operation.request_id();
+    let account = operation.account();
+    match operation.phase() {
+        DurableOperationPhase::IntentRecorded => {
+            if secrets.contains(account)? {
+                secrets.delete(account)?;
+            }
+            operations.finalize_durable_operation(
+                request,
+                DurableOperationPhase::IntentRecorded,
+                DurableTerminalOutcome::Failed,
+                None,
+                clock.now(),
+            )?;
+        }
+        DurableOperationPhase::CredentialWritten => {
+            let metadata = accounts.find_account(account)?;
+            let committed = metadata.as_ref().is_some_and(|saved| {
+                saved.signer().availability()
+                    == radroots_studio_domain::BindingAvailability::Available
+            });
+            if committed {
+                operations.advance_durable_operation(
+                    request,
+                    DurableOperationPhase::CredentialWritten,
+                    DurableOperationPhase::MetadataCommitted,
+                    clock.now(),
+                    None,
+                )?;
+                finish_durable_selection(operation, app_state, operations, clock)?;
+            } else {
+                operations.advance_durable_operation(
+                    request,
+                    DurableOperationPhase::CredentialWritten,
+                    DurableOperationPhase::CompensationPending,
+                    clock.now(),
+                    None,
+                )?;
+                compensate_durable_addition(
+                    operation, accounts, app_state, secrets, operations, clock,
+                )?;
+            }
+        }
+        DurableOperationPhase::MetadataCommitted => {
+            finish_durable_selection(operation, app_state, operations, clock)?;
+        }
+        DurableOperationPhase::SelectionCommitted => {
+            operations.finalize_durable_operation(
+                request,
+                DurableOperationPhase::SelectionCommitted,
+                DurableTerminalOutcome::Completed,
+                None,
+                clock.now(),
+            )?;
+        }
+        DurableOperationPhase::CompensationPending => {
+            compensate_durable_addition(
+                operation, accounts, app_state, secrets, operations, clock,
+            )?;
+        }
+        DurableOperationPhase::CredentialDeleted | DurableOperationPhase::MetadataDeleted => {
+            operations.finalize_durable_operation(
+                request,
+                operation.phase(),
+                DurableTerminalOutcome::Failed,
+                None,
+                clock.now(),
+            )?;
+        }
+        DurableOperationPhase::Finalized => {}
+    }
+    Ok(())
+}
+
+fn finish_durable_selection(
+    operation: &DurableAccountOperation,
+    app_state: &(impl AppStateRepository + ?Sized),
+    operations: &(impl DurableOperationRepository + ?Sized),
+    clock: &(impl Clock + ?Sized),
+) -> Result<(), SafeError> {
+    app_state.save_selected_account(Some(operation.account()))?;
+    operations.advance_durable_operation(
+        operation.request_id(),
+        DurableOperationPhase::MetadataCommitted,
+        DurableOperationPhase::SelectionCommitted,
+        clock.now(),
+        None,
+    )?;
+    operations.finalize_durable_operation(
+        operation.request_id(),
+        DurableOperationPhase::SelectionCommitted,
+        DurableTerminalOutcome::Completed,
+        None,
+        clock.now(),
+    )?;
+    Ok(())
+}
+
+fn compensate_durable_addition(
+    operation: &DurableAccountOperation,
+    accounts: &(impl AccountRepository + ?Sized),
+    app_state: &(impl AppStateRepository + ?Sized),
+    secrets: &(impl SecretStore + ?Sized),
+    operations: &(impl DurableOperationRepository + ?Sized),
+    clock: &(impl Clock + ?Sized),
+) -> Result<(), SafeError> {
+    if secrets.contains(operation.account())? {
+        secrets.delete(operation.account())?;
+    }
+    if let Some(availability) = operation.prior().binding_availability() {
+        if let Some(previous) = accounts.find_account(operation.account())? {
+            accounts.update_account(&previous.with_binding_availability(availability))?;
+        }
+    } else if accounts.find_account(operation.account())?.is_some() {
+        accounts.remove_account(operation.account())?;
+    }
+    app_state.save_selected_account(operation.prior().selected_account())?;
+    operations.advance_durable_operation(
+        operation.request_id(),
+        DurableOperationPhase::CompensationPending,
+        DurableOperationPhase::CredentialDeleted,
+        clock.now(),
+        None,
+    )?;
+    operations.finalize_durable_operation(
+        operation.request_id(),
+        DurableOperationPhase::CredentialDeleted,
+        DurableTerminalOutcome::Failed,
+        None,
+        clock.now(),
+    )?;
+    Ok(())
 }
 
 fn recover_removal(

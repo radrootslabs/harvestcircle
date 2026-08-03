@@ -49,6 +49,13 @@ impl PersistentAppCore {
         secrets: &(impl SecretStore + ?Sized),
         clock: &(impl Clock + ?Sized),
     ) -> Result<AppSnapshot, SafeError> {
+        self.core.recover_durable_operations(
+            &self.database,
+            &self.database,
+            secrets,
+            &self.database,
+            clock,
+        )?;
         self.core.recover_pending_operations(
             &self.database,
             &self.database,
@@ -237,9 +244,10 @@ mod tests {
 
     use radroots_studio_application::{
         AccountOperationKind, AccountOperationPhase, AccountRepository, AppLifecycle,
-        AppStateRepository, Clock, DurableOperationRepository, DurableRequestId,
-        FailureSecretStore, InMemorySecretStore, OperationJournal, RelayConfiguration, SecretStore,
-        SecretStoreOperation, SessionState,
+        AppStateRepository, Clock, DurableOperationKind, DurableOperationPhase,
+        DurableOperationRepository, DurableRequestId, DurableTerminalOutcome, FailureSecretStore,
+        InMemorySecretStore, OperationJournal, OperationPriorState, RelayConfiguration,
+        SecretStore, SecretStoreOperation, SessionState,
     };
     use radroots_studio_domain::{
         AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
@@ -392,6 +400,78 @@ mod tests {
         assert_eq!(
             receipt.resulting_revision(),
             Some(adapter.core().snapshot().revision().value())
+        );
+    }
+
+    #[test]
+    fn durable_recovery_preserves_repair_metadata_and_deletes_orphan_credentials() {
+        let adapter = PersistentAppCore::in_memory(RelayConfiguration::default()).expect("adapter");
+        let secrets = InMemorySecretStore::default();
+        let missing = account().with_binding_availability(BindingAvailability::CredentialMissing);
+        adapter
+            .database()
+            .insert_account(&missing)
+            .expect("account");
+        adapter
+            .database()
+            .save_selected_account(Some(missing.public_key()))
+            .expect("selection");
+        let request = DurableRequestId::parse("repair:recovery:1").expect("request");
+        adapter
+            .database()
+            .begin_durable_operation(
+                &request,
+                DurableOperationKind::Repair,
+                missing.public_key(),
+                Some(0),
+                OperationPriorState::new(
+                    Some(missing.public_key()),
+                    Some(BindingAvailability::CredentialMissing),
+                ),
+                FixedClock.now(),
+            )
+            .expect("intent");
+        secrets
+            .put(
+                missing.public_key(),
+                SecretKeyInput::parse(
+                    "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7".to_owned(),
+                )
+                .expect("secret"),
+            )
+            .expect("credential");
+        adapter
+            .database()
+            .advance_durable_operation(
+                &request,
+                DurableOperationPhase::IntentRecorded,
+                DurableOperationPhase::CredentialWritten,
+                FixedClock.now(),
+                None,
+            )
+            .expect("credential phase");
+
+        adapter.bootstrap(&secrets, &FixedClock).expect("recovery");
+        let repaired = adapter
+            .database()
+            .find_account(missing.public_key())
+            .expect("lookup")
+            .expect("preserved account");
+        assert_eq!(
+            repaired.signer().availability(),
+            BindingAvailability::CredentialMissing
+        );
+        assert!(!secrets.contains(missing.public_key()).expect("credential"));
+        assert_eq!(
+            adapter
+                .database()
+                .load_durable_operation(&request)
+                .expect("operation")
+                .expect("record")
+                .terminal()
+                .expect("receipt")
+                .outcome(),
+            DurableTerminalOutcome::Failed
         );
     }
 
