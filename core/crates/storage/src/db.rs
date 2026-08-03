@@ -1,7 +1,9 @@
+use std::fs::{self, File, OpenOptions};
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
+use fs2::FileExt;
 use radroots_studio_domain::{SafeError, SafeErrorCode, SafeMessage};
 use refinery::embed_migrations;
 use rusqlite::{Connection, OpenFlags};
@@ -16,6 +18,11 @@ mod migrations {
 
 pub struct Database {
     connection: Mutex<Connection>,
+    _ownership: Option<WritableOwnership>,
+}
+
+struct WritableOwnership {
+    _file: File,
 }
 
 impl Database {
@@ -26,6 +33,9 @@ impl Database {
     /// Returns a safe storage error when the file, connection configuration,
     /// permission update, or migration cannot complete.
     pub fn open(path: &Path) -> Result<Self, SafeError> {
+        let parent = path.parent().ok_or_else(storage_error)?;
+        create_secure_directory(parent)?;
+        let ownership = WritableOwnership::acquire(path)?;
         let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
             | OpenFlags::SQLITE_OPEN_CREATE
             | OpenFlags::SQLITE_OPEN_NO_MUTEX;
@@ -38,6 +48,7 @@ impl Database {
         restrict_file_permissions(path)?;
         Ok(Self {
             connection: Mutex::new(connection),
+            _ownership: Some(ownership),
         })
     }
 
@@ -54,6 +65,7 @@ impl Database {
             .map_err(|_| corrupt_storage_error())?;
         Ok(Self {
             connection: Mutex::new(connection),
+            _ownership: None,
         })
     }
 
@@ -79,6 +91,27 @@ impl Database {
     }
 }
 
+impl WritableOwnership {
+    fn acquire(database_path: &Path) -> Result<Self, SafeError> {
+        let lock_path = database_path.with_extension("sqlite3.lock");
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .map_err(|_| storage_error())?;
+        restrict_file_permissions(&lock_path)?;
+        file.try_lock_exclusive().map_err(|_| ownership_error())?;
+        Ok(Self { _file: file })
+    }
+}
+
+fn create_secure_directory(path: &Path) -> Result<(), SafeError> {
+    fs::create_dir_all(path).map_err(|_| storage_error())?;
+    restrict_directory_permissions(path)
+}
+
 fn configure(connection: &Connection) -> Result<(), SafeError> {
     connection
         .pragma_update(None, "foreign_keys", "ON")
@@ -89,14 +122,25 @@ fn configure(connection: &Connection) -> Result<(), SafeError> {
 
 #[cfg(unix)]
 fn restrict_file_permissions(path: &Path) -> Result<(), SafeError> {
-    use std::fs;
     use std::os::unix::fs::PermissionsExt;
 
     fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|_| storage_error())
 }
 
+#[cfg(unix)]
+fn restrict_directory_permissions(path: &Path) -> Result<(), SafeError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(|_| storage_error())
+}
+
 #[cfg(not(unix))]
 fn restrict_file_permissions(_path: &Path) -> Result<(), SafeError> {
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn restrict_directory_permissions(_path: &Path) -> Result<(), SafeError> {
     Ok(())
 }
 
@@ -111,6 +155,13 @@ const fn corrupt_storage_error() -> SafeError {
     SafeError::new(
         SafeErrorCode::StorageCorrupt,
         SafeMessage::new("The application database could not be read."),
+    )
+}
+
+const fn ownership_error() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::StorageUnavailable,
+        SafeMessage::new("The application database is already in use."),
     )
 }
 
@@ -156,6 +207,22 @@ mod tests {
         assert!(fs::metadata(path).expect("database metadata").len() > 0);
     }
 
+    #[test]
+    fn writable_ownership_rejects_a_second_runtime_and_releases_on_drop() {
+        let directory = tempdir().expect("temporary directory");
+        let path = directory.path().join("studio.sqlite3");
+        let first = Database::open(&path).expect("first owner");
+        let Err(error) = Database::open(&path) else {
+            panic!("second owner must fail");
+        };
+        assert_eq!(
+            error.message().as_str(),
+            "The application database is already in use."
+        );
+        drop(first);
+        Database::open(&path).expect("ownership released");
+    }
+
     #[cfg(unix)]
     #[test]
     fn migration_attempts_owner_only_database_permissions() {
@@ -171,5 +238,11 @@ mod tests {
             & 0o777;
 
         assert_eq!(mode, 0o600);
+        let directory_mode = fs::metadata(directory.path())
+            .expect("directory metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(directory_mode, 0o700);
     }
 }

@@ -27,6 +27,7 @@ pedantic = "deny"
 bech32 = "=0.11.1"
 keyring = "=4.1.6"
 directories = "=6.0.0"
+fs2 = "=0.4.3"
 nostr = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr" }
 nostr-sdk = "=0.44.1"
 nostr-relay-builder = "=0.44.1"
