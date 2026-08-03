@@ -19,7 +19,8 @@ pub use accounts::{
 };
 pub use actor::{
     ActorMailbox, CommandContext, CommandReceipt, CommandRejection, CommandResult,
-    CommandSubmission, CommandTicket, RequestId,
+    CommandSubmission, CommandTicket, LifecycleGate, RequestId, RuntimeCommandClass,
+    RuntimeLifecycle,
 };
 pub use app_core::{AppCore, AppObserver, ObserverHandle, RemovalConfirmationToken};
 pub use config::{

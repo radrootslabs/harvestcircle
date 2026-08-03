@@ -6,6 +6,213 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::SnapshotRevision;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeLifecycle {
+    Opening,
+    CompatibilityChecking,
+    AcquiringOwnership,
+    Migrating,
+    Recovering,
+    Ready,
+    Degraded(SafeError),
+    Blocked(SafeError),
+    ShuttingDown,
+    Closed,
+    Fatal(SafeError),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeCommandClass {
+    Observe,
+    MutateLocalState,
+    UseCredential,
+    UseRelay,
+    RetryOpening,
+    Shutdown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LifecycleGate {
+    lifecycle: RuntimeLifecycle,
+}
+
+impl Default for LifecycleGate {
+    fn default() -> Self {
+        Self::opening()
+    }
+}
+
+impl LifecycleGate {
+    #[must_use]
+    pub const fn opening() -> Self {
+        Self {
+            lifecycle: RuntimeLifecycle::Opening,
+        }
+    }
+
+    #[must_use]
+    pub const fn lifecycle(self) -> RuntimeLifecycle {
+        self.lifecycle
+    }
+
+    #[must_use]
+    pub const fn allows(self, command: RuntimeCommandClass) -> bool {
+        match self.lifecycle {
+            RuntimeLifecycle::Opening
+            | RuntimeLifecycle::CompatibilityChecking
+            | RuntimeLifecycle::AcquiringOwnership
+            | RuntimeLifecycle::Migrating
+            | RuntimeLifecycle::Recovering => {
+                matches!(
+                    command,
+                    RuntimeCommandClass::Observe | RuntimeCommandClass::Shutdown
+                )
+            }
+            RuntimeLifecycle::Ready => !matches!(command, RuntimeCommandClass::RetryOpening),
+            RuntimeLifecycle::Degraded(_) => !matches!(
+                command,
+                RuntimeCommandClass::UseRelay | RuntimeCommandClass::RetryOpening
+            ),
+            RuntimeLifecycle::Blocked(_) => matches!(
+                command,
+                RuntimeCommandClass::Observe
+                    | RuntimeCommandClass::RetryOpening
+                    | RuntimeCommandClass::Shutdown
+            ),
+            RuntimeLifecycle::ShuttingDown => matches!(command, RuntimeCommandClass::Observe),
+            RuntimeLifecycle::Closed | RuntimeLifecycle::Fatal(_) => false,
+        }
+    }
+
+    /// Advances the required open sequence to compatibility checking.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe lifecycle error when the stage is out of order.
+    pub fn begin_compatibility_check(&mut self) -> Result<(), SafeError> {
+        self.advance(
+            RuntimeLifecycle::Opening,
+            RuntimeLifecycle::CompatibilityChecking,
+        )
+    }
+
+    /// Records compatibility acceptance and begins ownership acquisition.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe lifecycle error when the stage is out of order.
+    pub fn compatibility_accepted(&mut self) -> Result<(), SafeError> {
+        self.advance(
+            RuntimeLifecycle::CompatibilityChecking,
+            RuntimeLifecycle::AcquiringOwnership,
+        )
+    }
+
+    /// Records exclusive ownership and begins migration.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe lifecycle error when the stage is out of order.
+    pub fn ownership_acquired(&mut self) -> Result<(), SafeError> {
+        self.advance(
+            RuntimeLifecycle::AcquiringOwnership,
+            RuntimeLifecycle::Migrating,
+        )
+    }
+
+    /// Records migration completion and begins recovery.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe lifecycle error when the stage is out of order.
+    pub fn migration_complete(&mut self) -> Result<(), SafeError> {
+        self.advance(RuntimeLifecycle::Migrating, RuntimeLifecycle::Recovering)
+    }
+
+    /// Records recovery completion and admits normal commands.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe lifecycle error when the stage is out of order.
+    pub fn recovery_complete(&mut self) -> Result<(), SafeError> {
+        self.advance(RuntimeLifecycle::Recovering, RuntimeLifecycle::Ready)
+    }
+
+    pub fn block(&mut self, error: SafeError) {
+        self.lifecycle = RuntimeLifecycle::Blocked(error);
+    }
+
+    pub fn fail(&mut self, error: SafeError) {
+        self.lifecycle = RuntimeLifecycle::Fatal(error);
+    }
+
+    /// Moves a ready runtime into a nonfatal degraded state.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe lifecycle error when the runtime is not ready.
+    pub fn degrade(&mut self, error: SafeError) -> Result<(), SafeError> {
+        self.advance(RuntimeLifecycle::Ready, RuntimeLifecycle::Degraded(error))
+    }
+
+    /// Restores local and relay command availability after degradation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe lifecycle error when the runtime is not degraded.
+    pub fn restore_ready(&mut self) -> Result<(), SafeError> {
+        if !matches!(self.lifecycle, RuntimeLifecycle::Degraded(_)) {
+            return Err(invalid_lifecycle_transition());
+        }
+        self.lifecycle = RuntimeLifecycle::Ready;
+        Ok(())
+    }
+
+    /// Begins actor-owned shutdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe lifecycle error after shutdown or close has begun.
+    pub fn begin_shutdown(&mut self) -> Result<(), SafeError> {
+        if matches!(
+            self.lifecycle,
+            RuntimeLifecycle::ShuttingDown | RuntimeLifecycle::Closed
+        ) {
+            return Err(invalid_lifecycle_transition());
+        }
+        self.lifecycle = RuntimeLifecycle::ShuttingDown;
+        Ok(())
+    }
+
+    /// Completes actor-owned shutdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe lifecycle error unless shutdown already began.
+    pub fn finish_shutdown(&mut self) -> Result<(), SafeError> {
+        self.advance(RuntimeLifecycle::ShuttingDown, RuntimeLifecycle::Closed)
+    }
+
+    fn advance(
+        &mut self,
+        expected: RuntimeLifecycle,
+        next: RuntimeLifecycle,
+    ) -> Result<(), SafeError> {
+        if self.lifecycle != expected {
+            return Err(invalid_lifecycle_transition());
+        }
+        self.lifecycle = next;
+        Ok(())
+    }
+}
+
+const fn invalid_lifecycle_transition() -> SafeError {
+    SafeError::new(
+        radroots_studio_domain::SafeErrorCode::InvalidApplicationState,
+        radroots_studio_domain::SafeMessage::new("The runtime lifecycle transition is invalid."),
+    )
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RequestId(NonZeroU64);
 
@@ -217,7 +424,7 @@ mod tests {
 
     use crate::{
         ActorMailbox, CommandContext, CommandReceipt, CommandRejection, CommandResult,
-        CommandSubmission, RequestId,
+        CommandSubmission, LifecycleGate, RequestId, RuntimeCommandClass, RuntimeLifecycle,
     };
 
     fn context(id: u64) -> CommandContext {
@@ -287,5 +494,88 @@ mod tests {
         drop(receiver.recv().await.expect("command"));
 
         assert_eq!(ticket.receipt().await.into_result(), CommandResult::Closed);
+    }
+
+    #[test]
+    fn opening_sequence_gates_mutation_until_recovery_completes() {
+        let mut lifecycle = LifecycleGate::opening();
+        for expected in [
+            RuntimeLifecycle::Opening,
+            RuntimeLifecycle::CompatibilityChecking,
+            RuntimeLifecycle::AcquiringOwnership,
+            RuntimeLifecycle::Migrating,
+            RuntimeLifecycle::Recovering,
+        ] {
+            assert_eq!(lifecycle.lifecycle(), expected);
+            assert!(lifecycle.allows(RuntimeCommandClass::Observe));
+            assert!(lifecycle.allows(RuntimeCommandClass::Shutdown));
+            assert!(!lifecycle.allows(RuntimeCommandClass::MutateLocalState));
+            match expected {
+                RuntimeLifecycle::Opening => {
+                    lifecycle
+                        .begin_compatibility_check()
+                        .expect("compatibility");
+                }
+                RuntimeLifecycle::CompatibilityChecking => {
+                    lifecycle
+                        .compatibility_accepted()
+                        .expect("compatibility accepted");
+                }
+                RuntimeLifecycle::AcquiringOwnership => {
+                    lifecycle.ownership_acquired().expect("ownership");
+                }
+                RuntimeLifecycle::Migrating => {
+                    lifecycle.migration_complete().expect("migration");
+                }
+                RuntimeLifecycle::Recovering => {
+                    lifecycle.recovery_complete().expect("recovery");
+                }
+                _ => unreachable!("opening states only"),
+            }
+        }
+        assert_eq!(lifecycle.lifecycle(), RuntimeLifecycle::Ready);
+        assert!(lifecycle.allows(RuntimeCommandClass::MutateLocalState));
+        assert!(lifecycle.allows(RuntimeCommandClass::UseCredential));
+        assert!(lifecycle.allows(RuntimeCommandClass::UseRelay));
+    }
+
+    #[test]
+    fn blocked_degraded_fatal_and_closed_states_fail_safe() {
+        let problem = radroots_studio_domain::SafeError::new(
+            radroots_studio_domain::SafeErrorCode::StorageUnavailable,
+            radroots_studio_domain::SafeMessage::new("The runtime is unavailable."),
+        );
+        let mut blocked = LifecycleGate::opening();
+        blocked.block(problem);
+        assert!(blocked.allows(RuntimeCommandClass::RetryOpening));
+        assert!(!blocked.allows(RuntimeCommandClass::MutateLocalState));
+
+        let mut degraded = LifecycleGate::opening();
+        degraded.begin_compatibility_check().expect("compatibility");
+        degraded.compatibility_accepted().expect("accepted");
+        degraded.ownership_acquired().expect("ownership");
+        degraded.migration_complete().expect("migration");
+        degraded.recovery_complete().expect("recovery");
+        degraded.degrade(problem).expect("degraded");
+        assert!(degraded.allows(RuntimeCommandClass::MutateLocalState));
+        assert!(!degraded.allows(RuntimeCommandClass::UseRelay));
+        degraded.restore_ready().expect("restored");
+
+        let mut fatal = LifecycleGate::opening();
+        fatal.fail(problem);
+        assert!(!fatal.allows(RuntimeCommandClass::Observe));
+        fatal.begin_shutdown().expect("fatal can close");
+        fatal.finish_shutdown().expect("closed");
+        assert_eq!(fatal.lifecycle(), RuntimeLifecycle::Closed);
+        assert!(!fatal.allows(RuntimeCommandClass::Shutdown));
+    }
+
+    #[test]
+    fn opening_stages_reject_out_of_order_and_repeated_transitions() {
+        let mut lifecycle = LifecycleGate::opening();
+        assert!(lifecycle.migration_complete().is_err());
+        lifecycle.begin_compatibility_check().expect("first stage");
+        assert!(lifecycle.begin_compatibility_check().is_err());
+        assert!(lifecycle.recovery_complete().is_err());
     }
 }
