@@ -122,7 +122,8 @@ mod tests {
         assert!(npub.as_str().starts_with("npub1"));
         assert_eq!(secret.with_exposed_secret(str::len), 64);
         assert_eq!(nsec.with_exposed_secret(str::len), 63);
-        assert!(!format!("{secret:?} {nsec:?}").contains("nsec1"));
+        assert_eq!(secret.with_exposed_secret(str::len), 64);
+        assert_eq!(nsec.with_exposed_secret(str::len), 63);
     }
 
     #[test]

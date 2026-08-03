@@ -11,6 +11,7 @@ radroots-studio-application = { path = "../application" }
 radroots-studio-domain = { path = "../domain" }
 fs2.workspace = true
 keyring.workspace = true
+zeroize.workspace = true
 refinery.workspace = true
 rusqlite.workspace = true
 tokio.workspace = true

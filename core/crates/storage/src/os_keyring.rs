@@ -1,23 +1,38 @@
+use std::sync::{Mutex, MutexGuard};
+
 use keyring::{Entry, Error as KeyringError};
 use radroots_studio_application::SecretStore;
 use radroots_studio_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput};
+use zeroize::Zeroizing;
 
 pub const CREDENTIAL_SERVICE: &str = "org.radroots.studio.nostr";
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct OsKeyringSecretStore;
+#[derive(Default)]
+pub struct OsKeyringSecretStore {
+    operation_lock: Mutex<()>,
+}
 
 impl OsKeyringSecretStore {
     fn entry(public_key: PublicKey) -> Result<Entry, SafeError> {
         Entry::new(CREDENTIAL_SERVICE, &public_key.to_hex()).map_err(|_| keyring_unavailable())
     }
+
+    fn operation(&self) -> MutexGuard<'_, ()> {
+        self.operation_lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 impl SecretStore for OsKeyringSecretStore {
     fn put(&self, public_key: PublicKey, secret: SecretKeyInput) -> Result<(), SafeError> {
+        let _operation = self.operation();
         let entry = Self::entry(public_key)?;
         match entry.get_password() {
-            Ok(_) => return Err(credential_exists()),
+            Ok(password) => {
+                drop(Zeroizing::new(password));
+                return Err(credential_exists());
+            }
             Err(KeyringError::NoEntry) => {}
             Err(_) => return Err(keyring_unavailable()),
         }
@@ -27,6 +42,7 @@ impl SecretStore for OsKeyringSecretStore {
     }
 
     fn load(&self, public_key: PublicKey) -> Result<SecretKeyInput, SafeError> {
+        let _operation = self.operation();
         let password = Self::entry(public_key)?
             .get_password()
             .map_err(|error| map_read_error(&error))?;
@@ -34,14 +50,19 @@ impl SecretStore for OsKeyringSecretStore {
     }
 
     fn contains(&self, public_key: PublicKey) -> Result<bool, SafeError> {
+        let _operation = self.operation();
         match Self::entry(public_key)?.get_password() {
-            Ok(_) => Ok(true),
+            Ok(password) => {
+                drop(Zeroizing::new(password));
+                Ok(true)
+            }
             Err(KeyringError::NoEntry) => Ok(false),
             Err(_) => Err(keyring_unavailable()),
         }
     }
 
     fn delete(&self, public_key: PublicKey) -> Result<(), SafeError> {
+        let _operation = self.operation();
         Self::entry(public_key)?
             .delete_credential()
             .map_err(|error| map_read_error(&error))
@@ -93,7 +114,7 @@ mod tests {
     #[test]
     #[ignore = "mutates the current user's operating-system credential store"]
     fn real_keyring_smoke_round_trips_and_deletes() {
-        let store = OsKeyringSecretStore;
+        let store = OsKeyringSecretStore::default();
         let public_key = PublicKey::from_bytes([0xcd; 32]);
         let _ = store.delete(public_key);
         store

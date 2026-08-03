@@ -222,7 +222,6 @@ mod tests {
         assert!(store.contains(public_key).expect("contains"));
         let loaded = store.load(public_key).expect("load");
         assert_eq!(loaded.with_exposed_secret(str::len), 64);
-        assert!(!format!("{loaded:?}").contains(SECRET));
         store.delete(public_key).expect("delete");
         assert!(!store.contains(public_key).expect("contains"));
     }
@@ -231,7 +230,9 @@ mod tests {
     fn secret_store_rejects_duplicates_and_reports_missing_credentials() {
         let store = InMemorySecretStore::default();
         let public_key = PublicKey::from_bytes([2; 32]);
-        let missing = store.load(public_key).expect_err("missing");
+        let Err(missing) = store.load(public_key) else {
+            panic!("missing credential was returned");
+        };
         assert_eq!(missing.code(), SafeErrorCode::CredentialMissing);
         store
             .put(

@@ -271,7 +271,7 @@ impl StudioAppCore {
         let actor = RuntimeActorHandle::open(
             path,
             relays,
-            Arc::new(OsKeyringSecretStore),
+            Arc::new(OsKeyringSecretStore::default()),
             Arc::new(SystemClock),
             Arc::new(SdkNostrClient::new(Duration::from_secs(5))),
             NonZeroUsize::new(ACTOR_MAILBOX_CAPACITY).expect("nonzero actor mailbox capacity"),
