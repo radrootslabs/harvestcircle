@@ -154,21 +154,6 @@ pub enum BindingRepairAction {
     RetryCredentialStore,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SignerKind {
-    LocalSecret,
-    WatchOnly,
-    RemoteNip46,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum KeyAvailability {
-    Available,
-    CredentialMissing,
-    StoreUnavailable,
-    NotRequired,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountLabel(String);
 
@@ -213,55 +198,52 @@ impl AccountCreatedAt {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AccountSummary {
-    public_key: PublicKey,
-    npub: Npub,
-    signer_kind: SignerKind,
-    key_availability: KeyAvailability,
+    identity: AccountIdentity,
+    signer: LocalSignerBinding,
     label: Option<AccountLabel>,
     created_at: AccountCreatedAt,
     last_used_at: Option<UnixTimestamp>,
 }
 
 impl AccountSummary {
-    #[must_use]
-    pub const fn new(
-        public_key: PublicKey,
-        npub: Npub,
-        signer_kind: SignerKind,
-        key_availability: KeyAvailability,
+    /// Creates an account summary whose identity and signer binding refer to the same account.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-account-metadata error when the signer binding belongs to a different
+    /// public key.
+    pub fn new(
+        identity: AccountIdentity,
+        signer: LocalSignerBinding,
         label: Option<AccountLabel>,
         created_at: AccountCreatedAt,
         last_used_at: Option<UnixTimestamp>,
-    ) -> Self {
-        Self {
-            public_key,
-            npub,
-            signer_kind,
-            key_availability,
+    ) -> Result<Self, SafeError> {
+        if identity.public_key() != signer.account() {
+            return Err(invalid_account_metadata());
+        }
+        Ok(Self {
+            identity,
+            signer,
             label,
             created_at,
             last_used_at,
-        }
+        })
     }
 
     #[must_use]
     pub const fn public_key(&self) -> PublicKey {
-        self.public_key
+        self.identity.public_key()
     }
 
     #[must_use]
     pub fn npub(&self) -> &Npub {
-        &self.npub
+        self.identity.npub()
     }
 
     #[must_use]
-    pub const fn signer_kind(&self) -> SignerKind {
-        self.signer_kind
-    }
-
-    #[must_use]
-    pub const fn key_availability(&self) -> KeyAvailability {
-        self.key_availability
+    pub const fn signer(&self) -> LocalSignerBinding {
+        self.signer
     }
 
     #[must_use]
@@ -280,12 +262,10 @@ impl AccountSummary {
     }
 
     #[must_use]
-    pub fn with_key_availability(&self, key_availability: KeyAvailability) -> Self {
+    pub fn with_binding_availability(&self, availability: BindingAvailability) -> Self {
         Self {
-            public_key: self.public_key,
-            npub: self.npub.clone(),
-            signer_kind: self.signer_kind,
-            key_availability,
+            identity: self.identity.clone(),
+            signer: LocalSignerBinding::new(self.public_key(), availability),
             label: self.label.clone(),
             created_at: self.created_at,
             last_used_at: self.last_used_at,
@@ -295,10 +275,8 @@ impl AccountSummary {
     #[must_use]
     pub fn with_last_used_at(&self, last_used_at: UnixTimestamp) -> Self {
         Self {
-            public_key: self.public_key,
-            npub: self.npub.clone(),
-            signer_kind: self.signer_kind,
-            key_availability: self.key_availability,
+            identity: self.identity.clone(),
+            signer: self.signer,
             label: self.label.clone(),
             created_at: self.created_at,
             last_used_at: Some(last_used_at),
@@ -309,7 +287,7 @@ impl AccountSummary {
     pub fn display_label(&self) -> String {
         self.label
             .as_ref()
-            .map_or_else(|| self.npub.short(), |label| label.as_str().to_owned())
+            .map_or_else(|| self.npub().short(), |label| label.as_str().to_owned())
     }
 }
 
@@ -322,27 +300,27 @@ const fn invalid_account_metadata() -> SafeError {
 
 #[cfg(test)]
 mod tests {
+    use crate::PublicKey;
     use crate::time::UnixTimestamp;
-    use crate::{Npub, PublicKey};
 
     use super::{
         AccountCreatedAt, AccountIdentity, AccountLabel, AccountSummary, BindingAvailability,
-        BindingRepairAction, KeyAvailability, LocalSignerBinding, SignerKind,
+        BindingRepairAction, LocalSignerBinding,
     };
 
-    const NPUB: &str = "npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg";
     const DERIVED_NPUB: &str = "npub1qurswpc8qurswpc8qurswpc8qurswpc8qurswpc8qurswpc8qursnvjvl7";
+    const MISMATCHED_NPUB: &str = "npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg";
 
     fn account(label: Option<AccountLabel>) -> AccountSummary {
+        let public_key = PublicKey::from_bytes([7_u8; 32]);
         AccountSummary::new(
-            PublicKey::from_bytes([7_u8; 32]),
-            Npub::from_encoded(NPUB.to_owned()).expect("valid npub"),
-            SignerKind::LocalSecret,
-            KeyAvailability::Available,
+            AccountIdentity::derive(public_key).expect("identity"),
+            LocalSignerBinding::new(public_key, BindingAvailability::Available),
             label,
             AccountCreatedAt::new(UnixTimestamp::from_seconds(10).expect("valid time")),
             None,
         )
+        .expect("account")
     }
 
     #[test]
@@ -361,7 +339,7 @@ mod tests {
         let unlabelled = account(None);
 
         assert_eq!(labelled.display_label(), "Farm");
-        assert_eq!(unlabelled.display_label(), "npub10elfcs4…8qzvjptg");
+        assert_eq!(unlabelled.display_label(), "npub1qurswpc…rsnvjvl7");
     }
 
     #[test]
@@ -369,13 +347,15 @@ mod tests {
         let account = account(None);
         let debug = format!("{account:?}");
 
-        assert_eq!(account.signer_kind(), SignerKind::LocalSecret);
-        assert_eq!(account.key_availability(), KeyAvailability::Available);
+        assert_eq!(
+            account.signer().availability(),
+            BindingAvailability::Available
+        );
         assert!(account.label().is_none());
         assert!(account.last_used_at().is_none());
         assert_eq!(account.created_at().timestamp().as_seconds(), 10);
         assert_eq!(account.public_key(), PublicKey::from_bytes([7_u8; 32]));
-        assert_eq!(account.npub().as_str(), NPUB);
+        assert_eq!(account.npub().as_str(), DERIVED_NPUB);
         assert!(!debug.contains("nsec1"));
         assert!(!debug.contains(&"11".repeat(32)));
     }
@@ -390,9 +370,13 @@ mod tests {
             AccountIdentity::verify(public_key, DERIVED_NPUB.to_owned()).expect("verified"),
             identity
         );
-        assert!(AccountIdentity::verify(public_key, NPUB.to_owned()).is_err());
+        assert!(AccountIdentity::verify(public_key, MISMATCHED_NPUB.to_owned()).is_err());
         assert!(
-            AccountIdentity::verify(PublicKey::from_bytes([8_u8; 32]), NPUB.to_owned()).is_err()
+            AccountIdentity::verify(
+                PublicKey::from_bytes([8_u8; 32]),
+                MISMATCHED_NPUB.to_owned()
+            )
+            .is_err()
         );
     }
 

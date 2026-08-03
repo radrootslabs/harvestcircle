@@ -1,8 +1,8 @@
 use std::sync::{Mutex, MutexGuard};
 
 use radroots_studio_domain::{
-    AccountCreatedAt, AccountSummary, KeyAvailability, Nsec, PublicKey, SafeError, SafeErrorCode,
-    SafeMessage, SecretKeyInput, SignerKind,
+    AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
+    Nsec, PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput,
 };
 use radroots_studio_nostr::{generate_local_keypair, import_secret};
 
@@ -96,7 +96,8 @@ impl AppCore {
             Ok(()) => {}
             Err(error)
                 if error.code() == SafeErrorCode::CredentialMissing
-                    && account.key_availability() == KeyAvailability::CredentialMissing => {}
+                    && account.signer().availability()
+                        == BindingAvailability::CredentialMissing => {}
             Err(error) => return Err(error),
         }
         journal.update_operation(
@@ -154,14 +155,12 @@ impl AppCore {
         let generated = generate_local_keypair()?;
         let (public_key, npub, secret, nsec) = generated.into_parts();
         let account = AccountSummary::new(
-            public_key,
-            npub,
-            SignerKind::LocalSecret,
-            KeyAvailability::Available,
+            AccountIdentity::verify(public_key, npub.as_str().to_owned())?,
+            LocalSignerBinding::new(public_key, BindingAvailability::Available),
             None,
             AccountCreatedAt::new(clock.now()),
             None,
-        );
+        )?;
         Self::persist_account_transaction(
             AccountOperationKind::Add,
             &account,
@@ -201,12 +200,12 @@ impl AppCore {
         let imported = import_secret(input)?;
         let (public_key, npub, secret) = imported.into_parts();
         if let Some(existing) = accounts.find_account(public_key)? {
-            if existing.key_availability() != KeyAvailability::CredentialMissing
+            if existing.signer().availability() != BindingAvailability::CredentialMissing
                 || secrets.contains(public_key)?
             {
                 return Err(account_exists());
             }
-            let repaired = existing.with_key_availability(KeyAvailability::Available);
+            let repaired = existing.with_binding_availability(BindingAvailability::Available);
             Self::persist_account_transaction(
                 AccountOperationKind::Import,
                 &repaired,
@@ -228,14 +227,12 @@ impl AppCore {
             return Err(account_exists());
         }
         let account = AccountSummary::new(
-            public_key,
-            npub,
-            SignerKind::LocalSecret,
-            KeyAvailability::Available,
+            AccountIdentity::verify(public_key, npub.as_str().to_owned())?,
+            LocalSignerBinding::new(public_key, BindingAvailability::Available),
             None,
             AccountCreatedAt::new(clock.now()),
             None,
-        );
+        )?;
         Self::persist_account_transaction(
             AccountOperationKind::Import,
             &account,
@@ -566,8 +563,8 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use radroots_studio_domain::{
-        AccountCreatedAt, AccountSummary, KeyAvailability, PublicKey, SafeError, SafeErrorCode,
-        SafeMessage, SecretKeyInput, SignerKind, UnixTimestamp,
+        AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
+        PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput, UnixTimestamp,
     };
 
     use super::InMemoryAccountRepository;
@@ -795,14 +792,13 @@ mod tests {
         let imported = radroots_studio_nostr::import_secret(input()).expect("derive");
         let (public_key, npub, _) = imported.into_parts();
         let missing = AccountSummary::new(
-            public_key,
-            npub,
-            SignerKind::LocalSecret,
-            KeyAvailability::CredentialMissing,
+            AccountIdentity::verify(public_key, npub.as_str().to_owned()).expect("identity"),
+            LocalSignerBinding::new(public_key, BindingAvailability::CredentialMissing),
             None,
             AccountCreatedAt::new(FixedClock.now()),
             None,
-        );
+        )
+        .expect("missing account");
         accounts.insert_account(&missing).expect("missing metadata");
         accounts
             .save_selected_account(Some(public_key))
@@ -824,8 +820,8 @@ mod tests {
             )
             .expect("repair");
         assert_eq!(
-            receipt.account().key_availability(),
-            KeyAvailability::Available
+            receipt.account().signer().availability(),
+            BindingAvailability::Available
         );
         assert!(secrets.contains(public_key).expect("credential"));
         assert_eq!(core.snapshot().accounts().len(), 1);

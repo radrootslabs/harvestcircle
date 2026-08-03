@@ -150,24 +150,21 @@ mod tests {
         AccountRepository, CachedProfile, ProfileRefreshStatus, ProfileRepository,
     };
     use radroots_studio_domain::{
-        AccountCreatedAt, AccountSummary, EventId, KeyAvailability, Kind0ProfileCandidate, Npub,
-        ProfileMetadata, PublicKey, SignerKind, UnixTimestamp,
+        AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, EventId,
+        Kind0ProfileCandidate, LocalSignerBinding, ProfileMetadata, PublicKey, UnixTimestamp,
     };
 
     use crate::Database;
 
-    const NPUB: &str = "npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg";
-
     fn account(public_key: PublicKey) -> AccountSummary {
         AccountSummary::new(
-            public_key,
-            Npub::from_encoded(NPUB.to_owned()).expect("npub"),
-            SignerKind::LocalSecret,
-            KeyAvailability::Available,
+            AccountIdentity::derive(public_key).expect("identity"),
+            LocalSignerBinding::new(public_key, BindingAvailability::Available),
             None,
             AccountCreatedAt::new(UnixTimestamp::from_seconds(1).expect("time")),
             None,
         )
+        .expect("account")
     }
 
     fn profile(public_key: PublicKey, id: u8, created_at: i64, name: &str) -> CachedProfile {

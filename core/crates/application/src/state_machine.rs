@@ -357,8 +357,8 @@ const fn account_not_found() -> SafeError {
 #[cfg(test)]
 mod tests {
     use radroots_studio_domain::{
-        AccountCreatedAt, AccountSummary, KeyAvailability, Npub, PublicKey, SafeError,
-        SafeErrorCode, SafeMessage, SignerKind, UnixTimestamp,
+        AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
+        PublicKey, SafeError, SafeErrorCode, SafeMessage, UnixTimestamp,
     };
 
     use crate::{
@@ -366,18 +366,16 @@ mod tests {
         SessionState, StateMachine, StateTransition,
     };
 
-    const NPUB: &str = "npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg";
-
     fn account(key_byte: u8) -> AccountSummary {
+        let public_key = PublicKey::from_bytes([key_byte; 32]);
         AccountSummary::new(
-            PublicKey::from_bytes([key_byte; 32]),
-            Npub::from_encoded(NPUB.to_owned()).expect("valid npub"),
-            SignerKind::LocalSecret,
-            KeyAvailability::Available,
+            AccountIdentity::derive(public_key).expect("identity"),
+            LocalSignerBinding::new(public_key, BindingAvailability::Available),
             None,
             AccountCreatedAt::new(UnixTimestamp::from_seconds(1).expect("valid time")),
             None,
         )
+        .expect("account")
     }
 
     fn active(account: AccountSummary) -> ActiveAccountSnapshot {

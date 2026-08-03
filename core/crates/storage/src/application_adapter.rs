@@ -193,25 +193,23 @@ mod tests {
         RelayConfiguration, SecretStore, SecretStoreOperation, SessionState,
     };
     use radroots_studio_domain::{
-        AccountCreatedAt, AccountSummary, KeyAvailability, Npub, PublicKey, SafeErrorCode,
-        SecretKeyInput, SignerKind, UnixTimestamp,
+        AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
+        PublicKey, SafeErrorCode, SecretKeyInput, UnixTimestamp,
     };
     use tempfile::tempdir;
 
     use super::PersistentAppCore;
 
-    const NPUB: &str = "npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg";
-
     fn account() -> AccountSummary {
+        let public_key = PublicKey::from_bytes([4; 32]);
         AccountSummary::new(
-            PublicKey::from_bytes([4; 32]),
-            Npub::from_encoded(NPUB.to_owned()).expect("npub"),
-            SignerKind::LocalSecret,
-            KeyAvailability::Available,
+            AccountIdentity::derive(public_key).expect("identity"),
+            LocalSignerBinding::new(public_key, BindingAvailability::Available),
             None,
             AccountCreatedAt::new(UnixTimestamp::from_seconds(1).expect("time")),
             None,
         )
+        .expect("account")
     }
 
     struct FixedClock;

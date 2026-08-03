@@ -9,7 +9,7 @@ pub mod time;
 
 pub use account::{
     AccountCreatedAt, AccountIdentity, AccountLabel, AccountSummary, BindingAvailability,
-    BindingRepairAction, KeyAvailability, LocalSignerBinding, SignerKind,
+    BindingRepairAction, LocalSignerBinding,
 };
 pub use error::{SafeError, SafeErrorCode, SafeMessage};
 pub use key::{Npub, Nsec, PublicKey, SecretKeyInput, SecretKeyInputKind};

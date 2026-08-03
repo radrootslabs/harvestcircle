@@ -2,9 +2,7 @@ use radroots_studio_application::{
     ActiveAccountSnapshot, AppLifecycle, AppSnapshot, ProfileLoadState, RelayConnectionState,
     SessionState,
 };
-use radroots_studio_domain::{
-    AccountSummary, KeyAvailability, ProfileMetadata, SafeError, SignerKind,
-};
+use radroots_studio_domain::{AccountSummary, BindingAvailability, ProfileMetadata, SafeError};
 
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct SafeErrorDto {
@@ -149,8 +147,8 @@ impl From<&AccountSummary> for AccountDto {
             public_key_hex: account.public_key().to_hex(),
             npub: account.npub().as_str().to_owned(),
             display_label: account.display_label(),
-            signer_kind: account.signer_kind().into(),
-            key_availability: account.key_availability().into(),
+            signer_kind: SignerKindDto::LocalSecret,
+            key_availability: account.signer().availability().into(),
             created_at_seconds: account.created_at().timestamp().as_seconds(),
             last_used_at_seconds: account
                 .last_used_at()
@@ -191,23 +189,12 @@ impl From<SafeError> for SafeErrorDto {
     }
 }
 
-impl From<SignerKind> for SignerKindDto {
-    fn from(value: SignerKind) -> Self {
+impl From<BindingAvailability> for KeyAvailabilityDto {
+    fn from(value: BindingAvailability) -> Self {
         match value {
-            SignerKind::LocalSecret => Self::LocalSecret,
-            SignerKind::WatchOnly => Self::WatchOnly,
-            SignerKind::RemoteNip46 => Self::RemoteNip46,
-        }
-    }
-}
-
-impl From<KeyAvailability> for KeyAvailabilityDto {
-    fn from(value: KeyAvailability) -> Self {
-        match value {
-            KeyAvailability::Available => Self::Available,
-            KeyAvailability::CredentialMissing => Self::CredentialMissing,
-            KeyAvailability::StoreUnavailable => Self::StoreUnavailable,
-            KeyAvailability::NotRequired => Self::NotRequired,
+            BindingAvailability::Available => Self::Available,
+            BindingAvailability::CredentialMissing => Self::CredentialMissing,
+            BindingAvailability::StoreUnavailable => Self::StoreUnavailable,
         }
     }
 }

@@ -80,24 +80,22 @@ mod tests {
         AccountNamespaceRepository, AccountPreferenceKey, AccountRepository, AppStateRepository,
     };
     use radroots_studio_domain::{
-        AccountCreatedAt, AccountSummary, KeyAvailability, Npub, PublicKey, SignerKind,
-        UnixTimestamp,
+        AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
+        PublicKey, UnixTimestamp,
     };
 
     use crate::Database;
 
-    const NPUB: &str = "npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg";
-
     fn account(byte: u8) -> AccountSummary {
+        let public_key = PublicKey::from_bytes([byte; 32]);
         AccountSummary::new(
-            PublicKey::from_bytes([byte; 32]),
-            Npub::from_encoded(NPUB.to_owned()).expect("npub"),
-            SignerKind::LocalSecret,
-            KeyAvailability::Available,
+            AccountIdentity::derive(public_key).expect("identity"),
+            LocalSignerBinding::new(public_key, BindingAvailability::Available),
             None,
             AccountCreatedAt::new(UnixTimestamp::from_seconds(i64::from(byte)).expect("time")),
             None,
         )
+        .expect("account")
     }
 
     #[test]

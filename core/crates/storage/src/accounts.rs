@@ -1,7 +1,7 @@
 use radroots_studio_application::{AccountRepository, AppStateRepository};
 use radroots_studio_domain::{
-    AccountCreatedAt, AccountLabel, AccountSummary, KeyAvailability, Npub, PublicKey, SafeError,
-    SafeErrorCode, SafeMessage, SignerKind, UnixTimestamp,
+    AccountCreatedAt, AccountIdentity, AccountLabel, AccountSummary, BindingAvailability,
+    LocalSignerBinding, PublicKey, SafeError, SafeErrorCode, SafeMessage, UnixTimestamp,
 };
 use rusqlite::{OptionalExtension, Row, params};
 
@@ -135,8 +135,8 @@ impl From<&AccountSummary> for EncodedAccount {
         Self {
             public_key: account.public_key().to_hex(),
             npub: account.npub().as_str().to_owned(),
-            signer_kind: encode_signer_kind(account.signer_kind()),
-            key_availability: encode_key_availability(account.key_availability()),
+            signer_kind: "local_secret",
+            key_availability: encode_key_availability(account.signer().availability()),
             label: account.label().map(|label| label.as_str().to_owned()),
             created_at: account.created_at().timestamp().as_seconds(),
             last_used_at: account.last_used_at().map(UnixTimestamp::as_seconds),
@@ -147,8 +147,10 @@ impl From<&AccountSummary> for EncodedAccount {
 fn decode_account(row: &Row<'_>) -> rusqlite::Result<AccountSummary> {
     let public_key =
         PublicKey::from_hex(row.get::<_, String>(0)?.as_str()).map_err(|_| invalid_column(0))?;
-    let npub = Npub::from_encoded(row.get(1)?).map_err(|_| invalid_column(1))?;
-    let signer_kind = decode_signer_kind(row.get::<_, String>(2)?.as_str())?;
+    let npub: String = row.get(1)?;
+    if row.get::<_, String>(2)?.as_str() != "local_secret" {
+        return Err(invalid_column(2));
+    }
     let key_availability = decode_key_availability(row.get::<_, String>(3)?.as_str())?;
     let label = row
         .get::<_, Option<String>>(4)?
@@ -160,49 +162,29 @@ fn decode_account(row: &Row<'_>) -> rusqlite::Result<AccountSummary> {
         .map(|value| UnixTimestamp::from_seconds(value).ok_or_else(|| invalid_column(6)))
         .transpose()?;
 
-    Ok(AccountSummary::new(
-        public_key,
-        npub,
-        signer_kind,
-        key_availability,
+    AccountSummary::new(
+        AccountIdentity::verify(public_key, npub).map_err(|_| invalid_column(1))?,
+        LocalSignerBinding::new(public_key, key_availability),
         label,
         AccountCreatedAt::new(created_at),
         last_used_at,
-    ))
+    )
+    .map_err(|_| invalid_column(0))
 }
 
-const fn encode_signer_kind(value: SignerKind) -> &'static str {
+const fn encode_key_availability(value: BindingAvailability) -> &'static str {
     match value {
-        SignerKind::LocalSecret => "local_secret",
-        SignerKind::WatchOnly => "watch_only",
-        SignerKind::RemoteNip46 => "remote_nip46",
+        BindingAvailability::Available => "available",
+        BindingAvailability::CredentialMissing => "credential_missing",
+        BindingAvailability::StoreUnavailable => "store_unavailable",
     }
 }
 
-fn decode_signer_kind(value: &str) -> rusqlite::Result<SignerKind> {
+fn decode_key_availability(value: &str) -> rusqlite::Result<BindingAvailability> {
     match value {
-        "local_secret" => Ok(SignerKind::LocalSecret),
-        "watch_only" => Ok(SignerKind::WatchOnly),
-        "remote_nip46" => Ok(SignerKind::RemoteNip46),
-        _ => Err(invalid_column(2)),
-    }
-}
-
-const fn encode_key_availability(value: KeyAvailability) -> &'static str {
-    match value {
-        KeyAvailability::Available => "available",
-        KeyAvailability::CredentialMissing => "credential_missing",
-        KeyAvailability::StoreUnavailable => "store_unavailable",
-        KeyAvailability::NotRequired => "not_required",
-    }
-}
-
-fn decode_key_availability(value: &str) -> rusqlite::Result<KeyAvailability> {
-    match value {
-        "available" => Ok(KeyAvailability::Available),
-        "credential_missing" => Ok(KeyAvailability::CredentialMissing),
-        "store_unavailable" => Ok(KeyAvailability::StoreUnavailable),
-        "not_required" => Ok(KeyAvailability::NotRequired),
+        "available" => Ok(BindingAvailability::Available),
+        "credential_missing" => Ok(BindingAvailability::CredentialMissing),
+        "store_unavailable" => Ok(BindingAvailability::StoreUnavailable),
         _ => Err(invalid_column(3)),
     }
 }
@@ -262,27 +244,25 @@ mod tests {
 
     use radroots_studio_application::{AccountRepository, AppStateRepository};
     use radroots_studio_domain::{
-        AccountCreatedAt, AccountLabel, AccountSummary, KeyAvailability, Npub, PublicKey,
-        SafeErrorCode, SignerKind, UnixTimestamp,
+        AccountCreatedAt, AccountIdentity, AccountLabel, AccountSummary, BindingAvailability,
+        LocalSignerBinding, PublicKey, SafeErrorCode, UnixTimestamp,
     };
     use tempfile::tempdir;
 
     use crate::Database;
 
-    const NPUB: &str = "npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg";
-
     fn account(key_byte: u8, created_at: i64) -> AccountSummary {
+        let public_key = PublicKey::from_bytes([key_byte; 32]);
         AccountSummary::new(
-            PublicKey::from_bytes([key_byte; 32]),
-            Npub::from_encoded(NPUB.to_owned()).expect("valid npub"),
-            SignerKind::LocalSecret,
-            KeyAvailability::Available,
+            AccountIdentity::derive(public_key).expect("identity"),
+            LocalSignerBinding::new(public_key, BindingAvailability::Available),
             Some(AccountLabel::parse("Farm account").expect("valid label")),
             AccountCreatedAt::new(
                 UnixTimestamp::from_seconds(created_at).expect("valid timestamp"),
             ),
             None,
         )
+        .expect("account")
     }
 
     #[test]
