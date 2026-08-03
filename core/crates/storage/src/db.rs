@@ -5,11 +5,11 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use fs2::FileExt;
-use radroots_studio_domain::{SafeError, SafeErrorCode, SafeMessage};
+use radroots_studio_domain::{AccountIdentity, PublicKey, SafeError, SafeErrorCode, SafeMessage};
 use refinery::embed_migrations;
 use rusqlite::{Connection, OpenFlags};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 6;
+pub const CURRENT_SCHEMA_VERSION: u32 = 7;
 
 mod migrations {
     use super::embed_migrations;
@@ -49,6 +49,7 @@ impl Database {
         let mut connection =
             Connection::open_with_flags(path, flags).map_err(|_| storage_error())?;
         configure(&connection).map_err(|_| corrupt_storage_error())?;
+        validate_legacy_account_identities(&connection)?;
         migrations::migrations::runner()
             .run(&mut connection)
             .map_err(|_| corrupt_storage_error())?;
@@ -160,6 +161,48 @@ fn configure(connection: &Connection) -> Result<(), SafeError> {
         .map_err(|_| storage_error())
 }
 
+fn validate_legacy_account_identities(connection: &Connection) -> Result<(), SafeError> {
+    let has_accounts = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'accounts')",
+            [],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|_| corrupt_storage_error())?;
+    if !has_accounts {
+        return Ok(());
+    }
+
+    let mut statement = connection
+        .prepare("SELECT pubkey, npub, signer_kind, key_availability FROM accounts")
+        .map_err(|_| corrupt_storage_error())?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|_| corrupt_storage_error())?;
+    for row in rows {
+        let (public_key, npub, signer_kind, availability) =
+            row.map_err(|_| corrupt_storage_error())?;
+        let public_key = PublicKey::from_hex(&public_key).map_err(|_| corrupt_storage_error())?;
+        AccountIdentity::verify(public_key, npub).map_err(|_| corrupt_storage_error())?;
+        if signer_kind != "local_secret"
+            || !matches!(
+                availability.as_str(),
+                "available" | "credential_missing" | "store_unavailable"
+            )
+        {
+            return Err(corrupt_storage_error());
+        }
+    }
+    Ok(())
+}
+
 fn restrict_sqlite_sidecars(path: &Path) -> Result<(), SafeError> {
     for suffix in ["-wal", "-shm"] {
         let sidecar = PathBuf::from(format!("{}{suffix}", path.display()));
@@ -221,7 +264,12 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{CURRENT_SCHEMA_VERSION, Database};
+    use radroots_studio_application::{AccountRepository, AppStateRepository};
+    use radroots_studio_domain::PublicKey;
+    use refinery::Target;
+    use rusqlite::Connection;
+
+    use super::{CURRENT_SCHEMA_VERSION, Database, configure, migrations};
 
     #[test]
     fn migration_opens_fresh_memory_database_once() {
@@ -298,6 +346,56 @@ mod tests {
                 )
                 .is_err()
         );
+    }
+
+    #[test]
+    fn v5_data_migrates_append_only_with_identity_profile_and_selection() {
+        let directory = tempdir().expect("temporary directory");
+        let path = directory.path().join("studio.sqlite3");
+        let public_key = "07".repeat(32);
+        {
+            let mut connection = Connection::open(&path).expect("legacy database");
+            configure(&connection).expect("configuration");
+            migrations::migrations::runner()
+                .set_target(Target::Version(5))
+                .run(&mut connection)
+                .expect("V5 schema");
+            connection
+                .execute(
+                    "INSERT INTO accounts (pubkey, npub, signer_kind, key_availability, created_at) VALUES (?1, ?2, 'local_secret', 'available', 10)",
+                    [&public_key, "npub1qurswpc8qurswpc8qurswpc8qurswpc8qurswpc8qurswpc8qursnvjvl7"],
+                )
+                .expect("legacy account");
+            connection
+                .execute(
+                    "UPDATE app_state SET selected_pubkey = ?1 WHERE singleton = 1",
+                    [&public_key],
+                )
+                .expect("legacy selection");
+            connection
+                .execute(
+                    "INSERT INTO profile_cache (subject_pubkey, event_id, event_created_at, name, refreshed_at, refresh_status) VALUES (?1, ?2, 11, 'Farm', 12, 'success')",
+                    [&public_key, &"01".repeat(32)],
+                )
+                .expect("legacy profile");
+        }
+
+        let database = Database::open(&path).expect("migrated database");
+        assert_eq!(database.schema_version().expect("version"), 7);
+        assert_eq!(database.list_accounts().expect("accounts").len(), 1);
+        assert_eq!(
+            database.load_selected_account().expect("selection"),
+            Some(PublicKey::from_bytes([7; 32]))
+        );
+        let connection = database.connection();
+        let migrated: (i64, i64, i64) = connection
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM account_identities), (SELECT COUNT(*) FROM local_signer_bindings), (SELECT COUNT(*) FROM profile_cache_v6)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("migrated inventory");
+        assert_eq!(migrated, (1, 1, 1));
     }
 
     #[test]
