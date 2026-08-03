@@ -5,6 +5,7 @@ pub mod actor;
 pub mod app_core;
 mod change_stream;
 pub mod config;
+pub mod custody;
 pub mod nostr_client;
 pub mod ports;
 mod profile_refresh;
@@ -29,6 +30,9 @@ pub use change_stream::{
 };
 pub use config::{
     RelayRuntimeMode, relay_configuration_from_environment, relay_configuration_from_value,
+};
+pub use custody::{
+    GENERATED_KEY_STAGE_TTL, GeneratedKeyStage, GeneratedKeyStageView, StagedGeneratedKey,
 };
 pub use nostr_client::SdkNostrClient;
 pub use ports::{

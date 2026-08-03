@@ -8,10 +8,10 @@ use std::time::{Duration, Instant};
 use radroots_studio_application::{
     ActorMailbox, AppSnapshot, ChangeSubscriptionId, Clock, CommandContext, CommandEnvelope,
     CommandReceipt, CommandResult, CommandSubmission, ForegroundSessionBinding,
-    GenerateAccountReceipt, ImportAccountReceipt, LifecycleGate, NostrClient,
-    OrderedSnapshotChanges, ProfileRefreshPlan, RelayConfiguration, RemovalConfirmationToken,
-    RequestId, RuntimeCommandClass, RuntimeLifecycle, SecretStore, SessionGeneration,
-    SnapshotChange, SnapshotChangeReceiver, SnapshotRevision, TaskCorrelation,
+    GenerateAccountReceipt, GeneratedKeyStage, GeneratedKeyStageView, ImportAccountReceipt,
+    LifecycleGate, NostrClient, OrderedSnapshotChanges, ProfileRefreshPlan, RelayConfiguration,
+    RemovalConfirmationToken, RequestId, RuntimeCommandClass, RuntimeLifecycle, SecretStore,
+    SessionGeneration, SnapshotChange, SnapshotChangeReceiver, SnapshotRevision, TaskCorrelation,
 };
 use radroots_studio_domain::{
     AccountIdentity, BindingAvailability, Kind0ProfileCandidate, LocalSignerBinding, PublicKey,
@@ -28,6 +28,8 @@ const DEFAULT_TASK_CAPACITY: usize = 64;
 enum RuntimeCommand {
     Snapshot,
     GenerateAccount,
+    BeginGeneratedKeyStage,
+    CancelGeneratedKeyStage,
     ImportSecretKey(SecretKeyInput),
     SelectAccount(PublicKey),
     ActivateAccount(PublicKey),
@@ -43,6 +45,8 @@ enum RuntimeCommand {
 enum RuntimeCommandValue {
     Snapshot(Box<AppSnapshot>),
     Generated(GenerateAccountReceipt),
+    GeneratedKeyStage(GeneratedKeyStageView),
+    GeneratedKeyStageCancelled(bool),
     Imported(ImportAccountReceipt),
     RemovalRequest(RemovalConfirmationToken),
     Subscription(RuntimeChangeSubscription),
@@ -57,12 +61,14 @@ impl RuntimeCommand {
                 RuntimeCommandClass::Observe
             }
             Self::GenerateAccount
+            | Self::BeginGeneratedKeyStage
             | Self::ImportSecretKey(_)
             | Self::ActivateAccount(_)
             | Self::ConfirmAccountRemoval(_) => RuntimeCommandClass::UseCredential,
-            Self::SelectAccount(_) | Self::SignOut | Self::RequestAccountRemoval(_) => {
-                RuntimeCommandClass::MutateLocalState
-            }
+            Self::SelectAccount(_)
+            | Self::SignOut
+            | Self::RequestAccountRemoval(_)
+            | Self::CancelGeneratedKeyStage => RuntimeCommandClass::MutateLocalState,
             Self::RefreshActiveProfile => RuntimeCommandClass::UseRelay,
             Self::Close => RuntimeCommandClass::Shutdown,
         }
@@ -82,6 +88,7 @@ struct RuntimeActor {
     changes: OrderedSnapshotChanges,
     published_foreground_session: Arc<Mutex<Option<ForegroundSessionBinding>>>,
     durable_request_namespace: String,
+    generated_key_stage: GeneratedKeyStage,
 }
 
 struct PendingProfileTask {
@@ -213,6 +220,7 @@ impl RuntimeActorHandle {
             changes,
             published_foreground_session: Arc::clone(&foreground_session),
             durable_request_namespace,
+            generated_key_stage: GeneratedKeyStage::default(),
         };
         drop(runtime.spawn(actor.run(receiver)));
         Ok(Self {
@@ -268,6 +276,36 @@ impl RuntimeActorHandle {
     pub async fn generate_account(&self) -> Result<GenerateAccountReceipt, SafeError> {
         match self.dispatch(RuntimeCommand::GenerateAccount, None).await? {
             RuntimeCommandValue::Generated(receipt) => Ok(receipt),
+            _ => Err(invalid_actor_response()),
+        }
+    }
+
+    /// Begins the only actor-owned generated-key recovery stage.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe conflict, timeout, key-generation, or actor error.
+    pub async fn begin_generated_key_stage(&self) -> Result<GeneratedKeyStageView, SafeError> {
+        match self
+            .dispatch(RuntimeCommand::BeginGeneratedKeyStage, None)
+            .await?
+        {
+            RuntimeCommandValue::GeneratedKeyStage(view) => Ok(view),
+            _ => Err(invalid_actor_response()),
+        }
+    }
+
+    /// Cancels and zeroizes the active generated-key stage, if present.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe timeout or actor error.
+    pub async fn cancel_generated_key_stage(&self) -> Result<bool, SafeError> {
+        match self
+            .dispatch(RuntimeCommand::CancelGeneratedKeyStage, None)
+            .await?
+        {
+            RuntimeCommandValue::GeneratedKeyStageCancelled(cancelled) => Ok(cancelled),
             _ => Err(invalid_actor_response()),
         }
     }
@@ -629,6 +667,13 @@ impl RuntimeActor {
                     )
                     .map(RuntimeCommandValue::Generated)
             }),
+            RuntimeCommand::BeginGeneratedKeyStage => self
+                .generated_key_stage
+                .begin(expected_revision, self.clock.now())
+                .map(RuntimeCommandValue::GeneratedKeyStage),
+            RuntimeCommand::CancelGeneratedKeyStage => Ok(
+                RuntimeCommandValue::GeneratedKeyStageCancelled(self.generated_key_stage.cancel()),
+            ),
             RuntimeCommand::ImportSecretKey(input) => durable_request.and_then(|request| {
                 self.adapter
                     .import_secret_key_durable(
@@ -750,6 +795,7 @@ impl RuntimeActor {
         })();
         match transition {
             Ok(()) => {
+                self.generated_key_stage.cancel();
                 self.cancel_profile_tasks(None);
                 self.changes.close();
                 *self
@@ -1093,6 +1139,39 @@ mod tests {
             .expect("remove");
         assert!(removed.accounts().is_empty());
         assert!(!secrets.contains(public_key).expect("credential removed"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn generated_key_stage_is_exclusive_cancelable_and_snapshot_free() {
+        let (actor, secrets) = actor();
+        let initial = actor.snapshot();
+        let stage = actor
+            .begin_generated_key_stage()
+            .await
+            .expect("generated key stage");
+
+        assert!(actor.begin_generated_key_stage().await.is_err());
+        assert_eq!(actor.snapshot(), initial);
+        assert!(
+            !secrets
+                .contains(stage.account().public_key())
+                .expect("keyring")
+        );
+        assert!(actor.cancel_generated_key_stage().await.expect("cancel"));
+        assert!(
+            !actor
+                .cancel_generated_key_stage()
+                .await
+                .expect("cancel empty")
+        );
+        assert_eq!(actor.snapshot(), initial);
+
+        actor
+            .begin_generated_key_stage()
+            .await
+            .expect("replacement stage");
+        actor.close().await.expect("close clears stage");
+        assert_eq!(actor.lifecycle(), RuntimeLifecycle::Closed);
     }
 
     #[tokio::test(flavor = "multi_thread")]
