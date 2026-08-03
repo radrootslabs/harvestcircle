@@ -1,5 +1,6 @@
 use std::fs::{self, File, OpenOptions};
-use std::path::Path;
+use std::ops::{Deref, DerefMut};
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -18,7 +19,13 @@ mod migrations {
 
 pub struct Database {
     connection: Mutex<Connection>,
+    path: Option<PathBuf>,
     _ownership: Option<WritableOwnership>,
+}
+
+pub(crate) struct DatabaseConnection<'a> {
+    connection: MutexGuard<'a, Connection>,
+    path: Option<&'a Path>,
 }
 
 struct WritableOwnership {
@@ -46,8 +53,10 @@ impl Database {
             .run(&mut connection)
             .map_err(|_| corrupt_storage_error())?;
         restrict_file_permissions(path)?;
+        restrict_sqlite_sidecars(path)?;
         Ok(Self {
             connection: Mutex::new(connection),
+            path: Some(path.to_path_buf()),
             _ownership: Some(ownership),
         })
     }
@@ -65,6 +74,7 @@ impl Database {
             .map_err(|_| corrupt_storage_error())?;
         Ok(Self {
             connection: Mutex::new(connection),
+            path: None,
             _ownership: None,
         })
     }
@@ -84,10 +94,36 @@ impl Database {
             .map_err(|_| corrupt_storage_error())
     }
 
-    pub(crate) fn connection(&self) -> MutexGuard<'_, Connection> {
-        self.connection
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    pub(crate) fn connection(&self) -> DatabaseConnection<'_> {
+        DatabaseConnection {
+            connection: self
+                .connection
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            path: self.path.as_deref(),
+        }
+    }
+}
+
+impl Deref for DatabaseConnection<'_> {
+    type Target = Connection;
+
+    fn deref(&self) -> &Self::Target {
+        &self.connection
+    }
+}
+
+impl DerefMut for DatabaseConnection<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.connection
+    }
+}
+
+impl Drop for DatabaseConnection<'_> {
+    fn drop(&mut self) {
+        if let Some(path) = self.path {
+            let _ = restrict_sqlite_sidecars(path);
+        }
     }
 }
 
@@ -115,9 +151,23 @@ fn create_secure_directory(path: &Path) -> Result<(), SafeError> {
 fn configure(connection: &Connection) -> Result<(), SafeError> {
     connection
         .pragma_update(None, "foreign_keys", "ON")
+        .and_then(|()| connection.pragma_update(None, "trusted_schema", "OFF"))
         .and_then(|()| connection.pragma_update(None, "journal_mode", "WAL"))
+        .and_then(|()| connection.pragma_update(None, "synchronous", "FULL"))
+        .and_then(|()| connection.pragma_update(None, "secure_delete", "ON"))
+        .and_then(|()| connection.pragma_update(None, "wal_autocheckpoint", 1_000))
         .and_then(|()| connection.busy_timeout(Duration::from_secs(5)))
         .map_err(|_| storage_error())
+}
+
+fn restrict_sqlite_sidecars(path: &Path) -> Result<(), SafeError> {
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = PathBuf::from(format!("{}{suffix}", path.display()));
+        if sidecar.exists() {
+            restrict_file_permissions(&sidecar)?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -188,6 +238,37 @@ mod tests {
     }
 
     #[test]
+    fn sqlite_connection_enforces_trust_durability_and_busy_policy() {
+        let database = Database::in_memory().expect("open memory database");
+        let connection = database.connection();
+
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "foreign_keys", |row| row.get::<_, u8>(0))
+                .expect("foreign keys"),
+            1
+        );
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "trusted_schema", |row| row.get::<_, u8>(0))
+                .expect("trusted schema"),
+            0
+        );
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "synchronous", |row| row.get::<_, u8>(0))
+                .expect("synchronous"),
+            2
+        );
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "busy_timeout", |row| row.get::<_, i64>(0))
+                .expect("busy timeout"),
+            5_000
+        );
+    }
+
+    #[test]
     fn migration_persists_schema_version_across_file_reopen() {
         let directory = tempdir().expect("temporary directory");
         let path = directory.path().join("studio.sqlite3");
@@ -230,8 +311,8 @@ mod tests {
 
         let directory = tempdir().expect("temporary directory");
         let path = directory.path().join("studio.sqlite3");
-        let _database = Database::open(&path).expect("open file database");
-        let mode = fs::metadata(path)
+        let database = Database::open(&path).expect("open file database");
+        let mode = fs::metadata(&path)
             .expect("database metadata")
             .permissions()
             .mode()
@@ -244,5 +325,20 @@ mod tests {
             .mode()
             & 0o777;
         assert_eq!(directory_mode, 0o700);
+
+        let connection = database.connection();
+        connection
+            .execute_batch("CREATE TABLE sidecar_probe (value INTEGER) STRICT; INSERT INTO sidecar_probe VALUES (1);")
+            .expect("write through WAL");
+        drop(connection);
+        for suffix in ["-wal", "-shm"] {
+            let sidecar = std::path::PathBuf::from(format!("{}{suffix}", path.display()));
+            let sidecar_mode = fs::metadata(sidecar)
+                .expect("sidecar metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(sidecar_mode, 0o600);
+        }
     }
 }
