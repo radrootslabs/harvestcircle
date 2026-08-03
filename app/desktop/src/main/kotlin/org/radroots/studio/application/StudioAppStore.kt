@@ -6,10 +6,20 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.radroots.studio.ffi.AppSnapshotDto
+import org.radroots.studio.ffi.AppLifecycleDto
 import org.radroots.studio.ffi.StudioException
+
+enum class StudioRoute {
+    BOOTING,
+    ACCOUNTS,
+    ACTIVE_ACCOUNT,
+    FATAL,
+    CLOSED,
+}
 
 data class StudioStoreState(
     val snapshot: AppSnapshotDto,
+    val route: StudioRoute = snapshot.toStudioRoute(),
     val importDraft: String = "",
     val generatedKeyBackup: GeneratedKeyBackup? = null,
     val pendingRemovalPublicKeyHex: String? = null,
@@ -37,9 +47,9 @@ class StudioAppStore(
 
     init {
         launchCommand {
-            val registered = gateway.subscribe { snapshot ->
+            val registered = gateway.subscribeChanges { change ->
                 scope.launch {
-                    if (!closed) acceptSnapshot(snapshot)
+                    if (!closed) acceptSnapshot(change.snapshot)
                 }
             }
             if (closed) {
@@ -74,7 +84,7 @@ class StudioAppStore(
     fun acknowledgeGeneratedKeyBackup() {
         val recovery = pendingGeneratedRecovery ?: return
         pendingGeneratedRecovery = null
-        runCommand {
+        runSnapshotCommand {
             try {
                 recovery.acknowledge().also {
                     generatedRecovery.acknowledge()
@@ -90,33 +100,19 @@ class StudioAppStore(
         if (command?.isActive == true) return
         val input = mutableState.value.importDraft.encodeToByteArray()
         mutableState.value = mutableState.value.copy(importDraft = "")
-        runCommand {
-            try {
-                gateway.importSecretKey(input)
-            } finally {
-                input.fill(0)
-            }
-        }
+        runTypedCommand(StudioCommand.ImportAccount(input))
     }
 
     fun selectAccount(publicKeyHex: String) {
-        runCommand { gateway.selectAccount(publicKeyHex) }
+        runTypedCommand(StudioCommand.SelectAccount(publicKeyHex))
     }
 
     fun activateAccount(publicKeyHex: String) {
-        runCommand {
-            gateway.activateAccount(publicKeyHex).also {
-                mutableState.value = mutableState.value.copy(accountChooserVisible = false)
-            }
-        }
+        runTypedCommand(StudioCommand.ActivateAccount(publicKeyHex), hideChooser = true)
     }
 
     fun signOut() {
-        runCommand {
-            gateway.signOut().also {
-                mutableState.value = mutableState.value.copy(accountChooserVisible = false)
-            }
-        }
+        runTypedCommand(StudioCommand.SignOut, hideChooser = true)
     }
 
     fun showAccountChooser() {
@@ -128,7 +124,7 @@ class StudioAppStore(
     }
 
     fun refreshActiveProfile() {
-        runCommand { gateway.refreshActiveProfile() }
+        runTypedCommand(StudioCommand.RefreshProfile)
     }
 
     fun requestAccountRemoval(publicKeyHex: String) {
@@ -159,7 +155,7 @@ class StudioAppStore(
     fun confirmAccountRemoval() {
         val ticket = pendingRemoval ?: return
         pendingRemoval = null
-        runCommand {
+        runSnapshotCommand {
             try {
                 gateway.confirmAccountRemoval(ticket).also {
                     mutableState.value = mutableState.value.copy(pendingRemovalPublicKeyHex = null)
@@ -175,8 +171,24 @@ class StudioAppStore(
         mutableState.value = mutableState.value.copy(problem = null)
     }
 
-    private fun runCommand(operation: suspend () -> AppSnapshotDto) {
+    private fun runSnapshotCommand(operation: suspend () -> AppSnapshotDto) {
         launchCommand { acceptSnapshot(operation()) }
+    }
+
+    private fun runTypedCommand(command: StudioCommand, hideChooser: Boolean = false) {
+        launchCommand {
+            when (val result = gateway.execute(command)) {
+                is StudioCommandResult.Accepted -> {
+                    acceptSnapshot(result.receipt.snapshot)
+                    if (hideChooser) {
+                        mutableState.value = mutableState.value.copy(accountChooserVisible = false)
+                    }
+                }
+                is StudioCommandResult.Rejected -> {
+                    mutableState.value = mutableState.value.copy(problem = result.failure.safeMessage)
+                }
+            }
+        }
     }
 
     private fun launchCommand(operation: suspend () -> Unit) {
@@ -191,7 +203,10 @@ class StudioAppStore(
 
     private fun acceptSnapshot(snapshot: AppSnapshotDto) {
         if (snapshot.revision >= mutableState.value.snapshot.revision) {
-            mutableState.value = mutableState.value.copy(snapshot = snapshot)
+            mutableState.value = mutableState.value.copy(
+                snapshot = snapshot,
+                route = snapshot.toStudioRoute(),
+            )
         }
     }
 
@@ -209,5 +224,13 @@ class StudioAppStore(
         subscription?.close()
         generatedRecovery.close()
         gateway.close()
+        mutableState.value = mutableState.value.copy(route = StudioRoute.CLOSED, busy = false)
     }
+}
+
+private fun AppSnapshotDto.toStudioRoute(): StudioRoute = when {
+    lifecycle == AppLifecycleDto.BOOTING -> StudioRoute.BOOTING
+    lifecycle == AppLifecycleDto.FATAL -> StudioRoute.FATAL
+    activeAccount != null -> StudioRoute.ACTIVE_ACCOUNT
+    else -> StudioRoute.ACCOUNTS
 }

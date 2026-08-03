@@ -64,8 +64,6 @@ sealed interface StudioCommandResult {
 interface StudioCoreGateway : AutoCloseable {
     fun snapshot(): AppSnapshotDto
 
-    suspend fun subscribe(onSnapshot: (AppSnapshotDto) -> Unit): AutoCloseable
-
     suspend fun subscribeChanges(onChange: (StudioChange) -> Unit): AutoCloseable
 
     suspend fun execute(command: StudioCommand): StudioCommandResult
@@ -73,16 +71,6 @@ interface StudioCoreGateway : AutoCloseable {
     suspend fun bootstrap(): AppSnapshotDto
 
     suspend fun beginGeneratedAccount(): GeneratedRecoveryTicket
-
-    suspend fun importSecretKey(secretKey: ByteArray): AppSnapshotDto
-
-    suspend fun selectAccount(publicKeyHex: String): AppSnapshotDto
-
-    suspend fun activateAccount(publicKeyHex: String): AppSnapshotDto
-
-    suspend fun signOut(): AppSnapshotDto
-
-    suspend fun refreshActiveProfile(): AppSnapshotDto
 
     suspend fun requestAccountRemoval(publicKeyHex: String): RemovalTicket
 
@@ -94,10 +82,6 @@ class NativeStudioCoreGateway(
 ) : StudioCoreGateway {
     private val nextRequest = AtomicLong(1)
     override fun snapshot(): AppSnapshotDto = core.snapshot()
-
-    override suspend fun subscribe(onSnapshot: (AppSnapshotDto) -> Unit): AutoCloseable {
-        return subscribeChanges { change -> onSnapshot(change.snapshot) }
-    }
 
     override suspend fun subscribeChanges(onChange: (StudioChange) -> Unit): AutoCloseable {
         val subscription = core.subscribeChangesV2(
@@ -136,23 +120,6 @@ class NativeStudioCoreGateway(
 
     override suspend fun beginGeneratedAccount(): GeneratedRecoveryTicket =
         NativeGeneratedRecoveryTicket(core, core.beginGeneratedAccountV2())
-
-    override suspend fun importSecretKey(secretKey: ByteArray): AppSnapshotDto =
-        try {
-            core.importAccountV2(requestContext(), secretKey).snapshot
-        } finally {
-            secretKey.fill(0)
-        }
-
-    override suspend fun selectAccount(publicKeyHex: String): AppSnapshotDto =
-        core.selectAccount(publicKeyHex)
-
-    override suspend fun activateAccount(publicKeyHex: String): AppSnapshotDto =
-        core.activateAccount(publicKeyHex)
-
-    override suspend fun signOut(): AppSnapshotDto = core.signOut()
-
-    override suspend fun refreshActiveProfile(): AppSnapshotDto = core.refreshActiveProfile()
 
     override suspend fun requestAccountRemoval(publicKeyHex: String): RemovalTicket =
         NativeRemovalTicket(core.requestAccountRemoval(publicKeyHex))

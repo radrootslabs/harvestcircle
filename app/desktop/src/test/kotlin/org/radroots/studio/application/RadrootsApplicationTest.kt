@@ -75,17 +75,10 @@ private class ApplicationGateway : StudioCoreGateway {
     var closed = false
 
     override fun snapshot() = applicationSnapshot(0UL)
-    override suspend fun subscribe(onSnapshot: (org.radroots.studio.ffi.AppSnapshotDto) -> Unit) =
-        AutoCloseable {}
     override suspend fun subscribeChanges(onChange: (StudioChange) -> Unit) = AutoCloseable {}
     override suspend fun execute(command: StudioCommand): StudioCommandResult = error("unused")
     override suspend fun bootstrap() = applicationSnapshot(1UL)
     override suspend fun beginGeneratedAccount(): GeneratedRecoveryTicket = error("unused")
-    override suspend fun importSecretKey(secretKey: ByteArray) = error("unused")
-    override suspend fun selectAccount(publicKeyHex: String) = error("unused")
-    override suspend fun activateAccount(publicKeyHex: String) = error("unused")
-    override suspend fun signOut() = error("unused")
-    override suspend fun refreshActiveProfile() = error("unused")
     override suspend fun requestAccountRemoval(publicKeyHex: String): RemovalTicket = error("unused")
     override suspend fun confirmAccountRemoval(ticket: RemovalTicket) = error("unused")
 

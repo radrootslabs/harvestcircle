@@ -132,16 +132,25 @@ private class FakeStudioCoreGateway(
 
     override fun snapshot(): AppSnapshotDto = current
 
-    override suspend fun subscribe(onSnapshot: (AppSnapshotDto) -> Unit): AutoCloseable {
-        observer = onSnapshot
+    override suspend fun subscribeChanges(onChange: (StudioChange) -> Unit): AutoCloseable {
+        observer = { snapshot -> onChange(StudioChange(snapshot, null)) }
         return AutoCloseable { subscriptionClosed = true }
     }
 
-    override suspend fun subscribeChanges(onChange: (StudioChange) -> Unit): AutoCloseable =
-        subscribe { snapshot -> onChange(StudioChange(snapshot, null)) }
-
-    override suspend fun execute(command: StudioCommand): StudioCommandResult =
-        error("unused")
+    override suspend fun execute(command: StudioCommand): StudioCommandResult {
+        when (command) {
+            is StudioCommand.ImportAccount -> {
+                lastImportBuffer = command.bytes
+                importedSecrets += command.bytes.decodeToString()
+                command.bytes.fill(0)
+            }
+            StudioCommand.SignOut -> signOutCalls += 1
+            else -> Unit
+        }
+        return StudioCommandResult.Accepted(
+            StudioCommandReceipt("fake-request", current.revision, current),
+        )
+    }
 
     fun emit(snapshot: AppSnapshotDto) {
         current = snapshot
@@ -157,14 +166,6 @@ private class FakeStudioCoreGateway(
             committed(current)
         }
 
-    override suspend fun importSecretKey(secretKey: ByteArray): AppSnapshotDto = current.also {
-        lastImportBuffer = secretKey
-        importedSecrets += secretKey.decodeToString()
-    }
-    override suspend fun selectAccount(publicKeyHex: String): AppSnapshotDto = current
-    override suspend fun activateAccount(publicKeyHex: String): AppSnapshotDto = current
-    override suspend fun signOut(): AppSnapshotDto = current.also { signOutCalls += 1 }
-    override suspend fun refreshActiveProfile(): AppSnapshotDto = current
     override suspend fun requestAccountRemoval(publicKeyHex: String): RemovalTicket =
         FakeRemovalTicket().also { lastRemovalTicket = it }
 
