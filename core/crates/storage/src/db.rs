@@ -9,7 +9,7 @@ use radroots_studio_domain::{SafeError, SafeErrorCode, SafeMessage};
 use refinery::embed_migrations;
 use rusqlite::{Connection, OpenFlags};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 5;
+pub const CURRENT_SCHEMA_VERSION: u32 = 6;
 
 mod migrations {
     use super::embed_migrations;
@@ -265,6 +265,38 @@ mod tests {
                 .pragma_query_value(None, "busy_timeout", |row| row.get::<_, i64>(0))
                 .expect("busy timeout"),
             5_000
+        );
+    }
+
+    #[test]
+    fn normalized_schema_is_strict_and_enforces_same_account_bindings() {
+        let database = Database::in_memory().expect("open memory database");
+        let connection = database.connection();
+        let strict_tables: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_list WHERE name IN ('account_identities', 'local_signer_bindings', 'runtime_state', 'profile_cache_v6', 'durable_operations') AND strict = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("strict table inventory");
+        assert_eq!(strict_tables, 5);
+
+        connection
+            .execute(
+                "INSERT INTO account_identities (public_key, npub, created_at) VALUES (?1, ?2, 1)",
+                [
+                    "07".repeat(32),
+                    "npub1qurswpc8qurswpc8qurswpc8qurswpc8qurswpc8qurswpc8qursnvjvl7".to_owned(),
+                ],
+            )
+            .expect("identity");
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO local_signer_bindings (account_public_key, binding_public_key, binding_kind, availability) VALUES (?1, ?2, 'local_secret', 'available')",
+                    ["07".repeat(32), "08".repeat(32)],
+                )
+                .is_err()
         );
     }
 

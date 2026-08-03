@@ -385,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    fn v5_compatibility_fixture_matches_runtime_coordinates() {
+    fn v5_compatibility_fixture_preserves_external_coordinates() {
         let fixture = include_str!("../../../compatibility/v5-baseline.properties");
         let property = |key: &str| {
             fixture.lines().find_map(|line| {
@@ -397,7 +397,7 @@ mod tests {
 
         assert_eq!(property("baseline.id"), Some("studio-runtime-v5"));
         assert_eq!(property("schema.version"), Some("5"));
-        assert_eq!(CURRENT_SCHEMA_VERSION, 5);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 6);
         assert_eq!(property("ffi.contract"), Some("legacy-unversioned-v1"));
         assert_eq!(property("ffi.snapshot.schema"), Some("1"));
         assert_eq!(property("ffi.runtime.version"), Some("0.1.0-alpha"));
