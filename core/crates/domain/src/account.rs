@@ -5,6 +5,48 @@ use crate::{Npub, PublicKey, SafeError, SafeErrorCode, SafeMessage};
 
 const MAX_ACCOUNT_LABEL_CHARS: usize = 80;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AccountIdentity {
+    public_key: PublicKey,
+    npub: Npub,
+}
+
+impl AccountIdentity {
+    /// Constructs one canonical Nostr account identity and derives its npub.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe public-key error if canonical NIP-19 encoding fails.
+    pub fn derive(public_key: PublicKey) -> Result<Self, SafeError> {
+        Ok(Self {
+            public_key,
+            npub: Npub::derive(public_key)?,
+        })
+    }
+
+    /// Reconstitutes persisted identity only when its public forms agree.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe public-key error for a mismatched or malformed npub.
+    pub fn verify(public_key: PublicKey, npub: String) -> Result<Self, SafeError> {
+        Ok(Self {
+            public_key,
+            npub: Npub::verify(public_key, npub)?,
+        })
+    }
+
+    #[must_use]
+    pub const fn public_key(&self) -> PublicKey {
+        self.public_key
+    }
+
+    #[must_use]
+    pub const fn npub(&self) -> &Npub {
+        &self.npub
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SignerKind {
     LocalSecret,
@@ -176,9 +218,13 @@ mod tests {
     use crate::time::UnixTimestamp;
     use crate::{Npub, PublicKey};
 
-    use super::{AccountCreatedAt, AccountLabel, AccountSummary, KeyAvailability, SignerKind};
+    use super::{
+        AccountCreatedAt, AccountIdentity, AccountLabel, AccountSummary, KeyAvailability,
+        SignerKind,
+    };
 
     const NPUB: &str = "npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg";
+    const DERIVED_NPUB: &str = "npub1qurswpc8qurswpc8qurswpc8qurswpc8qurswpc8qurswpc8qursnvjvl7";
 
     fn account(label: Option<AccountLabel>) -> AccountSummary {
         AccountSummary::new(
@@ -225,5 +271,21 @@ mod tests {
         assert_eq!(account.npub().as_str(), NPUB);
         assert!(!debug.contains("nsec1"));
         assert!(!debug.contains(&"11".repeat(32)));
+    }
+
+    #[test]
+    fn account_identity_derives_npub_and_rejects_mismatched_persisted_forms() {
+        let public_key = PublicKey::from_bytes([7_u8; 32]);
+        let identity = AccountIdentity::derive(public_key).expect("identity");
+        assert_eq!(identity.public_key(), public_key);
+        assert_eq!(identity.npub().as_str(), DERIVED_NPUB);
+        assert_eq!(
+            AccountIdentity::verify(public_key, DERIVED_NPUB.to_owned()).expect("verified"),
+            identity
+        );
+        assert!(AccountIdentity::verify(public_key, NPUB.to_owned()).is_err());
+        assert!(
+            AccountIdentity::verify(PublicKey::from_bytes([8_u8; 32]), NPUB.to_owned()).is_err()
+        );
     }
 }

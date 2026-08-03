@@ -32,6 +32,31 @@ impl Npub {
         Ok(Self(value))
     }
 
+    /// Derives the canonical NIP-19 display identity from a public key.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe public-key error if canonical encoding fails.
+    pub fn derive(public_key: PublicKey) -> Result<Self, SafeError> {
+        let hrp = bech32::Hrp::parse("npub").map_err(|_| invalid_public_key())?;
+        bech32::encode::<bech32::Bech32>(hrp, public_key.as_bytes())
+            .map_err(|_| invalid_public_key())
+            .and_then(Self::from_encoded)
+    }
+
+    /// Validates that encoded display identity belongs to the canonical key.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe public-key error when the values do not match.
+    pub fn verify(public_key: PublicKey, encoded: String) -> Result<Self, SafeError> {
+        let candidate = Self::from_encoded(encoded)?;
+        if candidate != Self::derive(public_key)? {
+            return Err(invalid_public_key());
+        }
+        Ok(candidate)
+    }
+
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0

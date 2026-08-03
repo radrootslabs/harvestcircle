@@ -1724,6 +1724,7 @@ dependencies = [
 name = "radroots-studio-domain"
 version = "0.1.0-alpha"
 dependencies = [
+ "bech32",
  "secrecy",
  "url",
 ]
