@@ -21,6 +21,38 @@ const DATABASE_ORGANIZATION: &str = "radroots";
 const DATABASE_APPLICATION: &str = "studio";
 const DATABASE_FILENAME: &str = "studio.sqlite3";
 pub(crate) const ACTOR_MAILBOX_CAPACITY: usize = 64;
+pub const FFI_CONTRACT_MAJOR: u16 = 2;
+pub const FFI_CONTRACT_MINOR: u16 = 0;
+pub const FFI_CONTRACT_HASH: &str = "radroots-studio-native-v2-2026-08-03";
+
+#[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
+pub struct CompatibilityDescriptor {
+    pub contract_major: u16,
+    pub contract_minor: u16,
+    pub contract_hash: String,
+    pub minimum_schema_version: u32,
+    pub current_schema_version: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
+pub struct CompatibilityExpectation {
+    pub contract_major: u16,
+    pub minimum_contract_minor: u16,
+    pub contract_hash: String,
+    pub minimum_schema_version: u32,
+    pub maximum_schema_version: u32,
+}
+
+#[uniffi::export]
+pub fn compatibility_descriptor() -> CompatibilityDescriptor {
+    CompatibilityDescriptor {
+        contract_major: FFI_CONTRACT_MAJOR,
+        contract_minor: FFI_CONTRACT_MINOR,
+        contract_hash: FFI_CONTRACT_HASH.to_owned(),
+        minimum_schema_version: 5,
+        current_schema_version: radroots_studio_storage::CURRENT_SCHEMA_VERSION,
+    }
+}
 
 #[derive(Debug, uniffi::Error)]
 pub enum StudioError {
@@ -81,6 +113,21 @@ pub struct StudioAppCore {
 
 #[uniffi::export]
 impl StudioAppCore {
+    /// Verifies the static contract before touching the application data path.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe compatibility error without opening or migrating storage.
+    #[uniffi::constructor]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn open_compatible(
+        expectation: CompatibilityExpectation,
+        development_mode: bool,
+    ) -> Result<Arc<Self>, StudioError> {
+        let path = canonical_database_path()?;
+        Self::open_path_compatible(&path, &expectation, development_mode)
+    }
+
     /// Opens the canonical application database and runtime services.
     ///
     /// # Errors
@@ -260,7 +307,31 @@ impl StudioAppCore {
     }
 }
 
+fn verify_compatibility(expectation: &CompatibilityExpectation) -> Result<(), StudioError> {
+    let actual = compatibility_descriptor();
+    if expectation.contract_major != actual.contract_major
+        || expectation.minimum_contract_minor > actual.contract_minor
+        || expectation.contract_hash != actual.contract_hash
+        || expectation.minimum_schema_version > actual.current_schema_version
+        || expectation.maximum_schema_version < actual.minimum_schema_version
+    {
+        return Err(compatibility_mismatch());
+    }
+    Ok(())
+}
+
 impl StudioAppCore {
+    fn open_path_compatible(
+        path: &Path,
+        expectation: &CompatibilityExpectation,
+        development_mode: bool,
+    ) -> Result<Arc<Self>, StudioError> {
+        verify_compatibility(expectation)?;
+        std::fs::create_dir_all(path.parent().ok_or_else(path_unavailable)?)
+            .map_err(|_| path_unavailable())?;
+        Self::open_path(path, development_mode)
+    }
+
     fn open_path(path: &Path, development_mode: bool) -> Result<Arc<Self>, StudioError> {
         let mode = if development_mode {
             RelayRuntimeMode::Development
@@ -340,6 +411,13 @@ fn confirmation_expired() -> StudioError {
     }
 }
 
+fn compatibility_mismatch() -> StudioError {
+    StudioError::Failure {
+        code: "CompatibilityMismatch".to_owned(),
+        safe_message: "The application and native runtime are incompatible.".to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
@@ -351,8 +429,10 @@ mod tests {
     use radroots_studio_storage::{CREDENTIAL_SERVICE, CURRENT_SCHEMA_VERSION};
 
     use super::{
-        ACTOR_MAILBOX_CAPACITY, DATABASE_APPLICATION, DATABASE_FILENAME, DATABASE_ORGANIZATION,
-        DATABASE_QUALIFIER, RuntimeCore, StudioAppCore, SystemClock, runtime,
+        ACTOR_MAILBOX_CAPACITY, CompatibilityExpectation, DATABASE_APPLICATION, DATABASE_FILENAME,
+        DATABASE_ORGANIZATION, DATABASE_QUALIFIER, FFI_CONTRACT_HASH, FFI_CONTRACT_MAJOR,
+        FFI_CONTRACT_MINOR, RuntimeCore, StudioAppCore, SystemClock, compatibility_descriptor,
+        runtime, verify_compatibility,
     };
 
     fn in_memory_core() -> Arc<StudioAppCore> {
@@ -382,6 +462,53 @@ mod tests {
 
         assert_eq!(bootstrapped, current);
         assert_eq!(current.revision, 1);
+    }
+
+    #[test]
+    fn compatibility_matrix_rejects_before_storage_mutation() {
+        let actual = compatibility_descriptor();
+        let compatible = CompatibilityExpectation {
+            contract_major: FFI_CONTRACT_MAJOR,
+            minimum_contract_minor: FFI_CONTRACT_MINOR,
+            contract_hash: FFI_CONTRACT_HASH.to_owned(),
+            minimum_schema_version: 5,
+            maximum_schema_version: CURRENT_SCHEMA_VERSION,
+        };
+        verify_compatibility(&compatible).expect("compatible");
+
+        for incompatible in [
+            CompatibilityExpectation {
+                contract_major: FFI_CONTRACT_MAJOR + 1,
+                ..compatible.clone()
+            },
+            CompatibilityExpectation {
+                minimum_contract_minor: FFI_CONTRACT_MINOR + 1,
+                ..compatible.clone()
+            },
+            CompatibilityExpectation {
+                contract_hash: "wrong-contract".to_owned(),
+                ..compatible.clone()
+            },
+            CompatibilityExpectation {
+                minimum_schema_version: actual.current_schema_version + 1,
+                ..compatible.clone()
+            },
+            CompatibilityExpectation {
+                maximum_schema_version: actual.minimum_schema_version - 1,
+                ..compatible.clone()
+            },
+        ] {
+            assert!(verify_compatibility(&incompatible).is_err());
+        }
+
+        let directory = tempfile::tempdir().expect("directory");
+        let rejected = directory.path().join("rejected").join("studio.sqlite3");
+        let incompatible = CompatibilityExpectation {
+            contract_major: FFI_CONTRACT_MAJOR + 1,
+            ..compatible
+        };
+        assert!(StudioAppCore::open_path_compatible(&rejected, &incompatible, true).is_err());
+        assert!(!rejected.parent().expect("parent").exists());
     }
 
     #[test]
