@@ -8,7 +8,9 @@ use radroots_studio_nostr::{generate_local_keypair, import_secret};
 
 use crate::{
     AccountOperationKind, AccountOperationPhase, AccountRepository, AppCore, AppStateRepository,
-    Clock, OperationDiagnostic, OperationId, OperationJournal, PendingAccountOperation,
+    Clock, DurableOperationKind, DurableOperationPhase, DurableOperationRepository,
+    DurableOperationStart, DurableRequestId, DurableTerminalOutcome, OperationDiagnostic,
+    OperationId, OperationJournal, OperationPriorState, PendingAccountOperation,
     RemovalConfirmationToken, SecretStore, StateTransition,
 };
 
@@ -42,6 +44,201 @@ impl GenerateAccountReceipt {
 }
 
 impl AppCore {
+    /// Generates and commits one account under a durable caller request.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe conflict, keyring, persistence, or state error. Staged recovery transport
+    /// replaces this transitional generated-secret receipt in the custody phase.
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_account_durable(
+        &self,
+        request_id: &DurableRequestId,
+        expected_revision: u64,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+        secrets: &(impl SecretStore + ?Sized),
+        operations: &(impl DurableOperationRepository + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<GenerateAccountReceipt, SafeError> {
+        self.require_revision(expected_revision)?;
+        let generated = generate_local_keypair()?;
+        let (public_key, npub, secret, nsec) = generated.into_parts();
+        let account = AccountSummary::new(
+            AccountIdentity::verify(public_key, npub.as_str().to_owned())?,
+            LocalSignerBinding::new(public_key, BindingAvailability::Available),
+            None,
+            AccountCreatedAt::new(clock.now()),
+            None,
+        )?;
+        self.persist_account_durable(
+            request_id,
+            DurableOperationKind::Create,
+            expected_revision,
+            &account,
+            secret,
+            None,
+            accounts,
+            app_state,
+            secrets,
+            operations,
+            clock,
+        )?;
+        Ok(GenerateAccountReceipt {
+            account,
+            generated_nsec: nsec,
+        })
+    }
+
+    /// Imports or explicitly repairs one local account under a durable caller request.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe conflict, validation, keyring, persistence, or state error.
+    #[allow(clippy::too_many_arguments)]
+    pub fn import_secret_key_durable(
+        &self,
+        request_id: &DurableRequestId,
+        expected_revision: u64,
+        input: SecretKeyInput,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+        secrets: &(impl SecretStore + ?Sized),
+        operations: &(impl DurableOperationRepository + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<ImportAccountReceipt, SafeError> {
+        self.require_revision(expected_revision)?;
+        let imported = import_secret(input)?;
+        let (public_key, npub, secret) = imported.into_parts();
+        let previous = accounts.find_account(public_key)?;
+        if let Some(existing) = &previous
+            && (existing.signer().availability() != BindingAvailability::CredentialMissing
+                || secrets.contains(public_key)?)
+        {
+            return Err(account_exists());
+        }
+        if previous.is_none() && secrets.contains(public_key)? {
+            return Err(account_exists());
+        }
+        let account = if let Some(existing) = &previous {
+            existing.with_binding_availability(BindingAvailability::Available)
+        } else {
+            AccountSummary::new(
+                AccountIdentity::verify(public_key, npub.as_str().to_owned())?,
+                LocalSignerBinding::new(public_key, BindingAvailability::Available),
+                None,
+                AccountCreatedAt::new(clock.now()),
+                None,
+            )?
+        };
+        let kind = if previous.is_some() {
+            DurableOperationKind::Repair
+        } else {
+            DurableOperationKind::Import
+        };
+        self.persist_account_durable(
+            request_id,
+            kind,
+            expected_revision,
+            &account,
+            secret,
+            previous.as_ref(),
+            accounts,
+            app_state,
+            secrets,
+            operations,
+            clock,
+        )?;
+        Ok(ImportAccountReceipt { account })
+    }
+
+    fn require_revision(&self, expected_revision: u64) -> Result<(), SafeError> {
+        if self.snapshot().revision().value() != expected_revision {
+            return Err(operation_conflict());
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn persist_account_durable(
+        &self,
+        request_id: &DurableRequestId,
+        kind: DurableOperationKind,
+        expected_revision: u64,
+        account: &AccountSummary,
+        secret: SecretKeyInput,
+        previous: Option<&AccountSummary>,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+        secrets: &(impl SecretStore + ?Sized),
+        operations: &(impl DurableOperationRepository + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<(), SafeError> {
+        let prior = OperationPriorState::new(
+            app_state.load_selected_account()?,
+            previous.map(|account| account.signer().availability()),
+        );
+        match operations.begin_durable_operation(
+            request_id,
+            kind,
+            account.public_key(),
+            Some(expected_revision),
+            prior,
+            clock.now(),
+        )? {
+            DurableOperationStart::Started(_) => {}
+            DurableOperationStart::Existing(operation) => {
+                return if operation
+                    .terminal()
+                    .is_some_and(|receipt| receipt.outcome() == DurableTerminalOutcome::Completed)
+                {
+                    Ok(())
+                } else {
+                    Err(recovery_required())
+                };
+            }
+        }
+        secrets.put(account.public_key(), secret)?;
+        operations.advance_durable_operation(
+            request_id,
+            DurableOperationPhase::IntentRecorded,
+            DurableOperationPhase::CredentialWritten,
+            clock.now(),
+            None,
+        )?;
+        previous.map_or_else(
+            || accounts.insert_account(account),
+            |_| accounts.update_account(account),
+        )?;
+        operations.advance_durable_operation(
+            request_id,
+            DurableOperationPhase::CredentialWritten,
+            DurableOperationPhase::MetadataCommitted,
+            clock.now(),
+            None,
+        )?;
+        app_state.save_selected_account(Some(account.public_key()))?;
+        operations.advance_durable_operation(
+            request_id,
+            DurableOperationPhase::MetadataCommitted,
+            DurableOperationPhase::SelectionCommitted,
+            clock.now(),
+            None,
+        )?;
+        let snapshot = self.apply_transition(StateTransition::ReplaceRegistry {
+            accounts: accounts.list_accounts()?,
+            selected: Some(account.public_key()),
+        })?;
+        operations.finalize_durable_operation(
+            request_id,
+            DurableOperationPhase::SelectionCommitted,
+            DurableTerminalOutcome::Completed,
+            Some(snapshot.revision().value()),
+            clock.now(),
+        )?;
+        Ok(())
+    }
+
     /// Issues a single-use confirmation bound to the target and current revision.
     ///
     /// # Errors
@@ -555,6 +752,13 @@ const fn recovery_required() -> SafeError {
     SafeError::new(
         SafeErrorCode::PendingOperationRecoveryRequired,
         SafeMessage::new("Account recovery is required before this operation can continue."),
+    )
+}
+
+const fn operation_conflict() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::InvalidApplicationState,
+        SafeMessage::new("The account operation conflicts with the current application state."),
     )
 }
 

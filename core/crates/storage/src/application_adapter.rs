@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use radroots_studio_application::{
-    AppCore, AppSnapshot, Clock, GenerateAccountReceipt, ImportAccountReceipt, RelayConfiguration,
-    RemovalConfirmationToken, SecretStore,
+    AppCore, AppSnapshot, Clock, DurableRequestId, GenerateAccountReceipt, ImportAccountReceipt,
+    RelayConfiguration, RemovalConfirmationToken, SecretStore,
 };
 use radroots_studio_domain::{PublicKey, SafeError, SecretKeyInput};
 
@@ -90,6 +90,54 @@ impl PersistentAppCore {
         clock: &(impl Clock + ?Sized),
     ) -> Result<ImportAccountReceipt, SafeError> {
         self.core.import_secret_key(
+            input,
+            &self.database,
+            &self.database,
+            secrets,
+            &self.database,
+            clock,
+        )
+    }
+
+    /// Generates an account through the durable request coordinator.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe conflict, credential, storage, or application-state error.
+    pub fn generate_account_durable(
+        &self,
+        request_id: &DurableRequestId,
+        expected_revision: u64,
+        secrets: &(impl SecretStore + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<GenerateAccountReceipt, SafeError> {
+        self.core.generate_account_durable(
+            request_id,
+            expected_revision,
+            &self.database,
+            &self.database,
+            secrets,
+            &self.database,
+            clock,
+        )
+    }
+
+    /// Imports or repairs an account through the durable request coordinator.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe conflict, validation, credential, storage, or state error.
+    pub fn import_secret_key_durable(
+        &self,
+        request_id: &DurableRequestId,
+        expected_revision: u64,
+        input: SecretKeyInput,
+        secrets: &(impl SecretStore + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<ImportAccountReceipt, SafeError> {
+        self.core.import_secret_key_durable(
+            request_id,
+            expected_revision,
             input,
             &self.database,
             &self.database,
@@ -189,8 +237,9 @@ mod tests {
 
     use radroots_studio_application::{
         AccountOperationKind, AccountOperationPhase, AccountRepository, AppLifecycle,
-        AppStateRepository, Clock, FailureSecretStore, InMemorySecretStore, OperationJournal,
-        RelayConfiguration, SecretStore, SecretStoreOperation, SessionState,
+        AppStateRepository, Clock, DurableOperationRepository, DurableRequestId,
+        FailureSecretStore, InMemorySecretStore, OperationJournal, RelayConfiguration, SecretStore,
+        SecretStoreOperation, SessionState,
     };
     use radroots_studio_domain::{
         AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
@@ -313,6 +362,37 @@ mod tests {
         assert_eq!(restored.accounts().len(), 2);
         assert_eq!(restored.selected_account(), Some(selected));
         assert_eq!(restored.session(), SessionState::SignedOut);
+    }
+
+    #[test]
+    fn durable_import_commits_each_phase_and_recovers_the_terminal_receipt() {
+        let adapter = PersistentAppCore::in_memory(RelayConfiguration::default()).expect("adapter");
+        let secrets = InMemorySecretStore::default();
+        let snapshot = adapter.bootstrap(&secrets, &FixedClock).expect("bootstrap");
+        let request = DurableRequestId::parse("import:adapter:1").expect("request");
+        let imported = adapter
+            .import_secret_key_durable(
+                &request,
+                snapshot.revision().value(),
+                SecretKeyInput::parse(
+                    "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7".to_owned(),
+                )
+                .expect("secret"),
+                &secrets,
+                &FixedClock,
+            )
+            .expect("durable import");
+        let operation = adapter
+            .database()
+            .load_durable_operation(&request)
+            .expect("operation")
+            .expect("durable record");
+        let receipt = operation.terminal().expect("terminal receipt");
+        assert_eq!(receipt.account(), imported.account().public_key());
+        assert_eq!(
+            receipt.resulting_revision(),
+            Some(adapter.core().snapshot().revision().value())
+        );
     }
 
     #[test]

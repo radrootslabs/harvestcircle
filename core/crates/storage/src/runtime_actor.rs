@@ -81,6 +81,7 @@ struct RuntimeActor {
     profile_tasks: BTreeMap<RequestId, PendingProfileTask>,
     changes: OrderedSnapshotChanges,
     published_foreground_session: Arc<Mutex<Option<ForegroundSessionBinding>>>,
+    durable_request_namespace: String,
 }
 
 struct PendingProfileTask {
@@ -192,6 +193,13 @@ impl RuntimeActorHandle {
         let session_generation = Arc::new(AtomicU64::new(SessionGeneration::initial().value()));
         let foreground_session = Arc::new(Mutex::new(None));
         let changes = OrderedSnapshotChanges::new(adapter.core().snapshot());
+        let durable_request_namespace = format!(
+            "runtime:{}:{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |duration| duration.as_nanos())
+        );
         let actor = RuntimeActor {
             adapter: Arc::clone(&adapter),
             secrets,
@@ -204,6 +212,7 @@ impl RuntimeActorHandle {
             profile_tasks: BTreeMap::new(),
             changes,
             published_foreground_session: Arc::clone(&foreground_session),
+            durable_request_namespace,
         };
         drop(runtime.spawn(actor.run(receiver)));
         Ok(Self {
@@ -551,7 +560,7 @@ impl RuntimeActor {
                 | RuntimeCommand::SignOut
                 | RuntimeCommand::ConfirmAccountRemoval(_)
         );
-        let result = self.execute_sync(command);
+        let result = self.execute_sync(context, command);
         if changes_session && matches!(result, CommandResult::Completed(_)) {
             self.advance_session_generation();
             self.synchronize_foreground_session();
@@ -592,19 +601,45 @@ impl RuntimeActor {
         None
     }
 
-    fn execute_sync(&mut self, command: RuntimeCommand) -> CommandResult<RuntimeCommandValue> {
+    fn execute_sync(
+        &mut self,
+        context: CommandContext,
+        command: RuntimeCommand,
+    ) -> CommandResult<RuntimeCommandValue> {
+        let durable_request = radroots_studio_application::DurableRequestId::parse(format!(
+            "{}:{}",
+            self.durable_request_namespace,
+            context.request_id().get()
+        ));
+        let expected_revision = context
+            .expected_revision()
+            .unwrap_or_else(|| self.adapter.core().snapshot().revision())
+            .value();
         let result = match command {
             RuntimeCommand::Snapshot => Ok(RuntimeCommandValue::Snapshot(Box::new(
                 self.adapter.core().snapshot(),
             ))),
-            RuntimeCommand::GenerateAccount => self
-                .adapter
-                .generate_account(self.secrets.as_ref(), self.clock.as_ref())
-                .map(RuntimeCommandValue::Generated),
-            RuntimeCommand::ImportSecretKey(input) => self
-                .adapter
-                .import_secret_key(input, self.secrets.as_ref(), self.clock.as_ref())
-                .map(RuntimeCommandValue::Imported),
+            RuntimeCommand::GenerateAccount => durable_request.and_then(|request| {
+                self.adapter
+                    .generate_account_durable(
+                        &request,
+                        expected_revision,
+                        self.secrets.as_ref(),
+                        self.clock.as_ref(),
+                    )
+                    .map(RuntimeCommandValue::Generated)
+            }),
+            RuntimeCommand::ImportSecretKey(input) => durable_request.and_then(|request| {
+                self.adapter
+                    .import_secret_key_durable(
+                        &request,
+                        expected_revision,
+                        input,
+                        self.secrets.as_ref(),
+                        self.clock.as_ref(),
+                    )
+                    .map(RuntimeCommandValue::Imported)
+            }),
             RuntimeCommand::SelectAccount(public_key) => self
                 .adapter
                 .select_account(public_key)
