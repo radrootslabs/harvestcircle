@@ -7,6 +7,13 @@ criteria in the authoritative handoff are satisfied by implemented source,
 tests, or an explicit documented platform-validation contract. No test uses a
 public relay.
 
+The Radroots crates release v1 reconciliation was rerun on 2026-08-03. Locked
+Rust formatting, workspace all-target checks, workspace all-target tests,
+Gradle desktop checks, native-loader coverage, and the current-host DMG package
+were green through the governed extbuild output router. The reviewed legacy SDK
+runtime is absent; the evidence-based Step 274–278 deviation is recorded in
+`docs/architecture/radroots-crates-release-v1-reconciliation.md`.
+
 ## Acceptance reconciliation
 
 | # | Result | Evidence |
