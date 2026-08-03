@@ -34,6 +34,12 @@ enum class CommandStatus {
     FAILED_TERMINAL,
 }
 
+enum class AccountEntryMode {
+    CHOICE,
+    CREATE,
+    IMPORT,
+}
+
 data class StudioStoreState(
     val snapshot: AppSnapshotDto,
     val route: StudioRoute = snapshot.toStudioRoute(),
@@ -41,6 +47,7 @@ data class StudioStoreState(
     val generatedKeyBackup: GeneratedKeyBackup? = null,
     val pendingRemovalPublicKeyHex: String? = null,
     val accountChooserVisible: Boolean = false,
+    val accountEntryMode: AccountEntryMode = AccountEntryMode.CHOICE,
     val busy: Boolean = false,
     val commandStatus: CommandStatus = CommandStatus.IDLE,
     val lastCommandRequestId: String? = null,
@@ -83,6 +90,22 @@ class StudioAppStore(
     fun editImportDraft(value: String) {
         mutableState.value = mutableState.value.copy(
             importDraft = value.take(MAX_IMPORT_SECRET_CHARS),
+            problem = null,
+        )
+    }
+
+    fun chooseCreateAccount() {
+        mutableState.value = mutableState.value.copy(accountEntryMode = AccountEntryMode.CREATE, problem = null)
+    }
+
+    fun chooseImportAccount() {
+        mutableState.value = mutableState.value.copy(accountEntryMode = AccountEntryMode.IMPORT, problem = null)
+    }
+
+    fun cancelAccountEntry() {
+        mutableState.value = mutableState.value.copy(
+            accountEntryMode = AccountEntryMode.CHOICE,
+            importDraft = "",
             problem = null,
         )
     }

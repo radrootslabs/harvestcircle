@@ -26,12 +26,16 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import org.radroots.studio.application.StudioRoute
+import org.radroots.studio.application.AccountEntryMode
 
 private val WindowBackgroundColor = Color(0xFFF5F5F2)
 private val ButtonBackgroundColor = Color(0xFFE7E7E2)
 private val InputBackgroundColor = Color(0xFFFEFDF8)
 
 data class StudioUiActions(
+    val chooseCreateAccount: () -> Unit = {},
+    val chooseImportAccount: () -> Unit = {},
+    val cancelAccountEntry: () -> Unit = {},
     val editImportDraft: (String) -> Unit = {},
     val generateAccount: () -> Unit = {},
     val importSecretKey: () -> Unit = {},
@@ -209,40 +213,7 @@ private fun InactiveAccountsScreen(
             )
         }
 
-        TextAction(
-            text = "Generate new key",
-            testTag = "generate-key",
-            contentDescription = "Generate a new Nostr key",
-            enabled = !model.busy && model.generatedKeyBackup == null,
-            onClick = actions.generateAccount,
-        )
-
-        BasicTextField(
-            value = model.importDraft,
-            onValueChange = actions.editImportDraft,
-            enabled = !model.busy,
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics {
-                    contentDescription = "Nostr secret key"
-                    password()
-                }
-                .testTag("import-nsec-input")
-                .background(InputBackgroundColor)
-                .padding(8.dp),
-            decorationBox = { innerTextField ->
-                if (model.importDraft.isEmpty()) BasicText("nsec or secret-key hex")
-                innerTextField()
-            },
-        )
-        TextAction(
-            text = "Add existing key",
-            testTag = "import-key",
-            contentDescription = "Import an existing Nostr secret key",
-            enabled = !model.busy && model.importDraft.isNotBlank(),
-            onClick = actions.importSecretKey,
-        )
+        AccountEntry(model, actions)
 
         model.generatedKeyBackup?.let { backup ->
             GeneratedKeyBackupPanel(backup, actions)
@@ -256,6 +227,79 @@ private fun InactiveAccountsScreen(
             BasicText("No saved accounts.", Modifier.testTag("accounts-empty"))
         } else {
             SavedAccountList(model, actions)
+        }
+    }
+}
+
+@Composable
+private fun AccountEntry(model: StudioUiModel, actions: StudioUiActions) {
+    when (model.accountEntryMode) {
+        AccountEntryMode.CHOICE -> {
+            TextAction(
+                text = "Create account",
+                testTag = "choose-create-account",
+                contentDescription = "Create a new Nostr account",
+                enabled = !model.busy,
+                onClick = actions.chooseCreateAccount,
+            )
+            TextAction(
+                text = "Import key",
+                testTag = "choose-import-account",
+                contentDescription = "Import an existing Nostr secret key",
+                enabled = !model.busy,
+                onClick = actions.chooseImportAccount,
+            )
+        }
+        AccountEntryMode.CREATE -> {
+            TextAction(
+                text = "Back",
+                testTag = "cancel-account-entry",
+                contentDescription = "Return to account choices",
+                enabled = !model.busy,
+                onClick = actions.cancelAccountEntry,
+            )
+            TextAction(
+                text = "Generate new key",
+                testTag = "generate-key",
+                contentDescription = "Generate a new Nostr key",
+                enabled = !model.busy && model.generatedKeyBackup == null,
+                onClick = actions.generateAccount,
+            )
+        }
+        AccountEntryMode.IMPORT -> {
+            TextAction(
+                text = "Back",
+                testTag = "cancel-account-entry",
+                contentDescription = "Return to account choices",
+                enabled = !model.busy,
+                onClick = actions.cancelAccountEntry,
+            )
+            BasicTextField(
+                value = model.importDraft,
+                onValueChange = actions.editImportDraft,
+                enabled = !model.busy,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics {
+                        contentDescription = "Nostr secret key"
+                        password()
+                    }
+                    .testTag("import-nsec-input")
+                    .background(InputBackgroundColor)
+                    .padding(8.dp),
+                decorationBox = { innerTextField ->
+                    if (model.importDraft.isEmpty()) BasicText("nsec or secret-key hex")
+                    innerTextField()
+                },
+            )
+            TextAction(
+                text = "Add existing key",
+                testTag = "import-key",
+                contentDescription = "Import an existing Nostr secret key",
+                enabled = !model.busy && model.importDraft.isNotBlank(),
+                onClick = actions.importSecretKey,
+            )
         }
     }
 }

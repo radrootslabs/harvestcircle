@@ -18,6 +18,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import org.radroots.studio.ffi.SessionStateDto
 import org.radroots.studio.application.StudioRoute
+import org.radroots.studio.application.AccountEntryMode
 
 @OptIn(ExperimentalTestApi::class)
 class StudioScreenTest {
@@ -53,12 +54,16 @@ class StudioScreenTest {
     @Test
     fun inactiveScreenGeneratesAndImportsMaskedSecretInput() = runComposeUiTest {
         var importDraft by mutableStateOf("")
+        var accountEntryMode by mutableStateOf(AccountEntryMode.CHOICE)
         var generateCalls = 0
         var importCalls = 0
         setContent {
             StudioScreen(
-                model = emptyUiModel(importDraft = importDraft),
+                model = emptyUiModel(importDraft = importDraft).copy(accountEntryMode = accountEntryMode),
                 actions = StudioUiActions(
+                    chooseCreateAccount = { accountEntryMode = AccountEntryMode.CREATE },
+                    chooseImportAccount = { accountEntryMode = AccountEntryMode.IMPORT },
+                    cancelAccountEntry = { accountEntryMode = AccountEntryMode.CHOICE },
                     editImportDraft = { importDraft = it },
                     generateAccount = { generateCalls += 1 },
                     importSecretKey = { importCalls += 1 },
@@ -68,7 +73,10 @@ class StudioScreenTest {
 
         onNodeWithTag("accounts-screen").assertIsDisplayed()
         onNodeWithText("radroots").assertIsDisplayed()
+        onNodeWithTag("choose-create-account").performClick()
         onNodeWithTag("generate-key").performClick()
+        onNodeWithTag("cancel-account-entry").performClick()
+        onNodeWithTag("choose-import-account").performClick()
         onNodeWithTag("import-nsec-input").performTextInput("nsec1secret")
         onNodeWithTag("import-key").performClick()
 
@@ -261,6 +269,7 @@ private fun emptyUiModel(
     generatedKeyBackup = null,
     pendingRemovalPublicKeyHex = null,
     accountChooserVisible = false,
+    accountEntryMode = AccountEntryMode.CHOICE,
     session = SessionStateDto.SIGNED_OUT,
     busy = false,
     problem = problem,

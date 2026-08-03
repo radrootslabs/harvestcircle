@@ -41,6 +41,9 @@ fun RadrootsApplication(
     StudioScreen(
         model = store.state.value.toUiModel(),
         actions = StudioUiActions(
+            chooseCreateAccount = store::chooseCreateAccount,
+            chooseImportAccount = store::chooseImportAccount,
+            cancelAccountEntry = store::cancelAccountEntry,
             editImportDraft = store::editImportDraft,
             generateAccount = store::generateAccount,
             importSecretKey = store::importSecretKey,

@@ -2,6 +2,7 @@ package org.radroots.studio.accounts.ui
 
 import org.radroots.studio.application.StudioStoreState
 import org.radroots.studio.application.StudioRoute
+import org.radroots.studio.application.AccountEntryMode
 import org.radroots.studio.ffi.AccountDto
 import org.radroots.studio.ffi.ActiveAccountDto
 import org.radroots.studio.ffi.ProfileLoadStateDto
@@ -49,6 +50,7 @@ data class StudioUiModel(
     val generatedKeyBackup: GeneratedKeyBackupUiModel?,
     val pendingRemovalPublicKeyHex: String?,
     val accountChooserVisible: Boolean,
+    val accountEntryMode: AccountEntryMode,
     val session: SessionStateDto,
     val busy: Boolean,
     val problem: String?,
@@ -68,6 +70,7 @@ fun StudioStoreState.toUiModel(): StudioUiModel {
         },
         pendingRemovalPublicKeyHex = pendingRemovalPublicKeyHex,
         accountChooserVisible = accountChooserVisible,
+        accountEntryMode = accountEntryMode,
         session = snapshot.session,
         busy = busy,
         problem = problem
