@@ -14,7 +14,10 @@ use radroots_studio_application::{
 use radroots_studio_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
 use radroots_studio_storage::{OsKeyringSecretStore, RuntimeActorHandle};
 
-use crate::{AccountDto, AppSnapshotDto};
+use crate::{
+    AccountDto, AppSnapshotDto, WireErrorCategory, WireErrorCode, WireRecoveryAction,
+    dto::error_policy,
+};
 
 const DATABASE_QUALIFIER: &str = "org";
 const DATABASE_ORGANIZATION: &str = "radroots";
@@ -56,7 +59,14 @@ pub fn compatibility_descriptor() -> CompatibilityDescriptor {
 
 #[derive(Debug, uniffi::Error)]
 pub enum StudioError {
-    Failure { code: String, safe_message: String },
+    Failure {
+        code: WireErrorCode,
+        category: WireErrorCategory,
+        retryable: bool,
+        recovery_action: WireRecoveryAction,
+        correlation_id: Option<String>,
+        safe_message: String,
+    },
 }
 
 impl Display for StudioError {
@@ -71,8 +81,13 @@ impl std::error::Error for StudioError {}
 
 impl From<SafeError> for StudioError {
     fn from(error: SafeError) -> Self {
+        let (category, retryable, recovery_action) = error_policy(error.code());
         Self::Failure {
-            code: format!("{:?}", error.code()),
+            code: error.code().into(),
+            category,
+            retryable,
+            recovery_action,
+            correlation_id: None,
             safe_message: error.message().as_str().to_owned(),
         }
     }
@@ -399,21 +414,33 @@ pub(crate) fn runtime() -> &'static tokio::runtime::Runtime {
 
 fn path_unavailable() -> StudioError {
     StudioError::Failure {
-        code: "StorageUnavailable".to_owned(),
+        code: WireErrorCode::StorageUnavailable,
+        category: WireErrorCategory::Storage,
+        retryable: true,
+        recovery_action: WireRecoveryAction::RestartApplication,
+        correlation_id: None,
         safe_message: "The application data directory is unavailable.".to_owned(),
     }
 }
 
 fn confirmation_expired() -> StudioError {
     StudioError::Failure {
-        code: "InvalidApplicationState".to_owned(),
+        code: WireErrorCode::InvalidApplicationState,
+        category: WireErrorCategory::Lifecycle,
+        retryable: false,
+        recovery_action: WireRecoveryAction::None,
+        correlation_id: None,
         safe_message: "The account removal confirmation is no longer valid.".to_owned(),
     }
 }
 
 fn compatibility_mismatch() -> StudioError {
     StudioError::Failure {
-        code: "CompatibilityMismatch".to_owned(),
+        code: WireErrorCode::CompatibilityMismatch,
+        category: WireErrorCategory::Compatibility,
+        retryable: false,
+        recovery_action: WireRecoveryAction::UpdateApplication,
+        correlation_id: None,
         safe_message: "The application and native runtime are incompatible.".to_owned(),
     }
 }

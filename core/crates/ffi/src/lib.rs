@@ -8,6 +8,7 @@ pub use commands::{GeneratedAccountDto, RemovalRequest, StudioAppCore, StudioErr
 pub use dto::{
     AccountDto, ActiveAccountDto, AppLifecycleDto, AppSnapshotDto, KeyAvailabilityDto, ProfileDto,
     ProfileLoadStateDto, RelayConnectionStateDto, SafeErrorDto, SessionStateDto, SignerKindDto,
+    WireErrorCategory, WireErrorCode, WireRecoveryAction,
 };
 pub use observer::{ObserverSubscription, StudioObserver};
 

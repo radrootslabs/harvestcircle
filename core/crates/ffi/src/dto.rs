@@ -2,11 +2,61 @@ use radroots_studio_application::{
     ActiveAccountSnapshot, AppLifecycle, AppSnapshot, ProfileLoadState, RelayConnectionState,
     SessionState,
 };
-use radroots_studio_domain::{AccountSummary, BindingAvailability, ProfileMetadata, SafeError};
+use radroots_studio_domain::{
+    AccountSummary, BindingAvailability, ProfileMetadata, SafeError, SafeErrorCode,
+};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
+pub enum WireErrorCode {
+    InvalidPublicKey,
+    InvalidSecretKey,
+    InvalidAccountMetadata,
+    InvalidProfileMetadata,
+    InvalidApplicationState,
+    AccountAlreadyExists,
+    AccountNotFound,
+    KeyringUnavailable,
+    CredentialMissing,
+    StorageUnavailable,
+    StorageCorrupt,
+    PendingOperationRecoveryRequired,
+    InvalidRelayConfiguration,
+    RelayConnectionFailed,
+    ProfileRefreshFailed,
+    ObserverRegistrationFailed,
+    NativeLibraryLoadFailed,
+    CompatibilityMismatch,
+    Internal,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
+pub enum WireErrorCategory {
+    Input,
+    Conflict,
+    Credential,
+    Storage,
+    Network,
+    Lifecycle,
+    Compatibility,
+    Internal,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
+pub enum WireRecoveryAction {
+    None,
+    Retry,
+    RepairCredential,
+    CheckConfiguration,
+    RestartApplication,
+    UpdateApplication,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct SafeErrorDto {
-    pub code: String,
+    pub code: WireErrorCode,
+    pub category: WireErrorCategory,
+    pub retryable: bool,
+    pub recovery_action: WireRecoveryAction,
     pub message: String,
 }
 
@@ -182,10 +232,96 @@ impl From<&ProfileMetadata> for ProfileDto {
 
 impl From<SafeError> for SafeErrorDto {
     fn from(error: SafeError) -> Self {
+        let (category, retryable, recovery_action) = error_policy(error.code());
         Self {
-            code: format!("{:?}", error.code()),
+            code: error.code().into(),
+            category,
+            retryable,
+            recovery_action,
             message: error.message().as_str().to_owned(),
         }
+    }
+}
+
+impl From<SafeErrorCode> for WireErrorCode {
+    fn from(code: SafeErrorCode) -> Self {
+        match code {
+            SafeErrorCode::InvalidPublicKey => Self::InvalidPublicKey,
+            SafeErrorCode::InvalidSecretKey => Self::InvalidSecretKey,
+            SafeErrorCode::InvalidAccountMetadata => Self::InvalidAccountMetadata,
+            SafeErrorCode::InvalidProfileMetadata => Self::InvalidProfileMetadata,
+            SafeErrorCode::InvalidApplicationState => Self::InvalidApplicationState,
+            SafeErrorCode::AccountAlreadyExists => Self::AccountAlreadyExists,
+            SafeErrorCode::AccountNotFound => Self::AccountNotFound,
+            SafeErrorCode::KeyringUnavailable => Self::KeyringUnavailable,
+            SafeErrorCode::CredentialMissing => Self::CredentialMissing,
+            SafeErrorCode::StorageUnavailable => Self::StorageUnavailable,
+            SafeErrorCode::StorageCorrupt => Self::StorageCorrupt,
+            SafeErrorCode::PendingOperationRecoveryRequired => {
+                Self::PendingOperationRecoveryRequired
+            }
+            SafeErrorCode::InvalidRelayConfiguration => Self::InvalidRelayConfiguration,
+            SafeErrorCode::RelayConnectionFailed => Self::RelayConnectionFailed,
+            SafeErrorCode::ProfileRefreshFailed => Self::ProfileRefreshFailed,
+            SafeErrorCode::ObserverRegistrationFailed => Self::ObserverRegistrationFailed,
+            SafeErrorCode::NativeLibraryLoadFailed => Self::NativeLibraryLoadFailed,
+            _ => Self::Internal,
+        }
+    }
+}
+
+pub(crate) const fn error_policy(
+    code: SafeErrorCode,
+) -> (WireErrorCategory, bool, WireRecoveryAction) {
+    match code {
+        SafeErrorCode::InvalidPublicKey
+        | SafeErrorCode::InvalidSecretKey
+        | SafeErrorCode::InvalidAccountMetadata
+        | SafeErrorCode::InvalidProfileMetadata => {
+            (WireErrorCategory::Input, false, WireRecoveryAction::None)
+        }
+        SafeErrorCode::AccountAlreadyExists | SafeErrorCode::AccountNotFound => {
+            (WireErrorCategory::Conflict, false, WireRecoveryAction::None)
+        }
+        SafeErrorCode::KeyringUnavailable => (
+            WireErrorCategory::Credential,
+            true,
+            WireRecoveryAction::Retry,
+        ),
+        SafeErrorCode::CredentialMissing => (
+            WireErrorCategory::Credential,
+            false,
+            WireRecoveryAction::RepairCredential,
+        ),
+        SafeErrorCode::StorageUnavailable => (
+            WireErrorCategory::Storage,
+            true,
+            WireRecoveryAction::RestartApplication,
+        ),
+        SafeErrorCode::StorageCorrupt | SafeErrorCode::PendingOperationRecoveryRequired => (
+            WireErrorCategory::Storage,
+            false,
+            WireRecoveryAction::RestartApplication,
+        ),
+        SafeErrorCode::InvalidRelayConfiguration => (
+            WireErrorCategory::Network,
+            false,
+            WireRecoveryAction::CheckConfiguration,
+        ),
+        SafeErrorCode::RelayConnectionFailed | SafeErrorCode::ProfileRefreshFailed => {
+            (WireErrorCategory::Network, true, WireRecoveryAction::Retry)
+        }
+        SafeErrorCode::InvalidApplicationState | SafeErrorCode::ObserverRegistrationFailed => (
+            WireErrorCategory::Lifecycle,
+            true,
+            WireRecoveryAction::Retry,
+        ),
+        SafeErrorCode::NativeLibraryLoadFailed => (
+            WireErrorCategory::Internal,
+            false,
+            WireRecoveryAction::RestartApplication,
+        ),
+        _ => (WireErrorCategory::Internal, false, WireRecoveryAction::None),
     }
 }
 

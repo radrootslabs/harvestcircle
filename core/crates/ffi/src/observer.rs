@@ -116,7 +116,11 @@ impl StudioAppCore {
 
 fn closed_error() -> StudioError {
     StudioError::Failure {
-        code: "InvalidApplicationState".to_owned(),
+        code: crate::WireErrorCode::InvalidApplicationState,
+        category: crate::WireErrorCategory::Lifecycle,
+        retryable: false,
+        recovery_action: crate::WireRecoveryAction::None,
+        correlation_id: None,
         safe_message: "The application runtime is closed.".to_owned(),
     }
 }
