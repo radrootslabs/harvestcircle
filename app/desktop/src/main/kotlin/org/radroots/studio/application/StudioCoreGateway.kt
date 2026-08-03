@@ -11,6 +11,10 @@ import org.radroots.studio.ffi.RequestContextDto
 import org.radroots.studio.ffi.SnapshotChangeDto
 import org.radroots.studio.ffi.StudioAppCore
 import org.radroots.studio.ffi.StudioChangeObserver
+import org.radroots.studio.ffi.StudioException
+import org.radroots.studio.ffi.WireErrorCategory
+import org.radroots.studio.ffi.WireErrorCode
+import org.radroots.studio.ffi.WireRecoveryAction
 
 interface RemovalTicket : AutoCloseable
 
@@ -24,10 +28,47 @@ interface GeneratedRecoveryTicket : AutoCloseable {
     suspend fun cancel(): Boolean
 }
 
+data class StudioChange(
+    val snapshot: AppSnapshotDto,
+    val previousRevision: ULong?,
+)
+
+sealed interface StudioCommand {
+    data class ImportAccount(val bytes: ByteArray) : StudioCommand
+    data class SelectAccount(val publicKeyHex: String) : StudioCommand
+    data class ActivateAccount(val publicKeyHex: String) : StudioCommand
+    data object SignOut : StudioCommand
+    data object RefreshProfile : StudioCommand
+}
+
+data class StudioCommandReceipt(
+    val requestId: String,
+    val committedRevision: ULong,
+    val snapshot: AppSnapshotDto,
+)
+
+data class StudioCommandFailure(
+    val code: WireErrorCode,
+    val category: WireErrorCategory,
+    val retryable: Boolean,
+    val recoveryAction: WireRecoveryAction,
+    val correlationId: String?,
+    val safeMessage: String,
+)
+
+sealed interface StudioCommandResult {
+    data class Accepted(val receipt: StudioCommandReceipt) : StudioCommandResult
+    data class Rejected(val failure: StudioCommandFailure) : StudioCommandResult
+}
+
 interface StudioCoreGateway : AutoCloseable {
     fun snapshot(): AppSnapshotDto
 
     suspend fun subscribe(onSnapshot: (AppSnapshotDto) -> Unit): AutoCloseable
+
+    suspend fun subscribeChanges(onChange: (StudioChange) -> Unit): AutoCloseable
+
+    suspend fun execute(command: StudioCommand): StudioCommandResult
 
     suspend fun bootstrap(): AppSnapshotDto
 
@@ -55,14 +96,40 @@ class NativeStudioCoreGateway(
     override fun snapshot(): AppSnapshotDto = core.snapshot()
 
     override suspend fun subscribe(onSnapshot: (AppSnapshotDto) -> Unit): AutoCloseable {
+        return subscribeChanges { change -> onSnapshot(change.snapshot) }
+    }
+
+    override suspend fun subscribeChanges(onChange: (StudioChange) -> Unit): AutoCloseable {
         val subscription = core.subscribeChangesV2(
             object : StudioChangeObserver {
                 override fun onChange(change: SnapshotChangeDto) {
-                    onSnapshot(change.snapshot)
+                    onChange(StudioChange(change.snapshot, change.previousRevision))
                 }
             },
         )
         return NativeSubscription(subscription)
+    }
+
+    override suspend fun execute(command: StudioCommand): StudioCommandResult {
+        val context = requestContext()
+        return try {
+            val snapshot = when (command) {
+                is StudioCommand.ImportAccount -> try {
+                    core.importAccountV2(context, command.bytes).snapshot
+                } finally {
+                    command.bytes.fill(0)
+                }
+                is StudioCommand.SelectAccount -> core.selectAccount(command.publicKeyHex)
+                is StudioCommand.ActivateAccount -> core.activateAccount(command.publicKeyHex)
+                StudioCommand.SignOut -> core.signOut()
+                StudioCommand.RefreshProfile -> core.refreshActiveProfile()
+            }
+            StudioCommandResult.Accepted(
+                StudioCommandReceipt(context.requestId, snapshot.revision, snapshot),
+            )
+        } catch (error: Throwable) {
+            StudioCommandResult.Rejected(error.toStudioCommandFailure(context.requestId))
+        }
     }
 
     override suspend fun bootstrap(): AppSnapshotDto = core.bootstrap()
@@ -104,6 +171,18 @@ class NativeStudioCoreGateway(
         requestId = "kotlin:${nextRequest.getAndIncrement()}",
         expectedRevision = core.snapshot().revision,
         deadlineMillis = 30_000UL,
+    )
+}
+
+internal fun Throwable.toStudioCommandFailure(fallbackCorrelationId: String): StudioCommandFailure {
+    val native = this as? StudioException.Failure
+    return StudioCommandFailure(
+        code = native?.code ?: WireErrorCode.INTERNAL,
+        category = native?.category ?: WireErrorCategory.INTERNAL,
+        retryable = native?.retryable ?: false,
+        recoveryAction = native?.recoveryAction ?: WireRecoveryAction.NONE,
+        correlationId = native?.correlationId ?: fallbackCorrelationId,
+        safeMessage = native?.safeMessage ?: "The application command failed.",
     )
 }
 

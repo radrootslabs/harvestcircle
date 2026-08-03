@@ -137,6 +137,12 @@ private class FakeStudioCoreGateway(
         return AutoCloseable { subscriptionClosed = true }
     }
 
+    override suspend fun subscribeChanges(onChange: (StudioChange) -> Unit): AutoCloseable =
+        subscribe { snapshot -> onChange(StudioChange(snapshot, null)) }
+
+    override suspend fun execute(command: StudioCommand): StudioCommandResult =
+        error("unused")
+
     fun emit(snapshot: AppSnapshotDto) {
         current = snapshot
         observer?.invoke(snapshot)
