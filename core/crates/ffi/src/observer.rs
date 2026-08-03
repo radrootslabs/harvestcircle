@@ -17,6 +17,23 @@ pub trait StudioObserver: Send + Sync {
     fn on_snapshot_changed(&self, snapshot: AppSnapshotDto);
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
+pub struct SnapshotChangeDto {
+    pub snapshot: AppSnapshotDto,
+    pub previous_revision: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Record)]
+pub struct ShutdownReceiptDto {
+    pub final_revision: u64,
+    pub closed: bool,
+}
+
+#[uniffi::export(callback_interface)]
+pub trait StudioChangeObserver: Send + Sync {
+    fn on_change(&self, change: SnapshotChangeDto);
+}
+
 #[derive(uniffi::Object)]
 pub struct ObserverSubscription {
     core: Weak<RuntimeCore>,
@@ -57,6 +74,47 @@ impl Drop for ObserverSubscription {
 
 #[uniffi::export]
 impl StudioAppCore {
+    /// Subscribes to ordered revision changes including predecessor metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe observer or lifecycle error.
+    pub async fn subscribe_changes_v2(
+        &self,
+        observer: Box<dyn StudioChangeObserver>,
+    ) -> Result<Arc<ObserverSubscription>, StudioError> {
+        if self.inner.closed.load(Ordering::Acquire) {
+            return Err(closed_error());
+        }
+        let mut subscription = self
+            .inner
+            .actor
+            .subscribe_changes(OBSERVER_CHANGE_CAPACITY)
+            .await
+            .map_err(StudioError::from)?;
+        let id = subscription.id();
+        let observer: Arc<dyn StudioChangeObserver> = Arc::from(observer);
+        let task = crate::commands::runtime().spawn(async move {
+            while let Some(change) = subscription.receive().await {
+                observer.on_change(SnapshotChangeDto {
+                    snapshot: change.snapshot().into(),
+                    previous_revision: change
+                        .previous_revision()
+                        .map(radroots_studio_application::SnapshotRevision::value),
+                });
+            }
+        });
+        self.inner
+            .observers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(id, task);
+        Ok(Arc::new(ObserverSubscription {
+            core: Arc::downgrade(&self.inner),
+            id: Mutex::new(Some(id)),
+        }))
+    }
+
     /// Subscribes to revisioned snapshots and immediately delivers the current value.
     ///
     /// # Errors
@@ -111,6 +169,32 @@ impl StudioAppCore {
         crate::commands::runtime().spawn(async move {
             let _ = actor.close().await;
         });
+    }
+
+    /// Stops observer delivery and waits for actor-owned shutdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe closed or timeout error when shutdown cannot complete.
+    pub async fn shutdown_v2(&self) -> Result<ShutdownReceiptDto, StudioError> {
+        if self.inner.closed.swap(true, Ordering::AcqRel) {
+            return Err(closed_error());
+        }
+        let handles = std::mem::take(
+            &mut *self
+                .inner
+                .observers
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        for (_, task) in handles {
+            task.abort();
+        }
+        self.inner.actor.close().await.map_err(StudioError::from)?;
+        Ok(ShutdownReceiptDto {
+            final_revision: self.inner.actor.snapshot().revision().value(),
+            closed: true,
+        })
     }
 }
 

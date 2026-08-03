@@ -2,14 +2,14 @@ use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use directories::ProjectDirs;
 use radroots_studio_application::{
-    Clock, DurableRequestId, RelayRuntimeMode, RemovalConfirmationToken, SdkNostrClient,
-    relay_configuration_from_environment,
+    Clock, DurableRequestId, GeneratedKeyRecoveryHandle, RelayRuntimeMode,
+    RemovalConfirmationToken, SdkNostrClient, relay_configuration_from_environment,
 };
 use radroots_studio_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
 use radroots_studio_storage::{OsKeyringSecretStore, RuntimeActorHandle};
@@ -130,6 +130,35 @@ pub struct GeneratedAccountDto {
 }
 
 #[derive(uniffi::Object)]
+pub struct GeneratedRecoveryRequest {
+    handle: GeneratedKeyRecoveryHandle,
+    resolved: AtomicBool,
+}
+
+#[uniffi::export]
+impl GeneratedRecoveryRequest {
+    pub fn account(&self) -> AccountDto {
+        self.handle.view().account().into()
+    }
+
+    pub fn expires_at_seconds(&self) -> i64 {
+        self.handle.view().expires_at().as_seconds()
+    }
+
+    /// Returns the recovery secret exactly once.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe unavailable error after the first read.
+    pub fn take_recovery_nsec(&self) -> Result<String, StudioError> {
+        self.handle
+            .take_recovery_nsec()
+            .map(|nsec| nsec.with_exposed_secret(str::to_owned))
+            .map_err(StudioError::from)
+    }
+}
+
+#[derive(uniffi::Object)]
 pub struct RemovalRequest {
     public_key_hex: String,
     token: Mutex<Option<RemovalConfirmationToken>>,
@@ -219,6 +248,66 @@ impl StudioAppCore {
                 snapshot: (&self.inner.actor.snapshot()).into(),
                 nsec: receipt.generated_nsec().with_exposed_secret(str::to_owned),
             })
+            .map_err(StudioError::from)
+    }
+
+    /// Begins the exclusive generated-account recovery flow without persistence.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe key-generation, conflict, timeout, or lifecycle error.
+    pub async fn begin_generated_account_v2(
+        &self,
+    ) -> Result<Arc<GeneratedRecoveryRequest>, StudioError> {
+        self.inner
+            .actor
+            .begin_generated_key_stage()
+            .await
+            .map(|handle| {
+                Arc::new(GeneratedRecoveryRequest {
+                    handle,
+                    resolved: AtomicBool::new(false),
+                })
+            })
+            .map_err(StudioError::from)
+    }
+
+    /// Acknowledges recovery and commits the generated account once.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe recovery, credential, persistence, timeout, or lifecycle error.
+    pub async fn acknowledge_generated_account_v2(
+        &self,
+        request: Arc<GeneratedRecoveryRequest>,
+    ) -> Result<AppSnapshotDto, StudioError> {
+        if request.resolved.swap(true, Ordering::AcqRel) {
+            return Err(confirmation_expired());
+        }
+        self.inner
+            .actor
+            .acknowledge_generated_key_stage(request.handle.id())
+            .await
+            .map(|snapshot| (&snapshot).into())
+            .map_err(StudioError::from)
+    }
+
+    /// Cancels the exclusive generated-account recovery flow.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe timeout or lifecycle error.
+    pub async fn cancel_generated_account_v2(
+        &self,
+        request: Arc<GeneratedRecoveryRequest>,
+    ) -> Result<bool, StudioError> {
+        if request.resolved.swap(true, Ordering::AcqRel) {
+            return Ok(false);
+        }
+        self.inner
+            .actor
+            .cancel_generated_key_stage()
+            .await
             .map_err(StudioError::from)
     }
 
@@ -593,6 +682,31 @@ mod tests {
         assert_eq!(first, replay);
         assert_eq!(first.snapshot.accounts.len(), 1);
         assert_eq!(first.request_id, "ffi-test-import-1");
+    }
+
+    #[tokio::test]
+    async fn generated_recovery_handle_is_one_use_and_acknowledgement_gated() {
+        let core = in_memory_core();
+        let initial = core.snapshot();
+        let recovery = core
+            .begin_generated_account_v2()
+            .await
+            .expect("begin recovery");
+
+        assert_eq!(core.snapshot(), initial);
+        let nsec = recovery.take_recovery_nsec().expect("one-use nsec");
+        assert!(nsec.starts_with("nsec1"));
+        assert!(recovery.take_recovery_nsec().is_err());
+        let committed = core
+            .acknowledge_generated_account_v2(Arc::clone(&recovery))
+            .await
+            .expect("acknowledge");
+        assert_eq!(committed.accounts.len(), 1);
+        assert!(
+            core.acknowledge_generated_account_v2(recovery)
+                .await
+                .is_err()
+        );
     }
 
     #[test]
