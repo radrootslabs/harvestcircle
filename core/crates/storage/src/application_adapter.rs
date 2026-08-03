@@ -500,6 +500,99 @@ mod tests {
     }
 
     #[test]
+    fn durable_recovery_covers_response_loss_and_irreversible_removal_windows() {
+        let secrets = InMemorySecretStore::default();
+        let adapter = PersistentAppCore::in_memory(RelayConfiguration::default()).expect("adapter");
+        let saved = account();
+        adapter.database().insert_account(&saved).expect("account");
+        let import = DurableRequestId::parse("import:response-loss:1").expect("request");
+        adapter
+            .database()
+            .begin_durable_operation(
+                &import,
+                DurableOperationKind::Import,
+                saved.public_key(),
+                Some(0),
+                OperationPriorState::new(None, None),
+                FixedClock.now(),
+            )
+            .expect("intent");
+        adapter
+            .database()
+            .advance_durable_operation(
+                &import,
+                DurableOperationPhase::IntentRecorded,
+                DurableOperationPhase::CredentialWritten,
+                FixedClock.now(),
+                None,
+            )
+            .expect("credential");
+        adapter
+            .database()
+            .advance_durable_operation(
+                &import,
+                DurableOperationPhase::CredentialWritten,
+                DurableOperationPhase::MetadataCommitted,
+                FixedClock.now(),
+                None,
+            )
+            .expect("metadata");
+        let restored = adapter
+            .bootstrap(&secrets, &FixedClock)
+            .expect("response recovery");
+        assert_eq!(restored.selected_account(), Some(saved.public_key()));
+        assert_eq!(
+            adapter
+                .database()
+                .load_durable_operation(&import)
+                .expect("operation")
+                .expect("record")
+                .terminal()
+                .expect("receipt")
+                .outcome(),
+            DurableTerminalOutcome::Completed
+        );
+
+        let removal_adapter =
+            PersistentAppCore::in_memory(RelayConfiguration::default()).expect("remove adapter");
+        removal_adapter
+            .database()
+            .insert_account(&saved)
+            .expect("remove account");
+        removal_adapter
+            .database()
+            .save_selected_account(Some(saved.public_key()))
+            .expect("remove selection");
+        let removal = DurableRequestId::parse("remove:response-loss:1").expect("request");
+        removal_adapter
+            .database()
+            .begin_durable_operation(
+                &removal,
+                DurableOperationKind::Remove,
+                saved.public_key(),
+                Some(0),
+                OperationPriorState::new(None, Some(BindingAvailability::Available)),
+                FixedClock.now(),
+            )
+            .expect("remove intent");
+        removal_adapter
+            .database()
+            .advance_durable_operation(
+                &removal,
+                DurableOperationPhase::IntentRecorded,
+                DurableOperationPhase::CredentialDeleted,
+                FixedClock.now(),
+                None,
+            )
+            .expect("credential deleted");
+        let removed = removal_adapter
+            .bootstrap(&secrets, &FixedClock)
+            .expect("removal recovery");
+        assert!(removed.accounts().is_empty());
+        assert_eq!(removed.selected_account(), None);
+    }
+
+    #[test]
     fn bootstrap_recovery_completes_credential_deleted_removal_and_fallback() {
         let directory = tempdir().expect("directory");
         let path = directory.path().join("studio.sqlite3");
