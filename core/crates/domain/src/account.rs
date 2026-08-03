@@ -50,18 +50,108 @@ impl AccountIdentity {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LocalSignerBinding {
     account: PublicKey,
+    availability: BindingAvailability,
 }
 
 impl LocalSignerBinding {
     #[must_use]
-    pub const fn new(account: PublicKey) -> Self {
-        Self { account }
+    pub const fn new(account: PublicKey, availability: BindingAvailability) -> Self {
+        Self {
+            account,
+            availability,
+        }
     }
 
     #[must_use]
     pub const fn account(self) -> PublicKey {
         self.account
     }
+
+    #[must_use]
+    pub const fn availability(self) -> BindingAvailability {
+        self.availability
+    }
+
+    #[must_use]
+    pub const fn repair_action(self) -> Option<BindingRepairAction> {
+        match self.availability {
+            BindingAvailability::Available => None,
+            BindingAvailability::CredentialMissing => Some(BindingRepairAction::ImportCredential),
+            BindingAvailability::StoreUnavailable => {
+                Some(BindingRepairAction::RetryCredentialStore)
+            }
+        }
+    }
+
+    /// Records a missing credential after a successful store lookup.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe state error unless the binding was previously available.
+    pub fn mark_credential_missing(&mut self) -> Result<(), SafeError> {
+        self.transition(
+            BindingAvailability::Available,
+            BindingAvailability::CredentialMissing,
+        )
+    }
+
+    pub fn mark_store_unavailable(&mut self) {
+        self.availability = BindingAvailability::StoreUnavailable;
+    }
+
+    /// Completes an explicit credential repair.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe state error unless a credential was missing.
+    pub fn repair_credential(&mut self) -> Result<(), SafeError> {
+        self.transition(
+            BindingAvailability::CredentialMissing,
+            BindingAvailability::Available,
+        )
+    }
+
+    /// Resolves a recovered store lookup to its observed credential state.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe state error unless the credential store was unavailable.
+    pub fn resolve_store_recovery(&mut self, credential_present: bool) -> Result<(), SafeError> {
+        if self.availability != BindingAvailability::StoreUnavailable {
+            return Err(invalid_account_metadata());
+        }
+        self.availability = if credential_present {
+            BindingAvailability::Available
+        } else {
+            BindingAvailability::CredentialMissing
+        };
+        Ok(())
+    }
+
+    fn transition(
+        &mut self,
+        expected: BindingAvailability,
+        next: BindingAvailability,
+    ) -> Result<(), SafeError> {
+        if self.availability != expected {
+            return Err(invalid_account_metadata());
+        }
+        self.availability = next;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BindingAvailability {
+    Available,
+    CredentialMissing,
+    StoreUnavailable,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BindingRepairAction {
+    ImportCredential,
+    RetryCredentialStore,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -236,8 +326,8 @@ mod tests {
     use crate::{Npub, PublicKey};
 
     use super::{
-        AccountCreatedAt, AccountIdentity, AccountLabel, AccountSummary, KeyAvailability,
-        LocalSignerBinding, SignerKind,
+        AccountCreatedAt, AccountIdentity, AccountLabel, AccountSummary, BindingAvailability,
+        BindingRepairAction, KeyAvailability, LocalSignerBinding, SignerKind,
     };
 
     const NPUB: &str = "npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg";
@@ -310,9 +400,40 @@ mod tests {
     fn local_signer_binding_carries_only_canonical_account_identity() {
         let public_key = PublicKey::from_bytes([9_u8; 32]);
         let identity = AccountIdentity::derive(public_key).expect("identity");
-        let binding = LocalSignerBinding::new(public_key);
+        let binding = LocalSignerBinding::new(public_key, BindingAvailability::Available);
 
         assert_eq!(binding.account(), identity.public_key());
         assert!(!format!("{binding:?}").contains("nsec1"));
+    }
+
+    #[test]
+    fn local_binding_repair_transitions_are_typed_and_fail_closed() {
+        let public_key = PublicKey::from_bytes([9_u8; 32]);
+        let mut binding = LocalSignerBinding::new(public_key, BindingAvailability::Available);
+        assert_eq!(binding.repair_action(), None);
+        assert!(binding.repair_credential().is_err());
+
+        binding
+            .mark_credential_missing()
+            .expect("missing credential");
+        assert_eq!(
+            binding.repair_action(),
+            Some(BindingRepairAction::ImportCredential)
+        );
+        binding.repair_credential().expect("repair");
+
+        binding.mark_store_unavailable();
+        assert_eq!(
+            binding.repair_action(),
+            Some(BindingRepairAction::RetryCredentialStore)
+        );
+        binding
+            .resolve_store_recovery(false)
+            .expect("store recovery");
+        assert_eq!(
+            binding.availability(),
+            BindingAvailability::CredentialMissing
+        );
+        assert!(binding.resolve_store_recovery(true).is_err());
     }
 }

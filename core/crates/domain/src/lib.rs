@@ -8,8 +8,8 @@ pub mod relay;
 pub mod time;
 
 pub use account::{
-    AccountCreatedAt, AccountIdentity, AccountLabel, AccountSummary, KeyAvailability,
-    LocalSignerBinding, SignerKind,
+    AccountCreatedAt, AccountIdentity, AccountLabel, AccountSummary, BindingAvailability,
+    BindingRepairAction, KeyAvailability, LocalSignerBinding, SignerKind,
 };
 pub use error::{SafeError, SafeErrorCode, SafeMessage};
 pub use key::{Npub, Nsec, PublicKey, SecretKeyInput, SecretKeyInputKind};
