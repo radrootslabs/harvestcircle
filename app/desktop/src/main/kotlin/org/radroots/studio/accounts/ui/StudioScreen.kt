@@ -41,6 +41,7 @@ data class StudioUiActions(
     val importSecretKey: () -> Unit = {},
     val copyText: (String) -> Unit = {},
     val acknowledgeGeneratedKeyBackup: () -> Unit = {},
+    val cancelGeneratedKeyBackup: () -> Unit = {},
     val selectAccount: (String) -> Unit = {},
     val activateAccount: (String) -> Unit = {},
     val requestAccountRemoval: (String) -> Unit = {},
@@ -72,6 +73,10 @@ fun StudioScreen(
     model: StudioUiModel,
     actions: StudioUiActions,
 ) {
+    model.generatedKeyBackup?.let { backup ->
+        GeneratedKeyRecoveryScreen(backup, actions)
+        return
+    }
     when (model.route) {
         StudioRoute.OPENING -> LifecycleScreen("Opening local account store", "lifecycle-opening")
         StudioRoute.CHECKING_COMPATIBILITY -> LifecycleScreen(
@@ -214,10 +219,6 @@ private fun InactiveAccountsScreen(
         }
 
         AccountEntry(model, actions)
-
-        model.generatedKeyBackup?.let { backup ->
-            GeneratedKeyBackupPanel(backup, actions)
-        }
 
         model.problem?.let {
             BasicText(it, Modifier.testTag("accounts-problem"))
@@ -366,15 +367,15 @@ private fun ColumnScope.SavedAccountList(
 }
 
 @Composable
-private fun GeneratedKeyBackupPanel(
+private fun GeneratedKeyRecoveryScreen(
     backup: GeneratedKeyBackupUiModel,
     actions: StudioUiActions,
 ) {
     Column(
         modifier = Modifier
-            .fillMaxWidth()
-            .background(InputBackgroundColor)
-            .padding(12.dp)
+            .fillMaxSize()
+            .background(WindowBackgroundColor)
+            .padding(24.dp)
             .testTag("generated-key-backup"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -387,6 +388,12 @@ private fun GeneratedKeyBackupPanel(
             testTag = "copy-generated-key",
             contentDescription = "Copy generated Nostr secret key",
             onClick = { actions.copyText(backup.nsec) },
+        )
+        TextAction(
+            text = "Cancel",
+            testTag = "cancel-generated-key",
+            contentDescription = "Cancel generated account",
+            onClick = actions.cancelGeneratedKeyBackup,
         )
         TextAction(
             text = "I have saved this key",

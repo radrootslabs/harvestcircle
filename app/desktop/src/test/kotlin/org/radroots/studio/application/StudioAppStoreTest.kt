@@ -57,6 +57,23 @@ class StudioAppStoreTest {
     }
 
     @Test
+    fun `cancels staged generated account without committing it`() = runTest {
+        val gateway = FakeStudioCoreGateway(snapshot(0UL))
+        val store = StudioAppStore(gateway, this)
+        advanceUntilIdle()
+        val revisionBeforeGeneration = store.state.value.snapshot.revision
+        store.generateAccount()
+        advanceUntilIdle()
+
+        store.cancelGeneratedKeyBackup()
+        advanceUntilIdle()
+
+        assertNull(store.state.value.generatedKeyBackup)
+        assertEquals(revisionBeforeGeneration, store.state.value.snapshot.revision)
+        store.close()
+    }
+
+    @Test
     fun `ignores observer delivery after close`() = runTest {
         val gateway = FakeStudioCoreGateway(snapshot(0UL))
         val store = StudioAppStore(gateway, this)

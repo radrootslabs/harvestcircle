@@ -49,6 +49,7 @@ fun RadrootsApplication(
             importSecretKey = store::importSecretKey,
             copyText = { value -> clipboard.copy(value) },
             acknowledgeGeneratedKeyBackup = store::acknowledgeGeneratedKeyBackup,
+            cancelGeneratedKeyBackup = store::cancelGeneratedKeyBackup,
             selectAccount = store::selectAccount,
             activateAccount = store::activateAccount,
             requestAccountRemoval = store::requestAccountRemoval,

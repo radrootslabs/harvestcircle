@@ -141,6 +141,23 @@ class StudioAppStore(
         }
     }
 
+    fun cancelGeneratedKeyBackup() {
+        val recovery = pendingGeneratedRecovery ?: run {
+            rejectUnavailableIntent("Generated-key recovery is not available.")
+            return
+        }
+        pendingGeneratedRecovery = null
+        launchCommand {
+            try {
+                recovery.cancel()
+                generatedRecovery.acknowledge()
+                mutableState.value = mutableState.value.copy(generatedKeyBackup = null)
+            } finally {
+                recovery.close()
+            }
+        }
+    }
+
     fun importSecretKey() {
         if (rejectIfUnavailable()) return
         val input = mutableState.value.importDraft.encodeToByteArray()

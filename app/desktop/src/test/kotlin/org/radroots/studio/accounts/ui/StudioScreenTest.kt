@@ -118,6 +118,8 @@ class StudioScreenTest {
         }
 
         onNodeWithTag("generated-key-backup").assertIsDisplayed()
+        onAllNodesWithTag("accounts-screen").assertCountEquals(0)
+        onAllNodesWithTag("generate-key").assertCountEquals(0)
         onNodeWithTag("generated-nsec").assertIsDisplayed()
         onNodeWithTag("copy-generated-key").performClick()
         assertEquals("nsec1generated", copied)
@@ -125,6 +127,29 @@ class StudioScreenTest {
         onNodeWithTag("acknowledge-key-backup").performClick()
         onAllNodesWithTag("generated-key-backup").assertCountEquals(0)
         onAllNodesWithTag("generated-nsec").assertCountEquals(0)
+    }
+
+    @Test
+    fun generatedKeyRecoveryCanBeCancelledWithoutExposingAccountControls() = runComposeUiTest {
+        var backup: GeneratedKeyBackupUiModel? by mutableStateOf(
+            GeneratedKeyBackupUiModel("npub1generated", "nsec1generated"),
+        )
+        var cancelled = 0
+        setContent {
+            StudioScreen(
+                model = emptyUiModel().copy(generatedKeyBackup = backup),
+                actions = StudioUiActions(
+                    cancelGeneratedKeyBackup = {
+                        cancelled += 1
+                        backup = null
+                    },
+                ),
+            )
+        }
+
+        onNodeWithTag("cancel-generated-key").performClick()
+        assertEquals(1, cancelled)
+        onAllNodesWithTag("generated-key-backup").assertCountEquals(0)
     }
 
     @Test
