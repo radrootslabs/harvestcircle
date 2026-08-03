@@ -48,6 +48,23 @@ impl AccountIdentity {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LocalSignerBinding {
+    account: PublicKey,
+}
+
+impl LocalSignerBinding {
+    #[must_use]
+    pub const fn new(account: PublicKey) -> Self {
+        Self { account }
+    }
+
+    #[must_use]
+    pub const fn account(self) -> PublicKey {
+        self.account
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SignerKind {
     LocalSecret,
     WatchOnly,
@@ -220,7 +237,7 @@ mod tests {
 
     use super::{
         AccountCreatedAt, AccountIdentity, AccountLabel, AccountSummary, KeyAvailability,
-        SignerKind,
+        LocalSignerBinding, SignerKind,
     };
 
     const NPUB: &str = "npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg";
@@ -287,5 +304,15 @@ mod tests {
         assert!(
             AccountIdentity::verify(PublicKey::from_bytes([8_u8; 32]), NPUB.to_owned()).is_err()
         );
+    }
+
+    #[test]
+    fn local_signer_binding_carries_only_canonical_account_identity() {
+        let public_key = PublicKey::from_bytes([9_u8; 32]);
+        let identity = AccountIdentity::derive(public_key).expect("identity");
+        let binding = LocalSignerBinding::new(public_key);
+
+        assert_eq!(binding.account(), identity.public_key());
+        assert!(!format!("{binding:?}").contains("nsec1"));
     }
 }
