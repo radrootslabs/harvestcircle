@@ -3,6 +3,7 @@
 pub mod accounts;
 pub mod actor;
 pub mod app_core;
+mod change_stream;
 pub mod config;
 pub mod nostr_client;
 pub mod ports;
@@ -23,6 +24,9 @@ pub use actor::{
     RuntimeLifecycle, SessionGeneration, TaskCorrelation,
 };
 pub use app_core::{AppCore, AppObserver, ObserverHandle, RemovalConfirmationToken};
+pub use change_stream::{
+    ChangeSubscriptionId, OrderedSnapshotChanges, SnapshotChange, SnapshotChangeReceiver,
+};
 pub use config::{
     RelayRuntimeMode, relay_configuration_from_environment, relay_configuration_from_value,
 };

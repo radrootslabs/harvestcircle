@@ -8,9 +8,9 @@ use std::time::{Duration, Instant};
 use radroots_studio_application::{
     ActorMailbox, AppObserver, AppSnapshot, Clock, CommandContext, CommandEnvelope, CommandReceipt,
     CommandResult, CommandSubmission, GenerateAccountReceipt, ImportAccountReceipt, LifecycleGate,
-    NostrClient, ObserverHandle, ProfileRefreshPlan, RelayConfiguration, RemovalConfirmationToken,
-    RequestId, RuntimeCommandClass, RuntimeLifecycle, SecretStore, SessionGeneration,
-    SnapshotRevision, TaskCorrelation,
+    NostrClient, ObserverHandle, OrderedSnapshotChanges, ProfileRefreshPlan, RelayConfiguration,
+    RemovalConfirmationToken, RequestId, RuntimeCommandClass, RuntimeLifecycle, SecretStore,
+    SessionGeneration, SnapshotRevision, TaskCorrelation,
 };
 use radroots_studio_domain::{
     Kind0ProfileCandidate, PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput,
@@ -71,6 +71,7 @@ struct RuntimeActor {
     session_generation: SessionGeneration,
     published_session_generation: Arc<AtomicU64>,
     profile_tasks: BTreeMap<RequestId, PendingProfileTask>,
+    changes: OrderedSnapshotChanges,
 }
 
 struct PendingProfileTask {
@@ -163,6 +164,7 @@ impl RuntimeActorHandle {
         let lifecycle = Arc::new(Mutex::new(gate));
         let (mailbox, receiver) = ActorMailbox::bounded(capacity);
         let session_generation = Arc::new(AtomicU64::new(SessionGeneration::initial().value()));
+        let changes = OrderedSnapshotChanges::new(adapter.core().snapshot().revision());
         let actor = RuntimeActor {
             adapter: Arc::clone(&adapter),
             secrets,
@@ -173,6 +175,7 @@ impl RuntimeActorHandle {
             session_generation: SessionGeneration::initial(),
             published_session_generation: Arc::clone(&session_generation),
             profile_tasks: BTreeMap::new(),
+            changes,
         };
         drop(runtime.spawn(actor.run(receiver)));
         Ok(Self {
@@ -473,6 +476,9 @@ impl RuntimeActor {
         if changes_session && matches!(result, CommandResult::Completed(_)) {
             self.advance_session_generation();
         }
+        if matches!(result, CommandResult::Completed(_)) {
+            self.changes.publish(self.adapter.core().snapshot());
+        }
         let _ = reply.send(CommandReceipt::new(context.request_id(), result));
     }
 
@@ -644,6 +650,9 @@ impl RuntimeActor {
         } else {
             CommandResult::Completed(RuntimeCommandValue::Snapshot(Box::new(current)))
         };
+        if matches!(result, CommandResult::Completed(_)) {
+            self.changes.publish(self.adapter.core().snapshot());
+        }
         let _ = task
             .reply
             .send(CommandReceipt::new(task.correlation.request_id(), result));
