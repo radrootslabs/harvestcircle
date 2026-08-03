@@ -12,6 +12,7 @@ radroots-studio-domain = { path = "../domain" }
 keyring.workspace = true
 refinery.workspace = true
 rusqlite.workspace = true
+tokio.workspace = true
 
 [dev-dependencies]
 nostr.workspace = true

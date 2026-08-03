@@ -18,7 +18,7 @@ pub use accounts::{
     InMemoryOperationJournal,
 };
 pub use actor::{
-    ActorMailbox, CommandContext, CommandReceipt, CommandRejection, CommandResult,
+    ActorMailbox, CommandContext, CommandEnvelope, CommandReceipt, CommandRejection, CommandResult,
     CommandSubmission, CommandTicket, LifecycleGate, RequestId, RuntimeCommandClass,
     RuntimeLifecycle,
 };

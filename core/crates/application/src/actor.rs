@@ -372,9 +372,16 @@ impl<C, R> CommandEnvelope<C, R> {
     }
 }
 
-#[derive(Clone)]
 pub struct ActorMailbox<C, R> {
     sender: mpsc::Sender<CommandEnvelope<C, R>>,
+}
+
+impl<C, R> Clone for ActorMailbox<C, R> {
+    fn clone(&self) -> Self {
+        Self {
+            sender: self.sender.clone(),
+        }
+    }
 }
 
 impl<C, R> ActorMailbox<C, R> {

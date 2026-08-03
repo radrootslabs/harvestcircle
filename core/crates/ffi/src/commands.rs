@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::fmt::{self, Display, Formatter};
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -7,11 +8,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use directories::ProjectDirs;
 use radroots_studio_application::{
-    Clock, RelayRuntimeMode, RemovalConfirmationToken, SdkNostrClient, SecretStore,
+    Clock, RelayRuntimeMode, RemovalConfirmationToken, SdkNostrClient,
     relay_configuration_from_environment,
 };
 use radroots_studio_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
-use radroots_studio_storage::{OsKeyringSecretStore, PersistentAppCore};
+use radroots_studio_storage::{OsKeyringSecretStore, RuntimeActorHandle};
 
 use crate::{AccountDto, AppSnapshotDto};
 
@@ -19,6 +20,7 @@ const DATABASE_QUALIFIER: &str = "org";
 const DATABASE_ORGANIZATION: &str = "radroots";
 const DATABASE_APPLICATION: &str = "studio";
 const DATABASE_FILENAME: &str = "studio.sqlite3";
+pub(crate) const ACTOR_MAILBOX_CAPACITY: usize = 64;
 
 #[derive(Debug, uniffi::Error)]
 pub enum StudioError {
@@ -65,10 +67,7 @@ impl RemovalRequest {
 }
 
 pub(crate) struct RuntimeCore {
-    pub(crate) adapter: PersistentAppCore,
-    pub(crate) secrets: Arc<dyn SecretStore>,
-    pub(crate) clock: SystemClock,
-    pub(crate) nostr: SdkNostrClient,
+    pub(crate) actor: RuntimeActorHandle,
     pub(crate) observers: Mutex<BTreeSet<radroots_studio_application::ObserverHandle>>,
     pub(crate) closed: AtomicBool,
 }
@@ -99,19 +98,17 @@ impl StudioAppCore {
     ///
     /// Returns a safe storage, recovery, or application-state error.
     pub async fn bootstrap(&self) -> Result<AppSnapshotDto, StudioError> {
-        let inner = Arc::clone(&self.inner);
-        blocking(move || {
-            inner
-                .adapter
-                .bootstrap(inner.secrets.as_ref(), &inner.clock)
-                .map(|snapshot| (&snapshot).into())
-        })
-        .await
+        self.inner
+            .actor
+            .bootstrap()
+            .await
+            .map(|snapshot| (&snapshot).into())
+            .map_err(StudioError::from)
     }
 
     #[must_use]
     pub fn snapshot(&self) -> AppSnapshotDto {
-        (&self.inner.adapter.core().snapshot()).into()
+        (&self.inner.actor.snapshot()).into()
     }
 
     /// Generates and stores one local account with a one-time backup receipt.
@@ -120,18 +117,16 @@ impl StudioAppCore {
     ///
     /// Returns a safe keyring, storage, or account error.
     pub async fn generate_account(&self) -> Result<GeneratedAccountDto, StudioError> {
-        let inner = Arc::clone(&self.inner);
-        blocking(move || {
-            let receipt = inner
-                .adapter
-                .generate_account(inner.secrets.as_ref(), &inner.clock)?;
-            Ok(GeneratedAccountDto {
+        self.inner
+            .actor
+            .generate_account()
+            .await
+            .map(|receipt| GeneratedAccountDto {
                 account: receipt.account().into(),
-                snapshot: (&inner.adapter.core().snapshot()).into(),
+                snapshot: (&self.inner.actor.snapshot()).into(),
                 nsec: receipt.generated_nsec().with_exposed_secret(str::to_owned),
             })
-        })
-        .await
+            .map_err(StudioError::from)
     }
 
     /// Imports one nsec or canonical secret-key hex value.
@@ -144,14 +139,12 @@ impl StudioAppCore {
         secret_key: String,
     ) -> Result<AppSnapshotDto, StudioError> {
         let input = SecretKeyInput::parse(secret_key).map_err(StudioError::from)?;
-        let inner = Arc::clone(&self.inner);
-        blocking(move || {
-            inner
-                .adapter
-                .import_secret_key(input, inner.secrets.as_ref(), &inner.clock)?;
-            Ok((&inner.adapter.core().snapshot()).into())
-        })
-        .await
+        self.inner
+            .actor
+            .import_secret_key(input)
+            .await
+            .map(|_| (&self.inner.actor.snapshot()).into())
+            .map_err(StudioError::from)
     }
 
     /// Selects one saved account without activating it.
@@ -164,14 +157,12 @@ impl StudioAppCore {
         public_key_hex: String,
     ) -> Result<AppSnapshotDto, StudioError> {
         let public_key = parse_public_key(&public_key_hex)?;
-        let inner = Arc::clone(&self.inner);
-        blocking(move || {
-            inner
-                .adapter
-                .select_account(public_key)
-                .map(|snapshot| (&snapshot).into())
-        })
-        .await
+        self.inner
+            .actor
+            .select_account(public_key)
+            .await
+            .map(|snapshot| (&snapshot).into())
+            .map_err(StudioError::from)
     }
 
     /// Activates one saved account after validating its credential.
@@ -184,14 +175,12 @@ impl StudioAppCore {
         public_key_hex: String,
     ) -> Result<AppSnapshotDto, StudioError> {
         let public_key = parse_public_key(&public_key_hex)?;
-        let inner = Arc::clone(&self.inner);
-        blocking(move || {
-            inner
-                .adapter
-                .activate_account(public_key, inner.secrets.as_ref(), &inner.clock)
-                .map(|snapshot| (&snapshot).into())
-        })
-        .await
+        self.inner
+            .actor
+            .activate_account(public_key)
+            .await
+            .map(|snapshot| (&snapshot).into())
+            .map_err(StudioError::from)
     }
 
     /// Signs out while retaining accounts and credentials.
@@ -200,8 +189,12 @@ impl StudioAppCore {
     ///
     /// Returns a safe application-state error.
     pub async fn sign_out(&self) -> Result<AppSnapshotDto, StudioError> {
-        let inner = Arc::clone(&self.inner);
-        blocking(move || inner.adapter.sign_out().map(|snapshot| (&snapshot).into())).await
+        self.inner
+            .actor
+            .sign_out()
+            .await
+            .map(|snapshot| (&snapshot).into())
+            .map_err(StudioError::from)
     }
 
     /// Refreshes the active Nostr profile from configured relays.
@@ -210,19 +203,12 @@ impl StudioAppCore {
     ///
     /// Returns a safe storage or application-state error.
     pub async fn refresh_active_profile(&self) -> Result<AppSnapshotDto, StudioError> {
-        let inner = Arc::clone(&self.inner);
-        runtime()
-            .spawn(async move {
-                inner
-                    .adapter
-                    .core()
-                    .refresh_active_profile(inner.adapter.database(), &inner.nostr, &inner.clock)
-                    .await
-                    .map(|snapshot| (&snapshot).into())
-                    .map_err(StudioError::from)
-            })
+        self.inner
+            .actor
+            .refresh_active_profile()
             .await
-            .map_err(|_| runtime_unavailable())?
+            .map(|snapshot| (&snapshot).into())
+            .map_err(StudioError::from)
     }
 
     /// Issues a revision-bound removal confirmation object.
@@ -235,15 +221,17 @@ impl StudioAppCore {
         public_key_hex: String,
     ) -> Result<Arc<RemovalRequest>, StudioError> {
         let public_key = parse_public_key(&public_key_hex)?;
-        let inner = Arc::clone(&self.inner);
-        blocking(move || {
-            let token = inner.adapter.request_account_removal(public_key)?;
-            Ok(Arc::new(RemovalRequest {
-                public_key_hex,
-                token: Mutex::new(Some(token)),
-            }))
-        })
-        .await
+        self.inner
+            .actor
+            .request_account_removal(public_key)
+            .await
+            .map(|token| {
+                Arc::new(RemovalRequest {
+                    public_key_hex,
+                    token: Mutex::new(Some(token)),
+                })
+            })
+            .map_err(StudioError::from)
     }
 
     /// Permanently removes the account represented by a one-time request.
@@ -261,14 +249,12 @@ impl StudioAppCore {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take()
             .ok_or_else(confirmation_expired)?;
-        let inner = Arc::clone(&self.inner);
-        blocking(move || {
-            inner
-                .adapter
-                .confirm_account_removal(token, inner.secrets.as_ref(), &inner.clock)
-                .map(|snapshot| (&snapshot).into())
-        })
-        .await
+        self.inner
+            .actor
+            .confirm_account_removal(token)
+            .await
+            .map(|snapshot| (&snapshot).into())
+            .map_err(StudioError::from)
     }
 }
 
@@ -280,13 +266,18 @@ impl StudioAppCore {
             RelayRuntimeMode::Packaged
         };
         let relays = relay_configuration_from_environment(mode)?;
-        let adapter = PersistentAppCore::open(path, relays)?;
+        let actor = RuntimeActorHandle::open(
+            path,
+            relays,
+            Arc::new(OsKeyringSecretStore),
+            Arc::new(SystemClock),
+            Arc::new(SdkNostrClient::new(Duration::from_secs(5))),
+            NonZeroUsize::new(ACTOR_MAILBOX_CAPACITY).expect("nonzero actor mailbox capacity"),
+            runtime().handle(),
+        )?;
         Ok(Arc::new(Self {
             inner: Arc::new(RuntimeCore {
-                adapter,
-                secrets: Arc::new(OsKeyringSecretStore),
-                clock: SystemClock,
-                nostr: SdkNostrClient::new(Duration::from_secs(5)),
+                actor,
                 observers: Mutex::new(BTreeSet::new()),
                 closed: AtomicBool::new(false),
             }),
@@ -322,19 +313,7 @@ fn parse_public_key(value: &str) -> Result<PublicKey, StudioError> {
     PublicKey::from_hex(value).map_err(StudioError::from)
 }
 
-async fn blocking<T, F>(operation: F) -> Result<T, StudioError>
-where
-    T: Send + 'static,
-    F: FnOnce() -> Result<T, SafeError> + Send + 'static,
-{
-    runtime()
-        .spawn_blocking(operation)
-        .await
-        .map_err(|_| runtime_unavailable())?
-        .map_err(StudioError::from)
-}
-
-fn runtime() -> &'static tokio::runtime::Runtime {
+pub(crate) fn runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
@@ -352,13 +331,6 @@ fn path_unavailable() -> StudioError {
     }
 }
 
-fn runtime_unavailable() -> StudioError {
-    StudioError::Failure {
-        code: "InvalidApplicationState".to_owned(),
-        safe_message: "The application runtime is unavailable.".to_owned(),
-    }
-}
-
 fn confirmation_expired() -> StudioError {
     StudioError::Failure {
         code: "InvalidApplicationState".to_owned(),
@@ -368,28 +340,32 @@ fn confirmation_expired() -> StudioError {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
     use std::sync::Arc;
 
-    use radroots_studio_application::RelayConfiguration;
-    use radroots_studio_storage::PersistentAppCore;
+    use radroots_studio_application::{InMemorySecretStore, RelayConfiguration, SdkNostrClient};
+    use radroots_studio_storage::RuntimeActorHandle;
 
     use radroots_studio_storage::{CREDENTIAL_SERVICE, CURRENT_SCHEMA_VERSION};
 
     use super::{
-        DATABASE_APPLICATION, DATABASE_FILENAME, DATABASE_ORGANIZATION, DATABASE_QUALIFIER,
-        RuntimeCore, StudioAppCore, SystemClock,
+        ACTOR_MAILBOX_CAPACITY, DATABASE_APPLICATION, DATABASE_FILENAME, DATABASE_ORGANIZATION,
+        DATABASE_QUALIFIER, RuntimeCore, StudioAppCore, SystemClock, runtime,
     };
 
     fn in_memory_core() -> Arc<StudioAppCore> {
+        let actor = RuntimeActorHandle::in_memory(
+            RelayConfiguration::default(),
+            Arc::new(InMemorySecretStore::default()),
+            Arc::new(SystemClock),
+            Arc::new(SdkNostrClient::new(std::time::Duration::from_millis(10))),
+            NonZeroUsize::new(ACTOR_MAILBOX_CAPACITY).expect("capacity"),
+            runtime().handle(),
+        )
+        .expect("in-memory actor");
         Arc::new(StudioAppCore {
             inner: Arc::new(RuntimeCore {
-                adapter: PersistentAppCore::in_memory(RelayConfiguration::default())
-                    .expect("in-memory core"),
-                secrets: Arc::new(radroots_studio_application::InMemorySecretStore::default()),
-                clock: SystemClock,
-                nostr: radroots_studio_application::SdkNostrClient::new(
-                    std::time::Duration::from_millis(10),
-                ),
+                actor,
                 observers: std::sync::Mutex::new(std::collections::BTreeSet::new()),
                 closed: std::sync::atomic::AtomicBool::new(false),
             }),

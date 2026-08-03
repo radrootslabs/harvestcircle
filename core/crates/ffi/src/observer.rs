@@ -38,7 +38,7 @@ impl ObserverSubscription {
         let (Some(core), Some(handle)) = (self.core.upgrade(), handle) else {
             return;
         };
-        let _ = core.adapter.core().unsubscribe(handle);
+        let _ = core.actor.unsubscribe(handle);
         core.observers
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -71,8 +71,7 @@ impl StudioAppCore {
         });
         let handle = self
             .inner
-            .adapter
-            .core()
+            .actor
             .subscribe(bridge)
             .map_err(StudioError::from)?;
         self.inner
@@ -98,9 +97,12 @@ impl StudioAppCore {
                 .unwrap_or_else(std::sync::PoisonError::into_inner),
         );
         for handle in handles {
-            let _ = self.inner.adapter.core().unsubscribe(handle);
+            let _ = self.inner.actor.unsubscribe(handle);
         }
-        let _ = self.inner.adapter.sign_out();
+        let actor = self.inner.actor.clone();
+        crate::commands::runtime().spawn(async move {
+            let _ = actor.sign_out().await;
+        });
     }
 }
 
@@ -113,17 +115,18 @@ fn closed_error() -> StudioError {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use nostr::{EventBuilder, Keys, Metadata};
     use nostr_relay_builder::MockRelay;
     use nostr_sdk::Client;
-    use radroots_studio_application::RelayConfiguration;
+    use radroots_studio_application::{InMemorySecretStore, RelayConfiguration, SdkNostrClient};
     use radroots_studio_domain::RelayUrl;
-    use radroots_studio_storage::PersistentAppCore;
+    use radroots_studio_storage::RuntimeActorHandle;
 
-    use crate::commands::{RuntimeCore, SystemClock};
+    use crate::commands::{ACTOR_MAILBOX_CAPACITY, RuntimeCore, SystemClock, runtime};
     use crate::{AppSnapshotDto, ProfileLoadStateDto, StudioAppCore, StudioObserver};
 
     const SECRET_HEX: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
@@ -148,14 +151,18 @@ mod tests {
     }
 
     fn core_with_relays(relays: RelayConfiguration) -> Arc<StudioAppCore> {
+        let actor = RuntimeActorHandle::in_memory(
+            relays,
+            Arc::new(InMemorySecretStore::default()),
+            Arc::new(SystemClock),
+            Arc::new(SdkNostrClient::new(std::time::Duration::from_millis(10))),
+            NonZeroUsize::new(ACTOR_MAILBOX_CAPACITY).expect("capacity"),
+            runtime().handle(),
+        )
+        .expect("actor");
         Arc::new(StudioAppCore {
             inner: Arc::new(RuntimeCore {
-                adapter: PersistentAppCore::in_memory(relays).expect("core"),
-                secrets: Arc::new(radroots_studio_application::InMemorySecretStore::default()),
-                clock: SystemClock,
-                nostr: radroots_studio_application::SdkNostrClient::new(
-                    std::time::Duration::from_millis(10),
-                ),
+                actor,
                 observers: Mutex::new(std::collections::BTreeSet::new()),
                 closed: std::sync::atomic::AtomicBool::new(false),
             }),
@@ -165,7 +172,6 @@ mod tests {
     #[test]
     fn callbacks_allow_reentry_and_stop_after_subscription_close() {
         let core = core();
-        core.inner.adapter.core().bootstrap().expect("bootstrap");
         let observer = Arc::new(RecordingObserver::default());
         *observer.core.lock().expect("core") = Some(Arc::clone(&core));
         let subscription = core
@@ -173,21 +179,20 @@ mod tests {
             .expect("subscribe");
 
         assert_eq!(observer.snapshots.lock().expect("snapshots").len(), 1);
-        core.inner
-            .adapter
-            .core()
-            .bootstrap()
+        runtime()
+            .block_on(core.inner.actor.bootstrap())
             .expect("idempotent bootstrap");
         assert_eq!(observer.snapshots.lock().expect("snapshots").len(), 1);
         subscription.unsubscribe();
-        core.inner.adapter.core().sign_out().expect("sign out");
+        runtime()
+            .block_on(core.inner.actor.sign_out())
+            .expect("sign out");
         assert_eq!(observer.snapshots.lock().expect("snapshots").len(), 1);
     }
 
     #[test]
     fn core_close_deregisters_all_observers_and_rejects_new_subscriptions() {
         let core = core();
-        core.inner.adapter.core().bootstrap().expect("bootstrap");
         let observer = Arc::new(RecordingObserver::default());
         let _subscription = core
             .subscribe(Box::new(ArcObserver(observer.clone())))
