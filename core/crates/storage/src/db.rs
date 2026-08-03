@@ -261,6 +261,8 @@ const fn ownership_error() -> SafeError {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::Path;
+    use std::process::Command;
 
     use tempfile::tempdir;
 
@@ -396,6 +398,120 @@ mod tests {
             )
             .expect("migrated inventory");
         assert_eq!(migrated, (1, 1, 1));
+    }
+
+    #[test]
+    fn corrupt_v5_identity_fails_before_migration_without_recreation() {
+        let directory = tempdir().expect("temporary directory");
+        let path = directory.path().join("studio.sqlite3");
+        {
+            let mut connection = Connection::open(&path).expect("legacy database");
+            configure(&connection).expect("configuration");
+            migrations::migrations::runner()
+                .set_target(Target::Version(5))
+                .run(&mut connection)
+                .expect("V5 schema");
+            connection
+                .execute(
+                    "INSERT INTO accounts (pubkey, npub, signer_kind, key_availability, created_at) VALUES (?1, ?2, 'local_secret', 'available', 10)",
+                    ["07".repeat(32), "npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg".to_owned()],
+                )
+                .expect("mismatched legacy account");
+        }
+
+        assert!(Database::open(&path).is_err());
+        let connection = Connection::open(&path).expect("inspect legacy database");
+        let version: u32 = connection
+            .query_row(
+                "SELECT MAX(version) FROM refinery_schema_history",
+                [],
+                |row| row.get(0),
+            )
+            .expect("legacy version");
+        let accounts: i64 = connection
+            .query_row("SELECT COUNT(*) FROM accounts", [], |row| row.get(0))
+            .expect("legacy accounts");
+        assert_eq!((version, accounts), (5, 1));
+    }
+
+    #[test]
+    fn failed_v5_copy_rolls_back_the_active_migration() {
+        let directory = tempdir().expect("temporary directory");
+        let path = directory.path().join("studio.sqlite3");
+        let public_key = "07".repeat(32);
+        {
+            let mut connection = Connection::open(&path).expect("legacy database");
+            configure(&connection).expect("configuration");
+            migrations::migrations::runner()
+                .set_target(Target::Version(5))
+                .run(&mut connection)
+                .expect("V5 schema");
+            connection
+                .execute(
+                    "INSERT INTO accounts (pubkey, npub, signer_kind, key_availability, created_at) VALUES (?1, ?2, 'local_secret', 'available', 10)",
+                    [&public_key, "npub1qurswpc8qurswpc8qurswpc8qurswpc8qurswpc8qurswpc8qursnvjvl7"],
+                )
+                .expect("legacy account");
+            connection
+                .execute(
+                    "INSERT INTO profile_cache (subject_pubkey, event_id, event_created_at, refreshed_at, refresh_status) VALUES (?1, 'invalid', 11, 12, 'success')",
+                    [&public_key],
+                )
+                .expect("legacy corrupt profile");
+        }
+
+        assert!(Database::open(&path).is_err());
+        let connection = Connection::open(&path).expect("inspect interrupted migration");
+        let version: u32 = connection
+            .query_row(
+                "SELECT MAX(version) FROM refinery_schema_history",
+                [],
+                |row| row.get(0),
+            )
+            .expect("migration version");
+        let copied: i64 = connection
+            .query_row("SELECT COUNT(*) FROM account_identities", [], |row| {
+                row.get(0)
+            })
+            .expect("normalized accounts");
+        assert_eq!((version, copied), (6, 0));
+    }
+
+    #[test]
+    fn foreign_keys_reject_orphan_normalized_records() {
+        let database = Database::in_memory().expect("database");
+        let connection = database.connection();
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO local_signer_bindings (account_public_key, binding_public_key, binding_kind, availability) VALUES (?1, ?1, 'local_secret', 'available')",
+                    ["09".repeat(32)],
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn second_process_cannot_acquire_writable_ownership() {
+        let directory = tempdir().expect("temporary directory");
+        let path = directory.path().join("studio.sqlite3");
+        let _owner = Database::open(&path).expect("parent owner");
+        let status = Command::new(std::env::current_exe().expect("test executable"))
+            .arg("--exact")
+            .arg("db::tests::writable_ownership_child_probe")
+            .arg("--nocapture")
+            .env("RADROOTS_STUDIO_LOCK_PROBE_PATH", &path)
+            .status()
+            .expect("child process");
+        assert!(status.success());
+    }
+
+    #[test]
+    fn writable_ownership_child_probe() {
+        let Ok(path) = std::env::var("RADROOTS_STUDIO_LOCK_PROBE_PATH") else {
+            return;
+        };
+        assert!(Database::open(Path::new(&path)).is_err());
     }
 
     #[test]
