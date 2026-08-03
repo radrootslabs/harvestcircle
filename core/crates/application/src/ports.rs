@@ -136,6 +136,90 @@ impl DurableOperationReceipt {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DurableAccountOperation {
+    request_id: DurableRequestId,
+    kind: DurableOperationKind,
+    account: PublicKey,
+    expected_revision: Option<u64>,
+    phase: DurableOperationPhase,
+    prior: OperationPriorState,
+    updated_at: UnixTimestamp,
+    diagnostic: Option<OperationDiagnostic>,
+    terminal: Option<DurableOperationReceipt>,
+}
+
+impl DurableAccountOperation {
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub const fn new(
+        request_id: DurableRequestId,
+        kind: DurableOperationKind,
+        account: PublicKey,
+        expected_revision: Option<u64>,
+        phase: DurableOperationPhase,
+        prior: OperationPriorState,
+        updated_at: UnixTimestamp,
+        diagnostic: Option<OperationDiagnostic>,
+        terminal: Option<DurableOperationReceipt>,
+    ) -> Self {
+        Self {
+            request_id,
+            kind,
+            account,
+            expected_revision,
+            phase,
+            prior,
+            updated_at,
+            diagnostic,
+            terminal,
+        }
+    }
+
+    #[must_use]
+    pub const fn request_id(&self) -> &DurableRequestId {
+        &self.request_id
+    }
+    #[must_use]
+    pub const fn kind(&self) -> DurableOperationKind {
+        self.kind
+    }
+    #[must_use]
+    pub const fn account(&self) -> PublicKey {
+        self.account
+    }
+    #[must_use]
+    pub const fn expected_revision(&self) -> Option<u64> {
+        self.expected_revision
+    }
+    #[must_use]
+    pub const fn phase(&self) -> DurableOperationPhase {
+        self.phase
+    }
+    #[must_use]
+    pub const fn prior(&self) -> OperationPriorState {
+        self.prior
+    }
+    #[must_use]
+    pub const fn updated_at(&self) -> UnixTimestamp {
+        self.updated_at
+    }
+    #[must_use]
+    pub const fn diagnostic(&self) -> Option<OperationDiagnostic> {
+        self.diagnostic
+    }
+    #[must_use]
+    pub const fn terminal(&self) -> Option<&DurableOperationReceipt> {
+        self.terminal.as_ref()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DurableOperationStart {
+    Started(DurableAccountOperation),
+    Existing(DurableAccountOperation),
+}
+
 const fn invalid_request_id() -> SafeError {
     SafeError::new(
         SafeErrorCode::InvalidApplicationState,
@@ -187,6 +271,8 @@ pub enum OperationDiagnostic {
     KeyringUnavailable,
     CredentialMissing,
     CompensationFailed,
+    Conflict,
+    Expired,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -437,6 +523,66 @@ pub trait OperationJournal: Send + Sync {
     ///
     /// Returns a safe storage error when finalization cannot be committed.
     fn finalize_operation(&self, id: OperationId) -> Result<(), SafeError>;
+}
+
+pub trait DurableOperationRepository: Send + Sync {
+    /// Records one idempotent durable operation or returns the existing matching request.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe conflict or storage error when the request cannot be recorded.
+    #[allow(clippy::too_many_arguments)]
+    fn begin_durable_operation(
+        &self,
+        request_id: &DurableRequestId,
+        kind: DurableOperationKind,
+        account: PublicKey,
+        expected_revision: Option<u64>,
+        prior: OperationPriorState,
+        updated_at: UnixTimestamp,
+    ) -> Result<DurableOperationStart, SafeError>;
+    /// Loads one durable operation by its idempotency key.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe storage error when the lookup cannot complete.
+    fn load_durable_operation(
+        &self,
+        request_id: &DurableRequestId,
+    ) -> Result<Option<DurableAccountOperation>, SafeError>;
+    /// Advances one operation only from the caller's expected phase.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe conflict or storage error when the transition cannot commit.
+    fn advance_durable_operation(
+        &self,
+        request_id: &DurableRequestId,
+        expected_phase: DurableOperationPhase,
+        next_phase: DurableOperationPhase,
+        updated_at: UnixTimestamp,
+        diagnostic: Option<OperationDiagnostic>,
+    ) -> Result<DurableAccountOperation, SafeError>;
+    /// Finalizes one operation and durably retains its recoverable receipt.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe conflict or storage error when finalization cannot commit.
+    fn finalize_durable_operation(
+        &self,
+        request_id: &DurableRequestId,
+        expected_phase: DurableOperationPhase,
+        outcome: DurableTerminalOutcome,
+        resulting_revision: Option<u64>,
+        updated_at: UnixTimestamp,
+    ) -> Result<DurableOperationReceipt, SafeError>;
+    /// Lists unfinished operations in deterministic request order.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe storage error when operations cannot be read.
+    fn list_unfinished_durable_operations(&self)
+    -> Result<Vec<DurableAccountOperation>, SafeError>;
 }
 
 pub trait NostrClient: Send + Sync {

@@ -33,8 +33,9 @@ pub use config::{
 pub use nostr_client::SdkNostrClient;
 pub use ports::{
     AccountNamespaceRepository, AccountOperationKind, AccountOperationPhase, AccountPreferenceKey,
-    AccountRepository, AppStateRepository, BoxFuture, CachedProfile, Clock, DurableOperationKind,
-    DurableOperationPhase, DurableOperationReceipt, DurableRequestId, DurableTerminalOutcome,
+    AccountRepository, AppStateRepository, BoxFuture, CachedProfile, Clock,
+    DurableAccountOperation, DurableOperationKind, DurableOperationPhase, DurableOperationReceipt,
+    DurableOperationRepository, DurableOperationStart, DurableRequestId, DurableTerminalOutcome,
     NostrClient, OperationDiagnostic, OperationId, OperationJournal, OperationPriorState,
     PendingAccountOperation, ProfileRefreshStatus, ProfileRepository,
 };
