@@ -285,6 +285,7 @@ class StudioScreenTest {
 private fun emptyUiModel(
     importDraft: String = "",
     problem: String? = null,
+    importGuidance: String? = null,
 ) = StudioUiModel(
     route = StudioRoute.ACCOUNTS,
     accounts = emptyList(),
@@ -298,6 +299,7 @@ private fun emptyUiModel(
     session = SessionStateDto.SIGNED_OUT,
     busy = false,
     problem = problem,
+    importGuidance = importGuidance,
 )
 
 private fun accountUi(publicKeyHex: String, selected: Boolean) = AccountUiModel(

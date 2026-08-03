@@ -294,6 +294,9 @@ private fun AccountEntry(model: StudioUiModel, actions: StudioUiActions) {
                     innerTextField()
                 },
             )
+            model.importGuidance?.let { guidance ->
+                BasicText(guidance, Modifier.testTag("import-guidance"))
+            }
             TextAction(
                 text = "Add existing key",
                 testTag = "import-key",

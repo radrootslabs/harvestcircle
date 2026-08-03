@@ -8,6 +8,8 @@ import kotlinx.coroutines.launch
 import org.radroots.studio.ffi.AppSnapshotDto
 import org.radroots.studio.ffi.AppLifecycleDto
 import org.radroots.studio.ffi.StudioException
+import org.radroots.studio.ffi.WireErrorCode
+import org.radroots.studio.ffi.WireRecoveryAction
 
 enum class StudioRoute {
     OPENING,
@@ -51,6 +53,8 @@ data class StudioStoreState(
     val busy: Boolean = false,
     val commandStatus: CommandStatus = CommandStatus.IDLE,
     val lastCommandRequestId: String? = null,
+    val lastFailureCode: WireErrorCode? = null,
+    val recoveryAction: WireRecoveryAction = WireRecoveryAction.NONE,
     val problem: String? = null,
 )
 
@@ -90,6 +94,8 @@ class StudioAppStore(
     fun editImportDraft(value: String) {
         mutableState.value = mutableState.value.copy(
             importDraft = value.take(MAX_IMPORT_SECRET_CHARS),
+            lastFailureCode = null,
+            recoveryAction = WireRecoveryAction.NONE,
             problem = null,
         )
     }
@@ -247,6 +253,8 @@ class StudioAppStore(
                     mutableState.value = mutableState.value.copy(
                         commandStatus = CommandStatus.ACCEPTED,
                         lastCommandRequestId = result.receipt.requestId,
+                        lastFailureCode = null,
+                        recoveryAction = WireRecoveryAction.NONE,
                     )
                     if (hideChooser) {
                         mutableState.value = mutableState.value.copy(accountChooserVisible = false)
@@ -260,6 +268,8 @@ class StudioAppStore(
                             CommandStatus.FAILED_TERMINAL
                         },
                         lastCommandRequestId = result.failure.correlationId,
+                        lastFailureCode = result.failure.code,
+                        recoveryAction = result.failure.recoveryAction,
                         problem = result.failure.safeMessage,
                     )
                 }
@@ -339,6 +349,8 @@ class StudioAppStore(
                 CommandStatus.FAILED_TERMINAL
             },
             lastCommandRequestId = native?.correlationId,
+            lastFailureCode = native?.code,
+            recoveryAction = native?.recoveryAction ?: WireRecoveryAction.NONE,
             problem = native?.safeMessage ?: "The application command failed.",
         )
     }

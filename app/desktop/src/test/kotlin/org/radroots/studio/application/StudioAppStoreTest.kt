@@ -166,6 +166,18 @@ class StudioAppStoreTest {
     }
 
     @Test
+    fun `bounds imported secret presentation input before transport`() = runTest {
+        val gateway = FakeStudioCoreGateway(snapshot(0UL))
+        val store = StudioAppStore(gateway, this)
+        advanceUntilIdle()
+
+        store.editImportDraft("x".repeat(MAX_IMPORT_SECRET_CHARS + 50))
+
+        assertEquals(MAX_IMPORT_SECRET_CHARS, store.state.value.importDraft.length)
+        store.close()
+    }
+
+    @Test
     fun `projects boot fatal and terminal lifecycle failures`() = runTest {
         val booting = snapshot(0UL, AppLifecycleDto.OPENING)
         val bootGateway = FakeStudioCoreGateway(booting, booting)

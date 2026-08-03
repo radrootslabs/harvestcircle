@@ -16,6 +16,8 @@ import org.radroots.studio.ffi.ProfileLoadStateDto
 import org.radroots.studio.ffi.RelayConnectionStateDto
 import org.radroots.studio.ffi.SessionStateDto
 import org.radroots.studio.ffi.SignerKindDto
+import org.radroots.studio.ffi.WireErrorCode
+import org.radroots.studio.ffi.WireRecoveryAction
 
 class AccountsUiModelTest {
     @Test
@@ -61,6 +63,25 @@ class AccountsUiModelTest {
     fun shortensOnlyLongNpubValues() {
         assertEquals("npub1short", shortenNpub("npub1short"))
         assertEquals("npub1abcdefghi…34567890", shortenNpub("npub1abcdefghijklmnopqrstuvwxyz1234567890"))
+    }
+
+    @Test
+    fun mapsTypedImportFailuresToSpecificRepairGuidance() {
+        val invalid = StudioStoreState(
+            snapshot = snapshot(),
+            lastFailureCode = WireErrorCode.INVALID_SECRET_KEY,
+        ).toUiModel()
+        val repair = StudioStoreState(
+            snapshot = snapshot(),
+            lastFailureCode = WireErrorCode.CREDENTIAL_MISSING,
+            recoveryAction = WireRecoveryAction.REPAIR_CREDENTIAL,
+        ).toUiModel()
+
+        assertEquals("Enter a valid nsec or 64-character hexadecimal secret key.", invalid.importGuidance)
+        assertEquals(
+            "This saved account is missing its local credential. Re-enter its secret key to repair it.",
+            repair.importGuidance,
+        )
     }
 }
 

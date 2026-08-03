@@ -8,6 +8,8 @@ import org.radroots.studio.ffi.ActiveAccountDto
 import org.radroots.studio.ffi.ProfileLoadStateDto
 import org.radroots.studio.ffi.RelayConnectionStateDto
 import org.radroots.studio.ffi.SessionStateDto
+import org.radroots.studio.ffi.WireErrorCode
+import org.radroots.studio.ffi.WireRecoveryAction
 
 data class AccountUiModel(
     val publicKeyHex: String,
@@ -54,6 +56,7 @@ data class StudioUiModel(
     val session: SessionStateDto,
     val busy: Boolean,
     val problem: String?,
+    val importGuidance: String?,
 )
 
 fun StudioStoreState.toUiModel(): StudioUiModel {
@@ -77,7 +80,19 @@ fun StudioStoreState.toUiModel(): StudioUiModel {
             ?: snapshot.recoverableProblem?.message
             ?: snapshot.sessionError?.message
             ?: snapshot.lifecycleError?.message,
+        importGuidance = importGuidance(lastFailureCode, recoveryAction),
     )
+}
+
+private fun importGuidance(
+    code: WireErrorCode?,
+    recoveryAction: WireRecoveryAction,
+): String? = when {
+    code == WireErrorCode.INVALID_SECRET_KEY -> "Enter a valid nsec or 64-character hexadecimal secret key."
+    code == WireErrorCode.ACCOUNT_ALREADY_EXISTS -> "This Nostr account is already saved."
+    code == WireErrorCode.CREDENTIAL_MISSING || recoveryAction == WireRecoveryAction.REPAIR_CREDENTIAL ->
+        "This saved account is missing its local credential. Re-enter its secret key to repair it."
+    else -> null
 }
 
 fun shortenNpub(npub: String): String =
