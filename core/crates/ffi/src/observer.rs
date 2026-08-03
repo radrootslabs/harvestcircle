@@ -249,7 +249,7 @@ mod tests {
             .await
             .expect("subscribe");
         let imported = core
-            .import_secret_key(SECRET_HEX.to_owned())
+            .import_secret_key(SECRET_HEX.as_bytes().to_vec())
             .await
             .expect("import");
         let public_key = imported.selected_public_key_hex.expect("selection");

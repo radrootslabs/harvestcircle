@@ -4,11 +4,13 @@ use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
 use secrecy::{ExposeSecret, SecretString};
+use zeroize::Zeroizing;
 
 use crate::{SafeError, SafeErrorCode, SafeMessage};
 
 pub const PUBLIC_KEY_BYTE_LENGTH: usize = 32;
 pub const PUBLIC_KEY_HEX_LENGTH: usize = PUBLIC_KEY_BYTE_LENGTH * 2;
+pub const MAX_SECRET_KEY_INPUT_BYTES: usize = 128;
 const NIP19_KEY_LENGTH: usize = 63;
 const BECH32_DATA_CHARSET: &[u8] = b"qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 
@@ -106,6 +108,23 @@ pub struct SecretKeyInput {
 }
 
 impl SecretKeyInput {
+    /// Moves bounded transport bytes into the zeroizing secret boundary.
+    ///
+    /// The source byte allocation is cleared on every return path.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe invalid-secret-key error for oversized, non-UTF-8, or
+    /// structurally invalid input.
+    pub fn parse_bytes(value: Vec<u8>) -> Result<Self, SafeError> {
+        let value = Zeroizing::new(value);
+        if value.len() > MAX_SECRET_KEY_INPUT_BYTES {
+            return Err(invalid_secret_key());
+        }
+        let encoded = std::str::from_utf8(&value).map_err(|_| invalid_secret_key())?;
+        Self::parse(encoded.to_owned())
+    }
+
     /// Moves one secret input string into a zeroizing boundary.
     ///
     /// Nsec inputs receive complete NIP-19 validation in the Nostr adapter.
@@ -255,7 +274,8 @@ mod tests {
     use std::str::FromStr;
 
     use super::{
-        Npub, Nsec, PUBLIC_KEY_BYTE_LENGTH, PublicKey, SecretKeyInput, SecretKeyInputKind,
+        MAX_SECRET_KEY_INPUT_BYTES, Npub, Nsec, PUBLIC_KEY_BYTE_LENGTH, PublicKey, SecretKeyInput,
+        SecretKeyInputKind,
     };
     use crate::SafeErrorCode;
 
@@ -330,6 +350,14 @@ mod tests {
                 assert!(!format!("{error:?}").contains(value));
             }
         }
+    }
+
+    #[test]
+    fn secret_byte_transport_is_bounded_and_validated() {
+        let parsed = SecretKeyInput::parse_bytes(HEX.as_bytes().to_vec()).expect("bytes");
+        assert_eq!(parsed.with_exposed_secret(str::len), 64);
+        assert!(SecretKeyInput::parse_bytes(vec![0xff]).is_err());
+        assert!(SecretKeyInput::parse_bytes(vec![b'a'; MAX_SECRET_KEY_INPUT_BYTES + 1]).is_err());
     }
 
     #[test]

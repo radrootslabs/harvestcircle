@@ -138,9 +138,9 @@ impl StudioAppCore {
     /// Returns a safe validation, keyring, storage, or account error.
     pub async fn import_secret_key(
         &self,
-        secret_key: String,
+        secret_key: Vec<u8>,
     ) -> Result<AppSnapshotDto, StudioError> {
-        let input = SecretKeyInput::parse(secret_key).map_err(StudioError::from)?;
+        let input = SecretKeyInput::parse_bytes(secret_key).map_err(StudioError::from)?;
         self.inner
             .actor
             .import_secret_key(input)

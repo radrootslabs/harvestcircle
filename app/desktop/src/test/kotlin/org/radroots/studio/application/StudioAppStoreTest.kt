@@ -113,6 +113,7 @@ class StudioAppStoreTest {
         assertEquals(emptyList(), gateway.importedSecrets)
         advanceUntilIdle()
         assertEquals(listOf("nsec1secret"), gateway.importedSecrets)
+        assertEquals(true, gateway.lastImportBuffer?.all { it == 0.toByte() })
         store.close()
     }
 }
@@ -125,6 +126,7 @@ private class FakeStudioCoreGateway(
     var subscriptionClosed = false
     var signOutCalls = 0
     val importedSecrets = mutableListOf<String>()
+    var lastImportBuffer: ByteArray? = null
     var failRemovalConfirmation = false
     var lastRemovalTicket: FakeRemovalTicket? = null
 
@@ -148,8 +150,9 @@ private class FakeStudioCoreGateway(
         return GeneratedAccountDto(account(), next, "nsec1secret")
     }
 
-    override suspend fun importSecretKey(secretKey: String): AppSnapshotDto = current.also {
-        importedSecrets += secretKey
+    override suspend fun importSecretKey(secretKey: ByteArray): AppSnapshotDto = current.also {
+        lastImportBuffer = secretKey
+        importedSecrets += secretKey.decodeToString()
     }
     override suspend fun selectAccount(publicKeyHex: String): AppSnapshotDto = current
     override suspend fun activateAccount(publicKeyHex: String): AppSnapshotDto = current

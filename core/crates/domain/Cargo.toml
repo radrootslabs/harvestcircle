@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 bech32.workspace = true
 secrecy.workspace = true
+zeroize.workspace = true
 url.workspace = true
 
 [lints]

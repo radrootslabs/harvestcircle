@@ -18,7 +18,7 @@ interface StudioCoreGateway : AutoCloseable {
 
     suspend fun generateAccount(): GeneratedAccountDto
 
-    suspend fun importSecretKey(secretKey: String): AppSnapshotDto
+    suspend fun importSecretKey(secretKey: ByteArray): AppSnapshotDto
 
     suspend fun selectAccount(publicKeyHex: String): AppSnapshotDto
 
@@ -53,8 +53,12 @@ class NativeStudioCoreGateway(
 
     override suspend fun generateAccount(): GeneratedAccountDto = core.generateAccount()
 
-    override suspend fun importSecretKey(secretKey: String): AppSnapshotDto =
-        core.importSecretKey(secretKey)
+    override suspend fun importSecretKey(secretKey: ByteArray): AppSnapshotDto =
+        try {
+            core.importSecretKey(secretKey)
+        } finally {
+            secretKey.fill(0)
+        }
 
     override suspend fun selectAccount(publicKeyHex: String): AppSnapshotDto =
         core.selectAccount(publicKeyHex)

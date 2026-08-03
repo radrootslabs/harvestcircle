@@ -80,7 +80,7 @@ private class ApplicationGateway : StudioCoreGateway {
     override suspend fun bootstrap() = applicationSnapshot(1UL)
     override suspend fun generateAccount(): org.radroots.studio.ffi.GeneratedAccountDto =
         error("unused")
-    override suspend fun importSecretKey(secretKey: String) = error("unused")
+    override suspend fun importSecretKey(secretKey: ByteArray) = error("unused")
     override suspend fun selectAccount(publicKeyHex: String) = error("unused")
     override suspend fun activateAccount(publicKeyHex: String) = error("unused")
     override suspend fun signOut() = error("unused")

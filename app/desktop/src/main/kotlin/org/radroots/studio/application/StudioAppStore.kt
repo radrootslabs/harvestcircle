@@ -23,6 +23,8 @@ data class StudioStoreState(
     val problem: String? = null,
 )
 
+const val MAX_IMPORT_SECRET_CHARS: Int = 128
+
 class StudioAppStore(
     private val gateway: StudioCoreGateway,
     private val scope: CoroutineScope,
@@ -53,7 +55,10 @@ class StudioAppStore(
     }
 
     fun editImportDraft(value: String) {
-        mutableState.value = mutableState.value.copy(importDraft = value, problem = null)
+        mutableState.value = mutableState.value.copy(
+            importDraft = value.take(MAX_IMPORT_SECRET_CHARS),
+            problem = null,
+        )
     }
 
     fun generateAccount() {
@@ -72,9 +77,15 @@ class StudioAppStore(
 
     fun importSecretKey() {
         if (command?.isActive == true) return
-        val input = mutableState.value.importDraft
+        val input = mutableState.value.importDraft.encodeToByteArray()
         mutableState.value = mutableState.value.copy(importDraft = "")
-        runCommand { gateway.importSecretKey(input) }
+        runCommand {
+            try {
+                gateway.importSecretKey(input)
+            } finally {
+                input.fill(0)
+            }
+        }
     }
 
     fun selectAccount(publicKeyHex: String) {
