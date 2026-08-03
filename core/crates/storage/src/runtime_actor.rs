@@ -366,7 +366,27 @@ impl RuntimeActorHandle {
     ///
     /// Returns a safe timeout or actor error. Repeated calls return closed.
     pub async fn close(&self) -> Result<(), SafeError> {
-        match self.dispatch(RuntimeCommand::Close, None).await? {
+        self.close_with_timeout(DEFAULT_COMMAND_TIMEOUT).await
+    }
+
+    /// Closes the runtime within the supplied command deadline.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe timeout or actor error. An expired queued close cannot
+    /// later change runtime state.
+    pub async fn close_with_timeout(&self, timeout: Duration) -> Result<(), SafeError> {
+        let raw_request = self.next_request.fetch_add(1, Ordering::Relaxed);
+        let request_id = RequestId::new(raw_request).ok_or_else(request_space_exhausted)?;
+        match self
+            .dispatch_with_deadline(
+                RuntimeCommand::Close,
+                None,
+                request_id,
+                Instant::now() + timeout,
+            )
+            .await?
+        {
             RuntimeCommandValue::Closed => Ok(()),
             _ => Err(invalid_actor_response()),
         }
@@ -491,7 +511,9 @@ impl RuntimeActor {
                     let Some(envelope) = envelope else {
                         break;
                     };
-                    self.handle_command(envelope, &completion_sender);
+                    if !self.handle_command(envelope, &completion_sender) {
+                        break;
+                    }
                 }
                 completion = completions.recv(), if !self.profile_tasks.is_empty() => {
                     if let Some(completion) = completion {
@@ -507,20 +529,21 @@ impl RuntimeActor {
         &mut self,
         envelope: CommandEnvelope<RuntimeCommand, RuntimeCommandValue>,
         completion_sender: &mpsc::Sender<ProfileCompletion>,
-    ) {
+    ) -> bool {
         let (context, command, reply) = envelope.into_parts();
         if let Some(result) = self.preflight(context, &command) {
             let _ = reply.send(CommandReceipt::new(context.request_id(), result));
-            return;
+            return true;
         }
         if matches!(command, RuntimeCommand::RefreshActiveProfile) {
             self.start_profile_task(context, reply, completion_sender.clone());
-            return;
+            return true;
         }
         if matches!(command, RuntimeCommand::Close) {
             let result = self.close_actor();
+            let closed = matches!(result, CommandResult::Completed(_));
             let _ = reply.send(CommandReceipt::new(context.request_id(), result));
-            return;
+            return !closed;
         }
         let changes_session = matches!(
             command,
@@ -536,6 +559,7 @@ impl RuntimeActor {
             self.changes.publish(self.adapter.core().snapshot());
         }
         let _ = reply.send(CommandReceipt::new(context.request_id(), result));
+        true
     }
 
     fn preflight(
@@ -685,6 +709,7 @@ impl RuntimeActor {
         match transition {
             Ok(()) => {
                 self.cancel_profile_tasks(None);
+                self.changes.close();
                 CommandResult::Completed(RuntimeCommandValue::Closed)
             }
             Err(error) => CommandResult::Failed(error),
@@ -1173,6 +1198,94 @@ mod tests {
                 .await
                 .expect("unsubscribe")
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn expired_queued_shutdown_does_not_close_runtime_later() {
+        let secrets = Arc::new(BlockingSecretStore::new());
+        let actor = RuntimeActorHandle::in_memory(
+            RelayConfiguration::default(),
+            secrets.clone(),
+            Arc::new(FixedClock),
+            Arc::new(OfflineNostr),
+            NonZeroUsize::new(1).expect("capacity"),
+            &tokio::runtime::Handle::current(),
+        )
+        .expect("actor");
+        let import_actor = actor.clone();
+        let import = tokio::spawn(async move {
+            import_actor
+                .import_secret_key(secret(
+                    "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7",
+                ))
+                .await
+        });
+        secrets.wait_until_put_started().await;
+
+        let timeout = actor
+            .close_with_timeout(Duration::from_millis(10))
+            .await
+            .expect_err("queued shutdown must expire");
+        assert_eq!(timeout.message().as_str(), "The runtime command timed out.");
+        secrets.release();
+        import.await.expect("import task").expect("import");
+        assert_eq!(actor.lifecycle(), RuntimeLifecycle::Ready);
+        assert_eq!(
+            actor
+                .bootstrap()
+                .await
+                .expect("still open")
+                .accounts()
+                .len(),
+            1
+        );
+        actor.close().await.expect("later close");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn shutdown_cancels_in_flight_work_and_terminates_publication() {
+        let client = Arc::new(BlockingNostr::new());
+        let actor = RuntimeActorHandle::in_memory(
+            RelayConfiguration::new(vec![RelayUrl::parse("ws://localhost:8080").expect("relay")]),
+            Arc::new(InMemorySecretStore::default()),
+            Arc::new(FixedClock),
+            client.clone(),
+            NonZeroUsize::new(8).expect("capacity"),
+            &tokio::runtime::Handle::current(),
+        )
+        .expect("actor");
+        let imported = actor
+            .import_secret_key(secret(
+                "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7",
+            ))
+            .await
+            .expect("import");
+        actor
+            .activate_account(imported.account().public_key())
+            .await
+            .expect("activate");
+        let mut changes = actor
+            .subscribe_changes(NonZeroUsize::new(4).expect("capacity"))
+            .await
+            .expect("subscribe");
+        changes.receive().await.expect("initial");
+
+        let refresh_actor = actor.clone();
+        let refresh = tokio::spawn(async move { refresh_actor.refresh_active_profile().await });
+        let started = client.started.acquire().await.expect("refresh started");
+        started.forget();
+        actor.close().await.expect("close");
+
+        let cancelled = refresh
+            .await
+            .expect("refresh task")
+            .expect_err("refresh closes");
+        assert_eq!(
+            cancelled.message().as_str(),
+            "The application runtime is closed."
+        );
+        assert!(changes.receive().await.is_none());
+        assert_eq!(actor.lifecycle(), RuntimeLifecycle::Closed);
     }
 
     fn secret(value: &str) -> SecretKeyInput {

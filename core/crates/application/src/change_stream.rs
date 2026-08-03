@@ -63,6 +63,7 @@ pub struct OrderedSnapshotChanges {
     latest: AppSnapshot,
     next_subscription: u64,
     subscribers: BTreeMap<ChangeSubscriptionId, mpsc::Sender<SnapshotChange>>,
+    closed: bool,
 }
 
 impl OrderedSnapshotChanges {
@@ -72,6 +73,7 @@ impl OrderedSnapshotChanges {
             latest: initial_snapshot,
             next_subscription: 1,
             subscribers: BTreeMap::new(),
+            closed: false,
         }
     }
 
@@ -89,6 +91,9 @@ impl OrderedSnapshotChanges {
         &mut self,
         capacity: NonZeroUsize,
     ) -> Option<(ChangeSubscriptionId, SnapshotChangeReceiver)> {
+        if self.closed {
+            return None;
+        }
         let id = ChangeSubscriptionId(NonZeroU64::new(self.next_subscription)?);
         self.next_subscription = self.next_subscription.checked_add(1)?;
         let (sender, receiver) = mpsc::channel(capacity.get());
@@ -108,7 +113,7 @@ impl OrderedSnapshotChanges {
     }
 
     pub fn publish(&mut self, snapshot: AppSnapshot) {
-        if snapshot.revision() <= self.latest.revision() {
+        if self.closed || snapshot.revision() <= self.latest.revision() {
             return;
         }
         let change = SnapshotChange {
@@ -121,6 +126,11 @@ impl OrderedSnapshotChanges {
                 Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => true,
                 Err(mpsc::error::TrySendError::Closed(_)) => false,
             });
+    }
+
+    pub fn close(&mut self) {
+        self.closed = true;
+        self.subscribers.clear();
     }
 }
 
@@ -186,6 +196,24 @@ mod tests {
         let recovered = receiver.receive().await.expect("gap recovery");
         assert_eq!(recovered.revision(), revision(3));
         assert!(recovered.recovers_gap_after(first.revision()));
+    }
+
+    #[tokio::test]
+    async fn close_terminates_consumers_and_rejects_later_subscriptions() {
+        let mut changes = OrderedSnapshotChanges::new(snapshot(0));
+        let (_, mut receiver) = changes
+            .subscribe(NonZeroUsize::new(1).expect("capacity"))
+            .expect("subscription");
+        receiver.receive().await.expect("initial");
+
+        changes.close();
+        changes.publish(snapshot(1));
+        assert!(receiver.receive().await.is_none());
+        assert!(
+            changes
+                .subscribe(NonZeroUsize::new(1).expect("capacity"))
+                .is_none()
+        );
     }
 
     fn revision(value: u64) -> SnapshotRevision {
