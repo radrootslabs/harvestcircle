@@ -1,10 +1,83 @@
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::time::Instant;
 
-use radroots_studio_domain::SafeError;
+use radroots_studio_domain::{PublicKey, SafeError};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::SnapshotRevision;
+
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SessionGeneration(u64);
+
+impl SessionGeneration {
+    #[must_use]
+    pub const fn initial() -> Self {
+        Self(0)
+    }
+
+    #[must_use]
+    pub const fn from_value(value: u64) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn value(self) -> u64 {
+        self.0
+    }
+
+    #[must_use]
+    pub const fn next(self) -> Option<Self> {
+        match self.0.checked_add(1) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TaskCorrelation {
+    request_id: RequestId,
+    account: PublicKey,
+    expected_revision: SnapshotRevision,
+    session_generation: SessionGeneration,
+}
+
+impl TaskCorrelation {
+    #[must_use]
+    pub const fn new(
+        request_id: RequestId,
+        account: PublicKey,
+        expected_revision: SnapshotRevision,
+        session_generation: SessionGeneration,
+    ) -> Self {
+        Self {
+            request_id,
+            account,
+            expected_revision,
+            session_generation,
+        }
+    }
+
+    #[must_use]
+    pub const fn request_id(self) -> RequestId {
+        self.request_id
+    }
+
+    #[must_use]
+    pub const fn account(self) -> PublicKey {
+        self.account
+    }
+
+    #[must_use]
+    pub const fn expected_revision(self) -> SnapshotRevision {
+        self.expected_revision
+    }
+
+    #[must_use]
+    pub const fn session_generation(self) -> SessionGeneration {
+        self.session_generation
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeLifecycle {

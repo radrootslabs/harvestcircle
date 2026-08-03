@@ -34,7 +34,7 @@ rusqlite = { version = "=0.39.0", features = ["bundled"] }
 secrecy = "=0.10.3"
 url = "=2.5.8"
 zeroize = "=1.9.0"
-tokio = { version = "=1.47.1", features = ["rt-multi-thread", "sync"] }
+tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "sync"] }
 uniffi = "=0.32.0"
 
 [patch.crates-io]

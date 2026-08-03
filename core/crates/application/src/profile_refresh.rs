@@ -1,10 +1,40 @@
-use radroots_studio_domain::{PublicKey, SafeError, SafeErrorCode};
+use radroots_studio_domain::{PublicKey, RelayUrl, SafeError, SafeErrorCode};
 
 use crate::{
     ActiveAccountSnapshot, AppCore, AppSnapshot, CachedProfile, Clock, NostrClient,
     ProfileLoadState, ProfileRefreshStatus, ProfileRepository, RelayConnectionState,
-    StateTransition,
+    SnapshotRevision, StateTransition,
 };
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProfileRefreshPlan {
+    public_key: PublicKey,
+    active_account: ActiveAccountSnapshot,
+    relays: Vec<RelayUrl>,
+    expected_revision: SnapshotRevision,
+}
+
+impl ProfileRefreshPlan {
+    #[must_use]
+    pub const fn public_key(&self) -> PublicKey {
+        self.public_key
+    }
+
+    #[must_use]
+    pub const fn active_account(&self) -> &ActiveAccountSnapshot {
+        &self.active_account
+    }
+
+    #[must_use]
+    pub fn relays(&self) -> &[RelayUrl] {
+        &self.relays
+    }
+
+    #[must_use]
+    pub const fn expected_revision(&self) -> SnapshotRevision {
+        self.expected_revision
+    }
+}
 
 impl AppCore {
     /// Manually refreshes the active account's Nostr kind-0 profile.
@@ -40,11 +70,24 @@ impl AppCore {
         client: &(impl NostrClient + ?Sized),
         clock: &(impl Clock + ?Sized),
     ) -> Result<AppSnapshot, SafeError> {
-        let Some(active) = self.snapshot().active_account().cloned() else {
+        let Some(plan) = self.begin_profile_refresh()? else {
             return Ok(self.snapshot());
         };
+        let result = client.fetch_profile(plan.public_key(), plan.relays()).await;
+        self.complete_profile_refresh(&plan, result, profiles, clock)
+    }
+
+    /// Begins a refresh on the actor and returns the immutable network plan.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe state error when the loading transition is invalid.
+    pub fn begin_profile_refresh(&self) -> Result<Option<ProfileRefreshPlan>, SafeError> {
+        let Some(active) = self.snapshot().active_account().cloned() else {
+            return Ok(None);
+        };
         let public_key = active.account().public_key();
-        self.apply_transition(StateTransition::UpdateActiveAccount {
+        let loading = self.apply_transition(StateTransition::UpdateActiveAccount {
             expected: public_key,
             active_account: Box::new(ActiveAccountSnapshot::new(
                 active.account().clone(),
@@ -54,11 +97,30 @@ impl AppCore {
             )),
             problem: None,
         })?;
+        Ok(Some(ProfileRefreshPlan {
+            public_key,
+            active_account: active,
+            relays: loading.relay_configuration().relays().to_vec(),
+            expected_revision: loading.revision(),
+        }))
+    }
 
-        let result = client
-            .fetch_profile(public_key, self.snapshot().relay_configuration().relays())
-            .await;
-        if !is_current_active(self, public_key) {
+    /// Applies a correlated refresh result on the actor.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe storage or application-state error. Stale results are
+    /// discarded without persistence or publication.
+    pub fn complete_profile_refresh(
+        &self,
+        plan: &ProfileRefreshPlan,
+        result: Result<Option<radroots_studio_domain::Kind0ProfileCandidate>, SafeError>,
+        profiles: &(impl ProfileRepository + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<AppSnapshot, SafeError> {
+        if !is_current_active(self, plan.public_key())
+            || self.snapshot().revision() != plan.expected_revision()
+        {
             return Ok(self.snapshot());
         }
 
@@ -71,9 +133,9 @@ impl AppCore {
                 );
                 profiles.save_profile(&cached)?;
                 self.apply_transition(StateTransition::UpdateActiveAccount {
-                    expected: public_key,
+                    expected: plan.public_key(),
                     active_account: Box::new(ActiveAccountSnapshot::new(
-                        active.account().clone(),
+                        plan.active_account().account().clone(),
                         RelayConnectionState::Connected,
                         ProfileLoadState::Fresh,
                         Some(candidate.metadata().clone()),
@@ -82,29 +144,29 @@ impl AppCore {
                 })
             }
             Ok(None) => self.apply_transition(StateTransition::UpdateActiveAccount {
-                expected: public_key,
+                expected: plan.public_key(),
                 active_account: Box::new(ActiveAccountSnapshot::new(
-                    active.account().clone(),
+                    plan.active_account().account().clone(),
                     RelayConnectionState::Connected,
-                    if active.profile().is_some() {
+                    if plan.active_account().profile().is_some() {
                         ProfileLoadState::Cached
                     } else {
                         ProfileLoadState::Empty
                     },
-                    active.profile().cloned(),
+                    plan.active_account().profile().cloned(),
                 )),
                 problem: None,
             }),
             Err(error) => {
                 let status = refresh_status(error);
-                profiles.record_refresh_status(public_key, clock.now(), status)?;
+                profiles.record_refresh_status(plan.public_key(), clock.now(), status)?;
                 self.apply_transition(StateTransition::UpdateActiveAccount {
-                    expected: public_key,
+                    expected: plan.public_key(),
                     active_account: Box::new(ActiveAccountSnapshot::new(
-                        active.account().clone(),
+                        plan.active_account().account().clone(),
                         RelayConnectionState::Degraded,
                         ProfileLoadState::Error(error),
-                        active.profile().cloned(),
+                        plan.active_account().profile().cloned(),
                     )),
                     problem: Some(error),
                 })

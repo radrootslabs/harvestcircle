@@ -20,7 +20,7 @@ pub use accounts::{
 pub use actor::{
     ActorMailbox, CommandContext, CommandEnvelope, CommandReceipt, CommandRejection, CommandResult,
     CommandSubmission, CommandTicket, LifecycleGate, RequestId, RuntimeCommandClass,
-    RuntimeLifecycle,
+    RuntimeLifecycle, SessionGeneration, TaskCorrelation,
 };
 pub use app_core::{AppCore, AppObserver, ObserverHandle, RemovalConfirmationToken};
 pub use config::{
@@ -33,6 +33,7 @@ pub use ports::{
     OperationDiagnostic, OperationId, OperationJournal, PendingAccountOperation,
     ProfileRefreshStatus, ProfileRepository,
 };
+pub use profile_refresh::ProfileRefreshPlan;
 pub use secrets::{
     FailureSecretStore, InMemorySecretStore, SecretStore, SecretStoreCall, SecretStoreOperation,
 };
