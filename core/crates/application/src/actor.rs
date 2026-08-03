@@ -465,6 +465,11 @@ impl<C, R> ActorMailbox<C, R> {
     }
 
     #[must_use]
+    pub fn available_capacity(&self) -> usize {
+        self.sender.capacity()
+    }
+
+    #[must_use]
     pub fn submit(&self, context: CommandContext, command: C) -> CommandSubmission<R> {
         let request_id = context.request_id();
         if context.is_expired(Instant::now()) {

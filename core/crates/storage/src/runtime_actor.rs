@@ -33,6 +33,7 @@ enum RuntimeCommand {
     RefreshActiveProfile,
     RequestAccountRemoval(PublicKey),
     ConfirmAccountRemoval(RemovalConfirmationToken),
+    Close,
 }
 
 enum RuntimeCommandValue {
@@ -40,6 +41,7 @@ enum RuntimeCommandValue {
     Generated(GenerateAccountReceipt),
     Imported(ImportAccountReceipt),
     RemovalRequest(RemovalConfirmationToken),
+    Closed,
 }
 
 impl RuntimeCommand {
@@ -54,6 +56,7 @@ impl RuntimeCommand {
                 RuntimeCommandClass::MutateLocalState
             }
             Self::RefreshActiveProfile => RuntimeCommandClass::UseRelay,
+            Self::Close => RuntimeCommandClass::Shutdown,
         }
     }
 }
@@ -331,6 +334,18 @@ impl RuntimeActorHandle {
         Self::expect_snapshot(value)
     }
 
+    /// Closes command admission and cancels supervised work.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe timeout or actor error. Repeated calls return closed.
+    pub async fn close(&self) -> Result<(), SafeError> {
+        match self.dispatch(RuntimeCommand::Close, None).await? {
+            RuntimeCommandValue::Closed => Ok(()),
+            _ => Err(invalid_actor_response()),
+        }
+    }
+
     async fn dispatch(
         &self,
         command: RuntimeCommand,
@@ -338,13 +353,31 @@ impl RuntimeActorHandle {
     ) -> Result<RuntimeCommandValue, SafeError> {
         let raw_request = self.next_request.fetch_add(1, Ordering::Relaxed);
         let request_id = RequestId::new(raw_request).ok_or_else(request_space_exhausted)?;
-        let context = CommandContext::new(
-            request_id,
+        self.dispatch_with_deadline(
+            command,
             expected_revision,
+            request_id,
             Instant::now() + DEFAULT_COMMAND_TIMEOUT,
-        );
+        )
+        .await
+    }
+
+    async fn dispatch_with_deadline(
+        &self,
+        command: RuntimeCommand,
+        expected_revision: Option<SnapshotRevision>,
+        request_id: RequestId,
+        deadline: Instant,
+    ) -> Result<RuntimeCommandValue, SafeError> {
+        let context = CommandContext::new(request_id, expected_revision, deadline);
         let receipt = match self.mailbox.submit(context, command) {
-            CommandSubmission::Accepted(ticket) => ticket.receipt().await,
+            CommandSubmission::Accepted(ticket) => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                match tokio::time::timeout(remaining, ticket.receipt()).await {
+                    Ok(receipt) => receipt,
+                    Err(_) => CommandReceipt::new(request_id, CommandResult::TimedOut),
+                }
+            }
             CommandSubmission::Rejected(receipt) => receipt,
         };
         match receipt.into_result() {
@@ -354,6 +387,28 @@ impl RuntimeActorHandle {
             CommandResult::TimedOut => Err(command_timed_out()),
             CommandResult::Closed => Err(runtime_closed()),
             CommandResult::Failed(error) => Err(error),
+        }
+    }
+
+    #[cfg(test)]
+    async fn import_secret_key_with_timeout(
+        &self,
+        input: SecretKeyInput,
+        timeout: Duration,
+    ) -> Result<ImportAccountReceipt, SafeError> {
+        let raw_request = self.next_request.fetch_add(1, Ordering::Relaxed);
+        let request_id = RequestId::new(raw_request).ok_or_else(request_space_exhausted)?;
+        match self
+            .dispatch_with_deadline(
+                RuntimeCommand::ImportSecretKey(input),
+                None,
+                request_id,
+                Instant::now() + timeout,
+            )
+            .await?
+        {
+            RuntimeCommandValue::Imported(receipt) => Ok(receipt),
+            _ => Err(invalid_actor_response()),
         }
     }
 
@@ -401,6 +456,11 @@ impl RuntimeActor {
         }
         if matches!(command, RuntimeCommand::RefreshActiveProfile) {
             self.start_profile_task(context, reply, completion_sender.clone());
+            return;
+        }
+        if matches!(command, RuntimeCommand::Close) {
+            let result = self.close_actor();
+            let _ = reply.send(CommandReceipt::new(context.request_id(), result));
             return;
         }
         let changes_session = matches!(
@@ -473,7 +533,6 @@ impl RuntimeActor {
                 .sign_out()
                 .map(Box::new)
                 .map(RuntimeCommandValue::Snapshot),
-            RuntimeCommand::RefreshActiveProfile => Err(invalid_actor_response()),
             RuntimeCommand::RequestAccountRemoval(public_key) => self
                 .adapter
                 .request_account_removal(public_key)
@@ -483,6 +542,9 @@ impl RuntimeActor {
                 .confirm_account_removal(token, self.secrets.as_ref(), self.clock.as_ref())
                 .map(Box::new)
                 .map(RuntimeCommandValue::Snapshot),
+            RuntimeCommand::Close | RuntimeCommand::RefreshActiveProfile => {
+                Err(invalid_actor_response())
+            }
         };
         result.map_or_else(CommandResult::Failed, CommandResult::Completed)
     }
@@ -537,6 +599,24 @@ impl RuntimeActor {
             },
         );
         debug_assert!(previous.is_none(), "request identifiers are unique");
+    }
+
+    fn close_actor(&mut self) -> CommandResult<RuntimeCommandValue> {
+        let transition = (|| {
+            let mut lifecycle = self
+                .lifecycle
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            lifecycle.begin_shutdown()?;
+            lifecycle.finish_shutdown()
+        })();
+        match transition {
+            Ok(()) => {
+                self.cancel_profile_tasks(None);
+                CommandResult::Completed(RuntimeCommandValue::Closed)
+            }
+            Err(error) => CommandResult::Failed(error),
+        }
     }
 
     fn complete_profile_task(&mut self, completion: ProfileCompletion) {
@@ -652,7 +732,9 @@ const fn invalid_actor_response() -> SafeError {
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
-    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Condvar, Mutex};
+    use std::time::Duration;
 
     use radroots_studio_application::{
         BoxFuture, Clock, InMemorySecretStore, NostrClient, RelayConfiguration, RuntimeLifecycle,
@@ -710,6 +792,70 @@ mod tests {
                 permit.forget();
                 Ok(None)
             })
+        }
+    }
+
+    struct BlockingSecretStore {
+        inner: InMemorySecretStore,
+        block_next_put: AtomicBool,
+        put_started: AtomicBool,
+        released: Mutex<bool>,
+        release_signal: Condvar,
+    }
+
+    impl BlockingSecretStore {
+        fn new() -> Self {
+            Self {
+                inner: InMemorySecretStore::default(),
+                block_next_put: AtomicBool::new(true),
+                put_started: AtomicBool::new(false),
+                released: Mutex::new(false),
+                release_signal: Condvar::new(),
+            }
+        }
+
+        async fn wait_until_put_started(&self) {
+            while !self.put_started.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        }
+
+        fn release(&self) {
+            *self
+                .released
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+            self.release_signal.notify_all();
+        }
+    }
+
+    impl SecretStore for BlockingSecretStore {
+        fn put(&self, public_key: PublicKey, secret: SecretKeyInput) -> Result<(), SafeError> {
+            if self.block_next_put.swap(false, Ordering::AcqRel) {
+                self.put_started.store(true, Ordering::Release);
+                let released = self
+                    .released
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                drop(
+                    self.release_signal
+                        .wait_while(released, |released| !*released)
+                        .unwrap_or_else(std::sync::PoisonError::into_inner),
+                );
+            }
+            self.inner.put(public_key, secret)
+        }
+
+        fn load(&self, public_key: PublicKey) -> Result<SecretKeyInput, SafeError> {
+            self.inner.load(public_key)
+        }
+
+        fn contains(&self, public_key: PublicKey) -> Result<bool, SafeError> {
+            self.inner.contains(public_key)
+        }
+
+        fn delete(&self, public_key: PublicKey) -> Result<(), SafeError> {
+            self.inner.delete(public_key)
         }
     }
 
@@ -802,5 +948,124 @@ mod tests {
         assert_eq!(signed_out.session(), SessionState::SignedOut);
         assert_eq!(cancelled.session(), SessionState::SignedOut);
         assert!(cancelled.active_account().is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn bounded_runtime_rejects_saturation_without_dropping_accepted_commands() {
+        let secrets = Arc::new(BlockingSecretStore::new());
+        let actor = RuntimeActorHandle::in_memory(
+            RelayConfiguration::default(),
+            secrets.clone(),
+            Arc::new(FixedClock),
+            Arc::new(OfflineNostr),
+            NonZeroUsize::new(1).expect("capacity"),
+            &tokio::runtime::Handle::current(),
+        )
+        .expect("actor");
+
+        let first_actor = actor.clone();
+        let first = tokio::spawn(async move {
+            first_actor
+                .import_secret_key(secret(
+                    "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7",
+                ))
+                .await
+        });
+        secrets.wait_until_put_started().await;
+
+        let second_actor = actor.clone();
+        let second = tokio::spawn(async move {
+            second_actor
+                .import_secret_key(secret(
+                    "0000000000000000000000000000000000000000000000000000000000000001",
+                ))
+                .await
+        });
+        while actor.mailbox.available_capacity() != 0 {
+            assert!(
+                !second.is_finished(),
+                "second command must enter the mailbox"
+            );
+            tokio::task::yield_now().await;
+        }
+        let rejected = actor
+            .import_secret_key(secret(
+                "0000000000000000000000000000000000000000000000000000000000000002",
+            ))
+            .await
+            .expect_err("full mailbox must reject");
+        assert_eq!(
+            rejected.message().as_str(),
+            "The runtime is busy. Try again."
+        );
+
+        secrets.release();
+        first.await.expect("first task").expect("first command");
+        second.await.expect("second task").expect("second command");
+        assert_eq!(
+            actor.bootstrap().await.expect("snapshot").accounts().len(),
+            2
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn queued_command_expiry_returns_timeout_and_prevents_late_mutation() {
+        let secrets = Arc::new(BlockingSecretStore::new());
+        let actor = RuntimeActorHandle::in_memory(
+            RelayConfiguration::default(),
+            secrets.clone(),
+            Arc::new(FixedClock),
+            Arc::new(OfflineNostr),
+            NonZeroUsize::new(1).expect("capacity"),
+            &tokio::runtime::Handle::current(),
+        )
+        .expect("actor");
+
+        let first_actor = actor.clone();
+        let first = tokio::spawn(async move {
+            first_actor
+                .import_secret_key(secret(
+                    "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7",
+                ))
+                .await
+        });
+        secrets.wait_until_put_started().await;
+
+        let expired = actor
+            .import_secret_key_with_timeout(
+                secret("0000000000000000000000000000000000000000000000000000000000000001"),
+                Duration::from_millis(10),
+            )
+            .await
+            .expect_err("queued command must time out");
+        assert_eq!(expired.message().as_str(), "The runtime command timed out.");
+
+        secrets.release();
+        first.await.expect("first task").expect("first command");
+        assert_eq!(
+            actor.bootstrap().await.expect("snapshot").accounts().len(),
+            1
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn close_is_terminal_and_every_later_command_is_rejected_as_closed() {
+        let (actor, _) = actor();
+        actor.close().await.expect("close");
+        assert_eq!(actor.lifecycle(), RuntimeLifecycle::Closed);
+
+        for error in [
+            actor.bootstrap().await.expect_err("bootstrap after close"),
+            actor.close().await.expect_err("repeated close"),
+        ] {
+            assert_eq!(
+                error.message().as_str(),
+                "The application runtime is closed."
+            );
+        }
+    }
+
+    fn secret(value: &str) -> SecretKeyInput {
+        SecretKeyInput::parse(value.to_owned()).expect("valid test secret")
     }
 }

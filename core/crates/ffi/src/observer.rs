@@ -101,7 +101,7 @@ impl StudioAppCore {
         }
         let actor = self.inner.actor.clone();
         crate::commands::runtime().spawn(async move {
-            let _ = actor.sign_out().await;
+            let _ = actor.close().await;
         });
     }
 }
