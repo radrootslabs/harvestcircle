@@ -75,7 +75,7 @@ private class ApplicationGateway : StudioCoreGateway {
     var closed = false
 
     override fun snapshot() = applicationSnapshot(0UL)
-    override fun subscribe(onSnapshot: (org.radroots.studio.ffi.AppSnapshotDto) -> Unit) =
+    override suspend fun subscribe(onSnapshot: (org.radroots.studio.ffi.AppSnapshotDto) -> Unit) =
         AutoCloseable {}
     override suspend fun bootstrap() = applicationSnapshot(1UL)
     override suspend fun generateAccount(): org.radroots.studio.ffi.GeneratedAccountDto =

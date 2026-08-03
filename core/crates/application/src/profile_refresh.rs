@@ -192,7 +192,7 @@ const fn refresh_status(error: SafeError) -> ProfileRefreshStatus {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Mutex;
 
     use radroots_studio_domain::{
         EventId, Kind0ProfileCandidate, ProfileMetadata, PublicKey, RelayUrl, SafeError,
@@ -200,7 +200,7 @@ mod tests {
     };
 
     use crate::{
-        AppCore, AppObserver, BoxFuture, CachedProfile, Clock, InMemoryAccountRepository,
+        AppCore, BoxFuture, CachedProfile, Clock, InMemoryAccountRepository,
         InMemoryOperationJournal, InMemorySecretStore, NostrClient, ProfileLoadState,
         ProfileRefreshStatus, ProfileRepository, RelayConfiguration, RelayConnectionState,
     };
@@ -283,19 +283,6 @@ mod tests {
         }
     }
 
-    #[derive(Default)]
-    struct States(Mutex<Vec<(ProfileLoadState, RelayConnectionState)>>);
-    impl AppObserver for States {
-        fn on_snapshot_changed(&self, snapshot: crate::AppSnapshot) {
-            if let Some(active) = snapshot.active_account() {
-                self.0
-                    .lock()
-                    .expect("states")
-                    .push((active.profile_state(), active.relay_state()));
-            }
-        }
-    }
-
     fn profile(public_key: PublicKey, name: &str, timestamp: i64) -> Kind0ProfileCandidate {
         Kind0ProfileCandidate::new(
             EventId::from_bytes([u8::try_from(timestamp).expect("small timestamp"); 32]),
@@ -350,29 +337,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn refresh_emits_cache_before_loading_and_fresh_profile() {
+    async fn refresh_transitions_from_cache_through_loading_to_fresh_profile() {
         let profiles = MemoryProfiles::default();
         let (core, public_key) = active_core(&profiles, Some("Cached"));
-        let states = Arc::new(States::default());
-        core.subscribe(states.clone()).expect("observer");
-        core.refresh_profile_for_active_account(
-            &profiles,
-            &FixedClient(Ok(Some(profile(public_key, "Fresh", 20)))),
-            &FixedClock,
-        )
-        .await
-        .expect("refresh");
-
-        let observed = states.0.lock().expect("states");
         assert_eq!(
-            observed.first().map(|state| state.0),
+            core.snapshot()
+                .active_account()
+                .map(crate::ActiveAccountSnapshot::profile_state),
             Some(ProfileLoadState::Cached)
         );
-        assert!(observed.contains(&(ProfileLoadState::Loading, RelayConnectionState::Connecting)));
+        let plan = core
+            .begin_profile_refresh()
+            .expect("begin refresh")
+            .expect("active refresh");
+        let loading = core.snapshot();
         assert_eq!(
-            observed.last(),
-            Some(&(ProfileLoadState::Fresh, RelayConnectionState::Connected))
+            loading
+                .active_account()
+                .map(crate::ActiveAccountSnapshot::profile_state),
+            Some(ProfileLoadState::Loading)
         );
+        assert_eq!(
+            loading
+                .active_account()
+                .map(crate::ActiveAccountSnapshot::relay_state),
+            Some(RelayConnectionState::Connecting)
+        );
+        let client = FixedClient(Ok(Some(profile(public_key, "Fresh", 20))));
+        let result = client.fetch_profile(plan.public_key(), plan.relays()).await;
+        core.complete_profile_refresh(&plan, result, &profiles, &FixedClock)
+            .expect("complete refresh");
         assert_eq!(
             core.snapshot()
                 .active_account()

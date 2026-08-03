@@ -29,11 +29,7 @@ class StudioAppStore(
 ) : AutoCloseable {
     private val mutableState = mutableStateOf(StudioStoreState(snapshot = gateway.snapshot()))
     private var closed = false
-    private val subscription = gateway.subscribe { snapshot ->
-        scope.launch {
-            if (!closed) acceptSnapshot(snapshot)
-        }
-    }
+    private var subscription: AutoCloseable? = null
     private var pendingRemoval: RemovalTicket? = null
     private var command: Job? = null
 
@@ -41,7 +37,19 @@ class StudioAppStore(
         get() = mutableState
 
     init {
-        runCommand { gateway.bootstrap() }
+        launchCommand {
+            val registered = gateway.subscribe { snapshot ->
+                scope.launch {
+                    if (!closed) acceptSnapshot(snapshot)
+                }
+            }
+            if (closed) {
+                registered.close()
+                return@launchCommand
+            }
+            subscription = registered
+            acceptSnapshot(gateway.bootstrap())
+        }
     }
 
     fun editImportDraft(value: String) {
@@ -175,7 +183,7 @@ class StudioAppStore(
         closed = true
         command?.cancel()
         pendingRemoval?.close()
-        subscription.close()
+        subscription?.close()
         gateway.close()
     }
 }

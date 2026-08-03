@@ -1,48 +1,51 @@
+use std::num::NonZeroUsize;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, Weak};
 
-use radroots_studio_application::{AppObserver, AppSnapshot, ObserverHandle};
+use radroots_studio_application::ChangeSubscriptionId;
 
 use crate::commands::RuntimeCore;
 use crate::{AppSnapshotDto, StudioAppCore, StudioError};
+
+const OBSERVER_CHANGE_CAPACITY: NonZeroUsize = match NonZeroUsize::new(64) {
+    Some(capacity) => capacity,
+    None => unreachable!(),
+};
 
 #[uniffi::export(callback_interface)]
 pub trait StudioObserver: Send + Sync {
     fn on_snapshot_changed(&self, snapshot: AppSnapshotDto);
 }
 
-struct ObserverBridge {
-    observer: Arc<dyn StudioObserver>,
-}
-
-impl AppObserver for ObserverBridge {
-    fn on_snapshot_changed(&self, snapshot: AppSnapshot) {
-        self.observer.on_snapshot_changed((&snapshot).into());
-    }
-}
-
 #[derive(uniffi::Object)]
 pub struct ObserverSubscription {
     core: Weak<RuntimeCore>,
-    handle: Mutex<Option<ObserverHandle>>,
+    id: Mutex<Option<ChangeSubscriptionId>>,
 }
 
 #[uniffi::export]
 impl ObserverSubscription {
     pub fn unsubscribe(&self) {
-        let handle = self
-            .handle
+        let id = self
+            .id
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take();
-        let (Some(core), Some(handle)) = (self.core.upgrade(), handle) else {
+        let (Some(core), Some(id)) = (self.core.upgrade(), id) else {
             return;
         };
-        let _ = core.actor.unsubscribe(handle);
-        core.observers
+        if let Some(task) = core
+            .observers
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove(&handle);
+            .remove(&id)
+        {
+            task.abort();
+        }
+        let actor = core.actor.clone();
+        crate::commands::runtime().spawn(async move {
+            let _ = actor.unsubscribe_changes(id).await;
+        });
     }
 }
 
@@ -59,29 +62,34 @@ impl StudioAppCore {
     /// # Errors
     ///
     /// Returns a safe observer or lifecycle error.
-    pub fn subscribe(
+    pub async fn subscribe(
         &self,
         observer: Box<dyn StudioObserver>,
     ) -> Result<Arc<ObserverSubscription>, StudioError> {
         if self.inner.closed.load(Ordering::Acquire) {
             return Err(closed_error());
         }
-        let bridge = Arc::new(ObserverBridge {
-            observer: Arc::from(observer),
-        });
-        let handle = self
+        let mut subscription = self
             .inner
             .actor
-            .subscribe(bridge)
+            .subscribe_changes(OBSERVER_CHANGE_CAPACITY)
+            .await
             .map_err(StudioError::from)?;
+        let id = subscription.id();
+        let observer: Arc<dyn StudioObserver> = Arc::from(observer);
+        let task = crate::commands::runtime().spawn(async move {
+            while let Some(change) = subscription.receive().await {
+                observer.on_snapshot_changed(change.snapshot().into());
+            }
+        });
         self.inner
             .observers
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(handle);
+            .insert(id, task);
         Ok(Arc::new(ObserverSubscription {
             core: Arc::downgrade(&self.inner),
-            handle: Mutex::new(Some(handle)),
+            id: Mutex::new(Some(id)),
         }))
     }
 
@@ -96,8 +104,8 @@ impl StudioAppCore {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner),
         );
-        for handle in handles {
-            let _ = self.inner.actor.unsubscribe(handle);
+        for (_, task) in handles {
+            task.abort();
         }
         let actor = self.inner.actor.clone();
         crate::commands::runtime().spawn(async move {
@@ -163,7 +171,7 @@ mod tests {
         Arc::new(StudioAppCore {
             inner: Arc::new(RuntimeCore {
                 actor,
-                observers: Mutex::new(std::collections::BTreeSet::new()),
+                observers: Mutex::new(std::collections::BTreeMap::new()),
                 closed: std::sync::atomic::AtomicBool::new(false),
             }),
         })
@@ -171,37 +179,44 @@ mod tests {
 
     #[test]
     fn callbacks_allow_reentry_and_stop_after_subscription_close() {
-        let core = core();
-        let observer = Arc::new(RecordingObserver::default());
-        *observer.core.lock().expect("core") = Some(Arc::clone(&core));
-        let subscription = core
-            .subscribe(Box::new(ArcObserver(observer.clone())))
-            .expect("subscribe");
+        runtime().block_on(async {
+            let core = core();
+            let observer = Arc::new(RecordingObserver::default());
+            *observer.core.lock().expect("core") = Some(Arc::clone(&core));
+            let subscription = core
+                .subscribe(Box::new(ArcObserver(observer.clone())))
+                .await
+                .expect("subscribe");
 
-        assert_eq!(observer.snapshots.lock().expect("snapshots").len(), 1);
-        runtime()
-            .block_on(core.inner.actor.bootstrap())
-            .expect("idempotent bootstrap");
-        assert_eq!(observer.snapshots.lock().expect("snapshots").len(), 1);
-        subscription.unsubscribe();
-        runtime()
-            .block_on(core.inner.actor.sign_out())
-            .expect("sign out");
-        assert_eq!(observer.snapshots.lock().expect("snapshots").len(), 1);
+            wait_for_snapshot_count(&observer, 1).await;
+            core.inner
+                .actor
+                .bootstrap()
+                .await
+                .expect("idempotent bootstrap");
+            assert_eq!(observer.snapshots.lock().expect("snapshots").len(), 1);
+            subscription.unsubscribe();
+            core.inner.actor.sign_out().await.expect("sign out");
+            assert_eq!(observer.snapshots.lock().expect("snapshots").len(), 1);
+        });
     }
 
     #[test]
     fn core_close_deregisters_all_observers_and_rejects_new_subscriptions() {
         let core = core();
         let observer = Arc::new(RecordingObserver::default());
-        let _subscription = core
-            .subscribe(Box::new(ArcObserver(observer.clone())))
+        let _subscription = runtime()
+            .block_on(core.subscribe(Box::new(ArcObserver(observer.clone()))))
             .expect("subscribe");
 
         core.shutdown();
         core.shutdown();
 
-        assert!(core.subscribe(Box::new(ArcObserver(observer))).is_err());
+        assert!(
+            runtime()
+                .block_on(core.subscribe(Box::new(ArcObserver(observer))))
+                .is_err()
+        );
         assert!(core.inner.observers.lock().expect("observers").is_empty());
     }
 
@@ -231,6 +246,7 @@ mod tests {
         *observer.core.lock().expect("core") = Some(Arc::clone(&core));
         let subscription = core
             .subscribe(Box::new(ArcObserver(observer.clone())))
+            .await
             .expect("subscribe");
         let imported = core
             .import_secret_key(SECRET_HEX.to_owned())
@@ -240,6 +256,7 @@ mod tests {
         core.activate_account(public_key).await.expect("activate");
         core.refresh_active_profile().await.expect("refresh");
 
+        wait_for_fresh_profile(&observer).await;
         let snapshots = observer.snapshots.lock().expect("snapshots").clone();
         assert!(snapshots.iter().any(|snapshot| {
             snapshot.active_account.as_ref().is_some_and(|active| {
@@ -267,5 +284,38 @@ mod tests {
         fn on_snapshot_changed(&self, snapshot: AppSnapshotDto) {
             self.0.on_snapshot_changed(snapshot);
         }
+    }
+
+    async fn wait_for_snapshot_count(observer: &RecordingObserver, minimum: usize) {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while observer.snapshots.lock().expect("snapshots").len() < minimum {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("snapshot delivery");
+    }
+
+    async fn wait_for_fresh_profile(observer: &RecordingObserver) {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let fresh = observer
+                    .snapshots
+                    .lock()
+                    .expect("snapshots")
+                    .iter()
+                    .any(|snapshot| {
+                        snapshot.active_account.as_ref().is_some_and(|active| {
+                            active.profile_state == ProfileLoadStateDto::Fresh
+                        })
+                    });
+                if fresh {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("fresh profile delivery");
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -68,7 +68,9 @@ impl RemovalRequest {
 
 pub(crate) struct RuntimeCore {
     pub(crate) actor: RuntimeActorHandle,
-    pub(crate) observers: Mutex<BTreeSet<radroots_studio_application::ObserverHandle>>,
+    pub(crate) observers: Mutex<
+        BTreeMap<radroots_studio_application::ChangeSubscriptionId, tokio::task::JoinHandle<()>>,
+    >,
     pub(crate) closed: AtomicBool,
 }
 
@@ -278,7 +280,7 @@ impl StudioAppCore {
         Ok(Arc::new(Self {
             inner: Arc::new(RuntimeCore {
                 actor,
-                observers: Mutex::new(BTreeSet::new()),
+                observers: Mutex::new(BTreeMap::new()),
                 closed: AtomicBool::new(false),
             }),
         }))
@@ -366,7 +368,7 @@ mod tests {
         Arc::new(StudioAppCore {
             inner: Arc::new(RuntimeCore {
                 actor,
-                observers: std::sync::Mutex::new(std::collections::BTreeSet::new()),
+                observers: std::sync::Mutex::new(std::collections::BTreeMap::new()),
                 closed: std::sync::atomic::AtomicBool::new(false),
             }),
         })

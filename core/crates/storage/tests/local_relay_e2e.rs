@@ -1,12 +1,11 @@
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use nostr::{EventBuilder, Keys, Metadata};
 use nostr_relay_builder::MockRelay;
 use nostr_sdk::Client;
 use radroots_studio_application::{
-    AppObserver, Clock, InMemorySecretStore, ProfileLoadState, ProfileRepository,
-    RelayConfiguration, RelayConnectionState, SdkNostrClient, SecretStore, SessionState,
+    Clock, InMemorySecretStore, ProfileLoadState, ProfileRepository, RelayConfiguration,
+    RelayConnectionState, SdkNostrClient, SecretStore, SessionState,
 };
 use radroots_studio_domain::{RelayUrl, SecretKeyInput, UnixTimestamp};
 use radroots_studio_storage::PersistentAppCore;
@@ -18,15 +17,6 @@ struct FixedClock;
 impl Clock for FixedClock {
     fn now(&self) -> UnixTimestamp {
         UnixTimestamp::from_seconds(100).expect("fixed timestamp")
-    }
-}
-
-#[derive(Default)]
-struct RecordingObserver(Mutex<Vec<radroots_studio_application::AppSnapshot>>);
-
-impl AppObserver for RecordingObserver {
-    fn on_snapshot_changed(&self, snapshot: radroots_studio_application::AppSnapshot) {
-        self.0.lock().expect("observer lock").push(snapshot);
     }
 }
 
@@ -70,11 +60,6 @@ async fn local_relay_e2e_imports_activates_refreshes_and_caches_profile() {
         .activate_account(public_key, &secrets, &FixedClock)
         .expect("activate account");
 
-    let observer = Arc::new(RecordingObserver::default());
-    let handle = adapter
-        .core()
-        .subscribe(observer.clone())
-        .expect("observer");
     let refreshed = adapter
         .core()
         .refresh_active_profile(
@@ -102,21 +87,6 @@ async fn local_relay_e2e_imports_activates_refreshes_and_caches_profile() {
         cached.candidate().metadata().preferred_name(),
         Some("Farm Account")
     );
-    let recorded_snapshots = observer.0.lock().expect("observer snapshots").clone();
-    assert!(recorded_snapshots.iter().any(|snapshot| {
-        snapshot.active_account().is_some_and(|account| {
-            account.profile_state() == ProfileLoadState::Loading
-                && account.relay_state() == RelayConnectionState::Connecting
-        })
-    }));
-    assert_eq!(
-        recorded_snapshots
-            .last()
-            .map(radroots_studio_application::AppSnapshot::revision),
-        Some(refreshed.revision())
-    );
-    assert!(adapter.core().unsubscribe(handle));
-
     let public_debug = format!("{refreshed:?}");
     assert!(!public_debug.contains(SECRET_HEX));
     assert!(!public_debug.contains("nsec1"));

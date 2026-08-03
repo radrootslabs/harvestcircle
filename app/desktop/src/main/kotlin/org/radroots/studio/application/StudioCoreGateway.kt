@@ -12,7 +12,7 @@ interface RemovalTicket : AutoCloseable
 interface StudioCoreGateway : AutoCloseable {
     fun snapshot(): AppSnapshotDto
 
-    fun subscribe(onSnapshot: (AppSnapshotDto) -> Unit): AutoCloseable
+    suspend fun subscribe(onSnapshot: (AppSnapshotDto) -> Unit): AutoCloseable
 
     suspend fun bootstrap(): AppSnapshotDto
 
@@ -38,7 +38,7 @@ class NativeStudioCoreGateway(
 ) : StudioCoreGateway {
     override fun snapshot(): AppSnapshotDto = core.snapshot()
 
-    override fun subscribe(onSnapshot: (AppSnapshotDto) -> Unit): AutoCloseable {
+    override suspend fun subscribe(onSnapshot: (AppSnapshotDto) -> Unit): AutoCloseable {
         val subscription = core.subscribe(
             object : StudioObserver {
                 override fun onSnapshotChanged(snapshot: AppSnapshotDto) {

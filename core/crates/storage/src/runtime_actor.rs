@@ -6,12 +6,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use radroots_studio_application::{
-    ActorMailbox, AppObserver, AppSnapshot, ChangeSubscriptionId, Clock, CommandContext,
-    CommandEnvelope, CommandReceipt, CommandResult, CommandSubmission, GenerateAccountReceipt,
-    ImportAccountReceipt, LifecycleGate, NostrClient, ObserverHandle, OrderedSnapshotChanges,
-    ProfileRefreshPlan, RelayConfiguration, RemovalConfirmationToken, RequestId,
-    RuntimeCommandClass, RuntimeLifecycle, SecretStore, SessionGeneration, SnapshotChange,
-    SnapshotChangeReceiver, SnapshotRevision, TaskCorrelation,
+    ActorMailbox, AppSnapshot, ChangeSubscriptionId, Clock, CommandContext, CommandEnvelope,
+    CommandReceipt, CommandResult, CommandSubmission, GenerateAccountReceipt, ImportAccountReceipt,
+    LifecycleGate, NostrClient, OrderedSnapshotChanges, ProfileRefreshPlan, RelayConfiguration,
+    RemovalConfirmationToken, RequestId, RuntimeCommandClass, RuntimeLifecycle, SecretStore,
+    SessionGeneration, SnapshotChange, SnapshotChangeReceiver, SnapshotRevision, TaskCorrelation,
 };
 use radroots_studio_domain::{
     Kind0ProfileCandidate, PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput,
@@ -226,20 +225,6 @@ impl RuntimeActorHandle {
     #[must_use]
     pub fn snapshot(&self) -> AppSnapshot {
         self.adapter.core().snapshot()
-    }
-
-    /// Registers a read-only snapshot observer.
-    ///
-    /// # Errors
-    ///
-    /// Returns a safe observer-registration error.
-    pub fn subscribe(&self, observer: Arc<dyn AppObserver>) -> Result<ObserverHandle, SafeError> {
-        self.adapter.core().subscribe(observer)
-    }
-
-    #[must_use]
-    pub fn unsubscribe(&self, handle: ObserverHandle) -> bool {
-        self.adapter.core().unsubscribe(handle)
     }
 
     /// Returns the ready snapshot through the actor command boundary.

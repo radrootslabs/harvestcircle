@@ -130,7 +130,7 @@ private class FakeStudioCoreGateway(
 
     override fun snapshot(): AppSnapshotDto = current
 
-    override fun subscribe(onSnapshot: (AppSnapshotDto) -> Unit): AutoCloseable {
+    override suspend fun subscribe(onSnapshot: (AppSnapshotDto) -> Unit): AutoCloseable {
         observer = onSnapshot
         return AutoCloseable { subscriptionClosed = true }
     }

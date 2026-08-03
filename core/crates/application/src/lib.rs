@@ -23,7 +23,7 @@ pub use actor::{
     CommandSubmission, CommandTicket, LifecycleGate, RequestId, RuntimeCommandClass,
     RuntimeLifecycle, SessionGeneration, TaskCorrelation,
 };
-pub use app_core::{AppCore, AppObserver, ObserverHandle, RemovalConfirmationToken};
+pub use app_core::{AppCore, RemovalConfirmationToken};
 pub use change_stream::{
     ChangeSubscriptionId, OrderedSnapshotChanges, SnapshotChange, SnapshotChangeReceiver,
 };
