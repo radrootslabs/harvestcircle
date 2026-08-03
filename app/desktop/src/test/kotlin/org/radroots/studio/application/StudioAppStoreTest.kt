@@ -150,11 +150,11 @@ class StudioAppStoreTest {
 
     @Test
     fun `projects boot fatal and terminal lifecycle failures`() = runTest {
-        val booting = snapshot(0UL, AppLifecycleDto.BOOTING)
+        val booting = snapshot(0UL, AppLifecycleDto.OPENING)
         val bootGateway = FakeStudioCoreGateway(booting, booting)
         val bootStore = StudioAppStore(bootGateway, this)
         advanceUntilIdle()
-        assertEquals(StudioRoute.BOOTING, bootStore.state.value.route)
+        assertEquals(StudioRoute.OPENING, bootStore.state.value.route)
         bootStore.close()
 
         val fatal = snapshot(1UL, AppLifecycleDto.FATAL)

@@ -172,6 +172,19 @@ pub(crate) struct RuntimeCore {
     pub(crate) closed: AtomicBool,
 }
 
+impl RuntimeCore {
+    pub(crate) fn snapshot_dto(&self) -> AppSnapshotDto {
+        AppSnapshotDto::from_runtime(&self.actor.snapshot(), self.actor.lifecycle())
+    }
+
+    pub(crate) fn dto_for(
+        &self,
+        snapshot: &radroots_studio_application::AppSnapshot,
+    ) -> AppSnapshotDto {
+        AppSnapshotDto::from_runtime(snapshot, self.actor.lifecycle())
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct StudioAppCore {
     pub(crate) inner: Arc<RuntimeCore>,
@@ -204,13 +217,13 @@ impl StudioAppCore {
             .actor
             .bootstrap()
             .await
-            .map(|snapshot| (&snapshot).into())
+            .map(|snapshot| self.inner.dto_for(&snapshot))
             .map_err(StudioError::from)
     }
 
     #[must_use]
     pub fn snapshot(&self) -> AppSnapshotDto {
-        (&self.inner.actor.snapshot()).into()
+        self.inner.snapshot_dto()
     }
 
     /// Begins the exclusive generated-account recovery flow without persistence.
@@ -250,7 +263,7 @@ impl StudioAppCore {
             .actor
             .acknowledge_generated_key_stage(request.handle.id())
             .await
-            .map(|snapshot| (&snapshot).into())
+            .map(|snapshot| self.inner.dto_for(&snapshot))
             .map_err(StudioError::from)
     }
 
@@ -300,7 +313,7 @@ impl StudioAppCore {
             )
             .await
             .map(|_| {
-                let snapshot = AppSnapshotDto::from(&self.inner.actor.snapshot());
+                let snapshot = self.inner.snapshot_dto();
                 AccountCommandReceiptDto {
                     request_id: context.request_id.clone(),
                     committed_revision: snapshot.revision,
@@ -324,7 +337,7 @@ impl StudioAppCore {
             .actor
             .select_account(public_key)
             .await
-            .map(|snapshot| (&snapshot).into())
+            .map(|snapshot| self.inner.dto_for(&snapshot))
             .map_err(StudioError::from)
     }
 
@@ -342,7 +355,7 @@ impl StudioAppCore {
             .actor
             .activate_account(public_key)
             .await
-            .map(|snapshot| (&snapshot).into())
+            .map(|snapshot| self.inner.dto_for(&snapshot))
             .map_err(StudioError::from)
     }
 
@@ -356,7 +369,7 @@ impl StudioAppCore {
             .actor
             .sign_out()
             .await
-            .map(|snapshot| (&snapshot).into())
+            .map(|snapshot| self.inner.dto_for(&snapshot))
             .map_err(StudioError::from)
     }
 
@@ -370,7 +383,7 @@ impl StudioAppCore {
             .actor
             .refresh_active_profile()
             .await
-            .map(|snapshot| (&snapshot).into())
+            .map(|snapshot| self.inner.dto_for(&snapshot))
             .map_err(StudioError::from)
     }
 
@@ -416,7 +429,7 @@ impl StudioAppCore {
             .actor
             .confirm_account_removal(token)
             .await
-            .map(|snapshot| (&snapshot).into())
+            .map(|snapshot| self.inner.dto_for(&snapshot))
             .map_err(StudioError::from)
     }
 }

@@ -1,6 +1,6 @@
 use radroots_studio_application::{
     ActiveAccountSnapshot, AppLifecycle, AppSnapshot, ProfileLoadState, RelayConnectionState,
-    SessionState,
+    RuntimeLifecycle, SessionState,
 };
 use radroots_studio_domain::{
     AccountSummary, BindingAvailability, ProfileMetadata, SafeError, SafeErrorCode,
@@ -62,8 +62,16 @@ pub struct SafeErrorDto {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
 pub enum AppLifecycleDto {
-    Booting,
+    Opening,
+    CompatibilityChecking,
+    AcquiringOwnership,
+    Migrating,
+    Recovering,
     Ready,
+    Degraded,
+    Blocked,
+    ShuttingDown,
+    Closed,
     Fatal,
 }
 
@@ -155,7 +163,7 @@ pub struct AppSnapshotDto {
 impl From<&AppSnapshot> for AppSnapshotDto {
     fn from(snapshot: &AppSnapshot) -> Self {
         let (lifecycle, lifecycle_error) = match snapshot.lifecycle() {
-            AppLifecycle::Booting => (AppLifecycleDto::Booting, None),
+            AppLifecycle::Booting => (AppLifecycleDto::Opening, None),
             AppLifecycle::Ready => (AppLifecycleDto::Ready, None),
             AppLifecycle::Fatal(error) => (AppLifecycleDto::Fatal, Some(error.into())),
         };
@@ -188,6 +196,36 @@ impl From<&AppSnapshot> for AppSnapshotDto {
             active_account: snapshot.active_account().map(ActiveAccountDto::from),
             recoverable_problem: snapshot.recoverable_problem().map(SafeErrorDto::from),
         }
+    }
+}
+
+impl AppSnapshotDto {
+    pub(crate) fn from_runtime(snapshot: &AppSnapshot, runtime: RuntimeLifecycle) -> Self {
+        let mut dto = Self::from(snapshot);
+        let (lifecycle, problem) = match runtime {
+            RuntimeLifecycle::Opening => (AppLifecycleDto::Opening, None),
+            RuntimeLifecycle::CompatibilityChecking => {
+                (AppLifecycleDto::CompatibilityChecking, None)
+            }
+            RuntimeLifecycle::AcquiringOwnership => (AppLifecycleDto::AcquiringOwnership, None),
+            RuntimeLifecycle::Migrating => (AppLifecycleDto::Migrating, None),
+            RuntimeLifecycle::Recovering => (AppLifecycleDto::Recovering, None),
+            RuntimeLifecycle::Ready => (AppLifecycleDto::Ready, None),
+            RuntimeLifecycle::Degraded(error) => {
+                (AppLifecycleDto::Degraded, Some(SafeErrorDto::from(error)))
+            }
+            RuntimeLifecycle::Blocked(error) => {
+                (AppLifecycleDto::Blocked, Some(SafeErrorDto::from(error)))
+            }
+            RuntimeLifecycle::ShuttingDown => (AppLifecycleDto::ShuttingDown, None),
+            RuntimeLifecycle::Closed => (AppLifecycleDto::Closed, None),
+            RuntimeLifecycle::Fatal(error) => {
+                (AppLifecycleDto::Fatal, Some(SafeErrorDto::from(error)))
+            }
+        };
+        dto.lifecycle = lifecycle;
+        dto.lifecycle_error = problem;
+        dto
     }
 }
 

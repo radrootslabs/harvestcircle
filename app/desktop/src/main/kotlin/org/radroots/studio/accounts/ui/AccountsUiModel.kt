@@ -1,6 +1,7 @@
 package org.radroots.studio.accounts.ui
 
 import org.radroots.studio.application.StudioStoreState
+import org.radroots.studio.application.StudioRoute
 import org.radroots.studio.ffi.AccountDto
 import org.radroots.studio.ffi.ActiveAccountDto
 import org.radroots.studio.ffi.ProfileLoadStateDto
@@ -40,6 +41,7 @@ class GeneratedKeyBackupUiModel(
 }
 
 data class StudioUiModel(
+    val route: StudioRoute,
     val accounts: List<AccountUiModel>,
     val activeAccount: ActiveAccountUiModel?,
     val configuredRelays: List<String>,
@@ -56,6 +58,7 @@ fun StudioStoreState.toUiModel(): StudioUiModel {
     val selectedPublicKeyHex = snapshot.selectedPublicKeyHex
     val accounts = snapshot.accounts.map { it.toUiModel(it.publicKeyHex == selectedPublicKeyHex) }
     return StudioUiModel(
+        route = route,
         accounts = accounts,
         activeAccount = snapshot.activeAccount?.toUiModel(selectedPublicKeyHex),
         configuredRelays = snapshot.configuredRelays,

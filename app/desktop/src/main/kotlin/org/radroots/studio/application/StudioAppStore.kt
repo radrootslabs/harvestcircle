@@ -10,9 +10,16 @@ import org.radroots.studio.ffi.AppLifecycleDto
 import org.radroots.studio.ffi.StudioException
 
 enum class StudioRoute {
-    BOOTING,
+    OPENING,
+    CHECKING_COMPATIBILITY,
+    ACQUIRING_OWNERSHIP,
+    MIGRATING,
+    RECOVERING,
     ACCOUNTS,
     ACTIVE_ACCOUNT,
+    DEGRADED,
+    BLOCKED,
+    SHUTTING_DOWN,
     FATAL,
     CLOSED,
 }
@@ -319,9 +326,16 @@ class StudioAppStore(
     }
 }
 
-private fun AppSnapshotDto.toStudioRoute(): StudioRoute = when {
-    lifecycle == AppLifecycleDto.BOOTING -> StudioRoute.BOOTING
-    lifecycle == AppLifecycleDto.FATAL -> StudioRoute.FATAL
-    activeAccount != null -> StudioRoute.ACTIVE_ACCOUNT
-    else -> StudioRoute.ACCOUNTS
+internal fun AppSnapshotDto.toStudioRoute(): StudioRoute = when (lifecycle) {
+    AppLifecycleDto.OPENING -> StudioRoute.OPENING
+    AppLifecycleDto.COMPATIBILITY_CHECKING -> StudioRoute.CHECKING_COMPATIBILITY
+    AppLifecycleDto.ACQUIRING_OWNERSHIP -> StudioRoute.ACQUIRING_OWNERSHIP
+    AppLifecycleDto.MIGRATING -> StudioRoute.MIGRATING
+    AppLifecycleDto.RECOVERING -> StudioRoute.RECOVERING
+    AppLifecycleDto.READY -> if (activeAccount != null) StudioRoute.ACTIVE_ACCOUNT else StudioRoute.ACCOUNTS
+    AppLifecycleDto.DEGRADED -> StudioRoute.DEGRADED
+    AppLifecycleDto.BLOCKED -> StudioRoute.BLOCKED
+    AppLifecycleDto.SHUTTING_DOWN -> StudioRoute.SHUTTING_DOWN
+    AppLifecycleDto.CLOSED -> StudioRoute.CLOSED
+    AppLifecycleDto.FATAL -> StudioRoute.FATAL
 }

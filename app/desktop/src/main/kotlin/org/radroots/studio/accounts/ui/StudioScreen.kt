@@ -25,6 +25,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import org.radroots.studio.application.StudioRoute
 
 private val WindowBackgroundColor = Color(0xFFF5F5F2)
 private val ButtonBackgroundColor = Color(0xFFE7E7E2)
@@ -67,14 +68,58 @@ fun StudioScreen(
     model: StudioUiModel,
     actions: StudioUiActions,
 ) {
-    if (
-        model.session == org.radroots.studio.ffi.SessionStateDto.ACTIVE &&
-        model.activeAccount != null &&
-        !model.accountChooserVisible
+    when (model.route) {
+        StudioRoute.OPENING -> LifecycleScreen("Opening local account store", "lifecycle-opening")
+        StudioRoute.CHECKING_COMPATIBILITY -> LifecycleScreen(
+            "Checking native compatibility",
+            "lifecycle-compatibility",
+        )
+        StudioRoute.ACQUIRING_OWNERSHIP -> LifecycleScreen(
+            "Acquiring local account store",
+            "lifecycle-ownership",
+        )
+        StudioRoute.MIGRATING -> LifecycleScreen(
+            "Updating local account store",
+            "lifecycle-migrating",
+        )
+        StudioRoute.RECOVERING -> LifecycleScreen(
+            "Recovering local account state",
+            "lifecycle-recovering",
+        )
+        StudioRoute.SHUTTING_DOWN -> LifecycleScreen("Shutting down", "lifecycle-shutting-down")
+        StudioRoute.CLOSED -> LifecycleScreen("Closed", "lifecycle-closed")
+        StudioRoute.BLOCKED -> LifecycleScreen(
+            model.problem ?: "Local account access is blocked.",
+            "lifecycle-blocked",
+        )
+        StudioRoute.FATAL -> LifecycleScreen(
+            model.problem ?: "The application could not continue.",
+            "lifecycle-fatal",
+        )
+        StudioRoute.DEGRADED -> InactiveAccountsScreen(model, actions, degraded = true)
+        StudioRoute.ACTIVE_ACCOUNT -> {
+            if (model.activeAccount != null && !model.accountChooserVisible) {
+                ActiveAccountHome(model, model.activeAccount, actions)
+            } else {
+                InactiveAccountsScreen(model, actions)
+            }
+        }
+        StudioRoute.ACCOUNTS -> InactiveAccountsScreen(model, actions)
+    }
+}
+
+@Composable
+private fun LifecycleScreen(message: String, testTag: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(WindowBackgroundColor)
+            .padding(24.dp)
+            .testTag(testTag),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        ActiveAccountHome(model, model.activeAccount, actions)
-    } else {
-        InactiveAccountsScreen(model, actions)
+        BasicText("radroots")
+        BasicText(message)
     }
 }
 
@@ -138,6 +183,7 @@ private fun ActiveAccountHome(
 private fun InactiveAccountsScreen(
     model: StudioUiModel,
     actions: StudioUiActions,
+    degraded: Boolean = false,
 ) {
     Column(
         modifier = Modifier
@@ -149,6 +195,9 @@ private fun InactiveAccountsScreen(
     ) {
         BasicText("radroots")
         BasicText("Accounts")
+        if (degraded) {
+            BasicText(model.problem ?: "Nostr relay access is unavailable. Local accounts remain available.")
+        }
 
         if (model.activeAccount != null) {
             BasicText("Choose an account to activate. The current account remains active until replacement succeeds.")

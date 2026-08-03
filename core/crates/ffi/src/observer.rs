@@ -89,10 +89,14 @@ impl StudioAppCore {
             .map_err(StudioError::from)?;
         let id = subscription.id();
         let observer: Arc<dyn StudioChangeObserver> = Arc::from(observer);
+        let runtime_core = Arc::clone(&self.inner);
         let task = crate::commands::runtime().spawn(async move {
             while let Some(change) = subscription.receive().await {
                 observer.on_change(SnapshotChangeDto {
-                    snapshot: change.snapshot().into(),
+                    snapshot: AppSnapshotDto::from_runtime(
+                        change.snapshot(),
+                        runtime_core.actor.lifecycle(),
+                    ),
                     previous_revision: change
                         .previous_revision()
                         .map(radroots_studio_application::SnapshotRevision::value),

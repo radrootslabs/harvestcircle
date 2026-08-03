@@ -17,9 +17,39 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import org.radroots.studio.ffi.SessionStateDto
+import org.radroots.studio.application.StudioRoute
 
 @OptIn(ExperimentalTestApi::class)
 class StudioScreenTest {
+    @Test
+    fun rendersEveryNonReadyLifecycleRouteWithoutAccountControls() = runComposeUiTest {
+        var model by mutableStateOf(emptyUiModel().copy(route = StudioRoute.OPENING))
+        setContent { StudioScreen(model, StudioUiActions()) }
+
+        val routes = listOf(
+            StudioRoute.OPENING to "lifecycle-opening",
+            StudioRoute.CHECKING_COMPATIBILITY to "lifecycle-compatibility",
+            StudioRoute.ACQUIRING_OWNERSHIP to "lifecycle-ownership",
+            StudioRoute.MIGRATING to "lifecycle-migrating",
+            StudioRoute.RECOVERING to "lifecycle-recovering",
+            StudioRoute.BLOCKED to "lifecycle-blocked",
+            StudioRoute.SHUTTING_DOWN to "lifecycle-shutting-down",
+            StudioRoute.FATAL to "lifecycle-fatal",
+            StudioRoute.CLOSED to "lifecycle-closed",
+        )
+        routes.forEach { (route, tag) ->
+            model = emptyUiModel(problem = "Safe lifecycle problem").copy(route = route)
+            waitForIdle()
+            onNodeWithTag(tag).assertIsDisplayed()
+            onAllNodesWithTag("generate-key").assertCountEquals(0)
+        }
+
+        model = emptyUiModel(problem = "Relay access is unavailable.").copy(route = StudioRoute.DEGRADED)
+        waitForIdle()
+        onNodeWithTag("accounts-screen").assertIsDisplayed()
+        onNodeWithTag("accounts-problem").assertIsDisplayed()
+    }
+
     @Test
     fun inactiveScreenGeneratesAndImportsMaskedSecretInput() = runComposeUiTest {
         var importDraft by mutableStateOf("")
@@ -149,6 +179,7 @@ class StudioScreenTest {
         setContent {
             StudioScreen(
                 model = emptyUiModel().copy(
+                    route = StudioRoute.ACTIVE_ACCOUNT,
                     accounts = listOf(account),
                     activeAccount = active,
                     configuredRelays = listOf("ws://localhost:8080"),
@@ -191,6 +222,7 @@ class StudioScreenTest {
         setContent {
             StudioScreen(
                 model = emptyUiModel().copy(
+                    route = StudioRoute.ACTIVE_ACCOUNT,
                     accounts = listOf(first, second),
                     activeAccount = active,
                     session = SessionStateDto.ACTIVE,
@@ -221,6 +253,7 @@ private fun emptyUiModel(
     importDraft: String = "",
     problem: String? = null,
 ) = StudioUiModel(
+    route = StudioRoute.ACCOUNTS,
     accounts = emptyList(),
     activeAccount = null,
     configuredRelays = emptyList(),
