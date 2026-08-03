@@ -9,6 +9,9 @@ import org.radroots.studio.ffi.AppSnapshotDto
 import org.radroots.studio.ffi.KeyAvailabilityDto
 import org.radroots.studio.ffi.SessionStateDto
 import org.radroots.studio.ffi.SignerKindDto
+import org.radroots.studio.ffi.WireErrorCategory
+import org.radroots.studio.ffi.WireErrorCode
+import org.radroots.studio.ffi.WireRecoveryAction
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -91,12 +94,38 @@ class StudioAppStoreTest {
         val store = StudioAppStore(gateway, this)
 
         store.signOut()
+        assertEquals(CommandStatus.REJECTED_BUSY, store.state.value.commandStatus)
         advanceUntilIdle()
 
         assertEquals(0, gateway.signOutCalls)
         store.signOut()
         advanceUntilIdle()
         assertEquals(1, gateway.signOutCalls)
+        store.close()
+    }
+
+    @Test
+    fun `projects retryable command rejection without dropping intent`() = runTest {
+        val gateway = FakeStudioCoreGateway(snapshot(0UL))
+        val store = StudioAppStore(gateway, this)
+        advanceUntilIdle()
+        gateway.nextCommandResult = StudioCommandResult.Rejected(
+            StudioCommandFailure(
+                WireErrorCode.STORAGE_UNAVAILABLE,
+                WireErrorCategory.STORAGE,
+                retryable = true,
+                WireRecoveryAction.RETRY,
+                "request-retry",
+                "Storage is temporarily unavailable.",
+            ),
+        )
+
+        store.signOut()
+        advanceUntilIdle()
+
+        assertEquals(CommandStatus.FAILED_RETRYABLE, store.state.value.commandStatus)
+        assertEquals("request-retry", store.state.value.lastCommandRequestId)
+        assertEquals("Storage is temporarily unavailable.", store.state.value.problem)
         store.close()
     }
 
@@ -129,6 +158,7 @@ private class FakeStudioCoreGateway(
     var lastImportBuffer: ByteArray? = null
     var failRemovalConfirmation = false
     var lastRemovalTicket: FakeRemovalTicket? = null
+    var nextCommandResult: StudioCommandResult? = null
 
     override fun snapshot(): AppSnapshotDto = current
 
@@ -138,6 +168,10 @@ private class FakeStudioCoreGateway(
     }
 
     override suspend fun execute(command: StudioCommand): StudioCommandResult {
+        nextCommandResult?.let {
+            nextCommandResult = null
+            return it
+        }
         when (command) {
             is StudioCommand.ImportAccount -> {
                 lastImportBuffer = command.bytes

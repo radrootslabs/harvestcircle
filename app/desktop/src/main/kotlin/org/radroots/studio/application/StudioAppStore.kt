@@ -17,6 +17,16 @@ enum class StudioRoute {
     CLOSED,
 }
 
+enum class CommandStatus {
+    IDLE,
+    RUNNING,
+    ACCEPTED,
+    REJECTED_BUSY,
+    REJECTED_CLOSED,
+    FAILED_RETRYABLE,
+    FAILED_TERMINAL,
+}
+
 data class StudioStoreState(
     val snapshot: AppSnapshotDto,
     val route: StudioRoute = snapshot.toStudioRoute(),
@@ -25,6 +35,8 @@ data class StudioStoreState(
     val pendingRemovalPublicKeyHex: String? = null,
     val accountChooserVisible: Boolean = false,
     val busy: Boolean = false,
+    val commandStatus: CommandStatus = CommandStatus.IDLE,
+    val lastCommandRequestId: String? = null,
     val problem: String? = null,
 )
 
@@ -82,7 +94,10 @@ class StudioAppStore(
     }
 
     fun acknowledgeGeneratedKeyBackup() {
-        val recovery = pendingGeneratedRecovery ?: return
+        val recovery = pendingGeneratedRecovery ?: run {
+            rejectUnavailableIntent("Generated-key recovery is not available.")
+            return
+        }
         pendingGeneratedRecovery = null
         runSnapshotCommand {
             try {
@@ -97,7 +112,7 @@ class StudioAppStore(
     }
 
     fun importSecretKey() {
-        if (command?.isActive == true) return
+        if (rejectIfUnavailable()) return
         val input = mutableState.value.importDraft.encodeToByteArray()
         mutableState.value = mutableState.value.copy(importDraft = "")
         runTypedCommand(StudioCommand.ImportAccount(input))
@@ -147,13 +162,15 @@ class StudioAppStore(
 
     fun cancelAccountRemoval() {
         pendingRemoval?.close()
-        pendingGeneratedRecovery?.close()
         pendingRemoval = null
         mutableState.value = mutableState.value.copy(pendingRemovalPublicKeyHex = null)
     }
 
     fun confirmAccountRemoval() {
-        val ticket = pendingRemoval ?: return
+        val ticket = pendingRemoval ?: run {
+            rejectUnavailableIntent("Account removal confirmation is not available.")
+            return
+        }
         pendingRemoval = null
         runSnapshotCommand {
             try {
@@ -180,25 +197,73 @@ class StudioAppStore(
             when (val result = gateway.execute(command)) {
                 is StudioCommandResult.Accepted -> {
                     acceptSnapshot(result.receipt.snapshot)
+                    mutableState.value = mutableState.value.copy(
+                        commandStatus = CommandStatus.ACCEPTED,
+                        lastCommandRequestId = result.receipt.requestId,
+                    )
                     if (hideChooser) {
                         mutableState.value = mutableState.value.copy(accountChooserVisible = false)
                     }
                 }
                 is StudioCommandResult.Rejected -> {
-                    mutableState.value = mutableState.value.copy(problem = result.failure.safeMessage)
+                    mutableState.value = mutableState.value.copy(
+                        commandStatus = if (result.failure.retryable) {
+                            CommandStatus.FAILED_RETRYABLE
+                        } else {
+                            CommandStatus.FAILED_TERMINAL
+                        },
+                        lastCommandRequestId = result.failure.correlationId,
+                        problem = result.failure.safeMessage,
+                    )
                 }
             }
         }
     }
 
     private fun launchCommand(operation: suspend () -> Unit) {
-        if (closed || command?.isActive == true) return
-        mutableState.value = mutableState.value.copy(busy = true, problem = null)
+        if (rejectIfUnavailable()) return
+        mutableState.value = mutableState.value.copy(
+            busy = true,
+            commandStatus = CommandStatus.RUNNING,
+            problem = null,
+        )
         command = scope.launch {
-            runCatching { operation() }
-                .onFailure(::acceptFailure)
-            mutableState.value = mutableState.value.copy(busy = false)
+            try {
+                operation()
+                if (mutableState.value.commandStatus == CommandStatus.RUNNING) {
+                    mutableState.value = mutableState.value.copy(commandStatus = CommandStatus.ACCEPTED)
+                }
+            } catch (error: Throwable) {
+                acceptFailure(error)
+            } finally {
+                mutableState.value = mutableState.value.copy(busy = false)
+            }
         }
+    }
+
+    private fun rejectIfUnavailable(): Boolean {
+        if (closed) {
+            mutableState.value = mutableState.value.copy(
+                commandStatus = CommandStatus.REJECTED_CLOSED,
+                problem = "The application runtime is closed.",
+            )
+            return true
+        }
+        if (command?.isActive == true) {
+            mutableState.value = mutableState.value.copy(
+                commandStatus = CommandStatus.REJECTED_BUSY,
+                problem = "The application is busy. Try again.",
+            )
+            return true
+        }
+        return false
+    }
+
+    private fun rejectUnavailableIntent(message: String) {
+        mutableState.value = mutableState.value.copy(
+            commandStatus = if (closed) CommandStatus.REJECTED_CLOSED else CommandStatus.FAILED_TERMINAL,
+            problem = message,
+        )
     }
 
     private fun acceptSnapshot(snapshot: AppSnapshotDto) {
@@ -211,9 +276,17 @@ class StudioAppStore(
     }
 
     private fun acceptFailure(error: Throwable) {
-        val message = (error as? StudioException.Failure)?.safeMessage
-            ?: "The application command failed."
-        mutableState.value = mutableState.value.copy(busy = false, problem = message)
+        val native = error as? StudioException.Failure
+        mutableState.value = mutableState.value.copy(
+            busy = false,
+            commandStatus = if (native?.retryable == true) {
+                CommandStatus.FAILED_RETRYABLE
+            } else {
+                CommandStatus.FAILED_TERMINAL
+            },
+            lastCommandRequestId = native?.correlationId,
+            problem = native?.safeMessage ?: "The application command failed.",
+        )
     }
 
     override fun close() {
@@ -221,6 +294,7 @@ class StudioAppStore(
         closed = true
         command?.cancel()
         pendingRemoval?.close()
+        pendingGeneratedRecovery?.close()
         subscription?.close()
         generatedRecovery.close()
         gateway.close()
