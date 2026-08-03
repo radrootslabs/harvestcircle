@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use directories::ProjectDirs;
 use radroots_studio_application::{
-    Clock, RelayRuntimeMode, RemovalConfirmationToken, SdkNostrClient,
+    Clock, DurableRequestId, RelayRuntimeMode, RemovalConfirmationToken, SdkNostrClient,
     relay_configuration_from_environment,
 };
 use radroots_studio_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
@@ -27,6 +27,21 @@ pub(crate) const ACTOR_MAILBOX_CAPACITY: usize = 64;
 pub const FFI_CONTRACT_MAJOR: u16 = 2;
 pub const FFI_CONTRACT_MINOR: u16 = 0;
 pub const FFI_CONTRACT_HASH: &str = "radroots-studio-native-v2-2026-08-03";
+const MAX_COMMAND_DEADLINE_MILLIS: u64 = 30_000;
+
+#[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
+pub struct RequestContextDto {
+    pub request_id: String,
+    pub expected_revision: u64,
+    pub deadline_millis: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
+pub struct AccountCommandReceiptDto {
+    pub request_id: String,
+    pub committed_revision: u64,
+    pub snapshot: AppSnapshotDto,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct CompatibilityDescriptor {
@@ -88,6 +103,20 @@ impl From<SafeError> for StudioError {
             retryable,
             recovery_action,
             correlation_id: None,
+            safe_message: error.message().as_str().to_owned(),
+        }
+    }
+}
+
+impl StudioError {
+    fn correlated(error: SafeError, correlation_id: &str) -> Self {
+        let (category, retryable, recovery_action) = error_policy(error.code());
+        Self::Failure {
+            code: error.code().into(),
+            category,
+            retryable,
+            recovery_action,
+            correlation_id: Some(correlation_id.to_owned()),
             safe_message: error.message().as_str().to_owned(),
         }
     }
@@ -209,6 +238,43 @@ impl StudioAppCore {
             .await
             .map(|_| (&self.inner.actor.snapshot()).into())
             .map_err(StudioError::from)
+    }
+
+    /// Imports or repairs an account using a caller-owned idempotency key.
+    ///
+    /// # Errors
+    ///
+    /// Returns a correlated validation, conflict, timeout, credential, or storage error.
+    pub async fn import_account_v2(
+        &self,
+        context: RequestContextDto,
+        secret_key: Vec<u8>,
+    ) -> Result<AccountCommandReceiptDto, StudioError> {
+        let request_id = DurableRequestId::parse(context.request_id.clone())
+            .map_err(|error| StudioError::correlated(error, &context.request_id))?;
+        let timeout = command_timeout(context.deadline_millis, &context.request_id)?;
+        let input = SecretKeyInput::parse_bytes(secret_key)
+            .map_err(|error| StudioError::correlated(error, &context.request_id))?;
+        self.inner
+            .actor
+            .import_secret_key_request(
+                request_id,
+                radroots_studio_application::SnapshotRevision::from_value(
+                    context.expected_revision,
+                ),
+                input,
+                timeout,
+            )
+            .await
+            .map(|_| {
+                let snapshot = AppSnapshotDto::from(&self.inner.actor.snapshot());
+                AccountCommandReceiptDto {
+                    request_id: context.request_id.clone(),
+                    committed_revision: snapshot.revision,
+                    snapshot,
+                }
+            })
+            .map_err(|error| StudioError::correlated(error, &context.request_id))
     }
 
     /// Selects one saved account without activating it.
@@ -401,6 +467,20 @@ fn parse_public_key(value: &str) -> Result<PublicKey, StudioError> {
     PublicKey::from_hex(value).map_err(StudioError::from)
 }
 
+fn command_timeout(millis: u64, correlation_id: &str) -> Result<Duration, StudioError> {
+    if millis == 0 || millis > MAX_COMMAND_DEADLINE_MILLIS {
+        return Err(StudioError::Failure {
+            code: WireErrorCode::InvalidApplicationState,
+            category: WireErrorCategory::Input,
+            retryable: false,
+            recovery_action: WireRecoveryAction::None,
+            correlation_id: Some(correlation_id.to_owned()),
+            safe_message: "The command deadline is invalid.".to_owned(),
+        });
+    }
+    Ok(Duration::from_millis(millis))
+}
+
 pub(crate) fn runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| {
@@ -458,8 +538,8 @@ mod tests {
     use super::{
         ACTOR_MAILBOX_CAPACITY, CompatibilityExpectation, DATABASE_APPLICATION, DATABASE_FILENAME,
         DATABASE_ORGANIZATION, DATABASE_QUALIFIER, FFI_CONTRACT_HASH, FFI_CONTRACT_MAJOR,
-        FFI_CONTRACT_MINOR, RuntimeCore, StudioAppCore, SystemClock, compatibility_descriptor,
-        runtime, verify_compatibility,
+        FFI_CONTRACT_MINOR, RequestContextDto, RuntimeCore, StudioAppCore, SystemClock,
+        compatibility_descriptor, runtime, verify_compatibility,
     };
 
     fn in_memory_core() -> Arc<StudioAppCore> {
@@ -489,6 +569,30 @@ mod tests {
 
         assert_eq!(bootstrapped, current);
         assert_eq!(current.revision, 1);
+    }
+
+    #[tokio::test]
+    async fn request_context_import_replays_one_committed_receipt() {
+        let core = in_memory_core();
+        let initial = core.snapshot();
+        let context = RequestContextDto {
+            request_id: "ffi-test-import-1".to_owned(),
+            expected_revision: initial.revision,
+            deadline_millis: 5_000,
+        };
+        let secret = b"7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
+        let first = core
+            .import_account_v2(context.clone(), secret.to_vec())
+            .await
+            .expect("first import");
+        let replay = core
+            .import_account_v2(context, secret.to_vec())
+            .await
+            .expect("replayed import");
+
+        assert_eq!(first, replay);
+        assert_eq!(first.snapshot.accounts.len(), 1);
+        assert_eq!(first.request_id, "ffi-test-import-1");
     }
 
     #[test]

@@ -32,7 +32,11 @@ enum RuntimeCommand {
     BeginGeneratedKeyStage,
     AcknowledgeGeneratedKeyStage(RecoveryStageId),
     CancelGeneratedKeyStage,
-    ImportSecretKey(SecretKeyInput),
+    ImportSecretKey {
+        input: SecretKeyInput,
+        durable_request: Option<radroots_studio_application::DurableRequestId>,
+        durable_expected_revision: Option<u64>,
+    },
     SelectAccount(PublicKey),
     ActivateAccount(PublicKey),
     SignOut,
@@ -65,7 +69,7 @@ impl RuntimeCommand {
             Self::GenerateAccount
             | Self::BeginGeneratedKeyStage
             | Self::AcknowledgeGeneratedKeyStage(_)
-            | Self::ImportSecretKey(_)
+            | Self::ImportSecretKey { .. }
             | Self::ActivateAccount(_)
             | Self::ConfirmAccountRemoval(_) => RuntimeCommandClass::UseCredential,
             Self::SelectAccount(_)
@@ -338,7 +342,46 @@ impl RuntimeActorHandle {
         input: SecretKeyInput,
     ) -> Result<ImportAccountReceipt, SafeError> {
         match self
-            .dispatch(RuntimeCommand::ImportSecretKey(input), None)
+            .dispatch(
+                RuntimeCommand::ImportSecretKey {
+                    input,
+                    durable_request: None,
+                    durable_expected_revision: None,
+                },
+                None,
+            )
+            .await?
+        {
+            RuntimeCommandValue::Imported(receipt) => Ok(receipt),
+            _ => Err(invalid_actor_response()),
+        }
+    }
+
+    /// Imports or repairs with a caller-owned durable request and deadline.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe validation, conflict, timeout, persistence, or actor error.
+    pub async fn import_secret_key_request(
+        &self,
+        request: radroots_studio_application::DurableRequestId,
+        expected_revision: SnapshotRevision,
+        input: SecretKeyInput,
+        timeout: Duration,
+    ) -> Result<ImportAccountReceipt, SafeError> {
+        let raw_request = self.next_request.fetch_add(1, Ordering::Relaxed);
+        let request_id = RequestId::new(raw_request).ok_or_else(request_space_exhausted)?;
+        match self
+            .dispatch_with_deadline(
+                RuntimeCommand::ImportSecretKey {
+                    input,
+                    durable_request: Some(request),
+                    durable_expected_revision: Some(expected_revision.value()),
+                },
+                None,
+                request_id,
+                Instant::now() + timeout,
+            )
             .await?
         {
             RuntimeCommandValue::Imported(receipt) => Ok(receipt),
@@ -544,7 +587,11 @@ impl RuntimeActorHandle {
         let request_id = RequestId::new(raw_request).ok_or_else(request_space_exhausted)?;
         match self
             .dispatch_with_deadline(
-                RuntimeCommand::ImportSecretKey(input),
+                RuntimeCommand::ImportSecretKey {
+                    input,
+                    durable_request: None,
+                    durable_expected_revision: None,
+                },
                 None,
                 request_id,
                 Instant::now() + timeout,
@@ -702,17 +749,16 @@ impl RuntimeActor {
             RuntimeCommand::CancelGeneratedKeyStage => Ok(
                 RuntimeCommandValue::GeneratedKeyStageCancelled(self.generated_key_stage.cancel()),
             ),
-            RuntimeCommand::ImportSecretKey(input) => durable_request.and_then(|request| {
-                self.adapter
-                    .import_secret_key_durable(
-                        &request,
-                        expected_revision,
-                        input,
-                        self.secrets.as_ref(),
-                        self.clock.as_ref(),
-                    )
-                    .map(RuntimeCommandValue::Imported)
-            }),
+            RuntimeCommand::ImportSecretKey {
+                input,
+                durable_request: caller_request,
+                durable_expected_revision,
+            } => self.import_secret_key_command(
+                input,
+                caller_request,
+                durable_request,
+                durable_expected_revision.unwrap_or(expected_revision),
+            ),
             RuntimeCommand::SelectAccount(public_key) => self
                 .adapter
                 .select_account(public_key)
@@ -775,6 +821,25 @@ impl RuntimeActor {
         Ok(RuntimeCommandValue::Snapshot(Box::new(
             self.adapter.core().snapshot(),
         )))
+    }
+
+    fn import_secret_key_command(
+        &self,
+        input: SecretKeyInput,
+        caller_request: Option<radroots_studio_application::DurableRequestId>,
+        fallback_request: Result<radroots_studio_application::DurableRequestId, SafeError>,
+        expected_revision: u64,
+    ) -> Result<RuntimeCommandValue, SafeError> {
+        let request = caller_request.map_or(fallback_request, Ok)?;
+        self.adapter
+            .import_secret_key_durable(
+                &request,
+                expected_revision,
+                input,
+                self.secrets.as_ref(),
+                self.clock.as_ref(),
+            )
+            .map(RuntimeCommandValue::Imported)
     }
 
     fn start_profile_task(

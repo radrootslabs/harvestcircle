@@ -142,6 +142,19 @@ impl AppCore {
         operations: &(impl DurableOperationRepository + ?Sized),
         clock: &(impl Clock + ?Sized),
     ) -> Result<ImportAccountReceipt, SafeError> {
+        if let Some(existing) = operations.load_durable_operation(request_id)? {
+            return if existing
+                .terminal()
+                .is_some_and(|receipt| receipt.outcome() == DurableTerminalOutcome::Completed)
+            {
+                accounts
+                    .find_account(existing.account())?
+                    .map(|account| ImportAccountReceipt { account })
+                    .ok_or_else(recovery_required)
+            } else {
+                Err(recovery_required())
+            };
+        }
         self.require_revision(expected_revision)?;
         let imported = import_secret(input)?;
         let (public_key, npub, secret) = imported.into_parts();
