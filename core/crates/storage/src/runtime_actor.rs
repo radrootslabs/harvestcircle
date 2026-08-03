@@ -7,13 +7,15 @@ use std::time::{Duration, Instant};
 
 use radroots_studio_application::{
     ActorMailbox, AppSnapshot, ChangeSubscriptionId, Clock, CommandContext, CommandEnvelope,
-    CommandReceipt, CommandResult, CommandSubmission, GenerateAccountReceipt, ImportAccountReceipt,
-    LifecycleGate, NostrClient, OrderedSnapshotChanges, ProfileRefreshPlan, RelayConfiguration,
-    RemovalConfirmationToken, RequestId, RuntimeCommandClass, RuntimeLifecycle, SecretStore,
-    SessionGeneration, SnapshotChange, SnapshotChangeReceiver, SnapshotRevision, TaskCorrelation,
+    CommandReceipt, CommandResult, CommandSubmission, ForegroundSessionBinding,
+    GenerateAccountReceipt, ImportAccountReceipt, LifecycleGate, NostrClient,
+    OrderedSnapshotChanges, ProfileRefreshPlan, RelayConfiguration, RemovalConfirmationToken,
+    RequestId, RuntimeCommandClass, RuntimeLifecycle, SecretStore, SessionGeneration,
+    SnapshotChange, SnapshotChangeReceiver, SnapshotRevision, TaskCorrelation,
 };
 use radroots_studio_domain::{
-    Kind0ProfileCandidate, PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput,
+    AccountIdentity, BindingAvailability, Kind0ProfileCandidate, LocalSignerBinding, PublicKey,
+    SafeError, SafeErrorCode, SafeMessage, SecretKeyInput,
 };
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
@@ -78,6 +80,7 @@ struct RuntimeActor {
     published_session_generation: Arc<AtomicU64>,
     profile_tasks: BTreeMap<RequestId, PendingProfileTask>,
     changes: OrderedSnapshotChanges,
+    published_foreground_session: Arc<Mutex<Option<ForegroundSessionBinding>>>,
 }
 
 struct PendingProfileTask {
@@ -99,6 +102,7 @@ pub struct RuntimeActorHandle {
     lifecycle: Arc<Mutex<LifecycleGate>>,
     next_request: Arc<AtomicU64>,
     session_generation: Arc<AtomicU64>,
+    foreground_session: Arc<Mutex<Option<ForegroundSessionBinding>>>,
 }
 
 pub struct RuntimeChangeSubscription {
@@ -186,6 +190,7 @@ impl RuntimeActorHandle {
         let lifecycle = Arc::new(Mutex::new(gate));
         let (mailbox, receiver) = ActorMailbox::bounded(capacity);
         let session_generation = Arc::new(AtomicU64::new(SessionGeneration::initial().value()));
+        let foreground_session = Arc::new(Mutex::new(None));
         let changes = OrderedSnapshotChanges::new(adapter.core().snapshot());
         let actor = RuntimeActor {
             adapter: Arc::clone(&adapter),
@@ -198,6 +203,7 @@ impl RuntimeActorHandle {
             published_session_generation: Arc::clone(&session_generation),
             profile_tasks: BTreeMap::new(),
             changes,
+            published_foreground_session: Arc::clone(&foreground_session),
         };
         drop(runtime.spawn(actor.run(receiver)));
         Ok(Self {
@@ -206,6 +212,7 @@ impl RuntimeActorHandle {
             lifecycle,
             next_request: Arc::new(AtomicU64::new(1)),
             session_generation,
+            foreground_session,
         })
     }
 
@@ -220,6 +227,14 @@ impl RuntimeActorHandle {
     #[must_use]
     pub fn session_generation(&self) -> SessionGeneration {
         SessionGeneration::from_value(self.session_generation.load(Ordering::Acquire))
+    }
+
+    #[must_use]
+    pub fn foreground_session(&self) -> Option<ForegroundSessionBinding> {
+        self.foreground_session
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     #[must_use]
@@ -539,6 +554,7 @@ impl RuntimeActor {
         let result = self.execute_sync(command);
         if changes_session && matches!(result, CommandResult::Completed(_)) {
             self.advance_session_generation();
+            self.synchronize_foreground_session();
         }
         if matches!(result, CommandResult::Completed(_)) {
             self.changes.publish(self.adapter.core().snapshot());
@@ -695,6 +711,10 @@ impl RuntimeActor {
             Ok(()) => {
                 self.cancel_profile_tasks(None);
                 self.changes.close();
+                *self
+                    .published_foreground_session
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
                 CommandResult::Completed(RuntimeCommandValue::Closed)
             }
             Err(error) => CommandResult::Failed(error),
@@ -748,6 +768,36 @@ impl RuntimeActor {
             .store(next.value(), Ordering::Release);
         let snapshot = self.adapter.core().snapshot();
         self.cancel_profile_tasks(Some(&snapshot));
+    }
+
+    fn synchronize_foreground_session(&mut self) {
+        let session = self
+            .adapter
+            .core()
+            .snapshot()
+            .active_account()
+            .map(|active| {
+                let public_key = active.account().public_key();
+                ForegroundSessionBinding::new(
+                    AccountIdentity::derive(public_key)?,
+                    LocalSignerBinding::new(public_key, BindingAvailability::Available),
+                    self.session_generation,
+                )
+            });
+        let session = match session.transpose() {
+            Ok(session) => session,
+            Err(error) => {
+                self.lifecycle
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .fail(error);
+                None
+            }
+        };
+        *self
+            .published_foreground_session
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = session;
     }
 
     fn cancel_profile_tasks(&mut self, snapshot: Option<&AppSnapshot>) {
@@ -983,10 +1033,15 @@ mod tests {
         let public_key = imported.account().public_key();
         let activated = actor.activate_account(public_key).await.expect("activate");
         assert_eq!(activated.session(), SessionState::Active);
+        let foreground = actor.foreground_session().expect("foreground session");
+        assert_eq!(foreground.identity().public_key(), public_key);
+        assert_eq!(foreground.signer().account(), public_key);
+        assert_eq!(foreground.generation(), actor.session_generation());
         assert!(secrets.contains(public_key).expect("credential"));
 
         let signed_out = actor.sign_out().await.expect("sign out");
         assert_eq!(signed_out.session(), SessionState::SignedOut);
+        assert!(actor.foreground_session().is_none());
         let removal = actor
             .request_account_removal(public_key)
             .await

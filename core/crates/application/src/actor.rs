@@ -1,7 +1,10 @@
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::time::Instant;
 
-use radroots_studio_domain::{PublicKey, SafeError};
+use radroots_studio_domain::{
+    AccountIdentity, BindingAvailability, LocalSignerBinding, PublicKey, SafeError, SafeErrorCode,
+    SafeMessage,
+};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::SnapshotRevision;
@@ -32,6 +35,60 @@ impl SessionGeneration {
             None => None,
         }
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ForegroundSessionBinding {
+    identity: AccountIdentity,
+    signer: LocalSignerBinding,
+    generation: SessionGeneration,
+}
+
+impl ForegroundSessionBinding {
+    /// Binds one foreground session to a ready local signer and generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe state error when account and binding differ or when the
+    /// signer is unavailable.
+    pub fn new(
+        identity: AccountIdentity,
+        signer: LocalSignerBinding,
+        generation: SessionGeneration,
+    ) -> Result<Self, SafeError> {
+        if identity.public_key() != signer.account()
+            || signer.availability() != BindingAvailability::Available
+        {
+            return Err(invalid_foreground_session());
+        }
+        Ok(Self {
+            identity,
+            signer,
+            generation,
+        })
+    }
+
+    #[must_use]
+    pub const fn identity(&self) -> &AccountIdentity {
+        &self.identity
+    }
+
+    #[must_use]
+    pub const fn signer(&self) -> LocalSignerBinding {
+        self.signer
+    }
+
+    #[must_use]
+    pub const fn generation(&self) -> SessionGeneration {
+        self.generation
+    }
+}
+
+const fn invalid_foreground_session() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::InvalidApplicationState,
+        SafeMessage::new("The foreground session binding is invalid."),
+    )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -507,9 +564,14 @@ mod tests {
     use std::num::NonZeroUsize;
     use std::time::{Duration, Instant};
 
+    use radroots_studio_domain::{
+        AccountIdentity, BindingAvailability, LocalSignerBinding, PublicKey,
+    };
+
     use crate::{
         ActorMailbox, CommandContext, CommandReceipt, CommandRejection, CommandResult,
-        CommandSubmission, LifecycleGate, RequestId, RuntimeCommandClass, RuntimeLifecycle,
+        CommandSubmission, ForegroundSessionBinding, LifecycleGate, RequestId, RuntimeCommandClass,
+        RuntimeLifecycle, SessionGeneration,
     };
 
     fn context(id: u64) -> CommandContext {
@@ -518,6 +580,42 @@ mod tests {
             None,
             Instant::now() + Duration::from_secs(1),
         )
+    }
+
+    #[test]
+    fn foreground_session_requires_matching_available_binding_and_generation() {
+        let public_key = PublicKey::from_bytes([3_u8; 32]);
+        let identity = AccountIdentity::derive(public_key).expect("identity");
+        let generation = SessionGeneration::from_value(4);
+        let session = ForegroundSessionBinding::new(
+            identity.clone(),
+            LocalSignerBinding::new(public_key, BindingAvailability::Available),
+            generation,
+        )
+        .expect("session");
+        assert_eq!(session.identity(), &identity);
+        assert_eq!(session.signer().account(), public_key);
+        assert_eq!(session.generation(), generation);
+
+        assert!(
+            ForegroundSessionBinding::new(
+                identity.clone(),
+                LocalSignerBinding::new(
+                    PublicKey::from_bytes([4_u8; 32]),
+                    BindingAvailability::Available,
+                ),
+                generation,
+            )
+            .is_err()
+        );
+        assert!(
+            ForegroundSessionBinding::new(
+                identity,
+                LocalSignerBinding::new(public_key, BindingAvailability::CredentialMissing),
+                generation,
+            )
+            .is_err()
+        );
     }
 
     #[tokio::test]

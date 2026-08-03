@@ -20,8 +20,8 @@ pub use accounts::{
 };
 pub use actor::{
     ActorMailbox, CommandContext, CommandEnvelope, CommandReceipt, CommandRejection, CommandResult,
-    CommandSubmission, CommandTicket, LifecycleGate, RequestId, RuntimeCommandClass,
-    RuntimeLifecycle, SessionGeneration, TaskCorrelation,
+    CommandSubmission, CommandTicket, ForegroundSessionBinding, LifecycleGate, RequestId,
+    RuntimeCommandClass, RuntimeLifecycle, SessionGeneration, TaskCorrelation,
 };
 pub use app_core::{AppCore, RemovalConfirmationToken};
 pub use change_stream::{
