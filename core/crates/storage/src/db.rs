@@ -6,8 +6,7 @@ use radroots_studio_domain::{SafeError, SafeErrorCode, SafeMessage};
 use refinery::embed_migrations;
 use rusqlite::{Connection, OpenFlags};
 
-#[cfg(test)]
-const LATEST_SCHEMA_VERSION: u32 = 5;
+pub const CURRENT_SCHEMA_VERSION: u32 = 5;
 
 mod migrations {
     use super::embed_migrations;
@@ -121,7 +120,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{Database, LATEST_SCHEMA_VERSION};
+    use super::{CURRENT_SCHEMA_VERSION, Database};
 
     #[test]
     fn migration_opens_fresh_memory_database_once() {
@@ -129,11 +128,11 @@ mod tests {
 
         assert_eq!(
             database.schema_version().expect("schema version"),
-            LATEST_SCHEMA_VERSION
+            CURRENT_SCHEMA_VERSION
         );
         assert_eq!(
             database.schema_version().expect("repeat schema version"),
-            LATEST_SCHEMA_VERSION
+            CURRENT_SCHEMA_VERSION
         );
     }
 
@@ -146,13 +145,13 @@ mod tests {
             let database = Database::open(&path).expect("open file database");
             assert_eq!(
                 database.schema_version().expect("schema version"),
-                LATEST_SCHEMA_VERSION
+                CURRENT_SCHEMA_VERSION
             );
         }
         let reopened = Database::open(&path).expect("reopen file database");
         assert_eq!(
             reopened.schema_version().expect("schema version"),
-            LATEST_SCHEMA_VERSION
+            CURRENT_SCHEMA_VERSION
         );
         assert!(fs::metadata(path).expect("database metadata").len() > 0);
     }

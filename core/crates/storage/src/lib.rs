@@ -9,5 +9,5 @@ pub mod os_keyring;
 pub mod profiles;
 
 pub use application_adapter::PersistentAppCore;
-pub use db::Database;
-pub use os_keyring::OsKeyringSecretStore;
+pub use db::{CURRENT_SCHEMA_VERSION, Database};
+pub use os_keyring::{CREDENTIAL_SERVICE, OsKeyringSecretStore};

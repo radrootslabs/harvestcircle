@@ -15,6 +15,11 @@ use radroots_studio_storage::{OsKeyringSecretStore, PersistentAppCore};
 
 use crate::{AccountDto, AppSnapshotDto};
 
+const DATABASE_QUALIFIER: &str = "org";
+const DATABASE_ORGANIZATION: &str = "radroots";
+const DATABASE_APPLICATION: &str = "studio";
+const DATABASE_FILENAME: &str = "studio.sqlite3";
+
 #[derive(Debug, uniffi::Error)]
 pub enum StudioError {
     Failure { code: String, safe_message: String },
@@ -304,9 +309,13 @@ impl Clock for SystemClock {
 }
 
 fn canonical_database_path() -> Result<PathBuf, StudioError> {
-    ProjectDirs::from("org", "radroots", "studio")
-        .map(|project| project.data_dir().join("studio.sqlite3"))
-        .ok_or_else(path_unavailable)
+    ProjectDirs::from(
+        DATABASE_QUALIFIER,
+        DATABASE_ORGANIZATION,
+        DATABASE_APPLICATION,
+    )
+    .map(|project| project.data_dir().join(DATABASE_FILENAME))
+    .ok_or_else(path_unavailable)
 }
 
 fn parse_public_key(value: &str) -> Result<PublicKey, StudioError> {
@@ -364,7 +373,12 @@ mod tests {
     use radroots_studio_application::RelayConfiguration;
     use radroots_studio_storage::PersistentAppCore;
 
-    use super::{RuntimeCore, StudioAppCore, SystemClock};
+    use radroots_studio_storage::{CREDENTIAL_SERVICE, CURRENT_SCHEMA_VERSION};
+
+    use super::{
+        DATABASE_APPLICATION, DATABASE_FILENAME, DATABASE_ORGANIZATION, DATABASE_QUALIFIER,
+        RuntimeCore, StudioAppCore, SystemClock,
+    };
 
     fn in_memory_core() -> Arc<StudioAppCore> {
         Arc::new(StudioAppCore {
@@ -390,5 +404,36 @@ mod tests {
 
         assert_eq!(bootstrapped, current);
         assert_eq!(current.revision, 1);
+    }
+
+    #[test]
+    fn v5_compatibility_fixture_matches_runtime_coordinates() {
+        let fixture = include_str!("../../../compatibility/v5-baseline.properties");
+        let property = |key: &str| {
+            fixture.lines().find_map(|line| {
+                line.split_once('=')
+                    .filter(|(candidate, _)| *candidate == key)
+                    .map(|(_, value)| value)
+            })
+        };
+
+        assert_eq!(property("baseline.id"), Some("studio-runtime-v5"));
+        assert_eq!(property("schema.version"), Some("5"));
+        assert_eq!(CURRENT_SCHEMA_VERSION, 5);
+        assert_eq!(property("ffi.contract"), Some("legacy-unversioned-v1"));
+        assert_eq!(property("ffi.snapshot.schema"), Some("1"));
+        assert_eq!(property("ffi.runtime.version"), Some("0.1.0-alpha"));
+        assert_eq!(property("database.qualifier"), Some(DATABASE_QUALIFIER));
+        assert_eq!(
+            property("database.organization"),
+            Some(DATABASE_ORGANIZATION)
+        );
+        assert_eq!(property("database.application"), Some(DATABASE_APPLICATION));
+        assert_eq!(property("database.filename"), Some(DATABASE_FILENAME));
+        assert_eq!(property("keyring.service"), Some(CREDENTIAL_SERVICE));
+        assert_eq!(
+            property("keyring.account"),
+            Some("canonical-lowercase-public-key-hex")
+        );
     }
 }
