@@ -6,6 +6,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SecretClipboardControllerTest {
@@ -14,7 +15,7 @@ class SecretClipboardControllerTest {
         val clipboard = FakeTextClipboard()
         val controller = SecretClipboardController(this, clipboard, clearDelayMillis = 60_000)
 
-        controller.copy("nsec1generated")
+        assertIs<SecretClipboardResult.Copied>(controller.copy("nsec1generated"))
         advanceTimeBy(60_000)
         runCurrent()
 
@@ -70,6 +71,21 @@ class SecretClipboardControllerTest {
         replacedController.close()
         assertEquals("replacement", replacedClipboard.value)
     }
+
+    @Test
+    fun clipboardFailuresReturnTypedUnavailableAndNeverCrashCleanup() = runTest {
+        val unavailable = ThrowingTextClipboard(failWrites = true)
+        val controller = SecretClipboardController(this, unavailable, clearDelayMillis = 1)
+        assertIs<SecretClipboardResult.Unavailable>(controller.copy("nsec1generated"))
+        controller.close()
+
+        val failsDuringCleanup = ThrowingTextClipboard(failReads = true)
+        val cleanupController = SecretClipboardController(this, failsDuringCleanup, clearDelayMillis = 1)
+        assertIs<SecretClipboardResult.Copied>(cleanupController.copy("nsec1generated"))
+        advanceTimeBy(1)
+        runCurrent()
+        cleanupController.close()
+    }
 }
 
 private class FakeTextClipboard : TextClipboard {
@@ -79,5 +95,19 @@ private class FakeTextClipboard : TextClipboard {
 
     override fun writeText(value: String) {
         this.value = value
+    }
+}
+
+private class ThrowingTextClipboard(
+    private val failReads: Boolean = false,
+    private val failWrites: Boolean = false,
+) : TextClipboard {
+    override fun readText(): String? {
+        if (failReads) error("injected clipboard read failure")
+        return null
+    }
+
+    override fun writeText(value: String) {
+        if (failWrites) error("injected clipboard write failure")
     }
 }

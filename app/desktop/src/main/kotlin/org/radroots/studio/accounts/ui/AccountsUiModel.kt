@@ -32,10 +32,12 @@ data class ActiveAccountUiModel(
     val profile: ProfileUiModel,
 )
 
-data class GeneratedKeyBackupUiModel(
+class GeneratedKeyBackupUiModel(
     val npub: String,
     val nsec: String,
-)
+) {
+    override fun toString(): String = "GeneratedKeyBackupUiModel(npub=$npub, nsec=[REDACTED])"
+}
 
 data class StudioUiModel(
     val accounts: List<AccountUiModel>,
@@ -59,7 +61,7 @@ fun StudioStoreState.toUiModel(): StudioUiModel {
         configuredRelays = snapshot.configuredRelays,
         importDraft = importDraft,
         generatedKeyBackup = generatedKeyBackup?.let {
-            GeneratedKeyBackupUiModel(npub = it.npub, nsec = it.nsec)
+            GeneratedKeyBackupUiModel(npub = it.npub, nsec = it.revealNsec())
         },
         pendingRemovalPublicKeyHex = pendingRemovalPublicKeyHex,
         accountChooserVisible = accountChooserVisible,

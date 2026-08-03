@@ -14,6 +14,12 @@ internal interface TextClipboard {
     fun writeText(value: String)
 }
 
+internal sealed interface SecretClipboardResult {
+    data object Copied : SecretClipboardResult
+
+    data object Unavailable : SecretClipboardResult
+}
+
 internal class SecretClipboardController(
     private val scope: CoroutineScope,
     private val clipboard: TextClipboard = SystemTextClipboard,
@@ -22,22 +28,29 @@ internal class SecretClipboardController(
     private var clearJob: Job? = null
     private var copiedValue: String? = null
 
-    fun copy(value: String) {
-        clipboard.writeText(value)
+    fun copy(value: String): SecretClipboardResult {
+        if (runCatching { clipboard.writeText(value) }.isFailure) {
+            return SecretClipboardResult.Unavailable
+        }
         copiedValue = value
         clearJob?.cancel()
         clearJob = scope.launch {
             delay(clearDelayMillis)
-            if (clipboard.readText() == value) clipboard.writeText("")
+            runCatching {
+                if (clipboard.readText() == value) clipboard.writeText("")
+            }
             if (copiedValue == value) copiedValue = null
         }
+        return SecretClipboardResult.Copied
     }
 
     override fun close() {
         clearJob?.cancel()
         clearJob = null
         val value = copiedValue
-        if (value != null && clipboard.readText() == value) clipboard.writeText("")
+        runCatching {
+            if (value != null && clipboard.readText() == value) clipboard.writeText("")
+        }
         copiedValue = null
     }
 }

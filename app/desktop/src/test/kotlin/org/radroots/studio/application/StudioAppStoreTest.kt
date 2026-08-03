@@ -44,7 +44,7 @@ class StudioAppStoreTest {
         store.generateAccount()
         advanceUntilIdle()
 
-        assertEquals("nsec1secret", store.state.value.generatedKeyBackup?.nsec)
+        assertEquals("nsec1secret", store.state.value.generatedKeyBackup?.revealNsec())
         assertEquals("npub1account", store.state.value.generatedKeyBackup?.npub)
         store.acknowledgeGeneratedKeyBackup()
         assertNull(store.state.value.generatedKeyBackup)

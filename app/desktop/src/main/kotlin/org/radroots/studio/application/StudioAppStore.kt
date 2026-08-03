@@ -8,11 +8,6 @@ import kotlinx.coroutines.launch
 import org.radroots.studio.ffi.AppSnapshotDto
 import org.radroots.studio.ffi.StudioException
 
-data class GeneratedKeyBackup(
-    val npub: String,
-    val nsec: String,
-)
-
 data class StudioStoreState(
     val snapshot: AppSnapshotDto,
     val importDraft: String = "",
@@ -29,6 +24,7 @@ class StudioAppStore(
     private val gateway: StudioCoreGateway,
     private val scope: CoroutineScope,
 ) : AutoCloseable {
+    private val generatedRecovery = GeneratedRecoveryController()
     private val mutableState = mutableStateOf(StudioStoreState(snapshot = gateway.snapshot()))
     private var closed = false
     private var subscription: AutoCloseable? = null
@@ -65,13 +61,14 @@ class StudioAppStore(
         runCommand {
             val receipt = gateway.generateAccount()
             mutableState.value = mutableState.value.copy(
-                generatedKeyBackup = GeneratedKeyBackup(receipt.account.npub, receipt.nsec),
+                generatedKeyBackup = generatedRecovery.begin(receipt.account.npub, receipt.nsec),
             )
             receipt.snapshot
         }
     }
 
     fun acknowledgeGeneratedKeyBackup() {
+        generatedRecovery.acknowledge()
         mutableState.value = mutableState.value.copy(generatedKeyBackup = null)
     }
 
@@ -195,6 +192,7 @@ class StudioAppStore(
         command?.cancel()
         pendingRemoval?.close()
         subscription?.close()
+        generatedRecovery.close()
         gateway.close()
     }
 }

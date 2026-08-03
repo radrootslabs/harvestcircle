@@ -43,7 +43,7 @@ fun RadrootsApplication(
             editImportDraft = store::editImportDraft,
             generateAccount = store::generateAccount,
             importSecretKey = store::importSecretKey,
-            copyText = clipboard::copy,
+            copyText = { value -> clipboard.copy(value) },
             acknowledgeGeneratedKeyBackup = store::acknowledgeGeneratedKeyBackup,
             selectAccount = store::selectAccount,
             activateAccount = store::activateAccount,
