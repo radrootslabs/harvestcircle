@@ -29,6 +29,7 @@ class StudioAppStore(
     private var closed = false
     private var subscription: AutoCloseable? = null
     private var pendingRemoval: RemovalTicket? = null
+    private var pendingGeneratedRecovery: GeneratedRecoveryTicket? = null
     private var command: Job? = null
 
     val state: State<StudioStoreState>
@@ -58,18 +59,31 @@ class StudioAppStore(
     }
 
     fun generateAccount() {
-        runCommand {
-            val receipt = gateway.generateAccount()
+        launchCommand {
+            val recovery = gateway.beginGeneratedAccount()
+            pendingGeneratedRecovery = recovery
             mutableState.value = mutableState.value.copy(
-                generatedKeyBackup = generatedRecovery.begin(receipt.account.npub, receipt.nsec),
+                generatedKeyBackup = generatedRecovery.begin(
+                    recovery.account.npub,
+                    recovery.takeRecoveryNsec(),
+                ),
             )
-            receipt.snapshot
         }
     }
 
     fun acknowledgeGeneratedKeyBackup() {
-        generatedRecovery.acknowledge()
-        mutableState.value = mutableState.value.copy(generatedKeyBackup = null)
+        val recovery = pendingGeneratedRecovery ?: return
+        pendingGeneratedRecovery = null
+        runCommand {
+            try {
+                recovery.acknowledge().also {
+                    generatedRecovery.acknowledge()
+                    mutableState.value = mutableState.value.copy(generatedKeyBackup = null)
+                }
+            } finally {
+                recovery.close()
+            }
+        }
     }
 
     fun importSecretKey() {
@@ -137,6 +151,7 @@ class StudioAppStore(
 
     fun cancelAccountRemoval() {
         pendingRemoval?.close()
+        pendingGeneratedRecovery?.close()
         pendingRemoval = null
         mutableState.value = mutableState.value.copy(pendingRemovalPublicKeyHex = null)
     }

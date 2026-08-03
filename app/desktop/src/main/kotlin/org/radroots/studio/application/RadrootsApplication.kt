@@ -11,6 +11,8 @@ import org.radroots.studio.accounts.ui.StartupFailureScreen
 import org.radroots.studio.accounts.ui.toUiModel
 import org.radroots.studio.ffi.StudioAppCore
 import org.radroots.studio.ffi.StudioException
+import org.radroots.studio.ffi.CompatibilityExpectation
+import org.radroots.studio.ffi.compatibilityDescriptor
 
 internal typealias StudioStoreFactory = (CoroutineScope) -> StudioAppStore
 
@@ -60,6 +62,17 @@ fun RadrootsApplication(
 
 internal fun createStudioAppStore(scope: CoroutineScope): StudioAppStore {
     val developmentMode = java.lang.Boolean.getBoolean("radroots.studio.development")
-    val core = StudioAppCore.open(developmentMode = developmentMode)
+    val descriptor = compatibilityDescriptor()
+    val core = StudioAppCore.openCompatible(
+        expectation = CompatibilityExpectation(
+            contractMajor = 2.toUShort(),
+            minimumContractMinor = 0.toUShort(),
+            contractHash = "radroots-studio-native-v2-2026-08-03",
+            minimumSchemaVersion = 5U,
+            maximumSchemaVersion = 9U,
+        ),
+        developmentMode = developmentMode,
+    )
+    check(descriptor.contractMajor == 2.toUShort())
     return StudioAppStore(NativeStudioCoreGateway(core), scope)
 }

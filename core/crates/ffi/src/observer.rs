@@ -12,11 +12,6 @@ const OBSERVER_CHANGE_CAPACITY: NonZeroUsize = match NonZeroUsize::new(64) {
     None => unreachable!(),
 };
 
-#[uniffi::export(callback_interface)]
-pub trait StudioObserver: Send + Sync {
-    fn on_snapshot_changed(&self, snapshot: AppSnapshotDto);
-}
-
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct SnapshotChangeDto {
     pub snapshot: AppSnapshotDto,
@@ -115,62 +110,6 @@ impl StudioAppCore {
         }))
     }
 
-    /// Subscribes to revisioned snapshots and immediately delivers the current value.
-    ///
-    /// # Errors
-    ///
-    /// Returns a safe observer or lifecycle error.
-    pub async fn subscribe(
-        &self,
-        observer: Box<dyn StudioObserver>,
-    ) -> Result<Arc<ObserverSubscription>, StudioError> {
-        if self.inner.closed.load(Ordering::Acquire) {
-            return Err(closed_error());
-        }
-        let mut subscription = self
-            .inner
-            .actor
-            .subscribe_changes(OBSERVER_CHANGE_CAPACITY)
-            .await
-            .map_err(StudioError::from)?;
-        let id = subscription.id();
-        let observer: Arc<dyn StudioObserver> = Arc::from(observer);
-        let task = crate::commands::runtime().spawn(async move {
-            while let Some(change) = subscription.receive().await {
-                observer.on_snapshot_changed(change.snapshot().into());
-            }
-        });
-        self.inner
-            .observers
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(id, task);
-        Ok(Arc::new(ObserverSubscription {
-            core: Arc::downgrade(&self.inner),
-            id: Mutex::new(Some(id)),
-        }))
-    }
-
-    pub fn shutdown(&self) {
-        if self.inner.closed.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        let handles = std::mem::take(
-            &mut *self
-                .inner
-                .observers
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-        );
-        for (_, task) in handles {
-            task.abort();
-        }
-        let actor = self.inner.actor.clone();
-        crate::commands::runtime().spawn(async move {
-            let _ = actor.close().await;
-        });
-    }
-
     /// Stops observer delivery and waits for actor-owned shutdown.
     ///
     /// # Errors
@@ -223,7 +162,9 @@ mod tests {
     use radroots_studio_storage::RuntimeActorHandle;
 
     use crate::commands::{ACTOR_MAILBOX_CAPACITY, RuntimeCore, SystemClock, runtime};
-    use crate::{AppSnapshotDto, ProfileLoadStateDto, StudioAppCore, StudioObserver};
+    use crate::{
+        AppSnapshotDto, ProfileLoadStateDto, SnapshotChangeDto, StudioAppCore, StudioChangeObserver,
+    };
 
     const SECRET_HEX: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
 
@@ -233,8 +174,9 @@ mod tests {
         core: Mutex<Option<Arc<StudioAppCore>>>,
     }
 
-    impl StudioObserver for RecordingObserver {
-        fn on_snapshot_changed(&self, snapshot: AppSnapshotDto) {
+    impl StudioChangeObserver for RecordingObserver {
+        fn on_change(&self, change: SnapshotChangeDto) {
+            let snapshot = change.snapshot;
             if let Some(core) = self.core.lock().expect("core").as_ref() {
                 assert_eq!(core.snapshot().revision, snapshot.revision);
             }
@@ -272,7 +214,7 @@ mod tests {
             let observer = Arc::new(RecordingObserver::default());
             *observer.core.lock().expect("core") = Some(Arc::clone(&core));
             let subscription = core
-                .subscribe(Box::new(ArcObserver(observer.clone())))
+                .subscribe_changes_v2(Box::new(ArcObserver(observer.clone())))
                 .await
                 .expect("subscribe");
 
@@ -294,15 +236,14 @@ mod tests {
         let core = core();
         let observer = Arc::new(RecordingObserver::default());
         let _subscription = runtime()
-            .block_on(core.subscribe(Box::new(ArcObserver(observer.clone()))))
+            .block_on(core.subscribe_changes_v2(Box::new(ArcObserver(observer.clone()))))
             .expect("subscribe");
 
-        core.shutdown();
-        core.shutdown();
+        runtime().block_on(core.shutdown_v2()).expect("shutdown");
 
         assert!(
             runtime()
-                .block_on(core.subscribe(Box::new(ArcObserver(observer))))
+                .block_on(core.subscribe_changes_v2(Box::new(ArcObserver(observer))))
                 .is_err()
         );
         assert!(core.inner.observers.lock().expect("observers").is_empty());
@@ -333,13 +274,21 @@ mod tests {
         let observer = Arc::new(RecordingObserver::default());
         *observer.core.lock().expect("core") = Some(Arc::clone(&core));
         let subscription = core
-            .subscribe(Box::new(ArcObserver(observer.clone())))
+            .subscribe_changes_v2(Box::new(ArcObserver(observer.clone())))
             .await
             .expect("subscribe");
         let imported = core
-            .import_secret_key(SECRET_HEX.as_bytes().to_vec())
+            .import_account_v2(
+                crate::RequestContextDto {
+                    request_id: "observer-import".to_owned(),
+                    expected_revision: core.snapshot().revision,
+                    deadline_millis: 5_000,
+                },
+                SECRET_HEX.as_bytes().to_vec(),
+            )
             .await
-            .expect("import");
+            .expect("import")
+            .snapshot;
         let public_key = imported.selected_public_key_hex.expect("selection");
         core.activate_account(public_key).await.expect("activate");
         core.refresh_active_profile().await.expect("refresh");
@@ -361,16 +310,16 @@ mod tests {
         core.sign_out().await.expect("sign out");
         assert_eq!(observer.snapshots.lock().expect("snapshots").len(), count);
 
-        core.shutdown();
+        core.shutdown_v2().await.expect("shutdown");
         publisher.shutdown().await;
         local_relay.shutdown();
     }
 
     struct ArcObserver(Arc<RecordingObserver>);
 
-    impl StudioObserver for ArcObserver {
-        fn on_snapshot_changed(&self, snapshot: AppSnapshotDto) {
-            self.0.on_snapshot_changed(snapshot);
+    impl StudioChangeObserver for ArcObserver {
+        fn on_change(&self, change: SnapshotChangeDto) {
+            self.0.on_change(change);
         }
     }
 

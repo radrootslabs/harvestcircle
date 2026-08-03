@@ -6,7 +6,6 @@ import kotlinx.coroutines.test.runTest
 import org.radroots.studio.ffi.AccountDto
 import org.radroots.studio.ffi.AppLifecycleDto
 import org.radroots.studio.ffi.AppSnapshotDto
-import org.radroots.studio.ffi.GeneratedAccountDto
 import org.radroots.studio.ffi.KeyAvailabilityDto
 import org.radroots.studio.ffi.SessionStateDto
 import org.radroots.studio.ffi.SignerKindDto
@@ -47,6 +46,7 @@ class StudioAppStoreTest {
         assertEquals("nsec1secret", store.state.value.generatedKeyBackup?.revealNsec())
         assertEquals("npub1account", store.state.value.generatedKeyBackup?.npub)
         store.acknowledgeGeneratedKeyBackup()
+        advanceUntilIdle()
         assertNull(store.state.value.generatedKeyBackup)
         store.close()
     }
@@ -144,11 +144,12 @@ private class FakeStudioCoreGateway(
 
     override suspend fun bootstrap(): AppSnapshotDto = snapshot(1UL).also(::emit)
 
-    override suspend fun generateAccount(): GeneratedAccountDto {
-        val next = snapshot(current.revision + 1UL)
-        emit(next)
-        return GeneratedAccountDto(account(), next, "nsec1secret")
-    }
+    override suspend fun beginGeneratedAccount(): GeneratedRecoveryTicket =
+        FakeGeneratedRecoveryTicket(account()) { committed ->
+            current = snapshot(current.revision + 1UL)
+            emit(current)
+            committed(current)
+        }
 
     override suspend fun importSecretKey(secretKey: ByteArray): AppSnapshotDto = current.also {
         lastImportBuffer = secretKey
@@ -169,6 +170,26 @@ private class FakeStudioCoreGateway(
     override fun close() {
         closed = true
     }
+}
+
+private class FakeGeneratedRecoveryTicket(
+    override val account: AccountDto,
+    private val commit: (((AppSnapshotDto) -> Unit) -> Unit),
+) : GeneratedRecoveryTicket {
+    private var available = true
+
+    override fun takeRecoveryNsec(): String = "nsec1secret"
+
+    override suspend fun acknowledge(): AppSnapshotDto {
+        lateinit var snapshot: AppSnapshotDto
+        commit { snapshot = it }
+        available = false
+        return snapshot
+    }
+
+    override suspend fun cancel(): Boolean = available.also { available = false }
+
+    override fun close() = Unit
 }
 
 private class FakeRemovalTicket : RemovalTicket {

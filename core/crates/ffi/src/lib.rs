@@ -5,8 +5,8 @@ mod dto;
 mod observer;
 
 pub use commands::{
-    AccountCommandReceiptDto, GeneratedAccountDto, GeneratedRecoveryRequest, RemovalRequest,
-    RequestContextDto, StudioAppCore, StudioError,
+    AccountCommandReceiptDto, GeneratedRecoveryRequest, RemovalRequest, RequestContextDto,
+    StudioAppCore, StudioError,
 };
 pub use dto::{
     AccountDto, ActiveAccountDto, AppLifecycleDto, AppSnapshotDto, KeyAvailabilityDto, ProfileDto,
@@ -15,7 +15,6 @@ pub use dto::{
 };
 pub use observer::{
     ObserverSubscription, ShutdownReceiptDto, SnapshotChangeDto, StudioChangeObserver,
-    StudioObserver,
 };
 
 uniffi::setup_scaffolding!();

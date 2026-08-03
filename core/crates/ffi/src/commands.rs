@@ -122,13 +122,6 @@ impl StudioError {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
-pub struct GeneratedAccountDto {
-    pub account: AccountDto,
-    pub snapshot: AppSnapshotDto,
-    pub nsec: String,
-}
-
 #[derive(uniffi::Object)]
 pub struct GeneratedRecoveryRequest {
     handle: GeneratedKeyRecoveryHandle,
@@ -201,19 +194,6 @@ impl StudioAppCore {
         Self::open_path_compatible(&path, &expectation, development_mode)
     }
 
-    /// Opens the canonical application database and runtime services.
-    ///
-    /// # Errors
-    ///
-    /// Returns a safe configuration or storage error.
-    #[uniffi::constructor]
-    pub fn open(development_mode: bool) -> Result<Arc<Self>, StudioError> {
-        let path = canonical_database_path()?;
-        std::fs::create_dir_all(path.parent().ok_or_else(path_unavailable)?)
-            .map_err(|_| path_unavailable())?;
-        Self::open_path(&path, development_mode)
-    }
-
     /// Restores durable public application state.
     ///
     /// # Errors
@@ -231,24 +211,6 @@ impl StudioAppCore {
     #[must_use]
     pub fn snapshot(&self) -> AppSnapshotDto {
         (&self.inner.actor.snapshot()).into()
-    }
-
-    /// Generates and stores one local account with a one-time backup receipt.
-    ///
-    /// # Errors
-    ///
-    /// Returns a safe keyring, storage, or account error.
-    pub async fn generate_account(&self) -> Result<GeneratedAccountDto, StudioError> {
-        self.inner
-            .actor
-            .generate_account()
-            .await
-            .map(|receipt| GeneratedAccountDto {
-                account: receipt.account().into(),
-                snapshot: (&self.inner.actor.snapshot()).into(),
-                nsec: receipt.generated_nsec().with_exposed_secret(str::to_owned),
-            })
-            .map_err(StudioError::from)
     }
 
     /// Begins the exclusive generated-account recovery flow without persistence.
@@ -308,24 +270,6 @@ impl StudioAppCore {
             .actor
             .cancel_generated_key_stage()
             .await
-            .map_err(StudioError::from)
-    }
-
-    /// Imports one nsec or canonical secret-key hex value.
-    ///
-    /// # Errors
-    ///
-    /// Returns a safe validation, keyring, storage, or account error.
-    pub async fn import_secret_key(
-        &self,
-        secret_key: Vec<u8>,
-    ) -> Result<AppSnapshotDto, StudioError> {
-        let input = SecretKeyInput::parse_bytes(secret_key).map_err(StudioError::from)?;
-        self.inner
-            .actor
-            .import_secret_key(input)
-            .await
-            .map(|_| (&self.inner.actor.snapshot()).into())
             .map_err(StudioError::from)
     }
 
@@ -785,5 +729,21 @@ mod tests {
             property("keyring.account"),
             Some("canonical-lowercase-public-key-hex")
         );
+    }
+
+    #[test]
+    fn superseded_v1_ffi_commands_are_absent() {
+        let commands = include_str!("commands.rs");
+        let observer = include_str!("observer.rs");
+        for forbidden in [
+            format!("pub async fn {}_account(", "generate"),
+            format!("pub async fn {}_secret_key(", "import"),
+            format!("pub fn {}(development_mode", "open"),
+            format!("pub async fn {}(", "subscribe"),
+            format!("pub fn {}(&self)", "shutdown"),
+        ] {
+            assert!(!commands.contains(&forbidden));
+            assert!(!observer.contains(&forbidden));
+        }
     }
 }
