@@ -82,8 +82,13 @@ private class ApplicationGateway : StudioCoreGateway {
     override suspend fun requestAccountRemoval(publicKeyHex: String): RemovalTicket = error("unused")
     override suspend fun confirmAccountRemoval(ticket: RemovalTicket) = error("unused")
 
-    override fun close() {
+    override fun shutdown(): StudioShutdownReceipt {
         closed = true
+        return StudioShutdownReceipt(1UL, closed = true)
+    }
+
+    override fun close() {
+        shutdown()
     }
 }
 

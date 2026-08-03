@@ -34,7 +34,9 @@ class StudioAppStoreTest {
         assertFalse(store.state.value.busy)
         store.close()
         assertTrue(gateway.closed)
+        assertTrue(gateway.shutdownCompleted)
         assertTrue(gateway.subscriptionClosed)
+        assertEquals(StudioRoute.CLOSED, store.state.value.route)
     }
 
     @Test
@@ -145,13 +147,55 @@ class StudioAppStoreTest {
         assertEquals(true, gateway.lastImportBuffer?.all { it == 0.toByte() })
         store.close()
     }
+
+    @Test
+    fun `projects boot fatal and terminal lifecycle failures`() = runTest {
+        val booting = snapshot(0UL, AppLifecycleDto.BOOTING)
+        val bootGateway = FakeStudioCoreGateway(booting, booting)
+        val bootStore = StudioAppStore(bootGateway, this)
+        advanceUntilIdle()
+        assertEquals(StudioRoute.BOOTING, bootStore.state.value.route)
+        bootStore.close()
+
+        val fatal = snapshot(1UL, AppLifecycleDto.FATAL)
+        val gateway = FakeStudioCoreGateway(fatal, fatal)
+        val store = StudioAppStore(gateway, this)
+        advanceUntilIdle()
+        assertEquals(StudioRoute.FATAL, store.state.value.route)
+        store.signOut()
+        advanceUntilIdle()
+        assertEquals(CommandStatus.FAILED_TERMINAL, store.state.value.commandStatus)
+        assertEquals(0, gateway.signOutCalls)
+
+        store.close()
+        store.signOut()
+        assertEquals(CommandStatus.REJECTED_CLOSED, store.state.value.commandStatus)
+    }
+
+    @Test
+    fun `disposal waits for native shutdown and fails closed on an incomplete receipt`() = runTest {
+        val gateway = FakeStudioCoreGateway(snapshot(0UL)).apply {
+            shutdownReceipt = StudioShutdownReceipt(1UL, closed = false)
+        }
+        val store = StudioAppStore(gateway, this)
+        advanceUntilIdle()
+
+        store.close()
+
+        assertTrue(gateway.shutdownCompleted)
+        assertEquals(StudioRoute.FATAL, store.state.value.route)
+        assertEquals("The application could not shut down safely.", store.state.value.problem)
+    }
 }
 
 private class FakeStudioCoreGateway(
     private var current: AppSnapshotDto,
+    private val bootstrapSnapshot: AppSnapshotDto = snapshot(1UL),
 ) : StudioCoreGateway {
     private var observer: ((AppSnapshotDto) -> Unit)? = null
     var closed = false
+    var shutdownCompleted = false
+    var shutdownReceipt = StudioShutdownReceipt(current.revision, closed = true)
     var subscriptionClosed = false
     var signOutCalls = 0
     val importedSecrets = mutableListOf<String>()
@@ -191,7 +235,7 @@ private class FakeStudioCoreGateway(
         observer?.invoke(snapshot)
     }
 
-    override suspend fun bootstrap(): AppSnapshotDto = snapshot(1UL).also(::emit)
+    override suspend fun bootstrap(): AppSnapshotDto = bootstrapSnapshot.also(::emit)
 
     override suspend fun beginGeneratedAccount(): GeneratedRecoveryTicket =
         FakeGeneratedRecoveryTicket(account()) { committed ->
@@ -208,8 +252,14 @@ private class FakeStudioCoreGateway(
         return current
     }
 
-    override fun close() {
+    override fun shutdown(): StudioShutdownReceipt {
+        shutdownCompleted = true
         closed = true
+        return shutdownReceipt
+    }
+
+    override fun close() {
+        shutdown()
     }
 }
 
@@ -241,9 +291,12 @@ private class FakeRemovalTicket : RemovalTicket {
     }
 }
 
-private fun snapshot(revision: ULong) = AppSnapshotDto(
+private fun snapshot(
+    revision: ULong,
+    lifecycle: AppLifecycleDto = AppLifecycleDto.READY,
+) = AppSnapshotDto(
     revision = revision,
-    lifecycle = AppLifecycleDto.READY,
+    lifecycle = lifecycle,
     lifecycleError = null,
     configuredRelays = emptyList(),
     accounts = emptyList(),

@@ -56,6 +56,11 @@ data class StudioCommandFailure(
     val safeMessage: String,
 )
 
+data class StudioShutdownReceipt(
+    val finalRevision: ULong,
+    val closed: Boolean,
+)
+
 sealed interface StudioCommandResult {
     data class Accepted(val receipt: StudioCommandReceipt) : StudioCommandResult
     data class Rejected(val failure: StudioCommandFailure) : StudioCommandResult
@@ -75,12 +80,16 @@ interface StudioCoreGateway : AutoCloseable {
     suspend fun requestAccountRemoval(publicKeyHex: String): RemovalTicket
 
     suspend fun confirmAccountRemoval(ticket: RemovalTicket): AppSnapshotDto
+
+    fun shutdown(): StudioShutdownReceipt
 }
 
 class NativeStudioCoreGateway(
     private val core: StudioAppCore,
 ) : StudioCoreGateway {
     private val nextRequest = AtomicLong(1)
+    private val shutdownLock = Any()
+    private var shutdownReceipt: StudioShutdownReceipt? = null
     override fun snapshot(): AppSnapshotDto = core.snapshot()
 
     override suspend fun subscribeChanges(onChange: (StudioChange) -> Unit): AutoCloseable {
@@ -129,9 +138,19 @@ class NativeStudioCoreGateway(
         return core.confirmAccountRemoval(ticket.request)
     }
 
+    override fun shutdown(): StudioShutdownReceipt = synchronized(shutdownLock) {
+        shutdownReceipt ?: run {
+            val receipt = runBlocking { core.shutdownV2() }
+            StudioShutdownReceipt(receipt.finalRevision, receipt.closed).also {
+                check(it.closed) { "Native runtime returned an incomplete shutdown receipt" }
+                shutdownReceipt = it
+                core.close()
+            }
+        }
+    }
+
     override fun close() {
-        runBlocking { core.shutdownV2() }
-        core.close()
+        shutdown()
     }
 
     private fun requestContext(): RequestContextDto = RequestContextDto(

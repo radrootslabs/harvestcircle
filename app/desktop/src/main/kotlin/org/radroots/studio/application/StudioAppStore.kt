@@ -256,6 +256,13 @@ class StudioAppStore(
             )
             return true
         }
+        if (mutableState.value.route !in setOf(StudioRoute.ACCOUNTS, StudioRoute.ACTIVE_ACCOUNT)) {
+            mutableState.value = mutableState.value.copy(
+                commandStatus = CommandStatus.FAILED_TERMINAL,
+                problem = "The application runtime is not ready for this action.",
+            )
+            return true
+        }
         return false
     }
 
@@ -297,8 +304,18 @@ class StudioAppStore(
         pendingGeneratedRecovery?.close()
         subscription?.close()
         generatedRecovery.close()
-        gateway.close()
-        mutableState.value = mutableState.value.copy(route = StudioRoute.CLOSED, busy = false)
+        runCatching { gateway.shutdown() }
+            .onSuccess { receipt ->
+                mutableState.value = mutableState.value.copy(
+                    route = if (receipt.closed) StudioRoute.CLOSED else StudioRoute.FATAL,
+                    busy = false,
+                    problem = if (receipt.closed) null else "The application could not shut down safely.",
+                )
+            }
+            .onFailure { error ->
+                acceptFailure(error)
+                mutableState.value = mutableState.value.copy(route = StudioRoute.FATAL, busy = false)
+            }
     }
 }
 
