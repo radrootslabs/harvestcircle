@@ -397,7 +397,7 @@ mod tests {
 
         assert_eq!(property("baseline.id"), Some("studio-runtime-v5"));
         assert_eq!(property("schema.version"), Some("5"));
-        assert_eq!(CURRENT_SCHEMA_VERSION, 7);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 8);
         assert_eq!(property("ffi.contract"), Some("legacy-unversioned-v1"));
         assert_eq!(property("ffi.snapshot.schema"), Some("1"));
         assert_eq!(property("ffi.runtime.version"), Some("0.1.0-alpha"));

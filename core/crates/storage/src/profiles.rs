@@ -12,7 +12,7 @@ impl ProfileRepository for Database {
         self.connection()
             .query_row(
                 "SELECT event_id, event_created_at, name, display_name, nip05, about, picture, \
-                 refreshed_at, refresh_status FROM profile_cache WHERE subject_pubkey = ?1",
+                 refreshed_at, refresh_status FROM profile_cache_v6 WHERE subject_public_key = ?1",
                 [public_key.to_hex()],
                 |row| decode_profile(row, public_key),
             )
@@ -25,17 +25,17 @@ impl ProfileRepository for Database {
         let metadata = candidate.metadata();
         self.connection()
             .execute(
-                "INSERT INTO profile_cache (subject_pubkey, event_id, event_created_at, name, \
+                "INSERT INTO profile_cache_v6 (subject_public_key, event_id, event_created_at, name, \
                  display_name, nip05, about, picture, refreshed_at, refresh_status) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) \
-                 ON CONFLICT(subject_pubkey) DO UPDATE SET \
+                 ON CONFLICT(subject_public_key) DO UPDATE SET \
                  event_id = excluded.event_id, event_created_at = excluded.event_created_at, \
                  name = excluded.name, display_name = excluded.display_name, nip05 = excluded.nip05, \
                  about = excluded.about, picture = excluded.picture, \
                  refreshed_at = excluded.refreshed_at, refresh_status = excluded.refresh_status \
-                 WHERE excluded.event_created_at > profile_cache.event_created_at \
-                 OR (excluded.event_created_at = profile_cache.event_created_at \
-                 AND excluded.event_id < profile_cache.event_id)",
+                 WHERE excluded.event_created_at > profile_cache_v6.event_created_at \
+                 OR (excluded.event_created_at = profile_cache_v6.event_created_at \
+                 AND excluded.event_id < profile_cache_v6.event_id)",
                 params![
                     candidate.author().to_hex(),
                     candidate.event_id().to_hex(),
@@ -61,8 +61,8 @@ impl ProfileRepository for Database {
     ) -> Result<(), SafeError> {
         self.connection()
             .execute(
-                "UPDATE profile_cache SET refreshed_at = ?2, refresh_status = ?3 \
-                 WHERE subject_pubkey = ?1",
+                "UPDATE profile_cache_v6 SET refreshed_at = ?2, refresh_status = ?3 \
+                 WHERE subject_public_key = ?1",
                 params![
                     public_key.to_hex(),
                     refreshed_at.as_seconds(),
@@ -76,7 +76,7 @@ impl ProfileRepository for Database {
     fn remove_profile(&self, public_key: PublicKey) -> Result<(), SafeError> {
         self.connection()
             .execute(
-                "DELETE FROM profile_cache WHERE subject_pubkey = ?1",
+                "DELETE FROM profile_cache_v6 WHERE subject_public_key = ?1",
                 [public_key.to_hex()],
             )
             .map(|_| ())

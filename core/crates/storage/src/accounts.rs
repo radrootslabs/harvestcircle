@@ -12,8 +12,12 @@ impl AccountRepository for Database {
         let connection = self.connection();
         let mut statement = connection
             .prepare(
-                "SELECT pubkey, npub, signer_kind, key_availability, label, created_at, \
-                 last_used_at FROM accounts ORDER BY created_at ASC, pubkey ASC",
+                "SELECT identity.public_key, identity.npub, binding.binding_kind, \
+                 binding.availability, identity.label, identity.created_at, identity.last_used_at \
+                 FROM account_identities AS identity \
+                 JOIN local_signer_bindings AS binding \
+                 ON binding.account_public_key = identity.public_key \
+                 ORDER BY identity.created_at ASC, identity.public_key ASC",
             )
             .map_err(|_| storage_error())?;
         let rows = statement
@@ -26,8 +30,12 @@ impl AccountRepository for Database {
     fn find_account(&self, public_key: PublicKey) -> Result<Option<AccountSummary>, SafeError> {
         self.connection()
             .query_row(
-                "SELECT pubkey, npub, signer_kind, key_availability, label, created_at, \
-                 last_used_at FROM accounts WHERE pubkey = ?1",
+                "SELECT identity.public_key, identity.npub, binding.binding_kind, \
+                 binding.availability, identity.label, identity.created_at, identity.last_used_at \
+                 FROM account_identities AS identity \
+                 JOIN local_signer_bindings AS binding \
+                 ON binding.account_public_key = identity.public_key \
+                 WHERE identity.public_key = ?1",
                 [public_key.to_hex()],
                 decode_account,
             )
@@ -37,55 +45,93 @@ impl AccountRepository for Database {
 
     fn insert_account(&self, account: &AccountSummary) -> Result<(), SafeError> {
         let encoded = EncodedAccount::from(account);
-        let result = self.connection().execute(
-            "INSERT INTO accounts (pubkey, npub, signer_kind, key_availability, label, \
-             created_at, last_used_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        let mut connection = self.connection();
+        let transaction = connection.transaction().map_err(|_| storage_error())?;
+        let result = transaction.execute(
+            "INSERT INTO account_identities (public_key, npub, label, created_at, last_used_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 encoded.public_key,
                 encoded.npub,
-                encoded.signer_kind,
-                encoded.key_availability,
                 encoded.label,
                 encoded.created_at,
-                encoded.last_used_at,
+                encoded.last_used_at
             ],
         );
         match result {
-            Ok(1) => Ok(()),
-            Err(error) if is_constraint_violation(&error) => Err(account_exists()),
-            Ok(_) | Err(_) => Err(storage_error()),
+            Ok(1) => {}
+            Err(error) if is_constraint_violation(&error) => return Err(account_exists()),
+            Ok(_) | Err(_) => return Err(storage_error()),
         }
+        if transaction
+            .execute(
+                "INSERT INTO local_signer_bindings (account_public_key, binding_public_key, \
+                 binding_kind, availability) VALUES (?1, ?1, ?2, ?3)",
+                params![
+                    encoded.public_key,
+                    encoded.signer_kind,
+                    encoded.key_availability
+                ],
+            )
+            .map_err(|_| storage_error())?
+            != 1
+        {
+            return Err(storage_error());
+        }
+        transaction.commit().map_err(|_| storage_error())
     }
 
     fn update_account(&self, account: &AccountSummary) -> Result<(), SafeError> {
         let encoded = EncodedAccount::from(account);
+        let mut connection = self.connection();
+        let transaction = connection.transaction().map_err(|_| storage_error())?;
+        let identity_rows = transaction
+            .execute(
+                "UPDATE account_identities SET npub = ?2, label = ?5, created_at = ?6, \
+             last_used_at = ?7 WHERE public_key = ?1",
+                params![
+                    encoded.public_key,
+                    encoded.npub,
+                    encoded.signer_kind,
+                    encoded.key_availability,
+                    encoded.label,
+                    encoded.created_at,
+                    encoded.last_used_at,
+                ],
+            )
+            .map_err(|_| storage_error())?;
+        if identity_rows == 0 {
+            return Err(account_not_found());
+        }
+        if identity_rows != 1 {
+            return Err(storage_error());
+        }
+        let binding_rows = transaction
+            .execute(
+                "UPDATE local_signer_bindings SET binding_kind = ?2, availability = ?3 \
+                 WHERE account_public_key = ?1 AND binding_public_key = ?1",
+                params![
+                    encoded.public_key,
+                    encoded.signer_kind,
+                    encoded.key_availability
+                ],
+            )
+            .map_err(|_| storage_error())?;
+        if binding_rows != 1 {
+            return Err(corrupt_storage_error());
+        }
+        transaction.commit().map_err(|_| storage_error())
+    }
+
+    fn remove_account(&self, public_key: PublicKey) -> Result<(), SafeError> {
         match self.connection().execute(
-            "UPDATE accounts SET npub = ?2, signer_kind = ?3, key_availability = ?4, \
-             label = ?5, created_at = ?6, last_used_at = ?7 WHERE pubkey = ?1",
-            params![
-                encoded.public_key,
-                encoded.npub,
-                encoded.signer_kind,
-                encoded.key_availability,
-                encoded.label,
-                encoded.created_at,
-                encoded.last_used_at,
-            ],
+            "DELETE FROM account_identities WHERE public_key = ?1",
+            [public_key.to_hex()],
         ) {
             Ok(1) => Ok(()),
             Ok(0) => Err(account_not_found()),
             Ok(_) | Err(_) => Err(storage_error()),
         }
-    }
-
-    fn remove_account(&self, public_key: PublicKey) -> Result<(), SafeError> {
-        self.connection()
-            .execute(
-                "DELETE FROM accounts WHERE pubkey = ?1",
-                [public_key.to_hex()],
-            )
-            .map(|_| ())
-            .map_err(|_| storage_error())
     }
 }
 
@@ -94,7 +140,7 @@ impl AppStateRepository for Database {
         let value = self
             .connection()
             .query_row(
-                "SELECT selected_pubkey FROM app_state WHERE singleton = 1",
+                "SELECT selected_public_key FROM runtime_state WHERE singleton = 1",
                 [],
                 |row| row.get::<_, Option<String>>(0),
             )
@@ -105,18 +151,30 @@ impl AppStateRepository for Database {
     }
 
     fn save_selected_account(&self, public_key: Option<PublicKey>) -> Result<(), SafeError> {
-        if let Some(public_key) = public_key
-            && self.find_account(public_key)?.is_none()
-        {
-            return Err(account_not_found());
+        let mut connection = self.connection();
+        let transaction = connection.transaction().map_err(|_| storage_error())?;
+        if let Some(public_key) = public_key {
+            let exists = transaction
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM account_identities WHERE public_key = ?1)",
+                    [public_key.to_hex()],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(|_| storage_error())?;
+            if !exists {
+                return Err(account_not_found());
+            }
         }
-        self.connection()
+        let rows = transaction
             .execute(
-                "UPDATE app_state SET selected_pubkey = ?1 WHERE singleton = 1",
+                "UPDATE runtime_state SET selected_public_key = ?1 WHERE singleton = 1",
                 [public_key.map(PublicKey::to_hex)],
             )
-            .map(|_| ())
-            .map_err(|_| storage_error())
+            .map_err(|_| storage_error())?;
+        if rows != 1 {
+            return Err(corrupt_storage_error());
+        }
+        transaction.commit().map_err(|_| storage_error())
     }
 }
 

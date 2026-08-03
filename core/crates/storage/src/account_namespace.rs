@@ -14,8 +14,8 @@ impl AccountNamespaceRepository for Database {
     ) -> Result<Option<String>, SafeError> {
         self.connection()
             .query_row(
-                "SELECT preference_value FROM account_namespace \
-                 WHERE owner_pubkey = ?1 AND preference_key = ?2",
+                "SELECT preference_value FROM account_preferences \
+                 WHERE owner_public_key = ?1 AND preference_key = ?2",
                 params![owner.to_hex(), encode_key(key)],
                 |row| row.get(0),
             )
@@ -34,8 +34,8 @@ impl AccountNamespaceRepository for Database {
         }
         self.connection()
             .execute(
-                "INSERT INTO account_namespace (owner_pubkey, preference_key, preference_value) \
-                 VALUES (?1, ?2, ?3) ON CONFLICT(owner_pubkey, preference_key) DO UPDATE SET \
+                "INSERT INTO account_preferences (owner_public_key, preference_key, preference_value) \
+                 VALUES (?1, ?2, ?3) ON CONFLICT(owner_public_key, preference_key) DO UPDATE SET \
                  preference_value = excluded.preference_value",
                 params![owner.to_hex(), encode_key(key), value],
             )
@@ -46,7 +46,7 @@ impl AccountNamespaceRepository for Database {
     fn clear_owner(&self, owner: PublicKey) -> Result<(), SafeError> {
         self.connection()
             .execute(
-                "DELETE FROM account_namespace WHERE owner_pubkey = ?1",
+                "DELETE FROM account_preferences WHERE owner_public_key = ?1",
                 [owner.to_hex()],
             )
             .map(|_| ())

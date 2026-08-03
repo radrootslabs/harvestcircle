@@ -9,7 +9,7 @@ use radroots_studio_domain::{AccountIdentity, PublicKey, SafeError, SafeErrorCod
 use refinery::embed_migrations;
 use rusqlite::{Connection, OpenFlags};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 7;
+pub const CURRENT_SCHEMA_VERSION: u32 = 8;
 
 mod migrations {
     use super::embed_migrations;
@@ -381,7 +381,7 @@ mod tests {
         }
 
         let database = Database::open(&path).expect("migrated database");
-        assert_eq!(database.schema_version().expect("version"), 7);
+        assert_eq!(database.schema_version().expect("version"), 8);
         assert_eq!(database.list_accounts().expect("accounts").len(), 1);
         assert_eq!(
             database.load_selected_account().expect("selection"),
