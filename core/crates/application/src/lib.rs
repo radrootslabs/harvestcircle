@@ -33,9 +33,10 @@ pub use config::{
 pub use nostr_client::SdkNostrClient;
 pub use ports::{
     AccountNamespaceRepository, AccountOperationKind, AccountOperationPhase, AccountPreferenceKey,
-    AccountRepository, AppStateRepository, BoxFuture, CachedProfile, Clock, NostrClient,
-    OperationDiagnostic, OperationId, OperationJournal, PendingAccountOperation,
-    ProfileRefreshStatus, ProfileRepository,
+    AccountRepository, AppStateRepository, BoxFuture, CachedProfile, Clock, DurableOperationKind,
+    DurableOperationPhase, DurableOperationReceipt, DurableRequestId, DurableTerminalOutcome,
+    NostrClient, OperationDiagnostic, OperationId, OperationJournal, OperationPriorState,
+    PendingAccountOperation, ProfileRefreshStatus, ProfileRepository,
 };
 pub use profile_refresh::ProfileRefreshPlan;
 pub use secrets::{

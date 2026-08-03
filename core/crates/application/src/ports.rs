@@ -2,8 +2,146 @@ use std::future::Future;
 use std::pin::Pin;
 
 use radroots_studio_domain::{
-    AccountSummary, Kind0ProfileCandidate, PublicKey, RelayUrl, SafeError, UnixTimestamp,
+    AccountSummary, BindingAvailability, Kind0ProfileCandidate, PublicKey, RelayUrl, SafeError,
+    SafeErrorCode, SafeMessage, UnixTimestamp,
 };
+
+const MAX_DURABLE_REQUEST_ID_BYTES: usize = 128;
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DurableRequestId(String);
+
+impl DurableRequestId {
+    /// Validates an opaque caller-generated idempotency key.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe validation error when the value is empty, oversized, or contains anything
+    /// other than visible ASCII characters.
+    pub fn parse(value: impl Into<String>) -> Result<Self, SafeError> {
+        let value = value.into();
+        if value.is_empty()
+            || value.len() > MAX_DURABLE_REQUEST_ID_BYTES
+            || !value.bytes().all(|byte| byte.is_ascii_graphic())
+        {
+            return Err(invalid_request_id());
+        }
+        Ok(Self(value))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DurableOperationKind {
+    Create,
+    Import,
+    Repair,
+    Remove,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DurableOperationPhase {
+    IntentRecorded,
+    CredentialWritten,
+    MetadataCommitted,
+    SelectionCommitted,
+    CompensationPending,
+    CredentialDeleted,
+    MetadataDeleted,
+    Finalized,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DurableTerminalOutcome {
+    Completed,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct OperationPriorState {
+    selected_account: Option<PublicKey>,
+    binding_availability: Option<BindingAvailability>,
+}
+
+impl OperationPriorState {
+    #[must_use]
+    pub const fn new(
+        selected_account: Option<PublicKey>,
+        binding_availability: Option<BindingAvailability>,
+    ) -> Self {
+        Self {
+            selected_account,
+            binding_availability,
+        }
+    }
+
+    #[must_use]
+    pub const fn selected_account(self) -> Option<PublicKey> {
+        self.selected_account
+    }
+
+    #[must_use]
+    pub const fn binding_availability(self) -> Option<BindingAvailability> {
+        self.binding_availability
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DurableOperationReceipt {
+    request_id: DurableRequestId,
+    account: PublicKey,
+    outcome: DurableTerminalOutcome,
+    resulting_revision: Option<u64>,
+}
+
+impl DurableOperationReceipt {
+    #[must_use]
+    pub const fn new(
+        request_id: DurableRequestId,
+        account: PublicKey,
+        outcome: DurableTerminalOutcome,
+        resulting_revision: Option<u64>,
+    ) -> Self {
+        Self {
+            request_id,
+            account,
+            outcome,
+            resulting_revision,
+        }
+    }
+
+    #[must_use]
+    pub const fn request_id(&self) -> &DurableRequestId {
+        &self.request_id
+    }
+
+    #[must_use]
+    pub const fn account(&self) -> PublicKey {
+        self.account
+    }
+
+    #[must_use]
+    pub const fn outcome(&self) -> DurableTerminalOutcome {
+        self.outcome
+    }
+
+    #[must_use]
+    pub const fn resulting_revision(&self) -> Option<u64> {
+        self.resulting_revision
+    }
+}
+
+const fn invalid_request_id() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::InvalidApplicationState,
+        SafeMessage::new("The request identifier is invalid."),
+    )
+}
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -324,9 +462,26 @@ mod tests {
     use super::{
         AccountNamespaceRepository, AccountOperationKind, AccountOperationPhase,
         AccountPreferenceKey, AccountRepository, AppStateRepository, BoxFuture, CachedProfile,
-        Clock, NostrClient, OperationDiagnostic, OperationId, OperationJournal,
-        PendingAccountOperation, ProfileRefreshStatus, ProfileRepository,
+        Clock, DurableOperationReceipt, DurableRequestId, DurableTerminalOutcome, NostrClient,
+        OperationDiagnostic, OperationId, OperationJournal, PendingAccountOperation,
+        ProfileRefreshStatus, ProfileRepository,
     };
+
+    #[test]
+    fn durable_request_ids_and_terminal_receipts_are_bounded_and_public() {
+        let request = DurableRequestId::parse("create:desktop:0001").expect("request id");
+        let receipt = DurableOperationReceipt::new(
+            request.clone(),
+            PublicKey::from_bytes([3; 32]),
+            DurableTerminalOutcome::Completed,
+            Some(42),
+        );
+        assert_eq!(receipt.request_id(), &request);
+        assert_eq!(receipt.resulting_revision(), Some(42));
+        for invalid in ["", "contains space", &"x".repeat(129)] {
+            assert!(DurableRequestId::parse(invalid).is_err());
+        }
+    }
 
     #[derive(Default)]
     struct FakePorts {
