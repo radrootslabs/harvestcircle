@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard};
 
-use radroots_studio_domain::{SafeError, SafeErrorCode, SafeMessage};
+use radroots_studio_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage, UnixTimestamp};
 
 use crate::{
     AccountRepository, AppSnapshot, AppStateRepository, RelayConfiguration, SnapshotRevision,
@@ -10,13 +10,59 @@ use crate::{
 
 pub struct RemovalConfirmationToken {
     id: u64,
-    public_key: radroots_studio_domain::PublicKey,
+    public_key: PublicKey,
     revision: SnapshotRevision,
+    expires_at: UnixTimestamp,
+    impact: RemovalImpact,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RemovalImpact {
+    deletes_local_credential: bool,
+    signs_out: bool,
+}
+
+impl RemovalImpact {
+    #[must_use]
+    pub const fn deletes_local_credential(self) -> bool {
+        self.deletes_local_credential
+    }
+    #[must_use]
+    pub const fn signs_out(self) -> bool {
+        self.signs_out
+    }
+}
+
+impl RemovalConfirmationToken {
+    #[must_use]
+    pub const fn public_key(&self) -> PublicKey {
+        self.public_key
+    }
+    #[must_use]
+    pub const fn revision(&self) -> SnapshotRevision {
+        self.revision
+    }
+    #[must_use]
+    pub const fn expires_at(&self) -> UnixTimestamp {
+        self.expires_at
+    }
+    #[must_use]
+    pub const fn impact(&self) -> RemovalImpact {
+        self.impact
+    }
+}
+
+#[derive(Clone, Copy)]
+struct RemovalTokenState {
+    public_key: PublicKey,
+    revision: SnapshotRevision,
+    expires_at: UnixTimestamp,
+    impact: RemovalImpact,
 }
 
 struct CoreState {
     state_machine: StateMachine,
-    removal_tokens: BTreeMap<u64, (radroots_studio_domain::PublicKey, SnapshotRevision)>,
+    removal_tokens: BTreeMap<u64, RemovalTokenState>,
     next_removal_token: u64,
 }
 
@@ -91,7 +137,8 @@ impl AppCore {
 
     pub(crate) fn issue_removal_token(
         &self,
-        public_key: radroots_studio_domain::PublicKey,
+        public_key: PublicKey,
+        now: UnixTimestamp,
     ) -> Result<RemovalConfirmationToken, SafeError> {
         let mut state = self.lock_state();
         if !state
@@ -106,11 +153,35 @@ impl AppCore {
         let id = state.next_removal_token;
         state.next_removal_token = id.checked_add(1).ok_or_else(invalid_application_state)?;
         let revision = state.state_machine.snapshot().revision();
-        state.removal_tokens.insert(id, (public_key, revision));
+        let expires_at = UnixTimestamp::from_seconds(
+            now.as_seconds()
+                .checked_add(300)
+                .ok_or_else(invalid_application_state)?,
+        )
+        .ok_or_else(invalid_application_state)?;
+        let impact = RemovalImpact {
+            deletes_local_credential: true,
+            signs_out: state
+                .state_machine
+                .snapshot()
+                .active_account()
+                .is_some_and(|active| active.account().public_key() == public_key),
+        };
+        state.removal_tokens.insert(
+            id,
+            RemovalTokenState {
+                public_key,
+                revision,
+                expires_at,
+                impact,
+            },
+        );
         Ok(RemovalConfirmationToken {
             id,
             public_key,
             revision,
+            expires_at,
+            impact,
         })
     }
 
@@ -118,20 +189,33 @@ impl AppCore {
     pub(crate) fn consume_removal_token(
         &self,
         token: RemovalConfirmationToken,
-    ) -> Result<radroots_studio_domain::PublicKey, SafeError> {
+        now: UnixTimestamp,
+    ) -> Result<PublicKey, SafeError> {
         let RemovalConfirmationToken {
             id,
             public_key,
             revision,
+            expires_at,
+            impact,
         } = token;
         let mut state = self.lock_state();
         let stored = state.removal_tokens.remove(&id);
-        if stored != Some((public_key, revision))
-            || state.state_machine.snapshot().revision() != revision
+        if stored.is_none_or(|stored| {
+            stored.public_key != public_key
+                || stored.revision != revision
+                || stored.expires_at != expires_at
+                || stored.impact != impact
+        }) || state.state_machine.snapshot().revision() != revision
+            || now.as_seconds() > expires_at.as_seconds()
         {
             return Err(invalid_application_state());
         }
         Ok(public_key)
+    }
+
+    #[allow(clippy::needless_pass_by_value)]
+    pub(crate) fn cancel_removal_token(&self, token: RemovalConfirmationToken) -> bool {
+        self.lock_state().removal_tokens.remove(&token.id).is_some()
     }
 
     fn lock_state(&self) -> MutexGuard<'_, CoreState> {

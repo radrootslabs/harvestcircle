@@ -657,13 +657,19 @@ impl RuntimeActor {
                 .map(RuntimeCommandValue::Snapshot),
             RuntimeCommand::RequestAccountRemoval(public_key) => self
                 .adapter
-                .request_account_removal(public_key)
+                .request_account_removal(public_key, self.clock.as_ref())
                 .map(RuntimeCommandValue::RemovalRequest),
-            RuntimeCommand::ConfirmAccountRemoval(token) => self
-                .adapter
-                .confirm_account_removal(token, self.secrets.as_ref(), self.clock.as_ref())
-                .map(Box::new)
-                .map(RuntimeCommandValue::Snapshot),
+            RuntimeCommand::ConfirmAccountRemoval(token) => durable_request.and_then(|request| {
+                self.adapter
+                    .confirm_account_removal_durable(
+                        &request,
+                        token,
+                        self.secrets.as_ref(),
+                        self.clock.as_ref(),
+                    )
+                    .map(Box::new)
+                    .map(RuntimeCommandValue::Snapshot)
+            }),
             RuntimeCommand::SubscribeChanges(capacity) => self
                 .changes
                 .subscribe(capacity)

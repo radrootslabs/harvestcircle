@@ -28,7 +28,9 @@ impl AppCore {
                 | DurableOperationKind::Repair => recover_durable_addition(
                     &operation, accounts, app_state, secrets, operations, clock,
                 )?,
-                DurableOperationKind::Remove => {}
+                DurableOperationKind::Remove => recover_durable_removal(
+                    &operation, accounts, app_state, secrets, operations, clock,
+                )?,
             }
         }
         Ok(())
@@ -62,6 +64,66 @@ impl AppCore {
         }
         Ok(())
     }
+}
+
+fn recover_durable_removal(
+    operation: &DurableAccountOperation,
+    accounts: &(impl AccountRepository + ?Sized),
+    app_state: &(impl AppStateRepository + ?Sized),
+    secrets: &(impl SecretStore + ?Sized),
+    operations: &(impl DurableOperationRepository + ?Sized),
+    clock: &(impl Clock + ?Sized),
+) -> Result<(), SafeError> {
+    let request = operation.request_id();
+    let account = operation.account();
+    let mut phase = operation.phase();
+    if phase == DurableOperationPhase::IntentRecorded {
+        if secrets.contains(account)? {
+            secrets.delete(account)?;
+        }
+        operations.advance_durable_operation(
+            request,
+            phase,
+            DurableOperationPhase::CredentialDeleted,
+            clock.now(),
+            None,
+        )?;
+        phase = DurableOperationPhase::CredentialDeleted;
+    }
+    if phase == DurableOperationPhase::CredentialDeleted {
+        if accounts.find_account(account)?.is_some() {
+            accounts.remove_account(account)?;
+        }
+        operations.advance_durable_operation(
+            request,
+            phase,
+            DurableOperationPhase::MetadataDeleted,
+            clock.now(),
+            None,
+        )?;
+        phase = DurableOperationPhase::MetadataDeleted;
+    }
+    if phase == DurableOperationPhase::MetadataDeleted {
+        app_state.save_selected_account(operation.prior().selected_account())?;
+        operations.advance_durable_operation(
+            request,
+            phase,
+            DurableOperationPhase::SelectionCommitted,
+            clock.now(),
+            None,
+        )?;
+        phase = DurableOperationPhase::SelectionCommitted;
+    }
+    if phase == DurableOperationPhase::SelectionCommitted {
+        operations.finalize_durable_operation(
+            request,
+            phase,
+            DurableTerminalOutcome::Completed,
+            None,
+            clock.now(),
+        )?;
+    }
+    Ok(())
 }
 
 fn recover_durable_addition(

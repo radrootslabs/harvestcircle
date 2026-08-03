@@ -247,8 +247,13 @@ impl AppCore {
     pub fn request_account_removal(
         &self,
         public_key: PublicKey,
+        clock: &(impl Clock + ?Sized),
     ) -> Result<RemovalConfirmationToken, SafeError> {
-        self.issue_removal_token(public_key)
+        self.issue_removal_token(public_key, clock.now())
+    }
+
+    pub fn cancel_account_removal(&self, token: RemovalConfirmationToken) -> bool {
+        self.cancel_removal_token(token)
     }
 
     /// Permanently removes a confirmed account and selects a deterministic fallback.
@@ -265,7 +270,7 @@ impl AppCore {
         journal: &(impl OperationJournal + ?Sized),
         clock: &(impl Clock + ?Sized),
     ) -> Result<crate::AppSnapshot, SafeError> {
-        let public_key = self.consume_removal_token(token)?;
+        let public_key = self.consume_removal_token(token, clock.now())?;
         let registry = accounts.list_accounts()?;
         let index = registry
             .iter()
@@ -316,6 +321,112 @@ impl AppCore {
             accounts: accounts.list_accounts()?,
             selected,
         })
+    }
+
+    /// Confirms and executes an expiring removal plan as a durable request.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe expiry, conflict, credential, persistence, or recovery error.
+    #[allow(clippy::too_many_arguments)]
+    pub fn confirm_account_removal_durable(
+        &self,
+        request_id: &DurableRequestId,
+        token: RemovalConfirmationToken,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+        secrets: &(impl SecretStore + ?Sized),
+        operations: &(impl DurableOperationRepository + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<crate::AppSnapshot, SafeError> {
+        let expected_revision = token.revision().value();
+        let public_key = self.consume_removal_token(token, clock.now())?;
+        self.require_revision(expected_revision)?;
+        let registry = accounts.list_accounts()?;
+        let index = registry
+            .iter()
+            .position(|account| account.public_key() == public_key)
+            .ok_or_else(account_not_found)?;
+        let selected = if self.snapshot().selected_account() == Some(public_key) {
+            registry
+                .get(index + 1)
+                .or_else(|| index.checked_sub(1).and_then(|before| registry.get(before)))
+                .map(AccountSummary::public_key)
+        } else {
+            self.snapshot().selected_account()
+        };
+        let account = &registry[index];
+        match operations.begin_durable_operation(
+            request_id,
+            DurableOperationKind::Remove,
+            public_key,
+            Some(expected_revision),
+            OperationPriorState::new(selected, Some(account.signer().availability())),
+            clock.now(),
+        )? {
+            DurableOperationStart::Started(_) => {}
+            DurableOperationStart::Existing(operation) => {
+                return if operation
+                    .terminal()
+                    .is_some_and(|receipt| receipt.outcome() == DurableTerminalOutcome::Completed)
+                {
+                    Ok(self.snapshot())
+                } else {
+                    Err(recovery_required())
+                };
+            }
+        }
+        if self
+            .snapshot()
+            .active_account()
+            .is_some_and(|active| active.account().public_key() == public_key)
+        {
+            self.sign_out()?;
+        }
+        match secrets.delete(public_key) {
+            Ok(()) => {}
+            Err(error)
+                if error.code() == SafeErrorCode::CredentialMissing
+                    && account.signer().availability()
+                        == BindingAvailability::CredentialMissing => {}
+            Err(error) => return Err(error),
+        }
+        operations.advance_durable_operation(
+            request_id,
+            DurableOperationPhase::IntentRecorded,
+            DurableOperationPhase::CredentialDeleted,
+            clock.now(),
+            None,
+        )?;
+        accounts.remove_account(public_key)?;
+        operations.advance_durable_operation(
+            request_id,
+            DurableOperationPhase::CredentialDeleted,
+            DurableOperationPhase::MetadataDeleted,
+            clock.now(),
+            None,
+        )?;
+        app_state.save_selected_account(selected)?;
+        operations.advance_durable_operation(
+            request_id,
+            DurableOperationPhase::MetadataDeleted,
+            DurableOperationPhase::SelectionCommitted,
+            clock.now(),
+            None,
+        )?;
+        let snapshot =
+            self.apply_transition(StateTransition::ReplaceRegistryPreservingSession {
+                accounts: accounts.list_accounts()?,
+                selected,
+            })?;
+        operations.finalize_durable_operation(
+            request_id,
+            DurableOperationPhase::SelectionCommitted,
+            DurableTerminalOutcome::Completed,
+            Some(snapshot.revision().value()),
+            clock.now(),
+        )?;
+        Ok(snapshot)
     }
 
     /// Persists and publishes a saved account selection without activating it.
@@ -786,6 +897,14 @@ mod tests {
         }
     }
 
+    struct LateClock;
+
+    impl Clock for LateClock {
+        fn now(&self) -> UnixTimestamp {
+            UnixTimestamp::from_seconds(311).expect("time")
+        }
+    }
+
     #[derive(Default)]
     struct FailingInsertRepository {
         inner: InMemoryAccountRepository,
@@ -1188,7 +1307,9 @@ mod tests {
             .public_key();
         core.select_account(first, &accounts, &accounts)
             .expect("select first");
-        let stale = core.request_account_removal(first).expect("stale token");
+        let stale = core
+            .request_account_removal(first, &FixedClock)
+            .expect("stale token");
         core.select_account(second, &accounts, &accounts)
             .expect("change revision");
         let stale_error = core
@@ -1199,7 +1320,9 @@ mod tests {
 
         core.select_account(first, &accounts, &accounts)
             .expect("reselect first");
-        let token = core.request_account_removal(first).expect("token");
+        let token = core
+            .request_account_removal(first, &FixedClock)
+            .expect("token");
         let removed = core
             .confirm_account_removal(token, &accounts, &accounts, &secrets, &journal, &FixedClock)
             .expect("remove");
@@ -1207,5 +1330,35 @@ mod tests {
         assert_eq!(removed.selected_account(), Some(second));
         assert!(!secrets.contains(first).expect("credential removed"));
         assert_eq!(removed.session(), SessionState::SignedOut);
+    }
+
+    #[test]
+    fn removal_preflight_reports_impact_expires_and_can_be_cancelled() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        core.bootstrap().expect("bootstrap");
+        let account = core
+            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect("account")
+            .account()
+            .public_key();
+        let expired = core
+            .request_account_removal(account, &FixedClock)
+            .expect("plan");
+        assert!(expired.impact().deletes_local_credential());
+        assert!(!expired.impact().signs_out());
+        assert!(
+            core.confirm_account_removal(
+                expired, &accounts, &accounts, &secrets, &journal, &LateClock,
+            )
+            .is_err()
+        );
+        let cancelled = core
+            .request_account_removal(account, &FixedClock)
+            .expect("replacement plan");
+        assert!(core.cancel_account_removal(cancelled));
+        assert_eq!(core.snapshot().accounts().len(), 1);
     }
 }

@@ -202,8 +202,9 @@ impl PersistentAppCore {
     pub fn request_account_removal(
         &self,
         public_key: PublicKey,
+        clock: &(impl Clock + ?Sized),
     ) -> Result<RemovalConfirmationToken, SafeError> {
-        self.core.request_account_removal(public_key)
+        self.core.request_account_removal(public_key, clock)
     }
 
     /// Permanently removes one confirmed account and its credential.
@@ -218,6 +219,29 @@ impl PersistentAppCore {
         clock: &(impl Clock + ?Sized),
     ) -> Result<AppSnapshot, SafeError> {
         self.core.confirm_account_removal(
+            token,
+            &self.database,
+            &self.database,
+            secrets,
+            &self.database,
+            clock,
+        )
+    }
+
+    /// Executes a confirmed removal through the durable request coordinator.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe expiry, conflict, credential, storage, recovery, or state error.
+    pub fn confirm_account_removal_durable(
+        &self,
+        request_id: &DurableRequestId,
+        token: RemovalConfirmationToken,
+        secrets: &(impl SecretStore + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<AppSnapshot, SafeError> {
+        self.core.confirm_account_removal_durable(
+            request_id,
             token,
             &self.database,
             &self.database,
