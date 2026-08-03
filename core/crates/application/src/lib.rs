@@ -1,6 +1,7 @@
 #![doc = "Radroots Studio application runtime."]
 
 pub mod accounts;
+pub mod actor;
 pub mod app_core;
 pub mod config;
 pub mod nostr_client;
@@ -15,6 +16,10 @@ pub mod state_machine;
 pub use accounts::{
     GenerateAccountReceipt, ImportAccountReceipt, InMemoryAccountRepository,
     InMemoryOperationJournal,
+};
+pub use actor::{
+    ActorMailbox, CommandContext, CommandReceipt, CommandRejection, CommandResult,
+    CommandSubmission, CommandTicket, RequestId,
 };
 pub use app_core::{AppCore, AppObserver, ObserverHandle, RemovalConfirmationToken};
 pub use config::{
