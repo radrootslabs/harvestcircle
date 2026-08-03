@@ -6,11 +6,12 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use radroots_studio_application::{
-    ActorMailbox, AppObserver, AppSnapshot, Clock, CommandContext, CommandEnvelope, CommandReceipt,
-    CommandResult, CommandSubmission, GenerateAccountReceipt, ImportAccountReceipt, LifecycleGate,
-    NostrClient, ObserverHandle, OrderedSnapshotChanges, ProfileRefreshPlan, RelayConfiguration,
-    RemovalConfirmationToken, RequestId, RuntimeCommandClass, RuntimeLifecycle, SecretStore,
-    SessionGeneration, SnapshotRevision, TaskCorrelation,
+    ActorMailbox, AppObserver, AppSnapshot, ChangeSubscriptionId, Clock, CommandContext,
+    CommandEnvelope, CommandReceipt, CommandResult, CommandSubmission, GenerateAccountReceipt,
+    ImportAccountReceipt, LifecycleGate, NostrClient, ObserverHandle, OrderedSnapshotChanges,
+    ProfileRefreshPlan, RelayConfiguration, RemovalConfirmationToken, RequestId,
+    RuntimeCommandClass, RuntimeLifecycle, SecretStore, SessionGeneration, SnapshotChange,
+    SnapshotChangeReceiver, SnapshotRevision, TaskCorrelation,
 };
 use radroots_studio_domain::{
     Kind0ProfileCandidate, PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput,
@@ -33,6 +34,8 @@ enum RuntimeCommand {
     RefreshActiveProfile,
     RequestAccountRemoval(PublicKey),
     ConfirmAccountRemoval(RemovalConfirmationToken),
+    SubscribeChanges(NonZeroUsize),
+    UnsubscribeChanges(ChangeSubscriptionId),
     Close,
 }
 
@@ -41,13 +44,17 @@ enum RuntimeCommandValue {
     Generated(GenerateAccountReceipt),
     Imported(ImportAccountReceipt),
     RemovalRequest(RemovalConfirmationToken),
+    Subscription(RuntimeChangeSubscription),
+    Unsubscribed(bool),
     Closed,
 }
 
 impl RuntimeCommand {
     const fn class(&self) -> RuntimeCommandClass {
         match self {
-            Self::Snapshot => RuntimeCommandClass::Observe,
+            Self::Snapshot | Self::SubscribeChanges(_) | Self::UnsubscribeChanges(_) => {
+                RuntimeCommandClass::Observe
+            }
             Self::GenerateAccount
             | Self::ImportSecretKey(_)
             | Self::ActivateAccount(_)
@@ -93,6 +100,22 @@ pub struct RuntimeActorHandle {
     lifecycle: Arc<Mutex<LifecycleGate>>,
     next_request: Arc<AtomicU64>,
     session_generation: Arc<AtomicU64>,
+}
+
+pub struct RuntimeChangeSubscription {
+    id: ChangeSubscriptionId,
+    receiver: SnapshotChangeReceiver,
+}
+
+impl RuntimeChangeSubscription {
+    #[must_use]
+    pub const fn id(&self) -> ChangeSubscriptionId {
+        self.id
+    }
+
+    pub async fn receive(&mut self) -> Option<SnapshotChange> {
+        self.receiver.receive().await
+    }
 }
 
 impl RuntimeActorHandle {
@@ -164,7 +187,7 @@ impl RuntimeActorHandle {
         let lifecycle = Arc::new(Mutex::new(gate));
         let (mailbox, receiver) = ActorMailbox::bounded(capacity);
         let session_generation = Arc::new(AtomicU64::new(SessionGeneration::initial().value()));
-        let changes = OrderedSnapshotChanges::new(adapter.core().snapshot().revision());
+        let changes = OrderedSnapshotChanges::new(adapter.core().snapshot());
         let actor = RuntimeActor {
             adapter: Arc::clone(&adapter),
             secrets,
@@ -349,6 +372,39 @@ impl RuntimeActorHandle {
         }
     }
 
+    /// Atomically registers a bounded ordered change consumer with its initial snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe actor or subscription error.
+    pub async fn subscribe_changes(
+        &self,
+        capacity: NonZeroUsize,
+    ) -> Result<RuntimeChangeSubscription, SafeError> {
+        match self
+            .dispatch(RuntimeCommand::SubscribeChanges(capacity), None)
+            .await?
+        {
+            RuntimeCommandValue::Subscription(subscription) => Ok(subscription),
+            _ => Err(invalid_actor_response()),
+        }
+    }
+
+    /// Removes a change consumer through the serialized actor boundary.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe actor error.
+    pub async fn unsubscribe_changes(&self, id: ChangeSubscriptionId) -> Result<bool, SafeError> {
+        match self
+            .dispatch(RuntimeCommand::UnsubscribeChanges(id), None)
+            .await?
+        {
+            RuntimeCommandValue::Unsubscribed(removed) => Ok(removed),
+            _ => Err(invalid_actor_response()),
+        }
+    }
+
     async fn dispatch(
         &self,
         command: RuntimeCommand,
@@ -511,7 +567,7 @@ impl RuntimeActor {
         None
     }
 
-    fn execute_sync(&self, command: RuntimeCommand) -> CommandResult<RuntimeCommandValue> {
+    fn execute_sync(&mut self, command: RuntimeCommand) -> CommandResult<RuntimeCommandValue> {
         let result = match command {
             RuntimeCommand::Snapshot => Ok(RuntimeCommandValue::Snapshot(Box::new(
                 self.adapter.core().snapshot(),
@@ -548,6 +604,16 @@ impl RuntimeActor {
                 .confirm_account_removal(token, self.secrets.as_ref(), self.clock.as_ref())
                 .map(Box::new)
                 .map(RuntimeCommandValue::Snapshot),
+            RuntimeCommand::SubscribeChanges(capacity) => self
+                .changes
+                .subscribe(capacity)
+                .map(|(id, receiver)| {
+                    RuntimeCommandValue::Subscription(RuntimeChangeSubscription { id, receiver })
+                })
+                .ok_or_else(observer_registration_failed),
+            RuntimeCommand::UnsubscribeChanges(id) => Ok(RuntimeCommandValue::Unsubscribed(
+                self.changes.unsubscribe(id),
+            )),
             RuntimeCommand::Close | RuntimeCommand::RefreshActiveProfile => {
                 Err(invalid_actor_response())
             }
@@ -735,6 +801,13 @@ const fn invalid_actor_response() -> SafeError {
     SafeError::new(
         SafeErrorCode::InvalidApplicationState,
         SafeMessage::new("The runtime returned an invalid command response."),
+    )
+}
+
+const fn observer_registration_failed() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::ObserverRegistrationFailed,
+        SafeMessage::new("The application change subscription could not be registered."),
     )
 }
 
@@ -1072,6 +1145,34 @@ mod tests {
                 "The application runtime is closed."
             );
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn actor_subscription_atomically_delivers_initial_then_ordered_changes() {
+        let (actor, _) = actor();
+        let mut subscription = actor
+            .subscribe_changes(NonZeroUsize::new(4).expect("capacity"))
+            .await
+            .expect("subscribe");
+        let initial = subscription.receive().await.expect("initial snapshot");
+        assert_eq!(initial.revision(), actor.snapshot().revision());
+        assert!(initial.previous_revision().is_none());
+
+        actor
+            .import_secret_key(secret(
+                "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7",
+            ))
+            .await
+            .expect("import");
+        let changed = subscription.receive().await.expect("change");
+        assert!(changed.revision() > initial.revision());
+        assert_eq!(changed.previous_revision(), Some(initial.revision()));
+        assert!(
+            actor
+                .unsubscribe_changes(subscription.id())
+                .await
+                .expect("unsubscribe")
+        );
     }
 
     fn secret(value: &str) -> SecretKeyInput {

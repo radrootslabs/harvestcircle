@@ -18,6 +18,7 @@ impl ChangeSubscriptionId {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SnapshotChange {
     snapshot: AppSnapshot,
+    previous_revision: Option<SnapshotRevision>,
 }
 
 impl SnapshotChange {
@@ -35,6 +36,17 @@ impl SnapshotChange {
     pub fn into_snapshot(self) -> AppSnapshot {
         self.snapshot
     }
+
+    #[must_use]
+    pub const fn previous_revision(&self) -> Option<SnapshotRevision> {
+        self.previous_revision
+    }
+
+    #[must_use]
+    pub fn recovers_gap_after(&self, observed: SnapshotRevision) -> bool {
+        self.previous_revision
+            .is_some_and(|previous| previous != observed)
+    }
 }
 
 pub struct SnapshotChangeReceiver {
@@ -48,16 +60,16 @@ impl SnapshotChangeReceiver {
 }
 
 pub struct OrderedSnapshotChanges {
-    last_revision: SnapshotRevision,
+    latest: AppSnapshot,
     next_subscription: u64,
     subscribers: BTreeMap<ChangeSubscriptionId, mpsc::Sender<SnapshotChange>>,
 }
 
 impl OrderedSnapshotChanges {
     #[must_use]
-    pub fn new(initial_revision: SnapshotRevision) -> Self {
+    pub fn new(initial_snapshot: AppSnapshot) -> Self {
         Self {
-            last_revision: initial_revision,
+            latest: initial_snapshot,
             next_subscription: 1,
             subscribers: BTreeMap::new(),
         }
@@ -65,7 +77,7 @@ impl OrderedSnapshotChanges {
 
     #[must_use]
     pub const fn last_revision(&self) -> SnapshotRevision {
-        self.last_revision
+        self.latest.revision()
     }
 
     /// Registers a bounded consumer for future changes.
@@ -80,6 +92,12 @@ impl OrderedSnapshotChanges {
         let id = ChangeSubscriptionId(NonZeroU64::new(self.next_subscription)?);
         self.next_subscription = self.next_subscription.checked_add(1)?;
         let (sender, receiver) = mpsc::channel(capacity.get());
+        sender
+            .try_send(SnapshotChange {
+                snapshot: self.latest.clone(),
+                previous_revision: None,
+            })
+            .ok()?;
         self.subscribers.insert(id, sender);
         Some((id, SnapshotChangeReceiver { receiver }))
     }
@@ -90,11 +108,14 @@ impl OrderedSnapshotChanges {
     }
 
     pub fn publish(&mut self, snapshot: AppSnapshot) {
-        if snapshot.revision() <= self.last_revision {
+        if snapshot.revision() <= self.latest.revision() {
             return;
         }
-        self.last_revision = snapshot.revision();
-        let change = SnapshotChange { snapshot };
+        let change = SnapshotChange {
+            previous_revision: Some(self.latest.revision()),
+            snapshot,
+        };
+        self.latest = change.snapshot.clone();
         self.subscribers
             .retain(|_, sender| match sender.try_send(change.clone()) {
                 Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => true,
@@ -113,7 +134,7 @@ mod tests {
 
     #[tokio::test]
     async fn change_stream_publishes_monotonic_revisions_to_multiple_consumers() {
-        let mut changes = OrderedSnapshotChanges::new(revision(0));
+        let mut changes = OrderedSnapshotChanges::new(snapshot(0));
         let (_, mut first) = changes
             .subscribe(NonZeroUsize::new(4).expect("capacity"))
             .expect("first subscription");
@@ -121,6 +142,14 @@ mod tests {
             .subscribe(NonZeroUsize::new(4).expect("capacity"))
             .expect("second subscription");
 
+        assert_eq!(
+            first.receive().await.expect("initial").revision(),
+            revision(0)
+        );
+        assert_eq!(
+            second.receive().await.expect("initial").revision(),
+            revision(0)
+        );
         changes.publish(snapshot(1));
         changes.publish(snapshot(1));
         changes.publish(snapshot(2));
@@ -140,22 +169,23 @@ mod tests {
 
     #[tokio::test]
     async fn slow_consumers_expose_a_revision_gap_without_blocking_publication() {
-        let mut changes = OrderedSnapshotChanges::new(revision(0));
+        let mut changes = OrderedSnapshotChanges::new(snapshot(0));
         let (_, mut receiver) = changes
             .subscribe(NonZeroUsize::new(1).expect("capacity"))
             .expect("subscription");
 
+        assert_eq!(
+            receiver.receive().await.expect("initial").revision(),
+            revision(0)
+        );
         changes.publish(snapshot(1));
         changes.publish(snapshot(2));
-        assert_eq!(
-            receiver.receive().await.expect("first").revision(),
-            revision(1)
-        );
+        let first = receiver.receive().await.expect("first");
+        assert_eq!(first.revision(), revision(1));
         changes.publish(snapshot(3));
-        assert_eq!(
-            receiver.receive().await.expect("gap").revision(),
-            revision(3)
-        );
+        let recovered = receiver.receive().await.expect("gap recovery");
+        assert_eq!(recovered.revision(), revision(3));
+        assert!(recovered.recovers_gap_after(first.revision()));
     }
 
     fn revision(value: u64) -> SnapshotRevision {
