@@ -11,7 +11,7 @@ use crate::{
     Clock, DurableOperationKind, DurableOperationPhase, DurableOperationRepository,
     DurableOperationStart, DurableRequestId, DurableTerminalOutcome, OperationDiagnostic,
     OperationId, OperationJournal, OperationPriorState, PendingAccountOperation,
-    RemovalConfirmationToken, SecretStore, StateTransition,
+    RemovalConfirmationToken, SecretStore, StagedGeneratedKey, StateTransition,
 };
 
 pub struct GenerateAccountReceipt {
@@ -44,6 +44,41 @@ impl GenerateAccountReceipt {
 }
 
 impl AppCore {
+    /// Commits a staged generated key only after its recovery acknowledgement.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe conflict, keyring, persistence, or recovery error.
+    #[allow(clippy::too_many_arguments)]
+    pub fn commit_staged_generated_key(
+        &self,
+        request_id: &DurableRequestId,
+        staged: StagedGeneratedKey,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+        secrets: &(impl SecretStore + ?Sized),
+        operations: &(impl DurableOperationRepository + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<ImportAccountReceipt, SafeError> {
+        let expected_revision = staged.expected_revision();
+        self.require_revision(expected_revision)?;
+        let (account, secret) = staged.into_commit_parts();
+        self.persist_account_durable(
+            request_id,
+            DurableOperationKind::Create,
+            expected_revision,
+            &account,
+            secret,
+            None,
+            accounts,
+            app_state,
+            secrets,
+            operations,
+            clock,
+        )?;
+        Ok(ImportAccountReceipt { account })
+    }
+
     /// Generates and commits one account under a durable caller request.
     ///
     /// # Errors

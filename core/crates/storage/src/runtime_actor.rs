@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU64, NonZeroUsize};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -8,10 +8,11 @@ use std::time::{Duration, Instant};
 use radroots_studio_application::{
     ActorMailbox, AppSnapshot, ChangeSubscriptionId, Clock, CommandContext, CommandEnvelope,
     CommandReceipt, CommandResult, CommandSubmission, ForegroundSessionBinding,
-    GenerateAccountReceipt, GeneratedKeyStage, GeneratedKeyStageView, ImportAccountReceipt,
-    LifecycleGate, NostrClient, OrderedSnapshotChanges, ProfileRefreshPlan, RelayConfiguration,
-    RemovalConfirmationToken, RequestId, RuntimeCommandClass, RuntimeLifecycle, SecretStore,
-    SessionGeneration, SnapshotChange, SnapshotChangeReceiver, SnapshotRevision, TaskCorrelation,
+    GenerateAccountReceipt, GeneratedKeyRecoveryHandle, GeneratedKeyStage, ImportAccountReceipt,
+    LifecycleGate, NostrClient, OrderedSnapshotChanges, ProfileRefreshPlan, RecoveryStageId,
+    RelayConfiguration, RemovalConfirmationToken, RequestId, RuntimeCommandClass, RuntimeLifecycle,
+    SecretStore, SessionGeneration, SnapshotChange, SnapshotChangeReceiver, SnapshotRevision,
+    TaskCorrelation,
 };
 use radroots_studio_domain::{
     AccountIdentity, BindingAvailability, Kind0ProfileCandidate, LocalSignerBinding, PublicKey,
@@ -29,6 +30,7 @@ enum RuntimeCommand {
     Snapshot,
     GenerateAccount,
     BeginGeneratedKeyStage,
+    AcknowledgeGeneratedKeyStage(RecoveryStageId),
     CancelGeneratedKeyStage,
     ImportSecretKey(SecretKeyInput),
     SelectAccount(PublicKey),
@@ -45,7 +47,7 @@ enum RuntimeCommand {
 enum RuntimeCommandValue {
     Snapshot(Box<AppSnapshot>),
     Generated(GenerateAccountReceipt),
-    GeneratedKeyStage(GeneratedKeyStageView),
+    GeneratedKeyStage(GeneratedKeyRecoveryHandle),
     GeneratedKeyStageCancelled(bool),
     Imported(ImportAccountReceipt),
     RemovalRequest(RemovalConfirmationToken),
@@ -62,6 +64,7 @@ impl RuntimeCommand {
             }
             Self::GenerateAccount
             | Self::BeginGeneratedKeyStage
+            | Self::AcknowledgeGeneratedKeyStage(_)
             | Self::ImportSecretKey(_)
             | Self::ActivateAccount(_)
             | Self::ConfirmAccountRemoval(_) => RuntimeCommandClass::UseCredential,
@@ -285,7 +288,7 @@ impl RuntimeActorHandle {
     /// # Errors
     ///
     /// Returns a safe conflict, timeout, key-generation, or actor error.
-    pub async fn begin_generated_key_stage(&self) -> Result<GeneratedKeyStageView, SafeError> {
+    pub async fn begin_generated_key_stage(&self) -> Result<GeneratedKeyRecoveryHandle, SafeError> {
         match self
             .dispatch(RuntimeCommand::BeginGeneratedKeyStage, None)
             .await?
@@ -293,6 +296,21 @@ impl RuntimeActorHandle {
             RuntimeCommandValue::GeneratedKeyStage(view) => Ok(view),
             _ => Err(invalid_actor_response()),
         }
+    }
+
+    /// Acknowledges recovery and commits the staged account and credential once.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe unavailable, conflict, keyring, storage, timeout, or actor error.
+    pub async fn acknowledge_generated_key_stage(
+        &self,
+        id: RecoveryStageId,
+    ) -> Result<AppSnapshot, SafeError> {
+        let value = self
+            .dispatch(RuntimeCommand::AcknowledgeGeneratedKeyStage(id), None)
+            .await?;
+        Self::expect_snapshot(value)
     }
 
     /// Cancels and zeroizes the active generated-key stage, if present.
@@ -669,8 +687,18 @@ impl RuntimeActor {
             }),
             RuntimeCommand::BeginGeneratedKeyStage => self
                 .generated_key_stage
-                .begin(expected_revision, self.clock.now())
+                .begin(
+                    RecoveryStageId::new(
+                        NonZeroU64::new(context.request_id().get())
+                            .expect("request IDs are always non-zero"),
+                    ),
+                    expected_revision,
+                    self.clock.now(),
+                )
                 .map(RuntimeCommandValue::GeneratedKeyStage),
+            RuntimeCommand::AcknowledgeGeneratedKeyStage(id) => {
+                durable_request.and_then(|request| self.commit_generated_key_stage(&request, id))
+            }
             RuntimeCommand::CancelGeneratedKeyStage => Ok(
                 RuntimeCommandValue::GeneratedKeyStageCancelled(self.generated_key_stage.cancel()),
             ),
@@ -730,6 +758,23 @@ impl RuntimeActor {
             }
         };
         result.map_or_else(CommandResult::Failed, CommandResult::Completed)
+    }
+
+    fn commit_generated_key_stage(
+        &mut self,
+        request: &radroots_studio_application::DurableRequestId,
+        id: RecoveryStageId,
+    ) -> Result<RuntimeCommandValue, SafeError> {
+        let staged = self.generated_key_stage.take(id, self.clock.now())?;
+        self.adapter.commit_staged_generated_key(
+            request,
+            staged,
+            self.secrets.as_ref(),
+            self.clock.as_ref(),
+        )?;
+        Ok(RuntimeCommandValue::Snapshot(Box::new(
+            self.adapter.core().snapshot(),
+        )))
     }
 
     fn start_profile_task(
@@ -1154,7 +1199,7 @@ mod tests {
         assert_eq!(actor.snapshot(), initial);
         assert!(
             !secrets
-                .contains(stage.account().public_key())
+                .contains(stage.view().account().public_key())
                 .expect("keyring")
         );
         assert!(actor.cancel_generated_key_stage().await.expect("cancel"));
@@ -1172,6 +1217,36 @@ mod tests {
             .expect("replacement stage");
         actor.close().await.expect("close clears stage");
         assert_eq!(actor.lifecycle(), RuntimeLifecycle::Closed);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn recovery_handle_is_one_use_and_acknowledgement_commits_once() {
+        let (actor, secrets) = actor();
+        let initial = actor.snapshot();
+        let handle = actor
+            .begin_generated_key_stage()
+            .await
+            .expect("generated key stage");
+        let public_key = handle.view().account().public_key();
+        let recovery = handle.take_recovery_nsec().expect("recovery material");
+        assert_eq!(recovery.with_exposed_secret(str::len), 63);
+        assert!(handle.take_recovery_nsec().is_err());
+        assert_eq!(actor.snapshot(), initial);
+        assert!(!secrets.contains(public_key).expect("not committed"));
+
+        let committed = actor
+            .acknowledge_generated_key_stage(handle.id())
+            .await
+            .expect("acknowledge");
+        assert_eq!(committed.accounts().len(), 1);
+        assert_eq!(committed.selected_account(), Some(public_key));
+        assert!(secrets.contains(public_key).expect("credential committed"));
+        assert!(
+            actor
+                .acknowledge_generated_key_stage(handle.id())
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]

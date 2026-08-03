@@ -32,7 +32,8 @@ pub use config::{
     RelayRuntimeMode, relay_configuration_from_environment, relay_configuration_from_value,
 };
 pub use custody::{
-    GENERATED_KEY_STAGE_TTL, GeneratedKeyStage, GeneratedKeyStageView, StagedGeneratedKey,
+    GENERATED_KEY_STAGE_TTL, GeneratedKeyRecoveryHandle, GeneratedKeyStage, GeneratedKeyStageView,
+    RecoveryStageId, StagedGeneratedKey,
 };
 pub use nostr_client::SdkNostrClient;
 pub use ports::{

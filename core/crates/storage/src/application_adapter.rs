@@ -2,7 +2,7 @@ use std::path::Path;
 
 use radroots_studio_application::{
     AppCore, AppSnapshot, Clock, DurableRequestId, GenerateAccountReceipt, ImportAccountReceipt,
-    RelayConfiguration, RemovalConfirmationToken, SecretStore,
+    RelayConfiguration, RemovalConfirmationToken, SecretStore, StagedGeneratedKey,
 };
 use radroots_studio_domain::{PublicKey, SafeError, SecretKeyInput};
 
@@ -14,6 +14,29 @@ pub struct PersistentAppCore {
 }
 
 impl PersistentAppCore {
+    /// Commits an acknowledged generated-key stage through the durable coordinator.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe conflict, credential, storage, or recovery error.
+    pub fn commit_staged_generated_key(
+        &self,
+        request_id: &DurableRequestId,
+        staged: StagedGeneratedKey,
+        secrets: &(impl SecretStore + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<ImportAccountReceipt, SafeError> {
+        self.core.commit_staged_generated_key(
+            request_id,
+            staged,
+            &self.database,
+            &self.database,
+            secrets,
+            &self.database,
+            clock,
+        )
+    }
+
     /// Opens the application database without accessing credentials or relays.
     ///
     /// # Errors
