@@ -1,12 +1,12 @@
 package org.radroots.studio.application
 
-import java.awt.Toolkit
-import java.awt.datatransfer.DataFlavor
-import java.awt.datatransfer.StringSelection
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.awt.Toolkit
+import java.awt.datatransfer.DataFlavor
+import java.awt.datatransfer.StringSelection
 
 internal interface TextClipboard {
     fun readText(): String?
@@ -34,13 +34,14 @@ internal class SecretClipboardController(
         }
         copiedValue = value
         clearJob?.cancel()
-        clearJob = scope.launch {
-            delay(clearDelayMillis)
-            runCatching {
-                if (clipboard.readText() == value) clipboard.writeText("")
+        clearJob =
+            scope.launch {
+                delay(clearDelayMillis)
+                runCatching {
+                    if (clipboard.readText() == value) clipboard.writeText("")
+                }
+                if (copiedValue == value) copiedValue = null
             }
-            if (copiedValue == value) copiedValue = null
-        }
         return SecretClipboardResult.Copied
     }
 
@@ -59,9 +60,10 @@ private object SystemTextClipboard : TextClipboard {
     private val clipboard
         get() = Toolkit.getDefaultToolkit().systemClipboard
 
-    override fun readText(): String? = runCatching {
-        clipboard.getData(DataFlavor.stringFlavor) as? String
-    }.getOrNull()
+    override fun readText(): String? =
+        runCatching {
+            clipboard.getData(DataFlavor.stringFlavor) as? String
+        }.getOrNull()
 
     override fun writeText(value: String) {
         clipboard.setContents(StringSelection(value), null)

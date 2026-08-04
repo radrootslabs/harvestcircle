@@ -9,18 +9,18 @@ internal val MINIMUM_FFI_CONTRACT_MINOR: UShort = 0.toUShort()
 internal const val MINIMUM_STORAGE_SCHEMA: UInt = 5U
 internal const val MAXIMUM_STORAGE_SCHEMA: UInt = 9U
 
-internal class NativeCompatibilityException : IllegalStateException(
-    "The application and native runtime are incompatible.",
-)
+internal class NativeCompatibilityException :
+    IllegalStateException(
+        "The application and native runtime are incompatible.",
+    )
 
-internal fun verifyNativeCompatibility(
-    descriptor: CompatibilityDescriptor,
-): CompatibilityExpectation {
-    val compatible = descriptor.contractMajor == EXPECTED_FFI_CONTRACT_MAJOR &&
-        descriptor.contractMinor >= MINIMUM_FFI_CONTRACT_MINOR &&
-        descriptor.contractHash == EXPECTED_FFI_CONTRACT_HASH &&
-        descriptor.currentSchemaVersion >= MINIMUM_STORAGE_SCHEMA &&
-        descriptor.minimumSchemaVersion <= MAXIMUM_STORAGE_SCHEMA
+internal fun verifyNativeCompatibility(descriptor: CompatibilityDescriptor): CompatibilityExpectation {
+    val compatible =
+        descriptor.contractMajor == EXPECTED_FFI_CONTRACT_MAJOR &&
+            descriptor.contractMinor >= MINIMUM_FFI_CONTRACT_MINOR &&
+            descriptor.contractHash == EXPECTED_FFI_CONTRACT_HASH &&
+            descriptor.currentSchemaVersion >= MINIMUM_STORAGE_SCHEMA &&
+            descriptor.minimumSchemaVersion <= MAXIMUM_STORAGE_SCHEMA
     if (!compatible) throw NativeCompatibilityException()
     return CompatibilityExpectation(
         contractMajor = EXPECTED_FFI_CONTRACT_MAJOR,

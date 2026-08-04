@@ -2,11 +2,12 @@ package org.radroots.studio.application
 
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import org.radroots.studio.ffi.AppSnapshotDto
 import org.radroots.studio.ffi.AppLifecycleDto
+import org.radroots.studio.ffi.AppSnapshotDto
 import org.radroots.studio.ffi.StudioException
 import org.radroots.studio.ffi.WireErrorCode
 import org.radroots.studio.ffi.WireRecoveryAction
@@ -96,11 +97,12 @@ class StudioAppStore(
 
     init {
         launchCommand {
-            val registered = gateway.subscribeChanges { change ->
-                scope.launch {
-                    if (!closed) acceptSnapshot(change.snapshot)
+            val registered =
+                gateway.subscribeChanges { change ->
+                    scope.launch {
+                        if (!closed) acceptSnapshot(change.snapshot)
+                    }
                 }
-            }
             if (closed) {
                 registered.close()
                 return@launchCommand
@@ -111,12 +113,13 @@ class StudioAppStore(
     }
 
     fun editImportDraft(value: String) {
-        mutableState.value = mutableState.value.copy(
-            importDraft = value.take(MAX_IMPORT_SECRET_CHARS),
-            lastFailureCode = null,
-            recoveryAction = WireRecoveryAction.NONE,
-            problem = null,
-        )
+        mutableState.value =
+            mutableState.value.copy(
+                importDraft = value.take(MAX_IMPORT_SECRET_CHARS),
+                lastFailureCode = null,
+                recoveryAction = WireRecoveryAction.NONE,
+                problem = null,
+            )
     }
 
     fun chooseCreateAccount() {
@@ -128,31 +131,35 @@ class StudioAppStore(
     }
 
     fun cancelAccountEntry() {
-        mutableState.value = mutableState.value.copy(
-            accountEntryMode = AccountEntryMode.CHOICE,
-            importDraft = "",
-            problem = null,
-        )
+        mutableState.value =
+            mutableState.value.copy(
+                accountEntryMode = AccountEntryMode.CHOICE,
+                importDraft = "",
+                problem = null,
+            )
     }
 
     fun generateAccount() {
         launchCommand {
             val recovery = gateway.beginGeneratedAccount()
             pendingGeneratedRecovery = recovery
-            mutableState.value = mutableState.value.copy(
-                generatedKeyBackup = generatedRecovery.begin(
-                    recovery.account.npub,
-                    recovery.takeRecoveryNsec(),
-                ),
-            )
+            mutableState.value =
+                mutableState.value.copy(
+                    generatedKeyBackup =
+                        generatedRecovery.begin(
+                            recovery.account.npub,
+                            recovery.takeRecoveryNsec(),
+                        ),
+                )
         }
     }
 
     fun acknowledgeGeneratedKeyBackup() {
-        val recovery = pendingGeneratedRecovery ?: run {
-            rejectUnavailableIntent("Generated-key recovery is not available.")
-            return
-        }
+        val recovery =
+            pendingGeneratedRecovery ?: run {
+                rejectUnavailableIntent("Generated-key recovery is not available.")
+                return
+            }
         pendingGeneratedRecovery = null
         runSnapshotCommand {
             try {
@@ -167,10 +174,11 @@ class StudioAppStore(
     }
 
     fun cancelGeneratedKeyBackup() {
-        val recovery = pendingGeneratedRecovery ?: run {
-            rejectUnavailableIntent("Generated-key recovery is not available.")
-            return
-        }
+        val recovery =
+            pendingGeneratedRecovery ?: run {
+                rejectUnavailableIntent("Generated-key recovery is not available.")
+                return
+            }
         pendingGeneratedRecovery = null
         launchCommand {
             try {
@@ -215,10 +223,11 @@ class StudioAppStore(
     }
 
     fun retryLastCommand() {
-        val retry = retryableCommand ?: run {
-            rejectUnavailableIntent("This action cannot be retried safely.")
-            return
-        }
+        val retry =
+            retryableCommand ?: run {
+                rejectUnavailableIntent("This action cannot be retried safely.")
+                return
+            }
         runTypedCommand(retry)
     }
 
@@ -233,16 +242,18 @@ class StudioAppStore(
                     return@runCatching
                 }
                 pendingRemoval = ticket
-                mutableState.value = mutableState.value.copy(
-                    pendingRemovalPublicKeyHex = publicKeyHex,
-                    removalImpact = RemovalImpactState(
-                        ticket.publicKeyHex,
-                        ticket.deletesLocalCredential,
-                        ticket.signsOut,
-                        ticket.expiresAtSeconds,
-                    ),
-                    removalStatus = RemovalStatus.AWAITING_CONFIRMATION,
-                )
+                mutableState.value =
+                    mutableState.value.copy(
+                        pendingRemovalPublicKeyHex = publicKeyHex,
+                        removalImpact =
+                            RemovalImpactState(
+                                ticket.publicKeyHex,
+                                ticket.deletesLocalCredential,
+                                ticket.signsOut,
+                                ticket.expiresAtSeconds,
+                            ),
+                        removalStatus = RemovalStatus.AWAITING_CONFIRMATION,
+                    )
             }.getOrThrow()
         }
     }
@@ -250,38 +261,42 @@ class StudioAppStore(
     fun cancelAccountRemoval() {
         pendingRemoval?.close()
         pendingRemoval = null
-        mutableState.value = mutableState.value.copy(
-            pendingRemovalPublicKeyHex = null,
-            removalImpact = null,
-            removalStatus = RemovalStatus.NONE,
-        )
+        mutableState.value =
+            mutableState.value.copy(
+                pendingRemovalPublicKeyHex = null,
+                removalImpact = null,
+                removalStatus = RemovalStatus.NONE,
+            )
     }
 
     fun confirmAccountRemoval() {
-        val ticket = pendingRemoval ?: run {
-            rejectUnavailableIntent("Account removal confirmation is not available.")
-            return
-        }
+        val ticket =
+            pendingRemoval ?: run {
+                rejectUnavailableIntent("Account removal confirmation is not available.")
+                return
+            }
         pendingRemoval = null
         mutableState.value = mutableState.value.copy(removalStatus = RemovalStatus.CONFIRMING)
         runSnapshotCommand {
             try {
                 gateway.confirmAccountRemoval(ticket).also {
-                    mutableState.value = mutableState.value.copy(
-                        pendingRemovalPublicKeyHex = null,
-                        lastRemovedPublicKeyHex = ticket.publicKeyHex,
-                        removalImpact = null,
-                        removalStatus = RemovalStatus.COMPLETED,
-                    )
+                    mutableState.value =
+                        mutableState.value.copy(
+                            pendingRemovalPublicKeyHex = null,
+                            lastRemovedPublicKeyHex = ticket.publicKeyHex,
+                            removalImpact = null,
+                            removalStatus = RemovalStatus.COMPLETED,
+                        )
                 }
             } finally {
                 ticket.close()
                 if (mutableState.value.removalStatus != RemovalStatus.COMPLETED) {
-                    mutableState.value = mutableState.value.copy(
-                        pendingRemovalPublicKeyHex = null,
-                        removalImpact = null,
-                        removalStatus = RemovalStatus.FAILED,
-                    )
+                    mutableState.value =
+                        mutableState.value.copy(
+                            pendingRemovalPublicKeyHex = null,
+                            removalImpact = null,
+                            removalStatus = RemovalStatus.FAILED,
+                        )
                 }
             }
         }
@@ -295,37 +310,44 @@ class StudioAppStore(
         launchCommand { acceptSnapshot(operation()) }
     }
 
-    private fun runTypedCommand(command: StudioCommand, hideChooser: Boolean = false) {
+    private fun runTypedCommand(
+        command: StudioCommand,
+        hideChooser: Boolean = false,
+    ) {
         launchCommand {
             when (val result = gateway.execute(command)) {
                 is StudioCommandResult.Accepted -> {
                     retryableCommand = null
                     acceptSnapshot(result.receipt.snapshot)
-                    mutableState.value = mutableState.value.copy(
-                        commandStatus = CommandStatus.ACCEPTED,
-                        lastCommandRequestId = result.receipt.requestId,
-                        lastFailureCode = null,
-                        recoveryAction = WireRecoveryAction.NONE,
-                    )
+                    mutableState.value =
+                        mutableState.value.copy(
+                            commandStatus = CommandStatus.ACCEPTED,
+                            lastCommandRequestId = result.receipt.requestId,
+                            lastFailureCode = null,
+                            recoveryAction = WireRecoveryAction.NONE,
+                        )
                     if (hideChooser) {
                         mutableState.value = mutableState.value.copy(accountChooserVisible = false)
                     }
                 }
                 is StudioCommandResult.Rejected -> {
-                    retryableCommand = command.takeIf {
-                        result.failure.retryable && it !is StudioCommand.ImportAccount
-                    }
-                    mutableState.value = mutableState.value.copy(
-                        commandStatus = if (result.failure.retryable) {
-                            CommandStatus.FAILED_RETRYABLE
-                        } else {
-                            CommandStatus.FAILED_TERMINAL
-                        },
-                        lastCommandRequestId = result.failure.correlationId,
-                        lastFailureCode = result.failure.code,
-                        recoveryAction = result.failure.recoveryAction,
-                        problem = result.failure.safeMessage,
-                    )
+                    retryableCommand =
+                        command.takeIf {
+                            result.failure.retryable && it !is StudioCommand.ImportAccount
+                        }
+                    mutableState.value =
+                        mutableState.value.copy(
+                            commandStatus =
+                                if (result.failure.retryable) {
+                                    CommandStatus.FAILED_RETRYABLE
+                                } else {
+                                    CommandStatus.FAILED_TERMINAL
+                                },
+                            lastCommandRequestId = result.failure.correlationId,
+                            lastFailureCode = result.failure.code,
+                            recoveryAction = result.failure.recoveryAction,
+                            problem = result.failure.safeMessage,
+                        )
                 }
             }
         }
@@ -333,80 +355,91 @@ class StudioAppStore(
 
     private fun launchCommand(operation: suspend () -> Unit) {
         if (rejectIfUnavailable()) return
-        mutableState.value = mutableState.value.copy(
-            busy = true,
-            commandStatus = CommandStatus.RUNNING,
-            problem = null,
-        )
-        command = scope.launch {
-            try {
-                operation()
-                if (mutableState.value.commandStatus == CommandStatus.RUNNING) {
-                    mutableState.value = mutableState.value.copy(commandStatus = CommandStatus.ACCEPTED)
+        mutableState.value =
+            mutableState.value.copy(
+                busy = true,
+                commandStatus = CommandStatus.RUNNING,
+                problem = null,
+            )
+        command =
+            scope.launch {
+                try {
+                    operation()
+                    if (mutableState.value.commandStatus == CommandStatus.RUNNING) {
+                        mutableState.value = mutableState.value.copy(commandStatus = CommandStatus.ACCEPTED)
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    acceptFailure(error)
+                } finally {
+                    mutableState.value = mutableState.value.copy(busy = false)
                 }
-            } catch (error: Throwable) {
-                acceptFailure(error)
-            } finally {
-                mutableState.value = mutableState.value.copy(busy = false)
             }
-        }
     }
 
     private fun rejectIfUnavailable(): Boolean {
         if (closed) {
-            mutableState.value = mutableState.value.copy(
-                commandStatus = CommandStatus.REJECTED_CLOSED,
-                problem = "The application runtime is closed.",
-            )
+            mutableState.value =
+                mutableState.value.copy(
+                    commandStatus = CommandStatus.REJECTED_CLOSED,
+                    problem = "The application runtime is closed.",
+                )
             return true
         }
         if (command?.isActive == true) {
-            mutableState.value = mutableState.value.copy(
-                commandStatus = CommandStatus.REJECTED_BUSY,
-                problem = "The application is busy. Try again.",
-            )
+            mutableState.value =
+                mutableState.value.copy(
+                    commandStatus = CommandStatus.REJECTED_BUSY,
+                    problem = "The application is busy. Try again.",
+                )
             return true
         }
         if (mutableState.value.route !in setOf(StudioRoute.ACCOUNTS, StudioRoute.ACTIVE_ACCOUNT)) {
-            mutableState.value = mutableState.value.copy(
-                commandStatus = CommandStatus.FAILED_TERMINAL,
-                problem = "The application runtime is not ready for this action.",
-            )
+            mutableState.value =
+                mutableState.value.copy(
+                    commandStatus = CommandStatus.FAILED_TERMINAL,
+                    problem = "The application runtime is not ready for this action.",
+                )
             return true
         }
         return false
     }
 
     private fun rejectUnavailableIntent(message: String) {
-        mutableState.value = mutableState.value.copy(
-            commandStatus = if (closed) CommandStatus.REJECTED_CLOSED else CommandStatus.FAILED_TERMINAL,
-            problem = message,
-        )
+        mutableState.value =
+            mutableState.value.copy(
+                commandStatus = if (closed) CommandStatus.REJECTED_CLOSED else CommandStatus.FAILED_TERMINAL,
+                problem = message,
+            )
     }
 
     private fun acceptSnapshot(snapshot: AppSnapshotDto) {
         if (snapshot.revision >= mutableState.value.snapshot.revision) {
-            mutableState.value = mutableState.value.copy(
-                snapshot = snapshot,
-                route = snapshot.toStudioRoute(),
-            )
+            mutableState.value =
+                mutableState.value.copy(
+                    snapshot = snapshot,
+                    route = snapshot.toStudioRoute(),
+                )
         }
     }
 
     private fun acceptFailure(error: Throwable) {
         val native = error as? StudioException.Failure
-        mutableState.value = mutableState.value.copy(
-            busy = false,
-            commandStatus = if (native?.retryable == true) {
-                CommandStatus.FAILED_RETRYABLE
-            } else {
-                CommandStatus.FAILED_TERMINAL
-            },
-            lastCommandRequestId = native?.correlationId,
-            lastFailureCode = native?.code,
-            recoveryAction = native?.recoveryAction ?: WireRecoveryAction.NONE,
-            problem = native?.safeMessage ?: "The application command failed.",
-        )
+        mutableState.value =
+            mutableState.value.copy(
+                busy = false,
+                commandStatus =
+                    if (native?.retryable == true) {
+                        CommandStatus.FAILED_RETRYABLE
+                    } else {
+                        CommandStatus.FAILED_TERMINAL
+                    },
+                lastCommandRequestId = native?.correlationId,
+                lastFailureCode = native?.code,
+                recoveryAction = native?.recoveryAction ?: WireRecoveryAction.NONE,
+                problem = native?.safeMessage ?: "The application command failed.",
+            )
     }
 
     override fun close() {
@@ -419,29 +452,30 @@ class StudioAppStore(
         generatedRecovery.close()
         runCatching { gateway.shutdown() }
             .onSuccess { receipt ->
-                mutableState.value = mutableState.value.copy(
-                    route = if (receipt.closed) StudioRoute.CLOSED else StudioRoute.FATAL,
-                    busy = false,
-                    problem = if (receipt.closed) null else "The application could not shut down safely.",
-                )
-            }
-            .onFailure { error ->
+                mutableState.value =
+                    mutableState.value.copy(
+                        route = if (receipt.closed) StudioRoute.CLOSED else StudioRoute.FATAL,
+                        busy = false,
+                        problem = if (receipt.closed) null else "The application could not shut down safely.",
+                    )
+            }.onFailure { error ->
                 acceptFailure(error)
                 mutableState.value = mutableState.value.copy(route = StudioRoute.FATAL, busy = false)
             }
     }
 }
 
-internal fun AppSnapshotDto.toStudioRoute(): StudioRoute = when (lifecycle) {
-    AppLifecycleDto.OPENING -> StudioRoute.OPENING
-    AppLifecycleDto.COMPATIBILITY_CHECKING -> StudioRoute.CHECKING_COMPATIBILITY
-    AppLifecycleDto.ACQUIRING_OWNERSHIP -> StudioRoute.ACQUIRING_OWNERSHIP
-    AppLifecycleDto.MIGRATING -> StudioRoute.MIGRATING
-    AppLifecycleDto.RECOVERING -> StudioRoute.RECOVERING
-    AppLifecycleDto.READY -> if (activeAccount != null) StudioRoute.ACTIVE_ACCOUNT else StudioRoute.ACCOUNTS
-    AppLifecycleDto.DEGRADED -> StudioRoute.DEGRADED
-    AppLifecycleDto.BLOCKED -> StudioRoute.BLOCKED
-    AppLifecycleDto.SHUTTING_DOWN -> StudioRoute.SHUTTING_DOWN
-    AppLifecycleDto.CLOSED -> StudioRoute.CLOSED
-    AppLifecycleDto.FATAL -> StudioRoute.FATAL
-}
+internal fun AppSnapshotDto.toStudioRoute(): StudioRoute =
+    when (lifecycle) {
+        AppLifecycleDto.OPENING -> StudioRoute.OPENING
+        AppLifecycleDto.COMPATIBILITY_CHECKING -> StudioRoute.CHECKING_COMPATIBILITY
+        AppLifecycleDto.ACQUIRING_OWNERSHIP -> StudioRoute.ACQUIRING_OWNERSHIP
+        AppLifecycleDto.MIGRATING -> StudioRoute.MIGRATING
+        AppLifecycleDto.RECOVERING -> StudioRoute.RECOVERING
+        AppLifecycleDto.READY -> if (activeAccount != null) StudioRoute.ACTIVE_ACCOUNT else StudioRoute.ACCOUNTS
+        AppLifecycleDto.DEGRADED -> StudioRoute.DEGRADED
+        AppLifecycleDto.BLOCKED -> StudioRoute.BLOCKED
+        AppLifecycleDto.SHUTTING_DOWN -> StudioRoute.SHUTTING_DOWN
+        AppLifecycleDto.CLOSED -> StudioRoute.CLOSED
+        AppLifecycleDto.FATAL -> StudioRoute.FATAL
+    }

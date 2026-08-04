@@ -11,9 +11,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -31,8 +31,8 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import org.radroots.studio.application.StudioRoute
 import org.radroots.studio.application.AccountEntryMode
+import org.radroots.studio.application.StudioRoute
 
 private val WindowBackgroundColor = Color(0xFFF5F5F2)
 private val ButtonBackgroundColor = Color(0xFFE7E7E2)
@@ -63,12 +63,13 @@ data class StudioUiActions(
 @Composable
 fun StartupFailureScreen(problem: String) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(WindowBackgroundColor)
-            .padding(24.dp)
-            .verticalScroll(rememberScrollState())
-            .testTag("startup-failure"),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(WindowBackgroundColor)
+                .padding(24.dp)
+                .verticalScroll(rememberScrollState())
+                .testTag("startup-failure"),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         BasicText("radroots")
@@ -87,32 +88,38 @@ fun StudioScreen(
     }
     when (model.route) {
         StudioRoute.OPENING -> LifecycleScreen("Opening local account store", "lifecycle-opening")
-        StudioRoute.CHECKING_COMPATIBILITY -> LifecycleScreen(
-            "Checking native compatibility",
-            "lifecycle-compatibility",
-        )
-        StudioRoute.ACQUIRING_OWNERSHIP -> LifecycleScreen(
-            "Acquiring local account store",
-            "lifecycle-ownership",
-        )
-        StudioRoute.MIGRATING -> LifecycleScreen(
-            "Updating local account store",
-            "lifecycle-migrating",
-        )
-        StudioRoute.RECOVERING -> LifecycleScreen(
-            "Recovering local account state",
-            "lifecycle-recovering",
-        )
+        StudioRoute.CHECKING_COMPATIBILITY ->
+            LifecycleScreen(
+                "Checking native compatibility",
+                "lifecycle-compatibility",
+            )
+        StudioRoute.ACQUIRING_OWNERSHIP ->
+            LifecycleScreen(
+                "Acquiring local account store",
+                "lifecycle-ownership",
+            )
+        StudioRoute.MIGRATING ->
+            LifecycleScreen(
+                "Updating local account store",
+                "lifecycle-migrating",
+            )
+        StudioRoute.RECOVERING ->
+            LifecycleScreen(
+                "Recovering local account state",
+                "lifecycle-recovering",
+            )
         StudioRoute.SHUTTING_DOWN -> LifecycleScreen("Shutting down", "lifecycle-shutting-down")
         StudioRoute.CLOSED -> LifecycleScreen("Closed", "lifecycle-closed")
-        StudioRoute.BLOCKED -> LifecycleScreen(
-            model.problem ?: "Local account access is blocked.",
-            "lifecycle-blocked",
-        )
-        StudioRoute.FATAL -> LifecycleScreen(
-            model.problem ?: "The application could not continue.",
-            "lifecycle-fatal",
-        )
+        StudioRoute.BLOCKED ->
+            LifecycleScreen(
+                model.problem ?: "Local account access is blocked.",
+                "lifecycle-blocked",
+            )
+        StudioRoute.FATAL ->
+            LifecycleScreen(
+                model.problem ?: "The application could not continue.",
+                "lifecycle-fatal",
+            )
         StudioRoute.DEGRADED -> InactiveAccountsScreen(model, actions, degraded = true)
         StudioRoute.ACTIVE_ACCOUNT -> {
             if (model.activeAccount != null && !model.accountChooserVisible) {
@@ -126,13 +133,17 @@ fun StudioScreen(
 }
 
 @Composable
-private fun LifecycleScreen(message: String, testTag: String) {
+private fun LifecycleScreen(
+    message: String,
+    testTag: String,
+) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(WindowBackgroundColor)
-            .padding(24.dp)
-            .testTag(testTag),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(WindowBackgroundColor)
+                .padding(24.dp)
+                .testTag(testTag),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         BasicText("radroots")
@@ -147,12 +158,13 @@ private fun ActiveAccountHome(
     actions: StudioUiActions,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(WindowBackgroundColor)
-            .padding(24.dp)
-            .verticalScroll(rememberScrollState())
-            .testTag("home-screen"),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(WindowBackgroundColor)
+                .padding(24.dp)
+                .verticalScroll(rememberScrollState())
+                .testTag("home-screen"),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         BasicText("radroots")
@@ -205,11 +217,12 @@ private fun InactiveAccountsScreen(
     degraded: Boolean = false,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(WindowBackgroundColor)
-            .padding(24.dp)
-            .testTag("accounts-screen"),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(WindowBackgroundColor)
+                .padding(24.dp)
+                .testTag("accounts-screen"),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         BasicText("radroots")
@@ -244,7 +257,10 @@ private fun InactiveAccountsScreen(
 }
 
 @Composable
-private fun RecoveryAction(model: StudioUiModel, actions: StudioUiActions) {
+private fun RecoveryAction(
+    model: StudioUiModel,
+    actions: StudioUiActions,
+) {
     if (model.recoveryAction == org.radroots.studio.ffi.WireRecoveryAction.RETRY) {
         TextAction(
             text = "Retry",
@@ -257,7 +273,10 @@ private fun RecoveryAction(model: StudioUiModel, actions: StudioUiActions) {
 }
 
 @Composable
-private fun AccountEntry(model: StudioUiModel, actions: StudioUiActions) {
+private fun AccountEntry(
+    model: StudioUiModel,
+    actions: StudioUiActions,
+) {
     when (model.accountEntryMode) {
         AccountEntryMode.CHOICE -> {
             TextAction(
@@ -306,16 +325,16 @@ private fun AccountEntry(model: StudioUiModel, actions: StudioUiActions) {
                 onValueChange = actions.editImportDraft,
                 enabled = !model.busy,
                 visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics {
-                        contentDescription = "Nostr secret key"
-                        password()
-                    }
-                    .focusRequester(importFocusRequester)
-                    .testTag("import-nsec-input")
-                    .background(InputBackgroundColor)
-                    .padding(8.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .semantics {
+                            contentDescription = "Nostr secret key"
+                            password()
+                        }.focusRequester(importFocusRequester)
+                        .testTag("import-nsec-input")
+                        .background(InputBackgroundColor)
+                        .padding(8.dp),
                 decorationBox = { innerTextField ->
                     if (model.importDraft.isEmpty()) BasicText("nsec or secret-key hex")
                     innerTextField()
@@ -341,20 +360,22 @@ private fun ColumnScope.SavedAccountList(
     actions: StudioUiActions,
 ) {
     LazyColumn(
-        modifier = Modifier
-            .fillMaxWidth()
-            .weight(1f)
-            .testTag("saved-account-list"),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .testTag("saved-account-list"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(model.accounts, key = AccountUiModel::publicKeyHex) { account ->
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics { selected = account.selected }
-                    .testTag("account-row:${account.publicKeyHex}")
-                    .background(InputBackgroundColor)
-                    .padding(12.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .semantics { selected = account.selected }
+                        .testTag("account-row:${account.publicKeyHex}")
+                        .background(InputBackgroundColor)
+                        .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 BasicText(account.label)
@@ -416,12 +437,13 @@ private fun GeneratedKeyRecoveryScreen(
     actions: StudioUiActions,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(WindowBackgroundColor)
-            .padding(24.dp)
-            .verticalScroll(rememberScrollState())
-            .testTag("generated-key-backup"),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(WindowBackgroundColor)
+                .padding(24.dp)
+                .verticalScroll(rememberScrollState())
+                .testTag("generated-key-backup"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         BasicText("Save this key")
@@ -459,15 +481,15 @@ internal fun TextAction(
 ) {
     BasicText(
         text = text,
-        modifier = Modifier
-            .semantics {
-                role = Role.Button
-                this.contentDescription = contentDescription
-                if (!enabled) disabled()
-            }
-            .testTag(testTag)
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
-            .background(ButtonBackgroundColor)
-            .padding(8.dp),
+        modifier =
+            Modifier
+                .semantics {
+                    role = Role.Button
+                    this.contentDescription = contentDescription
+                    if (!enabled) disabled()
+                }.testTag(testTag)
+                .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+                .background(ButtonBackgroundColor)
+                .padding(8.dp),
     )
 }

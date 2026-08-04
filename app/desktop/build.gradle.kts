@@ -1,21 +1,21 @@
-import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Delete
+import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
-import org.gradle.api.tasks.Exec
-import org.gradle.api.tasks.Delete
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.tasks.Jar
+import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 version = "0.1.0-alpha"
@@ -24,24 +24,49 @@ plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.detekt)
+    alias(libs.plugins.ktlint)
+}
+
+configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
+    additionalEditorconfig.set(
+        mapOf(
+            "ktlint_function_naming_ignore_when_annotated_with" to "Composable",
+        ),
+    )
+    filter {
+        exclude { it.file.path.contains("/build/generated/") }
+    }
+}
+
+tasks.withType<org.jlleitschuh.gradle.ktlint.tasks.BaseKtLintCheckTask>().configureEach {
+    exclude { it.file.path.contains("/build/generated/") }
 }
 
 val rustManifest = rootProject.layout.projectDirectory.file("core/Cargo.toml")
-val rustSources = rootProject.fileTree("core") {
-    include(
-        "**/Cargo.toml",
-        "Cargo.lock",
-        "rust-toolchain.toml",
-        "**/*.rs",
-        "**/*.sql",
-        "**/uniffi.toml",
-        "compatibility/**",
-    )
-    exclude("target/**")
-}
-data class NativeTarget(val libraryName: String, val jnaPrefix: String)
+val rustSources =
+    rootProject.fileTree("core") {
+        include(
+            "**/Cargo.toml",
+            "Cargo.lock",
+            "rust-toolchain.toml",
+            "**/*.rs",
+            "**/*.sql",
+            "**/uniffi.toml",
+            "compatibility/**",
+        )
+        exclude("target/**")
+    }
 
-fun resolveNativeTarget(osName: String, architecture: String): NativeTarget {
+data class NativeTarget(
+    val libraryName: String,
+    val jnaPrefix: String,
+)
+
+fun resolveNativeTarget(
+    osName: String,
+    architecture: String,
+): NativeTarget {
     val os = osName.lowercase()
     val arch = architecture.lowercase()
     return when {
@@ -61,10 +86,11 @@ fun resolveNativeTarget(osName: String, architecture: String): NativeTarget {
     }
 }
 
-val nativeTarget = resolveNativeTarget(
-    providers.gradleProperty("nativeOs").getOrElse(System.getProperty("os.name")),
-    providers.gradleProperty("nativeArch").getOrElse(System.getProperty("os.arch")),
-)
+val nativeTarget =
+    resolveNativeTarget(
+        providers.gradleProperty("nativeOs").getOrElse(System.getProperty("os.name")),
+        providers.gradleProperty("nativeArch").getOrElse(System.getProperty("os.arch")),
+    )
 val rustLibraryName = nativeTarget.libraryName
 val rustDebugLibrary = rootProject.layout.projectDirectory.file("core/target/debug/$rustLibraryName")
 val rustReleaseLibrary = rootProject.layout.projectDirectory.file("core/target/release/$rustLibraryName")
@@ -133,6 +159,7 @@ val generateUniFfiKotlin by tasks.registering(Exec::class) {
     inputs.file(rootProject.layout.projectDirectory.file("core/crates/ffi/uniffi.toml"))
     outputs.dir(generatedUniFfiKotlin)
 }
+
 abstract class VerifyUniFfiBindings : DefaultTask() {
     @get:InputDirectory
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -143,8 +170,9 @@ abstract class VerifyUniFfiBindings : DefaultTask() {
 
     @TaskAction
     fun verify() {
-        val kotlinFiles = generatedDirectory.asFileTree.files
-            .filter { it.isFile && it.extension == "kt" }
+        val kotlinFiles =
+            generatedDirectory.asFileTree.files
+                .filter { it.isFile && it.extension == "kt" }
         if (kotlinFiles.size != 1) {
             throw GradleException("Expected exactly one generated UniFFI Kotlin source")
         }
@@ -166,6 +194,7 @@ val stageReleaseNativeLibrary by tasks.registering(Copy::class) {
     from(rustReleaseLibrary)
     into(generatedReleaseNativeResources.map { it.dir(jnaPlatformPrefix) })
 }
+
 abstract class VerifyReleaseNativeLibrary : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
@@ -215,12 +244,15 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
 }
 
-val testInventoryRoot = providers
-    .gradleProperty("testInventoryRoot")
-    .orElse("src/test/kotlin")
-val expectedTests = fileTree(testInventoryRoot.get()) {
-    include("**/*Test.kt")
-}
+val testInventoryRoot =
+    providers
+        .gradleProperty("testInventoryRoot")
+        .orElse("src/test/kotlin")
+val expectedTests =
+    fileTree(testInventoryRoot.get()) {
+        include("**/*Test.kt")
+    }
+
 abstract class VerifyTestInventory : DefaultTask() {
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -261,6 +293,12 @@ kotlin {
 tasks.named("compileKotlin") {
     dependsOn(generateUniFfiKotlin)
 }
+tasks.named("runKtlintCheckOverMainSourceSet") {
+    dependsOn(generateUniFfiKotlin)
+}
+tasks.named("runKtlintFormatOverMainSourceSet") {
+    dependsOn(generateUniFfiKotlin)
+}
 tasks.withType<Test>().configureEach {
     dependsOn(buildRustCoreDebug)
     systemProperty(
@@ -283,10 +321,11 @@ compose.desktop {
         fromFiles(releaseNativeResourcesJar)
         mainClass = "org.radroots.studio.desktop.MainKt"
 
-        jvmArgs += listOf(
-            "-Dapple.awt.application.name=Radroots",
-            "-Dapple.awt.application.appearance=system",
-        )
+        jvmArgs +=
+            listOf(
+                "-Dapple.awt.application.name=Radroots",
+                "-Dapple.awt.application.appearance=system",
+            )
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg)

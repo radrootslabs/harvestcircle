@@ -1,10 +1,5 @@
 package org.radroots.studio.accounts.ui
 
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
-import kotlin.test.assertNull
 import org.radroots.studio.application.GeneratedKeyBackup
 import org.radroots.studio.application.StudioStoreState
 import org.radroots.studio.ffi.AccountDto
@@ -19,20 +14,27 @@ import org.radroots.studio.ffi.SessionStateDto
 import org.radroots.studio.ffi.SignerKindDto
 import org.radroots.studio.ffi.WireErrorCode
 import org.radroots.studio.ffi.WireRecoveryAction
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class AccountsUiModelTest {
     @Test
     fun mapsPublicNostrIdentityAndProfileState() {
         val account = account()
-        val snapshot = snapshot(
-            account = account,
-            active = ActiveAccountDto(
+        val snapshot =
+            snapshot(
                 account = account,
-                relayState = RelayConnectionStateDto.CONNECTED,
-                profileState = ProfileLoadStateDto.FRESH,
-                profile = ProfileDto("alice", "Alice", "alice@example.com", "Farmer", "https://example.com/a.png"),
-            ),
-        )
+                active =
+                    ActiveAccountDto(
+                        account = account,
+                        relayState = RelayConnectionStateDto.CONNECTED,
+                        profileState = ProfileLoadStateDto.FRESH,
+                        profile = ProfileDto("alice", "Alice", "alice@example.com", "Farmer", "https://example.com/a.png"),
+                    ),
+            )
 
         val model = StudioStoreState(snapshot).toUiModel()
 
@@ -42,18 +44,24 @@ class AccountsUiModelTest {
         assertEquals("alice@example.com", model.activeAccount?.profile?.nip05)
         assertEquals(listOf("ws://localhost:8080"), model.configuredRelays)
         assertFalse(model.accountChooserVisible)
-        assertFalse(model.accounts.single().label.contains("server", ignoreCase = true))
+        assertFalse(
+            model.accounts
+                .single()
+                .label
+                .contains("server", ignoreCase = true),
+        )
         assertTrue(model.accounts.single().selected)
         assertTrue(model.accounts.single().active)
     }
 
     @Test
     fun mapsSafeProblemAndTransientBackupSeparatelyFromSnapshot() {
-        val state = StudioStoreState(
-            snapshot = snapshot(),
-            generatedKeyBackup = GeneratedKeyBackup("npub1generated", "nsec1generated"),
-            problem = "Try again.",
-        )
+        val state =
+            StudioStoreState(
+                snapshot = snapshot(),
+                generatedKeyBackup = GeneratedKeyBackup("npub1generated", "nsec1generated"),
+                problem = "Try again.",
+            )
 
         val model = state.toUiModel()
 
@@ -70,15 +78,17 @@ class AccountsUiModelTest {
 
     @Test
     fun mapsTypedImportFailuresToSpecificRepairGuidance() {
-        val invalid = StudioStoreState(
-            snapshot = snapshot(),
-            lastFailureCode = WireErrorCode.INVALID_SECRET_KEY,
-        ).toUiModel()
-        val repair = StudioStoreState(
-            snapshot = snapshot(),
-            lastFailureCode = WireErrorCode.CREDENTIAL_MISSING,
-            recoveryAction = WireRecoveryAction.REPAIR_CREDENTIAL,
-        ).toUiModel()
+        val invalid =
+            StudioStoreState(
+                snapshot = snapshot(),
+                lastFailureCode = WireErrorCode.INVALID_SECRET_KEY,
+            ).toUiModel()
+        val repair =
+            StudioStoreState(
+                snapshot = snapshot(),
+                lastFailureCode = WireErrorCode.CREDENTIAL_MISSING,
+                recoveryAction = WireRecoveryAction.REPAIR_CREDENTIAL,
+            ).toUiModel()
 
         assertEquals("Enter a valid nsec or 64-character hexadecimal secret key.", invalid.importGuidance)
         assertEquals(
@@ -105,12 +115,13 @@ private fun snapshot(
     recoverableProblem = null,
 )
 
-private fun account() = AccountDto(
-    publicKeyHex = "12".repeat(32),
-    npub = "npub1abcdefghijklmnopqrstuvwxyz1234567890",
-    displayLabel = "Alice",
-    signerKind = SignerKindDto.LOCAL_SECRET,
-    keyAvailability = KeyAvailabilityDto.AVAILABLE,
-    createdAtSeconds = 1,
-    lastUsedAtSeconds = null,
-)
+private fun account() =
+    AccountDto(
+        publicKeyHex = "12".repeat(32),
+        npub = "npub1abcdefghijklmnopqrstuvwxyz1234567890",
+        displayLabel = "Alice",
+        signerKind = SignerKindDto.LOCAL_SECRET,
+        keyAvailability = KeyAvailabilityDto.AVAILABLE,
+        createdAtSeconds = 1,
+        lastUsedAtSeconds = null,
+    )

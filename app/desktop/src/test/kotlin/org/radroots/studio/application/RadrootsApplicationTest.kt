@@ -8,18 +8,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runComposeUiTest
-import kotlin.test.Test
-import kotlin.test.assertEquals
 import org.radroots.studio.ffi.AppLifecycleDto
 import org.radroots.studio.ffi.AppSnapshotDto
 import org.radroots.studio.ffi.SessionStateDto
+import kotlin.test.Test
+import kotlin.test.assertEquals
 
 class RadrootsApplicationTest {
     @OptIn(ExperimentalTestApi::class)
@@ -41,9 +41,10 @@ class RadrootsApplicationTest {
                 }
                 BasicText(
                     text = "Toggle",
-                    modifier = Modifier
-                        .testTag("toggle-application")
-                        .clickable { applicationVisible = !applicationVisible },
+                    modifier =
+                        Modifier
+                            .testTag("toggle-application")
+                            .clickable { applicationVisible = !applicationVisible },
                 )
             }
 
@@ -75,11 +76,17 @@ private class ApplicationGateway : StudioCoreGateway {
     var closed = false
 
     override fun snapshot() = applicationSnapshot(0UL)
+
     override suspend fun subscribeChanges(onChange: (StudioChange) -> Unit) = AutoCloseable {}
+
     override suspend fun execute(command: StudioCommand): StudioCommandResult = error("unused")
+
     override suspend fun bootstrap() = applicationSnapshot(1UL)
+
     override suspend fun beginGeneratedAccount(): GeneratedRecoveryTicket = error("unused")
+
     override suspend fun requestAccountRemoval(publicKeyHex: String): RemovalTicket = error("unused")
+
     override suspend fun confirmAccountRemoval(ticket: RemovalTicket) = error("unused")
 
     override fun shutdown(): StudioShutdownReceipt {
@@ -92,16 +99,17 @@ private class ApplicationGateway : StudioCoreGateway {
     }
 }
 
-private fun applicationSnapshot(revision: ULong) = AppSnapshotDto(
-    revision = revision,
-    lifecycle = AppLifecycleDto.READY,
-    lifecycleError = null,
-    configuredRelays = emptyList(),
-    accounts = emptyList(),
-    selectedPublicKeyHex = null,
-    session = SessionStateDto.SIGNED_OUT,
-    sessionSubjectPublicKeyHex = null,
-    sessionError = null,
-    activeAccount = null,
-    recoverableProblem = null,
-)
+private fun applicationSnapshot(revision: ULong) =
+    AppSnapshotDto(
+        revision = revision,
+        lifecycle = AppLifecycleDto.READY,
+        lifecycleError = null,
+        configuredRelays = emptyList(),
+        accounts = emptyList(),
+        selectedPublicKeyHex = null,
+        session = SessionStateDto.SIGNED_OUT,
+        sessionSubjectPublicKeyHex = null,
+        sessionError = null,
+        activeAccount = null,
+        recoverableProblem = null,
+    )

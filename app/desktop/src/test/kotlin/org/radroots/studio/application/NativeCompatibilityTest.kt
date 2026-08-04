@@ -25,11 +25,12 @@ class NativeCompatibilityTest {
         }
     }
 
-    private fun compatibleDescriptor() = CompatibilityDescriptor(
-        contractMajor = EXPECTED_FFI_CONTRACT_MAJOR,
-        contractMinor = MINIMUM_FFI_CONTRACT_MINOR,
-        contractHash = EXPECTED_FFI_CONTRACT_HASH,
-        minimumSchemaVersion = MINIMUM_STORAGE_SCHEMA,
-        currentSchemaVersion = MAXIMUM_STORAGE_SCHEMA,
-    )
+    private fun compatibleDescriptor() =
+        CompatibilityDescriptor(
+            contractMajor = EXPECTED_FFI_CONTRACT_MAJOR,
+            contractMinor = MINIMUM_FFI_CONTRACT_MINOR,
+            contractHash = EXPECTED_FFI_CONTRACT_HASH,
+            minimumSchemaVersion = MINIMUM_STORAGE_SCHEMA,
+            currentSchemaVersion = MAXIMUM_STORAGE_SCHEMA,
+        )
 }

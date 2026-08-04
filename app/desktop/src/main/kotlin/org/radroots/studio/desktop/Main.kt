@@ -5,20 +5,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import org.radroots.studio.accounts.ui.StartupFailureScreen
+import org.radroots.studio.application.RadrootsApplication
 import java.awt.Dimension
 import java.awt.Taskbar
 import javax.imageio.ImageIO
-import org.radroots.studio.application.RadrootsApplication
-import org.radroots.studio.accounts.ui.StartupFailureScreen
 
-private const val ApplicationName = "Radroots"
-private const val InitialWindowWidth = 1284
-private const val InitialWindowHeight = 795
-private const val MinimumWindowWidth = 1080
-private const val MinimumWindowHeight = 720
+private const val APPLICATION_NAME = "Radroots"
+private const val INITIAL_WINDOW_WIDTH = 1284
+private const val INITIAL_WINDOW_HEIGHT = 795
+private const val MINIMUM_WINDOW_WIDTH = 1080
+private const val MINIMUM_WINDOW_HEIGHT = 720
 
 private val isMacOs: Boolean =
-    System.getProperty("os.name", "")
+    System
+        .getProperty("os.name", "")
         .startsWith("Mac", ignoreCase = true)
 
 fun main() {
@@ -27,14 +28,15 @@ fun main() {
     application {
         Window(
             onCloseRequest = ::exitApplication,
-            title = ApplicationName,
-            state = rememberWindowState(
-                width = InitialWindowWidth.dp,
-                height = InitialWindowHeight.dp,
-            ),
+            title = APPLICATION_NAME,
+            state =
+                rememberWindowState(
+                    width = INITIAL_WINDOW_WIDTH.dp,
+                    height = INITIAL_WINDOW_HEIGHT.dp,
+                ),
         ) {
             DisposableEffect(window) {
-                window.minimumSize = Dimension(MinimumWindowWidth, MinimumWindowHeight)
+                window.minimumSize = Dimension(MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT)
 
                 if (isMacOs) {
                     val rootPane = window.rootPane
@@ -56,7 +58,7 @@ fun main() {
 }
 
 private fun configureMacOsApplication(): String? {
-    System.setProperty("apple.awt.application.name", ApplicationName)
+    System.setProperty("apple.awt.application.name", APPLICATION_NAME)
     System.setProperty("apple.awt.application.appearance", "system")
 
     if (!Taskbar.isTaskbarSupported()) return null
@@ -64,9 +66,10 @@ private fun configureMacOsApplication(): String? {
     val taskbar = Taskbar.getTaskbar()
     if (!taskbar.isSupported(Taskbar.Feature.ICON_IMAGE)) return null
 
-    val icon = loadRuntimeIcon {
-        Thread.currentThread().contextClassLoader.getResourceAsStream("icons/radroots.png")
-    } ?: return "The application icon resource is unavailable."
+    val icon =
+        loadRuntimeIcon {
+            Thread.currentThread().contextClassLoader.getResourceAsStream("icons/radroots.png")
+        } ?: return "The application icon resource is unavailable."
     return runCatching { taskbar.iconImage = icon }
         .fold(
             onSuccess = { null },

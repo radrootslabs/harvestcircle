@@ -6,9 +6,10 @@ class GeneratedKeyBackup internal constructor(
 ) {
     private var recoveryText: String? = nsec
 
-    internal fun revealNsec(): String = checkNotNull(recoveryText) {
-        "Generated recovery material is no longer available"
-    }
+    internal fun revealNsec(): String =
+        checkNotNull(recoveryText) {
+            "Generated recovery material is no longer available"
+        }
 
     internal fun clear() {
         recoveryText = null
@@ -20,7 +21,10 @@ class GeneratedKeyBackup internal constructor(
 internal class GeneratedRecoveryController : AutoCloseable {
     private var active: GeneratedKeyBackup? = null
 
-    fun begin(npub: String, nsec: String): GeneratedKeyBackup {
+    fun begin(
+        npub: String,
+        nsec: String,
+    ): GeneratedKeyBackup {
         check(active == null) { "Generated-key recovery is already active" }
         return GeneratedKeyBackup(npub, nsec).also { active = it }
     }

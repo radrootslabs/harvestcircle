@@ -10,8 +10,9 @@ import kotlin.test.assertFalse
 class StudioCoreGatewayTest {
     @Test
     fun unknownFailuresBecomeSanitizedTypedRejections() {
-        val failure = IllegalStateException("sensitive detail")
-            .toStudioCommandFailure("request-7")
+        val failure =
+            IllegalStateException("sensitive detail")
+                .toStudioCommandFailure("request-7")
 
         assertEquals(WireErrorCode.INTERNAL, failure.code)
         assertEquals(WireErrorCategory.INTERNAL, failure.category)

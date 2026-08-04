@@ -13,9 +13,10 @@ class V5CompatibilityBaselineTest {
     @Test
     fun baselineFreezesPackageAndNativeCoordinates() {
         val root = findRepositoryRoot()
-        val baseline = Properties().apply {
-            root.resolve("core/compatibility/v5-baseline.properties").inputStream().use(::load)
-        }
+        val baseline =
+            Properties().apply {
+                root.resolve("core/compatibility/v5-baseline.properties").inputStream().use(::load)
+            }
 
         assertEquals("studio-runtime-v5", baseline.getProperty("baseline.id"))
         assertEquals("5", baseline.getProperty("schema.version"))

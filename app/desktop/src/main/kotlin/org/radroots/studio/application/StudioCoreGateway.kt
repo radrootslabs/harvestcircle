@@ -1,9 +1,9 @@
 package org.radroots.studio.application
 
-import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
-import org.radroots.studio.ffi.AppSnapshotDto
 import org.radroots.studio.ffi.AccountDto
+import org.radroots.studio.ffi.AppSnapshotDto
 import org.radroots.studio.ffi.GeneratedRecoveryRequest
 import org.radroots.studio.ffi.ObserverSubscription
 import org.radroots.studio.ffi.RemovalRequest
@@ -15,6 +15,7 @@ import org.radroots.studio.ffi.StudioException
 import org.radroots.studio.ffi.WireErrorCategory
 import org.radroots.studio.ffi.WireErrorCode
 import org.radroots.studio.ffi.WireRecoveryAction
+import java.util.concurrent.atomic.AtomicLong
 
 interface RemovalTicket : AutoCloseable {
     val publicKeyHex: String
@@ -39,10 +40,20 @@ data class StudioChange(
 )
 
 sealed interface StudioCommand {
-    data class ImportAccount(val bytes: ByteArray) : StudioCommand
-    data class SelectAccount(val publicKeyHex: String) : StudioCommand
-    data class ActivateAccount(val publicKeyHex: String) : StudioCommand
+    data class ImportAccount(
+        val bytes: ByteArray,
+    ) : StudioCommand
+
+    data class SelectAccount(
+        val publicKeyHex: String,
+    ) : StudioCommand
+
+    data class ActivateAccount(
+        val publicKeyHex: String,
+    ) : StudioCommand
+
     data object SignOut : StudioCommand
+
     data object RefreshProfile : StudioCommand
 }
 
@@ -67,8 +78,13 @@ data class StudioShutdownReceipt(
 )
 
 sealed interface StudioCommandResult {
-    data class Accepted(val receipt: StudioCommandReceipt) : StudioCommandResult
-    data class Rejected(val failure: StudioCommandFailure) : StudioCommandResult
+    data class Accepted(
+        val receipt: StudioCommandReceipt,
+    ) : StudioCommandResult
+
+    data class Rejected(
+        val failure: StudioCommandFailure,
+    ) : StudioCommandResult
 }
 
 interface StudioCoreGateway : AutoCloseable {
@@ -95,37 +111,43 @@ class NativeStudioCoreGateway(
     private val nextRequest = AtomicLong(1)
     private val shutdownLock = Any()
     private var shutdownReceipt: StudioShutdownReceipt? = null
+
     override fun snapshot(): AppSnapshotDto = core.snapshot()
 
     override suspend fun subscribeChanges(onChange: (StudioChange) -> Unit): AutoCloseable {
-        val subscription = core.subscribeChangesV2(
-            object : StudioChangeObserver {
-                override fun onChange(change: SnapshotChangeDto) {
-                    onChange(StudioChange(change.snapshot, change.previousRevision))
-                }
-            },
-        )
+        val subscription =
+            core.subscribeChangesV2(
+                object : StudioChangeObserver {
+                    override fun onChange(change: SnapshotChangeDto) {
+                        onChange(StudioChange(change.snapshot, change.previousRevision))
+                    }
+                },
+            )
         return NativeSubscription(subscription)
     }
 
     override suspend fun execute(command: StudioCommand): StudioCommandResult {
         val context = requestContext()
         return try {
-            val snapshot = when (command) {
-                is StudioCommand.ImportAccount -> try {
-                    core.importAccountV2(context, command.bytes).snapshot
-                } finally {
-                    command.bytes.fill(0)
+            val snapshot =
+                when (command) {
+                    is StudioCommand.ImportAccount ->
+                        try {
+                            core.importAccountV2(context, command.bytes).snapshot
+                        } finally {
+                            command.bytes.fill(0)
+                        }
+                    is StudioCommand.SelectAccount -> core.selectAccount(command.publicKeyHex)
+                    is StudioCommand.ActivateAccount -> core.activateAccount(command.publicKeyHex)
+                    StudioCommand.SignOut -> core.signOut()
+                    StudioCommand.RefreshProfile -> core.refreshActiveProfile()
                 }
-                is StudioCommand.SelectAccount -> core.selectAccount(command.publicKeyHex)
-                is StudioCommand.ActivateAccount -> core.activateAccount(command.publicKeyHex)
-                StudioCommand.SignOut -> core.signOut()
-                StudioCommand.RefreshProfile -> core.refreshActiveProfile()
-            }
             StudioCommandResult.Accepted(
                 StudioCommandReceipt(context.requestId, snapshot.revision, snapshot),
             )
-        } catch (error: Throwable) {
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
             StudioCommandResult.Rejected(error.toStudioCommandFailure(context.requestId))
         }
     }
@@ -143,26 +165,28 @@ class NativeStudioCoreGateway(
         return core.confirmAccountRemoval(ticket.request)
     }
 
-    override fun shutdown(): StudioShutdownReceipt = synchronized(shutdownLock) {
-        shutdownReceipt ?: run {
-            val receipt = runBlocking { core.shutdownV2() }
-            StudioShutdownReceipt(receipt.finalRevision, receipt.closed).also {
-                check(it.closed) { "Native runtime returned an incomplete shutdown receipt" }
-                shutdownReceipt = it
-                core.close()
+    override fun shutdown(): StudioShutdownReceipt =
+        synchronized(shutdownLock) {
+            shutdownReceipt ?: run {
+                val receipt = runBlocking { core.shutdownV2() }
+                StudioShutdownReceipt(receipt.finalRevision, receipt.closed).also {
+                    check(it.closed) { "Native runtime returned an incomplete shutdown receipt" }
+                    shutdownReceipt = it
+                    core.close()
+                }
             }
         }
-    }
 
     override fun close() {
         shutdown()
     }
 
-    private fun requestContext(): RequestContextDto = RequestContextDto(
-        requestId = "kotlin:${nextRequest.getAndIncrement()}",
-        expectedRevision = core.snapshot().revision,
-        deadlineMillis = 30_000UL,
-    )
+    private fun requestContext(): RequestContextDto =
+        RequestContextDto(
+            requestId = "kotlin:${nextRequest.getAndIncrement()}",
+            expectedRevision = core.snapshot().revision,
+            deadlineMillis = 30_000UL,
+        )
 }
 
 internal fun Throwable.toStudioCommandFailure(fallbackCorrelationId: String): StudioCommandFailure {
@@ -207,8 +231,7 @@ private class NativeGeneratedRecoveryTicket(
 
     override fun takeRecoveryNsec(): String = request.takeRecoveryNsec()
 
-    override suspend fun acknowledge(): AppSnapshotDto =
-        core.acknowledgeGeneratedAccountV2(request)
+    override suspend fun acknowledge(): AppSnapshotDto = core.acknowledgeGeneratedAccountV2(request)
 
     override suspend fun cancel(): Boolean = core.cancelGeneratedAccountV2(request)
 
