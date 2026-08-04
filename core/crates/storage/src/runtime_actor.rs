@@ -1139,11 +1139,12 @@ mod tests {
     use std::time::Duration;
 
     use radroots_studio_application::{
-        BoxFuture, Clock, InMemorySecretStore, NostrClient, RelayConfiguration, RuntimeLifecycle,
-        SecretStore, SessionState,
+        BoxFuture, Clock, FailureSecretStore, InMemorySecretStore, NostrClient, RelayConfiguration,
+        RuntimeLifecycle, SecretStore, SecretStoreOperation, SessionState,
     };
     use radroots_studio_domain::{
-        Kind0ProfileCandidate, PublicKey, RelayUrl, SafeError, SecretKeyInput, UnixTimestamp,
+        Kind0ProfileCandidate, PublicKey, RelayUrl, SafeError, SafeErrorCode, SecretKeyInput,
+        UnixTimestamp,
     };
 
     use super::RuntimeActorHandle;
@@ -1377,6 +1378,39 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn failed_generated_commit_consumes_the_stage_without_poisoning_the_actor() {
+        let secrets = Arc::new(FailureSecretStore::default());
+        secrets.fail_next(SecretStoreOperation::Put);
+        let secret_port: Arc<dyn SecretStore> = secrets.clone();
+        let actor = RuntimeActorHandle::in_memory(
+            RelayConfiguration::default(),
+            secret_port,
+            Arc::new(FixedClock),
+            Arc::new(OfflineNostr),
+            NonZeroUsize::new(8).expect("capacity"),
+            &tokio::runtime::Handle::current(),
+        )
+        .expect("actor");
+        let handle = actor
+            .begin_generated_key_stage()
+            .await
+            .expect("generated key stage");
+
+        let error = actor
+            .acknowledge_generated_key_stage(handle.id())
+            .await
+            .expect_err("injected keyring failure");
+
+        assert_eq!(error.code(), SafeErrorCode::KeyringUnavailable);
+        assert!(actor.snapshot().accounts().is_empty());
+        actor
+            .begin_generated_key_stage()
+            .await
+            .expect("fresh recovery after terminal failure");
+        assert!(actor.cancel_generated_key_stage().await.expect("cancel"));
     }
 
     #[tokio::test(flavor = "multi_thread")]

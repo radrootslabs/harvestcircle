@@ -278,7 +278,8 @@ impl StudioAppCore {
     ///
     /// # Errors
     ///
-    /// Returns a safe recovery, credential, persistence, timeout, or lifecycle error.
+    /// Returns a terminal safe recovery, credential, persistence, timeout, or lifecycle error.
+    /// A failed commit must be recovered by importing the already-saved recovery key.
     pub async fn acknowledge_generated_account_v2(
         &self,
         request: Arc<GeneratedRecoveryRequest>,
@@ -291,7 +292,7 @@ impl StudioAppCore {
             .acknowledge_generated_key_stage(request.handle.id())
             .await
             .map(|snapshot| self.inner.dto_for(&snapshot))
-            .map_err(StudioError::from)
+            .map_err(generated_commit_failed)
     }
 
     /// Cancels the exclusive generated-account recovery flow.
@@ -614,6 +615,20 @@ fn generated_recovery_expired() -> StudioError {
         recovery_action: WireRecoveryAction::None,
         correlation_id: None,
         safe_message: "The generated-key recovery step is no longer valid.".to_owned(),
+    }
+}
+
+fn generated_commit_failed(error: SafeError) -> StudioError {
+    let (category, _, _) = error_policy(error.code());
+    StudioError::Failure {
+        code: error.code().into(),
+        category,
+        retryable: false,
+        recovery_action: WireRecoveryAction::None,
+        correlation_id: None,
+        safe_message:
+            "The generated account could not be saved. Import the recovery key you saved to try again."
+                .to_owned(),
     }
 }
 

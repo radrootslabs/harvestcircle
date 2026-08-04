@@ -121,7 +121,10 @@ class StudioAppStoreTest {
             assertNull(store.state.value.generatedKeyBackup)
             assertTrue(gateway.lastGeneratedRecoveryTicket?.closed == true)
             assertEquals("fake-generated-request", store.state.value.lastCommandRequestId)
-            assertEquals("The generated account could not be saved.", store.state.value.problem)
+            assertEquals(
+                "The generated account could not be saved. Import the recovery key you saved to try again.",
+                store.state.value.problem,
+            )
             store.close()
         }
 
@@ -414,10 +417,10 @@ private class FakeGeneratedRecoveryTicket(
                 StudioCommandFailure(
                     WireErrorCode.KEYRING_UNAVAILABLE,
                     WireErrorCategory.CREDENTIAL,
-                    retryable = true,
-                    WireRecoveryAction.RETRY,
+                    retryable = false,
+                    WireRecoveryAction.NONE,
                     requestId,
-                    "The generated account could not be saved.",
+                    "The generated account could not be saved. Import the recovery key you saved to try again.",
                 ),
             )
         }
