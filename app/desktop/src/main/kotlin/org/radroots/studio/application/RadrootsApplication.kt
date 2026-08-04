@@ -56,6 +56,7 @@ fun RadrootsApplication(
             cancelAccountRemoval = store::cancelAccountRemoval,
             confirmAccountRemoval = store::confirmAccountRemoval,
             refreshActiveProfile = store::refreshActiveProfile,
+            retryLastCommand = store::retryLastCommand,
             signOut = store::signOut,
             showAccountChooser = store::showAccountChooser,
             hideAccountChooser = store::hideAccountChooser,

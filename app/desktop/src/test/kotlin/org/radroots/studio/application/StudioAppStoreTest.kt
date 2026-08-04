@@ -103,6 +103,7 @@ class StudioAppStoreTest {
 
         assertNull(store.state.value.pendingRemovalPublicKeyHex)
         assertTrue(gateway.lastRemovalTicket?.closed == true)
+        assertEquals(RemovalStatus.FAILED, store.state.value.removalStatus)
         assertEquals("The application command failed.", store.state.value.problem)
         store.close()
     }
@@ -145,6 +146,10 @@ class StudioAppStoreTest {
         assertEquals(CommandStatus.FAILED_RETRYABLE, store.state.value.commandStatus)
         assertEquals("request-retry", store.state.value.lastCommandRequestId)
         assertEquals("Storage is temporarily unavailable.", store.state.value.problem)
+        store.retryLastCommand()
+        advanceUntilIdle()
+        assertEquals(1, gateway.signOutCalls)
+        assertEquals(CommandStatus.ACCEPTED, store.state.value.commandStatus)
         store.close()
     }
 
@@ -313,6 +318,10 @@ private class FakeGeneratedRecoveryTicket(
 }
 
 private class FakeRemovalTicket : RemovalTicket {
+    override val publicKeyHex: String = "00".repeat(32)
+    override val deletesLocalCredential: Boolean = true
+    override val signsOut: Boolean = false
+    override val expiresAtSeconds: Long = 60
     var closed = false
 
     override fun close() {

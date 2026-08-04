@@ -16,7 +16,12 @@ import org.radroots.studio.ffi.WireErrorCategory
 import org.radroots.studio.ffi.WireErrorCode
 import org.radroots.studio.ffi.WireRecoveryAction
 
-interface RemovalTicket : AutoCloseable
+interface RemovalTicket : AutoCloseable {
+    val publicKeyHex: String
+    val deletesLocalCredential: Boolean
+    val signsOut: Boolean
+    val expiresAtSeconds: Long
+}
 
 interface GeneratedRecoveryTicket : AutoCloseable {
     val account: AccountDto
@@ -184,6 +189,11 @@ private class NativeSubscription(
 private class NativeRemovalTicket(
     val request: RemovalRequest,
 ) : RemovalTicket {
+    override val publicKeyHex: String = request.publicKeyHex()
+    override val deletesLocalCredential: Boolean = request.deletesLocalCredential()
+    override val signsOut: Boolean = request.signsOut()
+    override val expiresAtSeconds: Long = request.expiresAtSeconds()
+
     override fun close() {
         request.close()
     }

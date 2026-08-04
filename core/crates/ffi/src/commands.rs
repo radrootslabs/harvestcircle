@@ -154,6 +154,9 @@ impl GeneratedRecoveryRequest {
 #[derive(uniffi::Object)]
 pub struct RemovalRequest {
     public_key_hex: String,
+    deletes_local_credential: bool,
+    signs_out: bool,
+    expires_at_seconds: i64,
     token: Mutex<Option<RemovalConfirmationToken>>,
 }
 
@@ -161,6 +164,18 @@ pub struct RemovalRequest {
 impl RemovalRequest {
     pub fn public_key_hex(&self) -> String {
         self.public_key_hex.clone()
+    }
+
+    pub fn deletes_local_credential(&self) -> bool {
+        self.deletes_local_credential
+    }
+
+    pub fn signs_out(&self) -> bool {
+        self.signs_out
+    }
+
+    pub fn expires_at_seconds(&self) -> i64 {
+        self.expires_at_seconds
     }
 }
 
@@ -402,8 +417,12 @@ impl StudioAppCore {
             .request_account_removal(public_key)
             .await
             .map(|token| {
+                let impact = token.impact();
                 Arc::new(RemovalRequest {
                     public_key_hex,
+                    deletes_local_credential: impact.deletes_local_credential(),
+                    signs_out: impact.signs_out(),
+                    expires_at_seconds: token.expires_at().as_seconds(),
                     token: Mutex::new(Some(token)),
                 })
             })

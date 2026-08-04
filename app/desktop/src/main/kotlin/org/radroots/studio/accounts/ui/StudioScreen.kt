@@ -48,6 +48,7 @@ data class StudioUiActions(
     val cancelAccountRemoval: () -> Unit = {},
     val confirmAccountRemoval: () -> Unit = {},
     val refreshActiveProfile: () -> Unit = {},
+    val retryLastCommand: () -> Unit = {},
     val signOut: () -> Unit = {},
     val showAccountChooser: () -> Unit = {},
     val hideAccountChooser: () -> Unit = {},
@@ -185,6 +186,7 @@ private fun ActiveAccountHome(
             onClick = actions.signOut,
         )
         model.problem?.let { BasicText(it, Modifier.testTag("home-problem")) }
+        RecoveryAction(model, actions)
     }
 }
 
@@ -223,12 +225,26 @@ private fun InactiveAccountsScreen(
         model.problem?.let {
             BasicText(it, Modifier.testTag("accounts-problem"))
         }
+        RecoveryAction(model, actions)
 
         if (model.accounts.isEmpty()) {
             BasicText("No saved accounts.", Modifier.testTag("accounts-empty"))
         } else {
             SavedAccountList(model, actions)
         }
+    }
+}
+
+@Composable
+private fun RecoveryAction(model: StudioUiModel, actions: StudioUiActions) {
+    if (model.recoveryAction == org.radroots.studio.ffi.WireRecoveryAction.RETRY) {
+        TextAction(
+            text = "Retry",
+            testTag = "retry-last-command",
+            contentDescription = "Retry the last failed action",
+            enabled = !model.busy,
+            onClick = actions.retryLastCommand,
+        )
     }
 }
 
@@ -351,7 +367,13 @@ private fun ColumnScope.SavedAccountList(
                     onClick = { actions.requestAccountRemoval(account.publicKeyHex) },
                 )
                 if (model.pendingRemovalPublicKeyHex == account.publicKeyHex) {
-                    BasicText("Remove this saved account and its local credential?")
+                    BasicText("Remove this saved account?")
+                    if (model.removalImpact?.deletesLocalCredential == true) {
+                        BasicText("Its local credential will be deleted from the operating-system keyring.")
+                    }
+                    if (model.removalImpact?.signsOut == true) {
+                        BasicText("The active session will be signed out before removal.")
+                    }
                     TextAction(
                         text = "Cancel",
                         testTag = "remove-cancel",
@@ -362,6 +384,7 @@ private fun ColumnScope.SavedAccountList(
                         text = "Confirm removal",
                         testTag = "remove-confirm",
                         contentDescription = "Confirm account removal",
+                        enabled = !model.busy,
                         onClick = actions.confirmAccountRemoval,
                     )
                 }

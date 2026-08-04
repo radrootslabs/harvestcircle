@@ -20,6 +20,9 @@ import kotlin.test.assertTrue
 import org.radroots.studio.ffi.SessionStateDto
 import org.radroots.studio.application.StudioRoute
 import org.radroots.studio.application.AccountEntryMode
+import org.radroots.studio.application.RemovalImpactState
+import org.radroots.studio.application.RemovalStatus
+import org.radroots.studio.ffi.WireRecoveryAction
 
 @OptIn(ExperimentalTestApi::class)
 class StudioScreenTest {
@@ -166,6 +169,9 @@ class StudioScreenTest {
                 model = emptyUiModel().copy(
                     accounts = listOf(first, second),
                     pendingRemovalPublicKeyHex = pendingRemoval,
+                    removalImpact = pendingRemoval?.let {
+                        RemovalImpactState(it, deletesLocalCredential = true, signsOut = true, expiresAtSeconds = 60)
+                    },
                 ),
                 actions = StudioUiActions(
                     selectAccount = selected::add,
@@ -185,6 +191,8 @@ class StudioScreenTest {
         assertEquals(listOf(second.publicKeyHex), activated)
 
         onNodeWithTag("remove-account:${second.publicKeyHex}", useUnmergedTree = true).performClick()
+        onNodeWithText("Its local credential will be deleted from the operating-system keyring.").assertIsDisplayed()
+        onNodeWithText("The active session will be signed out before removal.").assertIsDisplayed()
         onNodeWithTag("remove-cancel", useUnmergedTree = true).performClick()
         assertEquals(null, pendingRemoval)
         onNodeWithTag("remove-account:${second.publicKeyHex}", useUnmergedTree = true).performClick()
@@ -289,6 +297,7 @@ private fun emptyUiModel(
     importDraft: String = "",
     problem: String? = null,
     importGuidance: String? = null,
+    recoveryAction: WireRecoveryAction = WireRecoveryAction.NONE,
 ) = StudioUiModel(
     route = StudioRoute.ACCOUNTS,
     accounts = emptyList(),
@@ -297,12 +306,16 @@ private fun emptyUiModel(
     importDraft = importDraft,
     generatedKeyBackup = null,
     pendingRemovalPublicKeyHex = null,
+    removalImpact = null,
+    removalStatus = RemovalStatus.NONE,
+    lastRemovedPublicKeyHex = null,
     accountChooserVisible = false,
     accountEntryMode = AccountEntryMode.CHOICE,
     session = SessionStateDto.SIGNED_OUT,
     busy = false,
     problem = problem,
     importGuidance = importGuidance,
+    recoveryAction = recoveryAction,
 )
 
 private fun accountUi(

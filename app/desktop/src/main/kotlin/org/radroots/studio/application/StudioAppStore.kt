@@ -42,12 +42,30 @@ enum class AccountEntryMode {
     IMPORT,
 }
 
+enum class RemovalStatus {
+    NONE,
+    AWAITING_CONFIRMATION,
+    CONFIRMING,
+    COMPLETED,
+    FAILED,
+}
+
+data class RemovalImpactState(
+    val publicKeyHex: String,
+    val deletesLocalCredential: Boolean,
+    val signsOut: Boolean,
+    val expiresAtSeconds: Long,
+)
+
 data class StudioStoreState(
     val snapshot: AppSnapshotDto,
     val route: StudioRoute = snapshot.toStudioRoute(),
     val importDraft: String = "",
     val generatedKeyBackup: GeneratedKeyBackup? = null,
     val pendingRemovalPublicKeyHex: String? = null,
+    val removalImpact: RemovalImpactState? = null,
+    val removalStatus: RemovalStatus = RemovalStatus.NONE,
+    val lastRemovedPublicKeyHex: String? = null,
     val accountChooserVisible: Boolean = false,
     val accountEntryMode: AccountEntryMode = AccountEntryMode.CHOICE,
     val busy: Boolean = false,
@@ -71,6 +89,7 @@ class StudioAppStore(
     private var pendingRemoval: RemovalTicket? = null
     private var pendingGeneratedRecovery: GeneratedRecoveryTicket? = null
     private var command: Job? = null
+    private var retryableCommand: StudioCommand? = null
 
     val state: State<StudioStoreState>
         get() = mutableState
@@ -195,6 +214,14 @@ class StudioAppStore(
         runTypedCommand(StudioCommand.RefreshProfile)
     }
 
+    fun retryLastCommand() {
+        val retry = retryableCommand ?: run {
+            rejectUnavailableIntent("This action cannot be retried safely.")
+            return
+        }
+        runTypedCommand(retry)
+    }
+
     fun requestAccountRemoval(publicKeyHex: String) {
         launchCommand {
             runCatching {
@@ -208,6 +235,13 @@ class StudioAppStore(
                 pendingRemoval = ticket
                 mutableState.value = mutableState.value.copy(
                     pendingRemovalPublicKeyHex = publicKeyHex,
+                    removalImpact = RemovalImpactState(
+                        ticket.publicKeyHex,
+                        ticket.deletesLocalCredential,
+                        ticket.signsOut,
+                        ticket.expiresAtSeconds,
+                    ),
+                    removalStatus = RemovalStatus.AWAITING_CONFIRMATION,
                 )
             }.getOrThrow()
         }
@@ -216,7 +250,11 @@ class StudioAppStore(
     fun cancelAccountRemoval() {
         pendingRemoval?.close()
         pendingRemoval = null
-        mutableState.value = mutableState.value.copy(pendingRemovalPublicKeyHex = null)
+        mutableState.value = mutableState.value.copy(
+            pendingRemovalPublicKeyHex = null,
+            removalImpact = null,
+            removalStatus = RemovalStatus.NONE,
+        )
     }
 
     fun confirmAccountRemoval() {
@@ -225,14 +263,26 @@ class StudioAppStore(
             return
         }
         pendingRemoval = null
+        mutableState.value = mutableState.value.copy(removalStatus = RemovalStatus.CONFIRMING)
         runSnapshotCommand {
             try {
                 gateway.confirmAccountRemoval(ticket).also {
-                    mutableState.value = mutableState.value.copy(pendingRemovalPublicKeyHex = null)
+                    mutableState.value = mutableState.value.copy(
+                        pendingRemovalPublicKeyHex = null,
+                        lastRemovedPublicKeyHex = ticket.publicKeyHex,
+                        removalImpact = null,
+                        removalStatus = RemovalStatus.COMPLETED,
+                    )
                 }
             } finally {
                 ticket.close()
-                mutableState.value = mutableState.value.copy(pendingRemovalPublicKeyHex = null)
+                if (mutableState.value.removalStatus != RemovalStatus.COMPLETED) {
+                    mutableState.value = mutableState.value.copy(
+                        pendingRemovalPublicKeyHex = null,
+                        removalImpact = null,
+                        removalStatus = RemovalStatus.FAILED,
+                    )
+                }
             }
         }
     }
@@ -249,6 +299,7 @@ class StudioAppStore(
         launchCommand {
             when (val result = gateway.execute(command)) {
                 is StudioCommandResult.Accepted -> {
+                    retryableCommand = null
                     acceptSnapshot(result.receipt.snapshot)
                     mutableState.value = mutableState.value.copy(
                         commandStatus = CommandStatus.ACCEPTED,
@@ -261,6 +312,9 @@ class StudioAppStore(
                     }
                 }
                 is StudioCommandResult.Rejected -> {
+                    retryableCommand = command.takeIf {
+                        result.failure.retryable && it !is StudioCommand.ImportAccount
+                    }
                     mutableState.value = mutableState.value.copy(
                         commandStatus = if (result.failure.retryable) {
                             CommandStatus.FAILED_RETRYABLE

@@ -3,6 +3,8 @@ package org.radroots.studio.accounts.ui
 import org.radroots.studio.application.StudioStoreState
 import org.radroots.studio.application.StudioRoute
 import org.radroots.studio.application.AccountEntryMode
+import org.radroots.studio.application.RemovalImpactState
+import org.radroots.studio.application.RemovalStatus
 import org.radroots.studio.ffi.AccountDto
 import org.radroots.studio.ffi.ActiveAccountDto
 import org.radroots.studio.ffi.ProfileLoadStateDto
@@ -52,12 +54,16 @@ data class StudioUiModel(
     val importDraft: String,
     val generatedKeyBackup: GeneratedKeyBackupUiModel?,
     val pendingRemovalPublicKeyHex: String?,
+    val removalImpact: RemovalImpactState?,
+    val removalStatus: RemovalStatus,
+    val lastRemovedPublicKeyHex: String?,
     val accountChooserVisible: Boolean,
     val accountEntryMode: AccountEntryMode,
     val session: SessionStateDto,
     val busy: Boolean,
     val problem: String?,
     val importGuidance: String?,
+    val recoveryAction: WireRecoveryAction,
 )
 
 fun StudioStoreState.toUiModel(): StudioUiModel {
@@ -79,6 +85,9 @@ fun StudioStoreState.toUiModel(): StudioUiModel {
             GeneratedKeyBackupUiModel(npub = it.npub, nsec = it.revealNsec())
         },
         pendingRemovalPublicKeyHex = pendingRemovalPublicKeyHex,
+        removalImpact = removalImpact,
+        removalStatus = removalStatus,
+        lastRemovedPublicKeyHex = lastRemovedPublicKeyHex,
         accountChooserVisible = accountChooserVisible,
         accountEntryMode = accountEntryMode,
         session = snapshot.session,
@@ -88,6 +97,7 @@ fun StudioStoreState.toUiModel(): StudioUiModel {
             ?: snapshot.sessionError?.message
             ?: snapshot.lifecycleError?.message,
         importGuidance = importGuidance(lastFailureCode, recoveryAction),
+        recoveryAction = recoveryAction,
     )
 }
 
