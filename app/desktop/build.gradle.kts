@@ -563,6 +563,13 @@ tasks.named("runKtlintFormatOverMainSourceSet") {
 }
 tasks.withType<Test>().configureEach {
     dependsOn(buildRustCoreDebug)
+    environment(
+        "RADROOTS_STUDIO_DEVELOPMENT_DATA_DIR",
+        layout.buildDirectory
+            .dir("native-test-data")
+            .get()
+            .asFile.absolutePath,
+    )
     systemProperty(
         "jna.library.path",
         rustDebugLibrary.asFile.parentFile.absolutePath,

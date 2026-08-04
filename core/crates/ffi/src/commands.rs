@@ -23,6 +23,7 @@ const DATABASE_QUALIFIER: &str = "org";
 const DATABASE_ORGANIZATION: &str = "radroots";
 const DATABASE_APPLICATION: &str = "studio";
 const DATABASE_FILENAME: &str = "studio.sqlite3";
+const DEVELOPMENT_DATA_DIR_ENVIRONMENT: &str = "RADROOTS_STUDIO_DEVELOPMENT_DATA_DIR";
 pub(crate) const ACTOR_MAILBOX_CAPACITY: usize = 64;
 pub const FFI_CONTRACT_MAJOR: u16 = 2;
 pub const FFI_CONTRACT_MINOR: u16 = 0;
@@ -229,7 +230,7 @@ impl StudioAppCore {
         expectation: CompatibilityExpectation,
         development_mode: bool,
     ) -> Result<Arc<Self>, StudioError> {
-        let path = canonical_database_path()?;
+        let path = application_database_path(development_mode)?;
         Self::open_path_compatible(&path, &expectation, development_mode)
     }
 
@@ -540,7 +541,11 @@ impl Clock for SystemClock {
     }
 }
 
-fn canonical_database_path() -> Result<PathBuf, StudioError> {
+fn application_database_path(development_mode: bool) -> Result<PathBuf, StudioError> {
+    if development_mode && let Some(directory) = std::env::var_os(DEVELOPMENT_DATA_DIR_ENVIRONMENT)
+    {
+        return Ok(PathBuf::from(directory).join(DATABASE_FILENAME));
+    }
     ProjectDirs::from(
         DATABASE_QUALIFIER,
         DATABASE_ORGANIZATION,

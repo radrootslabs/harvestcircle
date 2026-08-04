@@ -115,6 +115,7 @@ pub struct RuntimeActorHandle {
     mailbox: ActorMailbox<RuntimeCommand, RuntimeCommandValue>,
     adapter: Arc<PersistentAppCore>,
     lifecycle: Arc<Mutex<LifecycleGate>>,
+    runtime: Handle,
     next_request: Arc<AtomicU64>,
     session_generation: Arc<AtomicU64>,
     foreground_session: Arc<Mutex<Option<ForegroundSessionBinding>>>,
@@ -234,6 +235,7 @@ impl RuntimeActorHandle {
             mailbox,
             adapter,
             lifecycle,
+            runtime: runtime.clone(),
             next_request: Arc::new(AtomicU64::new(1)),
             session_generation,
             foreground_session,
@@ -560,9 +562,13 @@ impl RuntimeActorHandle {
         let receipt = match self.mailbox.submit(context, command) {
             CommandSubmission::Accepted(ticket) => {
                 let remaining = deadline.saturating_duration_since(Instant::now());
-                match tokio::time::timeout(remaining, ticket.receipt()).await {
-                    Ok(receipt) => receipt,
-                    Err(_) => CommandReceipt::new(request_id, CommandResult::TimedOut),
+                let waiting = self
+                    .runtime
+                    .spawn(async move { tokio::time::timeout(remaining, ticket.receipt()).await });
+                match waiting.await {
+                    Ok(Ok(receipt)) => receipt,
+                    Ok(Err(_)) => CommandReceipt::new(request_id, CommandResult::TimedOut),
+                    Err(_) => CommandReceipt::new(request_id, CommandResult::Closed),
                 }
             }
             CommandSubmission::Rejected(receipt) => receipt,
