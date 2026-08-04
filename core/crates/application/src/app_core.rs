@@ -141,15 +141,17 @@ impl AppCore {
         now: UnixTimestamp,
     ) -> Result<RemovalConfirmationToken, SafeError> {
         let mut state = self.lock_state();
-        if !state
+        let Some(account) = state
             .state_machine
             .snapshot()
             .accounts()
             .iter()
-            .any(|account| account.public_key() == public_key)
-        {
+            .find(|account| account.public_key() == public_key)
+        else {
             return Err(account_not_found());
-        }
+        };
+        let deletes_local_credential = account.signer().availability()
+            != radroots_studio_domain::BindingAvailability::CredentialMissing;
         let id = state.next_removal_token;
         state.next_removal_token = id.checked_add(1).ok_or_else(invalid_application_state)?;
         let revision = state.state_machine.snapshot().revision();
@@ -160,7 +162,7 @@ impl AppCore {
         )
         .ok_or_else(invalid_application_state)?;
         let impact = RemovalImpact {
-            deletes_local_credential: true,
+            deletes_local_credential,
             signs_out: state
                 .state_machine
                 .snapshot()
@@ -241,7 +243,12 @@ const fn account_not_found() -> SafeError {
 
 #[cfg(test)]
 mod tests {
-    use crate::{AppCore, AppLifecycle, RelayConfiguration};
+    use radroots_studio_domain::{
+        AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
+        PublicKey, UnixTimestamp,
+    };
+
+    use crate::{AppCore, AppLifecycle, RelayConfiguration, StateTransition};
 
     #[test]
     fn bootstrap_is_idempotent_and_advances_only_once() {
@@ -263,5 +270,31 @@ mod tests {
 
         assert_eq!(first.snapshot().revision().value(), 1);
         assert_eq!(second.snapshot().revision().value(), 0);
+    }
+
+    #[test]
+    fn removal_impact_matches_missing_local_binding() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let public_key = PublicKey::from_bytes([9; 32]);
+        let account = AccountSummary::new(
+            AccountIdentity::derive(public_key).expect("identity"),
+            LocalSignerBinding::new(public_key, BindingAvailability::CredentialMissing),
+            None,
+            AccountCreatedAt::new(UnixTimestamp::from_seconds(1).expect("time")),
+            None,
+        )
+        .expect("account");
+        core.apply_transition(StateTransition::BootstrapRegistry {
+            accounts: vec![account],
+            selected: Some(public_key),
+        })
+        .expect("registry");
+
+        let removal = core
+            .issue_removal_token(public_key, UnixTimestamp::from_seconds(2).expect("time"))
+            .expect("removal");
+
+        assert!(!removal.impact().deletes_local_credential());
+        assert!(!removal.impact().signs_out());
     }
 }

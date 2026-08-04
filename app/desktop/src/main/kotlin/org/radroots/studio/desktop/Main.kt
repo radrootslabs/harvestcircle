@@ -9,6 +9,7 @@ import java.awt.Dimension
 import java.awt.Taskbar
 import javax.imageio.ImageIO
 import org.radroots.studio.application.RadrootsApplication
+import org.radroots.studio.accounts.ui.StartupFailureScreen
 
 private const val ApplicationName = "Radroots"
 private const val InitialWindowWidth = 1284
@@ -21,9 +22,7 @@ private val isMacOs: Boolean =
         .startsWith("Mac", ignoreCase = true)
 
 fun main() {
-    if (isMacOs) {
-        configureMacOsApplication()
-    }
+    val nativeStartupProblem = if (isMacOs) configureMacOsApplication() else null
 
     application {
         Window(
@@ -47,26 +46,33 @@ fun main() {
                 onDispose { }
             }
 
-            RadrootsApplication()
+            if (nativeStartupProblem == null) {
+                RadrootsApplication()
+            } else {
+                StartupFailureScreen(nativeStartupProblem)
+            }
         }
     }
 }
 
-private fun configureMacOsApplication() {
+private fun configureMacOsApplication(): String? {
     System.setProperty("apple.awt.application.name", ApplicationName)
     System.setProperty("apple.awt.application.appearance", "system")
 
-    if (!Taskbar.isTaskbarSupported()) return
+    if (!Taskbar.isTaskbarSupported()) return null
 
     val taskbar = Taskbar.getTaskbar()
-    if (!taskbar.isSupported(Taskbar.Feature.ICON_IMAGE)) return
+    if (!taskbar.isSupported(Taskbar.Feature.ICON_IMAGE)) return null
 
-    val resource = checkNotNull(
-        Thread.currentThread().contextClassLoader.getResource("icons/radroots.png"),
-    ) {
-        "Missing runtime app icon"
-    }
-    taskbar.iconImage = checkNotNull(ImageIO.read(resource)) {
-        "Invalid runtime app icon"
-    }
+    val icon = loadRuntimeIcon {
+        Thread.currentThread().contextClassLoader.getResourceAsStream("icons/radroots.png")
+    } ?: return "The application icon resource is unavailable."
+    return runCatching { taskbar.iconImage = icon }
+        .fold(
+            onSuccess = { null },
+            onFailure = { "The application icon could not be configured." },
+        )
 }
+
+internal fun loadRuntimeIcon(openResource: () -> java.io.InputStream?): java.awt.Image? =
+    runCatching { openResource()?.use(ImageIO::read) }.getOrNull()
