@@ -284,7 +284,7 @@ impl StudioAppCore {
         request: Arc<GeneratedRecoveryRequest>,
     ) -> Result<AppSnapshotDto, StudioError> {
         if request.resolved.swap(true, Ordering::AcqRel) {
-            return Err(confirmation_expired());
+            return Err(generated_recovery_expired());
         }
         self.inner
             .actor
@@ -606,6 +606,17 @@ fn confirmation_expired() -> StudioError {
     }
 }
 
+fn generated_recovery_expired() -> StudioError {
+    StudioError::Failure {
+        code: WireErrorCode::InvalidApplicationState,
+        category: WireErrorCategory::Lifecycle,
+        retryable: false,
+        recovery_action: WireRecoveryAction::None,
+        correlation_id: None,
+        safe_message: "The generated-key recovery step is no longer valid.".to_owned(),
+    }
+}
+
 fn compatibility_mismatch() -> StudioError {
     StudioError::Failure {
         code: WireErrorCode::CompatibilityMismatch,
@@ -631,8 +642,9 @@ mod tests {
     use super::{
         ACTOR_MAILBOX_CAPACITY, CompatibilityExpectation, DATABASE_APPLICATION, DATABASE_FILENAME,
         DATABASE_ORGANIZATION, DATABASE_QUALIFIER, FFI_CONTRACT_HASH, FFI_CONTRACT_MAJOR,
-        FFI_CONTRACT_MINOR, RequestContextDto, RuntimeCore, StudioAppCore, SystemClock,
-        compatibility_descriptor, local_first_relay_configuration, runtime, verify_compatibility,
+        FFI_CONTRACT_MINOR, RequestContextDto, RuntimeCore, StudioAppCore, StudioError,
+        SystemClock, compatibility_descriptor, local_first_relay_configuration, runtime,
+        verify_compatibility,
     };
 
     fn in_memory_core() -> Arc<StudioAppCore> {
@@ -707,11 +719,15 @@ mod tests {
             .await
             .expect("acknowledge");
         assert_eq!(committed.accounts.len(), 1);
-        assert!(
-            core.acknowledge_generated_account_v2(recovery)
-                .await
-                .is_err()
-        );
+        let repeated = core
+            .acknowledge_generated_account_v2(recovery)
+            .await
+            .expect_err("repeated acknowledgement");
+        assert!(matches!(
+            repeated,
+            StudioError::Failure { safe_message, .. }
+                if safe_message == "The generated-key recovery step is no longer valid."
+        ));
     }
 
     #[test]

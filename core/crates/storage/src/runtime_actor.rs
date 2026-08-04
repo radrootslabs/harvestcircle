@@ -669,7 +669,12 @@ impl RuntimeActor {
                 | RuntimeCommand::SignOut
                 | RuntimeCommand::ConfirmAccountRemoval(_)
         );
+        let begins_generated_recovery = matches!(&command, RuntimeCommand::BeginGeneratedKeyStage);
         let result = self.execute_sync(context, command);
+        if begins_generated_recovery && matches!(&result, CommandResult::Completed(_)) {
+            let snapshot = self.adapter.core().snapshot();
+            self.cancel_profile_tasks(Some(&snapshot));
+        }
         if changes_session && matches!(result, CommandResult::Completed(_)) {
             self.advance_session_generation();
             self.synchronize_foreground_session();
@@ -699,6 +704,19 @@ impl RuntimeActor {
         }
         if !lifecycle.allows(command.class()) {
             return Some(CommandResult::Failed(command_unavailable()));
+        }
+        if self.generated_key_stage.pending().is_some()
+            && !matches!(
+                command,
+                RuntimeCommand::Snapshot
+                    | RuntimeCommand::AcknowledgeGeneratedKeyStage(_)
+                    | RuntimeCommand::CancelGeneratedKeyStage
+                    | RuntimeCommand::SubscribeChanges(_)
+                    | RuntimeCommand::UnsubscribeChanges(_)
+                    | RuntimeCommand::Close
+            )
+        {
+            return Some(CommandResult::Failed(generated_recovery_route_active()));
         }
         let current_revision = self.adapter.core().snapshot().revision();
         if context
@@ -1092,6 +1110,13 @@ const fn command_unavailable() -> SafeError {
     )
 }
 
+const fn generated_recovery_route_active() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::InvalidApplicationState,
+        SafeMessage::new("Complete or cancel generated-key recovery before another action."),
+    )
+}
+
 const fn invalid_actor_response() -> SafeError {
     SafeError::new(
         SafeErrorCode::InvalidApplicationState,
@@ -1305,6 +1330,8 @@ mod tests {
                 .contains(stage.view().account().public_key())
                 .expect("keyring")
         );
+        assert!(actor.sign_out().await.is_err());
+        assert_eq!(actor.snapshot(), initial);
         assert!(actor.cancel_generated_key_stage().await.expect("cancel"));
         assert!(
             !actor
