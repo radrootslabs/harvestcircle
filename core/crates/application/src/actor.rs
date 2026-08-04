@@ -95,6 +95,7 @@ const fn invalid_foreground_session() -> SafeError {
 pub struct TaskCorrelation {
     request_id: RequestId,
     account: PublicKey,
+    binding: LocalSignerBinding,
     expected_revision: SnapshotRevision,
     session_generation: SessionGeneration,
 }
@@ -104,12 +105,14 @@ impl TaskCorrelation {
     pub const fn new(
         request_id: RequestId,
         account: PublicKey,
+        binding: LocalSignerBinding,
         expected_revision: SnapshotRevision,
         session_generation: SessionGeneration,
     ) -> Self {
         Self {
             request_id,
             account,
+            binding,
             expected_revision,
             session_generation,
         }
@@ -123,6 +126,11 @@ impl TaskCorrelation {
     #[must_use]
     pub const fn account(self) -> PublicKey {
         self.account
+    }
+
+    #[must_use]
+    pub const fn binding(self) -> LocalSignerBinding {
+        self.binding
     }
 
     #[must_use]
@@ -596,6 +604,19 @@ mod tests {
         assert_eq!(session.identity(), &identity);
         assert_eq!(session.signer().account(), public_key);
         assert_eq!(session.generation(), generation);
+
+        let correlation = super::TaskCorrelation::new(
+            RequestId::new(8).expect("request"),
+            public_key,
+            session.signer(),
+            crate::SnapshotRevision::from_value(9),
+            generation,
+        );
+        assert_eq!(correlation.request_id().get(), 8);
+        assert_eq!(correlation.account(), public_key);
+        assert_eq!(correlation.binding(), session.signer());
+        assert_eq!(correlation.expected_revision().value(), 9);
+        assert_eq!(correlation.session_generation(), generation);
 
         assert!(
             ForegroundSessionBinding::new(

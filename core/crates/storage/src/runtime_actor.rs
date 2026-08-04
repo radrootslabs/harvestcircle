@@ -848,6 +848,11 @@ impl RuntimeActor {
         reply: oneshot::Sender<CommandReceipt<RuntimeCommandValue>>,
         completion_sender: mpsc::Sender<ProfileCompletion>,
     ) {
+        let foreground = self
+            .published_foreground_session
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         let plan = match self.adapter.core().begin_profile_refresh() {
             Ok(Some(plan)) => plan,
             Ok(None) => {
@@ -867,9 +872,20 @@ impl RuntimeActor {
                 return;
             }
         };
+        let Some(foreground) = foreground.filter(|binding| {
+            binding.identity().public_key() == plan.public_key()
+                && binding.generation() == self.session_generation
+        }) else {
+            let _ = reply.send(CommandReceipt::new(
+                context.request_id(),
+                CommandResult::Failed(stale_profile_binding()),
+            ));
+            return;
+        };
         let correlation = TaskCorrelation::new(
             context.request_id(),
             plan.public_key(),
+            foreground.signer(),
             plan.expected_revision(),
             self.session_generation,
         );
@@ -923,8 +939,18 @@ impl RuntimeActor {
             return;
         };
         let current = self.adapter.core().snapshot();
+        let foreground = self
+            .published_foreground_session
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         let correlated = task.correlation.session_generation() == self.session_generation
             && task.correlation.expected_revision() == current.revision()
+            && foreground.is_some_and(|binding| {
+                binding.generation() == task.correlation.session_generation()
+                    && binding.identity().public_key() == task.correlation.account()
+                    && binding.signer() == task.correlation.binding()
+            })
             && current
                 .active_account()
                 .is_some_and(|active| active.account().public_key() == task.correlation.account());
@@ -1016,6 +1042,13 @@ const fn request_space_exhausted() -> SafeError {
     SafeError::new(
         SafeErrorCode::InvalidApplicationState,
         SafeMessage::new("The runtime request identifier space is exhausted."),
+    )
+}
+
+const fn stale_profile_binding() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::InvalidApplicationState,
+        SafeMessage::new("The active account binding changed before profile refresh."),
     )
 }
 
