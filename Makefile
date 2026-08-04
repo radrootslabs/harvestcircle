@@ -32,7 +32,7 @@ build: doctor
 	$(GRADLE) --no-daemon :app:desktop:build
 
 bindings: doctor
-	$(GRADLE) --no-daemon :app:desktop:generateUniFfiKotlin :app:desktop:stageUniFfiNativeLibrary
+	$(GRADLE) --no-daemon :app:desktop:generateUniFfiKotlin :app:desktop:stageReleaseNativeLibrary
 
 dev: doctor
 	$(GRADLE) :app:desktop:hotRun --mainClass org.radroots.studio.desktop.MainKt

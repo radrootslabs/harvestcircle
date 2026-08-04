@@ -10,6 +10,7 @@ import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.testing.Test
+import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 version = "0.1.0-alpha"
@@ -30,8 +31,8 @@ val rustLibraryName = when {
     System.getProperty("os.name").startsWith("Windows") -> "radroots_studio_ffi.dll"
     else -> "libradroots_studio_ffi.so"
 }
-val rustDebugLibrary = rootProject.layout.projectDirectory
-    .file("core/target/debug/$rustLibraryName")
+val rustDebugLibrary = rootProject.layout.projectDirectory.file("core/target/debug/$rustLibraryName")
+val rustReleaseLibrary = rootProject.layout.projectDirectory.file("core/target/release/$rustLibraryName")
 val jnaPlatformPrefix = when {
     System.getProperty("os.name").startsWith("Mac") &&
         System.getProperty("os.arch") == "aarch64" -> "darwin-aarch64"
@@ -43,7 +44,7 @@ val jnaPlatformPrefix = when {
     else -> "linux-x86-64"
 }
 
-val buildRustCore by tasks.registering(Exec::class) {
+val buildRustCoreDebug by tasks.registering(Exec::class) {
     workingDir(rootProject.projectDir)
     commandLine(
         "cargo",
@@ -57,10 +58,25 @@ val buildRustCore by tasks.registering(Exec::class) {
     outputs.file(rustDebugLibrary)
 }
 
+val buildRustCoreRelease by tasks.registering(Exec::class) {
+    workingDir(rootProject.projectDir)
+    commandLine(
+        "cargo",
+        "build",
+        "--release",
+        "--manifest-path",
+        rustManifest.asFile.absolutePath,
+        "-p",
+        "radroots-studio-ffi",
+    )
+    inputs.files(rustSources)
+    outputs.file(rustReleaseLibrary)
+}
+
 val generatedUniFfiKotlin = layout.buildDirectory.dir("generated/uniffi/kotlin")
-val generatedNativeResources = layout.buildDirectory.dir("generated/uniffi/native-resources")
+val generatedReleaseNativeResources = layout.buildDirectory.dir("generated/uniffi/release-native-resources")
 val generateUniFfiKotlin by tasks.registering(Exec::class) {
-    dependsOn(buildRustCore)
+    dependsOn(buildRustCoreDebug)
     workingDir(rootProject.projectDir)
     commandLine(
         "cargo",
@@ -88,10 +104,15 @@ val generateUniFfiKotlin by tasks.registering(Exec::class) {
     inputs.file(rootProject.layout.projectDirectory.file("core/crates/ffi/uniffi.toml"))
     outputs.dir(generatedUniFfiKotlin)
 }
-val stageUniFfiNativeLibrary by tasks.registering(Copy::class) {
-    dependsOn(buildRustCore)
-    from(rustDebugLibrary)
-    into(generatedNativeResources.map { it.dir(jnaPlatformPrefix) })
+val stageReleaseNativeLibrary by tasks.registering(Copy::class) {
+    dependsOn(buildRustCoreRelease)
+    from(rustReleaseLibrary)
+    into(generatedReleaseNativeResources.map { it.dir(jnaPlatformPrefix) })
+}
+val releaseNativeResourcesJar by tasks.registering(Jar::class) {
+    dependsOn(stageReleaseNativeLibrary)
+    archiveClassifier.set("release-native-resources")
+    from(generatedReleaseNativeResources)
 }
 
 dependencies {
@@ -139,7 +160,6 @@ tasks.withType<Test>().configureEach {
 kotlin {
     sourceSets.main {
         kotlin.srcDir(generatedUniFfiKotlin)
-        resources.srcDir(generatedNativeResources)
     }
 
     compilerOptions {
@@ -152,18 +172,15 @@ kotlin {
 tasks.named("compileKotlin") {
     dependsOn(generateUniFfiKotlin)
 }
-tasks.named("processResources") {
-    dependsOn(stageUniFfiNativeLibrary)
-}
 tasks.withType<Test>().configureEach {
-    dependsOn(buildRustCore)
+    dependsOn(buildRustCoreDebug)
     systemProperty(
         "jna.library.path",
         rustDebugLibrary.asFile.parentFile.absolutePath,
     )
 }
 tasks.withType<JavaExec>().configureEach {
-    dependsOn(buildRustCore)
+    dependsOn(buildRustCoreDebug)
     systemProperty("radroots.studio.development", "true")
     systemProperty(
         "jna.library.path",
@@ -173,6 +190,8 @@ tasks.withType<JavaExec>().configureEach {
 
 compose.desktop {
     application {
+        dependsOn(releaseNativeResourcesJar.get())
+        fromFiles(releaseNativeResourcesJar)
         mainClass = "org.radroots.studio.desktop.MainKt"
 
         jvmArgs += listOf(
