@@ -945,7 +945,6 @@ impl RuntimeActor {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
         let correlated = task.correlation.session_generation() == self.session_generation
-            && task.correlation.expected_revision() == current.revision()
             && foreground.is_some_and(|binding| {
                 binding.generation() == task.correlation.session_generation()
                     && binding.identity().public_key() == task.correlation.account()

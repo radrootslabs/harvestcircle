@@ -118,11 +118,15 @@ impl AppCore {
         profiles: &(impl ProfileRepository + ?Sized),
         clock: &(impl Clock + ?Sized),
     ) -> Result<AppSnapshot, SafeError> {
-        if !is_current_active(self, plan.public_key())
-            || self.snapshot().revision() != plan.expected_revision()
-        {
+        if !is_current_active(self, plan.public_key()) {
             return Ok(self.snapshot());
         }
+
+        let current_active = self
+            .snapshot()
+            .active_account()
+            .cloned()
+            .ok_or_else(invalid_profile_completion)?;
 
         match result {
             Ok(Some(candidate)) => {
@@ -132,13 +136,17 @@ impl AppCore {
                     ProfileRefreshStatus::Success,
                 );
                 profiles.save_profile(&cached)?;
+                let winning_profile = profiles.load_profile(plan.public_key())?.map_or_else(
+                    || candidate.metadata().clone(),
+                    |profile| profile.candidate().metadata().clone(),
+                );
                 self.apply_transition(StateTransition::UpdateActiveAccount {
                     expected: plan.public_key(),
                     active_account: Box::new(ActiveAccountSnapshot::new(
-                        plan.active_account().account().clone(),
+                        current_active.account().clone(),
                         RelayConnectionState::Connected,
                         ProfileLoadState::Fresh,
-                        Some(candidate.metadata().clone()),
+                        Some(winning_profile),
                     )),
                     problem: None,
                 })
@@ -146,14 +154,14 @@ impl AppCore {
             Ok(None) => self.apply_transition(StateTransition::UpdateActiveAccount {
                 expected: plan.public_key(),
                 active_account: Box::new(ActiveAccountSnapshot::new(
-                    plan.active_account().account().clone(),
+                    current_active.account().clone(),
                     RelayConnectionState::Connected,
-                    if plan.active_account().profile().is_some() {
+                    if current_active.profile().is_some() {
                         ProfileLoadState::Cached
                     } else {
                         ProfileLoadState::Empty
                     },
-                    plan.active_account().profile().cloned(),
+                    current_active.profile().cloned(),
                 )),
                 problem: None,
             }),
@@ -163,16 +171,23 @@ impl AppCore {
                 self.apply_transition(StateTransition::UpdateActiveAccount {
                     expected: plan.public_key(),
                     active_account: Box::new(ActiveAccountSnapshot::new(
-                        plan.active_account().account().clone(),
+                        current_active.account().clone(),
                         RelayConnectionState::Degraded,
                         ProfileLoadState::Error(error),
-                        plan.active_account().profile().cloned(),
+                        current_active.profile().cloned(),
                     )),
                     problem: Some(error),
                 })
             }
         }
     }
+}
+
+const fn invalid_profile_completion() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::InvalidApplicationState,
+        radroots_studio_domain::SafeMessage::new("The active profile refresh is no longer valid."),
+    )
 }
 
 fn is_current_active(core: &AppCore, public_key: PublicKey) -> bool {
@@ -196,11 +211,11 @@ mod tests {
 
     use radroots_studio_domain::{
         EventId, Kind0ProfileCandidate, ProfileMetadata, PublicKey, RelayUrl, SafeError,
-        SafeErrorCode, SafeMessage, SecretKeyInput, UnixTimestamp,
+        SafeErrorCode, SafeMessage, SecretKeyInput, UnixTimestamp, select_latest_kind0,
     };
 
     use crate::{
-        AppCore, BoxFuture, CachedProfile, Clock, InMemoryAccountRepository,
+        ActiveAccountSnapshot, AppCore, BoxFuture, CachedProfile, Clock, InMemoryAccountRepository,
         InMemoryOperationJournal, InMemorySecretStore, NostrClient, ProfileLoadState,
         ProfileRefreshStatus, ProfileRepository, RelayConfiguration, RelayConnectionState,
     };
@@ -213,7 +228,23 @@ mod tests {
             Ok(self.0.lock().expect("profiles").clone())
         }
         fn save_profile(&self, profile: &CachedProfile) -> Result<(), SafeError> {
-            *self.0.lock().expect("profiles") = Some(profile.clone());
+            let mut cached = self.0.lock().expect("profiles");
+            let selected = cached.as_ref().map_or_else(
+                || profile.clone(),
+                |current| {
+                    let winner = select_latest_kind0([
+                        current.candidate().clone(),
+                        profile.candidate().clone(),
+                    ])
+                    .expect("two candidates");
+                    if &winner == current.candidate() {
+                        current.clone()
+                    } else {
+                        profile.clone()
+                    }
+                },
+            );
+            *cached = Some(selected);
             Ok(())
         }
         fn record_refresh_status(
@@ -476,5 +507,53 @@ mod tests {
             .await
             .expect("signed-out no-op");
         assert_eq!(no_op, signed_out);
+    }
+
+    #[test]
+    fn overlapping_refreshes_keep_the_newest_event_regardless_of_completion_order() {
+        let profiles = MemoryProfiles::default();
+        let (core, public_key) = active_core(&profiles, Some("Cached"));
+        let first = core
+            .begin_profile_refresh()
+            .expect("first")
+            .expect("active");
+        let second = core
+            .begin_profile_refresh()
+            .expect("second")
+            .expect("active");
+
+        core.complete_profile_refresh(
+            &second,
+            Ok(Some(profile(public_key, "Newest", 30))),
+            &profiles,
+            &FixedClock,
+        )
+        .expect("newest completes first");
+        let final_snapshot = core
+            .complete_profile_refresh(
+                &first,
+                Ok(Some(profile(public_key, "Older", 20))),
+                &profiles,
+                &FixedClock,
+            )
+            .expect("older completes last");
+
+        assert_eq!(
+            final_snapshot
+                .active_account()
+                .and_then(ActiveAccountSnapshot::profile)
+                .and_then(ProfileMetadata::name),
+            Some("Newest")
+        );
+        assert_eq!(
+            profiles
+                .load_profile(public_key)
+                .expect("cache")
+                .expect("profile")
+                .candidate()
+                .metadata()
+                .name(),
+            Some("Newest")
+        );
     }
 }
