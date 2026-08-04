@@ -1,3 +1,4 @@
+import com.github.jk1.license.filter.SpdxLicenseBundleNormalizer
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.file.ConfigurableFileCollection
@@ -27,6 +28,30 @@ plugins {
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.detekt)
     alias(libs.plugins.ktlint)
+    alias(libs.plugins.license.report)
+    alias(libs.plugins.owasp.dependency.check)
+}
+
+licenseReport {
+    projects = arrayOf(project)
+    configurations = arrayOf("runtimeClasspath")
+    filters = arrayOf(SpdxLicenseBundleNormalizer())
+    allowedLicensesFile = rootProject.layout.projectDirectory.file("config/licenses/allowed-licenses.json")
+}
+
+dependencyCheck {
+    failBuildOnCVSS = 0.0F
+    failOnError = true
+    formats = listOf("HTML", "JSON")
+    scanConfigurations = listOf("runtimeClasspath")
+    skipTestGroups = true
+    providers.environmentVariable("NVD_API_KEY").orNull?.takeIf(String::isNotBlank)?.let {
+        nvd.apiKey = it
+    }
+}
+
+tasks.matching { it.name.startsWith("dependencyCheck") }.configureEach {
+    notCompatibleWithConfigurationCache("Advisory data and environment-only credentials must not be cached")
 }
 
 configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
@@ -394,6 +419,82 @@ abstract class VerifyMacOsPackage : DefaultTask() {
     }
 }
 
+abstract class VerifyMacOsDeveloperIdSignature : DefaultTask() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val appDirectory: DirectoryProperty
+
+    @TaskAction
+    fun verify() {
+        val app = appDirectory.get().asFile
+        commandOutput("/usr/bin/codesign", "--verify", "--deep", "--strict", "--verbose=2", app.absolutePath)
+        val signature = commandOutput("/usr/bin/codesign", "--display", "--verbose=4", app.absolutePath)
+        require(!signature.contains("Signature=adhoc")) {
+            "Release application is ad-hoc signed; a Developer ID Application signature is required"
+        }
+        require(signature.lineSequence().any { it.startsWith("Authority=Developer ID Application:") }) {
+            "Release application is not signed by a Developer ID Application identity"
+        }
+        require(
+            signature.lineSequence().any {
+                it.startsWith("TeamIdentifier=") && it != "TeamIdentifier=not set"
+            },
+        ) {
+            "Release application signature has no Apple team identifier"
+        }
+    }
+
+    private fun commandOutput(vararg command: String): String {
+        val process =
+            ProcessBuilder(*command)
+                .redirectErrorStream(true)
+                .start()
+        val output =
+            process.inputStream
+                .bufferedReader()
+                .use { it.readText() }
+                .trim()
+        require(process.waitFor() == 0) { "Code-signature verification failed: $output" }
+        return output
+    }
+}
+
+abstract class VerifyMacOsNotarization : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val diskImage: RegularFileProperty
+
+    @TaskAction
+    fun verify() {
+        val image = diskImage.get().asFile
+        commandOutput("/usr/bin/xcrun", "stapler", "validate", image.absolutePath)
+        commandOutput(
+            "/usr/sbin/spctl",
+            "--assess",
+            "--type",
+            "open",
+            "--context",
+            "context:primary-signature",
+            "--verbose=2",
+            image.absolutePath,
+        )
+    }
+
+    private fun commandOutput(vararg command: String): String {
+        val process =
+            ProcessBuilder(*command)
+                .redirectErrorStream(true)
+                .start()
+        val output =
+            process.inputStream
+                .bufferedReader()
+                .use { it.readText() }
+                .trim()
+        require(process.waitFor() == 0) { "Notarization verification failed: $output" }
+        return output
+    }
+}
+
 dependencies {
     implementation(compose.desktop.currentOs)
     implementation(libs.compose.foundation)
@@ -529,4 +630,20 @@ val verifyMacOsPackage by tasks.registering(VerifyMacOsPackage::class) {
     dependsOn("packageDmg", verifyMacOsDistribution)
     packageDirectory.set(layout.buildDirectory.dir("compose/binaries/main/dmg"))
     expectedFileName.set("$applicationName-$installableVersion.dmg")
+}
+val verifyMacOsDeveloperIdSignature by tasks.registering(VerifyMacOsDeveloperIdSignature::class) {
+    dependsOn(verifyMacOsPackage)
+    appDirectory.set(layout.buildDirectory.dir("compose/binaries/main/app/$applicationName.app"))
+}
+val verifyMacOsNotarization by tasks.registering(VerifyMacOsNotarization::class) {
+    dependsOn(verifyMacOsPackage)
+    diskImage.set(layout.buildDirectory.file("compose/binaries/main/dmg/$applicationName-$installableVersion.dmg"))
+}
+tasks.register("releaseReadiness") {
+    dependsOn(
+        "checkLicense",
+        "dependencyCheckAnalyze",
+        verifyMacOsDeveloperIdSignature,
+        verifyMacOsNotarization,
+    )
 }

@@ -4,10 +4,10 @@ GRADLE ?= ./gradlew
 CARGO ?= cargo
 CARGO_MANIFEST := core/Cargo.toml
 
-.PHONY: help doctor format format-fix lint test check build bindings dev run package clean
+.PHONY: help doctor format format-fix lint test check build bindings dev run audit licenses package release-check clean
 
 help:
-	@printf '%s\n' doctor format format-fix lint test check build bindings dev run package clean
+	@printf '%s\n' doctor format format-fix lint test check build bindings dev run audit licenses package release-check clean
 
 doctor:
 	java -version
@@ -46,8 +46,22 @@ dev: doctor
 run: doctor
 	$(GRADLE) :app:desktop:run
 
+audit: doctor
+	$(CARGO) audit --file core/Cargo.lock
+	$(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml advisories
+	$(GRADLE) --no-daemon --no-configuration-cache :app:desktop:dependencyCheckAnalyze
+
+licenses: doctor
+	$(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml licenses sources
+	$(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:checkLicense
+
 package: check
 	$(GRADLE) --no-daemon :app:desktop:verifyMacOsPackage
+
+release-check: doctor
+	$(CARGO) audit --file core/Cargo.lock
+	$(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml advisories licenses sources
+	$(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:releaseReadiness
 
 clean: doctor
 	$(CARGO) clean --manifest-path $(CARGO_MANIFEST)
