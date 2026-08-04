@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use directories::ProjectDirs;
 use radroots_studio_application::{
-    Clock, DurableRequestId, GeneratedKeyRecoveryHandle, RelayRuntimeMode,
+    Clock, DurableRequestId, GeneratedKeyRecoveryHandle, RelayConfiguration, RelayRuntimeMode,
     RemovalConfirmationToken, SdkNostrClient, relay_configuration_from_environment,
 };
 use radroots_studio_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
@@ -185,18 +185,29 @@ pub(crate) struct RuntimeCore {
         BTreeMap<radroots_studio_application::ChangeSubscriptionId, tokio::task::JoinHandle<()>>,
     >,
     pub(crate) closed: AtomicBool,
+    pub(crate) startup_relay_problem: Option<SafeError>,
 }
 
 impl RuntimeCore {
     pub(crate) fn snapshot_dto(&self) -> AppSnapshotDto {
-        AppSnapshotDto::from_runtime(&self.actor.snapshot(), self.actor.lifecycle())
+        AppSnapshotDto::from_runtime(&self.actor.snapshot(), self.effective_lifecycle())
     }
 
     pub(crate) fn dto_for(
         &self,
         snapshot: &radroots_studio_application::AppSnapshot,
     ) -> AppSnapshotDto {
-        AppSnapshotDto::from_runtime(snapshot, self.actor.lifecycle())
+        AppSnapshotDto::from_runtime(snapshot, self.effective_lifecycle())
+    }
+
+    pub(crate) fn effective_lifecycle(&self) -> radroots_studio_application::RuntimeLifecycle {
+        let lifecycle = self.actor.lifecycle();
+        match (lifecycle, self.startup_relay_problem) {
+            (radroots_studio_application::RuntimeLifecycle::Ready, Some(problem)) => {
+                radroots_studio_application::RuntimeLifecycle::Degraded(problem)
+            }
+            _ => lifecycle,
+        }
     }
 }
 
@@ -484,7 +495,8 @@ impl StudioAppCore {
         } else {
             RelayRuntimeMode::Packaged
         };
-        let relays = relay_configuration_from_environment(mode)?;
+        let (relays, startup_relay_problem) =
+            local_first_relay_configuration(relay_configuration_from_environment(mode));
         let actor = RuntimeActorHandle::open(
             path,
             relays,
@@ -499,8 +511,18 @@ impl StudioAppCore {
                 actor,
                 observers: Mutex::new(BTreeMap::new()),
                 closed: AtomicBool::new(false),
+                startup_relay_problem,
             }),
         }))
+    }
+}
+
+fn local_first_relay_configuration(
+    configured: Result<RelayConfiguration, SafeError>,
+) -> (RelayConfiguration, Option<SafeError>) {
+    match configured {
+        Ok(relays) => (relays, None),
+        Err(problem) => (RelayConfiguration::default(), Some(problem)),
     }
 }
 
@@ -596,6 +618,7 @@ mod tests {
     use std::sync::Arc;
 
     use radroots_studio_application::{InMemorySecretStore, RelayConfiguration, SdkNostrClient};
+    use radroots_studio_domain::SafeError;
     use radroots_studio_storage::RuntimeActorHandle;
 
     use radroots_studio_storage::{CREDENTIAL_SERVICE, CURRENT_SCHEMA_VERSION};
@@ -604,7 +627,7 @@ mod tests {
         ACTOR_MAILBOX_CAPACITY, CompatibilityExpectation, DATABASE_APPLICATION, DATABASE_FILENAME,
         DATABASE_ORGANIZATION, DATABASE_QUALIFIER, FFI_CONTRACT_HASH, FFI_CONTRACT_MAJOR,
         FFI_CONTRACT_MINOR, RequestContextDto, RuntimeCore, StudioAppCore, SystemClock,
-        compatibility_descriptor, runtime, verify_compatibility,
+        compatibility_descriptor, local_first_relay_configuration, runtime, verify_compatibility,
     };
 
     fn in_memory_core() -> Arc<StudioAppCore> {
@@ -622,6 +645,7 @@ mod tests {
                 actor,
                 observers: std::sync::Mutex::new(std::collections::BTreeMap::new()),
                 closed: std::sync::atomic::AtomicBool::new(false),
+                startup_relay_problem: None,
             }),
         })
     }
@@ -777,5 +801,17 @@ mod tests {
             assert!(!commands.contains(&forbidden));
             assert!(!observer.contains(&forbidden));
         }
+    }
+
+    #[test]
+    fn invalid_relay_configuration_preserves_local_startup_as_degraded() {
+        let problem = SafeError::new(
+            radroots_studio_domain::SafeErrorCode::InvalidRelayConfiguration,
+            radroots_studio_domain::SafeMessage::new("The Nostr relay configuration is invalid."),
+        );
+        let (relays, degraded) = local_first_relay_configuration(Err(problem));
+
+        assert!(relays.relays().is_empty());
+        assert_eq!(degraded, Some(problem));
     }
 }

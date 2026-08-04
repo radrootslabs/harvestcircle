@@ -95,7 +95,7 @@ impl StudioAppCore {
                 observer.on_change(SnapshotChangeDto {
                     snapshot: AppSnapshotDto::from_runtime(
                         change.snapshot(),
-                        runtime_core.actor.lifecycle(),
+                        runtime_core.effective_lifecycle(),
                     ),
                     previous_revision: change
                         .previous_revision()
@@ -207,6 +207,7 @@ mod tests {
                 actor,
                 observers: Mutex::new(std::collections::BTreeMap::new()),
                 closed: std::sync::atomic::AtomicBool::new(false),
+                startup_relay_problem: None,
             }),
         })
     }
