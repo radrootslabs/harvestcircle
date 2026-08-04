@@ -17,8 +17,9 @@ import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-
-version = "0.1.0-alpha"
+import java.io.File
+import java.util.Properties
+import java.util.jar.JarFile
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
@@ -44,6 +45,44 @@ tasks.withType<org.jlleitschuh.gradle.ktlint.tasks.BaseKtLintCheckTask>().config
 }
 
 val rustManifest = rootProject.layout.projectDirectory.file("core/Cargo.toml")
+val compatibilityBaseline = rootProject.layout.projectDirectory.file("core/compatibility/v5-baseline.properties")
+
+fun workspacePackageVersion(manifest: File): String {
+    val packageSection =
+        manifest
+            .readText()
+            .substringAfter("[workspace.package]", missingDelimiterValue = "")
+            .substringBefore("\n[")
+    return Regex("""(?m)^version\s*=\s*"([^"]+)"\s*$""")
+        .find(packageSection)
+        ?.groupValues
+        ?.get(1)
+        ?: throw GradleException("Cargo workspace package version is missing")
+}
+
+val appVersion = workspacePackageVersion(rustManifest.asFile)
+val macOsBuildVersion = "1"
+val baseline =
+    Properties().apply {
+        compatibilityBaseline.asFile.inputStream().use(::load)
+    }
+
+fun baselineValue(key: String): String =
+    baseline.getProperty(key)?.takeIf(String::isNotBlank)
+        ?: throw GradleException("Compatibility baseline is missing $key")
+
+check(baselineValue("ffi.runtime.version") == appVersion) {
+    "Compatibility runtime version must match the Cargo workspace version"
+}
+val installableVersion = baselineValue("package.version")
+check(Regex("""[1-9]\d*(\.\d+){0,2}""").matches(installableVersion)) {
+    "Compatibility package version must satisfy the macOS jpackage contract"
+}
+val applicationName = baselineValue("package.name")
+val bundleId = baselineValue("package.bundle_id")
+val applicationNamespace = baselineValue("package.namespace")
+version = appVersion
+
 val rustSources =
     rootProject.fileTree("core") {
         include(
@@ -232,6 +271,128 @@ val releaseNativeResourcesJar by tasks.registering(Jar::class) {
     archiveClassifier.set("release-native-resources")
     from(generatedReleaseNativeResources)
 }
+val releaseNativeRuntimeJar =
+    releaseNativeResourcesJar
+        .get()
+        .archiveFile
+        .get()
+        .asFile
+
+abstract class VerifyMacOsDistribution : DefaultTask() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val appDirectory: DirectoryProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val releaseLibrary: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val iconSource: RegularFileProperty
+
+    @get:Input
+    abstract val expectedBundleId: Property<String>
+
+    @get:Input
+    abstract val expectedPackageVersion: Property<String>
+
+    @get:Input
+    abstract val expectedBuildVersion: Property<String>
+
+    @get:Input
+    abstract val expectedNativeEntry: Property<String>
+
+    @TaskAction
+    fun verify() {
+        val app = appDirectory.get().asFile
+        val plist = app.resolve("Contents/Info.plist")
+        require(plist.isFile) { "Packaged macOS Info.plist is missing" }
+        require(plistValue(plist, "CFBundleIdentifier") == expectedBundleId.get()) {
+            "Packaged macOS bundle identifier is incorrect"
+        }
+        require(plistValue(plist, "CFBundleShortVersionString") == expectedPackageVersion.get()) {
+            "Packaged macOS version is incorrect"
+        }
+        require(plistValue(plist, "CFBundleVersion") == expectedBuildVersion.get()) {
+            "Packaged macOS build version is incorrect"
+        }
+
+        val sourceIcon = iconSource.get().asFile.readBytes()
+        val matchingIcons =
+            app
+                .walkTopDown()
+                .filter { it.isFile && it.extension == "icns" }
+                .count { it.readBytes().contentEquals(sourceIcon) }
+        require(matchingIcons == 1) { "Packaged macOS icon does not match the canonical icon" }
+
+        val expectedEntry = expectedNativeEntry.get()
+        val packagedLibraries = mutableListOf<ByteArray>()
+        app
+            .walkTopDown()
+            .filter { it.isFile && it.extension == "jar" }
+            .forEach { jarFile ->
+                JarFile(jarFile).use { jar ->
+                    jar.getJarEntry(expectedEntry)?.let { entry ->
+                        packagedLibraries += jar.getInputStream(entry).use { it.readBytes() }
+                    }
+                }
+            }
+        require(packagedLibraries.size == 1) {
+            "Packaged application must contain exactly one release native library"
+        }
+        val release = releaseLibrary.get().asFile
+        val packaged = temporaryDir.resolve(release.name).apply { writeBytes(packagedLibraries.single()) }
+        require(machOIdentity(packaged) == machOIdentity(release)) {
+            "Packaged native library identity does not match the Cargo release artifact"
+        }
+        commandOutput("/usr/bin/codesign", "--verify", "--strict", packaged.absolutePath)
+    }
+
+    private fun plistValue(
+        plist: File,
+        key: String,
+    ): String = commandOutput("/usr/libexec/PlistBuddy", "-c", "Print :$key", plist.absolutePath)
+
+    private fun machOIdentity(binary: File): String {
+        val output = commandOutput("/usr/bin/dwarfdump", "--uuid", binary.absolutePath)
+        return Regex("""UUID: ([0-9A-F-]+) \(([^)]+)\)""")
+            .find(output)
+            ?.value
+            ?: throw GradleException("Could not read the packaged native library identity")
+    }
+
+    private fun commandOutput(vararg command: String): String {
+        val process =
+            ProcessBuilder(*command)
+                .redirectErrorStream(true)
+                .start()
+        val output =
+            process.inputStream
+                .bufferedReader()
+                .use { it.readText() }
+                .trim()
+        require(process.waitFor() == 0) { "External package inspection failed: $output" }
+        return output
+    }
+}
+
+abstract class VerifyMacOsPackage : DefaultTask() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val packageDirectory: DirectoryProperty
+
+    @get:Input
+    abstract val expectedFileName: Property<String>
+
+    @TaskAction
+    fun verify() {
+        val packages = packageDirectory.asFileTree.files.filter { it.isFile && it.extension == "dmg" }
+        require(packages.size == 1) { "Expected exactly one macOS disk image" }
+        require(packages.single().name == expectedFileName.get()) { "Unexpected macOS disk image name" }
+        require(packages.single().length() > 0L) { "Packaged macOS disk image is empty" }
+    }
+}
 
 dependencies {
     implementation(compose.desktop.currentOs)
@@ -317,32 +478,55 @@ tasks.withType<JavaExec>().configureEach {
 
 compose.desktop {
     application {
+        disableDefaultConfiguration()
         dependsOn(releaseNativeResourcesJar.get())
-        fromFiles(releaseNativeResourcesJar)
-        mainClass = "org.radroots.studio.desktop.MainKt"
+        dependsOn("jar")
+        val desktopJar = tasks.named<Jar>("jar").flatMap { it.archiveFile }
+        mainJar.set(desktopJar)
+        fromFiles(desktopJar, configurations.runtimeClasspath, releaseNativeRuntimeJar)
+        mainClass = "$applicationNamespace.desktop.MainKt"
 
         jvmArgs +=
             listOf(
-                "-Dapple.awt.application.name=Radroots",
+                "-Dapple.awt.application.name=$applicationName",
                 "-Dapple.awt.application.appearance=system",
             )
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg)
 
-            packageName = "Radroots"
-            packageVersion = "1.0.0"
-            description = "Radroots Studio 0.1.0-alpha"
+            packageName = applicationName
+            packageVersion = installableVersion
+            description = "Radroots Studio $appVersion"
             copyright = "Copyright © 2024 Radroots, Inc."
             vendor = "Radroots, Inc"
 
             macOS {
-                bundleID = "org.radroots.studio"
+                bundleID = bundleId
                 iconFile.set(project.file("src/main/resources/icons/radroots.icns"))
-                packageName = "Radroots"
-                dockName = "Radroots"
-                packageBuildVersion = "1"
+                packageName = applicationName
+                dockName = applicationName
+                packageBuildVersion = macOsBuildVersion
             }
         }
     }
+}
+
+val verifyMacOsDistribution by tasks.registering(VerifyMacOsDistribution::class) {
+    dependsOn("createDistributable")
+    appDirectory.set(layout.buildDirectory.dir("compose/binaries/main/app/$applicationName.app"))
+    releaseLibrary.set(rustReleaseLibrary)
+    iconSource.set(layout.projectDirectory.file("src/main/resources/icons/radroots.icns"))
+    expectedBundleId.set(bundleId)
+    expectedPackageVersion.set(installableVersion)
+    expectedBuildVersion.set(macOsBuildVersion)
+    expectedNativeEntry.set("$jnaPlatformPrefix/$rustLibraryName")
+}
+tasks.matching { it.name == "createDistributable" }.configureEach {
+    dependsOn(releaseNativeResourcesJar)
+}
+val verifyMacOsPackage by tasks.registering(VerifyMacOsPackage::class) {
+    dependsOn("packageDmg", verifyMacOsDistribution)
+    packageDirectory.set(layout.buildDirectory.dir("compose/binaries/main/dmg"))
+    expectedFileName.set("$applicationName-$installableVersion.dmg")
 }

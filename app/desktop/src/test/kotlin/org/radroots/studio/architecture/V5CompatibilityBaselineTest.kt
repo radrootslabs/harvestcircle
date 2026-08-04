@@ -34,11 +34,14 @@ class V5CompatibilityBaselineTest {
             baseline.getProperty("keyring.account"),
         )
 
+        val manifest = root.resolve("core/Cargo.toml").readText()
+        val workspacePackage = manifest.substringAfter("[workspace.package]").substringBefore("\n[")
+        assertTrue(workspacePackage.contains("version = \"${baseline.getProperty("ffi.runtime.version")}\""))
         val build = root.resolve("app/desktop/build.gradle.kts").readText()
-        assertTrue(build.contains("version = \"${baseline.getProperty("ffi.runtime.version")}\""))
-        assertTrue(build.contains("packageName = \"${baseline.getProperty("package.name")}\""))
-        assertTrue(build.contains("bundleID = \"${baseline.getProperty("package.bundle_id")}\""))
-        assertTrue(build.contains("packageVersion = \"${baseline.getProperty("package.version")}\""))
+        assertTrue(build.contains("version = appVersion"))
+        assertTrue(build.contains("packageName = applicationName"))
+        assertTrue(build.contains("bundleID = bundleId"))
+        assertTrue(build.contains("packageVersion = installableVersion"))
     }
 }
 

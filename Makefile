@@ -47,7 +47,7 @@ run: doctor
 	$(GRADLE) :app:desktop:run
 
 package: check
-	$(GRADLE) --no-daemon :app:desktop:packageDistributionForCurrentOS
+	$(GRADLE) --no-daemon :app:desktop:verifyMacOsPackage
 
 clean: doctor
 	$(CARGO) clean --manifest-path $(CARGO_MANIFEST)
