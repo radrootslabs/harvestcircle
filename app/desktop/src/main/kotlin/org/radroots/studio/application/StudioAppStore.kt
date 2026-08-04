@@ -5,7 +5,9 @@ import androidx.compose.runtime.mutableStateOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.radroots.studio.ffi.AppLifecycleDto
 import org.radroots.studio.ffi.AppSnapshotDto
 import org.radroots.studio.ffi.StudioException
@@ -83,12 +85,11 @@ class StudioAppStore(
     private val gateway: StudioCoreGateway,
     private val scope: CoroutineScope,
 ) : AutoCloseable {
-    private val generatedRecovery = GeneratedRecoveryController()
     private val mutableState = mutableStateOf(StudioStoreState(snapshot = gateway.snapshot()))
     private var closed = false
     private var subscription: AutoCloseable? = null
     private var pendingRemoval: RemovalTicket? = null
-    private var pendingGeneratedRecovery: GeneratedRecoveryTicket? = null
+    private var pendingGeneratedRecovery: PendingGeneratedRecovery? = null
     private var command: Job? = null
     private var retryableCommand: StudioCommand? = null
 
@@ -142,15 +143,20 @@ class StudioAppStore(
     fun generateAccount() {
         launchCommand {
             val recovery = gateway.beginGeneratedAccount()
-            pendingGeneratedRecovery = recovery
-            mutableState.value =
-                mutableState.value.copy(
-                    generatedKeyBackup =
-                        generatedRecovery.begin(
-                            recovery.account.npub,
-                            recovery.takeRecoveryNsec(),
-                        ),
-                )
+            var installed = false
+            try {
+                val backup = GeneratedKeyBackup(recovery.account.npub, recovery.takeRecoveryNsec())
+                pendingGeneratedRecovery = PendingGeneratedRecovery(recovery, backup)
+                mutableState.value = mutableState.value.copy(generatedKeyBackup = backup)
+                installed = true
+            } finally {
+                if (!installed) {
+                    withContext(NonCancellable) {
+                        runCatching { recovery.cancel() }
+                        recovery.close()
+                    }
+                }
+            }
         }
     }
 
@@ -160,15 +166,11 @@ class StudioAppStore(
                 rejectUnavailableIntent("Generated-key recovery is not available.")
                 return
             }
-        pendingGeneratedRecovery = null
         runSnapshotCommand {
             try {
-                recovery.acknowledge().also {
-                    generatedRecovery.acknowledge()
-                    mutableState.value = mutableState.value.copy(generatedKeyBackup = null)
-                }
+                recovery.ticket.acknowledge()
             } finally {
-                recovery.close()
+                releaseGeneratedRecovery(recovery)
             }
         }
     }
@@ -179,14 +181,22 @@ class StudioAppStore(
                 rejectUnavailableIntent("Generated-key recovery is not available.")
                 return
             }
-        pendingGeneratedRecovery = null
         launchCommand {
             try {
-                recovery.cancel()
-                generatedRecovery.acknowledge()
-                mutableState.value = mutableState.value.copy(generatedKeyBackup = null)
+                if (!recovery.ticket.cancel()) {
+                    throw StudioGatewayException(
+                        StudioCommandFailure(
+                            code = WireErrorCode.INVALID_APPLICATION_STATE,
+                            category = org.radroots.studio.ffi.WireErrorCategory.LIFECYCLE,
+                            retryable = false,
+                            recoveryAction = WireRecoveryAction.NONE,
+                            correlationId = recovery.ticket.requestId,
+                            safeMessage = "The generated-key recovery step was already closed.",
+                        ),
+                    )
+                }
             } finally {
-                recovery.close()
+                releaseGeneratedRecovery(recovery)
             }
         }
     }
@@ -426,20 +436,33 @@ class StudioAppStore(
 
     private fun acceptFailure(error: Throwable) {
         val native = error as? StudioException.Failure
+        val gatewayFailure = (error as? StudioGatewayException)?.failure
         mutableState.value =
             mutableState.value.copy(
                 busy = false,
                 commandStatus =
-                    if (native?.retryable == true) {
+                    if (native?.retryable == true || gatewayFailure?.retryable == true) {
                         CommandStatus.FAILED_RETRYABLE
                     } else {
                         CommandStatus.FAILED_TERMINAL
                     },
-                lastCommandRequestId = native?.correlationId,
-                lastFailureCode = native?.code,
-                recoveryAction = native?.recoveryAction ?: WireRecoveryAction.NONE,
-                problem = native?.safeMessage ?: "The application command failed.",
+                lastCommandRequestId = gatewayFailure?.correlationId ?: native?.correlationId,
+                lastFailureCode = gatewayFailure?.code ?: native?.code,
+                recoveryAction =
+                    gatewayFailure?.recoveryAction
+                        ?: native?.recoveryAction
+                        ?: WireRecoveryAction.NONE,
+                problem = gatewayFailure?.safeMessage ?: native?.safeMessage ?: "The application command failed.",
             )
+    }
+
+    private fun releaseGeneratedRecovery(recovery: PendingGeneratedRecovery) {
+        if (pendingGeneratedRecovery === recovery) {
+            pendingGeneratedRecovery = null
+        }
+        recovery.backup.clear()
+        recovery.ticket.close()
+        mutableState.value = mutableState.value.copy(generatedKeyBackup = null)
     }
 
     override fun close() {
@@ -447,9 +470,8 @@ class StudioAppStore(
         closed = true
         command?.cancel()
         pendingRemoval?.close()
-        pendingGeneratedRecovery?.close()
+        pendingGeneratedRecovery?.let(::releaseGeneratedRecovery)
         subscription?.close()
-        generatedRecovery.close()
         runCatching { gateway.shutdown() }
             .onSuccess { receipt ->
                 mutableState.value =
@@ -464,6 +486,11 @@ class StudioAppStore(
             }
     }
 }
+
+private data class PendingGeneratedRecovery(
+    val ticket: GeneratedRecoveryTicket,
+    val backup: GeneratedKeyBackup,
+)
 
 internal fun AppSnapshotDto.toStudioRoute(): StudioRoute =
     when (lifecycle) {

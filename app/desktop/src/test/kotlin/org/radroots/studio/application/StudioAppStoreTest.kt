@@ -85,6 +85,69 @@ class StudioAppStoreTest {
         }
 
     @Test
+    fun `partial generated recovery acquisition cancels and closes its native ticket`() =
+        runTest {
+            val gateway =
+                FakeStudioCoreGateway(snapshot(0UL)).apply {
+                    failGeneratedRecoveryRead = true
+                }
+            val store = StudioAppStore(gateway, this)
+            advanceUntilIdle()
+
+            store.generateAccount()
+            advanceUntilIdle()
+
+            assertNull(store.state.value.generatedKeyBackup)
+            assertEquals(1, gateway.lastGeneratedRecoveryTicket?.cancelCalls)
+            assertTrue(gateway.lastGeneratedRecoveryTicket?.closed == true)
+            store.close()
+        }
+
+    @Test
+    fun `failed generated acknowledgement releases one-shot recovery ownership`() =
+        runTest {
+            val gateway =
+                FakeStudioCoreGateway(snapshot(0UL)).apply {
+                    failGeneratedAcknowledgement = true
+                }
+            val store = StudioAppStore(gateway, this)
+            advanceUntilIdle()
+            store.generateAccount()
+            advanceUntilIdle()
+
+            store.acknowledgeGeneratedKeyBackup()
+            advanceUntilIdle()
+
+            assertNull(store.state.value.generatedKeyBackup)
+            assertTrue(gateway.lastGeneratedRecoveryTicket?.closed == true)
+            assertEquals("fake-generated-request", store.state.value.lastCommandRequestId)
+            assertEquals("The generated account could not be saved.", store.state.value.problem)
+            store.close()
+        }
+
+    @Test
+    fun `already resolved cancellation clears recovery and reports the state mismatch`() =
+        runTest {
+            val gateway =
+                FakeStudioCoreGateway(snapshot(0UL)).apply {
+                    generatedCancellationResult = false
+                }
+            val store = StudioAppStore(gateway, this)
+            advanceUntilIdle()
+            store.generateAccount()
+            advanceUntilIdle()
+
+            store.cancelGeneratedKeyBackup()
+            advanceUntilIdle()
+
+            assertNull(store.state.value.generatedKeyBackup)
+            assertEquals(WireErrorCode.INVALID_APPLICATION_STATE, store.state.value.lastFailureCode)
+            assertEquals("fake-generated-request", store.state.value.lastCommandRequestId)
+            assertTrue(gateway.lastGeneratedRecoveryTicket?.closed == true)
+            store.close()
+        }
+
+    @Test
     fun `ignores observer delivery after close`() =
         runTest {
             val gateway = FakeStudioCoreGateway(snapshot(0UL))
@@ -259,6 +322,10 @@ private class FakeStudioCoreGateway(
     var failRemovalConfirmation = false
     var lastRemovalTicket: FakeRemovalTicket? = null
     var nextCommandResult: StudioCommandResult? = null
+    var failGeneratedRecoveryRead = false
+    var failGeneratedAcknowledgement = false
+    var generatedCancellationResult = true
+    var lastGeneratedRecoveryTicket: FakeGeneratedRecoveryTicket? = null
 
     override fun snapshot(): AppSnapshotDto = current
 
@@ -294,11 +361,16 @@ private class FakeStudioCoreGateway(
     override suspend fun bootstrap(): AppSnapshotDto = bootstrapSnapshot.also(::emit)
 
     override suspend fun beginGeneratedAccount(): GeneratedRecoveryTicket =
-        FakeGeneratedRecoveryTicket(account()) { committed ->
+        FakeGeneratedRecoveryTicket(
+            account = account(),
+            failRecoveryRead = failGeneratedRecoveryRead,
+            failAcknowledgement = failGeneratedAcknowledgement,
+            cancellationResult = generatedCancellationResult,
+        ) { committed ->
             current = snapshot(current.revision + 1UL)
             emit(current)
             committed(current)
-        }
+        }.also { lastGeneratedRecoveryTicket = it }
 
     override suspend fun requestAccountRemoval(publicKeyHex: String): RemovalTicket = FakeRemovalTicket().also { lastRemovalTicket = it }
 
@@ -320,22 +392,49 @@ private class FakeStudioCoreGateway(
 
 private class FakeGeneratedRecoveryTicket(
     override val account: AccountDto,
+    private val failRecoveryRead: Boolean,
+    private val failAcknowledgement: Boolean,
+    private val cancellationResult: Boolean,
     private val commit: (((AppSnapshotDto) -> Unit) -> Unit),
 ) : GeneratedRecoveryTicket {
+    override val requestId: String = "fake-generated-request"
     private var available = true
+    var cancelCalls = 0
+    var closed = false
 
-    override fun takeRecoveryNsec(): String = "nsec1secret"
+    override fun takeRecoveryNsec(): String {
+        if (failRecoveryRead) error("injected recovery read failure")
+        return "nsec1secret"
+    }
 
     override suspend fun acknowledge(): AppSnapshotDto {
+        if (failAcknowledgement) {
+            available = false
+            throw StudioGatewayException(
+                StudioCommandFailure(
+                    WireErrorCode.KEYRING_UNAVAILABLE,
+                    WireErrorCategory.CREDENTIAL,
+                    retryable = true,
+                    WireRecoveryAction.RETRY,
+                    requestId,
+                    "The generated account could not be saved.",
+                ),
+            )
+        }
         lateinit var snapshot: AppSnapshotDto
         commit { snapshot = it }
         available = false
         return snapshot
     }
 
-    override suspend fun cancel(): Boolean = available.also { available = false }
+    override suspend fun cancel(): Boolean {
+        cancelCalls += 1
+        return (available && cancellationResult).also { available = false }
+    }
 
-    override fun close() = Unit
+    override fun close() {
+        closed = true
+    }
 }
 
 private class FakeRemovalTicket : RemovalTicket {

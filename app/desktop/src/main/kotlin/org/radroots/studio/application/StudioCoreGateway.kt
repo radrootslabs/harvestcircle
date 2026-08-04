@@ -25,6 +25,7 @@ interface RemovalTicket : AutoCloseable {
 }
 
 interface GeneratedRecoveryTicket : AutoCloseable {
+    val requestId: String
     val account: AccountDto
 
     fun takeRecoveryNsec(): String
@@ -154,8 +155,27 @@ class NativeStudioCoreGateway(
 
     override suspend fun bootstrap(): AppSnapshotDto = core.bootstrap()
 
-    override suspend fun beginGeneratedAccount(): GeneratedRecoveryTicket =
-        NativeGeneratedRecoveryTicket(core, core.beginGeneratedAccountV2())
+    override suspend fun beginGeneratedAccount(): GeneratedRecoveryTicket {
+        val requestId = nextRequestId()
+        return try {
+            val request = core.beginGeneratedAccountV2()
+            try {
+                NativeGeneratedRecoveryTicket(core, request, requestId, request.account())
+            } catch (error: Exception) {
+                request.close()
+                throw error
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            throw StudioGatewayException(
+                error.toStudioCommandFailure(
+                    requestId,
+                    "The generated key could not be prepared.",
+                ),
+            )
+        }
+    }
 
     override suspend fun requestAccountRemoval(publicKeyHex: String): RemovalTicket =
         NativeRemovalTicket(core.requestAccountRemoval(publicKeyHex))
@@ -183,13 +203,22 @@ class NativeStudioCoreGateway(
 
     private fun requestContext(): RequestContextDto =
         RequestContextDto(
-            requestId = "kotlin:${nextRequest.getAndIncrement()}",
+            requestId = nextRequestId(),
             expectedRevision = core.snapshot().revision,
             deadlineMillis = 30_000UL,
         )
+
+    private fun nextRequestId(): String = "kotlin:${nextRequest.getAndIncrement()}"
 }
 
-internal fun Throwable.toStudioCommandFailure(fallbackCorrelationId: String): StudioCommandFailure {
+internal class StudioGatewayException(
+    val failure: StudioCommandFailure,
+) : Exception(failure.safeMessage)
+
+internal fun Throwable.toStudioCommandFailure(
+    fallbackCorrelationId: String,
+    fallbackSafeMessage: String = "The application command failed.",
+): StudioCommandFailure {
     val native = this as? StudioException.Failure
     return StudioCommandFailure(
         code = native?.code ?: WireErrorCode.INTERNAL,
@@ -197,7 +226,7 @@ internal fun Throwable.toStudioCommandFailure(fallbackCorrelationId: String): St
         retryable = native?.retryable ?: false,
         recoveryAction = native?.recoveryAction ?: WireRecoveryAction.NONE,
         correlationId = native?.correlationId ?: fallbackCorrelationId,
-        safeMessage = native?.safeMessage ?: "The application command failed.",
+        safeMessage = native?.safeMessage ?: fallbackSafeMessage,
     )
 }
 
@@ -226,17 +255,46 @@ private class NativeRemovalTicket(
 private class NativeGeneratedRecoveryTicket(
     private val core: StudioAppCore,
     private val request: GeneratedRecoveryRequest,
+    override val requestId: String,
+    override val account: AccountDto,
 ) : GeneratedRecoveryTicket {
-    override val account: AccountDto = request.account()
+    override fun takeRecoveryNsec(): String =
+        try {
+            request.takeRecoveryNsec()
+        } catch (error: Exception) {
+            throw StudioGatewayException(
+                error.toStudioCommandFailure(
+                    requestId,
+                    "The generated recovery key could not be read.",
+                ),
+            )
+        }
 
-    override fun takeRecoveryNsec(): String = request.takeRecoveryNsec()
+    override suspend fun acknowledge(): AppSnapshotDto =
+        call("The generated account could not be saved.") {
+            core.acknowledgeGeneratedAccountV2(request)
+        }
 
-    override suspend fun acknowledge(): AppSnapshotDto = core.acknowledgeGeneratedAccountV2(request)
-
-    override suspend fun cancel(): Boolean = core.cancelGeneratedAccountV2(request)
+    override suspend fun cancel(): Boolean =
+        call("The generated key could not be cancelled safely.") {
+            core.cancelGeneratedAccountV2(request)
+        }
 
     override fun close() {
-        runBlocking { runCatching { cancel() } }
         request.close()
     }
+
+    private suspend fun <T> call(
+        fallbackSafeMessage: String,
+        operation: suspend () -> T,
+    ): T =
+        try {
+            operation()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            throw StudioGatewayException(
+                error.toStudioCommandFailure(requestId, fallbackSafeMessage),
+            )
+        }
 }
