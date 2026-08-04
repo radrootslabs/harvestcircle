@@ -10,10 +10,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -61,6 +67,7 @@ fun StartupFailureScreen(problem: String) {
             .fillMaxSize()
             .background(WindowBackgroundColor)
             .padding(24.dp)
+            .verticalScroll(rememberScrollState())
             .testTag("startup-failure"),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -144,6 +151,7 @@ private fun ActiveAccountHome(
             .fillMaxSize()
             .background(WindowBackgroundColor)
             .padding(24.dp)
+            .verticalScroll(rememberScrollState())
             .testTag("home-screen"),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -153,7 +161,7 @@ private fun ActiveAccountHome(
         BasicText(active.account.publicKeyHex, Modifier.testTag("active-pubkey-hex"))
         BasicText("Name: ${active.profile.name}", Modifier.testTag("active-profile-name"))
         BasicText("Display name: ${active.profile.displayName}")
-        BasicText("NIP-05: ${active.profile.nip05}")
+        BasicText("NIP-05 (unverified): ${active.profile.nip05}")
         BasicText("About: ${active.profile.about}", Modifier.testTag("active-profile-about"))
         BasicText("Picture: ${active.profile.picture}")
         BasicText("Relay: ${active.relayState}", Modifier.testTag("relay-state"))
@@ -284,6 +292,8 @@ private fun AccountEntry(model: StudioUiModel, actions: StudioUiActions) {
             )
         }
         AccountEntryMode.IMPORT -> {
+            val importFocusRequester = remember { FocusRequester() }
+            LaunchedEffect(Unit) { importFocusRequester.requestFocus() }
             TextAction(
                 text = "Back",
                 testTag = "cancel-account-entry",
@@ -302,6 +312,7 @@ private fun AccountEntry(model: StudioUiModel, actions: StudioUiActions) {
                         contentDescription = "Nostr secret key"
                         password()
                     }
+                    .focusRequester(importFocusRequester)
                     .testTag("import-nsec-input")
                     .background(InputBackgroundColor)
                     .padding(8.dp),
@@ -342,7 +353,6 @@ private fun ColumnScope.SavedAccountList(
                     .fillMaxWidth()
                     .semantics { selected = account.selected }
                     .testTag("account-row:${account.publicKeyHex}")
-                    .clickable { actions.selectAccount(account.publicKeyHex) }
                     .background(InputBackgroundColor)
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -352,6 +362,13 @@ private fun ColumnScope.SavedAccountList(
                 BasicText("Key: ${account.keyAvailability}")
                 if (account.selected) BasicText("Selected")
                 if (account.active) BasicText("Active")
+                TextAction(
+                    text = if (account.selected) "Selected account" else "Select",
+                    testTag = "select-account:${account.publicKeyHex}",
+                    contentDescription = "Select ${account.label}",
+                    enabled = !model.busy && !account.selected,
+                    onClick = { actions.selectAccount(account.publicKeyHex) },
+                )
                 TextAction(
                     text = if (account.active) "Active account" else "Activate",
                     testTag = "activate-account:${account.publicKeyHex}",
@@ -403,6 +420,7 @@ private fun GeneratedKeyRecoveryScreen(
             .fillMaxSize()
             .background(WindowBackgroundColor)
             .padding(24.dp)
+            .verticalScroll(rememberScrollState())
             .testTag("generated-key-backup"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {

@@ -7,12 +7,15 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.v2.runComposeUiTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -81,6 +84,7 @@ class StudioScreenTest {
         onNodeWithTag("generate-key").performClick()
         onNodeWithTag("cancel-account-entry").performClick()
         onNodeWithTag("choose-import-account").performClick()
+        onNodeWithTag("import-nsec-input").assertIsFocused()
         onNodeWithTag("import-nsec-input").performTextInput("nsec1secret")
         onNodeWithTag("import-key").performClick()
 
@@ -185,7 +189,7 @@ class StudioScreenTest {
 
         onNodeWithTag("saved-account-list").assertIsDisplayed()
         onNodeWithTag("account-row:${first.publicKeyHex}").assertIsSelected()
-        onNodeWithTag("account-row:${second.publicKeyHex}").performClick()
+        onNodeWithTag("select-account:${second.publicKeyHex}", useUnmergedTree = true).performClick()
         onNodeWithTag("activate-account:${second.publicKeyHex}", useUnmergedTree = true).performClick()
         assertEquals(listOf(second.publicKeyHex), selected)
         assertEquals(listOf(second.publicKeyHex), activated)
@@ -198,6 +202,23 @@ class StudioScreenTest {
         onNodeWithTag("remove-account:${second.publicKeyHex}", useUnmergedTree = true).performClick()
         onNodeWithTag("remove-confirm", useUnmergedTree = true).performClick()
         assertEquals(1, confirmations)
+    }
+
+    @Test
+    fun savedAccountListRemainsReachableForLargeRegistries() = runComposeUiTest {
+        val accounts = (0 until 100).map { index ->
+            accountUi(index.toString(16).padStart(64, '0'), selected = index == 0)
+        }
+        setContent {
+            StudioScreen(
+                model = emptyUiModel().copy(accounts = accounts),
+                actions = StudioUiActions(),
+            )
+        }
+
+        val lastTag = "account-row:${accounts.last().publicKeyHex}"
+        onNodeWithTag("saved-account-list").performScrollToNode(hasTestTag(lastTag))
+        onNodeWithTag(lastTag).assertIsDisplayed()
     }
 
     @Test
