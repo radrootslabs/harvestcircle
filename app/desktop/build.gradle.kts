@@ -2,10 +2,15 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Exec
+import org.gradle.api.tasks.Delete
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
@@ -23,26 +28,47 @@ plugins {
 
 val rustManifest = rootProject.layout.projectDirectory.file("core/Cargo.toml")
 val rustSources = rootProject.fileTree("core") {
-    include("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates/**/*.rs", "crates/**/*.sql")
+    include(
+        "**/Cargo.toml",
+        "Cargo.lock",
+        "rust-toolchain.toml",
+        "**/*.rs",
+        "**/*.sql",
+        "**/uniffi.toml",
+        "compatibility/**",
+    )
     exclude("target/**")
 }
-val rustLibraryName = when {
-    System.getProperty("os.name").startsWith("Mac") -> "libradroots_studio_ffi.dylib"
-    System.getProperty("os.name").startsWith("Windows") -> "radroots_studio_ffi.dll"
-    else -> "libradroots_studio_ffi.so"
+data class NativeTarget(val libraryName: String, val jnaPrefix: String)
+
+fun resolveNativeTarget(osName: String, architecture: String): NativeTarget {
+    val os = osName.lowercase()
+    val arch = architecture.lowercase()
+    return when {
+        os.startsWith("mac") && arch in setOf("aarch64", "arm64") ->
+            NativeTarget("libradroots_studio_ffi.dylib", "darwin-aarch64")
+        os.startsWith("mac") && arch in setOf("x86_64", "amd64") ->
+            NativeTarget("libradroots_studio_ffi.dylib", "darwin-x86-64")
+        os.startsWith("windows") && arch in setOf("aarch64", "arm64") ->
+            NativeTarget("radroots_studio_ffi.dll", "win32-aarch64")
+        os.startsWith("windows") && arch in setOf("x86_64", "amd64") ->
+            NativeTarget("radroots_studio_ffi.dll", "win32-x86-64")
+        os.startsWith("linux") && arch in setOf("aarch64", "arm64") ->
+            NativeTarget("libradroots_studio_ffi.so", "linux-aarch64")
+        os.startsWith("linux") && arch in setOf("x86_64", "amd64") ->
+            NativeTarget("libradroots_studio_ffi.so", "linux-x86-64")
+        else -> throw GradleException("Unsupported native desktop host: $osName/$architecture")
+    }
 }
+
+val nativeTarget = resolveNativeTarget(
+    providers.gradleProperty("nativeOs").getOrElse(System.getProperty("os.name")),
+    providers.gradleProperty("nativeArch").getOrElse(System.getProperty("os.arch")),
+)
+val rustLibraryName = nativeTarget.libraryName
 val rustDebugLibrary = rootProject.layout.projectDirectory.file("core/target/debug/$rustLibraryName")
 val rustReleaseLibrary = rootProject.layout.projectDirectory.file("core/target/release/$rustLibraryName")
-val jnaPlatformPrefix = when {
-    System.getProperty("os.name").startsWith("Mac") &&
-        System.getProperty("os.arch") == "aarch64" -> "darwin-aarch64"
-    System.getProperty("os.name").startsWith("Mac") -> "darwin-x86-64"
-    System.getProperty("os.name").startsWith("Windows") &&
-        System.getProperty("os.arch") == "aarch64" -> "win32-aarch64"
-    System.getProperty("os.name").startsWith("Windows") -> "win32-x86-64"
-    System.getProperty("os.arch") == "aarch64" -> "linux-aarch64"
-    else -> "linux-x86-64"
-}
+val jnaPlatformPrefix = nativeTarget.jnaPrefix
 
 val buildRustCoreDebug by tasks.registering(Exec::class) {
     workingDir(rootProject.projectDir)
@@ -75,8 +101,11 @@ val buildRustCoreRelease by tasks.registering(Exec::class) {
 
 val generatedUniFfiKotlin = layout.buildDirectory.dir("generated/uniffi/kotlin")
 val generatedReleaseNativeResources = layout.buildDirectory.dir("generated/uniffi/release-native-resources")
+val cleanGeneratedUniFfiKotlin by tasks.registering(Delete::class) {
+    delete(generatedUniFfiKotlin)
+}
 val generateUniFfiKotlin by tasks.registering(Exec::class) {
-    dependsOn(buildRustCoreDebug)
+    dependsOn(buildRustCoreDebug, cleanGeneratedUniFfiKotlin)
     workingDir(rootProject.projectDir)
     commandLine(
         "cargo",
@@ -104,13 +133,73 @@ val generateUniFfiKotlin by tasks.registering(Exec::class) {
     inputs.file(rootProject.layout.projectDirectory.file("core/crates/ffi/uniffi.toml"))
     outputs.dir(generatedUniFfiKotlin)
 }
+abstract class VerifyUniFfiBindings : DefaultTask() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val generatedDirectory: DirectoryProperty
+
+    @get:Input
+    abstract val expectedPackage: Property<String>
+
+    @TaskAction
+    fun verify() {
+        val kotlinFiles = generatedDirectory.asFileTree.files
+            .filter { it.isFile && it.extension == "kt" }
+        if (kotlinFiles.size != 1) {
+            throw GradleException("Expected exactly one generated UniFFI Kotlin source")
+        }
+        if (!kotlinFiles.single().readText().contains("package ${expectedPackage.get()}")) {
+            throw GradleException("Generated UniFFI Kotlin package does not match the runtime contract")
+        }
+    }
+}
+val verifyUniFfiBindings by tasks.registering(VerifyUniFfiBindings::class) {
+    dependsOn(generateUniFfiKotlin)
+    generatedDirectory.set(generatedUniFfiKotlin)
+    expectedPackage.set("org.radroots.studio.ffi")
+}
+val cleanReleaseNativeResources by tasks.registering(Delete::class) {
+    delete(generatedReleaseNativeResources)
+}
 val stageReleaseNativeLibrary by tasks.registering(Copy::class) {
-    dependsOn(buildRustCoreRelease)
+    dependsOn(buildRustCoreRelease, cleanReleaseNativeResources)
     from(rustReleaseLibrary)
     into(generatedReleaseNativeResources.map { it.dir(jnaPlatformPrefix) })
 }
-val releaseNativeResourcesJar by tasks.registering(Jar::class) {
+abstract class VerifyReleaseNativeLibrary : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val releaseLibrary: RegularFileProperty
+
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val stagedDirectory: DirectoryProperty
+
+    @get:Input
+    abstract val expectedName: Property<String>
+
+    @TaskAction
+    fun verify() {
+        val files = stagedDirectory.asFileTree.files.filter { it.isFile }
+        if (files.size != 1) {
+            throw GradleException("Release resources must contain exactly one native library")
+        }
+        if (files.single().name != expectedName.get()) {
+            throw GradleException("Unexpected release native library name")
+        }
+        if (!files.single().readBytes().contentEquals(releaseLibrary.get().asFile.readBytes())) {
+            throw GradleException("Staged native library does not match the Cargo release artifact")
+        }
+    }
+}
+val verifyReleaseNativeLibrary by tasks.registering(VerifyReleaseNativeLibrary::class) {
     dependsOn(stageReleaseNativeLibrary)
+    releaseLibrary.set(rustReleaseLibrary)
+    stagedDirectory.set(generatedReleaseNativeResources)
+    expectedName.set(rustLibraryName)
+}
+val releaseNativeResourcesJar by tasks.registering(Jar::class) {
+    dependsOn(verifyReleaseNativeLibrary)
     archiveClassifier.set("release-native-resources")
     from(generatedReleaseNativeResources)
 }
