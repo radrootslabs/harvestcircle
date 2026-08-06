@@ -58,7 +58,7 @@ licenses: doctor
 	$(EXTBUILD) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:checkLicense
 
 package: check
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:verifyMacOsPackage
+	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:verifyHostPackage
 
 release-check: doctor
 	$(EXTBUILD) $(CARGO) audit --file core/Cargo.lock

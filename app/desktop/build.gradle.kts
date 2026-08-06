@@ -205,7 +205,7 @@ val syncRadrootsLibSource by tasks.registering(SyncRadrootsLibSource::class) {
 
 val validateRadrootsSourceLock by tasks.registering(Exec::class) {
     dependsOn(syncRadrootsLibSource)
-    workingDir(rootProject.projectDir)
+    workingDir(radrootsLibSource)
     commandLine(
         "cargo",
         "run",
@@ -251,11 +251,12 @@ fun resolveNativeTarget(
     }
 }
 
-val nativeTarget =
-    resolveNativeTarget(
-        providers.gradleProperty("nativeOs").getOrElse(System.getProperty("os.name")),
-        providers.gradleProperty("nativeArch").getOrElse(System.getProperty("os.arch")),
-    )
+val nativeOsName = providers.gradleProperty("nativeOs").getOrElse(System.getProperty("os.name"))
+val nativeArchitecture = providers.gradleProperty("nativeArch").getOrElse(System.getProperty("os.arch"))
+val nativeTarget = resolveNativeTarget(nativeOsName, nativeArchitecture)
+val isMacOsHost = nativeOsName.lowercase().startsWith("mac")
+val isLinuxHost = nativeOsName.lowercase().startsWith("linux")
+val isWindowsHost = nativeOsName.lowercase().startsWith("windows")
 val rustLibraryName = nativeTarget.libraryName
 val rustDebugLibrary = file(cargoTargetRoot).resolve("debug/$rustLibraryName")
 val rustReleaseLibrary = file(cargoTargetRoot).resolve("release/$rustLibraryName")
@@ -263,7 +264,7 @@ val jnaPlatformPrefix = nativeTarget.jnaPrefix
 
 val buildRustCoreDebug by tasks.registering(Exec::class) {
     dependsOn(validateRadrootsSourceLock)
-    workingDir(rootProject.projectDir)
+    workingDir(radrootsLibSource)
     commandLine(
         "cargo",
         "build",
@@ -280,7 +281,7 @@ val buildRustCoreDebug by tasks.registering(Exec::class) {
 
 val buildRustCoreRelease by tasks.registering(Exec::class) {
     dependsOn(validateRadrootsSourceLock)
-    workingDir(rootProject.projectDir)
+    workingDir(radrootsLibSource)
     commandLine(
         "cargo",
         "build",
@@ -303,7 +304,7 @@ val cleanGeneratedUniFfiKotlin by tasks.registering(Delete::class) {
 }
 val generateUniFfiKotlin by tasks.registering(Exec::class) {
     dependsOn(buildRustCoreDebug, cleanGeneratedUniFfiKotlin)
-    workingDir(rootProject.projectDir)
+    workingDir(radrootsLibSource)
     commandLine(
         "cargo",
         "run",
@@ -525,6 +526,86 @@ abstract class VerifyMacOsPackage : DefaultTask() {
     }
 }
 
+abstract class VerifyNativeInstallPackage : DefaultTask() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val packageDirectory: DirectoryProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val releaseLibrary: RegularFileProperty
+
+    @get:Input
+    abstract val packageExtension: Property<String>
+
+    @get:Input
+    abstract val expectedVersion: Property<String>
+
+    @get:Input
+    abstract val expectedNativeEntry: Property<String>
+
+    @get:Input
+    abstract val hostFamily: Property<String>
+
+    @TaskAction
+    fun verify() {
+        val extension = packageExtension.get()
+        val packages = packageDirectory.asFileTree.files.filter { it.isFile && it.extension == extension }
+        require(packages.size == 1) { "Expected exactly one .$extension installation package" }
+        val installPackage = packages.single()
+        require(installPackage.name.contains(expectedVersion.get())) {
+            "Installation package name does not contain the governed version"
+        }
+        require(installPackage.length() > 0L) { "Installation package is empty" }
+
+        val extracted = temporaryDir.resolve("extracted").apply { mkdirs() }
+        when (hostFamily.get()) {
+            "linux" -> commandOutput("dpkg-deb", "--extract", installPackage.absolutePath, extracted.absolutePath)
+            "windows" ->
+                commandOutput(
+                    "msiexec.exe",
+                    "/a",
+                    installPackage.absolutePath,
+                    "/qn",
+                    "TARGETDIR=${extracted.absolutePath}",
+                )
+            else -> throw GradleException("Unsupported native package host")
+        }
+
+        val expectedEntry = expectedNativeEntry.get()
+        val packagedLibraries = mutableListOf<ByteArray>()
+        extracted
+            .walkTopDown()
+            .filter { it.isFile && it.extension == "jar" }
+            .forEach { jarFile ->
+                JarFile(jarFile).use { jar ->
+                    jar.getJarEntry(expectedEntry)?.let { entry ->
+                        packagedLibraries += jar.getInputStream(entry).use { it.readBytes() }
+                    }
+                }
+            }
+        require(packagedLibraries.size == 1) {
+            "Installation package must contain exactly one canonical native library"
+        }
+        require(packagedLibraries.single().contentEquals(releaseLibrary.get().asFile.readBytes())) {
+            "Installed native library does not match the canonical Cargo release artifact"
+        }
+    }
+
+    private fun commandOutput(vararg command: String) {
+        val process =
+            ProcessBuilder(*command)
+                .redirectErrorStream(true)
+                .start()
+        val output =
+            process.inputStream
+                .bufferedReader()
+                .use { it.readText() }
+                .trim()
+        require(process.waitFor() == 0) { "Installation package extraction failed: $output" }
+    }
+}
+
 abstract class VerifyMacOsDeveloperIdSignature : DefaultTask() {
     @get:InputDirectory
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -697,14 +778,23 @@ compose.desktop {
         fromFiles(desktopJar, configurations.runtimeClasspath, releaseNativeRuntimeJar)
         mainClass = "$applicationNamespace.desktop.MainKt"
 
-        jvmArgs +=
-            listOf(
-                "-Dapple.awt.application.name=$applicationName",
-                "-Dapple.awt.application.appearance=system",
-            )
+        if (isMacOsHost) {
+            jvmArgs +=
+                listOf(
+                    "-Dapple.awt.application.name=$applicationName",
+                    "-Dapple.awt.application.appearance=system",
+                )
+        }
 
         nativeDistributions {
-            targetFormats(TargetFormat.Dmg)
+            targetFormats(
+                when {
+                    isMacOsHost -> TargetFormat.Dmg
+                    isLinuxHost -> TargetFormat.Deb
+                    isWindowsHost -> TargetFormat.Msi
+                    else -> throw GradleException("Unsupported desktop package host: $nativeOsName")
+                },
+            )
 
             packageName = applicationName
             packageVersion = installableVersion
@@ -741,6 +831,32 @@ val verifyMacOsPackage by tasks.registering(VerifyMacOsPackage::class) {
     packageDirectory.set(layout.buildDirectory.dir("compose/binaries/main/dmg"))
     expectedFileName.set("$applicationName-$installableVersion.dmg")
 }
+val verifyLinuxPackage by tasks.registering(VerifyNativeInstallPackage::class) {
+    dependsOn("packageDeb", verifyReleaseNativeLibrary)
+    packageDirectory.set(layout.buildDirectory.dir("compose/binaries/main/deb"))
+    releaseLibrary.set(rustReleaseLibrary)
+    packageExtension.set("deb")
+    expectedVersion.set(installableVersion)
+    expectedNativeEntry.set("$jnaPlatformPrefix/$rustLibraryName")
+    hostFamily.set("linux")
+}
+val verifyWindowsPackage by tasks.registering(VerifyNativeInstallPackage::class) {
+    dependsOn("packageMsi", verifyReleaseNativeLibrary)
+    packageDirectory.set(layout.buildDirectory.dir("compose/binaries/main/msi"))
+    releaseLibrary.set(rustReleaseLibrary)
+    packageExtension.set("msi")
+    expectedVersion.set(installableVersion)
+    expectedNativeEntry.set("$jnaPlatformPrefix/$rustLibraryName")
+    hostFamily.set("windows")
+}
+val verifyHostPackage by tasks.registering {
+    when {
+        isMacOsHost -> dependsOn(verifyMacOsPackage)
+        isLinuxHost -> dependsOn(verifyLinuxPackage)
+        isWindowsHost -> dependsOn(verifyWindowsPackage)
+        else -> throw GradleException("Unsupported desktop package host: $nativeOsName")
+    }
+}
 val verifyMacOsDeveloperIdSignature by tasks.registering(VerifyMacOsDeveloperIdSignature::class) {
     dependsOn(verifyMacOsPackage)
     appDirectory.set(layout.buildDirectory.dir("compose/binaries/main/app/$applicationName.app"))
@@ -750,10 +866,8 @@ val verifyMacOsNotarization by tasks.registering(VerifyMacOsNotarization::class)
     diskImage.set(layout.buildDirectory.file("compose/binaries/main/dmg/$applicationName-$installableVersion.dmg"))
 }
 tasks.register("releaseReadiness") {
-    dependsOn(
-        "checkLicense",
-        "dependencyCheckAnalyze",
-        verifyMacOsDeveloperIdSignature,
-        verifyMacOsNotarization,
-    )
+    dependsOn("checkLicense", "dependencyCheckAnalyze", verifyHostPackage)
+    if (isMacOsHost) {
+        dependsOn(verifyMacOsDeveloperIdSignature, verifyMacOsNotarization)
+    }
 }
