@@ -160,7 +160,7 @@ class NativeStudioCoreGateway(
         return try {
             val request = core.beginGeneratedAccountV2()
             try {
-                NativeGeneratedRecoveryTicket(core, request, requestId, request.account())
+                NativeGeneratedRecoveryTicket(core, request, ::requestContext, requestId, request.account())
             } catch (error: Exception) {
                 request.close()
                 throw error
@@ -182,7 +182,7 @@ class NativeStudioCoreGateway(
 
     override suspend fun confirmAccountRemoval(ticket: RemovalTicket): AppSnapshotDto {
         require(ticket is NativeRemovalTicket) { "Removal ticket does not belong to native core" }
-        return core.confirmAccountRemoval(ticket.request)
+        return core.confirmAccountRemoval(requestContext(), ticket.request)
     }
 
     override fun shutdown(): StudioShutdownReceipt =
@@ -234,8 +234,11 @@ private class NativeSubscription(
     private val subscription: ObserverSubscription,
 ) : AutoCloseable {
     override fun close() {
-        subscription.unsubscribe()
-        subscription.close()
+        try {
+            runBlocking { subscription.unsubscribe() }
+        } finally {
+            subscription.close()
+        }
     }
 }
 
@@ -255,6 +258,7 @@ private class NativeRemovalTicket(
 private class NativeGeneratedRecoveryTicket(
     private val core: StudioAppCore,
     private val request: GeneratedRecoveryRequest,
+    private val requestContext: () -> RequestContextDto,
     override val requestId: String,
     override val account: AccountDto,
 ) : GeneratedRecoveryTicket {
@@ -270,10 +274,12 @@ private class NativeGeneratedRecoveryTicket(
             )
         }
 
-    override suspend fun acknowledge(): AppSnapshotDto =
-        call("The generated account could not be saved.") {
-            core.acknowledgeGeneratedAccountV2(request)
+    override suspend fun acknowledge(): AppSnapshotDto {
+        val context = requestContext()
+        return call("The generated account could not be saved.", context.requestId) {
+            core.acknowledgeGeneratedAccountV2(context, request)
         }
+    }
 
     override suspend fun cancel(): Boolean =
         call("The generated key could not be cancelled safely.") {
@@ -286,6 +292,7 @@ private class NativeGeneratedRecoveryTicket(
 
     private suspend fun <T> call(
         fallbackSafeMessage: String,
+        correlationId: String = requestId,
         operation: suspend () -> T,
     ): T =
         try {
@@ -294,7 +301,7 @@ private class NativeGeneratedRecoveryTicket(
             throw error
         } catch (error: Exception) {
             throw StudioGatewayException(
-                error.toStudioCommandFailure(requestId, fallbackSafeMessage),
+                error.toStudioCommandFailure(correlationId, fallbackSafeMessage),
             )
         }
 }

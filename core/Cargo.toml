@@ -1,5 +1,6 @@
 [workspace]
-members = [
+members = ["crates/source_lock"]
+exclude = [
     "crates/application",
     "crates/domain",
     "crates/ffi",
@@ -14,7 +15,7 @@ version = "0.1.0-alpha"
 edition = "2024"
 rust-version = "1.97.1"
 license = "GPL-3.0-only"
-repository = "https://github.com/radroots/studio_app"
+repository = "https://github.com/radrootslabs/studio_app"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -24,20 +25,10 @@ all = "deny"
 pedantic = "deny"
 
 [workspace.dependencies]
-bech32 = "=0.11.1"
-keyring = "=4.1.6"
-directories = "=6.0.0"
-fs2 = "=0.4.3"
-nostr = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr" }
-nostr-sdk = "=0.44.1"
-nostr-relay-builder = "=0.44.1"
-refinery = { version = "=0.9.2", default-features = false, features = ["rusqlite"] }
-rusqlite = { version = "=0.39.0", features = ["bundled"] }
-secrecy = "=0.10.3"
-url = "=2.5.8"
-zeroize = "=1.9.0"
-tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
-uniffi = "=0.32.0"
-
-[patch.crates-io]
-nostr = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219" }
+radroots_studio_application = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha" }
+radroots_studio_domain = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha" }
+radroots_studio_ffi = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha" }
+radroots_studio_nostr = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha" }
+radroots_studio_preferences = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha" }
+radroots_studio_runtime = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha" }
+radroots_studio_storage = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha" }

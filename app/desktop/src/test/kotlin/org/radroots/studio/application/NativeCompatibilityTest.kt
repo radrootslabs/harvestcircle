@@ -14,10 +14,12 @@ class NativeCompatibilityTest {
         assertEquals(EXPECTED_FFI_CONTRACT_HASH, expectation.contractHash)
 
         listOf(
-            descriptor.copy(contractMajor = 3.toUShort()),
+            descriptor.copy(productVersion = "wrong"),
+            descriptor.copy(cargoPackageVersion = "wrong"),
+            descriptor.copy(contractMajor = 4.toUShort()),
             descriptor.copy(contractHash = "wrong"),
             descriptor.copy(currentSchemaVersion = 4U),
-            descriptor.copy(minimumSchemaVersion = 10U),
+            descriptor.copy(minimumSchemaVersion = 11U),
         ).forEach { incompatible ->
             assertFailsWith<NativeCompatibilityException> {
                 verifyNativeCompatibility(incompatible)
@@ -27,6 +29,8 @@ class NativeCompatibilityTest {
 
     private fun compatibleDescriptor() =
         CompatibilityDescriptor(
+            productVersion = EXPECTED_PRODUCT_VERSION,
+            cargoPackageVersion = EXPECTED_CARGO_PACKAGE_VERSION,
             contractMajor = EXPECTED_FFI_CONTRACT_MAJOR,
             contractMinor = MINIMUM_FFI_CONTRACT_MINOR,
             contractHash = EXPECTED_FFI_CONTRACT_HASH,
