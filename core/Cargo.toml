@@ -1,13 +1,5 @@
 [workspace]
 members = ["crates/source_lock"]
-exclude = [
-    "crates/application",
-    "crates/domain",
-    "crates/ffi",
-    "crates/nostr",
-    "crates/storage",
-    "tools/uniffi-bindgen",
-]
 resolver = "3"
 
 [workspace.package]
