@@ -1584,7 +1584,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn installation_identity_survives_file_backed_runtime_restart() {
         let directory = tempfile::tempdir().expect("temporary directory");
-        let path = directory.path().join("harvestcircle.sqlite3");
+        let path = directory
+            .path()
+            .canonicalize()
+            .expect("canonical temporary directory")
+            .join("harvestcircle.sqlite3");
         let first = RuntimeActorHandle::open(
             &path,
             RelayConfiguration::default(),

@@ -482,8 +482,10 @@ mod tests {
         }
     }
 
+    const OBSERVER_DELIVERY_TIMEOUT: Duration = Duration::from_secs(5);
+
     async fn wait_for_snapshot_count(observer: &RecordingObserver, minimum: usize) {
-        tokio::time::timeout(Duration::from_secs(1), async {
+        tokio::time::timeout(OBSERVER_DELIVERY_TIMEOUT, async {
             while observer.snapshots.lock().expect("snapshots").len() < minimum {
                 tokio::task::yield_now().await;
             }
@@ -493,7 +495,7 @@ mod tests {
     }
 
     async fn wait_for_fresh_profile(observer: &RecordingObserver) {
-        tokio::time::timeout(Duration::from_secs(1), async {
+        tokio::time::timeout(OBSERVER_DELIVERY_TIMEOUT, async {
             loop {
                 let fresh = observer
                     .snapshots

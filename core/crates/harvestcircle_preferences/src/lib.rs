@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-//! UI-neutral Studio preference state.
+//! UI-neutral HarvestCircle preference state.
 //!
 //! This module carries forward the uniquely required preference behavior from
 //! source commit `6074a4745be361f21bb47d4778c74a14b2d57954`. It intentionally

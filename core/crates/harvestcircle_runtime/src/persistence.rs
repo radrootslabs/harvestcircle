@@ -355,7 +355,11 @@ mod tests {
     #[test]
     fn persistent_bootstrap_handles_fresh_and_existing_signed_out_state() {
         let directory = tempdir().expect("directory");
-        let path = directory.path().join("harvestcircle.sqlite3");
+        let path = directory
+            .path()
+            .canonicalize()
+            .expect("canonical temporary directory")
+            .join("harvestcircle.sqlite3");
         let public_key = account().public_key();
         let secrets = InMemorySecretStore::default();
         {
@@ -388,7 +392,11 @@ mod tests {
     #[test]
     fn corrupt_database_fails_safely_without_recreation() {
         let directory = tempdir().expect("directory");
-        let path = directory.path().join("harvestcircle.sqlite3");
+        let path = directory
+            .path()
+            .canonicalize()
+            .expect("canonical temporary directory")
+            .join("harvestcircle.sqlite3");
         fs::write(&path, b"not a sqlite database").expect("corrupt file");
 
         let error = PersistentAppCore::open(&path, RelayConfiguration::default())
@@ -404,7 +412,11 @@ mod tests {
     #[test]
     fn persisted_generate_and_import_survive_restart_without_secret_bytes() {
         let directory = tempdir().expect("directory");
-        let path = directory.path().join("harvestcircle.sqlite3");
+        let path = directory
+            .path()
+            .canonicalize()
+            .expect("canonical temporary directory")
+            .join("harvestcircle.sqlite3");
         let secrets = InMemorySecretStore::default();
         let selected;
         {
@@ -646,7 +658,11 @@ mod tests {
     #[test]
     fn bootstrap_recovery_completes_credential_deleted_removal_and_fallback() {
         let directory = tempdir().expect("directory");
-        let path = directory.path().join("harvestcircle.sqlite3");
+        let path = directory
+            .path()
+            .canonicalize()
+            .expect("canonical temporary directory")
+            .join("harvestcircle.sqlite3");
         let secrets = InMemorySecretStore::default();
         let first;
         let removed;

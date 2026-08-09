@@ -77,7 +77,7 @@ impl RelayConfiguration {
     /// # Errors
     ///
     /// Returns a safe configuration error before runtime or network work when
-    /// the relay count exceeds the Studio policy.
+    /// the relay count exceeds the HarvestCircle policy.
     pub fn new(relays: Vec<RelayUrl>) -> Result<Self, SafeError> {
         if relays.len() > MAX_CONFIGURED_RELAYS {
             return Err(relay_limit_exceeded());

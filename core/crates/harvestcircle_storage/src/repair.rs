@@ -265,7 +265,7 @@ mod tests {
     use std::io::Write;
 
     use rusqlite::Connection;
-    use tempfile::tempdir;
+    use tempfile::{TempDir, tempdir_in};
 
     use super::{
         REPAIR_DOMAIN, RepairAuthorization, RepairCandidate, authenticate, authenticate_candidate,
@@ -273,6 +273,10 @@ mod tests {
         install_candidate, secure_read,
     };
     use crate::Database;
+
+    fn tempdir() -> std::io::Result<TempDir> {
+        tempdir_in(std::env::temp_dir().canonicalize()?)
+    }
 
     fn quarantined_database(path: &std::path::Path) {
         drop(Database::open(path).expect("current database"));

@@ -332,7 +332,7 @@ pub(crate) const fn quarantined_storage_error() -> SafeError {
 #[cfg(test)]
 mod tests {
     use rusqlite::{Connection, params};
-    use tempfile::tempdir;
+    use tempfile::{TempDir, tempdir_in};
 
     use super::{
         DatabasePreflight, PersistedIdentityIssueKind, column_exists, preflight,
@@ -340,6 +340,10 @@ mod tests {
     };
     use crate::Database;
     use harvestcircle_domain::{AccountIdentity, PublicKey, SafeErrorCode};
+
+    fn tempdir() -> std::io::Result<TempDir> {
+        tempdir_in(std::env::temp_dir().canonicalize()?)
+    }
 
     #[test]
     fn preflight_rejects_non_files_missing_schema_zero_version_and_unknown_tables() {

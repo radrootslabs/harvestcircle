@@ -518,7 +518,7 @@ mod tests {
     use std::path::Path;
 
     use rusqlite::Connection;
-    use tempfile::tempdir;
+    use tempfile::{TempDir, tempdir_in};
 
     use super::{
         AUTHENTICATION_KEY_FILENAME, MANIFEST_FORMAT, MigrationRecovery, atomic_secure_write,
@@ -526,6 +526,10 @@ mod tests {
         load_authentication_key, load_or_create_authentication_key, parse_field, read_bounded_file,
         recovery_directory, replace_with_backup, secure_read,
     };
+
+    fn tempdir() -> std::io::Result<TempDir> {
+        tempdir_in(std::env::temp_dir().canonicalize()?)
+    }
 
     fn sqlite_database(path: &Path) {
         let connection = Connection::open(path).expect("open sqlite database");

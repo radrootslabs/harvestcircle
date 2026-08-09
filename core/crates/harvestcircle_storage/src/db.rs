@@ -377,7 +377,7 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
 
-    use tempfile::tempdir;
+    use tempfile::{TempDir, tempdir_in};
 
     use harvestcircle_application::{AccountRepository, AppStateRepository};
     use harvestcircle_domain::{PublicKey, SafeErrorCode};
@@ -388,6 +388,10 @@ mod tests {
         CURRENT_SCHEMA_VERSION, Database, configure, create_secure_directory, migrations,
         restrict_sqlite_sidecars,
     };
+
+    fn tempdir() -> std::io::Result<TempDir> {
+        tempdir_in(std::env::temp_dir().canonicalize()?)
+    }
     use crate::{DatabasePreflight, PersistedIdentityIssueKind, RepairAuthorization};
 
     #[test]

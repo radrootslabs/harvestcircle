@@ -305,9 +305,13 @@ mod tests {
         AccountCreatedAt, AccountIdentity, AccountLabel, AccountSummary, BindingAvailability,
         LocalSignerBinding, PublicKey, SafeErrorCode, UnixTimestamp,
     };
-    use tempfile::tempdir;
+    use tempfile::{TempDir, tempdir_in};
 
     use crate::Database;
+
+    fn tempdir() -> std::io::Result<TempDir> {
+        tempdir_in(std::env::temp_dir().canonicalize()?)
+    }
 
     fn public_key(key_byte: u8) -> PublicKey {
         let value = match key_byte {

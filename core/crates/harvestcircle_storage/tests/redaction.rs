@@ -6,7 +6,11 @@ use harvestcircle_domain::{
     PublicKey, UnixTimestamp,
 };
 use harvestcircle_storage::Database;
-use tempfile::tempdir;
+use tempfile::{TempDir, tempdir_in};
+
+fn tempdir() -> std::io::Result<TempDir> {
+    tempdir_in(std::env::temp_dir().canonicalize()?)
+}
 
 const SECRET_HEX: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 const SECRET_NSEC: &str = "nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5";
