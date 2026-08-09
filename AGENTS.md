@@ -1,0 +1,125 @@
+# AGENTS.md — Radroots Studio
+
+These instructions apply to the complete standalone `radrootslabs/studio_app`
+repository. A more specific `AGENTS.md` may refine them for its subtree.
+
+## Repository role and source boundary
+
+This repository owns the public Radroots Studio desktop client: the
+Kotlin/Compose presentation shell, desktop lifecycle, client-side state,
+generated UniFFI integration, host packaging, and their tests. It is a client
+of public Radroots library packages, not an owner of canonical domain policy,
+signing protocol, Nostr semantics, durable engine state, wire contracts, or
+native FFI models.
+
+The local Rust workspace contains only the unpublished
+`radroots_studio_source_lock` member. Production Studio application, domain,
+runtime, persistence, Nostr, and FFI crates come from the exact public lib
+revision selected by this capsule. Do not copy, fork, or replace them with
+capsule-local implementations or implicit sibling sources.
+
+The repository must remain independently cloneable, buildable, testable, and
+packageable through its checked-in command surfaces. It may materialize the
+exact public source revision into an extbuild-owned cache; it must not depend
+on private parent code, parent-only contracts, unpublished local artifacts,
+absolute host paths, or an enclosing monorepo layout.
+
+## Machine authority and generated inputs
+
+- `radroots.lib.source-lock.v1.toml`, `core/Cargo.toml`, `core/Cargo.lock`,
+  `core/rust-toolchain.toml`, and `.radroots-consumer-root` own the Rust
+  consumer and source-lock inputs.
+- Gradle settings, build scripts, the version catalog, wrapper properties,
+  policy configuration, and `core/compatibility/v5-baseline.properties` own
+  the desktop build, dependency, compatibility, and package inputs. Kotlin and
+  Rust source and tests are implementation evidence.
+- `gradlew`, `gradlew.bat`, and `gradle/wrapper/gradle-wrapper.jar` are
+  checked-in command implementation and supply-chain inputs, not policy
+  authority. Review them with `gradle-wrapper.properties`; keep the launcher,
+  distribution URL/version, and distribution checksum aligned, and never
+  replace the wrapper binary without explicit provenance review.
+- Keep every Radroots dependency on the canonical public Git source, one exact
+  immutable revision, and the declared exact version. The source lock,
+  manifests, lockfile, compatibility baseline, and generated native package
+  metadata must agree.
+- Never use a path dependency, floating branch or tag, private mirror,
+  implicit sibling override, dirty source cache, or unrecorded native binary.
+  A local commit is not a release input until it is publicly reachable and its
+  governed source-lock evidence verifies.
+- Human specifications, decisions, runbooks, migration history, qualification
+  records, and execution evidence are parent-owned and absent from standalone
+  clones. Physical or tracked `docs/**`, `.github/**`, and `.act/**` roots are
+  forbidden, including symlinks. Public commands remain forge agnostic.
+
+Generated UniFFI Kotlin and native libraries are derived build output. Change
+the canonical public producer contract/generator first, materialize the exact
+locked source, regenerate into extbuild-owned build locations, and inspect the
+result. Never hand-edit or check in generated bindings or native binaries as a
+source-lock substitute.
+
+## Application and security boundaries
+
+- Keep Compose screens and stores as client presentation and orchestration.
+  Do not make them a source of truth for accounts, identities, approvals,
+  domain objects, synchronization, reconciliation, or publication state.
+- Private keys and signing operations remain behind the generated native
+  boundary. Kotlin must handle opaque identifiers and bounded public DTOs; it
+  must not persist, log, fixture, or expose raw secret material.
+- Recovery and backup operations must be explicit, user-initiated, bounded,
+  fail closed, and keep sensitive material out of logs, crash text, analytics,
+  filenames, and long-lived UI state.
+- Clipboard writes of sensitive output require explicit user action, bounded
+  lifetime, ownership-aware clearing, and tests for cancellation and
+  replacement. Never clear unrelated clipboard content.
+- Native library loading must verify the generated artifact, platform/ABI,
+  compatibility baseline, and exact source provenance before application use.
+  Do not search ambient library paths or silently fall back to another binary.
+- Keep lifecycle and coroutine work structured, cancelable, and scoped. Avoid
+  hidden workers, process-global mutable state, unbounded retries, blocking UI
+  work, and external mutation inferred from environment state.
+- Services-hardening changes use the approved target-state contracts. Do not
+  add compatibility aliases, dual reads, dual writes, or fallback behavior for
+  prototype surfaces removed by the clean-slate refactor.
+
+## Change and command rules
+
+Inspect status, all relevant manifests and locks, source-lock and compatibility
+inputs, Gradle tasks, native generation logic, source, tests, and package
+configuration before editing. Make one coherent, reviewable change at a time;
+keep implementation, tests, generated outputs, dependency evidence, and public
+behavior aligned while preserving unrelated work.
+
+The root `Makefile` is the standalone command surface and its durable behavior
+belongs in Gradle or public producer tools. Gradle intentionally requires
+`EXT_BUILD_GRADLE_BUILD_DIR`, and native Cargo work requires
+`CARGO_TARGET_DIR`; do not bypass extbuild or add repo-local build-output
+fallbacks. Run `make doctor` before the first mutating lane, use `make format`,
+`make lint`, and `make test` while iterating, and run `make check` for the
+complete source checkpoint. Use `make build`, `make bindings`, `make audit`,
+`make licenses`, `make package`, and `make release-check` when their affected
+artifact or release scope requires them.
+
+Source-lock synchronization may fetch the exact public revision and package or
+advisory lanes may require external services. Do not weaken immutable inputs or
+silently switch sources when offline. Never claim a lane passed unless it ran
+successfully; report network, toolchain, platform, advisory-service, package,
+or external-artifact blockers exactly.
+
+Verify exact source-lock/manifests/lock agreement, generated binding and native
+artifact freshness when affected, compatibility and architecture guards,
+license/source policy, zero forbidden roots, `git diff --check`, and final
+status and diff. Do not treat parent-only workflow proof as a substitute for
+standalone repository validation.
+
+## Git and external gates
+
+Use focused commits in the established `<scope>: <imperative summary>` style.
+Do not reset, discard, rewrite, push, tag, sign, publish, deploy, package for
+distribution, change signing/notarization identities, or rotate credentials
+without the corresponding explicit authority.
+
+The change is complete only when it is implemented at the correct desktop or
+public producer boundary, the relevant standalone lanes are green, locks and
+generated evidence are fresh, forbidden roots remain absent, and final review
+finds no secret exposure, private dependency, stale native artifact, hidden
+domain authority, or unreported skipped lane.
