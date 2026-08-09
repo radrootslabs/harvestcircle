@@ -1,0 +1,3 @@
+[crates.radroots_studio_ffi.bindings.kotlin]
+package_name = "org.radroots.studio.ffi"
+cdylib_name = "radroots_studio_ffi"

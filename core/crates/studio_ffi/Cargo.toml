@@ -1,0 +1,40 @@
+[package]
+name = "radroots_studio_ffi"
+description = "Private native FFI boundary for Radroots Studio"
+version = "0.1.0-alpha"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license = "GPL-3.0-only"
+repository.workspace = true
+homepage.workspace = true
+publish = false
+build = "build.rs"
+include = ["build.rs", "src/**", "uniffi.toml", "Cargo.toml"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+directories = "=6.0.0"
+radroots_studio_application.workspace = true
+radroots_studio_domain.workspace = true
+radroots_studio_nostr.workspace = true
+radroots_studio_runtime.workspace = true
+radroots_studio_storage.workspace = true
+tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+uniffi = "=0.32.0"
+
+[build-dependencies]
+quote.workspace = true
+sha2.workspace = true
+syn.workspace = true
+
+[dev-dependencies]
+nostr = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr" }
+nostr-relay-builder = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr-relay-builder" }
+nostr-sdk = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr-sdk" }
+tempfile = "=3.23.0"
+
+[lints]
+workspace = true
