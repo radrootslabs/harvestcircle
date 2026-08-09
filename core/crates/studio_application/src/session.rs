@@ -2,7 +2,7 @@ use crate::{
     AccountRepository, ActiveAccountSnapshot, AppCore, AppSnapshot, AppStateRepository, Clock,
     ProfileLoadState, ProfileRepository, RelayConnectionState, SecretStore, StateTransition,
 };
-use radroots_studio_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage};
+use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage};
 
 impl AppCore {
     /// Drops the active session while retaining accounts, selection, and credentials.
@@ -87,7 +87,7 @@ const fn invalid_credential() -> SafeError {
 
 #[cfg(test)]
 mod tests {
-    use radroots_studio_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
+    use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
 
     use crate::{
         AppCore, CachedProfile, Clock, InMemoryAccountRepository, InMemoryOperationJournal,
@@ -195,7 +195,7 @@ mod tests {
             .expect_err("missing credential");
         assert_eq!(
             error.code(),
-            radroots_studio_domain::SafeErrorCode::CredentialMissing
+            harvestcircle_domain::SafeErrorCode::CredentialMissing
         );
         secrets
             .put(
@@ -215,7 +215,7 @@ mod tests {
             .expect_err("mismatched credential");
         assert_eq!(
             invalid.code(),
-            radroots_studio_domain::SafeErrorCode::InvalidSecretKey
+            harvestcircle_domain::SafeErrorCode::InvalidSecretKey
         );
         assert_eq!(core.snapshot().session(), SessionState::Active);
         assert_eq!(

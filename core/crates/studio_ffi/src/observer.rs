@@ -215,11 +215,11 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
+    use harvestcircle_domain::{RelayDestinationPolicy, RelayUrl};
     use nostr::{EventBuilder, Keys, Metadata};
     use nostr_relay_builder::MockRelay;
     use nostr_sdk::Client;
     use radroots_studio_application::{InMemorySecretStore, RelayConfiguration};
-    use radroots_studio_domain::{RelayDestinationPolicy, RelayUrl};
     use radroots_studio_nostr::SdkNostrClient;
     use radroots_studio_runtime::{
         RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,

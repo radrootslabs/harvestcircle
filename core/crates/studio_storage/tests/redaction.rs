@@ -1,10 +1,10 @@
 use std::fs;
 
-use radroots_studio_application::{AccountOperationKind, AccountRepository, OperationJournal};
-use radroots_studio_domain::{
+use harvestcircle_domain::{
     AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
     PublicKey, UnixTimestamp,
 };
+use radroots_studio_application::{AccountOperationKind, AccountRepository, OperationJournal};
 use radroots_studio_storage::Database;
 use tempfile::tempdir;
 

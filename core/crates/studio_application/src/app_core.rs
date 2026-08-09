@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use radroots_studio_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage, UnixTimestamp};
+use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage, UnixTimestamp};
 
 use crate::{
     AccountRepository, AppSnapshot, AppStateRepository, KeyMaterialProvider, RelayConfiguration,
@@ -169,7 +169,7 @@ impl AppCore {
             return Err(account_not_found());
         };
         let deletes_local_credential = account.signer().availability()
-            != radroots_studio_domain::BindingAvailability::CredentialMissing;
+            != harvestcircle_domain::BindingAvailability::CredentialMissing;
         let id = state.next_removal_token;
         state.next_removal_token = id.checked_add(1).ok_or_else(invalid_application_state)?;
         let revision = state.state_machine.snapshot().revision();
@@ -261,7 +261,7 @@ const fn account_not_found() -> SafeError {
 
 #[cfg(test)]
 mod tests {
-    use radroots_studio_domain::{
+    use harvestcircle_domain::{
         AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
         UnixTimestamp,
     };

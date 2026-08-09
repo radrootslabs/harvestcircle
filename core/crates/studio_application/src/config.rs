@@ -1,4 +1,4 @@
-use radroots_studio_domain::{
+use harvestcircle_domain::{
     RelayDestinationPolicy, SafeError, SafeErrorCode, SafeMessage, normalize_relay_urls,
 };
 
@@ -64,7 +64,7 @@ const fn invalid_configuration() -> SafeError {
 
 #[cfg(test)]
 mod tests {
-    use radroots_studio_domain::SafeErrorCode;
+    use harvestcircle_domain::SafeErrorCode;
 
     use super::{RelayRuntimeMode, relay_configuration_from_value};
 
@@ -90,7 +90,7 @@ mod tests {
         let relays = configuration
             .relays()
             .iter()
-            .map(radroots_studio_domain::RelayUrl::as_str)
+            .map(harvestcircle_domain::RelayUrl::as_str)
             .collect::<Vec<_>>();
         assert_eq!(relays, ["wss://relay.one/", "wss://relay.two/"]);
     }

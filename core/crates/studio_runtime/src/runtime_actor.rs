@@ -6,6 +6,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use harvestcircle_domain::{
+    AccountIdentity, BindingAvailability, LocalSignerBinding, PublicKey, SafeError, SafeErrorCode,
+    SafeMessage, SecretKeyInput,
+};
 use radroots_studio_application::{
     ActorMailbox, AppSnapshot, ChangeSubscriptionId, Clock, CommandContext, CommandEnvelope,
     CommandReceipt, CommandResult, CommandSubmission, DurableRequestId, ForegroundSessionBinding,
@@ -14,10 +18,6 @@ use radroots_studio_application::{
     RecoveryStageId, RelayConfiguration, RemovalConfirmationToken, RequestId, RuntimeCommandClass,
     RuntimeLifecycle, SecretStore, SessionGeneration, SnapshotChange, SnapshotChangeReceiver,
     SnapshotRevision, StagedGeneratedKey, TaskCorrelation,
-};
-use radroots_studio_domain::{
-    AccountIdentity, BindingAvailability, LocalSignerBinding, PublicKey, SafeError, SafeErrorCode,
-    SafeMessage, SecretKeyInput,
 };
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -1383,14 +1383,14 @@ mod tests {
     use std::thread::{self, Thread};
     use std::time::{Duration, Instant};
 
+    use harvestcircle_domain::{
+        AccountIdentity, BindingAvailability, LocalSignerBinding, PublicKey,
+        RelayDestinationPolicy, RelayUrl, SafeError, SafeErrorCode, SecretKeyInput, UnixTimestamp,
+    };
     use radroots_studio_application::{
         BoxFuture, Clock, DurableRequestId, FailureSecretStore, ForegroundSessionBinding,
         InMemorySecretStore, NostrClient, ProfileFetchResult, RelayConfiguration, RuntimeLifecycle,
         SecretStore, SecretStoreOperation, SessionGeneration, SessionState, SnapshotRevision,
-    };
-    use radroots_studio_domain::{
-        AccountIdentity, BindingAvailability, LocalSignerBinding, PublicKey,
-        RelayDestinationPolicy, RelayUrl, SafeError, SafeErrorCode, SecretKeyInput, UnixTimestamp,
     };
 
     use super::{

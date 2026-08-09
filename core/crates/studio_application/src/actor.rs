@@ -1,7 +1,7 @@
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::time::Instant;
 
-use radroots_studio_domain::{
+use harvestcircle_domain::{
     AccountIdentity, BindingAvailability, LocalSignerBinding, PublicKey, SafeError, SafeErrorCode,
     SafeMessage,
 };
@@ -346,8 +346,8 @@ impl LifecycleGate {
 
 const fn invalid_lifecycle_transition() -> SafeError {
     SafeError::new(
-        radroots_studio_domain::SafeErrorCode::InvalidApplicationState,
-        radroots_studio_domain::SafeMessage::new("The runtime lifecycle transition is invalid."),
+        harvestcircle_domain::SafeErrorCode::InvalidApplicationState,
+        harvestcircle_domain::SafeMessage::new("The runtime lifecycle transition is invalid."),
     )
 }
 
@@ -572,7 +572,7 @@ mod tests {
     use std::num::NonZeroUsize;
     use std::time::{Duration, Instant};
 
-    use radroots_studio_domain::{AccountIdentity, BindingAvailability, LocalSignerBinding};
+    use harvestcircle_domain::{AccountIdentity, BindingAvailability, LocalSignerBinding};
 
     use crate::{
         ActorMailbox, CommandContext, CommandReceipt, CommandRejection, CommandResult,
@@ -620,7 +620,7 @@ mod tests {
             ForegroundSessionBinding::new(
                 identity.clone(),
                 LocalSignerBinding::new(
-                    radroots_studio_domain::PublicKey::from_hex(
+                    harvestcircle_domain::PublicKey::from_hex(
                         "e0266e3cfb0d2886f91c73f5f868f3b98273713e5fcd97c081663f5518a4b3af",
                     )
                     .expect("different valid public key"),
@@ -746,9 +746,9 @@ mod tests {
 
     #[test]
     fn blocked_degraded_fatal_and_closed_states_fail_safe() {
-        let problem = radroots_studio_domain::SafeError::new(
-            radroots_studio_domain::SafeErrorCode::StorageUnavailable,
-            radroots_studio_domain::SafeMessage::new("The runtime is unavailable."),
+        let problem = harvestcircle_domain::SafeError::new(
+            harvestcircle_domain::SafeErrorCode::StorageUnavailable,
+            harvestcircle_domain::SafeMessage::new("The runtime is unavailable."),
         );
         let mut blocked = LifecycleGate::opening();
         blocked.block(problem);

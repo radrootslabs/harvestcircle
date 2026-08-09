@@ -19,7 +19,7 @@ pub enum UpdateChannel {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StudioPreferences {
+pub struct HarvestCirclePreferences {
     pub allow_incoming_connections: bool,
     pub use_radroots_dns: bool,
     pub use_radroots_subnets: bool,
@@ -34,7 +34,7 @@ pub struct StudioPreferences {
     pub alternate_server_url: String,
 }
 
-impl Default for StudioPreferences {
+impl Default for HarvestCirclePreferences {
     fn default() -> Self {
         Self {
             allow_incoming_connections: true,
@@ -57,7 +57,7 @@ impl Default for StudioPreferences {
 pub struct PreferencesState {
     schema_version: u32,
     revision: u64,
-    preferences: StudioPreferences,
+    preferences: HarvestCirclePreferences,
 }
 
 impl Default for PreferencesState {
@@ -65,7 +65,7 @@ impl Default for PreferencesState {
         Self {
             schema_version: PREFERENCES_SCHEMA_VERSION,
             revision: 1,
-            preferences: StudioPreferences::default(),
+            preferences: HarvestCirclePreferences::default(),
         }
     }
 }
@@ -82,7 +82,7 @@ impl PreferencesState {
     }
 
     #[must_use]
-    pub const fn preferences(&self) -> &StudioPreferences {
+    pub const fn preferences(&self) -> &HarvestCirclePreferences {
         &self.preferences
     }
 
@@ -118,7 +118,7 @@ pub enum PreferenceChange {
 }
 
 impl PreferenceChange {
-    fn apply_to(self, preferences: &mut StudioPreferences) -> Result<(), PreferencesError> {
+    fn apply_to(self, preferences: &mut HarvestCirclePreferences) -> Result<(), PreferencesError> {
         match self {
             Self::AllowIncomingConnections(value) => {
                 preferences.allow_incoming_connections = value;

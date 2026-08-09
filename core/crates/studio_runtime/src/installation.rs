@@ -1,4 +1,4 @@
-use radroots_studio_domain::{SafeError, SafeErrorCode, SafeMessage};
+use harvestcircle_domain::{SafeError, SafeErrorCode, SafeMessage};
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InstallationIdentity(String);

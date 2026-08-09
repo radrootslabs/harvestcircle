@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard};
 
-use radroots_studio_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput};
+use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput};
 use secrecy::{ExposeSecret, SecretString};
 
 pub trait SecretStore: Send + Sync {
@@ -202,7 +202,7 @@ const fn keyring_unavailable() -> SafeError {
 
 #[cfg(test)]
 mod tests {
-    use radroots_studio_domain::{PublicKey, SafeErrorCode, SecretKeyInput};
+    use harvestcircle_domain::{PublicKey, SafeErrorCode, SecretKeyInput};
 
     use super::{FailureSecretStore, InMemorySecretStore, SecretStore, SecretStoreOperation};
 

@@ -1,8 +1,8 @@
-use radroots_studio_application::{AccountRepository, AppStateRepository};
-use radroots_studio_domain::{
+use harvestcircle_domain::{
     AccountCreatedAt, AccountIdentity, AccountLabel, AccountSummary, BindingAvailability,
     LocalSignerBinding, PublicKey, SafeError, SafeErrorCode, SafeMessage, UnixTimestamp,
 };
+use radroots_studio_application::{AccountRepository, AppStateRepository};
 use rusqlite::{OptionalExtension, Row, params};
 
 use crate::Database;
@@ -300,11 +300,11 @@ const fn account_not_found() -> SafeError {
 mod tests {
     use std::fs;
 
-    use radroots_studio_application::{AccountRepository, AppStateRepository};
-    use radroots_studio_domain::{
+    use harvestcircle_domain::{
         AccountCreatedAt, AccountIdentity, AccountLabel, AccountSummary, BindingAvailability,
         LocalSignerBinding, PublicKey, SafeErrorCode, UnixTimestamp,
     };
+    use radroots_studio_application::{AccountRepository, AppStateRepository};
     use tempfile::tempdir;
 
     use crate::Database;

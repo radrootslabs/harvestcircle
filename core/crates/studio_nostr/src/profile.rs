@@ -1,8 +1,8 @@
-use nostr::{Event, JsonUtil, Kind, Metadata};
-use radroots_studio_domain::{
+use harvestcircle_domain::{
     EventId, Kind0ProfileCandidate, ProfileMetadata, PublicKey, SafeError, SafeErrorCode,
     SafeMessage, UnixTimestamp,
 };
+use nostr::{Event, JsonUtil, Kind, Metadata};
 
 const MAX_EVENT_JSON_BYTES: usize = 64 * 1_024;
 const MAX_PROFILE_CONTENT_BYTES: usize = 16 * 1_024;
@@ -67,8 +67,8 @@ const fn invalid_metadata() -> SafeError {
 
 #[cfg(test)]
 mod tests {
+    use harvestcircle_domain::{PublicKey, SafeErrorCode};
     use nostr::{EventBuilder, JsonUtil, Keys, Metadata, Url};
-    use radroots_studio_domain::{PublicKey, SafeErrorCode};
 
     use super::parse_verified_kind0;
 

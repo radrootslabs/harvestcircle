@@ -1,4 +1,4 @@
-use radroots_studio_domain::{PublicKey, RelayUrl, SafeError, SafeErrorCode};
+use harvestcircle_domain::{PublicKey, RelayUrl, SafeError, SafeErrorCode};
 use std::time::Instant;
 
 use crate::{
@@ -166,7 +166,7 @@ impl AppCore {
         &self,
         plan: &ProfileRefreshPlan,
         current_active: ActiveAccountSnapshot,
-        candidate: Option<radroots_studio_domain::Kind0ProfileCandidate>,
+        candidate: Option<harvestcircle_domain::Kind0ProfileCandidate>,
         completeness: RelayFetchCompleteness,
         profiles: &(impl ProfileRepository + ?Sized),
         clock: &(impl Clock + ?Sized),
@@ -223,14 +223,14 @@ impl AppCore {
 const fn partial_relay_result() -> SafeError {
     SafeError::new(
         SafeErrorCode::RelayConnectionFailed,
-        radroots_studio_domain::SafeMessage::new("One or more Nostr relays did not complete."),
+        harvestcircle_domain::SafeMessage::new("One or more Nostr relays did not complete."),
     )
 }
 
 const fn invalid_profile_completion() -> SafeError {
     SafeError::new(
         SafeErrorCode::InvalidApplicationState,
-        radroots_studio_domain::SafeMessage::new("The active profile refresh is no longer valid."),
+        harvestcircle_domain::SafeMessage::new("The active profile refresh is no longer valid."),
     )
 }
 
@@ -254,7 +254,7 @@ mod tests {
     use std::sync::Mutex;
     use std::time::{Duration, Instant};
 
-    use radroots_studio_domain::{
+    use harvestcircle_domain::{
         EventId, Kind0ProfileCandidate, ProfileMetadata, PublicKey, RelayDestinationPolicy,
         RelayUrl, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput, UnixTimestamp,
         select_latest_kind0,

@@ -12,7 +12,7 @@ publish = false
 include = ["src/**", "tests/**", "Cargo.toml"]
 
 [dependencies]
-radroots_studio_domain.workspace = true
+harvestcircle_domain.workspace = true
 secrecy = "=0.10.3"
 tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 

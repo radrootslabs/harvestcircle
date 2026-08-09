@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use radroots_studio_domain::{
+use harvestcircle_domain::{
     PublicKey, RelayDestinationPolicy, RelayUrl, SafeError, SafeErrorCode, SafeMessage,
     select_latest_kind0,
 };
@@ -172,10 +172,10 @@ const fn relay_connection_failed() -> SafeError {
 mod tests {
     use std::time::Duration;
 
+    use harvestcircle_domain::{PublicKey, RelayDestinationPolicy, RelayUrl, SafeErrorCode};
     use nostr::{EventBuilder, Keys, Metadata};
     use nostr_relay_builder::MockRelay;
     use nostr_sdk::Client;
-    use radroots_studio_domain::{PublicKey, RelayDestinationPolicy, RelayUrl, SafeErrorCode};
 
     use radroots_studio_application::NostrClient;
 

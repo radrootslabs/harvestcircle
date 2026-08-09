@@ -18,7 +18,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 directories = "=6.0.0"
 radroots_studio_application.workspace = true
-radroots_studio_domain.workspace = true
+harvestcircle_domain.workspace = true
 radroots_studio_nostr.workspace = true
 radroots_studio_runtime.workspace = true
 radroots_studio_storage.workspace = true

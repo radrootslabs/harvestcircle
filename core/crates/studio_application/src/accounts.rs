@@ -7,7 +7,7 @@ use crate::{
     OperationId, OperationJournal, OperationPriorState, PendingAccountOperation,
     RemovalConfirmationToken, SecretStore, StagedGeneratedKey, StateTransition,
 };
-use radroots_studio_domain::{
+use harvestcircle_domain::{
     AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
     Nsec, PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput,
 };
@@ -734,7 +734,7 @@ impl OperationJournal for InMemoryOperationJournal {
         &self,
         kind: AccountOperationKind,
         subject: PublicKey,
-        updated_at: radroots_studio_domain::UnixTimestamp,
+        updated_at: harvestcircle_domain::UnixTimestamp,
     ) -> Result<OperationId, SafeError> {
         let mut state = self
             .state
@@ -757,7 +757,7 @@ impl OperationJournal for InMemoryOperationJournal {
         &self,
         id: OperationId,
         phase: AccountOperationPhase,
-        updated_at: radroots_studio_domain::UnixTimestamp,
+        updated_at: harvestcircle_domain::UnixTimestamp,
         diagnostic: Option<OperationDiagnostic>,
     ) -> Result<(), SafeError> {
         let mut state = self
@@ -923,7 +923,7 @@ const fn operation_conflict() -> SafeError {
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    use radroots_studio_domain::{
+    use harvestcircle_domain::{
         AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
         PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput, UnixTimestamp,
     };

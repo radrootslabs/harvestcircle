@@ -5,7 +5,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use fs2::FileExt;
-use radroots_studio_domain::{SafeError, SafeErrorCode, SafeMessage};
+use harvestcircle_domain::{SafeError, SafeErrorCode, SafeMessage};
 use refinery::embed_migrations;
 use rusqlite::{Connection, OpenFlags};
 
@@ -379,8 +379,8 @@ mod tests {
 
     use tempfile::tempdir;
 
+    use harvestcircle_domain::{PublicKey, SafeErrorCode};
     use radroots_studio_application::{AccountRepository, AppStateRepository};
-    use radroots_studio_domain::{PublicKey, SafeErrorCode};
     use refinery::Target;
     use rusqlite::Connection;
 

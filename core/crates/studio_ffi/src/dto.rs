@@ -1,9 +1,9 @@
+use harvestcircle_domain::{
+    AccountSummary, BindingAvailability, ProfileMetadata, SafeError, SafeErrorCode,
+};
 use radroots_studio_application::{
     ActiveAccountSnapshot, AppLifecycle, AppSnapshot, ProfileLoadState, RelayConnectionState,
     RuntimeLifecycle, SessionState,
-};
-use radroots_studio_domain::{
-    AccountSummary, BindingAvailability, ProfileMetadata, SafeError, SafeErrorCode,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -210,7 +210,7 @@ impl From<&AppSnapshot> for AppSnapshotDto {
             accounts: snapshot.accounts().iter().map(AccountDto::from).collect(),
             selected_public_key_hex: snapshot
                 .selected_account()
-                .map(radroots_studio_domain::PublicKey::to_hex),
+                .map(harvestcircle_domain::PublicKey::to_hex),
             session,
             session_subject_public_key_hex,
             session_error,
@@ -261,7 +261,7 @@ impl From<&AccountSummary> for AccountDto {
             created_at_seconds: account.created_at().timestamp().as_seconds(),
             last_used_at_seconds: account
                 .last_used_at()
-                .map(radroots_studio_domain::UnixTimestamp::as_seconds),
+                .map(harvestcircle_domain::UnixTimestamp::as_seconds),
         }
     }
 }
@@ -450,7 +450,7 @@ mod tests {
     };
     use radroots_studio_nostr::NostrKeyMaterialProvider;
 
-    use radroots_studio_domain::{BindingAvailability, SafeError, SafeErrorCode, SafeMessage};
+    use harvestcircle_domain::{BindingAvailability, SafeError, SafeErrorCode, SafeMessage};
 
     use super::{
         AppLifecycleDto, AppSnapshotDto, KeyAvailabilityDto, ProfileLoadStateDto,
@@ -503,7 +503,7 @@ mod tests {
                 WireRecoveryAction::Authenticate,
             ),
         ] {
-            let dto = SafeErrorDto::from(radroots_studio_domain::SafeError::new(
+            let dto = SafeErrorDto::from(harvestcircle_domain::SafeError::new(
                 code,
                 SafeMessage::new("Safe compatibility failure."),
             ));

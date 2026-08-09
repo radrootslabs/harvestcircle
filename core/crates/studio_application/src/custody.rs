@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::KeyMaterialProvider;
-use radroots_studio_domain::{
+use harvestcircle_domain::{
     AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
     Nsec, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput, UnixTimestamp,
 };
@@ -234,7 +234,7 @@ const fn invalid_stage_expiry() -> SafeError {
 mod tests {
     use std::num::NonZeroU64;
 
-    use radroots_studio_domain::UnixTimestamp;
+    use harvestcircle_domain::UnixTimestamp;
 
     use super::{GENERATED_KEY_STAGE_TTL, GeneratedKeyStage, RecoveryStageId};
     use crate::test_support::TestKeyMaterialProvider;

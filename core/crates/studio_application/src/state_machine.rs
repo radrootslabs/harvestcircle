@@ -1,4 +1,4 @@
-use radroots_studio_domain::{AccountSummary, PublicKey, SafeError, SafeErrorCode, SafeMessage};
+use harvestcircle_domain::{AccountSummary, PublicKey, SafeError, SafeErrorCode, SafeMessage};
 
 use crate::{ActiveAccountSnapshot, AppLifecycle, AppSnapshot, RelayConfiguration, SessionState};
 
@@ -356,7 +356,7 @@ const fn account_not_found() -> SafeError {
 
 #[cfg(test)]
 mod tests {
-    use radroots_studio_domain::{
+    use harvestcircle_domain::{
         AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
         SafeError, SafeErrorCode, SafeMessage, UnixTimestamp,
     };

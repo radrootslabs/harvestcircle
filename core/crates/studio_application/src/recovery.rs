@@ -1,4 +1,4 @@
-use radroots_studio_domain::{PublicKey, SafeError};
+use harvestcircle_domain::{PublicKey, SafeError};
 
 use crate::{
     AccountOperationKind, AccountOperationPhase, AccountRepository, AppCore, AppStateRepository,
@@ -153,7 +153,7 @@ fn recover_durable_addition(
             let metadata = accounts.find_account(account)?;
             let committed = metadata.as_ref().is_some_and(|saved| {
                 saved.signer().availability()
-                    == radroots_studio_domain::BindingAvailability::Available
+                    == harvestcircle_domain::BindingAvailability::Available
             });
             if committed {
                 operations.advance_durable_operation(
@@ -281,7 +281,7 @@ fn recover_removal(
         match secrets.delete(public_key) {
             Ok(()) => {}
             Err(error)
-                if error.code() == radroots_studio_domain::SafeErrorCode::CredentialMissing => {}
+                if error.code() == harvestcircle_domain::SafeErrorCode::CredentialMissing => {}
             Err(error) => return Err(error),
         }
         journal.update_operation(
@@ -324,8 +324,7 @@ fn recover_addition(
             match secrets.delete(operation.subject()) {
                 Ok(()) => {}
                 Err(error)
-                    if error.code() == radroots_studio_domain::SafeErrorCode::CredentialMissing => {
-                }
+                    if error.code() == harvestcircle_domain::SafeErrorCode::CredentialMissing => {}
                 Err(error) => return Err(error),
             }
             journal.update_operation(
@@ -341,7 +340,7 @@ fn recover_addition(
 }
 
 fn removal_fallback(
-    registry: &[radroots_studio_domain::AccountSummary],
+    registry: &[harvestcircle_domain::AccountSummary],
     selected: Option<PublicKey>,
     removed: PublicKey,
 ) -> Option<PublicKey> {
@@ -354,14 +353,14 @@ fn removal_fallback(
     registry
         .get(index + 1)
         .or_else(|| index.checked_sub(1).and_then(|before| registry.get(before)))
-        .map(radroots_studio_domain::AccountSummary::public_key)
+        .map(harvestcircle_domain::AccountSummary::public_key)
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use std::sync::{Mutex, MutexGuard};
 
-    use radroots_studio_domain::{
+    use harvestcircle_domain::{
         BindingAvailability, PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput,
         UnixTimestamp,
     };

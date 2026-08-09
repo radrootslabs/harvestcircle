@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use radroots_studio_domain::{
+use harvestcircle_domain::{
     AccountSummary, ProfileMetadata, PublicKey, RelayUrl, SafeError, SafeErrorCode, SafeMessage,
 };
 
@@ -294,7 +294,7 @@ const fn invalid_snapshot() -> SafeError {
 
 #[cfg(test)]
 mod tests {
-    use radroots_studio_domain::{
+    use harvestcircle_domain::{
         AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
         RelayDestinationPolicy, RelayUrl, SafeErrorCode, UnixTimestamp,
     };

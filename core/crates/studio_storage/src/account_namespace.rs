@@ -1,5 +1,5 @@
+use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage};
 use radroots_studio_application::{AccountNamespaceRepository, AccountPreferenceKey};
-use radroots_studio_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage};
 use rusqlite::{OptionalExtension, params};
 
 use crate::Database;
@@ -76,12 +76,12 @@ const fn invalid_preference() -> SafeError {
 
 #[cfg(test)]
 mod tests {
-    use radroots_studio_application::{
-        AccountNamespaceRepository, AccountPreferenceKey, AccountRepository, AppStateRepository,
-    };
-    use radroots_studio_domain::{
+    use harvestcircle_domain::{
         AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
         PublicKey, UnixTimestamp,
+    };
+    use radroots_studio_application::{
+        AccountNamespaceRepository, AccountPreferenceKey, AccountRepository, AppStateRepository,
     };
 
     use crate::Database;

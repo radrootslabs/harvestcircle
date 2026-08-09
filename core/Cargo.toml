@@ -1,10 +1,10 @@
 [workspace]
 members = [
   "crates/studio_application",
-  "crates/studio_domain",
+  "crates/harvestcircle_domain",
   "crates/studio_ffi",
   "crates/studio_nostr",
-  "crates/studio_preferences",
+  "crates/harvestcircle_preferences",
   "crates/studio_runtime",
   "crates/studio_storage",
   "crates/studio_uniffi_bindgen",
@@ -34,10 +34,10 @@ unimplemented = "deny"
 
 [workspace.dependencies]
 radroots_studio_application = { path = "crates/studio_application", version = "=0.1.0-alpha" }
-radroots_studio_domain = { path = "crates/studio_domain", version = "=0.1.0-alpha" }
+harvestcircle_domain = { path = "crates/harvestcircle_domain", version = "=0.1.0-alpha" }
 radroots_studio_ffi = { path = "crates/studio_ffi", version = "=0.1.0-alpha" }
 radroots_studio_nostr = { path = "crates/studio_nostr", version = "=0.1.0-alpha" }
-radroots_studio_preferences = { path = "crates/studio_preferences", version = "=0.1.0-alpha" }
+harvestcircle_preferences = { path = "crates/harvestcircle_preferences", version = "=0.1.0-alpha" }
 radroots_studio_runtime = { path = "crates/studio_runtime", version = "=0.1.0-alpha" }
 radroots_studio_storage = { path = "crates/studio_storage", version = "=0.1.0-alpha" }
 radroots_studio_uniffi_bindgen = { path = "crates/studio_uniffi_bindgen", version = "=0.1.0-alpha" }

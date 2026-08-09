@@ -2,8 +2,8 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use harvestcircle_domain::{SafeError, SafeErrorCode, SafeMessage};
 use hmac::{Hmac, Mac};
-use radroots_studio_domain::{SafeError, SafeErrorCode, SafeMessage};
 use rusqlite::{Connection, MAIN_DB, OpenFlags};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;

@@ -7,11 +7,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use directories::ProjectDirs;
+use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
 use radroots_studio_application::{
     Clock, DurableRequestId, GeneratedKeyRecoveryHandle, RelayConfiguration, RelayRuntimeMode,
     RemovalConfirmationToken, relay_configuration_from_environment,
 };
-use radroots_studio_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
 use radroots_studio_nostr::SdkNostrClient;
 use radroots_studio_runtime::{
     RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,
@@ -716,8 +716,8 @@ mod tests {
     use std::num::NonZeroUsize;
     use std::sync::Arc;
 
+    use harvestcircle_domain::SafeError;
     use radroots_studio_application::{InMemorySecretStore, RelayConfiguration};
-    use radroots_studio_domain::SafeError;
     use radroots_studio_nostr::SdkNostrClient;
     use radroots_studio_runtime::{
         RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,
@@ -984,8 +984,8 @@ mod tests {
             ),
             (
                 generated_commit_failed(SafeError::new(
-                    radroots_studio_domain::SafeErrorCode::StorageUnavailable,
-                    radroots_studio_domain::SafeMessage::new("internal detail"),
+                    harvestcircle_domain::SafeErrorCode::StorageUnavailable,
+                    harvestcircle_domain::SafeMessage::new("internal detail"),
                 )),
                 WireErrorCode::StorageUnavailable,
                 WireErrorCategory::Storage,
@@ -1110,8 +1110,8 @@ mod tests {
     #[test]
     fn invalid_relay_configuration_preserves_local_startup_as_degraded() {
         let problem = SafeError::new(
-            radroots_studio_domain::SafeErrorCode::InvalidRelayConfiguration,
-            radroots_studio_domain::SafeMessage::new("The Nostr relay configuration is invalid."),
+            harvestcircle_domain::SafeErrorCode::InvalidRelayConfiguration,
+            harvestcircle_domain::SafeMessage::new("The Nostr relay configuration is invalid."),
         );
         let (relays, degraded) = local_first_relay_configuration(Err(problem));
 

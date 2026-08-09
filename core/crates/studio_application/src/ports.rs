@@ -2,7 +2,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::Instant;
 
-use radroots_studio_domain::{
+use harvestcircle_domain::{
     AccountSummary, BindingAvailability, Kind0ProfileCandidate, Npub, Nsec, PublicKey, RelayUrl,
     SafeError, SafeErrorCode, SafeMessage, SecretKeyInput, UnixTimestamp,
 };
@@ -707,7 +707,7 @@ mod tests {
 
     use std::sync::Mutex;
 
-    use radroots_studio_domain::{AccountSummary, PublicKey, RelayUrl, SafeError, UnixTimestamp};
+    use harvestcircle_domain::{AccountSummary, PublicKey, RelayUrl, SafeError, UnixTimestamp};
 
     use super::{
         AccountNamespaceRepository, AccountOperationKind, AccountOperationPhase,

@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use radroots_studio_domain::{
+use harvestcircle_domain::{
     Npub, Nsec, PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput,
 };
 

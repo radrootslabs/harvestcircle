@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use radroots_studio_domain::{
+use harvestcircle_domain::{
     AccountIdentity, PersistedPublicKeyClassification, SafeError, SafeErrorCode, SafeMessage,
     classify_persisted_public_key,
 };
@@ -339,7 +339,7 @@ mod tests {
         scan_display_identities, scan_public_key_column,
     };
     use crate::Database;
-    use radroots_studio_domain::{AccountIdentity, PublicKey, SafeErrorCode};
+    use harvestcircle_domain::{AccountIdentity, PublicKey, SafeErrorCode};
 
     #[test]
     fn preflight_rejects_non_files_missing_schema_zero_version_and_unknown_tables() {
