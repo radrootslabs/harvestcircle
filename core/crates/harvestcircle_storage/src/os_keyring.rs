@@ -1,8 +1,8 @@
 use std::sync::{Mutex, MutexGuard};
 
+use harvestcircle_application::SecretStore;
 use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput};
 use keyring::{Entry, Error as KeyringError};
-use radroots_studio_application::SecretStore;
 use zeroize::Zeroizing;
 
 pub const CREDENTIAL_SERVICE: &str = "org.radroots.studio.nostr";
@@ -99,8 +99,8 @@ const fn keyring_unavailable() -> SafeError {
 
 #[cfg(test)]
 mod tests {
+    use harvestcircle_application::SecretStore;
     use harvestcircle_domain::{PublicKey, SecretKeyInput};
-    use radroots_studio_application::SecretStore;
 
     use super::{CREDENTIAL_SERVICE, OsKeyringSecretStore};
 

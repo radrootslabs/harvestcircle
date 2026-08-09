@@ -1,11 +1,11 @@
-use harvestcircle_domain::{
-    BindingAvailability, PublicKey, SafeError, SafeErrorCode, SafeMessage, UnixTimestamp,
-};
-use radroots_studio_application::{
+use harvestcircle_application::{
     AccountOperationKind, AccountOperationPhase, DurableAccountOperation, DurableOperationKind,
     DurableOperationPhase, DurableOperationReceipt, DurableOperationRepository,
     DurableOperationStart, DurableRequestId, DurableTerminalOutcome, OperationDiagnostic,
     OperationId, OperationJournal, OperationPriorState, PendingAccountOperation,
+};
+use harvestcircle_domain::{
+    BindingAvailability, PublicKey, SafeError, SafeErrorCode, SafeMessage, UnixTimestamp,
 };
 use rusqlite::{OptionalExtension, Row, params};
 
@@ -504,12 +504,12 @@ const fn operation_conflict() -> SafeError {
 
 #[cfg(test)]
 mod tests {
-    use harvestcircle_domain::{BindingAvailability, PublicKey, UnixTimestamp};
-    use radroots_studio_application::{
+    use harvestcircle_application::{
         AccountOperationKind, AccountOperationPhase, DurableOperationKind, DurableOperationPhase,
         DurableOperationRepository, DurableOperationStart, DurableRequestId,
         DurableTerminalOutcome, OperationDiagnostic, OperationJournal, OperationPriorState,
     };
+    use harvestcircle_domain::{BindingAvailability, PublicKey, UnixTimestamp};
 
     use crate::Database;
 

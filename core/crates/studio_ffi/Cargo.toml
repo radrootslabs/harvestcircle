@@ -17,11 +17,11 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 directories = "=6.0.0"
-radroots_studio_application.workspace = true
+harvestcircle_application.workspace = true
 harvestcircle_domain.workspace = true
 radroots_studio_nostr.workspace = true
 radroots_studio_runtime.workspace = true
-radroots_studio_storage.workspace = true
+harvestcircle_storage.workspace = true
 tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 uniffi = "=0.32.0"
 

@@ -379,8 +379,8 @@ mod tests {
 
     use tempfile::tempdir;
 
+    use harvestcircle_application::{AccountRepository, AppStateRepository};
     use harvestcircle_domain::{PublicKey, SafeErrorCode};
-    use radroots_studio_application::{AccountRepository, AppStateRepository};
     use refinery::Target;
     use rusqlite::Connection;
 

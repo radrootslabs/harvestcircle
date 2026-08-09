@@ -1,8 +1,8 @@
+use harvestcircle_application::{CachedProfile, ProfileRefreshStatus, ProfileRepository};
 use harvestcircle_domain::{
     EventId, Kind0ProfileCandidate, ProfileMetadata, PublicKey, SafeError, SafeErrorCode,
     SafeMessage, UnixTimestamp,
 };
-use radroots_studio_application::{CachedProfile, ProfileRefreshStatus, ProfileRepository};
 use rusqlite::{OptionalExtension, Row, params};
 
 use crate::Database;
@@ -146,12 +146,12 @@ const fn corrupt_storage_error() -> SafeError {
 
 #[cfg(test)]
 mod tests {
+    use harvestcircle_application::{
+        AccountRepository, CachedProfile, ProfileRefreshStatus, ProfileRepository,
+    };
     use harvestcircle_domain::{
         AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, EventId,
         Kind0ProfileCandidate, LocalSignerBinding, ProfileMetadata, PublicKey, UnixTimestamp,
-    };
-    use radroots_studio_application::{
-        AccountRepository, CachedProfile, ProfileRefreshStatus, ProfileRepository,
     };
 
     use crate::Database;

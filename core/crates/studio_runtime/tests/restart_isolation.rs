@@ -1,10 +1,10 @@
 use std::fs;
 
-use harvestcircle_domain::{SecretKeyInput, UnixTimestamp};
-use radroots_studio_application::{
+use harvestcircle_application::{
     AccountNamespaceRepository, AccountPreferenceKey, Clock, InMemorySecretStore,
     RelayConfiguration, SessionState,
 };
+use harvestcircle_domain::{SecretKeyInput, UnixTimestamp};
 use radroots_studio_runtime::PersistentAppCore;
 use tempfile::tempdir;
 

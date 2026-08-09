@@ -1063,6 +1063,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "harvestcircle_application"
+version = "0.1.0-alpha"
+dependencies = [
+ "harvestcircle_domain",
+ "secrecy",
+ "tokio",
+]
+
+[[package]]
 name = "harvestcircle_domain"
 version = "0.1.0-alpha"
 dependencies = [
@@ -1078,6 +1087,24 @@ name = "harvestcircle_preferences"
 version = "0.1.0-alpha"
 dependencies = [
  "url",
+]
+
+[[package]]
+name = "harvestcircle_storage"
+version = "0.1.0-alpha"
+dependencies = [
+ "fs2",
+ "getrandom 0.2.17",
+ "harvestcircle_application",
+ "harvestcircle_domain",
+ "hmac",
+ "keyring",
+ "refinery",
+ "rusqlite",
+ "rustix",
+ "sha2",
+ "tempfile",
+ "zeroize",
 ]
 
 [[package]]
@@ -2020,28 +2047,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "radroots_studio_application"
-version = "0.1.0-alpha"
-dependencies = [
- "harvestcircle_domain",
- "secrecy",
- "tokio",
-]
-
-[[package]]
 name = "radroots_studio_ffi"
 version = "0.1.0-alpha"
 dependencies = [
  "directories",
+ "harvestcircle_application",
  "harvestcircle_domain",
+ "harvestcircle_storage",
  "nostr 0.44.1",
  "nostr-relay-builder",
  "nostr-sdk 0.44.0",
  "quote",
- "radroots_studio_application",
  "radroots_studio_nostr",
  "radroots_studio_runtime",
- "radroots_studio_storage",
  "sha2",
  "syn 2.0.119",
  "tempfile",
@@ -2053,12 +2071,12 @@ dependencies = [
 name = "radroots_studio_nostr"
 version = "0.1.0-alpha"
 dependencies = [
+ "harvestcircle_application",
  "harvestcircle_domain",
  "nostr 0.44.1",
  "nostr-relay-builder",
  "nostr-sdk 0.44.0",
  "radroots_identity",
- "radroots_studio_application",
  "radroots_transport",
  "radroots_transport_nostr",
  "tokio",
@@ -2068,34 +2086,16 @@ dependencies = [
 name = "radroots_studio_runtime"
 version = "0.1.0-alpha"
 dependencies = [
+ "harvestcircle_application",
  "harvestcircle_domain",
+ "harvestcircle_storage",
  "nostr 0.44.1",
  "nostr-relay-builder",
  "nostr-sdk 0.44.0",
- "radroots_studio_application",
  "radroots_studio_nostr",
- "radroots_studio_storage",
  "tempfile",
  "tokio",
  "uuid",
-]
-
-[[package]]
-name = "radroots_studio_storage"
-version = "0.1.0-alpha"
-dependencies = [
- "fs2",
- "getrandom 0.2.17",
- "harvestcircle_domain",
- "hmac",
- "keyring",
- "radroots_studio_application",
- "refinery",
- "rusqlite",
- "rustix",
- "sha2",
- "tempfile",
- "zeroize",
 ]
 
 [[package]]

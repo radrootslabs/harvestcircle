@@ -17,13 +17,13 @@ fn main() {
     for source in CONTRACT_SOURCES {
         println!("cargo:rerun-if-changed={source}");
     }
-    println!("cargo:rerun-if-changed=../studio_storage/migrations");
+    println!("cargo:rerun-if-changed=../harvestcircle_storage/migrations");
 
     let mut metadata = Vec::new();
     for source in CONTRACT_SOURCES {
         collect_public_metadata(Path::new(source), &mut metadata);
     }
-    let mut migrations = fs::read_dir("../studio_storage/migrations")
+    let mut migrations = fs::read_dir("../harvestcircle_storage/migrations")
         .expect("read Studio migration catalog")
         .map(|entry| entry.expect("read migration entry").path())
         .filter(|path| path.extension().is_some_and(|extension| extension == "sql"))

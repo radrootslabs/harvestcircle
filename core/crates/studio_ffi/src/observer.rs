@@ -3,7 +3,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, Weak};
 
-use radroots_studio_application::ChangeSubscriptionId;
+use harvestcircle_application::ChangeSubscriptionId;
 
 use crate::commands::RuntimeCore;
 use crate::{AppSnapshotDto, StudioAppCore, StudioError};
@@ -117,7 +117,7 @@ impl StudioAppCore {
                     ),
                     previous_revision: change
                         .previous_revision()
-                        .map(radroots_studio_application::SnapshotRevision::value),
+                        .map(harvestcircle_application::SnapshotRevision::value),
                 };
                 if catch_unwind(AssertUnwindSafe(|| observer.on_change(delivery))).is_err() {
                     break;
@@ -215,11 +215,11 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
+    use harvestcircle_application::{InMemorySecretStore, RelayConfiguration};
     use harvestcircle_domain::{RelayDestinationPolicy, RelayUrl};
     use nostr::{EventBuilder, Keys, Metadata};
     use nostr_relay_builder::MockRelay;
     use nostr_sdk::Client;
-    use radroots_studio_application::{InMemorySecretStore, RelayConfiguration};
     use radroots_studio_nostr::SdkNostrClient;
     use radroots_studio_runtime::{
         RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,

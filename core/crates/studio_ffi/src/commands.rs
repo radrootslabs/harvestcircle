@@ -7,16 +7,16 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use directories::ProjectDirs;
-use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
-use radroots_studio_application::{
+use harvestcircle_application::{
     Clock, DurableRequestId, GeneratedKeyRecoveryHandle, RelayConfiguration, RelayRuntimeMode,
     RemovalConfirmationToken, relay_configuration_from_environment,
 };
+use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
+use harvestcircle_storage::OsKeyringSecretStore;
 use radroots_studio_nostr::SdkNostrClient;
 use radroots_studio_runtime::{
     RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,
 };
-use radroots_studio_storage::OsKeyringSecretStore;
 
 use crate::{
     AccountDto, AppSnapshotDto, WireErrorCategory, WireErrorCode, WireRecoveryAction,
@@ -82,7 +82,7 @@ pub fn compatibility_descriptor() -> CompatibilityDescriptor {
         contract_minor: FFI_CONTRACT_MINOR,
         contract_hash: FFI_CONTRACT_HASH.to_owned(),
         minimum_schema_version: MINIMUM_SCHEMA_VERSION,
-        current_schema_version: radroots_studio_storage::CURRENT_SCHEMA_VERSION,
+        current_schema_version: harvestcircle_storage::CURRENT_SCHEMA_VERSION,
     }
 }
 
@@ -198,7 +198,7 @@ pub(crate) struct RuntimeCore {
     pub(crate) actor: RuntimeActorHandle,
     pub(crate) observers: Mutex<
         BTreeMap<
-            radroots_studio_application::ChangeSubscriptionId,
+            harvestcircle_application::ChangeSubscriptionId,
             Option<tokio::task::JoinHandle<()>>,
         >,
     >,
@@ -213,16 +213,16 @@ impl RuntimeCore {
 
     pub(crate) fn dto_for(
         &self,
-        snapshot: &radroots_studio_application::AppSnapshot,
+        snapshot: &harvestcircle_application::AppSnapshot,
     ) -> AppSnapshotDto {
         AppSnapshotDto::from_runtime(snapshot, self.effective_lifecycle())
     }
 
-    pub(crate) fn effective_lifecycle(&self) -> radroots_studio_application::RuntimeLifecycle {
+    pub(crate) fn effective_lifecycle(&self) -> harvestcircle_application::RuntimeLifecycle {
         let lifecycle = self.actor.lifecycle();
         match (lifecycle, self.startup_relay_problem) {
-            (radroots_studio_application::RuntimeLifecycle::Ready, Some(problem)) => {
-                radroots_studio_application::RuntimeLifecycle::Degraded(problem)
+            (harvestcircle_application::RuntimeLifecycle::Ready, Some(problem)) => {
+                harvestcircle_application::RuntimeLifecycle::Degraded(problem)
             }
             _ => lifecycle,
         }
@@ -313,9 +313,7 @@ impl StudioAppCore {
             .acknowledge_generated_key_stage(
                 request.handle.id(),
                 request_id,
-                radroots_studio_application::SnapshotRevision::from_value(
-                    context.expected_revision,
-                ),
+                harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
                 timeout,
             )
             .await
@@ -361,9 +359,7 @@ impl StudioAppCore {
             .actor
             .import_secret_key(
                 request_id,
-                radroots_studio_application::SnapshotRevision::from_value(
-                    context.expected_revision,
-                ),
+                harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
                 input,
                 timeout,
             )
@@ -494,9 +490,7 @@ impl StudioAppCore {
             .confirm_account_removal(
                 token,
                 request_id,
-                radroots_studio_application::SnapshotRevision::from_value(
-                    context.expected_revision,
-                ),
+                harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
                 timeout,
             )
             .await
@@ -716,14 +710,14 @@ mod tests {
     use std::num::NonZeroUsize;
     use std::sync::Arc;
 
+    use harvestcircle_application::{InMemorySecretStore, RelayConfiguration};
     use harvestcircle_domain::SafeError;
-    use radroots_studio_application::{InMemorySecretStore, RelayConfiguration};
     use radroots_studio_nostr::SdkNostrClient;
     use radroots_studio_runtime::{
         RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,
     };
 
-    use radroots_studio_storage::{CREDENTIAL_SERVICE, CURRENT_SCHEMA_VERSION};
+    use harvestcircle_storage::{CREDENTIAL_SERVICE, CURRENT_SCHEMA_VERSION};
 
     use super::{
         ACTOR_MAILBOX_CAPACITY, CompatibilityExpectation, DATABASE_APPLICATION, DATABASE_FILENAME,

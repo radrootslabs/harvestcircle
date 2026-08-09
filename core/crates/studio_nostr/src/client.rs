@@ -11,7 +11,7 @@ use radroots_transport::{
 };
 use radroots_transport_nostr::{Config, NostrTransport, RelayUrlPolicy};
 
-use radroots_studio_application::{
+use harvestcircle_application::{
     BoxFuture, MAX_CONFIGURED_RELAYS, NostrClient, ProfileFetchResult,
 };
 
@@ -177,7 +177,7 @@ mod tests {
     use nostr_relay_builder::MockRelay;
     use nostr_sdk::Client;
 
-    use radroots_studio_application::NostrClient;
+    use harvestcircle_application::NostrClient;
 
     use crate::SdkNostrClient;
 
@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(profile.metadata().preferred_name(), Some("Farm Account"));
         assert_eq!(
             completeness,
-            radroots_studio_application::RelayFetchCompleteness::Complete
+            harvestcircle_application::RelayFetchCompleteness::Complete
         );
         publisher.shutdown().await;
         relay.shutdown();
@@ -241,7 +241,7 @@ mod tests {
 
         let relay = RelayUrl::parse("wss://relay.example.test", RelayDestinationPolicy::Public)
             .expect("relay URL");
-        let too_many = vec![relay; radroots_studio_application::MAX_CONFIGURED_RELAYS + 1];
+        let too_many = vec![relay; harvestcircle_application::MAX_CONFIGURED_RELAYS + 1];
         let error = SdkNostrClient::new(Duration::from_millis(10))
             .fetch_profile(
                 PublicKey::from_bytes([7; 32]).expect("valid public key"),
@@ -301,7 +301,7 @@ mod tests {
         assert!(candidate.is_some());
         assert_eq!(
             completeness,
-            radroots_studio_application::RelayFetchCompleteness::Partial
+            harvestcircle_application::RelayFetchCompleteness::Partial
         );
         publisher.shutdown().await;
         relay.shutdown();

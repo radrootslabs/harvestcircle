@@ -1,9 +1,7 @@
+use harvestcircle_application::{AppSnapshot, RelayConfiguration, SessionState, SnapshotRevision};
 use harvestcircle_domain::{
     AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
     PublicKey, SafeError, SafeErrorCode, SafeMessage, UnixTimestamp,
-};
-use radroots_studio_application::{
-    AppSnapshot, RelayConfiguration, SessionState, SnapshotRevision,
 };
 
 const SECRET_HEX: &str = "1111111111111111111111111111111111111111111111111111111111111111";

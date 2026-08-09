@@ -1,15 +1,15 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput};
-use radroots_studio_application::{
+use harvestcircle_application::{
     AppCore, AppSnapshot, Clock, DurableRequestId, GenerateAccountReceipt, ImportAccountReceipt,
     KeyMaterialProvider, RelayConfiguration, RemovalConfirmationToken, SecretStore,
     StagedGeneratedKey,
 };
+use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput};
 use radroots_studio_nostr::NostrKeyMaterialProvider;
 
-use radroots_studio_storage::Database;
+use harvestcircle_storage::Database;
 
 use crate::{InstallationIdentity, InstallationIdentitySource};
 
@@ -317,16 +317,16 @@ impl PersistentAppCore {
 mod tests {
     use std::fs;
 
-    use harvestcircle_domain::{
-        AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
-        PublicKey, SafeErrorCode, SecretKeyInput, UnixTimestamp,
-    };
-    use radroots_studio_application::{
+    use harvestcircle_application::{
         AccountOperationKind, AccountOperationPhase, AccountRepository, AppLifecycle,
         AppStateRepository, Clock, DurableOperationKind, DurableOperationPhase,
         DurableOperationRepository, DurableRequestId, DurableTerminalOutcome, FailureSecretStore,
         InMemorySecretStore, OperationJournal, OperationPriorState, RelayConfiguration,
         SecretStore, SecretStoreOperation, SessionState,
+    };
+    use harvestcircle_domain::{
+        AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
+        PublicKey, SafeErrorCode, SecretKeyInput, UnixTimestamp,
     };
     use tempfile::tempdir;
 

@@ -1,9 +1,9 @@
-use harvestcircle_domain::{
-    AccountSummary, BindingAvailability, ProfileMetadata, SafeError, SafeErrorCode,
-};
-use radroots_studio_application::{
+use harvestcircle_application::{
     ActiveAccountSnapshot, AppLifecycle, AppSnapshot, ProfileLoadState, RelayConnectionState,
     RuntimeLifecycle, SessionState,
+};
+use harvestcircle_domain::{
+    AccountSummary, BindingAvailability, ProfileMetadata, SafeError, SafeErrorCode,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -445,7 +445,7 @@ impl From<ProfileLoadState> for ProfileLoadStateDto {
 mod tests {
     use std::sync::Arc;
 
-    use radroots_studio_application::{
+    use harvestcircle_application::{
         AppCore, ProfileLoadState, RelayConfiguration, RelayConnectionState, RuntimeLifecycle,
     };
     use radroots_studio_nostr::NostrKeyMaterialProvider;

@@ -1,8 +1,8 @@
+use harvestcircle_application::{GeneratedKeyMaterial, ImportedKeyMaterial, KeyMaterialProvider};
 use harvestcircle_domain::{
     Npub, Nsec, PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput,
 };
 use nostr::{Keys, ToBech32};
-use radroots_studio_application::{GeneratedKeyMaterial, ImportedKeyMaterial, KeyMaterialProvider};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NostrKeyMaterialProvider;
@@ -70,7 +70,7 @@ const fn invalid_public_key() -> SafeError {
 mod tests {
     use harvestcircle_domain::{SafeErrorCode, SecretKeyInput};
 
-    use radroots_studio_application::KeyMaterialProvider;
+    use harvestcircle_application::KeyMaterialProvider;
 
     use super::{NostrKeyMaterialProvider, invalid_public_key, invalid_secret_key};
 
