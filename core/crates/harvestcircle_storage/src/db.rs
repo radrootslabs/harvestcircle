@@ -411,9 +411,9 @@ mod tests {
         fs::write(&regular, b"file").expect("write regular file");
         assert!(create_secure_directory(&regular).is_err());
 
-        let database = directory.path().join("studio.sqlite3");
+        let database = directory.path().join("harvestcircle.sqlite3");
         fs::write(&database, b"database").expect("write database file");
-        fs::create_dir(directory.path().join("studio.sqlite3-wal"))
+        fs::create_dir(directory.path().join("harvestcircle.sqlite3-wal"))
             .expect("create invalid WAL sidecar");
         assert!(restrict_sqlite_sidecars(&database).is_err());
     }
@@ -484,7 +484,7 @@ mod tests {
     #[test]
     fn v5_data_migrates_append_only_with_identity_profile_and_selection() {
         let directory = tempdir().expect("temporary directory");
-        let path = directory.path().join("studio.sqlite3");
+        let path = directory.path().join("harvestcircle.sqlite3");
         let public_key = "07".repeat(32);
         {
             let mut connection = Connection::open(&path).expect("legacy database");
@@ -544,7 +544,7 @@ mod tests {
 
         let backup = directory
             .path()
-            .join("studio.sqlite3.recovery/migration-v5-to-v10.sqlite3");
+            .join("harvestcircle.sqlite3.recovery/migration-v5-to-v10.sqlite3");
         fs::OpenOptions::new()
             .append(true)
             .open(backup)
@@ -559,7 +559,7 @@ mod tests {
     #[test]
     fn corrupt_v5_identity_fails_before_migration_without_recreation() {
         let directory = tempdir().expect("temporary directory");
-        let path = directory.path().join("studio.sqlite3");
+        let path = directory.path().join("harvestcircle.sqlite3");
         {
             let mut connection = Connection::open(&path).expect("legacy database");
             configure(&connection).expect("configuration");
@@ -593,7 +593,7 @@ mod tests {
     #[test]
     fn invalid_curve_identity_is_quarantined_without_mutation() {
         let directory = tempdir().expect("temporary directory");
-        let path = directory.path().join("studio.sqlite3");
+        let path = directory.path().join("harvestcircle.sqlite3");
         {
             let mut connection = Connection::open(&path).expect("legacy database");
             configure(&connection).expect("configuration");
@@ -665,7 +665,7 @@ mod tests {
         assert!(
             directory
                 .path()
-                .join("studio.sqlite3.quarantined-evidence")
+                .join("harvestcircle.sqlite3.quarantined-evidence")
                 .is_file()
         );
     }
@@ -710,7 +710,7 @@ mod tests {
     #[test]
     fn failed_v5_copy_rolls_back_the_active_migration() {
         let directory = tempdir().expect("temporary directory");
-        let path = directory.path().join("studio.sqlite3");
+        let path = directory.path().join("harvestcircle.sqlite3");
         let public_key = "07".repeat(32);
         {
             let mut connection = Connection::open(&path).expect("legacy database");
@@ -769,7 +769,7 @@ mod tests {
     #[test]
     fn second_process_cannot_acquire_writable_ownership() {
         let directory = tempdir().expect("temporary directory");
-        let path = directory.path().join("studio.sqlite3");
+        let path = directory.path().join("harvestcircle.sqlite3");
         let _owner = Database::open(&path).expect("parent owner");
         let status = Command::new(std::env::current_exe().expect("test executable"))
             .arg("--exact")
@@ -792,7 +792,7 @@ mod tests {
     #[test]
     fn migration_persists_schema_version_across_file_reopen() {
         let directory = tempdir().expect("temporary directory");
-        let path = directory.path().join("studio.sqlite3");
+        let path = directory.path().join("harvestcircle.sqlite3");
 
         {
             let database = Database::open(&path).expect("open file database");
@@ -812,7 +812,7 @@ mod tests {
     #[test]
     fn writable_ownership_rejects_a_second_runtime_and_releases_on_drop() {
         let directory = tempdir().expect("temporary directory");
-        let path = directory.path().join("studio.sqlite3");
+        let path = directory.path().join("harvestcircle.sqlite3");
         let first = Database::open(&path).expect("first owner");
         let Err(error) = Database::open(&path) else {
             panic!("second owner must fail");
@@ -831,7 +831,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let directory = tempdir().expect("temporary directory");
-        let path = directory.path().join("studio.sqlite3");
+        let path = directory.path().join("harvestcircle.sqlite3");
         let database = Database::open(&path).expect("open file database");
         let mode = fs::metadata(&path)
             .expect("database metadata")

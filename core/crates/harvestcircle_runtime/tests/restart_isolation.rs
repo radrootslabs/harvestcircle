@@ -22,7 +22,7 @@ impl Clock for FixedClock {
 #[test]
 fn restart_restores_selection_and_keeps_account_namespaces_isolated() {
     let directory = tempdir().expect("temporary directory");
-    let path = directory.path().join("studio.sqlite3");
+    let path = directory.path().join("harvestcircle.sqlite3");
     let secrets = InMemorySecretStore::default();
     let (owner_a, owner_b);
 

@@ -24,7 +24,7 @@ fn main() {
         collect_public_metadata(Path::new(source), &mut metadata);
     }
     let mut migrations = fs::read_dir("../harvestcircle_storage/migrations")
-        .expect("read Studio migration catalog")
+        .expect("read HarvestCircle migration catalog")
         .map(|entry| entry.expect("read migration entry").path())
         .filter(|path| path.extension().is_some_and(|extension| extension == "sql"))
         .collect::<Vec<_>>();

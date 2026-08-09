@@ -12,8 +12,8 @@ use crate::compatibility::{DatabasePreflight, preflight};
 use crate::db::{CURRENT_SCHEMA_VERSION, restrict_file_permissions};
 
 type HmacSha256 = Hmac<Sha256>;
-const EXPORT_DOMAIN: &[u8] = b"radroots-studio-quarantine-export-v1";
-const REPAIR_DOMAIN: &[u8] = b"radroots-studio-repair-candidate-v1";
+const EXPORT_DOMAIN: &[u8] = b"harvestcircle-quarantine-export-v1";
+const REPAIR_DOMAIN: &[u8] = b"harvestcircle-repair-candidate-v1";
 
 pub struct RepairAuthorization(Zeroizing<[u8; 32]>);
 
@@ -142,7 +142,7 @@ pub(crate) fn install_candidate(
         return Err(storage_error());
     }
     copy_secure(&candidate.path, &replacement)?;
-    let retained = parent.join("studio.sqlite3.quarantined-evidence");
+    let retained = parent.join("harvestcircle.sqlite3.quarantined-evidence");
     if retained.try_exists().map_err(|_| storage_error())? {
         let _ = fs::remove_file(&replacement);
         return Err(storage_error());
@@ -344,7 +344,7 @@ mod tests {
     fn repair_installation_rejects_tampering_quarantined_candidates_and_staging_collisions() {
         let directory = tempdir().expect("temporary directory");
         let authorization = RepairAuthorization::from_bytes(vec![0x41; 32]).expect("authorization");
-        let target = directory.path().join("studio.sqlite3");
+        let target = directory.path().join("harvestcircle.sqlite3");
         quarantined_database(&target);
         let candidate_path = directory.path().join("candidate.sqlite3");
         drop(Database::open(&candidate_path).expect("candidate database"));
@@ -377,7 +377,9 @@ mod tests {
         assert!(install_candidate(&target, &candidate, &authorization).is_err());
         fs::remove_file(&replacement).expect("remove occupied replacement");
 
-        let retained = directory.path().join("studio.sqlite3.quarantined-evidence");
+        let retained = directory
+            .path()
+            .join("harvestcircle.sqlite3.quarantined-evidence");
         fs::write(&retained, b"occupied").expect("occupied retained evidence");
         assert!(install_candidate(&target, &candidate, &authorization).is_err());
         assert!(!replacement.exists());

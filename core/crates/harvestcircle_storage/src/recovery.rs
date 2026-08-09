@@ -14,7 +14,7 @@ type HmacSha256 = Hmac<Sha256>;
 
 const RECOVERY_DIRECTORY_SUFFIX: &str = "recovery";
 const AUTHENTICATION_KEY_FILENAME: &str = "authentication-key-v1";
-const MANIFEST_FORMAT: &str = "radroots-studio-migration-recovery-v1";
+const MANIFEST_FORMAT: &str = "harvestcircle-migration-recovery-v1";
 
 pub(crate) struct MigrationRecovery {
     directory: PathBuf,
@@ -540,7 +540,7 @@ mod tests {
     #[test]
     fn migration_recovery_authenticates_finishes_reopens_and_restores() {
         let directory = tempdir().expect("temporary directory");
-        let database = directory.path().join("studio.sqlite3");
+        let database = directory.path().join("harvestcircle.sqlite3");
         sqlite_database(&database);
 
         let recovery = MigrationRecovery::prepare(&database, 5, 10).expect("prepare recovery");
@@ -569,7 +569,7 @@ mod tests {
     #[test]
     fn recovery_manifest_rejects_every_tampered_authority_field() {
         let directory = tempdir().expect("temporary directory");
-        let database = directory.path().join("studio.sqlite3");
+        let database = directory.path().join("harvestcircle.sqlite3");
         sqlite_database(&database);
         let recovery = MigrationRecovery::prepare(&database, 5, 10).expect("prepare recovery");
         let original = fs::read_to_string(&recovery.marker).expect("read marker");

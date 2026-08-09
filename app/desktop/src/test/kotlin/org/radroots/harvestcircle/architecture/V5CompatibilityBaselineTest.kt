@@ -18,18 +18,18 @@ class V5CompatibilityBaselineTest {
                 root.resolve("core/compatibility/v5-baseline.properties").inputStream().use(::load)
             }
 
-        assertEquals("studio-runtime-v5", baseline.getProperty("baseline.id"))
+        assertEquals("harvestcircle-runtime-v5", baseline.getProperty("baseline.id"))
         assertEquals("5", baseline.getProperty("schema.version"))
         assertEquals("legacy-unversioned-v1", baseline.getProperty("ffi.contract"))
         assertEquals("1", baseline.getProperty("ffi.snapshot.schema"))
         assertEquals("0.1.0-alpha", baseline.getProperty("ffi.runtime.version"))
         assertEquals("org.radroots.harvestcircle", baseline.getProperty("source.namespace"))
-        assertEquals("org.radroots.studio", baseline.getProperty("package.namespace"))
-        assertEquals("org.radroots.studio", baseline.getProperty("package.application_id"))
-        assertEquals("Radroots", baseline.getProperty("package.name"))
-        assertEquals("org.radroots.studio", baseline.getProperty("package.bundle_id"))
+        assertEquals("org.radroots.harvestcircle", baseline.getProperty("package.namespace"))
+        assertEquals("org.radroots.harvestcircle", baseline.getProperty("package.application_id"))
+        assertEquals("HarvestCircle", baseline.getProperty("package.name"))
+        assertEquals("org.radroots.harvestcircle", baseline.getProperty("package.bundle_id"))
         assertEquals("1.0.0", baseline.getProperty("package.version"))
-        assertEquals("org.radroots.studio.nostr", baseline.getProperty("keyring.service"))
+        assertEquals("org.radroots.harvestcircle.nostr", baseline.getProperty("keyring.service"))
         assertEquals(
             "canonical-lowercase-public-key-hex",
             baseline.getProperty("keyring.account"),

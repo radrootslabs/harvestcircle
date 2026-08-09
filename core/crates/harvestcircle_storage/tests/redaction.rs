@@ -27,7 +27,7 @@ fn assert_redacted(bytes: &[u8]) {
 #[test]
 fn redaction_guards_sqlite_schema_and_non_secret_records() {
     let directory = tempdir().expect("directory");
-    let path = directory.path().join("studio.sqlite3");
+    let path = directory.path().join("harvestcircle.sqlite3");
     {
         let database = Database::open(&path).expect("database");
         let public_key = PublicKey::from_bytes([7; 32]).expect("valid public key");

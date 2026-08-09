@@ -83,7 +83,7 @@ class HarvestCircleScreenTest {
             }
 
             onNodeWithTag("accounts-screen").assertIsDisplayed()
-            onNodeWithText("radroots").assertIsDisplayed()
+            onNodeWithText("HarvestCircle").assertIsDisplayed()
             onNodeWithTag("choose-create-account").performClick()
             onNodeWithTag("generate-key").performClick()
             onNodeWithTag("cancel-account-entry").performClick()

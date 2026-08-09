@@ -48,7 +48,7 @@ class HarvestCircleApplicationTest {
                 )
             }
 
-            onNodeWithText("radroots").assertIsDisplayed()
+            onNodeWithText("HarvestCircle").assertIsDisplayed()
             onNodeWithTag("toggle-application").performClick()
             waitForIdle()
 

@@ -356,7 +356,7 @@ mod tests {
     #[test]
     fn accounts_and_selection_survive_restart_without_secret_text() {
         let directory = tempdir().expect("temporary directory");
-        let path = directory.path().join("studio.sqlite3");
+        let path = directory.path().join("harvestcircle.sqlite3");
         let account = account(3, 30);
 
         {

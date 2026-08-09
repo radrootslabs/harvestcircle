@@ -713,13 +713,13 @@ compose.desktop {
 
             packageName = applicationName
             packageVersion = installableVersion
-            description = "Radroots HarvestCircle $appVersion"
+            description = "HarvestCircle $appVersion"
             copyright = "Copyright © 2024 Radroots, Inc."
             vendor = "Radroots, Inc"
 
             macOS {
                 bundleID = bundleId
-                iconFile.set(project.file("src/main/resources/icons/radroots.icns"))
+                iconFile.set(project.file("src/main/resources/icons/harvestcircle.icns"))
                 packageName = applicationName
                 dockName = applicationName
                 packageBuildVersion = macOsBuildVersion
@@ -732,7 +732,7 @@ val verifyMacOsDistribution by tasks.registering(VerifyMacOsDistribution::class)
     dependsOn("createDistributable")
     appDirectory.set(layout.buildDirectory.dir("compose/binaries/main/app/$applicationName.app"))
     releaseLibrary.set(rustReleaseLibrary)
-    iconSource.set(layout.projectDirectory.file("src/main/resources/icons/radroots.icns"))
+    iconSource.set(layout.projectDirectory.file("src/main/resources/icons/harvestcircle.icns"))
     expectedBundleId.set(bundleId)
     expectedPackageVersion.set(installableVersion)
     expectedBuildVersion.set(macOsBuildVersion)

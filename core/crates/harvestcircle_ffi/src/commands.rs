@@ -29,8 +29,8 @@ use crate::{
 
 const DATABASE_QUALIFIER: &str = "org";
 const DATABASE_ORGANIZATION: &str = "radroots";
-const DATABASE_APPLICATION: &str = "studio";
-const DATABASE_FILENAME: &str = "studio.sqlite3";
+const DATABASE_APPLICATION: &str = "harvestcircle";
+const DATABASE_FILENAME: &str = "harvestcircle.sqlite3";
 const DEVELOPMENT_DATA_DIR_ENVIRONMENT: &str = "HARVESTCIRCLE_DEVELOPMENT_DATA_DIR";
 pub(crate) const ACTOR_MAILBOX_CAPACITY: usize = 64;
 const MAX_COMMAND_DEADLINE_MILLIS: u64 = 30_000;
@@ -1045,7 +1045,10 @@ mod tests {
         }
 
         let directory = tempfile::tempdir().expect("directory");
-        let rejected = directory.path().join("rejected").join("studio.sqlite3");
+        let rejected = directory
+            .path()
+            .join("rejected")
+            .join("harvestcircle.sqlite3");
         let incompatible = CompatibilityExpectation {
             contract_major: FFI_CONTRACT_MAJOR + 1,
             ..compatible
@@ -1067,7 +1070,7 @@ mod tests {
             })
         };
 
-        assert_eq!(property("baseline.id"), Some("studio-runtime-v5"));
+        assert_eq!(property("baseline.id"), Some("harvestcircle-runtime-v5"));
         assert_eq!(property("schema.version"), Some("5"));
         assert_eq!(CURRENT_SCHEMA_VERSION, 10);
         assert_eq!(property("ffi.contract"), Some("legacy-unversioned-v1"));

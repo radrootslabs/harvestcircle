@@ -11,7 +11,7 @@ import java.awt.Dimension
 import java.awt.Taskbar
 import javax.imageio.ImageIO
 
-private const val APPLICATION_NAME = "Radroots"
+private const val APPLICATION_NAME = "HarvestCircle"
 private const val INITIAL_WINDOW_WIDTH = 1284
 private const val INITIAL_WINDOW_HEIGHT = 795
 private const val MINIMUM_WINDOW_WIDTH = 1080
@@ -68,7 +68,7 @@ private fun configureMacOsApplication(): String? {
 
     val icon =
         loadRuntimeIcon {
-            Thread.currentThread().contextClassLoader.getResourceAsStream("icons/radroots.png")
+            Thread.currentThread().contextClassLoader.getResourceAsStream("icons/harvestcircle.png")
         } ?: return "The application icon resource is unavailable."
     return runCatching { taskbar.iconImage = icon }
         .fold(

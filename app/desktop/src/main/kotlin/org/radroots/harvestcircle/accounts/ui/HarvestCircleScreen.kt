@@ -72,7 +72,7 @@ fun StartupFailureScreen(problem: String) {
                 .testTag("startup-failure"),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        BasicText("radroots")
+        BasicText("HarvestCircle")
         BasicText(problem, Modifier.testTag("startup-problem"))
     }
 }
@@ -146,7 +146,7 @@ private fun LifecycleScreen(
                 .testTag(testTag),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        BasicText("radroots")
+        BasicText("HarvestCircle")
         BasicText(message)
     }
 }
@@ -167,7 +167,7 @@ private fun ActiveAccountHome(
                 .testTag("home-screen"),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        BasicText("radroots")
+        BasicText("HarvestCircle")
         BasicText(active.heading)
         BasicText(active.account.npub, Modifier.testTag("active-npub"))
         BasicText(active.account.publicKeyHex, Modifier.testTag("active-pubkey-hex"))
@@ -225,7 +225,7 @@ private fun InactiveAccountsScreen(
                 .testTag("accounts-screen"),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        BasicText("radroots")
+        BasicText("HarvestCircle")
         BasicText("Accounts")
         if (degraded) {
             BasicText(model.problem ?: "Nostr relay access is unavailable. Local accounts remain available.")
