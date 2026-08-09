@@ -4,6 +4,7 @@ members = [
   "crates/studio_application",
   "crates/studio_domain",
   "crates/studio_preferences",
+  "crates/studio_storage",
 ]
 resolver = "3"
 
@@ -18,6 +19,7 @@ authors = ["Tyson Lupul <tyson@radroots.org>"]
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
 
 [workspace.lints.clippy]
 all = "deny"
@@ -30,5 +32,9 @@ radroots_studio_ffi = { git = "https://github.com/radrootslabs/lib", rev = "0906
 radroots_studio_nostr = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha" }
 radroots_studio_preferences = { path = "crates/studio_preferences", version = "=0.1.0-alpha" }
 radroots_studio_runtime = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha" }
-radroots_studio_storage = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha" }
+radroots_studio_storage = { path = "crates/studio_storage", version = "=0.1.0-alpha" }
 radroots_identity = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha", default-features = false }
+getrandom = { version = "0.2", default-features = false }
+hmac = { version = "0.12", default-features = false }
+rustix = { version = "1", features = ["fs", "process", "std"] }
+sha2 = { version = "0.10", default-features = false }

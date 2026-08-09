@@ -1,0 +1,33 @@
+[package]
+name = "radroots_studio_storage"
+description = "Private persistence and keyring adapters for Radroots Studio"
+version = "0.1.0-alpha"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license = "GPL-3.0-only"
+repository.workspace = true
+homepage.workspace = true
+publish = false
+include = ["src/**", "tests/**", "migrations/**", "Cargo.toml"]
+
+[dependencies]
+fs2 = "=0.4.3"
+keyring = "=4.1.6"
+radroots_studio_application.workspace = true
+radroots_studio_domain.workspace = true
+refinery = { version = "=0.9.2", default-features = false, features = ["rusqlite"] }
+getrandom.workspace = true
+hmac.workspace = true
+rusqlite = { version = "=0.39.0", features = ["backup", "bundled"] }
+sha2.workspace = true
+zeroize = "=1.9.0"
+
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
+
+[dev-dependencies]
+tempfile = "=3.23.0"
+
+[lints]
+workspace = true

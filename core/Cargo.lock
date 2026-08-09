@@ -1993,7 +1993,7 @@ dependencies = [
  "radroots_studio_domain 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "radroots_studio_nostr",
  "radroots_studio_runtime",
- "radroots_studio_storage",
+ "radroots_studio_storage 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "sha2",
  "syn 2.0.119",
  "tokio",
@@ -2030,7 +2030,7 @@ dependencies = [
  "radroots_studio_application 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "radroots_studio_domain 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "radroots_studio_nostr",
- "radroots_studio_storage",
+ "radroots_studio_storage 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "tokio",
  "uuid",
 ]
@@ -2045,7 +2045,25 @@ dependencies = [
  "radroots_studio_nostr",
  "radroots_studio_preferences",
  "radroots_studio_runtime",
- "radroots_studio_storage",
+ "radroots_studio_storage 0.1.0-alpha",
+]
+
+[[package]]
+name = "radroots_studio_storage"
+version = "0.1.0-alpha"
+dependencies = [
+ "fs2",
+ "getrandom 0.2.17",
+ "hmac",
+ "keyring",
+ "radroots_studio_application 0.1.0-alpha",
+ "radroots_studio_domain 0.1.0-alpha",
+ "refinery",
+ "rusqlite",
+ "rustix",
+ "sha2",
+ "tempfile",
+ "zeroize",
 ]
 
 [[package]]
@@ -2695,12 +2713,12 @@ dependencies = [
 
 [[package]]
 name = "tempfile"
-version = "3.27.0"
+version = "3.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
+checksum = "2d31c77bdf42a745371d260a26ca7163f1e0924b64afa0b688e61b5a9fa02f16"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
