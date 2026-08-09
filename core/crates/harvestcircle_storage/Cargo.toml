@@ -1,6 +1,6 @@
 [package]
 name = "harvestcircle_storage"
-description = "Private persistence and keyring adapters for Radroots Studio"
+description = "Private persistence and keyring adapters for HarvestCircle"
 version = "0.1.0-alpha"
 edition.workspace = true
 authors.workspace = true

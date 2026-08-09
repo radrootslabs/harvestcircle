@@ -5,7 +5,7 @@ use harvestcircle_application::{
     RelayConfiguration, SessionState,
 };
 use harvestcircle_domain::{SecretKeyInput, UnixTimestamp};
-use radroots_studio_runtime::PersistentAppCore;
+use harvestcircle_runtime::PersistentAppCore;
 use tempfile::tempdir;
 
 const SECRET_A: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";

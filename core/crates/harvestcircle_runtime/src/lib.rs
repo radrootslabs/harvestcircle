@@ -1,4 +1,4 @@
-#![doc = "Radroots Studio supervised runtime composition."]
+#![doc = "HarvestCircle supervised runtime composition."]
 
 mod blocking;
 mod installation;

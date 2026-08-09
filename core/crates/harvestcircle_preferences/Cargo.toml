@@ -1,6 +1,6 @@
 [package]
 name = "harvestcircle_preferences"
-description = "Private preference model for Radroots Studio"
+description = "Private preference model for HarvestCircle"
 version = "0.1.0-alpha"
 edition.workspace = true
 authors.workspace = true

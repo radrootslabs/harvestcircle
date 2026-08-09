@@ -5,11 +5,11 @@ use harvestcircle_application::{
     RelayConnectionState, SecretStore, SessionState,
 };
 use harvestcircle_domain::{RelayDestinationPolicy, RelayUrl, SecretKeyInput, UnixTimestamp};
+use harvestcircle_nostr::SdkNostrClient;
+use harvestcircle_runtime::PersistentAppCore;
 use nostr::{EventBuilder, Keys, Metadata};
 use nostr_relay_builder::MockRelay;
 use nostr_sdk::Client;
-use radroots_studio_nostr::SdkNostrClient;
-use radroots_studio_runtime::PersistentAppCore;
 
 const SECRET_HEX: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
 

@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn studio_policy_maps_exactly_to_the_canonical_transport_policy() {
+    fn harvestcircle_policy_maps_exactly_to_the_canonical_transport_policy() {
         assert_eq!(
             super::canonical_policy(RelayDestinationPolicy::Public),
             radroots_transport_nostr::RelayUrlPolicy::Public

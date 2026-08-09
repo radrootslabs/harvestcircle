@@ -1,6 +1,6 @@
 [package]
-name = "radroots_studio_runtime"
-description = "Private supervised composition runtime for Radroots Studio"
+name = "harvestcircle_runtime"
+description = "Private supervised composition runtime for HarvestCircle"
 version = "0.1.0-alpha"
 edition.workspace = true
 authors.workspace = true
@@ -14,7 +14,7 @@ include = ["src/**", "tests/**", "Cargo.toml"]
 [dependencies]
 harvestcircle_application.workspace = true
 harvestcircle_domain.workspace = true
-radroots_studio_nostr.workspace = true
+harvestcircle_nostr.workspace = true
 harvestcircle_storage.workspace = true
 tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 uuid.workspace = true

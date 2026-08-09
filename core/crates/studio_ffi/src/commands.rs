@@ -12,11 +12,11 @@ use harvestcircle_application::{
     RemovalConfirmationToken, relay_configuration_from_environment,
 };
 use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
-use harvestcircle_storage::OsKeyringSecretStore;
-use radroots_studio_nostr::SdkNostrClient;
-use radroots_studio_runtime::{
+use harvestcircle_nostr::SdkNostrClient;
+use harvestcircle_runtime::{
     RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,
 };
+use harvestcircle_storage::OsKeyringSecretStore;
 
 use crate::{
     AccountDto, AppSnapshotDto, WireErrorCategory, WireErrorCode, WireRecoveryAction,
@@ -712,8 +712,8 @@ mod tests {
 
     use harvestcircle_application::{InMemorySecretStore, RelayConfiguration};
     use harvestcircle_domain::SafeError;
-    use radroots_studio_nostr::SdkNostrClient;
-    use radroots_studio_runtime::{
+    use harvestcircle_nostr::SdkNostrClient;
+    use harvestcircle_runtime::{
         RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,
     };
 

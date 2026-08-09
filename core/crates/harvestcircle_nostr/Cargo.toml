@@ -1,6 +1,6 @@
 [package]
-name = "radroots_studio_nostr"
-description = "Private Nostr adapter for Radroots Studio"
+name = "harvestcircle_nostr"
+description = "Private Nostr adapter for HarvestCircle"
 version = "0.1.0-alpha"
 edition.workspace = true
 authors.workspace = true

@@ -7,7 +7,7 @@ use harvestcircle_application::{
     StagedGeneratedKey,
 };
 use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput};
-use radroots_studio_nostr::NostrKeyMaterialProvider;
+use harvestcircle_nostr::NostrKeyMaterialProvider;
 
 use harvestcircle_storage::Database;
 

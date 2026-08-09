@@ -1,4 +1,4 @@
-#![doc = "Radroots Studio Nostr account domain types."]
+#![doc = "HarvestCircle Nostr account domain types."]
 
 pub mod account;
 pub mod error;

@@ -1,6 +1,6 @@
 [package]
 name = "harvestcircle_domain"
-description = "Private domain model for Radroots Studio"
+description = "Private domain model for HarvestCircle"
 version = "0.1.0-alpha"
 edition.workspace = true
 authors.workspace = true

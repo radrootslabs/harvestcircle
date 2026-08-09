@@ -1,6 +1,6 @@
 [package]
 name = "radroots_studio_uniffi_bindgen"
-description = "Private UniFFI binding generator for Radroots Studio"
+description = "Private UniFFI binding generator for HarvestCircle"
 version = "0.1.0-alpha"
 edition.workspace = true
 authors.workspace = true

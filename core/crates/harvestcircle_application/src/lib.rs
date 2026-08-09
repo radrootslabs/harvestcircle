@@ -1,4 +1,4 @@
-#![doc = "Radroots Studio application runtime."]
+#![doc = "HarvestCircle application runtime."]
 
 pub mod accounts;
 pub mod actor;

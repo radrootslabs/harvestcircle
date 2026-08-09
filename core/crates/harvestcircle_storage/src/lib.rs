@@ -1,4 +1,4 @@
-#![doc = "Radroots Studio persistence adapters."]
+#![doc = "HarvestCircle persistence adapters."]
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
 pub mod account_namespace;

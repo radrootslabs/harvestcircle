@@ -1,6 +1,6 @@
 [package]
 name = "harvestcircle_application"
-description = "Private application policy and ports for Radroots Studio"
+description = "Private application policy and ports for HarvestCircle"
 version = "0.1.0-alpha"
 edition.workspace = true
 authors.workspace = true

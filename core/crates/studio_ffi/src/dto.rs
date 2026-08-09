@@ -448,7 +448,7 @@ mod tests {
     use harvestcircle_application::{
         AppCore, ProfileLoadState, RelayConfiguration, RelayConnectionState, RuntimeLifecycle,
     };
-    use radroots_studio_nostr::NostrKeyMaterialProvider;
+    use harvestcircle_nostr::NostrKeyMaterialProvider;
 
     use harvestcircle_domain::{BindingAvailability, SafeError, SafeErrorCode, SafeMessage};
 

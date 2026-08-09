@@ -1,4 +1,4 @@
-#![doc = "Radroots Studio `UniFFI` boundary."]
+#![doc = "HarvestCircle `UniFFI` boundary."]
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
 mod commands;

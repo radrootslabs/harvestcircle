@@ -217,13 +217,13 @@ mod tests {
 
     use harvestcircle_application::{InMemorySecretStore, RelayConfiguration};
     use harvestcircle_domain::{RelayDestinationPolicy, RelayUrl};
+    use harvestcircle_nostr::SdkNostrClient;
+    use harvestcircle_runtime::{
+        RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,
+    };
     use nostr::{EventBuilder, Keys, Metadata};
     use nostr_relay_builder::MockRelay;
     use nostr_sdk::Client;
-    use radroots_studio_nostr::SdkNostrClient;
-    use radroots_studio_runtime::{
-        RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,
-    };
 
     use crate::commands::{ACTOR_MAILBOX_CAPACITY, RuntimeCore, SystemClock, runtime};
     use crate::{

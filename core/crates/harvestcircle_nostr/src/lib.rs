@@ -1,4 +1,4 @@
-#![doc = "Radroots Studio Nostr protocol adapters."]
+#![doc = "HarvestCircle Nostr protocol adapters."]
 
 pub mod client;
 pub mod keys;
