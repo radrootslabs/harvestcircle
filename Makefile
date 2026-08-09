@@ -3,7 +3,7 @@
 GRADLE ?= ./gradlew
 CARGO ?= cargo
 CARGO_MANIFEST := core/Cargo.toml
-EXTBUILD := cargo extbuild run --
+EXTBUILD ?= $(if $(shell cargo extbuild --version 2>/dev/null),cargo extbuild run --)
 
 .PHONY: help doctor format format-fix lint test check build bindings dev run audit licenses package release-check clean
 
@@ -11,7 +11,7 @@ help:
 	@printf '%s\n' doctor format format-fix lint test check build bindings dev run audit licenses package release-check clean
 
 doctor:
-	cargo extbuild doctor
+	$(if $(strip $(EXTBUILD)),cargo extbuild doctor,@:)
 	$(EXTBUILD) java -version
 	$(EXTBUILD) $(CARGO) --version
 	$(EXTBUILD) $(GRADLE) --version

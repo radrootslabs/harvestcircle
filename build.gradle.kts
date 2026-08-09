@@ -4,7 +4,6 @@ plugins {
     alias(libs.plugins.compose.compiler) apply false
 }
 
-val extBuildGradleRoot =
-    providers.environmentVariable("EXT_BUILD_GRADLE_BUILD_DIR").orNull
-        ?: error("EXT_BUILD_GRADLE_BUILD_DIR is required; run Gradle through cargo extbuild")
-layout.buildDirectory.set(file(extBuildGradleRoot).resolve("root"))
+providers.environmentVariable("EXT_BUILD_GRADLE_BUILD_DIR").orNull?.let { extBuildGradleRoot ->
+    layout.buildDirectory.set(file(extBuildGradleRoot).resolve("root"))
+}

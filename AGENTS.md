@@ -19,10 +19,9 @@ repository and may depend on the exact public Radroots library revision selected
 by the capsule; it must not depend on an implicit sibling checkout.
 
 The repository must remain independently cloneable, buildable, testable, and
-packageable through its checked-in command surfaces. It may materialize the
-exact public source revision into an extbuild-owned cache; it must not depend
-on private parent code, parent-only contracts, unpublished local artifacts,
-absolute host paths, or an enclosing monorepo layout.
+packageable through its checked-in command surfaces with or without extbuild.
+It must not depend on private parent code, parent-only contracts, unpublished
+local artifacts, absolute host paths, or an enclosing monorepo layout.
 
 ## Machine authority and generated inputs
 
@@ -52,8 +51,9 @@ absolute host paths, or an enclosing monorepo layout.
 
 Generated UniFFI Kotlin and native libraries are derived build output. Change
 the local canonical Rust producer contract/generator first, regenerate into
-extbuild-owned build locations, and inspect the result. Never hand-edit or
-check in generated bindings or native binaries as a source substitute.
+the active Gradle and Cargo build locations, and inspect the result. Never
+hand-edit or check in generated bindings or native binaries as a source
+substitute.
 
 ## Application and security boundaries
 
@@ -88,20 +88,22 @@ keep implementation, tests, generated outputs, dependency evidence, and public
 behavior aligned while preserving unrelated work.
 
 The root `Makefile` is the standalone command surface and its durable behavior
-belongs in Gradle or public producer tools. Gradle intentionally requires
-`EXT_BUILD_GRADLE_BUILD_DIR`, and native Cargo work requires
-`CARGO_TARGET_DIR`; do not bypass extbuild or add repo-local build-output
-fallbacks. Run `make doctor` before the first mutating lane, use `make format`,
-`make lint`, and `make test` while iterating, and run `make check` for the
-complete source checkpoint. Use `make build`, `make bindings`, `make audit`,
-`make licenses`, `make package`, and `make release-check` when their affected
-artifact or release scope requires them.
+belongs in Gradle or public producer tools. When extbuild is installed, the
+Makefile routes commands through it. Without extbuild, Gradle uses its standard
+ignored `build/` directories and Cargo uses the ignored `core/target/` tree;
+the same checked-in tasks must remain functional. Set `EXTBUILD=` explicitly
+to exercise the standalone lane on a machine that also has extbuild. Run
+`make doctor` before the first mutating lane, use `make format`, `make lint`,
+and `make test` while iterating, and run `make check` for the complete source
+checkpoint. Use `make build`, `make bindings`, `make audit`, `make licenses`,
+`make package`, and `make release-check` when their affected artifact or
+release scope requires them.
 
-Source-lock synchronization may fetch the exact public revision and package or
-advisory lanes may require external services. Do not weaken immutable inputs or
-silently switch sources when offline. Never claim a lane passed unless it ran
-successfully; report network, toolchain, platform, advisory-service, package,
-or external-artifact blockers exactly.
+Shared public Git dependencies and package or advisory lanes may require
+external services. Do not weaken immutable inputs or silently switch sources
+when offline. Never claim a lane passed unless it ran successfully; report
+network, toolchain, platform, advisory-service, package, or external-artifact
+blockers exactly.
 
 Verify exact manifests/lock agreement, generated binding and native artifact
 freshness when affected, compatibility and architecture guards,

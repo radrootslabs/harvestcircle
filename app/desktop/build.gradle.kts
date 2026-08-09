@@ -66,13 +66,16 @@ configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
     }
 }
 
-val extBuildGradleRoot =
-    providers.environmentVariable("EXT_BUILD_GRADLE_BUILD_DIR").orNull
-        ?: throw GradleException("EXT_BUILD_GRADLE_BUILD_DIR is required; run Gradle through cargo extbuild")
+val rustCoreSource =
+    rootProject.layout.projectDirectory
+        .dir("core")
+        .asFile
+providers.environmentVariable("EXT_BUILD_GRADLE_BUILD_DIR").orNull?.let { extBuildGradleRoot ->
+    layout.buildDirectory.set(file(extBuildGradleRoot).resolve("app-desktop"))
+}
 val cargoTargetRoot =
-    providers.environmentVariable("CARGO_TARGET_DIR").orNull
-        ?: throw GradleException("CARGO_TARGET_DIR is required; run Gradle through cargo extbuild")
-layout.buildDirectory.set(file(extBuildGradleRoot).resolve("app-desktop"))
+    providers.environmentVariable("CARGO_TARGET_DIR").orNull?.let(::file)
+        ?: rustCoreSource.resolve("target")
 
 val radrootsOffline =
     providers
@@ -86,10 +89,6 @@ val immutableCargoArguments =
         listOf("--locked")
     }
 
-val rustCoreSource =
-    rootProject.layout.projectDirectory
-        .dir("core")
-        .asFile
 val rustManifest = rustCoreSource.resolve("Cargo.toml")
 
 fun workspacePackageValue(key: String): String {
