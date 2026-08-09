@@ -1,22 +1,22 @@
-# AGENTS.md — Radroots Studio
+# AGENTS.md — HarvestCircle
 
-These instructions apply to the complete standalone `radrootslabs/studio_app`
-repository. A more specific `AGENTS.md` may refine them for its subtree.
+These instructions apply to the complete standalone HarvestCircle repository.
+A more specific `AGENTS.md` may refine them for its subtree.
 
 ## Repository role and source boundary
 
-This repository owns the public Radroots Studio desktop client: the
+This repository owns the public HarvestCircle desktop product: the
 Kotlin/Compose presentation shell, desktop lifecycle, client-side state,
-generated UniFFI integration, host packaging, and their tests. It is a client
-of public Radroots library packages, not an owner of canonical domain policy,
-signing protocol, Nostr semantics, durable engine state, wire contracts, or
-native FFI models.
+generated UniFFI integration, host packaging, product-specific Rust core, and
+their tests. The Rust workspace under `core/**` owns HarvestCircle application,
+domain, runtime, persistence, Nostr-adapter, preference, native FFI, and UniFFI
+binding-generator implementation.
 
-The local Rust workspace contains only the unpublished
-`radroots_studio_source_lock` member. Production Studio application, domain,
-runtime, persistence, Nostr, and FFI crates come from the exact public lib
-revision selected by this capsule. Do not copy, fork, or replace them with
-capsule-local implementations or implicit sibling sources.
+HarvestCircle remains a client of canonical public Radroots library packages.
+It does not own shared Radroots identity, transport, signing, wire-contract, or
+other reusable library policy. Product-specific Rust code must live in this
+repository and may depend on the exact public Radroots library revision selected
+by the capsule; it must not depend on an implicit sibling checkout.
 
 The repository must remain independently cloneable, buildable, testable, and
 packageable through its checked-in command surfaces. It may materialize the
@@ -26,9 +26,12 @@ absolute host paths, or an enclosing monorepo layout.
 
 ## Machine authority and generated inputs
 
-- `radroots.lib.source-lock.v1.toml`, `core/Cargo.toml`, `core/Cargo.lock`,
-  `core/rust-toolchain.toml`, and `.radroots-consumer-root` own the Rust
-  consumer and source-lock inputs.
+- `core/Cargo.toml`, `core/Cargo.lock`, `core/rust-toolchain.toml`, and the
+  product crates under `core/crates/**` own the Rust workspace inputs.
+- While the ownership migration is in progress,
+  `radroots.lib.source-lock.v1.toml` and `.radroots-consumer-root` remain
+  transitional inputs. Remove them, the source-lock placeholder crate, and
+  external Studio crate edges once every product crate is local and green.
 - Gradle settings, build scripts, the version catalog, wrapper properties,
   policy configuration, and `core/compatibility/v5-baseline.properties` own
   the desktop build, dependency, compatibility, and package inputs. Kotlin and
@@ -38,10 +41,10 @@ absolute host paths, or an enclosing monorepo layout.
   authority. Review them with `gradle-wrapper.properties`; keep the launcher,
   distribution URL/version, and distribution checksum aligned, and never
   replace the wrapper binary without explicit provenance review.
-- Keep every Radroots dependency on the canonical public Git source, one exact
-  immutable revision, and the declared exact version. The source lock,
-  manifests, lockfile, compatibility baseline, and generated native package
-  metadata must agree.
+- Keep every shared Radroots dependency on the canonical public Git source,
+  one exact immutable revision, and the declared exact version. The manifests,
+  lockfile, compatibility baseline, and generated native package metadata must
+  agree.
 - Never use a path dependency, floating branch or tag, private mirror,
   implicit sibling override, dirty source cache, or unrecorded native binary.
   A local commit is not a release input until it is publicly reachable and its
@@ -52,10 +55,9 @@ absolute host paths, or an enclosing monorepo layout.
   forbidden, including symlinks. Public commands remain forge agnostic.
 
 Generated UniFFI Kotlin and native libraries are derived build output. Change
-the canonical public producer contract/generator first, materialize the exact
-locked source, regenerate into extbuild-owned build locations, and inspect the
-result. Never hand-edit or check in generated bindings or native binaries as a
-source-lock substitute.
+the local canonical Rust producer contract/generator first, regenerate into
+extbuild-owned build locations, and inspect the result. Never hand-edit or
+check in generated bindings or native binaries as a source substitute.
 
 ## Application and security boundaries
 
