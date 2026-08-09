@@ -127,7 +127,7 @@ check(Regex("""[1-9]\d*(\.\d+){0,2}""").matches(installableVersion)) {
 }
 val applicationName = baselineValue("package.name")
 val bundleId = baselineValue("package.bundle_id")
-val applicationNamespace = baselineValue("package.namespace")
+val applicationNamespace = baselineValue("source.namespace")
 version = appVersion
 
 val rustSources =
@@ -270,7 +270,7 @@ abstract class VerifyUniFfiBindings : DefaultTask() {
 val verifyUniFfiBindings by tasks.registering(VerifyUniFfiBindings::class) {
     dependsOn(generateUniFfiKotlin)
     generatedDirectory.set(generatedUniFfiKotlin)
-    expectedPackage.set("org.radroots.studio.ffi")
+    expectedPackage.set("org.radroots.harvestcircle.ffi")
 }
 val cleanReleaseNativeResources by tasks.registering(Delete::class) {
     delete(generatedReleaseNativeResources)
