@@ -35,7 +35,7 @@ class NativeGeneratedRecoveryTest {
                     expectation = verifyNativeCompatibility(compatibilityDescriptor()),
                     developmentMode = true,
                 )
-            val gateway = NativeStudioCoreGateway(core)
+            val gateway = NativeHarvestCircleCoreGateway(core)
             try {
                 gateway.bootstrap()
                 val recovery = gateway.beginGeneratedAccount()

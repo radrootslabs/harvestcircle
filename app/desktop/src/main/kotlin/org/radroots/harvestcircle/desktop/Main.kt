@@ -6,7 +6,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import org.radroots.harvestcircle.accounts.ui.StartupFailureScreen
-import org.radroots.harvestcircle.application.RadrootsApplication
+import org.radroots.harvestcircle.application.HarvestCircleApplication
 import java.awt.Dimension
 import java.awt.Taskbar
 import javax.imageio.ImageIO
@@ -49,7 +49,7 @@ fun main() {
             }
 
             if (nativeStartupProblem == null) {
-                RadrootsApplication()
+                HarvestCircleApplication()
             } else {
                 StartupFailureScreen(nativeStartupProblem)
             }

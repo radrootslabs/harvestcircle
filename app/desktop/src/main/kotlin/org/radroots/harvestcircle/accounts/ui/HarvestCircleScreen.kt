@@ -32,13 +32,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import org.radroots.harvestcircle.application.AccountEntryMode
-import org.radroots.harvestcircle.application.StudioRoute
+import org.radroots.harvestcircle.application.HarvestCircleRoute
 
 private val WindowBackgroundColor = Color(0xFFF5F5F2)
 private val ButtonBackgroundColor = Color(0xFFE7E7E2)
 private val InputBackgroundColor = Color(0xFFFEFDF8)
 
-data class StudioUiActions(
+data class HarvestCircleUiActions(
     val chooseCreateAccount: () -> Unit = {},
     val chooseImportAccount: () -> Unit = {},
     val cancelAccountEntry: () -> Unit = {},
@@ -78,57 +78,57 @@ fun StartupFailureScreen(problem: String) {
 }
 
 @Composable
-fun StudioScreen(
-    model: StudioUiModel,
-    actions: StudioUiActions,
+fun HarvestCircleScreen(
+    model: HarvestCircleUiModel,
+    actions: HarvestCircleUiActions,
 ) {
     model.generatedKeyBackup?.let { backup ->
         GeneratedKeyRecoveryScreen(backup, actions)
         return
     }
     when (model.route) {
-        StudioRoute.OPENING -> LifecycleScreen("Opening local account store", "lifecycle-opening")
-        StudioRoute.CHECKING_COMPATIBILITY ->
+        HarvestCircleRoute.OPENING -> LifecycleScreen("Opening local account store", "lifecycle-opening")
+        HarvestCircleRoute.CHECKING_COMPATIBILITY ->
             LifecycleScreen(
                 "Checking native compatibility",
                 "lifecycle-compatibility",
             )
-        StudioRoute.ACQUIRING_OWNERSHIP ->
+        HarvestCircleRoute.ACQUIRING_OWNERSHIP ->
             LifecycleScreen(
                 "Acquiring local account store",
                 "lifecycle-ownership",
             )
-        StudioRoute.MIGRATING ->
+        HarvestCircleRoute.MIGRATING ->
             LifecycleScreen(
                 "Updating local account store",
                 "lifecycle-migrating",
             )
-        StudioRoute.RECOVERING ->
+        HarvestCircleRoute.RECOVERING ->
             LifecycleScreen(
                 "Recovering local account state",
                 "lifecycle-recovering",
             )
-        StudioRoute.SHUTTING_DOWN -> LifecycleScreen("Shutting down", "lifecycle-shutting-down")
-        StudioRoute.CLOSED -> LifecycleScreen("Closed", "lifecycle-closed")
-        StudioRoute.BLOCKED ->
+        HarvestCircleRoute.SHUTTING_DOWN -> LifecycleScreen("Shutting down", "lifecycle-shutting-down")
+        HarvestCircleRoute.CLOSED -> LifecycleScreen("Closed", "lifecycle-closed")
+        HarvestCircleRoute.BLOCKED ->
             LifecycleScreen(
                 model.problem ?: "Local account access is blocked.",
                 "lifecycle-blocked",
             )
-        StudioRoute.FATAL ->
+        HarvestCircleRoute.FATAL ->
             LifecycleScreen(
                 model.problem ?: "The application could not continue.",
                 "lifecycle-fatal",
             )
-        StudioRoute.DEGRADED -> InactiveAccountsScreen(model, actions, degraded = true)
-        StudioRoute.ACTIVE_ACCOUNT -> {
+        HarvestCircleRoute.DEGRADED -> InactiveAccountsScreen(model, actions, degraded = true)
+        HarvestCircleRoute.ACTIVE_ACCOUNT -> {
             if (model.activeAccount != null && !model.accountChooserVisible) {
                 ActiveAccountHome(model, model.activeAccount, actions)
             } else {
                 InactiveAccountsScreen(model, actions)
             }
         }
-        StudioRoute.ACCOUNTS -> InactiveAccountsScreen(model, actions)
+        HarvestCircleRoute.ACCOUNTS -> InactiveAccountsScreen(model, actions)
     }
 }
 
@@ -153,9 +153,9 @@ private fun LifecycleScreen(
 
 @Composable
 private fun ActiveAccountHome(
-    model: StudioUiModel,
+    model: HarvestCircleUiModel,
     active: ActiveAccountUiModel,
-    actions: StudioUiActions,
+    actions: HarvestCircleUiActions,
 ) {
     Column(
         modifier =
@@ -212,8 +212,8 @@ private fun ActiveAccountHome(
 
 @Composable
 private fun InactiveAccountsScreen(
-    model: StudioUiModel,
-    actions: StudioUiActions,
+    model: HarvestCircleUiModel,
+    actions: HarvestCircleUiActions,
     degraded: Boolean = false,
 ) {
     Column(
@@ -258,8 +258,8 @@ private fun InactiveAccountsScreen(
 
 @Composable
 private fun RecoveryAction(
-    model: StudioUiModel,
-    actions: StudioUiActions,
+    model: HarvestCircleUiModel,
+    actions: HarvestCircleUiActions,
 ) {
     if (model.recoveryAction == org.radroots.harvestcircle.ffi.WireRecoveryAction.RETRY) {
         TextAction(
@@ -274,8 +274,8 @@ private fun RecoveryAction(
 
 @Composable
 private fun AccountEntry(
-    model: StudioUiModel,
-    actions: StudioUiActions,
+    model: HarvestCircleUiModel,
+    actions: HarvestCircleUiActions,
 ) {
     when (model.accountEntryMode) {
         AccountEntryMode.CHOICE -> {
@@ -356,8 +356,8 @@ private fun AccountEntry(
 
 @Composable
 private fun ColumnScope.SavedAccountList(
-    model: StudioUiModel,
-    actions: StudioUiActions,
+    model: HarvestCircleUiModel,
+    actions: HarvestCircleUiActions,
 ) {
     LazyColumn(
         modifier =
@@ -434,7 +434,7 @@ private fun ColumnScope.SavedAccountList(
 @Composable
 private fun GeneratedKeyRecoveryScreen(
     backup: GeneratedKeyBackupUiModel,
-    actions: StudioUiActions,
+    actions: HarvestCircleUiActions,
 ) {
     Column(
         modifier =

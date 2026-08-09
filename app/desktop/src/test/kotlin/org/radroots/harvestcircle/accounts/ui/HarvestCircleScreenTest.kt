@@ -18,9 +18,9 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import org.radroots.harvestcircle.application.AccountEntryMode
+import org.radroots.harvestcircle.application.HarvestCircleRoute
 import org.radroots.harvestcircle.application.RemovalImpactState
 import org.radroots.harvestcircle.application.RemovalStatus
-import org.radroots.harvestcircle.application.StudioRoute
 import org.radroots.harvestcircle.ffi.SessionStateDto
 import org.radroots.harvestcircle.ffi.WireRecoveryAction
 import kotlin.test.Test
@@ -28,24 +28,24 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
-class StudioScreenTest {
+class HarvestCircleScreenTest {
     @Test
     fun rendersEveryNonReadyLifecycleRouteWithoutAccountControls() =
         runComposeUiTest {
-            var model by mutableStateOf(emptyUiModel().copy(route = StudioRoute.OPENING))
-            setContent { StudioScreen(model, StudioUiActions()) }
+            var model by mutableStateOf(emptyUiModel().copy(route = HarvestCircleRoute.OPENING))
+            setContent { HarvestCircleScreen(model, HarvestCircleUiActions()) }
 
             val routes =
                 listOf(
-                    StudioRoute.OPENING to "lifecycle-opening",
-                    StudioRoute.CHECKING_COMPATIBILITY to "lifecycle-compatibility",
-                    StudioRoute.ACQUIRING_OWNERSHIP to "lifecycle-ownership",
-                    StudioRoute.MIGRATING to "lifecycle-migrating",
-                    StudioRoute.RECOVERING to "lifecycle-recovering",
-                    StudioRoute.BLOCKED to "lifecycle-blocked",
-                    StudioRoute.SHUTTING_DOWN to "lifecycle-shutting-down",
-                    StudioRoute.FATAL to "lifecycle-fatal",
-                    StudioRoute.CLOSED to "lifecycle-closed",
+                    HarvestCircleRoute.OPENING to "lifecycle-opening",
+                    HarvestCircleRoute.CHECKING_COMPATIBILITY to "lifecycle-compatibility",
+                    HarvestCircleRoute.ACQUIRING_OWNERSHIP to "lifecycle-ownership",
+                    HarvestCircleRoute.MIGRATING to "lifecycle-migrating",
+                    HarvestCircleRoute.RECOVERING to "lifecycle-recovering",
+                    HarvestCircleRoute.BLOCKED to "lifecycle-blocked",
+                    HarvestCircleRoute.SHUTTING_DOWN to "lifecycle-shutting-down",
+                    HarvestCircleRoute.FATAL to "lifecycle-fatal",
+                    HarvestCircleRoute.CLOSED to "lifecycle-closed",
                 )
             routes.forEach { (route, tag) ->
                 model = emptyUiModel(problem = "Safe lifecycle problem").copy(route = route)
@@ -54,7 +54,7 @@ class StudioScreenTest {
                 onAllNodesWithTag("generate-key").assertCountEquals(0)
             }
 
-            model = emptyUiModel(problem = "Relay access is unavailable.").copy(route = StudioRoute.DEGRADED)
+            model = emptyUiModel(problem = "Relay access is unavailable.").copy(route = HarvestCircleRoute.DEGRADED)
             waitForIdle()
             onNodeWithTag("accounts-screen").assertIsDisplayed()
             onNodeWithTag("accounts-problem").assertIsDisplayed()
@@ -68,10 +68,10 @@ class StudioScreenTest {
             var generateCalls = 0
             var importCalls = 0
             setContent {
-                StudioScreen(
+                HarvestCircleScreen(
                     model = emptyUiModel(importDraft = importDraft).copy(accountEntryMode = accountEntryMode),
                     actions =
-                        StudioUiActions(
+                        HarvestCircleUiActions(
                             chooseCreateAccount = { accountEntryMode = AccountEntryMode.CREATE },
                             chooseImportAccount = { accountEntryMode = AccountEntryMode.IMPORT },
                             cancelAccountEntry = { accountEntryMode = AccountEntryMode.CHOICE },
@@ -106,9 +106,9 @@ class StudioScreenTest {
     fun inactiveScreenShowsSafeFailureAndNoGenericFields() =
         runComposeUiTest {
             setContent {
-                StudioScreen(
+                HarvestCircleScreen(
                     model = emptyUiModel(problem = "The secret key is invalid."),
-                    actions = StudioUiActions(),
+                    actions = HarvestCircleUiActions(),
                 )
             }
 
@@ -124,10 +124,10 @@ class StudioScreenTest {
             )
             var copied: String? = null
             setContent {
-                StudioScreen(
+                HarvestCircleScreen(
                     model = emptyUiModel().copy(generatedKeyBackup = backup),
                     actions =
-                        StudioUiActions(
+                        HarvestCircleUiActions(
                             copyText = { copied = it },
                             acknowledgeGeneratedKeyBackup = { backup = null },
                         ),
@@ -154,10 +154,10 @@ class StudioScreenTest {
             )
             var cancelled = 0
             setContent {
-                StudioScreen(
+                HarvestCircleScreen(
                     model = emptyUiModel().copy(generatedKeyBackup = backup),
                     actions =
-                        StudioUiActions(
+                        HarvestCircleUiActions(
                             cancelGeneratedKeyBackup = {
                                 cancelled += 1
                                 backup = null
@@ -181,7 +181,7 @@ class StudioScreenTest {
             val activated = mutableListOf<String>()
             var confirmations = 0
             setContent {
-                StudioScreen(
+                HarvestCircleScreen(
                     model =
                         emptyUiModel().copy(
                             accounts = listOf(first, second),
@@ -192,7 +192,7 @@ class StudioScreenTest {
                                 },
                         ),
                     actions =
-                        StudioUiActions(
+                        HarvestCircleUiActions(
                             selectAccount = selected::add,
                             activateAccount = activated::add,
                             requestAccountRemoval = { pendingRemoval = it },
@@ -227,9 +227,9 @@ class StudioScreenTest {
                     accountUi(index.toString(16).padStart(64, '0'), selected = index == 0)
                 }
             setContent {
-                StudioScreen(
+                HarvestCircleScreen(
                     model = emptyUiModel().copy(accounts = accounts),
-                    actions = StudioUiActions(),
+                    actions = HarvestCircleUiActions(),
                 )
             }
 
@@ -260,17 +260,17 @@ class StudioScreenTest {
                         ),
                 )
             setContent {
-                StudioScreen(
+                HarvestCircleScreen(
                     model =
                         emptyUiModel().copy(
-                            route = StudioRoute.ACTIVE_ACCOUNT,
+                            route = HarvestCircleRoute.ACTIVE_ACCOUNT,
                             accounts = listOf(account),
                             activeAccount = active,
                             configuredRelays = listOf("ws://localhost:8080"),
                             session = SessionStateDto.ACTIVE,
                         ),
                     actions =
-                        StudioUiActions(
+                        HarvestCircleUiActions(
                             refreshActiveProfile = { refreshCalls += 1 },
                             signOut = { signOutCalls += 1 },
                         ),
@@ -307,17 +307,17 @@ class StudioScreenTest {
             var chooserVisible by mutableStateOf(false)
             var activated: String? = null
             setContent {
-                StudioScreen(
+                HarvestCircleScreen(
                     model =
                         emptyUiModel().copy(
-                            route = StudioRoute.ACTIVE_ACCOUNT,
+                            route = HarvestCircleRoute.ACTIVE_ACCOUNT,
                             accounts = listOf(first, second),
                             activeAccount = active,
                             session = SessionStateDto.ACTIVE,
                             accountChooserVisible = chooserVisible,
                         ),
                     actions =
-                        StudioUiActions(
+                        HarvestCircleUiActions(
                             showAccountChooser = { chooserVisible = true },
                             hideAccountChooser = { chooserVisible = false },
                             activateAccount = { activated = it },
@@ -349,8 +349,8 @@ private fun emptyUiModel(
     problem: String? = null,
     importGuidance: String? = null,
     recoveryAction: WireRecoveryAction = WireRecoveryAction.NONE,
-) = StudioUiModel(
-    route = StudioRoute.ACCOUNTS,
+) = HarvestCircleUiModel(
+    route = HarvestCircleRoute.ACCOUNTS,
     accounts = emptyList(),
     activeAccount = null,
     configuredRelays = emptyList(),

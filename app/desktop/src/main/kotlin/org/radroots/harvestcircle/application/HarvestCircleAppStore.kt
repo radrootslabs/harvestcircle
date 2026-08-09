@@ -14,7 +14,7 @@ import org.radroots.harvestcircle.ffi.StudioException
 import org.radroots.harvestcircle.ffi.WireErrorCode
 import org.radroots.harvestcircle.ffi.WireRecoveryAction
 
-enum class StudioRoute {
+enum class HarvestCircleRoute {
     OPENING,
     CHECKING_COMPATIBILITY,
     ACQUIRING_OWNERSHIP,
@@ -60,9 +60,9 @@ data class RemovalImpactState(
     val expiresAtSeconds: Long,
 )
 
-data class StudioStoreState(
+data class HarvestCircleStoreState(
     val snapshot: AppSnapshotDto,
-    val route: StudioRoute = snapshot.toStudioRoute(),
+    val route: HarvestCircleRoute = snapshot.toHarvestCircleRoute(),
     val importDraft: String = "",
     val generatedKeyBackup: GeneratedKeyBackup? = null,
     val pendingRemovalPublicKeyHex: String? = null,
@@ -81,19 +81,19 @@ data class StudioStoreState(
 
 const val MAX_IMPORT_SECRET_CHARS: Int = 128
 
-class StudioAppStore(
-    private val gateway: StudioCoreGateway,
+class HarvestCircleAppStore(
+    private val gateway: HarvestCircleCoreGateway,
     private val scope: CoroutineScope,
 ) : AutoCloseable {
-    private val mutableState = mutableStateOf(StudioStoreState(snapshot = gateway.snapshot()))
+    private val mutableState = mutableStateOf(HarvestCircleStoreState(snapshot = gateway.snapshot()))
     private var closed = false
     private var subscription: AutoCloseable? = null
     private var pendingRemoval: RemovalTicket? = null
     private var pendingGeneratedRecovery: PendingGeneratedRecovery? = null
     private var command: Job? = null
-    private var retryableCommand: StudioCommand? = null
+    private var retryableCommand: HarvestCircleCommand? = null
 
-    val state: State<StudioStoreState>
+    val state: State<HarvestCircleStoreState>
         get() = mutableState
 
     init {
@@ -184,8 +184,8 @@ class StudioAppStore(
         launchCommand {
             try {
                 if (!recovery.ticket.cancel()) {
-                    throw StudioGatewayException(
-                        StudioCommandFailure(
+                    throw HarvestCircleGatewayException(
+                        HarvestCircleCommandFailure(
                             code = WireErrorCode.INVALID_APPLICATION_STATE,
                             category = org.radroots.harvestcircle.ffi.WireErrorCategory.LIFECYCLE,
                             retryable = false,
@@ -205,19 +205,19 @@ class StudioAppStore(
         if (rejectIfUnavailable()) return
         val input = mutableState.value.importDraft.encodeToByteArray()
         mutableState.value = mutableState.value.copy(importDraft = "")
-        runTypedCommand(StudioCommand.ImportAccount(input))
+        runTypedCommand(HarvestCircleCommand.ImportAccount(input))
     }
 
     fun selectAccount(publicKeyHex: String) {
-        runTypedCommand(StudioCommand.SelectAccount(publicKeyHex))
+        runTypedCommand(HarvestCircleCommand.SelectAccount(publicKeyHex))
     }
 
     fun activateAccount(publicKeyHex: String) {
-        runTypedCommand(StudioCommand.ActivateAccount(publicKeyHex), hideChooser = true)
+        runTypedCommand(HarvestCircleCommand.ActivateAccount(publicKeyHex), hideChooser = true)
     }
 
     fun signOut() {
-        runTypedCommand(StudioCommand.SignOut, hideChooser = true)
+        runTypedCommand(HarvestCircleCommand.SignOut, hideChooser = true)
     }
 
     fun showAccountChooser() {
@@ -229,7 +229,7 @@ class StudioAppStore(
     }
 
     fun refreshActiveProfile() {
-        runTypedCommand(StudioCommand.RefreshProfile)
+        runTypedCommand(HarvestCircleCommand.RefreshProfile)
     }
 
     fun retryLastCommand() {
@@ -321,12 +321,12 @@ class StudioAppStore(
     }
 
     private fun runTypedCommand(
-        command: StudioCommand,
+        command: HarvestCircleCommand,
         hideChooser: Boolean = false,
     ) {
         launchCommand {
             when (val result = gateway.execute(command)) {
-                is StudioCommandResult.Accepted -> {
+                is HarvestCircleCommandResult.Accepted -> {
                     retryableCommand = null
                     acceptSnapshot(result.receipt.snapshot)
                     mutableState.value =
@@ -340,10 +340,10 @@ class StudioAppStore(
                         mutableState.value = mutableState.value.copy(accountChooserVisible = false)
                     }
                 }
-                is StudioCommandResult.Rejected -> {
+                is HarvestCircleCommandResult.Rejected -> {
                     retryableCommand =
                         command.takeIf {
-                            result.failure.retryable && it !is StudioCommand.ImportAccount
+                            result.failure.retryable && it !is HarvestCircleCommand.ImportAccount
                         }
                     mutableState.value =
                         mutableState.value.copy(
@@ -405,7 +405,7 @@ class StudioAppStore(
                 )
             return true
         }
-        if (mutableState.value.route !in setOf(StudioRoute.ACCOUNTS, StudioRoute.ACTIVE_ACCOUNT)) {
+        if (mutableState.value.route !in setOf(HarvestCircleRoute.ACCOUNTS, HarvestCircleRoute.ACTIVE_ACCOUNT)) {
             mutableState.value =
                 mutableState.value.copy(
                     commandStatus = CommandStatus.FAILED_TERMINAL,
@@ -429,14 +429,14 @@ class StudioAppStore(
             mutableState.value =
                 mutableState.value.copy(
                     snapshot = snapshot,
-                    route = snapshot.toStudioRoute(),
+                    route = snapshot.toHarvestCircleRoute(),
                 )
         }
     }
 
     private fun acceptFailure(error: Throwable) {
         val native = error as? StudioException.Failure
-        val gatewayFailure = (error as? StudioGatewayException)?.failure
+        val gatewayFailure = (error as? HarvestCircleGatewayException)?.failure
         mutableState.value =
             mutableState.value.copy(
                 busy = false,
@@ -476,13 +476,13 @@ class StudioAppStore(
             .onSuccess { receipt ->
                 mutableState.value =
                     mutableState.value.copy(
-                        route = if (receipt.closed) StudioRoute.CLOSED else StudioRoute.FATAL,
+                        route = if (receipt.closed) HarvestCircleRoute.CLOSED else HarvestCircleRoute.FATAL,
                         busy = false,
                         problem = if (receipt.closed) null else "The application could not shut down safely.",
                     )
             }.onFailure { error ->
                 acceptFailure(error)
-                mutableState.value = mutableState.value.copy(route = StudioRoute.FATAL, busy = false)
+                mutableState.value = mutableState.value.copy(route = HarvestCircleRoute.FATAL, busy = false)
             }
     }
 }
@@ -492,17 +492,17 @@ private data class PendingGeneratedRecovery(
     val backup: GeneratedKeyBackup,
 )
 
-internal fun AppSnapshotDto.toStudioRoute(): StudioRoute =
+internal fun AppSnapshotDto.toHarvestCircleRoute(): HarvestCircleRoute =
     when (lifecycle) {
-        AppLifecycleDto.OPENING -> StudioRoute.OPENING
-        AppLifecycleDto.COMPATIBILITY_CHECKING -> StudioRoute.CHECKING_COMPATIBILITY
-        AppLifecycleDto.ACQUIRING_OWNERSHIP -> StudioRoute.ACQUIRING_OWNERSHIP
-        AppLifecycleDto.MIGRATING -> StudioRoute.MIGRATING
-        AppLifecycleDto.RECOVERING -> StudioRoute.RECOVERING
-        AppLifecycleDto.READY -> if (activeAccount != null) StudioRoute.ACTIVE_ACCOUNT else StudioRoute.ACCOUNTS
-        AppLifecycleDto.DEGRADED -> StudioRoute.DEGRADED
-        AppLifecycleDto.BLOCKED -> StudioRoute.BLOCKED
-        AppLifecycleDto.SHUTTING_DOWN -> StudioRoute.SHUTTING_DOWN
-        AppLifecycleDto.CLOSED -> StudioRoute.CLOSED
-        AppLifecycleDto.FATAL -> StudioRoute.FATAL
+        AppLifecycleDto.OPENING -> HarvestCircleRoute.OPENING
+        AppLifecycleDto.COMPATIBILITY_CHECKING -> HarvestCircleRoute.CHECKING_COMPATIBILITY
+        AppLifecycleDto.ACQUIRING_OWNERSHIP -> HarvestCircleRoute.ACQUIRING_OWNERSHIP
+        AppLifecycleDto.MIGRATING -> HarvestCircleRoute.MIGRATING
+        AppLifecycleDto.RECOVERING -> HarvestCircleRoute.RECOVERING
+        AppLifecycleDto.READY -> if (activeAccount != null) HarvestCircleRoute.ACTIVE_ACCOUNT else HarvestCircleRoute.ACCOUNTS
+        AppLifecycleDto.DEGRADED -> HarvestCircleRoute.DEGRADED
+        AppLifecycleDto.BLOCKED -> HarvestCircleRoute.BLOCKED
+        AppLifecycleDto.SHUTTING_DOWN -> HarvestCircleRoute.SHUTTING_DOWN
+        AppLifecycleDto.CLOSED -> HarvestCircleRoute.CLOSED
+        AppLifecycleDto.FATAL -> HarvestCircleRoute.FATAL
     }

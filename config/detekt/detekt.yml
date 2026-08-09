@@ -13,8 +13,8 @@ complexity:
 exceptions:
   TooGenericExceptionCaught:
     excludes:
-      - '**/StudioAppStore.kt'
-      - '**/StudioCoreGateway.kt'
+      - '**/HarvestCircleAppStore.kt'
+      - '**/HarvestCircleCoreGateway.kt'
 
 naming:
   FunctionNaming:

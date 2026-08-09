@@ -21,7 +21,7 @@ import org.radroots.harvestcircle.ffi.SessionStateDto
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-class RadrootsApplicationTest {
+class HarvestCircleApplicationTest {
     @OptIn(ExperimentalTestApi::class)
     @Test
     fun applicationCreatesOneStoreAcrossRecompositionAndClosesItOnDisposal() =
@@ -32,11 +32,11 @@ class RadrootsApplicationTest {
 
             setContent {
                 if (applicationVisible) {
-                    RadrootsApplication { scope ->
+                    HarvestCircleApplication { scope ->
                         factoryCalls += 1
                         val createdGateway = ApplicationGateway()
                         gateway = createdGateway
-                        StudioAppStore(createdGateway, scope)
+                        HarvestCircleAppStore(createdGateway, scope)
                     }
                 }
                 BasicText(
@@ -61,7 +61,7 @@ class RadrootsApplicationTest {
     fun applicationRendersSafeStartupFailureWithoutLeakingInternalMessage() =
         runComposeUiTest {
             setContent {
-                RadrootsApplication {
+                HarvestCircleApplication {
                     error("sensitive internal startup detail")
                 }
             }
@@ -72,14 +72,14 @@ class RadrootsApplicationTest {
         }
 }
 
-private class ApplicationGateway : StudioCoreGateway {
+private class ApplicationGateway : HarvestCircleCoreGateway {
     var closed = false
 
     override fun snapshot() = applicationSnapshot(0UL)
 
-    override suspend fun subscribeChanges(onChange: (StudioChange) -> Unit) = AutoCloseable {}
+    override suspend fun subscribeChanges(onChange: (HarvestCircleChange) -> Unit) = AutoCloseable {}
 
-    override suspend fun execute(command: StudioCommand): StudioCommandResult = error("unused")
+    override suspend fun execute(command: HarvestCircleCommand): HarvestCircleCommandResult = error("unused")
 
     override suspend fun bootstrap() = applicationSnapshot(1UL)
 
@@ -89,9 +89,9 @@ private class ApplicationGateway : StudioCoreGateway {
 
     override suspend fun confirmAccountRemoval(ticket: RemovalTicket) = error("unused")
 
-    override fun shutdown(): StudioShutdownReceipt {
+    override fun shutdown(): HarvestCircleShutdownReceipt {
         closed = true
-        return StudioShutdownReceipt(1UL, closed = true)
+        return HarvestCircleShutdownReceipt(1UL, closed = true)
     }
 
     override fun close() {

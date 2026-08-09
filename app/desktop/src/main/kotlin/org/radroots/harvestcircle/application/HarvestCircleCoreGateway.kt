@@ -35,36 +35,36 @@ interface GeneratedRecoveryTicket : AutoCloseable {
     suspend fun cancel(): Boolean
 }
 
-data class StudioChange(
+data class HarvestCircleChange(
     val snapshot: AppSnapshotDto,
     val previousRevision: ULong?,
 )
 
-sealed interface StudioCommand {
+sealed interface HarvestCircleCommand {
     data class ImportAccount(
         val bytes: ByteArray,
-    ) : StudioCommand
+    ) : HarvestCircleCommand
 
     data class SelectAccount(
         val publicKeyHex: String,
-    ) : StudioCommand
+    ) : HarvestCircleCommand
 
     data class ActivateAccount(
         val publicKeyHex: String,
-    ) : StudioCommand
+    ) : HarvestCircleCommand
 
-    data object SignOut : StudioCommand
+    data object SignOut : HarvestCircleCommand
 
-    data object RefreshProfile : StudioCommand
+    data object RefreshProfile : HarvestCircleCommand
 }
 
-data class StudioCommandReceipt(
+data class HarvestCircleCommandReceipt(
     val requestId: String,
     val committedRevision: ULong,
     val snapshot: AppSnapshotDto,
 )
 
-data class StudioCommandFailure(
+data class HarvestCircleCommandFailure(
     val code: WireErrorCode,
     val category: WireErrorCategory,
     val retryable: Boolean,
@@ -73,27 +73,27 @@ data class StudioCommandFailure(
     val safeMessage: String,
 )
 
-data class StudioShutdownReceipt(
+data class HarvestCircleShutdownReceipt(
     val finalRevision: ULong,
     val closed: Boolean,
 )
 
-sealed interface StudioCommandResult {
+sealed interface HarvestCircleCommandResult {
     data class Accepted(
-        val receipt: StudioCommandReceipt,
-    ) : StudioCommandResult
+        val receipt: HarvestCircleCommandReceipt,
+    ) : HarvestCircleCommandResult
 
     data class Rejected(
-        val failure: StudioCommandFailure,
-    ) : StudioCommandResult
+        val failure: HarvestCircleCommandFailure,
+    ) : HarvestCircleCommandResult
 }
 
-interface StudioCoreGateway : AutoCloseable {
+interface HarvestCircleCoreGateway : AutoCloseable {
     fun snapshot(): AppSnapshotDto
 
-    suspend fun subscribeChanges(onChange: (StudioChange) -> Unit): AutoCloseable
+    suspend fun subscribeChanges(onChange: (HarvestCircleChange) -> Unit): AutoCloseable
 
-    suspend fun execute(command: StudioCommand): StudioCommandResult
+    suspend fun execute(command: HarvestCircleCommand): HarvestCircleCommandResult
 
     suspend fun bootstrap(): AppSnapshotDto
 
@@ -103,53 +103,53 @@ interface StudioCoreGateway : AutoCloseable {
 
     suspend fun confirmAccountRemoval(ticket: RemovalTicket): AppSnapshotDto
 
-    fun shutdown(): StudioShutdownReceipt
+    fun shutdown(): HarvestCircleShutdownReceipt
 }
 
-class NativeStudioCoreGateway(
+class NativeHarvestCircleCoreGateway(
     private val core: StudioAppCore,
-) : StudioCoreGateway {
+) : HarvestCircleCoreGateway {
     private val nextRequest = AtomicLong(1)
     private val shutdownLock = Any()
-    private var shutdownReceipt: StudioShutdownReceipt? = null
+    private var shutdownReceipt: HarvestCircleShutdownReceipt? = null
 
     override fun snapshot(): AppSnapshotDto = core.snapshot()
 
-    override suspend fun subscribeChanges(onChange: (StudioChange) -> Unit): AutoCloseable {
+    override suspend fun subscribeChanges(onChange: (HarvestCircleChange) -> Unit): AutoCloseable {
         val subscription =
             core.subscribeChangesV2(
                 object : StudioChangeObserver {
                     override fun onChange(change: SnapshotChangeDto) {
-                        onChange(StudioChange(change.snapshot, change.previousRevision))
+                        onChange(HarvestCircleChange(change.snapshot, change.previousRevision))
                     }
                 },
             )
         return NativeSubscription(subscription)
     }
 
-    override suspend fun execute(command: StudioCommand): StudioCommandResult {
+    override suspend fun execute(command: HarvestCircleCommand): HarvestCircleCommandResult {
         val context = requestContext()
         return try {
             val snapshot =
                 when (command) {
-                    is StudioCommand.ImportAccount ->
+                    is HarvestCircleCommand.ImportAccount ->
                         try {
                             core.importAccountV2(context, command.bytes).snapshot
                         } finally {
                             command.bytes.fill(0)
                         }
-                    is StudioCommand.SelectAccount -> core.selectAccount(command.publicKeyHex)
-                    is StudioCommand.ActivateAccount -> core.activateAccount(command.publicKeyHex)
-                    StudioCommand.SignOut -> core.signOut()
-                    StudioCommand.RefreshProfile -> core.refreshActiveProfile()
+                    is HarvestCircleCommand.SelectAccount -> core.selectAccount(command.publicKeyHex)
+                    is HarvestCircleCommand.ActivateAccount -> core.activateAccount(command.publicKeyHex)
+                    HarvestCircleCommand.SignOut -> core.signOut()
+                    HarvestCircleCommand.RefreshProfile -> core.refreshActiveProfile()
                 }
-            StudioCommandResult.Accepted(
-                StudioCommandReceipt(context.requestId, snapshot.revision, snapshot),
+            HarvestCircleCommandResult.Accepted(
+                HarvestCircleCommandReceipt(context.requestId, snapshot.revision, snapshot),
             )
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            StudioCommandResult.Rejected(error.toStudioCommandFailure(context.requestId))
+            HarvestCircleCommandResult.Rejected(error.toHarvestCircleCommandFailure(context.requestId))
         }
     }
 
@@ -168,8 +168,8 @@ class NativeStudioCoreGateway(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            throw StudioGatewayException(
-                error.toStudioCommandFailure(
+            throw HarvestCircleGatewayException(
+                error.toHarvestCircleCommandFailure(
                     requestId,
                     "The generated key could not be prepared.",
                 ),
@@ -185,11 +185,11 @@ class NativeStudioCoreGateway(
         return core.confirmAccountRemoval(requestContext(), ticket.request)
     }
 
-    override fun shutdown(): StudioShutdownReceipt =
+    override fun shutdown(): HarvestCircleShutdownReceipt =
         synchronized(shutdownLock) {
             shutdownReceipt ?: run {
                 val receipt = runBlocking { core.shutdownV2() }
-                StudioShutdownReceipt(receipt.finalRevision, receipt.closed).also {
+                HarvestCircleShutdownReceipt(receipt.finalRevision, receipt.closed).also {
                     check(it.closed) { "Native runtime returned an incomplete shutdown receipt" }
                     shutdownReceipt = it
                     core.close()
@@ -211,16 +211,16 @@ class NativeStudioCoreGateway(
     private fun nextRequestId(): String = "kotlin:${nextRequest.getAndIncrement()}"
 }
 
-internal class StudioGatewayException(
-    val failure: StudioCommandFailure,
+internal class HarvestCircleGatewayException(
+    val failure: HarvestCircleCommandFailure,
 ) : Exception(failure.safeMessage)
 
-internal fun Throwable.toStudioCommandFailure(
+internal fun Throwable.toHarvestCircleCommandFailure(
     fallbackCorrelationId: String,
     fallbackSafeMessage: String = "The application command failed.",
-): StudioCommandFailure {
+): HarvestCircleCommandFailure {
     val native = this as? StudioException.Failure
-    return StudioCommandFailure(
+    return HarvestCircleCommandFailure(
         code = native?.code ?: WireErrorCode.INTERNAL,
         category = native?.category ?: WireErrorCategory.INTERNAL,
         retryable = native?.retryable ?: false,
@@ -266,8 +266,8 @@ private class NativeGeneratedRecoveryTicket(
         try {
             request.takeRecoveryNsec()
         } catch (error: Exception) {
-            throw StudioGatewayException(
-                error.toStudioCommandFailure(
+            throw HarvestCircleGatewayException(
+                error.toHarvestCircleCommandFailure(
                     requestId,
                     "The generated recovery key could not be read.",
                 ),
@@ -300,8 +300,8 @@ private class NativeGeneratedRecoveryTicket(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            throw StudioGatewayException(
-                error.toStudioCommandFailure(correlationId, fallbackSafeMessage),
+            throw HarvestCircleGatewayException(
+                error.toHarvestCircleCommandFailure(correlationId, fallbackSafeMessage),
             )
         }
 }

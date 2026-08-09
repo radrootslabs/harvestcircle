@@ -5,18 +5,18 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.CoroutineScope
+import org.radroots.harvestcircle.accounts.ui.HarvestCircleScreen
+import org.radroots.harvestcircle.accounts.ui.HarvestCircleUiActions
 import org.radroots.harvestcircle.accounts.ui.StartupFailureScreen
-import org.radroots.harvestcircle.accounts.ui.StudioScreen
-import org.radroots.harvestcircle.accounts.ui.StudioUiActions
 import org.radroots.harvestcircle.accounts.ui.toUiModel
 import org.radroots.harvestcircle.ffi.StudioAppCore
 import org.radroots.harvestcircle.ffi.StudioException
 import org.radroots.harvestcircle.ffi.compatibilityDescriptor
 
-internal typealias StudioStoreFactory = (CoroutineScope) -> StudioAppStore
+internal typealias HarvestCircleStoreFactory = (CoroutineScope) -> HarvestCircleAppStore
 
 @Composable
-fun RadrootsApplication(storeFactory: StudioStoreFactory = ::createStudioAppStore) {
+fun HarvestCircleApplication(storeFactory: HarvestCircleStoreFactory = ::createHarvestCircleAppStore) {
     val scope = rememberCoroutineScope()
     val storeResult = remember { runCatching { storeFactory(scope) } }
     val store = storeResult.getOrNull()
@@ -37,10 +37,10 @@ fun RadrootsApplication(storeFactory: StudioStoreFactory = ::createStudioAppStor
         }
     }
 
-    StudioScreen(
+    HarvestCircleScreen(
         model = store.state.value.toUiModel(),
         actions =
-            StudioUiActions(
+            HarvestCircleUiActions(
                 chooseCreateAccount = store::chooseCreateAccount,
                 chooseImportAccount = store::chooseImportAccount,
                 cancelAccountEntry = store::cancelAccountEntry,
@@ -64,7 +64,7 @@ fun RadrootsApplication(storeFactory: StudioStoreFactory = ::createStudioAppStor
     )
 }
 
-internal fun createStudioAppStore(scope: CoroutineScope): StudioAppStore {
+internal fun createHarvestCircleAppStore(scope: CoroutineScope): HarvestCircleAppStore {
     val developmentMode = java.lang.Boolean.getBoolean("radroots.studio.development")
     val descriptor = compatibilityDescriptor()
     val core =
@@ -72,5 +72,5 @@ internal fun createStudioAppStore(scope: CoroutineScope): StudioAppStore {
             expectation = verifyNativeCompatibility(descriptor),
             developmentMode = developmentMode,
         )
-    return StudioAppStore(NativeStudioCoreGateway(core), scope)
+    return HarvestCircleAppStore(NativeHarvestCircleCoreGateway(core), scope)
 }

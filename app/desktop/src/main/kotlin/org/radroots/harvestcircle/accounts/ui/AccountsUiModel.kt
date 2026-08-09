@@ -1,10 +1,10 @@
 package org.radroots.harvestcircle.accounts.ui
 
 import org.radroots.harvestcircle.application.AccountEntryMode
+import org.radroots.harvestcircle.application.HarvestCircleRoute
+import org.radroots.harvestcircle.application.HarvestCircleStoreState
 import org.radroots.harvestcircle.application.RemovalImpactState
 import org.radroots.harvestcircle.application.RemovalStatus
-import org.radroots.harvestcircle.application.StudioRoute
-import org.radroots.harvestcircle.application.StudioStoreState
 import org.radroots.harvestcircle.ffi.AccountDto
 import org.radroots.harvestcircle.ffi.ActiveAccountDto
 import org.radroots.harvestcircle.ffi.ProfileLoadStateDto
@@ -46,8 +46,8 @@ class GeneratedKeyBackupUiModel(
     override fun toString(): String = "GeneratedKeyBackupUiModel(npub=$npub, nsec=[REDACTED])"
 }
 
-data class StudioUiModel(
-    val route: StudioRoute,
+data class HarvestCircleUiModel(
+    val route: HarvestCircleRoute,
     val accounts: List<AccountUiModel>,
     val activeAccount: ActiveAccountUiModel?,
     val configuredRelays: List<String>,
@@ -66,7 +66,7 @@ data class StudioUiModel(
     val recoveryAction: WireRecoveryAction,
 )
 
-fun StudioStoreState.toUiModel(): StudioUiModel {
+fun HarvestCircleStoreState.toUiModel(): HarvestCircleUiModel {
     val selectedPublicKeyHex = snapshot.selectedPublicKeyHex
     val activePublicKeyHex = snapshot.activeAccount?.account?.publicKeyHex
     val accounts =
@@ -76,7 +76,7 @@ fun StudioStoreState.toUiModel(): StudioUiModel {
                 active = it.publicKeyHex == activePublicKeyHex,
             )
         }
-    return StudioUiModel(
+    return HarvestCircleUiModel(
         route = route,
         accounts = accounts,
         activeAccount = snapshot.activeAccount?.toUiModel(selectedPublicKeyHex),

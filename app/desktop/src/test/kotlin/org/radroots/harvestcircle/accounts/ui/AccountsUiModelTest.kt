@@ -1,7 +1,7 @@
 package org.radroots.harvestcircle.accounts.ui
 
 import org.radroots.harvestcircle.application.GeneratedKeyBackup
-import org.radroots.harvestcircle.application.StudioStoreState
+import org.radroots.harvestcircle.application.HarvestCircleStoreState
 import org.radroots.harvestcircle.ffi.AccountDto
 import org.radroots.harvestcircle.ffi.ActiveAccountDto
 import org.radroots.harvestcircle.ffi.AppLifecycleDto
@@ -36,7 +36,7 @@ class AccountsUiModelTest {
                     ),
             )
 
-        val model = StudioStoreState(snapshot).toUiModel()
+        val model = HarvestCircleStoreState(snapshot).toUiModel()
 
         assertEquals("Alice", model.activeAccount?.heading)
         assertEquals("connected", model.activeAccount?.relayState)
@@ -57,7 +57,7 @@ class AccountsUiModelTest {
     @Test
     fun mapsSafeProblemAndTransientBackupSeparatelyFromSnapshot() {
         val state =
-            StudioStoreState(
+            HarvestCircleStoreState(
                 snapshot = snapshot(),
                 generatedKeyBackup = GeneratedKeyBackup("npub1generated", "nsec1generated"),
                 problem = "Try again.",
@@ -79,12 +79,12 @@ class AccountsUiModelTest {
     @Test
     fun mapsTypedImportFailuresToSpecificRepairGuidance() {
         val invalid =
-            StudioStoreState(
+            HarvestCircleStoreState(
                 snapshot = snapshot(),
                 lastFailureCode = WireErrorCode.INVALID_SECRET_KEY,
             ).toUiModel()
         val repair =
-            StudioStoreState(
+            HarvestCircleStoreState(
                 snapshot = snapshot(),
                 lastFailureCode = WireErrorCode.CREDENTIAL_MISSING,
                 recoveryAction = WireRecoveryAction.REPAIR_CREDENTIAL,

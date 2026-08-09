@@ -19,12 +19,12 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class StudioAppStoreTest {
+class HarvestCircleAppStoreTest {
     @Test
     fun `bootstraps and ignores stale observer snapshots`() =
         runTest {
-            val gateway = FakeStudioCoreGateway(snapshot(0UL))
-            val store = StudioAppStore(gateway, this)
+            val gateway = FakeHarvestCircleCoreGateway(snapshot(0UL))
+            val store = HarvestCircleAppStore(gateway, this)
 
             advanceUntilIdle()
             gateway.emit(snapshot(1UL))
@@ -37,14 +37,14 @@ class StudioAppStoreTest {
             assertTrue(gateway.closed)
             assertTrue(gateway.shutdownCompleted)
             assertTrue(gateway.subscriptionClosed)
-            assertEquals(StudioRoute.CLOSED, store.state.value.route)
+            assertEquals(HarvestCircleRoute.CLOSED, store.state.value.route)
         }
 
     @Test
     fun `holds generated secret only until explicit acknowledgement`() =
         runTest {
-            val gateway = FakeStudioCoreGateway(snapshot(0UL))
-            val store = StudioAppStore(gateway, this)
+            val gateway = FakeHarvestCircleCoreGateway(snapshot(0UL))
+            val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
 
             store.generateAccount()
@@ -69,8 +69,8 @@ class StudioAppStoreTest {
     @Test
     fun `cancels staged generated account without committing it`() =
         runTest {
-            val gateway = FakeStudioCoreGateway(snapshot(0UL))
-            val store = StudioAppStore(gateway, this)
+            val gateway = FakeHarvestCircleCoreGateway(snapshot(0UL))
+            val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
             val revisionBeforeGeneration = store.state.value.snapshot.revision
             store.generateAccount()
@@ -88,10 +88,10 @@ class StudioAppStoreTest {
     fun `partial generated recovery acquisition cancels and closes its native ticket`() =
         runTest {
             val gateway =
-                FakeStudioCoreGateway(snapshot(0UL)).apply {
+                FakeHarvestCircleCoreGateway(snapshot(0UL)).apply {
                     failGeneratedRecoveryRead = true
                 }
-            val store = StudioAppStore(gateway, this)
+            val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
 
             store.generateAccount()
@@ -107,10 +107,10 @@ class StudioAppStoreTest {
     fun `failed generated acknowledgement releases one-shot recovery ownership`() =
         runTest {
             val gateway =
-                FakeStudioCoreGateway(snapshot(0UL)).apply {
+                FakeHarvestCircleCoreGateway(snapshot(0UL)).apply {
                     failGeneratedAcknowledgement = true
                 }
-            val store = StudioAppStore(gateway, this)
+            val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
             store.generateAccount()
             advanceUntilIdle()
@@ -132,10 +132,10 @@ class StudioAppStoreTest {
     fun `already resolved cancellation clears recovery and reports the state mismatch`() =
         runTest {
             val gateway =
-                FakeStudioCoreGateway(snapshot(0UL)).apply {
+                FakeHarvestCircleCoreGateway(snapshot(0UL)).apply {
                     generatedCancellationResult = false
                 }
-            val store = StudioAppStore(gateway, this)
+            val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
             store.generateAccount()
             advanceUntilIdle()
@@ -153,8 +153,8 @@ class StudioAppStoreTest {
     @Test
     fun `ignores observer delivery after close`() =
         runTest {
-            val gateway = FakeStudioCoreGateway(snapshot(0UL))
-            val store = StudioAppStore(gateway, this)
+            val gateway = FakeHarvestCircleCoreGateway(snapshot(0UL))
+            val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
             val revisionAtClose = store.state.value.snapshot.revision
 
@@ -169,10 +169,10 @@ class StudioAppStoreTest {
     fun `failed removal confirmation clears consumed presentation state`() =
         runTest {
             val gateway =
-                FakeStudioCoreGateway(snapshot(0UL)).apply {
+                FakeHarvestCircleCoreGateway(snapshot(0UL)).apply {
                     failRemovalConfirmation = true
                 }
-            val store = StudioAppStore(gateway, this)
+            val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
 
             store.requestAccountRemoval("00".repeat(32))
@@ -191,8 +191,8 @@ class StudioAppStoreTest {
     @Test
     fun `serializes commands while one is active`() =
         runTest {
-            val gateway = FakeStudioCoreGateway(snapshot(0UL))
-            val store = StudioAppStore(gateway, this)
+            val gateway = FakeHarvestCircleCoreGateway(snapshot(0UL))
+            val store = HarvestCircleAppStore(gateway, this)
 
             store.signOut()
             assertEquals(CommandStatus.REJECTED_BUSY, store.state.value.commandStatus)
@@ -208,12 +208,12 @@ class StudioAppStoreTest {
     @Test
     fun `projects retryable command rejection without dropping intent`() =
         runTest {
-            val gateway = FakeStudioCoreGateway(snapshot(0UL))
-            val store = StudioAppStore(gateway, this)
+            val gateway = FakeHarvestCircleCoreGateway(snapshot(0UL))
+            val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
             gateway.nextCommandResult =
-                StudioCommandResult.Rejected(
-                    StudioCommandFailure(
+                HarvestCircleCommandResult.Rejected(
+                    HarvestCircleCommandFailure(
                         WireErrorCode.STORAGE_UNAVAILABLE,
                         WireErrorCategory.STORAGE,
                         retryable = true,
@@ -239,8 +239,8 @@ class StudioAppStoreTest {
     @Test
     fun `clears imported secret draft as soon as command is accepted`() =
         runTest {
-            val gateway = FakeStudioCoreGateway(snapshot(0UL))
-            val store = StudioAppStore(gateway, this)
+            val gateway = FakeHarvestCircleCoreGateway(snapshot(0UL))
+            val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
             store.editImportDraft("nsec1secret")
 
@@ -257,8 +257,8 @@ class StudioAppStoreTest {
     @Test
     fun `bounds imported secret presentation input before transport`() =
         runTest {
-            val gateway = FakeStudioCoreGateway(snapshot(0UL))
-            val store = StudioAppStore(gateway, this)
+            val gateway = FakeHarvestCircleCoreGateway(snapshot(0UL))
+            val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
 
             store.editImportDraft("x".repeat(MAX_IMPORT_SECRET_CHARS + 50))
@@ -271,17 +271,17 @@ class StudioAppStoreTest {
     fun `projects boot fatal and terminal lifecycle failures`() =
         runTest {
             val booting = snapshot(0UL, AppLifecycleDto.OPENING)
-            val bootGateway = FakeStudioCoreGateway(booting, booting)
-            val bootStore = StudioAppStore(bootGateway, this)
+            val bootGateway = FakeHarvestCircleCoreGateway(booting, booting)
+            val bootStore = HarvestCircleAppStore(bootGateway, this)
             advanceUntilIdle()
-            assertEquals(StudioRoute.OPENING, bootStore.state.value.route)
+            assertEquals(HarvestCircleRoute.OPENING, bootStore.state.value.route)
             bootStore.close()
 
             val fatal = snapshot(1UL, AppLifecycleDto.FATAL)
-            val gateway = FakeStudioCoreGateway(fatal, fatal)
-            val store = StudioAppStore(gateway, this)
+            val gateway = FakeHarvestCircleCoreGateway(fatal, fatal)
+            val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
-            assertEquals(StudioRoute.FATAL, store.state.value.route)
+            assertEquals(HarvestCircleRoute.FATAL, store.state.value.route)
             store.signOut()
             advanceUntilIdle()
             assertEquals(CommandStatus.FAILED_TERMINAL, store.state.value.commandStatus)
@@ -296,35 +296,35 @@ class StudioAppStoreTest {
     fun `disposal waits for native shutdown and fails closed on an incomplete receipt`() =
         runTest {
             val gateway =
-                FakeStudioCoreGateway(snapshot(0UL)).apply {
-                    shutdownReceipt = StudioShutdownReceipt(1UL, closed = false)
+                FakeHarvestCircleCoreGateway(snapshot(0UL)).apply {
+                    shutdownReceipt = HarvestCircleShutdownReceipt(1UL, closed = false)
                 }
-            val store = StudioAppStore(gateway, this)
+            val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
 
             store.close()
 
             assertTrue(gateway.shutdownCompleted)
-            assertEquals(StudioRoute.FATAL, store.state.value.route)
+            assertEquals(HarvestCircleRoute.FATAL, store.state.value.route)
             assertEquals("The application could not shut down safely.", store.state.value.problem)
         }
 }
 
-private class FakeStudioCoreGateway(
+private class FakeHarvestCircleCoreGateway(
     private var current: AppSnapshotDto,
     private val bootstrapSnapshot: AppSnapshotDto = snapshot(1UL),
-) : StudioCoreGateway {
+) : HarvestCircleCoreGateway {
     private var observer: ((AppSnapshotDto) -> Unit)? = null
     var closed = false
     var shutdownCompleted = false
-    var shutdownReceipt = StudioShutdownReceipt(current.revision, closed = true)
+    var shutdownReceipt = HarvestCircleShutdownReceipt(current.revision, closed = true)
     var subscriptionClosed = false
     var signOutCalls = 0
     val importedSecrets = mutableListOf<String>()
     var lastImportBuffer: ByteArray? = null
     var failRemovalConfirmation = false
     var lastRemovalTicket: FakeRemovalTicket? = null
-    var nextCommandResult: StudioCommandResult? = null
+    var nextCommandResult: HarvestCircleCommandResult? = null
     var failGeneratedRecoveryRead = false
     var failGeneratedAcknowledgement = false
     var generatedCancellationResult = true
@@ -332,27 +332,27 @@ private class FakeStudioCoreGateway(
 
     override fun snapshot(): AppSnapshotDto = current
 
-    override suspend fun subscribeChanges(onChange: (StudioChange) -> Unit): AutoCloseable {
-        observer = { snapshot -> onChange(StudioChange(snapshot, null)) }
+    override suspend fun subscribeChanges(onChange: (HarvestCircleChange) -> Unit): AutoCloseable {
+        observer = { snapshot -> onChange(HarvestCircleChange(snapshot, null)) }
         return AutoCloseable { subscriptionClosed = true }
     }
 
-    override suspend fun execute(command: StudioCommand): StudioCommandResult {
+    override suspend fun execute(command: HarvestCircleCommand): HarvestCircleCommandResult {
         nextCommandResult?.let {
             nextCommandResult = null
             return it
         }
         when (command) {
-            is StudioCommand.ImportAccount -> {
+            is HarvestCircleCommand.ImportAccount -> {
                 lastImportBuffer = command.bytes
                 importedSecrets += command.bytes.decodeToString()
                 command.bytes.fill(0)
             }
-            StudioCommand.SignOut -> signOutCalls += 1
+            HarvestCircleCommand.SignOut -> signOutCalls += 1
             else -> Unit
         }
-        return StudioCommandResult.Accepted(
-            StudioCommandReceipt("fake-request", current.revision, current),
+        return HarvestCircleCommandResult.Accepted(
+            HarvestCircleCommandReceipt("fake-request", current.revision, current),
         )
     }
 
@@ -382,7 +382,7 @@ private class FakeStudioCoreGateway(
         return current
     }
 
-    override fun shutdown(): StudioShutdownReceipt {
+    override fun shutdown(): HarvestCircleShutdownReceipt {
         shutdownCompleted = true
         closed = true
         return shutdownReceipt
@@ -413,8 +413,8 @@ private class FakeGeneratedRecoveryTicket(
     override suspend fun acknowledge(): AppSnapshotDto {
         if (failAcknowledgement) {
             available = false
-            throw StudioGatewayException(
-                StudioCommandFailure(
+            throw HarvestCircleGatewayException(
+                HarvestCircleCommandFailure(
                     WireErrorCode.KEYRING_UNAVAILABLE,
                     WireErrorCategory.CREDENTIAL,
                     retryable = false,
