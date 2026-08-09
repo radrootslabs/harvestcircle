@@ -1,0 +1,29 @@
+[package]
+name = "radroots_studio_nostr"
+description = "Private Nostr adapter for Radroots Studio"
+version = "0.1.0-alpha"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license = "GPL-3.0-only"
+repository.workspace = true
+homepage.workspace = true
+publish = false
+include = ["src/**", "Cargo.toml"]
+
+[dependencies]
+nostr = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr" }
+nostr-sdk = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr-sdk" }
+radroots_studio_application.workspace = true
+radroots_studio_domain.workspace = true
+radroots_identity.workspace = true
+radroots_transport.workspace = true
+radroots_transport_nostr.workspace = true
+tokio = { version = "=1.47.1", features = ["sync", "time"] }
+
+[dev-dependencies]
+nostr-relay-builder = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr-relay-builder" }
+tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+
+[lints]
+workspace = true

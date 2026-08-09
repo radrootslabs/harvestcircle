@@ -1524,6 +1524,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "nostr-relay-builder"
+version = "0.44.0"
+source = "git+https://github.com/rust-nostr/nostr.git?rev=5bba5163eb77107f82c4a8262cf29d7f33a73219#5bba5163eb77107f82c4a8262cf29d7f33a73219"
+dependencies = [
+ "async-utility",
+ "async-wsocket",
+ "atomic-destructor",
+ "hex",
+ "negentropy",
+ "nostr 0.44.1",
+ "nostr-database 0.44.0 (git+https://github.com/rust-nostr/nostr.git?rev=5bba5163eb77107f82c4a8262cf29d7f33a73219)",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "nostr-relay-pool"
 version = "0.44.0"
 source = "git+https://github.com/rust-nostr/nostr.git?rev=5bba5163eb77107f82c4a8262cf29d7f33a73219#5bba5163eb77107f82c4a8262cf29d7f33a73219"
@@ -1991,13 +2007,28 @@ dependencies = [
  "quote",
  "radroots_studio_application 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "radroots_studio_domain 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
- "radroots_studio_nostr",
+ "radroots_studio_nostr 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "radroots_studio_runtime",
  "radroots_studio_storage 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "sha2",
  "syn 2.0.119",
  "tokio",
  "uniffi",
+]
+
+[[package]]
+name = "radroots_studio_nostr"
+version = "0.1.0-alpha"
+dependencies = [
+ "nostr 0.44.1",
+ "nostr-relay-builder",
+ "nostr-sdk 0.44.0",
+ "radroots_identity",
+ "radroots_studio_application 0.1.0-alpha",
+ "radroots_studio_domain 0.1.0-alpha",
+ "radroots_transport",
+ "radroots_transport_nostr",
+ "tokio",
 ]
 
 [[package]]
@@ -2029,7 +2060,7 @@ source = "git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c
 dependencies = [
  "radroots_studio_application 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "radroots_studio_domain 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
- "radroots_studio_nostr",
+ "radroots_studio_nostr 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "radroots_studio_storage 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "tokio",
  "uuid",
@@ -2042,7 +2073,7 @@ dependencies = [
  "radroots_studio_application 0.1.0-alpha",
  "radroots_studio_domain 0.1.0-alpha",
  "radroots_studio_ffi",
- "radroots_studio_nostr",
+ "radroots_studio_nostr 0.1.0-alpha",
  "radroots_studio_preferences",
  "radroots_studio_runtime",
  "radroots_studio_storage 0.1.0-alpha",
