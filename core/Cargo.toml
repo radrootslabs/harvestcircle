@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/source_lock",
+  "crates/studio_application",
   "crates/studio_domain",
   "crates/studio_preferences",
 ]
@@ -23,7 +24,7 @@ all = "deny"
 pedantic = "deny"
 
 [workspace.dependencies]
-radroots_studio_application = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha" }
+radroots_studio_application = { path = "crates/studio_application", version = "=0.1.0-alpha" }
 radroots_studio_domain = { path = "crates/studio_domain", version = "=0.1.0-alpha" }
 radroots_studio_ffi = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha" }
 radroots_studio_nostr = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha" }

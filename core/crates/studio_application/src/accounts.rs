@@ -1,0 +1,1822 @@
+use std::sync::{Mutex, MutexGuard};
+
+use crate::{
+    AccountOperationKind, AccountOperationPhase, AccountRepository, AppCore, AppStateRepository,
+    Clock, DurableOperationKind, DurableOperationPhase, DurableOperationRepository,
+    DurableOperationStart, DurableRequestId, DurableTerminalOutcome, OperationDiagnostic,
+    OperationId, OperationJournal, OperationPriorState, PendingAccountOperation,
+    RemovalConfirmationToken, SecretStore, StagedGeneratedKey, StateTransition,
+};
+use radroots_studio_domain::{
+    AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
+    Nsec, PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput,
+};
+
+pub struct GenerateAccountReceipt {
+    account: AccountSummary,
+    generated_nsec: Nsec,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImportAccountReceipt {
+    account: AccountSummary,
+}
+
+impl ImportAccountReceipt {
+    #[must_use]
+    pub const fn account(&self) -> &AccountSummary {
+        &self.account
+    }
+}
+
+impl GenerateAccountReceipt {
+    #[must_use]
+    pub const fn account(&self) -> &AccountSummary {
+        &self.account
+    }
+
+    #[must_use]
+    pub const fn generated_nsec(&self) -> &Nsec {
+        &self.generated_nsec
+    }
+}
+
+impl AppCore {
+    /// Commits a staged generated key only after its recovery acknowledgement.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe conflict, keyring, persistence, or recovery error.
+    #[allow(clippy::too_many_arguments)]
+    pub fn commit_staged_generated_key(
+        &self,
+        request_id: &DurableRequestId,
+        staged: StagedGeneratedKey,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+        secrets: &(impl SecretStore + ?Sized),
+        operations: &(impl DurableOperationRepository + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<ImportAccountReceipt, SafeError> {
+        let expected_revision = staged.expected_revision();
+        self.require_revision(expected_revision)?;
+        let (account, secret) = staged.into_commit_parts();
+        self.persist_account_durable(
+            request_id,
+            DurableOperationKind::Create,
+            expected_revision,
+            &account,
+            secret,
+            None,
+            accounts,
+            app_state,
+            secrets,
+            operations,
+            clock,
+        )?;
+        Ok(ImportAccountReceipt { account })
+    }
+
+    /// Generates and commits one account under a durable caller request.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe conflict, keyring, persistence, or state error. Staged recovery transport
+    /// replaces this transitional generated-secret receipt in the custody phase.
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_account_durable(
+        &self,
+        request_id: &DurableRequestId,
+        expected_revision: u64,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+        secrets: &(impl SecretStore + ?Sized),
+        operations: &(impl DurableOperationRepository + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<GenerateAccountReceipt, SafeError> {
+        self.require_revision(expected_revision)?;
+        let generated = self.key_material().generate()?;
+        let (public_key, npub, secret, nsec) = generated.into_parts();
+        let account = AccountSummary::new(
+            AccountIdentity::verify(public_key, npub.as_str().to_owned())?,
+            LocalSignerBinding::new(public_key, BindingAvailability::Available),
+            None,
+            AccountCreatedAt::new(clock.now()),
+            None,
+        )?;
+        self.persist_account_durable(
+            request_id,
+            DurableOperationKind::Create,
+            expected_revision,
+            &account,
+            secret,
+            None,
+            accounts,
+            app_state,
+            secrets,
+            operations,
+            clock,
+        )?;
+        Ok(GenerateAccountReceipt {
+            account,
+            generated_nsec: nsec,
+        })
+    }
+
+    /// Imports or explicitly repairs one local account under a durable caller request.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe conflict, validation, keyring, persistence, or state error.
+    #[allow(clippy::too_many_arguments)]
+    pub fn import_secret_key_durable(
+        &self,
+        request_id: &DurableRequestId,
+        expected_revision: u64,
+        input: SecretKeyInput,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+        secrets: &(impl SecretStore + ?Sized),
+        operations: &(impl DurableOperationRepository + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<ImportAccountReceipt, SafeError> {
+        if let Some(existing) = operations.load_durable_operation(request_id)? {
+            return if existing
+                .terminal()
+                .is_some_and(|receipt| receipt.outcome() == DurableTerminalOutcome::Completed)
+            {
+                accounts
+                    .find_account(existing.account())?
+                    .map(|account| ImportAccountReceipt { account })
+                    .ok_or_else(recovery_required)
+            } else {
+                Err(recovery_required())
+            };
+        }
+        self.require_revision(expected_revision)?;
+        let imported = self.key_material().import(input)?;
+        let (public_key, npub, secret) = imported.into_parts();
+        let previous = accounts.find_account(public_key)?;
+        if let Some(existing) = &previous
+            && (existing.signer().availability() != BindingAvailability::CredentialMissing
+                || secrets.contains(public_key)?)
+        {
+            return Err(account_exists());
+        }
+        if previous.is_none() && secrets.contains(public_key)? {
+            return Err(account_exists());
+        }
+        let account = if let Some(existing) = &previous {
+            existing.with_binding_availability(BindingAvailability::Available)
+        } else {
+            AccountSummary::new(
+                AccountIdentity::verify(public_key, npub.as_str().to_owned())?,
+                LocalSignerBinding::new(public_key, BindingAvailability::Available),
+                None,
+                AccountCreatedAt::new(clock.now()),
+                None,
+            )?
+        };
+        let kind = if previous.is_some() {
+            DurableOperationKind::Repair
+        } else {
+            DurableOperationKind::Import
+        };
+        self.persist_account_durable(
+            request_id,
+            kind,
+            expected_revision,
+            &account,
+            secret,
+            previous.as_ref(),
+            accounts,
+            app_state,
+            secrets,
+            operations,
+            clock,
+        )?;
+        Ok(ImportAccountReceipt { account })
+    }
+
+    fn require_revision(&self, expected_revision: u64) -> Result<(), SafeError> {
+        if self.snapshot().revision().value() != expected_revision {
+            return Err(operation_conflict());
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn persist_account_durable(
+        &self,
+        request_id: &DurableRequestId,
+        kind: DurableOperationKind,
+        expected_revision: u64,
+        account: &AccountSummary,
+        secret: SecretKeyInput,
+        previous: Option<&AccountSummary>,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+        secrets: &(impl SecretStore + ?Sized),
+        operations: &(impl DurableOperationRepository + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<(), SafeError> {
+        let prior = OperationPriorState::new(
+            app_state.load_selected_account()?,
+            previous.map(|account| account.signer().availability()),
+        );
+        match operations.begin_durable_operation(
+            request_id,
+            kind,
+            account.public_key(),
+            Some(expected_revision),
+            prior,
+            clock.now(),
+        )? {
+            DurableOperationStart::Started(_) => {}
+            DurableOperationStart::Existing(operation) => {
+                return if operation
+                    .terminal()
+                    .is_some_and(|receipt| receipt.outcome() == DurableTerminalOutcome::Completed)
+                {
+                    Ok(())
+                } else {
+                    Err(recovery_required())
+                };
+            }
+        }
+        secrets.put(account.public_key(), secret)?;
+        operations.advance_durable_operation(
+            request_id,
+            DurableOperationPhase::IntentRecorded,
+            DurableOperationPhase::CredentialWritten,
+            clock.now(),
+            None,
+        )?;
+        previous.map_or_else(
+            || accounts.insert_account(account),
+            |_| accounts.update_account(account),
+        )?;
+        operations.advance_durable_operation(
+            request_id,
+            DurableOperationPhase::CredentialWritten,
+            DurableOperationPhase::MetadataCommitted,
+            clock.now(),
+            None,
+        )?;
+        app_state.save_selected_account(Some(account.public_key()))?;
+        operations.advance_durable_operation(
+            request_id,
+            DurableOperationPhase::MetadataCommitted,
+            DurableOperationPhase::SelectionCommitted,
+            clock.now(),
+            None,
+        )?;
+        let snapshot = self.apply_transition(StateTransition::ReplaceRegistry {
+            accounts: accounts.list_accounts()?,
+            selected: Some(account.public_key()),
+        })?;
+        operations.finalize_durable_operation(
+            request_id,
+            DurableOperationPhase::SelectionCommitted,
+            DurableTerminalOutcome::Completed,
+            Some(snapshot.revision().value()),
+            clock.now(),
+        )?;
+        Ok(())
+    }
+
+    /// Issues a single-use confirmation bound to the target and current revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe account or application-state error.
+    pub fn request_account_removal(
+        &self,
+        public_key: PublicKey,
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<RemovalConfirmationToken, SafeError> {
+        self.issue_removal_token(public_key, clock.now())
+    }
+
+    pub fn cancel_account_removal(&self, token: RemovalConfirmationToken) -> bool {
+        self.cancel_removal_token(token)
+    }
+
+    /// Permanently removes a confirmed account and selects a deterministic fallback.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe confirmation, credential, persistence, recovery, or state error.
+    pub fn confirm_account_removal(
+        &self,
+        token: RemovalConfirmationToken,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+        secrets: &(impl SecretStore + ?Sized),
+        journal: &(impl OperationJournal + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<crate::AppSnapshot, SafeError> {
+        let public_key = self.consume_removal_token(token, clock.now())?;
+        let registry = accounts.list_accounts()?;
+        let index = registry
+            .iter()
+            .position(|account| account.public_key() == public_key)
+            .ok_or_else(account_not_found)?;
+        let selected = if self.snapshot().selected_account() == Some(public_key) {
+            registry
+                .get(index + 1)
+                .or_else(|| index.checked_sub(1).and_then(|before| registry.get(before)))
+                .map(AccountSummary::public_key)
+        } else {
+            self.snapshot().selected_account()
+        };
+        let operation =
+            journal.begin_operation(AccountOperationKind::Remove, public_key, clock.now())?;
+        let was_active = self
+            .snapshot()
+            .active_account()
+            .is_some_and(|active| active.account().public_key() == public_key);
+        if was_active {
+            self.sign_out()?;
+        }
+        let account = &registry[index];
+        match secrets.delete(public_key) {
+            Ok(()) => {}
+            Err(error)
+                if error.code() == SafeErrorCode::CredentialMissing
+                    && account.signer().availability()
+                        == BindingAvailability::CredentialMissing => {}
+            Err(error) => return Err(error),
+        }
+        journal.update_operation(
+            operation,
+            AccountOperationPhase::CredentialDeleted,
+            clock.now(),
+            None,
+        )?;
+        accounts.remove_account(public_key)?;
+        app_state.save_selected_account(selected)?;
+        journal.update_operation(
+            operation,
+            AccountOperationPhase::MetadataDeleted,
+            clock.now(),
+            None,
+        )?;
+        journal.finalize_operation(operation)?;
+        self.apply_transition(StateTransition::ReplaceRegistryPreservingSession {
+            accounts: accounts.list_accounts()?,
+            selected,
+        })
+    }
+
+    /// Confirms and executes an expiring removal plan as a durable request.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe expiry, conflict, credential, persistence, or recovery error.
+    #[allow(clippy::too_many_arguments)]
+    pub fn confirm_account_removal_durable(
+        &self,
+        request_id: &DurableRequestId,
+        token: RemovalConfirmationToken,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+        secrets: &(impl SecretStore + ?Sized),
+        operations: &(impl DurableOperationRepository + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<crate::AppSnapshot, SafeError> {
+        let expected_revision = token.revision().value();
+        let public_key = self.consume_removal_token(token, clock.now())?;
+        self.require_revision(expected_revision)?;
+        let registry = accounts.list_accounts()?;
+        let index = registry
+            .iter()
+            .position(|account| account.public_key() == public_key)
+            .ok_or_else(account_not_found)?;
+        let selected = if self.snapshot().selected_account() == Some(public_key) {
+            registry
+                .get(index + 1)
+                .or_else(|| index.checked_sub(1).and_then(|before| registry.get(before)))
+                .map(AccountSummary::public_key)
+        } else {
+            self.snapshot().selected_account()
+        };
+        let account = &registry[index];
+        match operations.begin_durable_operation(
+            request_id,
+            DurableOperationKind::Remove,
+            public_key,
+            Some(expected_revision),
+            OperationPriorState::new(selected, Some(account.signer().availability())),
+            clock.now(),
+        )? {
+            DurableOperationStart::Started(_) => {}
+            DurableOperationStart::Existing(operation) => {
+                return if operation
+                    .terminal()
+                    .is_some_and(|receipt| receipt.outcome() == DurableTerminalOutcome::Completed)
+                {
+                    Ok(self.snapshot())
+                } else {
+                    Err(recovery_required())
+                };
+            }
+        }
+        if self
+            .snapshot()
+            .active_account()
+            .is_some_and(|active| active.account().public_key() == public_key)
+        {
+            self.sign_out()?;
+        }
+        match secrets.delete(public_key) {
+            Ok(()) => {}
+            Err(error)
+                if error.code() == SafeErrorCode::CredentialMissing
+                    && account.signer().availability()
+                        == BindingAvailability::CredentialMissing => {}
+            Err(error) => return Err(error),
+        }
+        operations.advance_durable_operation(
+            request_id,
+            DurableOperationPhase::IntentRecorded,
+            DurableOperationPhase::CredentialDeleted,
+            clock.now(),
+            None,
+        )?;
+        accounts.remove_account(public_key)?;
+        operations.advance_durable_operation(
+            request_id,
+            DurableOperationPhase::CredentialDeleted,
+            DurableOperationPhase::MetadataDeleted,
+            clock.now(),
+            None,
+        )?;
+        app_state.save_selected_account(selected)?;
+        operations.advance_durable_operation(
+            request_id,
+            DurableOperationPhase::MetadataDeleted,
+            DurableOperationPhase::SelectionCommitted,
+            clock.now(),
+            None,
+        )?;
+        let snapshot =
+            self.apply_transition(StateTransition::ReplaceRegistryPreservingSession {
+                accounts: accounts.list_accounts()?,
+                selected,
+            })?;
+        operations.finalize_durable_operation(
+            request_id,
+            DurableOperationPhase::SelectionCommitted,
+            DurableTerminalOutcome::Completed,
+            Some(snapshot.revision().value()),
+            clock.now(),
+        )?;
+        Ok(snapshot)
+    }
+
+    /// Persists and publishes a saved account selection without activating it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe account, persistence, or application-state error.
+    pub fn select_account(
+        &self,
+        public_key: PublicKey,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+    ) -> Result<crate::AppSnapshot, SafeError> {
+        if accounts.find_account(public_key)?.is_none() {
+            return Err(account_not_found());
+        }
+        app_state.save_selected_account(Some(public_key))?;
+        self.apply_transition(StateTransition::Select(public_key))
+    }
+
+    /// Generates, stores, and selects one local Nostr account without activating it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe key, credential, persistence, or application-state error.
+    pub fn generate_account(
+        &self,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+        secrets: &(impl SecretStore + ?Sized),
+        journal: &(impl OperationJournal + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<GenerateAccountReceipt, SafeError> {
+        let generated = self.key_material().generate()?;
+        let (public_key, npub, secret, nsec) = generated.into_parts();
+        let account = AccountSummary::new(
+            AccountIdentity::verify(public_key, npub.as_str().to_owned())?,
+            LocalSignerBinding::new(public_key, BindingAvailability::Available),
+            None,
+            AccountCreatedAt::new(clock.now()),
+            None,
+        )?;
+        Self::persist_account_transaction(
+            AccountOperationKind::Add,
+            &account,
+            secret,
+            None,
+            accounts,
+            app_state,
+            secrets,
+            journal,
+            clock,
+        )?;
+        let registry = accounts.list_accounts()?;
+        self.apply_transition(StateTransition::ReplaceRegistry {
+            accounts: registry,
+            selected: Some(public_key),
+        })?;
+        Ok(GenerateAccountReceipt {
+            account,
+            generated_nsec: nsec,
+        })
+    }
+
+    /// Imports, stores, and selects one local Nostr account without activating it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe key, credential, persistence, or application-state error.
+    pub fn import_secret_key(
+        &self,
+        input: SecretKeyInput,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+        secrets: &(impl SecretStore + ?Sized),
+        journal: &(impl OperationJournal + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<ImportAccountReceipt, SafeError> {
+        let imported = self.key_material().import(input)?;
+        let (public_key, npub, secret) = imported.into_parts();
+        if let Some(existing) = accounts.find_account(public_key)? {
+            if existing.signer().availability() != BindingAvailability::CredentialMissing
+                || secrets.contains(public_key)?
+            {
+                return Err(account_exists());
+            }
+            let repaired = existing.with_binding_availability(BindingAvailability::Available);
+            Self::persist_account_transaction(
+                AccountOperationKind::Import,
+                &repaired,
+                secret,
+                Some(&existing),
+                accounts,
+                app_state,
+                secrets,
+                journal,
+                clock,
+            )?;
+            self.apply_transition(StateTransition::ReplaceRegistry {
+                accounts: accounts.list_accounts()?,
+                selected: Some(public_key),
+            })?;
+            return Ok(ImportAccountReceipt { account: repaired });
+        }
+        if secrets.contains(public_key)? {
+            return Err(account_exists());
+        }
+        let account = AccountSummary::new(
+            AccountIdentity::verify(public_key, npub.as_str().to_owned())?,
+            LocalSignerBinding::new(public_key, BindingAvailability::Available),
+            None,
+            AccountCreatedAt::new(clock.now()),
+            None,
+        )?;
+        Self::persist_account_transaction(
+            AccountOperationKind::Import,
+            &account,
+            secret,
+            None,
+            accounts,
+            app_state,
+            secrets,
+            journal,
+            clock,
+        )?;
+        self.apply_transition(StateTransition::ReplaceRegistry {
+            accounts: accounts.list_accounts()?,
+            selected: Some(public_key),
+        })?;
+        Ok(ImportAccountReceipt { account })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn persist_account_transaction(
+        kind: AccountOperationKind,
+        account: &AccountSummary,
+        secret: SecretKeyInput,
+        previous: Option<&AccountSummary>,
+        accounts: &(impl AccountRepository + ?Sized),
+        app_state: &(impl AppStateRepository + ?Sized),
+        secrets: &(impl SecretStore + ?Sized),
+        journal: &(impl OperationJournal + ?Sized),
+        clock: &(impl Clock + ?Sized),
+    ) -> Result<(), SafeError> {
+        let public_key = account.public_key();
+        let previous_selection = app_state.load_selected_account()?;
+        let operation = journal.begin_operation(kind, public_key, clock.now())?;
+        if let Err(error) = secrets.put(public_key, secret) {
+            let _ = journal.finalize_operation(operation);
+            return Err(error);
+        }
+        if let Err(error) = journal.update_operation(
+            operation,
+            AccountOperationPhase::CredentialWritten,
+            clock.now(),
+            None,
+        ) {
+            return compensate_account_write(
+                operation,
+                public_key,
+                error,
+                None,
+                previous_selection,
+                accounts,
+                app_state,
+                secrets,
+                journal,
+                clock,
+            );
+        }
+        let metadata_result = previous.map_or_else(
+            || accounts.insert_account(account),
+            |_| accounts.update_account(account),
+        );
+        if let Err(error) = metadata_result {
+            return compensate_account_write(
+                operation,
+                public_key,
+                error,
+                previous,
+                previous_selection,
+                accounts,
+                app_state,
+                secrets,
+                journal,
+                clock,
+            );
+        }
+        if let Err(error) = app_state.save_selected_account(Some(public_key)) {
+            return compensate_account_write(
+                operation,
+                public_key,
+                error,
+                previous,
+                previous_selection,
+                accounts,
+                app_state,
+                secrets,
+                journal,
+                clock,
+            );
+        }
+        journal.update_operation(
+            operation,
+            AccountOperationPhase::MetadataCommitted,
+            clock.now(),
+            None,
+        )?;
+        journal.finalize_operation(operation)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compensate_account_write(
+    operation: OperationId,
+    public_key: PublicKey,
+    original_error: SafeError,
+    previous: Option<&AccountSummary>,
+    previous_selection: Option<PublicKey>,
+    accounts: &(impl AccountRepository + ?Sized),
+    app_state: &(impl AppStateRepository + ?Sized),
+    secrets: &(impl SecretStore + ?Sized),
+    journal: &(impl OperationJournal + ?Sized),
+    clock: &(impl Clock + ?Sized),
+) -> Result<(), SafeError> {
+    let metadata_rollback = if let Some(previous) = previous {
+        accounts.update_account(previous)
+    } else {
+        accounts.remove_account(public_key)
+    };
+    let selection_rollback = app_state.save_selected_account(previous_selection);
+    let credential_rollback = secrets.delete(public_key);
+    if metadata_rollback.is_err() || selection_rollback.is_err() || credential_rollback.is_err() {
+        let _ = journal.update_operation(
+            operation,
+            AccountOperationPhase::CompensationPending,
+            clock.now(),
+            Some(OperationDiagnostic::CompensationFailed),
+        );
+        return Err(recovery_required());
+    }
+    let _ = journal.finalize_operation(operation);
+    Err(original_error)
+}
+
+#[derive(Default)]
+pub struct InMemoryOperationJournal {
+    state: Mutex<InMemoryJournalState>,
+}
+
+#[derive(Default)]
+struct InMemoryJournalState {
+    next_id: u64,
+    pending: Vec<PendingAccountOperation>,
+}
+
+impl OperationJournal for InMemoryOperationJournal {
+    fn begin_operation(
+        &self,
+        kind: AccountOperationKind,
+        subject: PublicKey,
+        updated_at: radroots_studio_domain::UnixTimestamp,
+    ) -> Result<OperationId, SafeError> {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.next_id = state.next_id.checked_add(1).ok_or_else(recovery_required)?;
+        let id = OperationId::from_raw(state.next_id);
+        state.pending.push(PendingAccountOperation::new(
+            id,
+            kind,
+            subject,
+            AccountOperationPhase::IntentRecorded,
+            updated_at,
+            None,
+        ));
+        Ok(id)
+    }
+
+    fn update_operation(
+        &self,
+        id: OperationId,
+        phase: AccountOperationPhase,
+        updated_at: radroots_studio_domain::UnixTimestamp,
+        diagnostic: Option<OperationDiagnostic>,
+    ) -> Result<(), SafeError> {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let operation = state
+            .pending
+            .iter_mut()
+            .find(|operation| operation.id() == id)
+            .ok_or_else(recovery_required)?;
+        *operation = PendingAccountOperation::new(
+            id,
+            operation.kind(),
+            operation.subject(),
+            phase,
+            updated_at,
+            diagnostic,
+        );
+        Ok(())
+    }
+
+    fn list_pending_operations(&self) -> Result<Vec<PendingAccountOperation>, SafeError> {
+        Ok(self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pending
+            .clone())
+    }
+
+    fn finalize_operation(&self, id: OperationId) -> Result<(), SafeError> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pending
+            .retain(|operation| operation.id() != id);
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+pub struct InMemoryAccountRepository {
+    state: Mutex<InMemoryAccountState>,
+}
+
+#[derive(Default)]
+struct InMemoryAccountState {
+    accounts: Vec<AccountSummary>,
+    selected: Option<PublicKey>,
+}
+
+impl InMemoryAccountRepository {
+    fn state(&self) -> MutexGuard<'_, InMemoryAccountState> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+impl AccountRepository for InMemoryAccountRepository {
+    fn list_accounts(&self) -> Result<Vec<AccountSummary>, SafeError> {
+        Ok(self.state().accounts.clone())
+    }
+
+    fn find_account(&self, public_key: PublicKey) -> Result<Option<AccountSummary>, SafeError> {
+        Ok(self
+            .state()
+            .accounts
+            .iter()
+            .find(|account| account.public_key() == public_key)
+            .cloned())
+    }
+
+    fn insert_account(&self, account: &AccountSummary) -> Result<(), SafeError> {
+        let mut state = self.state();
+        if state
+            .accounts
+            .iter()
+            .any(|saved| saved.public_key() == account.public_key())
+        {
+            return Err(account_exists());
+        }
+        state.accounts.push(account.clone());
+        state
+            .accounts
+            .sort_by_key(|saved| (saved.created_at().timestamp(), saved.public_key()));
+        Ok(())
+    }
+
+    fn update_account(&self, account: &AccountSummary) -> Result<(), SafeError> {
+        let mut state = self.state();
+        let saved = state
+            .accounts
+            .iter_mut()
+            .find(|saved| saved.public_key() == account.public_key())
+            .ok_or_else(account_not_found)?;
+        *saved = account.clone();
+        Ok(())
+    }
+
+    fn remove_account(&self, public_key: PublicKey) -> Result<(), SafeError> {
+        let mut state = self.state();
+        state
+            .accounts
+            .retain(|account| account.public_key() != public_key);
+        if state.selected == Some(public_key) {
+            state.selected = None;
+        }
+        Ok(())
+    }
+}
+
+impl AppStateRepository for InMemoryAccountRepository {
+    fn load_selected_account(&self) -> Result<Option<PublicKey>, SafeError> {
+        Ok(self.state().selected)
+    }
+
+    fn save_selected_account(&self, public_key: Option<PublicKey>) -> Result<(), SafeError> {
+        let mut state = self.state();
+        if public_key.is_some_and(|key| {
+            !state
+                .accounts
+                .iter()
+                .any(|account| account.public_key() == key)
+        }) {
+            return Err(account_not_found());
+        }
+        state.selected = public_key;
+        Ok(())
+    }
+}
+
+const fn account_exists() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::AccountAlreadyExists,
+        SafeMessage::new("The Nostr account is already saved."),
+    )
+}
+
+const fn account_not_found() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::AccountNotFound,
+        SafeMessage::new("The account was not found."),
+    )
+}
+
+const fn recovery_required() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::PendingOperationRecoveryRequired,
+        SafeMessage::new("Account recovery is required before this operation can continue."),
+    )
+}
+
+const fn operation_conflict() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::InvalidApplicationState,
+        SafeMessage::new("The account operation conflicts with the current application state."),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use radroots_studio_domain::{
+        AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
+        PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput, UnixTimestamp,
+    };
+
+    use super::InMemoryAccountRepository;
+    use crate::{
+        AccountOperationPhase, AccountRepository, AppCore, AppStateRepository, Clock,
+        DurableOperationKind, DurableOperationPhase, FailureSecretStore, InMemoryOperationJournal,
+        InMemorySecretStore, OperationJournal, ProfileRefreshStatus, ProfileRepository,
+        RelayConfiguration, SecretStore, SecretStoreOperation, SessionState, StateTransition,
+        recovery::tests::{TestDurableRepository, operation as durable_operation},
+    };
+
+    struct FixedClock;
+
+    impl Clock for FixedClock {
+        fn now(&self) -> UnixTimestamp {
+            UnixTimestamp::from_seconds(10).expect("time")
+        }
+    }
+
+    struct LateClock;
+
+    impl Clock for LateClock {
+        fn now(&self) -> UnixTimestamp {
+            UnixTimestamp::from_seconds(311).expect("time")
+        }
+    }
+
+    struct EmptyProfiles;
+
+    impl ProfileRepository for EmptyProfiles {
+        fn load_profile(
+            &self,
+            _public_key: PublicKey,
+        ) -> Result<Option<crate::CachedProfile>, SafeError> {
+            Ok(None)
+        }
+
+        fn save_profile(&self, _profile: &crate::CachedProfile) -> Result<(), SafeError> {
+            Ok(())
+        }
+
+        fn record_refresh_status(
+            &self,
+            _public_key: PublicKey,
+            _refreshed_at: UnixTimestamp,
+            _status: ProfileRefreshStatus,
+        ) -> Result<(), SafeError> {
+            Ok(())
+        }
+
+        fn remove_profile(&self, _public_key: PublicKey) -> Result<(), SafeError> {
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct FailingUpdateJournal(InMemoryOperationJournal);
+
+    impl OperationJournal for FailingUpdateJournal {
+        fn begin_operation(
+            &self,
+            kind: crate::AccountOperationKind,
+            subject: PublicKey,
+            updated_at: UnixTimestamp,
+        ) -> Result<crate::OperationId, SafeError> {
+            self.0.begin_operation(kind, subject, updated_at)
+        }
+
+        fn update_operation(
+            &self,
+            _id: crate::OperationId,
+            _phase: AccountOperationPhase,
+            _updated_at: UnixTimestamp,
+            _diagnostic: Option<crate::OperationDiagnostic>,
+        ) -> Result<(), SafeError> {
+            Err(SafeError::new(
+                SafeErrorCode::StorageUnavailable,
+                SafeMessage::new("The test journal is unavailable."),
+            ))
+        }
+
+        fn list_pending_operations(
+            &self,
+        ) -> Result<Vec<crate::PendingAccountOperation>, SafeError> {
+            self.0.list_pending_operations()
+        }
+
+        fn finalize_operation(&self, id: crate::OperationId) -> Result<(), SafeError> {
+            self.0.finalize_operation(id)
+        }
+    }
+
+    #[derive(Default)]
+    struct FailingInsertRepository {
+        inner: InMemoryAccountRepository,
+    }
+
+    #[derive(Default)]
+    struct FailingSelectionRepository {
+        inner: InMemoryAccountRepository,
+        fail_next_selection: AtomicBool,
+    }
+
+    impl AccountRepository for FailingSelectionRepository {
+        fn list_accounts(&self) -> Result<Vec<AccountSummary>, SafeError> {
+            self.inner.list_accounts()
+        }
+
+        fn find_account(&self, public_key: PublicKey) -> Result<Option<AccountSummary>, SafeError> {
+            self.inner.find_account(public_key)
+        }
+
+        fn insert_account(&self, account: &AccountSummary) -> Result<(), SafeError> {
+            self.inner.insert_account(account)
+        }
+
+        fn update_account(&self, account: &AccountSummary) -> Result<(), SafeError> {
+            self.inner.update_account(account)
+        }
+
+        fn remove_account(&self, public_key: PublicKey) -> Result<(), SafeError> {
+            self.inner.remove_account(public_key)
+        }
+    }
+
+    impl AppStateRepository for FailingSelectionRepository {
+        fn load_selected_account(&self) -> Result<Option<PublicKey>, SafeError> {
+            self.inner.load_selected_account()
+        }
+
+        fn save_selected_account(&self, public_key: Option<PublicKey>) -> Result<(), SafeError> {
+            if self.fail_next_selection.swap(false, Ordering::SeqCst) {
+                return Err(SafeError::new(
+                    SafeErrorCode::StorageUnavailable,
+                    SafeMessage::new("The test selection repository is unavailable."),
+                ));
+            }
+            self.inner.save_selected_account(public_key)
+        }
+    }
+
+    impl AccountRepository for FailingInsertRepository {
+        fn list_accounts(&self) -> Result<Vec<AccountSummary>, SafeError> {
+            self.inner.list_accounts()
+        }
+
+        fn find_account(&self, public_key: PublicKey) -> Result<Option<AccountSummary>, SafeError> {
+            self.inner.find_account(public_key)
+        }
+
+        fn insert_account(&self, _account: &AccountSummary) -> Result<(), SafeError> {
+            Err(SafeError::new(
+                SafeErrorCode::StorageUnavailable,
+                SafeMessage::new("The test account repository is unavailable."),
+            ))
+        }
+
+        fn update_account(&self, account: &AccountSummary) -> Result<(), SafeError> {
+            self.inner.update_account(account)
+        }
+
+        fn remove_account(&self, public_key: PublicKey) -> Result<(), SafeError> {
+            self.inner.remove_account(public_key)
+        }
+    }
+
+    impl AppStateRepository for FailingInsertRepository {
+        fn load_selected_account(&self) -> Result<Option<PublicKey>, SafeError> {
+            self.inner.load_selected_account()
+        }
+
+        fn save_selected_account(&self, public_key: Option<PublicKey>) -> Result<(), SafeError> {
+            self.inner.save_selected_account(public_key)
+        }
+    }
+
+    #[test]
+    fn generate_account_stores_selects_and_returns_one_time_nsec_without_activation() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        core.bootstrap().expect("bootstrap");
+
+        let receipt = core
+            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect("generate");
+        let public_key = receipt.account().public_key();
+        assert_eq!(public_key.to_hex().len(), 64);
+        assert!(secrets.contains(public_key).expect("credential"));
+        assert_eq!(
+            accounts.load_selected_account().expect("selection"),
+            Some(public_key)
+        );
+        assert_eq!(core.snapshot().selected_account(), Some(public_key));
+        assert_eq!(core.snapshot().session(), SessionState::SignedOut);
+        assert!(core.snapshot().active_account().is_none());
+        assert_eq!(receipt.generated_nsec().with_exposed_secret(str::len), 63);
+        assert!(!format!("{:?}", core.snapshot()).contains("nsec1"));
+    }
+
+    #[test]
+    fn import_secret_key_accepts_nsec_and_hex_without_exposing_or_activating() {
+        for input in [
+            "nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5",
+            "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7",
+        ] {
+            let core = AppCore::in_memory(RelayConfiguration::default());
+            let accounts = InMemoryAccountRepository::default();
+            let secrets = InMemorySecretStore::default();
+            let journal = InMemoryOperationJournal::default();
+            core.bootstrap().expect("bootstrap");
+            let receipt = core
+                .import_secret_key(
+                    SecretKeyInput::parse(input.to_owned()).expect("input"),
+                    &accounts,
+                    &accounts,
+                    &secrets,
+                    &journal,
+                    &FixedClock,
+                )
+                .expect("import");
+            let public_key = receipt.account().public_key();
+            assert!(secrets.contains(public_key).expect("credential"));
+            assert_eq!(core.snapshot().selected_account(), Some(public_key));
+            assert_eq!(core.snapshot().session(), SessionState::SignedOut);
+            assert!(!format!("{:?}", core.snapshot()).contains(input));
+        }
+    }
+
+    #[test]
+    fn import_secret_key_rejects_invalid_nsec_checksum_before_persistence() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        core.bootstrap().expect("bootstrap");
+        let input = SecretKeyInput::parse(
+            "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq".to_owned(),
+        )
+        .expect("domain shape");
+        let error = core
+            .import_secret_key(input, &accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect_err("invalid import");
+        assert_eq!(error.code(), SafeErrorCode::InvalidSecretKey);
+        assert!(core.snapshot().accounts().is_empty());
+    }
+
+    #[test]
+    fn duplicate_import_preserves_existing_credential_and_snapshot() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        core.bootstrap().expect("bootstrap");
+        let import = || {
+            SecretKeyInput::parse(
+                "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7".to_owned(),
+            )
+            .expect("input")
+        };
+        core.import_secret_key(
+            import(),
+            &accounts,
+            &accounts,
+            &secrets,
+            &journal,
+            &FixedClock,
+        )
+        .expect("first import");
+        let before = core.snapshot();
+        let error = core
+            .import_secret_key(
+                import(),
+                &accounts,
+                &accounts,
+                &secrets,
+                &journal,
+                &FixedClock,
+            )
+            .expect_err("duplicate");
+        assert_eq!(error.code(), SafeErrorCode::AccountAlreadyExists);
+        assert_eq!(core.snapshot(), before);
+        assert_eq!(core.snapshot().accounts().len(), 1);
+    }
+
+    #[test]
+    fn duplicate_import_repairs_only_explicit_missing_credential_account() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        core.bootstrap().expect("bootstrap");
+        let input = || {
+            SecretKeyInput::parse(
+                "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7".to_owned(),
+            )
+            .expect("input")
+        };
+        let imported = core.key_material().import(input()).expect("derive");
+        let (public_key, npub, _) = imported.into_parts();
+        let missing = AccountSummary::new(
+            AccountIdentity::verify(public_key, npub.as_str().to_owned()).expect("identity"),
+            LocalSignerBinding::new(public_key, BindingAvailability::CredentialMissing),
+            None,
+            AccountCreatedAt::new(FixedClock.now()),
+            None,
+        )
+        .expect("missing account");
+        accounts.insert_account(&missing).expect("missing metadata");
+        accounts
+            .save_selected_account(Some(public_key))
+            .expect("selection");
+        core.apply_transition(StateTransition::ReplaceRegistry {
+            accounts: vec![missing],
+            selected: Some(public_key),
+        })
+        .expect("registry");
+
+        let receipt = core
+            .import_secret_key(
+                input(),
+                &accounts,
+                &accounts,
+                &secrets,
+                &journal,
+                &FixedClock,
+            )
+            .expect("repair");
+        assert_eq!(
+            receipt.account().signer().availability(),
+            BindingAvailability::Available
+        );
+        assert!(secrets.contains(public_key).expect("credential"));
+        assert_eq!(core.snapshot().accounts().len(), 1);
+    }
+
+    #[test]
+    fn account_transaction_publishes_nothing_when_credential_write_fails() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = FailureSecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        core.bootstrap().expect("bootstrap");
+        secrets.fail_next(SecretStoreOperation::Put);
+
+        let error = core
+            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .err()
+            .expect("credential failure");
+        assert_eq!(error.code(), SafeErrorCode::KeyringUnavailable);
+        assert!(core.snapshot().accounts().is_empty());
+        assert!(
+            journal
+                .list_pending_operations()
+                .expect("journal")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn account_transaction_removes_written_credential_when_metadata_fails() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = FailingInsertRepository::default();
+        let secrets = FailureSecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        core.bootstrap().expect("bootstrap");
+
+        let error = core
+            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .err()
+            .expect("metadata failure");
+        assert_eq!(error.code(), SafeErrorCode::StorageUnavailable);
+        let calls = secrets.calls();
+        assert_eq!(calls[0].operation(), SecretStoreOperation::Put);
+        assert_eq!(calls[1].operation(), SecretStoreOperation::Delete);
+        assert_eq!(calls[0].public_key(), calls[1].public_key());
+        assert!(core.snapshot().accounts().is_empty());
+        assert!(
+            journal
+                .list_pending_operations()
+                .expect("journal")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn account_transaction_rolls_back_metadata_and_credential_when_selection_fails() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = FailingSelectionRepository::default();
+        let secrets = FailureSecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        core.bootstrap().expect("bootstrap");
+        accounts.fail_next_selection.store(true, Ordering::SeqCst);
+
+        let error = core
+            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .err()
+            .expect("selection failure");
+
+        assert_eq!(error.code(), SafeErrorCode::StorageUnavailable);
+        assert!(accounts.list_accounts().expect("accounts").is_empty());
+        assert_eq!(accounts.load_selected_account().expect("selection"), None);
+        let calls = secrets.calls();
+        assert_eq!(calls[0].operation(), SecretStoreOperation::Put);
+        assert_eq!(calls[1].operation(), SecretStoreOperation::Delete);
+        assert_eq!(calls[0].public_key(), calls[1].public_key());
+        assert!(core.snapshot().accounts().is_empty());
+        assert!(
+            journal
+                .list_pending_operations()
+                .expect("journal")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn account_transaction_retains_non_secret_journal_when_compensation_fails() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = FailingInsertRepository::default();
+        let secrets = FailureSecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        core.bootstrap().expect("bootstrap");
+        secrets.fail_next(SecretStoreOperation::Delete);
+
+        let error = core
+            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .err()
+            .expect("recovery required");
+        assert_eq!(
+            error.code(),
+            SafeErrorCode::PendingOperationRecoveryRequired
+        );
+        let pending = journal.list_pending_operations().expect("journal");
+        assert_eq!(pending.len(), 1);
+        assert_eq!(
+            pending[0].phase(),
+            AccountOperationPhase::CompensationPending
+        );
+        assert!(!format!("{pending:?}").contains("nsec1"));
+        assert!(core.snapshot().accounts().is_empty());
+    }
+
+    #[test]
+    fn select_account_persists_existing_choice_without_activating() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        core.bootstrap().expect("bootstrap");
+        let first = core
+            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect("first")
+            .account()
+            .public_key();
+        core.generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect("second");
+
+        let selected = core
+            .select_account(first, &accounts, &accounts)
+            .expect("select first");
+        assert_eq!(selected.selected_account(), Some(first));
+        assert_eq!(selected.session(), SessionState::SignedOut);
+        assert!(selected.active_account().is_none());
+        assert_eq!(
+            accounts.load_selected_account().expect("saved"),
+            Some(first)
+        );
+        let missing = core
+            .select_account(
+                PublicKey::from_hex(
+                    "e0266e3cfb0d2886f91c73f5f868f3b98273713e5fcd97c081663f5518a4b3af",
+                )
+                .expect("unknown public key"),
+                &accounts,
+                &accounts,
+            )
+            .expect_err("missing account");
+        assert_eq!(missing.code(), SafeErrorCode::AccountNotFound);
+        assert_eq!(core.snapshot(), selected);
+    }
+
+    #[test]
+    fn remove_account_requires_fresh_single_use_confirmation_and_selects_next_fallback() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        core.bootstrap().expect("bootstrap");
+        let first = core
+            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect("first")
+            .account()
+            .public_key();
+        let second = core
+            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect("second")
+            .account()
+            .public_key();
+        core.select_account(first, &accounts, &accounts)
+            .expect("select first");
+        let stale = core
+            .request_account_removal(first, &FixedClock)
+            .expect("stale token");
+        core.select_account(second, &accounts, &accounts)
+            .expect("change revision");
+        let stale_error = core
+            .confirm_account_removal(stale, &accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect_err("stale token");
+        assert_eq!(stale_error.code(), SafeErrorCode::InvalidApplicationState);
+        assert_eq!(core.snapshot().accounts().len(), 2);
+
+        core.select_account(first, &accounts, &accounts)
+            .expect("reselect first");
+        let token = core
+            .request_account_removal(first, &FixedClock)
+            .expect("token");
+        let removed = core
+            .confirm_account_removal(token, &accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect("remove");
+        assert_eq!(removed.accounts().len(), 1);
+        assert_eq!(removed.selected_account(), Some(second));
+        assert!(!secrets.contains(first).expect("credential removed"));
+        assert_eq!(removed.session(), SessionState::SignedOut);
+    }
+
+    #[test]
+    fn removal_preflight_reports_impact_expires_and_can_be_cancelled() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        core.bootstrap().expect("bootstrap");
+        let account = core
+            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect("account")
+            .account()
+            .public_key();
+        let expired = core
+            .request_account_removal(account, &FixedClock)
+            .expect("plan");
+        assert!(expired.impact().deletes_local_credential());
+        assert!(!expired.impact().signs_out());
+        assert!(
+            core.confirm_account_removal(
+                expired, &accounts, &accounts, &secrets, &journal, &LateClock,
+            )
+            .is_err()
+        );
+        let cancelled = core
+            .request_account_removal(account, &FixedClock)
+            .expect("replacement plan");
+        assert!(core.cancel_account_removal(cancelled));
+        assert_eq!(core.snapshot().accounts().len(), 1);
+    }
+
+    #[test]
+    fn import_rejects_orphan_credentials_and_durable_nonterminal_replays() {
+        const SECRET: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        core.bootstrap().expect("bootstrap");
+        let material = core
+            .key_material()
+            .import(SecretKeyInput::parse(SECRET.to_owned()).expect("secret"))
+            .expect("key material");
+        let (public_key, _npub, secret) = material.into_parts();
+        secrets.put(public_key, secret).expect("orphan credential");
+
+        assert_eq!(
+            core.import_secret_key(
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+                &accounts,
+                &accounts,
+                &secrets,
+                &journal,
+                &FixedClock,
+            )
+            .expect_err("orphan credential must fail")
+            .code(),
+            SafeErrorCode::AccountAlreadyExists
+        );
+
+        let pending = durable_operation(
+            DurableOperationKind::Import,
+            DurableOperationPhase::IntentRecorded,
+            public_key,
+            None,
+        );
+        let request_id = pending.request_id().clone();
+        let operations = TestDurableRepository::new(pending);
+        assert_eq!(
+            core.import_secret_key_durable(
+                &request_id,
+                core.snapshot().revision().value(),
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+                &accounts,
+                &accounts,
+                &secrets,
+                &operations,
+                &FixedClock,
+            )
+            .expect_err("unfinished replay must require recovery")
+            .code(),
+            SafeErrorCode::PendingOperationRecoveryRequired
+        );
+    }
+
+    #[test]
+    fn durable_import_covers_new_and_missing_credential_repair_paths() {
+        const SECRET: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
+        for repair in [false, true] {
+            let core = AppCore::in_memory(RelayConfiguration::default());
+            let accounts = InMemoryAccountRepository::default();
+            let secrets = InMemorySecretStore::default();
+            let material = core
+                .key_material()
+                .import(SecretKeyInput::parse(SECRET.to_owned()).expect("secret"))
+                .expect("key material");
+            let (public_key, npub, secret) = material.into_parts();
+            drop(secret);
+            if repair {
+                let account = AccountSummary::new(
+                    AccountIdentity::verify(public_key, npub.as_str().to_owned())
+                        .expect("identity"),
+                    LocalSignerBinding::new(public_key, BindingAvailability::CredentialMissing),
+                    None,
+                    AccountCreatedAt::new(FixedClock.now()),
+                    None,
+                )
+                .expect("account");
+                accounts.insert_account(&account).expect("insert account");
+                accounts
+                    .save_selected_account(Some(public_key))
+                    .expect("selection");
+                core.apply_transition(StateTransition::BootstrapRegistry {
+                    accounts: vec![account],
+                    selected: Some(public_key),
+                })
+                .expect("registry");
+            } else {
+                core.bootstrap().expect("bootstrap");
+            }
+            let kind = if repair {
+                DurableOperationKind::Repair
+            } else {
+                DurableOperationKind::Import
+            };
+            let pending = durable_operation(
+                kind,
+                DurableOperationPhase::IntentRecorded,
+                public_key,
+                repair.then_some(BindingAvailability::CredentialMissing),
+            );
+            let request_id = pending.request_id().clone();
+            let operations = TestDurableRepository::fresh(pending);
+            let receipt = core
+                .import_secret_key_durable(
+                    &request_id,
+                    core.snapshot().revision().value(),
+                    SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+                    &accounts,
+                    &accounts,
+                    &secrets,
+                    &operations,
+                    &FixedClock,
+                )
+                .expect("durable import");
+            assert_eq!(receipt.account().public_key(), public_key);
+            assert_eq!(
+                operations.operation().phase(),
+                DurableOperationPhase::Finalized
+            );
+        }
+    }
+
+    #[test]
+    fn removal_of_unselected_account_preserves_the_current_selection() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        core.bootstrap().expect("bootstrap");
+        let first = core
+            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect("first")
+            .account()
+            .public_key();
+        let second = core
+            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect("second")
+            .account()
+            .public_key();
+        let token = core
+            .request_account_removal(first, &FixedClock)
+            .expect("removal token");
+        let snapshot = core
+            .confirm_account_removal(token, &accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect("remove unselected account");
+        assert_eq!(snapshot.selected_account(), Some(second));
+
+        let missing = crate::test_support::valid_test_public_key(99).expect("missing key");
+        assert!(accounts.insert_account(&snapshot.accounts()[0]).is_err());
+        assert!(accounts.save_selected_account(Some(missing)).is_err());
+
+        let third = core
+            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+            .expect("third")
+            .account()
+            .public_key();
+        let token = core
+            .request_account_removal(second, &FixedClock)
+            .expect("durable removal token");
+        let pending = durable_operation(
+            DurableOperationKind::Remove,
+            DurableOperationPhase::IntentRecorded,
+            second,
+            Some(BindingAvailability::Available),
+        );
+        let request_id = pending.request_id().clone();
+        let operations = TestDurableRepository::fresh(pending);
+        let snapshot = core
+            .confirm_account_removal_durable(
+                &request_id,
+                token,
+                &accounts,
+                &accounts,
+                &secrets,
+                &operations,
+                &FixedClock,
+            )
+            .expect("durable unselected removal");
+        assert_eq!(snapshot.selected_account(), Some(third));
+    }
+
+    #[test]
+    fn duplicate_missing_binding_with_orphan_credential_fails_closed() {
+        const SECRET: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        let journal = InMemoryOperationJournal::default();
+        let material = core
+            .key_material()
+            .import(SecretKeyInput::parse(SECRET.to_owned()).expect("secret"))
+            .expect("key material");
+        let (public_key, npub, secret) = material.into_parts();
+        let account = AccountSummary::new(
+            AccountIdentity::verify(public_key, npub.as_str().to_owned()).expect("identity"),
+            LocalSignerBinding::new(public_key, BindingAvailability::CredentialMissing),
+            None,
+            AccountCreatedAt::new(FixedClock.now()),
+            None,
+        )
+        .expect("account");
+        accounts.insert_account(&account).expect("insert account");
+        accounts
+            .save_selected_account(Some(public_key))
+            .expect("selection");
+        secrets.put(public_key, secret).expect("credential");
+        core.apply_transition(StateTransition::BootstrapRegistry {
+            accounts: vec![account],
+            selected: Some(public_key),
+        })
+        .expect("registry");
+
+        assert_eq!(
+            core.import_secret_key(
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+                &accounts,
+                &accounts,
+                &secrets,
+                &journal,
+                &FixedClock,
+            )
+            .expect_err("orphan credential must fail")
+            .code(),
+            SafeErrorCode::AccountAlreadyExists
+        );
+        let pending = durable_operation(
+            DurableOperationKind::Repair,
+            DurableOperationPhase::IntentRecorded,
+            public_key,
+            Some(BindingAvailability::CredentialMissing),
+        );
+        let request_id = pending.request_id().clone();
+        let operations = TestDurableRepository::fresh(pending);
+        assert_eq!(
+            core.import_secret_key_durable(
+                &request_id,
+                core.snapshot().revision().value(),
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+                &accounts,
+                &accounts,
+                &secrets,
+                &operations,
+                &FixedClock,
+            )
+            .expect_err("orphan durable credential must fail")
+            .code(),
+            SafeErrorCode::AccountAlreadyExists
+        );
+    }
+
+    #[test]
+    fn removing_an_active_account_signs_out_for_legacy_and_durable_requests() {
+        for durable in [false, true] {
+            let core = AppCore::in_memory(RelayConfiguration::default());
+            let accounts = InMemoryAccountRepository::default();
+            let secrets = InMemorySecretStore::default();
+            let journal = InMemoryOperationJournal::default();
+            core.bootstrap().expect("bootstrap");
+            let public_key = core
+                .import_secret_key(
+                    SecretKeyInput::parse(
+                        "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7"
+                            .to_owned(),
+                    )
+                    .expect("secret"),
+                    &accounts,
+                    &accounts,
+                    &secrets,
+                    &journal,
+                    &FixedClock,
+                )
+                .expect("account")
+                .account()
+                .public_key();
+            core.activate_account(
+                public_key,
+                &accounts,
+                &accounts,
+                &EmptyProfiles,
+                &secrets,
+                &FixedClock,
+            )
+            .expect("activate account");
+            let token = core
+                .request_account_removal(public_key, &FixedClock)
+                .expect("removal token");
+            let snapshot = if durable {
+                let pending = durable_operation(
+                    DurableOperationKind::Remove,
+                    DurableOperationPhase::IntentRecorded,
+                    public_key,
+                    Some(BindingAvailability::Available),
+                );
+                let request_id = pending.request_id().clone();
+                let operations = TestDurableRepository::fresh(pending);
+                core.confirm_account_removal_durable(
+                    &request_id,
+                    token,
+                    &accounts,
+                    &accounts,
+                    &secrets,
+                    &operations,
+                    &FixedClock,
+                )
+                .expect("durable removal")
+            } else {
+                core.confirm_account_removal(
+                    token,
+                    &accounts,
+                    &accounts,
+                    &secrets,
+                    &journal,
+                    &FixedClock,
+                )
+                .expect("removal")
+            };
+            assert_eq!(snapshot.session(), SessionState::SignedOut);
+        }
+    }
+
+    #[test]
+    fn account_transaction_compensates_a_journal_phase_failure() {
+        let core = AppCore::in_memory(RelayConfiguration::default());
+        let accounts = InMemoryAccountRepository::default();
+        let secrets = InMemorySecretStore::default();
+        let journal = FailingUpdateJournal::default();
+        core.bootstrap().expect("bootstrap");
+
+        assert_eq!(
+            core.generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
+                .err()
+                .expect("journal failure must be returned")
+                .code(),
+            SafeErrorCode::StorageUnavailable
+        );
+        assert!(accounts.list_accounts().unwrap().is_empty());
+    }
+}

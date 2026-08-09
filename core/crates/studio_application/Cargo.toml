@@ -1,0 +1,20 @@
+[package]
+name = "radroots_studio_application"
+description = "Private application policy and ports for Radroots Studio"
+version = "0.1.0-alpha"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license = "GPL-3.0-only"
+repository.workspace = true
+homepage.workspace = true
+publish = false
+include = ["src/**", "tests/**", "Cargo.toml"]
+
+[dependencies]
+radroots_studio_domain.workspace = true
+secrecy = "=0.10.3"
+tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+
+[lints]
+workspace = true

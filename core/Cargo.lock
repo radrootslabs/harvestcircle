@@ -1943,6 +1943,15 @@ dependencies = [
 [[package]]
 name = "radroots_studio_application"
 version = "0.1.0-alpha"
+dependencies = [
+ "radroots_studio_domain 0.1.0-alpha",
+ "secrecy",
+ "tokio",
+]
+
+[[package]]
+name = "radroots_studio_application"
+version = "0.1.0-alpha"
 source = "git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3#09065a610d95e57acdc895a14c07580fa099e7c3"
 dependencies = [
  "radroots_studio_domain 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
@@ -1980,7 +1989,7 @@ source = "git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c
 dependencies = [
  "directories",
  "quote",
- "radroots_studio_application",
+ "radroots_studio_application 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "radroots_studio_domain 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "radroots_studio_nostr",
  "radroots_studio_runtime",
@@ -1999,7 +2008,7 @@ dependencies = [
  "nostr 0.44.1",
  "nostr-sdk 0.44.0",
  "radroots_identity",
- "radroots_studio_application",
+ "radroots_studio_application 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "radroots_studio_domain 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "radroots_transport",
  "radroots_transport_nostr",
@@ -2018,7 +2027,7 @@ name = "radroots_studio_runtime"
 version = "0.1.0-alpha"
 source = "git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3#09065a610d95e57acdc895a14c07580fa099e7c3"
 dependencies = [
- "radroots_studio_application",
+ "radroots_studio_application 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "radroots_studio_domain 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "radroots_studio_nostr",
  "radroots_studio_storage",
@@ -2030,7 +2039,7 @@ dependencies = [
 name = "radroots_studio_source_lock"
 version = "0.1.0-alpha"
 dependencies = [
- "radroots_studio_application",
+ "radroots_studio_application 0.1.0-alpha",
  "radroots_studio_domain 0.1.0-alpha",
  "radroots_studio_ffi",
  "radroots_studio_nostr",
@@ -2048,7 +2057,7 @@ dependencies = [
  "getrandom 0.2.17",
  "hmac",
  "keyring",
- "radroots_studio_application",
+ "radroots_studio_application 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "radroots_studio_domain 0.1.0-alpha (git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3)",
  "refinery",
  "rusqlite",
