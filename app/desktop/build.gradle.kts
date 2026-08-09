@@ -137,7 +137,7 @@ val rustSources =
             "Cargo.lock",
             "rust-toolchain.toml",
             "compatibility/**",
-            "crates/studio_*/**",
+            "crates/**",
         )
         exclude("target/**")
     }

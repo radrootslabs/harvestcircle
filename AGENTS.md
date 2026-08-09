@@ -18,6 +18,19 @@ other reusable library policy. Product-specific Rust code must live in this
 repository and may depend on the exact public Radroots library revision selected
 by the capsule; it must not depend on an implicit sibling checkout.
 
+Product-owned names use the HarvestCircle identity consistently:
+
+- Human-facing product name: `HarvestCircle`.
+- Rust crate directories, Cargo packages, and dependency keys:
+  `harvestcircle_*`.
+- Kotlin source namespace: `org.radroots.harvestcircle`.
+- Product-owned Kotlin and UniFFI types: `HarvestCircle*`.
+- Product-owned environment variables: `HARVESTCIRCLE_*`.
+
+These product-specific names are intentionally distinct from canonical shared
+`radroots_*` library packages, Radroots service terminology, and Radroots
+corporate or vendor identity, which retain their existing names.
+
 The repository must remain independently cloneable, buildable, testable, and
 packageable through its checked-in command surfaces with or without extbuild.
 It must not depend on private parent code, parent-only contracts, unpublished
