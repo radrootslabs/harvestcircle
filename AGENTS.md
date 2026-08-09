@@ -28,10 +28,6 @@ absolute host paths, or an enclosing monorepo layout.
 
 - `core/Cargo.toml`, `core/Cargo.lock`, `core/rust-toolchain.toml`, and the
   product crates under `core/crates/**` own the Rust workspace inputs.
-- While the ownership migration is in progress,
-  `radroots.lib.source-lock.v1.toml` and `.radroots-consumer-root` remain
-  transitional inputs. Remove them, the source-lock placeholder crate, and
-  external Studio crate edges once every product crate is local and green.
 - Gradle settings, build scripts, the version catalog, wrapper properties,
   policy configuration, and `core/compatibility/v5-baseline.properties` own
   the desktop build, dependency, compatibility, and package inputs. Kotlin and
@@ -47,8 +43,8 @@ absolute host paths, or an enclosing monorepo layout.
   agree.
 - Never use a path dependency, floating branch or tag, private mirror,
   implicit sibling override, dirty source cache, or unrecorded native binary.
-  A local commit is not a release input until it is publicly reachable and its
-  governed source-lock evidence verifies.
+  Local product crates are workspace path dependencies; shared Radroots
+  packages remain immutable public Git dependencies.
 - Human specifications, decisions, runbooks, migration history, qualification
   records, and execution evidence are parent-owned and absent from standalone
   clones. Physical or tracked `docs/**`, `.github/**`, and `.act/**` roots are
@@ -85,8 +81,8 @@ check in generated bindings or native binaries as a source substitute.
 
 ## Change and command rules
 
-Inspect status, all relevant manifests and locks, source-lock and compatibility
-inputs, Gradle tasks, native generation logic, source, tests, and package
+Inspect status, all relevant manifests and locks, compatibility inputs, Gradle
+tasks, native generation logic, source, tests, and package
 configuration before editing. Make one coherent, reviewable change at a time;
 keep implementation, tests, generated outputs, dependency evidence, and public
 behavior aligned while preserving unrelated work.
@@ -107,8 +103,8 @@ silently switch sources when offline. Never claim a lane passed unless it ran
 successfully; report network, toolchain, platform, advisory-service, package,
 or external-artifact blockers exactly.
 
-Verify exact source-lock/manifests/lock agreement, generated binding and native
-artifact freshness when affected, compatibility and architecture guards,
+Verify exact manifests/lock agreement, generated binding and native artifact
+freshness when affected, compatibility and architecture guards,
 license/source policy, zero forbidden roots, `git diff --check`, and final
 status and diff. Do not treat parent-only workflow proof as a substitute for
 standalone repository validation.

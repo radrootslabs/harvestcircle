@@ -86,24 +86,29 @@ val immutableCargoArguments =
         listOf("--locked")
     }
 
-val sourceLockFile = rootProject.layout.projectDirectory.file("radroots.lib.source-lock.v1.toml")
+val rustCoreSource =
+    rootProject.layout.projectDirectory
+        .dir("core")
+        .asFile
+val rustManifest = rustCoreSource.resolve("Cargo.toml")
 
-fun sourceLockValue(key: String): String {
+fun workspacePackageValue(key: String): String {
+    val workspacePackage =
+        rustManifest
+            .readText()
+            .substringAfter("[workspace.package]", missingDelimiterValue = "")
+            .substringBefore("\n[")
+    require(workspacePackage.isNotBlank()) { "Cargo manifest is missing [workspace.package]" }
     val expression = Regex("""(?m)^${Regex.escape(key)}\s*=\s*"([^"]+)"\s*$""")
     return expression
-        .find(sourceLockFile.asFile.readText())
+        .find(workspacePackage)
         ?.groupValues
         ?.get(1)
-        ?: throw GradleException("Source lock is missing $key")
+        ?: throw GradleException("Cargo workspace package metadata is missing $key")
 }
 
-val radrootsLibRepository = sourceLockValue("repository")
-val radrootsLibRevision = sourceLockValue("revision")
-val radrootsLibVersion = sourceLockValue("version")
-val radrootsLibSource = file(extBuildGradleRoot).resolve("source/lib")
-val rustManifest = radrootsLibSource.resolve("Cargo.toml")
 val compatibilityBaseline = rootProject.layout.projectDirectory.file("core/compatibility/v5-baseline.properties")
-val appVersion = radrootsLibVersion
+val appVersion = workspacePackageValue("version")
 val macOsBuildVersion = "1"
 val baseline =
     Properties().apply {
@@ -127,101 +132,16 @@ val applicationNamespace = baselineValue("package.namespace")
 version = appVersion
 
 val rustSources =
-    fileTree(radrootsLibSource) {
+    fileTree(rustCoreSource) {
         include(
             "Cargo.toml",
             "Cargo.lock",
             "rust-toolchain.toml",
-            "contracts/crates/catalog.v1.toml",
+            "compatibility/**",
             "crates/studio_*/**",
-            "tools/xtask/**",
         )
         exclude("target/**")
     }
-
-abstract class SyncRadrootsLibSource : DefaultTask() {
-    @get:Input
-    abstract val repository: Property<String>
-
-    @get:Input
-    abstract val revision: Property<String>
-
-    @get:Input
-    abstract val offline: Property<Boolean>
-
-    @get:OutputDirectory
-    abstract val sourceDirectory: DirectoryProperty
-
-    @TaskAction
-    fun sync() {
-        val source = sourceDirectory.get().asFile
-        if (!source.resolve(".git").isDirectory) {
-            require(!offline.get()) { "Canonical source is not cached and offline mode is enabled" }
-            source.parentFile.mkdirs()
-            command(source.parentFile, "git", "clone", "--filter=blob:none", "--no-checkout", repository.get(), source.absolutePath)
-        }
-        require(command(source, "git", "remote", "get-url", "origin").trim() == repository.get()) {
-            "Canonical source cache origin does not match the source lock"
-        }
-        if (!offline.get()) {
-            command(source, "git", "fetch", "--force", "--no-tags", "origin", revision.get())
-        }
-        command(source, "git", "cat-file", "-e", "${revision.get()}^{commit}")
-        command(source, "git", "checkout", "--detach", revision.get())
-        require(command(source, "git", "rev-parse", "HEAD").trim() == revision.get()) {
-            "Materialized source revision does not match the source lock"
-        }
-        require(command(source, "git", "status", "--porcelain", "--untracked-files=all").isBlank()) {
-            "Materialized source tree is not clean"
-        }
-    }
-
-    private fun command(
-        workingDirectory: File,
-        vararg command: String,
-    ): String {
-        val process =
-            ProcessBuilder(*command)
-                .directory(workingDirectory)
-                .redirectErrorStream(true)
-                .start()
-        val output = process.inputStream.bufferedReader().use { it.readText() }
-        require(process.waitFor() == 0) {
-            "${command.joinToString(" ")} failed: ${output.trim()}"
-        }
-        return output
-    }
-}
-
-val syncRadrootsLibSource by tasks.registering(SyncRadrootsLibSource::class) {
-    repository.set(radrootsLibRepository)
-    revision.set(radrootsLibRevision)
-    offline.set(
-        radrootsOffline,
-    )
-    sourceDirectory.set(radrootsLibSource)
-    outputs.upToDateWhen { false }
-}
-
-val validateRadrootsSourceLock by tasks.registering(Exec::class) {
-    dependsOn(syncRadrootsLibSource)
-    workingDir(radrootsLibSource)
-    commandLine(
-        "cargo",
-        "run",
-        "--manifest-path",
-        rustManifest.absolutePath,
-        "-p",
-        "xtask",
-        *immutableCargoArguments.toTypedArray(),
-        "--",
-        "source-lock",
-        "--consumer-root",
-        rootProject.projectDir.absolutePath,
-    )
-    inputs.file(sourceLockFile)
-    inputs.file(rootProject.layout.projectDirectory.file("core/Cargo.lock"))
-}
 
 data class NativeTarget(
     val libraryName: String,
@@ -263,8 +183,7 @@ val rustReleaseLibrary = file(cargoTargetRoot).resolve("release/$rustLibraryName
 val jnaPlatformPrefix = nativeTarget.jnaPrefix
 
 val buildRustCoreDebug by tasks.registering(Exec::class) {
-    dependsOn(validateRadrootsSourceLock)
-    workingDir(radrootsLibSource)
+    workingDir(rustCoreSource)
     commandLine(
         "cargo",
         "build",
@@ -274,14 +193,12 @@ val buildRustCoreDebug by tasks.registering(Exec::class) {
         "radroots_studio_ffi",
         *immutableCargoArguments.toTypedArray(),
     )
-    environment("RADROOTS_SOURCE_SHA", radrootsLibRevision)
     inputs.files(rustSources)
     outputs.file(rustDebugLibrary)
 }
 
 val buildRustCoreRelease by tasks.registering(Exec::class) {
-    dependsOn(validateRadrootsSourceLock)
-    workingDir(radrootsLibSource)
+    workingDir(rustCoreSource)
     commandLine(
         "cargo",
         "build",
@@ -292,7 +209,6 @@ val buildRustCoreRelease by tasks.registering(Exec::class) {
         "radroots_studio_ffi",
         *immutableCargoArguments.toTypedArray(),
     )
-    environment("RADROOTS_SOURCE_SHA", radrootsLibRevision)
     inputs.files(rustSources)
     outputs.file(rustReleaseLibrary)
 }
@@ -304,7 +220,7 @@ val cleanGeneratedUniFfiKotlin by tasks.registering(Delete::class) {
 }
 val generateUniFfiKotlin by tasks.registering(Exec::class) {
     dependsOn(buildRustCoreDebug, cleanGeneratedUniFfiKotlin)
-    workingDir(radrootsLibSource)
+    workingDir(rustCoreSource)
     commandLine(
         "cargo",
         "run",
@@ -321,13 +237,13 @@ val generateUniFfiKotlin by tasks.registering(Exec::class) {
         "--metadata-no-deps",
         "--no-format",
         "--config",
-        radrootsLibSource.resolve("crates/studio_ffi/uniffi.toml").absolutePath,
+        rustCoreSource.resolve("crates/studio_ffi/uniffi.toml").absolutePath,
         "--out-dir",
         generatedUniFfiKotlin.get().asFile.absolutePath,
         rustDebugLibrary.absolutePath,
     )
     inputs.file(rustDebugLibrary)
-    inputs.file(radrootsLibSource.resolve("crates/studio_ffi/uniffi.toml"))
+    inputs.file(rustCoreSource.resolve("crates/studio_ffi/uniffi.toml"))
     outputs.dir(generatedUniFfiKotlin)
 }
 

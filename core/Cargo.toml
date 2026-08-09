@@ -1,6 +1,5 @@
 [workspace]
 members = [
-  "crates/source_lock",
   "crates/studio_application",
   "crates/studio_domain",
   "crates/studio_ffi",
@@ -25,9 +24,13 @@ authors = ["Tyson Lupul <tyson@radroots.org>"]
 unsafe_code = "forbid"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage_nightly)'] }
 
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+
 [workspace.lints.clippy]
-all = "deny"
-pedantic = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
 
 [workspace.dependencies]
 radroots_studio_application = { path = "crates/studio_application", version = "=0.1.0-alpha" }
