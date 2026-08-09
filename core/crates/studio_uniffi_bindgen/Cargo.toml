@@ -1,0 +1,18 @@
+[package]
+name = "radroots_studio_uniffi_bindgen"
+description = "Private UniFFI binding generator for Radroots Studio"
+version = "0.1.0-alpha"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license = "GPL-3.0-only"
+repository.workspace = true
+homepage.workspace = true
+publish = false
+include = ["src/**", "Cargo.toml"]
+
+[dependencies]
+uniffi = { version = "=0.32.0", features = ["cli"] }
+
+[lints]
+workspace = true
