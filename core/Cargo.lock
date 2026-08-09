@@ -1998,7 +1998,6 @@ dependencies = [
 [[package]]
 name = "radroots_studio_preferences"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3#09065a610d95e57acdc895a14c07580fa099e7c3"
 dependencies = [
  "url",
 ]

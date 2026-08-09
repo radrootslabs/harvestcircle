@@ -1,0 +1,18 @@
+[package]
+name = "radroots_studio_preferences"
+description = "Private preference model for Radroots Studio"
+version = "0.1.0-alpha"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license = "MPL-2.0"
+repository.workspace = true
+homepage.workspace = true
+publish = false
+include = ["src/**", "Cargo.toml"]
+
+[dependencies]
+url = "=2.5.8"
+
+[lints]
+workspace = true
