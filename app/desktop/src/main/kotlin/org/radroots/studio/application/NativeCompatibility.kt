@@ -5,7 +5,7 @@ import org.radroots.studio.ffi.CompatibilityExpectation
 
 internal const val EXPECTED_PRODUCT_VERSION = "0.1.0-alpha"
 internal const val EXPECTED_CARGO_PACKAGE_VERSION = "0.1.0-alpha"
-internal const val EXPECTED_FFI_CONTRACT_HASH = "6804ed2b522cb033bf085d94cd4f9a358a60bd48fb52e73f7a308624eb85ab05"
+internal const val EXPECTED_FFI_CONTRACT_HASH = "249b8f9ec8ce64e33d5b88dd52d7dc646a2d5b6993c738e71253964531d6d210"
 internal val EXPECTED_FFI_CONTRACT_MAJOR: UShort = 3.toUShort()
 internal val MINIMUM_FFI_CONTRACT_MINOR: UShort = 0.toUShort()
 internal const val MINIMUM_STORAGE_SCHEMA: UInt = 5U

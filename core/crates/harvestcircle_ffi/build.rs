@@ -43,7 +43,7 @@ fn main() {
     metadata.dedup();
     let normalized = metadata.join("\n");
     println!(
-        "cargo:rustc-env=RADROOTS_STUDIO_FFI_CONTRACT_DIGEST={}",
+        "cargo:rustc-env=HARVESTCIRCLE_FFI_CONTRACT_DIGEST={}",
         hex_digest(normalized.as_bytes())
     );
     fs::write(

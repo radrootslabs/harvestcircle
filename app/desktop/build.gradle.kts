@@ -155,17 +155,17 @@ fun resolveNativeTarget(
     val arch = architecture.lowercase()
     return when {
         os.startsWith("mac") && arch in setOf("aarch64", "arm64") ->
-            NativeTarget("libradroots_studio_ffi.dylib", "darwin-aarch64")
+            NativeTarget("libharvestcircle_ffi.dylib", "darwin-aarch64")
         os.startsWith("mac") && arch in setOf("x86_64", "amd64") ->
-            NativeTarget("libradroots_studio_ffi.dylib", "darwin-x86-64")
+            NativeTarget("libharvestcircle_ffi.dylib", "darwin-x86-64")
         os.startsWith("windows") && arch in setOf("aarch64", "arm64") ->
-            NativeTarget("radroots_studio_ffi.dll", "win32-aarch64")
+            NativeTarget("harvestcircle_ffi.dll", "win32-aarch64")
         os.startsWith("windows") && arch in setOf("x86_64", "amd64") ->
-            NativeTarget("radroots_studio_ffi.dll", "win32-x86-64")
+            NativeTarget("harvestcircle_ffi.dll", "win32-x86-64")
         os.startsWith("linux") && arch in setOf("aarch64", "arm64") ->
-            NativeTarget("libradroots_studio_ffi.so", "linux-aarch64")
+            NativeTarget("libharvestcircle_ffi.so", "linux-aarch64")
         os.startsWith("linux") && arch in setOf("x86_64", "amd64") ->
-            NativeTarget("libradroots_studio_ffi.so", "linux-x86-64")
+            NativeTarget("libharvestcircle_ffi.so", "linux-x86-64")
         else -> throw GradleException("Unsupported native desktop host: $osName/$architecture")
     }
 }
@@ -189,7 +189,7 @@ val buildRustCoreDebug by tasks.registering(Exec::class) {
         "--manifest-path",
         rustManifest.absolutePath,
         "-p",
-        "radroots_studio_ffi",
+        "harvestcircle_ffi",
         *immutableCargoArguments.toTypedArray(),
     )
     inputs.files(rustSources)
@@ -205,7 +205,7 @@ val buildRustCoreRelease by tasks.registering(Exec::class) {
         "--manifest-path",
         rustManifest.absolutePath,
         "-p",
-        "radroots_studio_ffi",
+        "harvestcircle_ffi",
         *immutableCargoArguments.toTypedArray(),
     )
     inputs.files(rustSources)
@@ -226,7 +226,7 @@ val generateUniFfiKotlin by tasks.registering(Exec::class) {
         "--manifest-path",
         rustManifest.absolutePath,
         "-p",
-        "radroots_studio_uniffi_bindgen",
+        "harvestcircle_uniffi_bindgen",
         *immutableCargoArguments.toTypedArray(),
         "--",
         "generate",
@@ -236,13 +236,13 @@ val generateUniFfiKotlin by tasks.registering(Exec::class) {
         "--metadata-no-deps",
         "--no-format",
         "--config",
-        rustCoreSource.resolve("crates/studio_ffi/uniffi.toml").absolutePath,
+        rustCoreSource.resolve("crates/harvestcircle_ffi/uniffi.toml").absolutePath,
         "--out-dir",
         generatedUniFfiKotlin.get().asFile.absolutePath,
         rustDebugLibrary.absolutePath,
     )
     inputs.file(rustDebugLibrary)
-    inputs.file(rustCoreSource.resolve("crates/studio_ffi/uniffi.toml"))
+    inputs.file(rustCoreSource.resolve("crates/harvestcircle_ffi/uniffi.toml"))
     outputs.dir(generatedUniFfiKotlin)
 }
 

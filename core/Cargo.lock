@@ -1083,6 +1083,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "harvestcircle_ffi"
+version = "0.1.0-alpha"
+dependencies = [
+ "directories",
+ "harvestcircle_application",
+ "harvestcircle_domain",
+ "harvestcircle_nostr",
+ "harvestcircle_runtime",
+ "harvestcircle_storage",
+ "nostr 0.44.1",
+ "nostr-relay-builder",
+ "nostr-sdk 0.44.0",
+ "quote",
+ "sha2",
+ "syn 2.0.119",
+ "tempfile",
+ "tokio",
+ "uniffi",
+]
+
+[[package]]
 name = "harvestcircle_nostr"
 version = "0.1.0-alpha"
 dependencies = [
@@ -1136,6 +1157,13 @@ dependencies = [
  "sha2",
  "tempfile",
  "zeroize",
+]
+
+[[package]]
+name = "harvestcircle_uniffi_bindgen"
+version = "0.1.0-alpha"
+dependencies = [
+ "uniffi",
 ]
 
 [[package]]
@@ -2075,34 +2103,6 @@ version = "0.1.0-alpha"
 source = "git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3#09065a610d95e57acdc895a14c07580fa099e7c3"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "radroots_studio_ffi"
-version = "0.1.0-alpha"
-dependencies = [
- "directories",
- "harvestcircle_application",
- "harvestcircle_domain",
- "harvestcircle_nostr",
- "harvestcircle_runtime",
- "harvestcircle_storage",
- "nostr 0.44.1",
- "nostr-relay-builder",
- "nostr-sdk 0.44.0",
- "quote",
- "sha2",
- "syn 2.0.119",
- "tempfile",
- "tokio",
- "uniffi",
-]
-
-[[package]]
-name = "radroots_studio_uniffi_bindgen"
-version = "0.1.0-alpha"
-dependencies = [
- "uniffi",
 ]
 
 [[package]]

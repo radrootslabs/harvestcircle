@@ -2,12 +2,12 @@
 members = [
   "crates/harvestcircle_application",
   "crates/harvestcircle_domain",
-  "crates/studio_ffi",
+  "crates/harvestcircle_ffi",
   "crates/harvestcircle_nostr",
   "crates/harvestcircle_preferences",
   "crates/harvestcircle_runtime",
   "crates/harvestcircle_storage",
-  "crates/studio_uniffi_bindgen",
+  "crates/harvestcircle_uniffi_bindgen",
 ]
 resolver = "3"
 
@@ -35,12 +35,12 @@ unimplemented = "deny"
 [workspace.dependencies]
 harvestcircle_application = { path = "crates/harvestcircle_application", version = "=0.1.0-alpha" }
 harvestcircle_domain = { path = "crates/harvestcircle_domain", version = "=0.1.0-alpha" }
-radroots_studio_ffi = { path = "crates/studio_ffi", version = "=0.1.0-alpha" }
+harvestcircle_ffi = { path = "crates/harvestcircle_ffi", version = "=0.1.0-alpha" }
 harvestcircle_nostr = { path = "crates/harvestcircle_nostr", version = "=0.1.0-alpha" }
 harvestcircle_preferences = { path = "crates/harvestcircle_preferences", version = "=0.1.0-alpha" }
 harvestcircle_runtime = { path = "crates/harvestcircle_runtime", version = "=0.1.0-alpha" }
 harvestcircle_storage = { path = "crates/harvestcircle_storage", version = "=0.1.0-alpha" }
-radroots_studio_uniffi_bindgen = { path = "crates/studio_uniffi_bindgen", version = "=0.1.0-alpha" }
+harvestcircle_uniffi_bindgen = { path = "crates/harvestcircle_uniffi_bindgen", version = "=0.1.0-alpha" }
 radroots_identity = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha", default-features = false }
 radroots_transport = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha", default-features = false }
 radroots_transport_nostr = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha", default-features = false }
