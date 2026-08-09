@@ -10,7 +10,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.radroots.harvestcircle.ffi.AppLifecycleDto
 import org.radroots.harvestcircle.ffi.AppSnapshotDto
-import org.radroots.harvestcircle.ffi.StudioException
+import org.radroots.harvestcircle.ffi.HarvestCircleException
 import org.radroots.harvestcircle.ffi.WireErrorCode
 import org.radroots.harvestcircle.ffi.WireRecoveryAction
 
@@ -435,7 +435,7 @@ class HarvestCircleAppStore(
     }
 
     private fun acceptFailure(error: Throwable) {
-        val native = error as? StudioException.Failure
+        val native = error as? HarvestCircleException.Failure
         val gatewayFailure = (error as? HarvestCircleGatewayException)?.failure
         mutableState.value =
             mutableState.value.copy(

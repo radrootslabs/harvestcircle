@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, Weak};
 use harvestcircle_application::ChangeSubscriptionId;
 
 use crate::commands::RuntimeCore;
-use crate::{AppSnapshotDto, StudioAppCore, StudioError};
+use crate::{AppSnapshotDto, HarvestCircleAppCore, HarvestCircleError};
 
 const OBSERVER_CHANGE_CAPACITY: NonZeroUsize = NonZeroUsize::MIN.saturating_add(63);
 const MAX_OBSERVERS: usize = 32;
@@ -26,7 +26,7 @@ pub struct ShutdownReceiptDto {
 }
 
 #[cfg_attr(not(coverage_nightly), uniffi::export(callback_interface))]
-pub trait StudioChangeObserver: Send + Sync {
+pub trait HarvestCircleChangeObserver: Send + Sync {
     fn on_change(&self, change: SnapshotChangeDto);
 }
 
@@ -62,7 +62,7 @@ impl ObserverSubscription {
 }
 
 #[cfg_attr(not(coverage_nightly), uniffi::export)]
-impl StudioAppCore {
+impl HarvestCircleAppCore {
     /// Subscribes to ordered revision changes including predecessor metadata.
     ///
     /// # Errors
@@ -70,8 +70,8 @@ impl StudioAppCore {
     /// Returns a safe observer or lifecycle error.
     pub async fn subscribe_changes_v2(
         &self,
-        observer: Box<dyn StudioChangeObserver>,
-    ) -> Result<Arc<ObserverSubscription>, StudioError> {
+        observer: Box<dyn HarvestCircleChangeObserver>,
+    ) -> Result<Arc<ObserverSubscription>, HarvestCircleError> {
         if self.inner.closed.load(Ordering::Acquire) {
             return Err(closed_error());
         }
@@ -80,9 +80,9 @@ impl StudioAppCore {
             .actor
             .subscribe_changes(OBSERVER_CHANGE_CAPACITY)
             .await
-            .map_err(StudioError::from)?;
+            .map_err(HarvestCircleError::from)?;
         let id = subscription.id();
-        let observer: Arc<dyn StudioChangeObserver> = Arc::from(observer);
+        let observer: Arc<dyn HarvestCircleChangeObserver> = Arc::from(observer);
         let runtime_core = Arc::downgrade(&self.inner);
         let admitted = {
             let mut observers = self
@@ -102,7 +102,7 @@ impl StudioAppCore {
                 .actor
                 .unsubscribe_changes(id)
                 .await
-                .map_err(StudioError::from)?;
+                .map_err(HarvestCircleError::from)?;
             return Err(observer_registration_error());
         }
         let task = crate::commands::runtime()?.spawn(async move {
@@ -161,7 +161,7 @@ impl StudioAppCore {
     /// # Errors
     ///
     /// Returns a safe closed or timeout error when shutdown cannot complete.
-    pub async fn shutdown_v2(&self) -> Result<ShutdownReceiptDto, StudioError> {
+    pub async fn shutdown_v2(&self) -> Result<ShutdownReceiptDto, HarvestCircleError> {
         if self.inner.closed.swap(true, Ordering::AcqRel) {
             return Err(closed_error());
         }
@@ -178,7 +178,11 @@ impl StudioAppCore {
                 let _ = task.await;
             }
         }
-        self.inner.actor.close().await.map_err(StudioError::from)?;
+        self.inner
+            .actor
+            .close()
+            .await
+            .map_err(HarvestCircleError::from)?;
         Ok(ShutdownReceiptDto {
             final_revision: self.inner.actor.snapshot().revision().value(),
             closed: true,
@@ -186,8 +190,8 @@ impl StudioAppCore {
     }
 }
 
-fn closed_error() -> StudioError {
-    StudioError::Failure {
+fn closed_error() -> HarvestCircleError {
+    HarvestCircleError::Failure {
         code: crate::WireErrorCode::InvalidApplicationState,
         category: crate::WireErrorCategory::Lifecycle,
         retryable: false,
@@ -197,8 +201,8 @@ fn closed_error() -> StudioError {
     }
 }
 
-fn observer_registration_error() -> StudioError {
-    StudioError::Failure {
+fn observer_registration_error() -> HarvestCircleError {
+    HarvestCircleError::Failure {
         code: crate::WireErrorCode::ObserverRegistrationFailed,
         category: crate::WireErrorCategory::Lifecycle,
         retryable: true,
@@ -227,7 +231,8 @@ mod tests {
 
     use crate::commands::{ACTOR_MAILBOX_CAPACITY, RuntimeCore, SystemClock, runtime};
     use crate::{
-        AppSnapshotDto, ProfileLoadStateDto, SnapshotChangeDto, StudioAppCore, StudioChangeObserver,
+        AppSnapshotDto, HarvestCircleAppCore, HarvestCircleChangeObserver, ProfileLoadStateDto,
+        SnapshotChangeDto,
     };
 
     const SECRET_HEX: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
@@ -235,18 +240,18 @@ mod tests {
     #[derive(Default)]
     struct RecordingObserver {
         snapshots: Mutex<Vec<AppSnapshotDto>>,
-        core: Mutex<Option<Arc<StudioAppCore>>>,
+        core: Mutex<Option<Arc<HarvestCircleAppCore>>>,
     }
 
     struct PanickingObserver;
 
-    impl StudioChangeObserver for PanickingObserver {
+    impl HarvestCircleChangeObserver for PanickingObserver {
         fn on_change(&self, _change: SnapshotChangeDto) {
             panic!("injected host callback failure");
         }
     }
 
-    impl StudioChangeObserver for RecordingObserver {
+    impl HarvestCircleChangeObserver for RecordingObserver {
         fn on_change(&self, change: SnapshotChangeDto) {
             let snapshot = change.snapshot;
             if let Some(core) = self.core.lock().expect("core").as_ref() {
@@ -256,11 +261,11 @@ mod tests {
         }
     }
 
-    async fn core() -> Arc<StudioAppCore> {
+    async fn core() -> Arc<HarvestCircleAppCore> {
         core_with_relays(RelayConfiguration::default()).await
     }
 
-    async fn core_with_relays(relays: RelayConfiguration) -> Arc<StudioAppCore> {
+    async fn core_with_relays(relays: RelayConfiguration) -> Arc<HarvestCircleAppCore> {
         let actor = RuntimeActorHandle::in_memory(
             relays,
             RuntimeDependencies::new(
@@ -274,7 +279,7 @@ mod tests {
         )
         .await
         .expect("actor");
-        Arc::new(StudioAppCore {
+        Arc::new(HarvestCircleAppCore {
             inner: Arc::new(RuntimeCore {
                 actor,
                 observers: Mutex::new(std::collections::BTreeMap::new()),
@@ -471,7 +476,7 @@ mod tests {
 
     struct ArcObserver(Arc<RecordingObserver>);
 
-    impl StudioChangeObserver for ArcObserver {
+    impl HarvestCircleChangeObserver for ArcObserver {
         fn on_change(&self, change: SnapshotChangeDto) {
             self.0.on_change(change);
         }

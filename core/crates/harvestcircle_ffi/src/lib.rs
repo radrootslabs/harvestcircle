@@ -7,8 +7,8 @@ mod dto;
 mod observer;
 
 pub use commands::{
-    AccountCommandReceiptDto, GeneratedRecoveryRequest, RemovalRequest, RequestContextDto,
-    StudioAppCore, StudioError,
+    AccountCommandReceiptDto, GeneratedRecoveryRequest, HarvestCircleAppCore, HarvestCircleError,
+    RemovalRequest, RequestContextDto,
 };
 pub use contract::{
     FFI_CONTRACT_HASH, FFI_CONTRACT_MAJOR, FFI_CONTRACT_MINOR, MINIMUM_SCHEMA_VERSION,
@@ -20,7 +20,7 @@ pub use dto::{
     WireErrorCategory, WireErrorCode, WireRecoveryAction,
 };
 pub use observer::{
-    ObserverSubscription, ShutdownReceiptDto, SnapshotChangeDto, StudioChangeObserver,
+    HarvestCircleChangeObserver, ObserverSubscription, ShutdownReceiptDto, SnapshotChangeDto,
 };
 
 uniffi::setup_scaffolding!();

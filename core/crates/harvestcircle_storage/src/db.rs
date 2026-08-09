@@ -775,7 +775,7 @@ mod tests {
             .arg("--exact")
             .arg("db::tests::writable_ownership_child_probe")
             .arg("--nocapture")
-            .env("RADROOTS_STUDIO_LOCK_PROBE_PATH", &path)
+            .env("HARVESTCIRCLE_LOCK_PROBE_PATH", &path)
             .status()
             .expect("child process");
         assert!(status.success());
@@ -783,7 +783,7 @@ mod tests {
 
     #[test]
     fn writable_ownership_child_probe() {
-        let Ok(path) = std::env::var("RADROOTS_STUDIO_LOCK_PROBE_PATH") else {
+        let Ok(path) = std::env::var("HARVESTCIRCLE_LOCK_PROBE_PATH") else {
             return;
         };
         assert!(Database::open(Path::new(&path)).is_err());

@@ -5,13 +5,13 @@ import kotlinx.coroutines.runBlocking
 import org.radroots.harvestcircle.ffi.AccountDto
 import org.radroots.harvestcircle.ffi.AppSnapshotDto
 import org.radroots.harvestcircle.ffi.GeneratedRecoveryRequest
+import org.radroots.harvestcircle.ffi.HarvestCircleAppCore
+import org.radroots.harvestcircle.ffi.HarvestCircleChangeObserver
+import org.radroots.harvestcircle.ffi.HarvestCircleException
 import org.radroots.harvestcircle.ffi.ObserverSubscription
 import org.radroots.harvestcircle.ffi.RemovalRequest
 import org.radroots.harvestcircle.ffi.RequestContextDto
 import org.radroots.harvestcircle.ffi.SnapshotChangeDto
-import org.radroots.harvestcircle.ffi.StudioAppCore
-import org.radroots.harvestcircle.ffi.StudioChangeObserver
-import org.radroots.harvestcircle.ffi.StudioException
 import org.radroots.harvestcircle.ffi.WireErrorCategory
 import org.radroots.harvestcircle.ffi.WireErrorCode
 import org.radroots.harvestcircle.ffi.WireRecoveryAction
@@ -107,7 +107,7 @@ interface HarvestCircleCoreGateway : AutoCloseable {
 }
 
 class NativeHarvestCircleCoreGateway(
-    private val core: StudioAppCore,
+    private val core: HarvestCircleAppCore,
 ) : HarvestCircleCoreGateway {
     private val nextRequest = AtomicLong(1)
     private val shutdownLock = Any()
@@ -118,7 +118,7 @@ class NativeHarvestCircleCoreGateway(
     override suspend fun subscribeChanges(onChange: (HarvestCircleChange) -> Unit): AutoCloseable {
         val subscription =
             core.subscribeChangesV2(
-                object : StudioChangeObserver {
+                object : HarvestCircleChangeObserver {
                     override fun onChange(change: SnapshotChangeDto) {
                         onChange(HarvestCircleChange(change.snapshot, change.previousRevision))
                     }
@@ -219,7 +219,7 @@ internal fun Throwable.toHarvestCircleCommandFailure(
     fallbackCorrelationId: String,
     fallbackSafeMessage: String = "The application command failed.",
 ): HarvestCircleCommandFailure {
-    val native = this as? StudioException.Failure
+    val native = this as? HarvestCircleException.Failure
     return HarvestCircleCommandFailure(
         code = native?.code ?: WireErrorCode.INTERNAL,
         category = native?.category ?: WireErrorCategory.INTERNAL,
@@ -256,7 +256,7 @@ private class NativeRemovalTicket(
 }
 
 private class NativeGeneratedRecoveryTicket(
-    private val core: StudioAppCore,
+    private val core: HarvestCircleAppCore,
     private val request: GeneratedRecoveryRequest,
     private val requestContext: () -> RequestContextDto,
     override val requestId: String,

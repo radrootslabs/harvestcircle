@@ -31,7 +31,7 @@ const DATABASE_QUALIFIER: &str = "org";
 const DATABASE_ORGANIZATION: &str = "radroots";
 const DATABASE_APPLICATION: &str = "studio";
 const DATABASE_FILENAME: &str = "studio.sqlite3";
-const DEVELOPMENT_DATA_DIR_ENVIRONMENT: &str = "RADROOTS_STUDIO_DEVELOPMENT_DATA_DIR";
+const DEVELOPMENT_DATA_DIR_ENVIRONMENT: &str = "HARVESTCIRCLE_DEVELOPMENT_DATA_DIR";
 pub(crate) const ACTOR_MAILBOX_CAPACITY: usize = 64;
 const MAX_COMMAND_DEADLINE_MILLIS: u64 = 30_000;
 
@@ -88,7 +88,7 @@ pub fn compatibility_descriptor() -> CompatibilityDescriptor {
 
 #[derive(Debug)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Error))]
-pub enum StudioError {
+pub enum HarvestCircleError {
     Failure {
         code: WireErrorCode,
         category: WireErrorCategory,
@@ -99,7 +99,7 @@ pub enum StudioError {
     },
 }
 
-impl Display for StudioError {
+impl Display for HarvestCircleError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Failure { safe_message, .. } => formatter.write_str(safe_message),
@@ -107,9 +107,9 @@ impl Display for StudioError {
     }
 }
 
-impl std::error::Error for StudioError {}
+impl std::error::Error for HarvestCircleError {}
 
-impl From<SafeError> for StudioError {
+impl From<SafeError> for HarvestCircleError {
     fn from(error: SafeError) -> Self {
         let (category, retryable, recovery_action) = error_policy(error.code());
         Self::Failure {
@@ -123,7 +123,7 @@ impl From<SafeError> for StudioError {
     }
 }
 
-impl StudioError {
+impl HarvestCircleError {
     fn correlated(error: SafeError, correlation_id: &str) -> Self {
         let (category, retryable, recovery_action) = error_policy(error.code());
         Self::Failure {
@@ -158,11 +158,11 @@ impl GeneratedRecoveryRequest {
     /// # Errors
     ///
     /// Returns a safe unavailable error after the first read.
-    pub fn take_recovery_nsec(&self) -> Result<String, StudioError> {
+    pub fn take_recovery_nsec(&self) -> Result<String, HarvestCircleError> {
         self.handle
             .take_recovery_nsec()
             .map(|nsec| nsec.with_exposed_secret(str::to_owned))
-            .map_err(StudioError::from)
+            .map_err(HarvestCircleError::from)
     }
 }
 
@@ -230,12 +230,12 @@ impl RuntimeCore {
 }
 
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Object))]
-pub struct StudioAppCore {
+pub struct HarvestCircleAppCore {
     pub(crate) inner: Arc<RuntimeCore>,
 }
 
 #[cfg_attr(not(coverage_nightly), uniffi::export)]
-impl StudioAppCore {
+impl HarvestCircleAppCore {
     /// Verifies the static contract before touching the application data path.
     ///
     /// # Errors
@@ -246,7 +246,7 @@ impl StudioAppCore {
     pub fn open_compatible(
         expectation: CompatibilityExpectation,
         development_mode: bool,
-    ) -> Result<Arc<Self>, StudioError> {
+    ) -> Result<Arc<Self>, HarvestCircleError> {
         let path = application_database_path(development_mode)?;
         Self::open_path_compatible(&path, &expectation, development_mode)
     }
@@ -256,13 +256,13 @@ impl StudioAppCore {
     /// # Errors
     ///
     /// Returns a safe storage, recovery, or application-state error.
-    pub async fn bootstrap(&self) -> Result<AppSnapshotDto, StudioError> {
+    pub async fn bootstrap(&self) -> Result<AppSnapshotDto, HarvestCircleError> {
         self.inner
             .actor
             .bootstrap()
             .await
             .map(|snapshot| self.inner.dto_for(&snapshot))
-            .map_err(StudioError::from)
+            .map_err(HarvestCircleError::from)
     }
 
     #[must_use]
@@ -277,7 +277,7 @@ impl StudioAppCore {
     /// Returns a safe key-generation, conflict, timeout, or lifecycle error.
     pub async fn begin_generated_account_v2(
         &self,
-    ) -> Result<Arc<GeneratedRecoveryRequest>, StudioError> {
+    ) -> Result<Arc<GeneratedRecoveryRequest>, HarvestCircleError> {
         self.inner
             .actor
             .begin_generated_key_stage()
@@ -288,7 +288,7 @@ impl StudioAppCore {
                     resolved: AtomicBool::new(false),
                 })
             })
-            .map_err(StudioError::from)
+            .map_err(HarvestCircleError::from)
     }
 
     /// Acknowledges recovery and commits the generated account once.
@@ -301,12 +301,12 @@ impl StudioAppCore {
         &self,
         context: RequestContextDto,
         request: Arc<GeneratedRecoveryRequest>,
-    ) -> Result<AppSnapshotDto, StudioError> {
+    ) -> Result<AppSnapshotDto, HarvestCircleError> {
         if request.resolved.swap(true, Ordering::AcqRel) {
             return Err(generated_recovery_expired());
         }
         let request_id = DurableRequestId::parse(context.request_id.clone())
-            .map_err(|error| StudioError::correlated(error, &context.request_id))?;
+            .map_err(|error| HarvestCircleError::correlated(error, &context.request_id))?;
         let timeout = command_timeout(context.deadline_millis, &context.request_id)?;
         self.inner
             .actor
@@ -329,7 +329,7 @@ impl StudioAppCore {
     pub async fn cancel_generated_account_v2(
         &self,
         request: Arc<GeneratedRecoveryRequest>,
-    ) -> Result<bool, StudioError> {
+    ) -> Result<bool, HarvestCircleError> {
         if request.resolved.swap(true, Ordering::AcqRel) {
             return Ok(false);
         }
@@ -337,7 +337,7 @@ impl StudioAppCore {
             .actor
             .cancel_generated_key_stage()
             .await
-            .map_err(StudioError::from)
+            .map_err(HarvestCircleError::from)
     }
 
     /// Imports or repairs an account using a caller-owned idempotency key.
@@ -349,12 +349,12 @@ impl StudioAppCore {
         &self,
         context: RequestContextDto,
         secret_key: Vec<u8>,
-    ) -> Result<AccountCommandReceiptDto, StudioError> {
+    ) -> Result<AccountCommandReceiptDto, HarvestCircleError> {
         let request_id = DurableRequestId::parse(context.request_id.clone())
-            .map_err(|error| StudioError::correlated(error, &context.request_id))?;
+            .map_err(|error| HarvestCircleError::correlated(error, &context.request_id))?;
         let timeout = command_timeout(context.deadline_millis, &context.request_id)?;
         let input = SecretKeyInput::parse_bytes(secret_key)
-            .map_err(|error| StudioError::correlated(error, &context.request_id))?;
+            .map_err(|error| HarvestCircleError::correlated(error, &context.request_id))?;
         self.inner
             .actor
             .import_secret_key(
@@ -372,7 +372,7 @@ impl StudioAppCore {
                     snapshot,
                 }
             })
-            .map_err(|error| StudioError::correlated(error, &context.request_id))
+            .map_err(|error| HarvestCircleError::correlated(error, &context.request_id))
     }
 
     /// Selects one saved account without activating it.
@@ -383,14 +383,14 @@ impl StudioAppCore {
     pub async fn select_account(
         &self,
         public_key_hex: String,
-    ) -> Result<AppSnapshotDto, StudioError> {
+    ) -> Result<AppSnapshotDto, HarvestCircleError> {
         let public_key = parse_public_key(&public_key_hex)?;
         self.inner
             .actor
             .select_account(public_key)
             .await
             .map(|snapshot| self.inner.dto_for(&snapshot))
-            .map_err(StudioError::from)
+            .map_err(HarvestCircleError::from)
     }
 
     /// Activates one saved account after validating its credential.
@@ -401,14 +401,14 @@ impl StudioAppCore {
     pub async fn activate_account(
         &self,
         public_key_hex: String,
-    ) -> Result<AppSnapshotDto, StudioError> {
+    ) -> Result<AppSnapshotDto, HarvestCircleError> {
         let public_key = parse_public_key(&public_key_hex)?;
         self.inner
             .actor
             .activate_account(public_key)
             .await
             .map(|snapshot| self.inner.dto_for(&snapshot))
-            .map_err(StudioError::from)
+            .map_err(HarvestCircleError::from)
     }
 
     /// Signs out while retaining accounts and credentials.
@@ -416,13 +416,13 @@ impl StudioAppCore {
     /// # Errors
     ///
     /// Returns a safe application-state error.
-    pub async fn sign_out(&self) -> Result<AppSnapshotDto, StudioError> {
+    pub async fn sign_out(&self) -> Result<AppSnapshotDto, HarvestCircleError> {
         self.inner
             .actor
             .sign_out()
             .await
             .map(|snapshot| self.inner.dto_for(&snapshot))
-            .map_err(StudioError::from)
+            .map_err(HarvestCircleError::from)
     }
 
     /// Refreshes the active Nostr profile from configured relays.
@@ -430,13 +430,13 @@ impl StudioAppCore {
     /// # Errors
     ///
     /// Returns a safe storage or application-state error.
-    pub async fn refresh_active_profile(&self) -> Result<AppSnapshotDto, StudioError> {
+    pub async fn refresh_active_profile(&self) -> Result<AppSnapshotDto, HarvestCircleError> {
         self.inner
             .actor
             .refresh_active_profile()
             .await
             .map(|snapshot| self.inner.dto_for(&snapshot))
-            .map_err(StudioError::from)
+            .map_err(HarvestCircleError::from)
     }
 
     /// Issues a revision-bound removal confirmation object.
@@ -447,7 +447,7 @@ impl StudioAppCore {
     pub async fn request_account_removal(
         &self,
         public_key_hex: String,
-    ) -> Result<Arc<RemovalRequest>, StudioError> {
+    ) -> Result<Arc<RemovalRequest>, HarvestCircleError> {
         let public_key = parse_public_key(&public_key_hex)?;
         self.inner
             .actor
@@ -463,7 +463,7 @@ impl StudioAppCore {
                     token: Mutex::new(Some(token)),
                 })
             })
-            .map_err(StudioError::from)
+            .map_err(HarvestCircleError::from)
     }
 
     /// Permanently removes the account represented by a one-time request.
@@ -475,7 +475,7 @@ impl StudioAppCore {
         &self,
         context: RequestContextDto,
         request: Arc<RemovalRequest>,
-    ) -> Result<AppSnapshotDto, StudioError> {
+    ) -> Result<AppSnapshotDto, HarvestCircleError> {
         let token = request
             .token
             .lock()
@@ -483,7 +483,7 @@ impl StudioAppCore {
             .take()
             .ok_or_else(confirmation_expired)?;
         let request_id = DurableRequestId::parse(context.request_id.clone())
-            .map_err(|error| StudioError::correlated(error, &context.request_id))?;
+            .map_err(|error| HarvestCircleError::correlated(error, &context.request_id))?;
         let timeout = command_timeout(context.deadline_millis, &context.request_id)?;
         self.inner
             .actor
@@ -495,11 +495,11 @@ impl StudioAppCore {
             )
             .await
             .map(|snapshot| self.inner.dto_for(&snapshot))
-            .map_err(StudioError::from)
+            .map_err(HarvestCircleError::from)
     }
 }
 
-fn verify_compatibility(expectation: &CompatibilityExpectation) -> Result<(), StudioError> {
+fn verify_compatibility(expectation: &CompatibilityExpectation) -> Result<(), HarvestCircleError> {
     let actual = compatibility_descriptor();
     if expectation.contract_major != actual.contract_major
         || expectation.minimum_contract_minor > actual.contract_minor
@@ -512,12 +512,12 @@ fn verify_compatibility(expectation: &CompatibilityExpectation) -> Result<(), St
     Ok(())
 }
 
-impl StudioAppCore {
+impl HarvestCircleAppCore {
     fn open_path_compatible(
         path: &Path,
         expectation: &CompatibilityExpectation,
         development_mode: bool,
-    ) -> Result<Arc<Self>, StudioError> {
+    ) -> Result<Arc<Self>, HarvestCircleError> {
         verify_compatibility(expectation)?;
         std::fs::create_dir_all(path.parent().ok_or_else(path_unavailable)?)
             .map_err(|_| path_unavailable())?;
@@ -528,7 +528,7 @@ impl StudioAppCore {
     // SQLite ownership. Platform installation lanes exercise this adapter;
     // deterministic coverage owns the compatibility and runtime policies.
     #[cfg_attr(coverage_nightly, coverage(off))]
-    fn open_path(path: &Path, development_mode: bool) -> Result<Arc<Self>, StudioError> {
+    fn open_path(path: &Path, development_mode: bool) -> Result<Arc<Self>, HarvestCircleError> {
         let mode = if development_mode {
             RelayRuntimeMode::Development
         } else {
@@ -585,7 +585,7 @@ impl Clock for SystemClock {
 
 // ProjectDirs and the process environment are host integration boundaries.
 #[cfg_attr(coverage_nightly, coverage(off))]
-fn application_database_path(development_mode: bool) -> Result<PathBuf, StudioError> {
+fn application_database_path(development_mode: bool) -> Result<PathBuf, HarvestCircleError> {
     if development_mode && let Some(directory) = std::env::var_os(DEVELOPMENT_DATA_DIR_ENVIRONMENT)
     {
         return Ok(PathBuf::from(directory).join(DATABASE_FILENAME));
@@ -599,13 +599,13 @@ fn application_database_path(development_mode: bool) -> Result<PathBuf, StudioEr
     .ok_or_else(path_unavailable)
 }
 
-fn parse_public_key(value: &str) -> Result<PublicKey, StudioError> {
-    PublicKey::from_hex(value).map_err(StudioError::from)
+fn parse_public_key(value: &str) -> Result<PublicKey, HarvestCircleError> {
+    PublicKey::from_hex(value).map_err(HarvestCircleError::from)
 }
 
-fn command_timeout(millis: u64, correlation_id: &str) -> Result<Duration, StudioError> {
+fn command_timeout(millis: u64, correlation_id: &str) -> Result<Duration, HarvestCircleError> {
     if millis == 0 || millis > MAX_COMMAND_DEADLINE_MILLIS {
-        return Err(StudioError::Failure {
+        return Err(HarvestCircleError::Failure {
             code: WireErrorCode::InvalidApplicationState,
             category: WireErrorCategory::Input,
             retryable: false,
@@ -617,13 +617,13 @@ fn command_timeout(millis: u64, correlation_id: &str) -> Result<Duration, Studio
     Ok(Duration::from_millis(millis))
 }
 
-pub(crate) fn runtime() -> Result<&'static tokio::runtime::Runtime, StudioError> {
+pub(crate) fn runtime() -> Result<&'static tokio::runtime::Runtime, HarvestCircleError> {
     static RUNTIME: OnceLock<Result<tokio::runtime::Runtime, ()>> = OnceLock::new();
     RUNTIME
         .get_or_init(|| {
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
-                .thread_name("radroots-studio-core")
+                .thread_name("harvestcircle-core")
                 .build()
                 .map_err(|_| ())
         })
@@ -631,12 +631,12 @@ pub(crate) fn runtime() -> Result<&'static tokio::runtime::Runtime, StudioError>
         .map_err(|()| runtime_unavailable())
 }
 
-fn actor_mailbox_capacity() -> Result<NonZeroUsize, StudioError> {
+fn actor_mailbox_capacity() -> Result<NonZeroUsize, HarvestCircleError> {
     NonZeroUsize::new(ACTOR_MAILBOX_CAPACITY).ok_or_else(runtime_unavailable)
 }
 
-fn runtime_unavailable() -> StudioError {
-    StudioError::Failure {
+fn runtime_unavailable() -> HarvestCircleError {
+    HarvestCircleError::Failure {
         code: WireErrorCode::InvalidApplicationState,
         category: WireErrorCategory::Lifecycle,
         retryable: true,
@@ -646,8 +646,8 @@ fn runtime_unavailable() -> StudioError {
     }
 }
 
-fn path_unavailable() -> StudioError {
-    StudioError::Failure {
+fn path_unavailable() -> HarvestCircleError {
+    HarvestCircleError::Failure {
         code: WireErrorCode::StorageUnavailable,
         category: WireErrorCategory::Storage,
         retryable: true,
@@ -657,8 +657,8 @@ fn path_unavailable() -> StudioError {
     }
 }
 
-fn confirmation_expired() -> StudioError {
-    StudioError::Failure {
+fn confirmation_expired() -> HarvestCircleError {
+    HarvestCircleError::Failure {
         code: WireErrorCode::InvalidApplicationState,
         category: WireErrorCategory::Lifecycle,
         retryable: false,
@@ -668,8 +668,8 @@ fn confirmation_expired() -> StudioError {
     }
 }
 
-fn generated_recovery_expired() -> StudioError {
-    StudioError::Failure {
+fn generated_recovery_expired() -> HarvestCircleError {
+    HarvestCircleError::Failure {
         code: WireErrorCode::InvalidApplicationState,
         category: WireErrorCategory::Lifecycle,
         retryable: false,
@@ -679,9 +679,9 @@ fn generated_recovery_expired() -> StudioError {
     }
 }
 
-fn generated_commit_failed(error: SafeError) -> StudioError {
+fn generated_commit_failed(error: SafeError) -> HarvestCircleError {
     let (category, _, _) = error_policy(error.code());
-    StudioError::Failure {
+    HarvestCircleError::Failure {
         code: error.code().into(),
         category,
         retryable: false,
@@ -693,8 +693,8 @@ fn generated_commit_failed(error: SafeError) -> StudioError {
     }
 }
 
-fn compatibility_mismatch() -> StudioError {
-    StudioError::Failure {
+fn compatibility_mismatch() -> HarvestCircleError {
+    HarvestCircleError::Failure {
         code: WireErrorCode::CompatibilityMismatch,
         category: WireErrorCategory::Compatibility,
         retryable: false,
@@ -722,14 +722,14 @@ mod tests {
     use super::{
         ACTOR_MAILBOX_CAPACITY, CompatibilityExpectation, DATABASE_APPLICATION, DATABASE_FILENAME,
         DATABASE_ORGANIZATION, DATABASE_QUALIFIER, FFI_CONTRACT_HASH, FFI_CONTRACT_MAJOR,
-        FFI_CONTRACT_MINOR, RequestContextDto, RuntimeCore, StudioAppCore, StudioError,
-        SystemClock, WireErrorCategory, WireErrorCode, WireRecoveryAction, actor_mailbox_capacity,
-        compatibility_descriptor, confirmation_expired, generated_commit_failed,
-        local_first_relay_configuration, path_unavailable, runtime, runtime_unavailable,
-        verify_compatibility,
+        FFI_CONTRACT_MINOR, HarvestCircleAppCore, HarvestCircleError, RequestContextDto,
+        RuntimeCore, SystemClock, WireErrorCategory, WireErrorCode, WireRecoveryAction,
+        actor_mailbox_capacity, compatibility_descriptor, confirmation_expired,
+        generated_commit_failed, local_first_relay_configuration, path_unavailable, runtime,
+        runtime_unavailable, verify_compatibility,
     };
 
-    async fn in_memory_core() -> Arc<StudioAppCore> {
+    async fn in_memory_core() -> Arc<HarvestCircleAppCore> {
         let actor = RuntimeActorHandle::in_memory(
             RelayConfiguration::default(),
             RuntimeDependencies::new(
@@ -743,7 +743,7 @@ mod tests {
         )
         .await
         .expect("in-memory actor");
-        Arc::new(StudioAppCore {
+        Arc::new(HarvestCircleAppCore {
             inner: Arc::new(RuntimeCore {
                 actor,
                 observers: std::sync::Mutex::new(std::collections::BTreeMap::new()),
@@ -816,7 +816,7 @@ mod tests {
             .expect_err("repeated acknowledgement");
         assert!(matches!(
             repeated,
-            StudioError::Failure { safe_message, .. }
+            HarvestCircleError::Failure { safe_message, .. }
                 if safe_message == "The generated-key recovery step is no longer valid."
         ));
     }
@@ -991,7 +991,7 @@ mod tests {
             assert_eq!(error.to_string(), message);
             assert!(matches!(
                 error,
-                StudioError::Failure {
+                HarvestCircleError::Failure {
                     code: actual_code,
                     category: actual_category,
                     retryable: actual_retryable,
@@ -1050,7 +1050,9 @@ mod tests {
             contract_major: FFI_CONTRACT_MAJOR + 1,
             ..compatible
         };
-        assert!(StudioAppCore::open_path_compatible(&rejected, &incompatible, true).is_err());
+        assert!(
+            HarvestCircleAppCore::open_path_compatible(&rejected, &incompatible, true).is_err()
+        );
         assert!(!rejected.parent().expect("parent").exists());
     }
 

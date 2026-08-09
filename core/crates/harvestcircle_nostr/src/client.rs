@@ -75,7 +75,7 @@ impl NostrClient for SdkNostrClient {
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|_| invalid_relay_configuration())?;
                 let request = FetchRequest::new(
-                    format!("studio-profile-{policy:?}"),
+                    format!("harvestcircle-profile-{policy:?}"),
                     TargetSet::new(targets).map_err(|_| invalid_relay_configuration())?,
                     FetchBounds::new(
                         MAX_PROFILE_EVENTS_PER_RELAY as u16,

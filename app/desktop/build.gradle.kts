@@ -663,7 +663,7 @@ tasks.named("runKtlintFormatOverMainSourceSet") {
 tasks.withType<Test>().configureEach {
     dependsOn(buildRustCoreDebug)
     environment(
-        "RADROOTS_STUDIO_DEVELOPMENT_DATA_DIR",
+        "HARVESTCIRCLE_DEVELOPMENT_DATA_DIR",
         layout.buildDirectory
             .dir("native-test-data")
             .get()
@@ -676,7 +676,7 @@ tasks.withType<Test>().configureEach {
 }
 tasks.withType<JavaExec>().configureEach {
     dependsOn(buildRustCoreDebug)
-    systemProperty("radroots.studio.development", "true")
+    systemProperty("harvestcircle.development", "true")
     systemProperty(
         "jna.library.path",
         rustDebugLibrary.parentFile.absolutePath,
@@ -713,7 +713,7 @@ compose.desktop {
 
             packageName = applicationName
             packageVersion = installableVersion
-            description = "Radroots Studio $appVersion"
+            description = "Radroots HarvestCircle $appVersion"
             copyright = "Copyright © 2024 Radroots, Inc."
             vendor = "Radroots, Inc"
 

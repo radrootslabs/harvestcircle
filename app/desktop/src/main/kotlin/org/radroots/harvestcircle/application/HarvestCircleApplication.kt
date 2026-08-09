@@ -9,8 +9,8 @@ import org.radroots.harvestcircle.accounts.ui.HarvestCircleScreen
 import org.radroots.harvestcircle.accounts.ui.HarvestCircleUiActions
 import org.radroots.harvestcircle.accounts.ui.StartupFailureScreen
 import org.radroots.harvestcircle.accounts.ui.toUiModel
-import org.radroots.harvestcircle.ffi.StudioAppCore
-import org.radroots.harvestcircle.ffi.StudioException
+import org.radroots.harvestcircle.ffi.HarvestCircleAppCore
+import org.radroots.harvestcircle.ffi.HarvestCircleException
 import org.radroots.harvestcircle.ffi.compatibilityDescriptor
 
 internal typealias HarvestCircleStoreFactory = (CoroutineScope) -> HarvestCircleAppStore
@@ -23,7 +23,7 @@ fun HarvestCircleApplication(storeFactory: HarvestCircleStoreFactory = ::createH
     if (store == null) {
         val error = storeResult.exceptionOrNull()
         val message =
-            (error as? StudioException.Failure)?.safeMessage
+            (error as? HarvestCircleException.Failure)?.safeMessage
                 ?: "The application could not start."
         StartupFailureScreen(message)
         return
@@ -65,10 +65,10 @@ fun HarvestCircleApplication(storeFactory: HarvestCircleStoreFactory = ::createH
 }
 
 internal fun createHarvestCircleAppStore(scope: CoroutineScope): HarvestCircleAppStore {
-    val developmentMode = java.lang.Boolean.getBoolean("radroots.studio.development")
+    val developmentMode = java.lang.Boolean.getBoolean("harvestcircle.development")
     val descriptor = compatibilityDescriptor()
     val core =
-        StudioAppCore.openCompatible(
+        HarvestCircleAppCore.openCompatible(
             expectation = verifyNativeCompatibility(descriptor),
             developmentMode = developmentMode,
         )

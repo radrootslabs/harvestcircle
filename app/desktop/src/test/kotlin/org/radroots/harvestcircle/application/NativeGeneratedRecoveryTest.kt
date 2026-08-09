@@ -1,7 +1,7 @@
 package org.radroots.harvestcircle.application
 
 import kotlinx.coroutines.test.runTest
-import org.radroots.harvestcircle.ffi.StudioAppCore
+import org.radroots.harvestcircle.ffi.HarvestCircleAppCore
 import org.radroots.harvestcircle.ffi.compatibilityDescriptor
 import java.nio.file.Files
 import java.nio.file.Path
@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
 
 class NativeGeneratedRecoveryTest {
     private val dataDirectory =
-        Path.of(checkNotNull(System.getenv("RADROOTS_STUDIO_DEVELOPMENT_DATA_DIR")))
+        Path.of(checkNotNull(System.getenv("HARVESTCIRCLE_DEVELOPMENT_DATA_DIR")))
 
     @BeforeTest
     fun prepareDataDirectory() {
@@ -31,7 +31,7 @@ class NativeGeneratedRecoveryTest {
     fun generatedRecoveryCrossesTheNativeBoundaryAndCancelsWithoutPersistence() =
         runTest {
             val core =
-                StudioAppCore.openCompatible(
+                HarvestCircleAppCore.openCompatible(
                     expectation = verifyNativeCompatibility(compatibilityDescriptor()),
                     developmentMode = true,
                 )

@@ -5,7 +5,7 @@ import org.radroots.harvestcircle.ffi.CompatibilityExpectation
 
 internal const val EXPECTED_PRODUCT_VERSION = "0.1.0-alpha"
 internal const val EXPECTED_CARGO_PACKAGE_VERSION = "0.1.0-alpha"
-internal const val EXPECTED_FFI_CONTRACT_HASH = "249b8f9ec8ce64e33d5b88dd52d7dc646a2d5b6993c738e71253964531d6d210"
+internal const val EXPECTED_FFI_CONTRACT_HASH = "d4e298f0abeaa65aa68e70d7a6e8f69f8182f12f93c12b2dd056d3ed5d83e9c0"
 internal val EXPECTED_FFI_CONTRACT_MAJOR: UShort = 3.toUShort()
 internal val MINIMUM_FFI_CONTRACT_MINOR: UShort = 0.toUShort()
 internal const val MINIMUM_STORAGE_SCHEMA: UInt = 5U
