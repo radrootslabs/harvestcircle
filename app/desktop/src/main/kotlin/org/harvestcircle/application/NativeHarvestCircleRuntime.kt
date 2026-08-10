@@ -31,7 +31,7 @@ class NativeHarvestCircleRuntime internal constructor(
     private val native: NativeCorePort,
     private val handleIds: NativeHandleIdSource = GeneratedNativeHandleIdSource,
 ) : HarvestCircleRuntime {
-    override val buildInfo: BuildInfo = nativeBuildInfo().toBuildInfo()
+    override val buildInfo: BuildInfo = nativeBuildInfo().toBuildInfo(compatibilityDescriptor())
 
     private val recoveryMutex = Mutex()
     private val recoveryHandles = mutableMapOf<RecoveryRequestId, NativeGeneratedRecoveryHandle>()

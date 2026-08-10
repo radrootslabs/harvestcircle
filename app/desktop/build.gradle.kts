@@ -19,8 +19,10 @@ import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.tasks.Jar
 import org.harvestcircle.gradle.FfiCompatibilityBaseline
 import org.harvestcircle.gradle.GenerateCompatibilityExpectations
+import org.harvestcircle.gradle.GenerateDesktopBuildMetadata
 import org.harvestcircle.gradle.ProductCoordinates
 import org.harvestcircle.gradle.VerifyGeneratedCompatibilityExpectations
+import org.harvestcircle.gradle.VerifyGeneratedDesktopBuildMetadata
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
@@ -290,12 +292,34 @@ val generatedCompatibilityFile =
     generatedCompatibilityKotlin.map {
         it.file("org/harvestcircle/application/generated/NativeCompatibilityExpectations.kt")
     }
+val generatedDesktopBuildMetadataFile =
+    generatedCompatibilityKotlin.map {
+        it.file("org/harvestcircle/application/generated/DesktopBuildMetadata.kt")
+    }
+
+fun org.harvestcircle.gradle.DesktopBuildMetadataTask.configureDesktopBuildMetadata() {
+    productVersion.set(appVersion)
+    distributionPackageVersion.set(installableVersion)
+    gradleToolchain.set(gradle.gradleVersion)
+    javaToolchain.set(System.getProperty("java.version"))
+    kotlinToolchain.set(libs.versions.kotlin.get())
+    composeMultiplatformVersion.set(libs.versions.compose.get())
+}
+val generateDesktopBuildMetadata by tasks.registering(GenerateDesktopBuildMetadata::class) {
+    configureDesktopBuildMetadata()
+    outputFile.set(generatedDesktopBuildMetadataFile)
+}
 val generateCompatibilityExpectations by tasks.registering(GenerateCompatibilityExpectations::class) {
     baselineFile.set(ffiCompatibilityBaselineFile)
     outputFile.set(generatedCompatibilityFile)
 }
+val verifyGeneratedDesktopBuildMetadata by tasks.registering(VerifyGeneratedDesktopBuildMetadata::class) {
+    dependsOn(generateDesktopBuildMetadata)
+    configureDesktopBuildMetadata()
+    generatedFile.set(generatedDesktopBuildMetadataFile)
+}
 val verifyGeneratedSources by tasks.registering(VerifyGeneratedCompatibilityExpectations::class) {
-    dependsOn(generateCompatibilityExpectations)
+    dependsOn(generateCompatibilityExpectations, verifyGeneratedDesktopBuildMetadata)
     baselineFile.set(ffiCompatibilityBaselineFile)
     generatedFile.set(generatedCompatibilityFile)
 }
@@ -423,6 +447,44 @@ val releaseNativeRuntimeJar =
         .archiveFile
         .get()
         .asFile
+
+abstract class VerifyDesktopBuildMetadataArtifact : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val desktopJar: RegularFileProperty
+
+    @get:Input
+    abstract val expectedBuildEvidence: ListProperty<String>
+
+    @TaskAction
+    fun verify() {
+        JarFile(desktopJar.get().asFile).use { jar ->
+            val entry =
+                jar.getJarEntry("org/harvestcircle/application/generated/DesktopBuildMetadata.class")
+                    ?: throw GradleException("Desktop build metadata is missing from the application artifact")
+            val metadata = jar.getInputStream(entry).use { it.readBytes() }.toString(Charsets.ISO_8859_1)
+            expectedBuildEvidence.get().forEach { evidence ->
+                require(metadata.contains(evidence)) {
+                    "Desktop application artifact is missing generated build evidence"
+                }
+            }
+        }
+    }
+}
+val verifyDesktopBuildMetadataArtifact by tasks.registering(VerifyDesktopBuildMetadataArtifact::class) {
+    dependsOn("jar")
+    desktopJar.set(tasks.named<Jar>("jar").flatMap { it.archiveFile })
+    expectedBuildEvidence.set(
+        listOf(
+            appVersion,
+            installableVersion,
+            gradle.gradleVersion,
+            System.getProperty("java.version"),
+            libs.versions.kotlin.get(),
+            libs.versions.compose.get(),
+        ),
+    )
+}
 
 abstract class VerifyMacOsDistribution : DefaultTask() {
     @get:InputDirectory
@@ -746,6 +808,7 @@ tasks.named("check") {
     dependsOn(rootProject.tasks.named("verifyProductCoordinates"))
     dependsOn(rootProject.tasks.named("verifyProductCoordinateConsumers"))
     dependsOn(verifyGeneratedSources)
+    dependsOn(verifyDesktopBuildMetadataArtifact)
 }
 
 kotlin {
@@ -757,7 +820,7 @@ kotlin {
 }
 
 tasks.named<KotlinCompile>("compileKotlin") {
-    dependsOn(generateUniFfiKotlin, generateCompatibilityExpectations)
+    dependsOn(generateUniFfiKotlin, generateCompatibilityExpectations, generateDesktopBuildMetadata)
     source(generatedUniFfiKotlin, generatedCompatibilityKotlin)
 }
 tasks.named("runKtlintCheckOverMainSourceSet") {
@@ -935,7 +998,7 @@ val sourceReadiness by tasks.registering {
     )
 }
 val packageReadiness by tasks.registering {
-    dependsOn(verifyHostPackage, verifyReleaseBuildProvenance)
+    dependsOn(verifyHostPackage, verifyReleaseBuildProvenance, verifyDesktopBuildMetadataArtifact)
 }
 val signingReadiness by tasks.registering {
     dependsOn(verifyMacOsDeveloperIdSignature)

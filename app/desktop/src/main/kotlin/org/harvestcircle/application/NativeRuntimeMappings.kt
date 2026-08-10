@@ -4,6 +4,7 @@ import org.harvestcircle.ffi.ActiveIdentityDto
 import org.harvestcircle.ffi.AppLifecycleDto
 import org.harvestcircle.ffi.AppSnapshotDto
 import org.harvestcircle.ffi.BuildInfoDto
+import org.harvestcircle.ffi.CompatibilityDescriptor
 import org.harvestcircle.ffi.HarvestCircleException
 import org.harvestcircle.ffi.IdentityCommandReceiptDto
 import org.harvestcircle.ffi.IdentityDto
@@ -20,9 +21,13 @@ import org.harvestcircle.ffi.SnapshotChangeDto
 import org.harvestcircle.ffi.WireErrorCategory
 import org.harvestcircle.ffi.WireErrorCode
 import org.harvestcircle.ffi.WireRecoveryAction
+import org.harvestcircle.application.generated.DesktopBuildMetadata as DesktopBuild
+import org.harvestcircle.application.generated.NativeCompatibilityExpectations as Expected
 
-internal fun BuildInfoDto.toBuildInfo(): BuildInfo =
+internal fun BuildInfoDto.toBuildInfo(descriptor: CompatibilityDescriptor): BuildInfo =
     BuildInfo(
+        productVersion = DesktopBuild.productVersion,
+        distributionPackageVersion = DesktopBuild.distributionPackageVersion,
         sourceCommit = sourceCommit,
         sourceDirty =
             when (sourceDirty) {
@@ -32,15 +37,32 @@ internal fun BuildInfoDto.toBuildInfo(): BuildInfo =
             },
         radrootsRevision = radrootsRevision,
         rustToolchain = rustToolchain,
-        javaToolchain = javaToolchain,
-        kotlinToolchain = kotlinToolchain,
+        gradleToolchain = DesktopBuild.gradleToolchain,
+        javaToolchain = DesktopBuild.javaToolchain,
+        kotlinToolchain = DesktopBuild.kotlinToolchain,
+        composeMultiplatformVersion = DesktopBuild.composeMultiplatformVersion,
         provenanceDigest = provenanceDigest,
         sourceDateEpoch = sourceDateEpoch,
         ffiContractId = ffiContractId,
+        ffiContractMajor = descriptor.contractMajor,
+        ffiContractMinor = descriptor.contractMinor,
         ffiContractHash = ffiContractHash,
         snapshotSchemaVersion = snapshotSchemaVersion,
         minimumStorageSchemaVersion = minimumStorageSchemaVersion,
         currentStorageSchemaVersion = currentStorageSchemaVersion,
+        eventRegistryState = EventRegistryState.NotApplicable,
+        releaseCriteria =
+            BuildReleaseCriteria(
+                productVersion = Expected.productVersion,
+                distributionPackageVersion = Expected.distributionPackageVersion,
+                ffiContractId = Expected.ffiContractId,
+                ffiContractMajor = Expected.ffiContractMajor,
+                ffiContractMinor = Expected.minimumFfiContractMinor,
+                ffiContractHash = Expected.ffiContractHash,
+                snapshotSchemaVersion = Expected.snapshotSchema,
+                minimumStorageSchemaVersion = Expected.minimumStorageSchema,
+                maximumStorageSchemaVersion = Expected.maximumStorageSchema,
+            ),
     )
 
 internal fun RequestContext.toNative(): RequestContextDto =

@@ -14,6 +14,8 @@ import kotlinx.coroutines.test.runTest
 import org.harvestcircle.ffi.ActiveIdentityDto
 import org.harvestcircle.ffi.AppLifecycleDto
 import org.harvestcircle.ffi.AppSnapshotDto
+import org.harvestcircle.ffi.BuildInfoDto
+import org.harvestcircle.ffi.CompatibilityDescriptor
 import org.harvestcircle.ffi.HarvestCircleException
 import org.harvestcircle.ffi.IdentityCommandReceiptDto
 import org.harvestcircle.ffi.IdentityDto
@@ -37,8 +39,55 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.harvestcircle.application.generated.NativeCompatibilityExpectations as Expected
 
 class NativeRuntimeMappingsTest {
+    @Test
+    fun desktopCombinesNativeAndHostOwnedBuildMetadataForReadiness() {
+        val descriptor =
+            CompatibilityDescriptor(
+                contractId = Expected.ffiContractId,
+                productVersion = Expected.productVersion,
+                cargoPackageVersion = Expected.cargoPackageVersion,
+                distributionPackageVersion = Expected.distributionPackageVersion,
+                contractMajor = Expected.ffiContractMajor,
+                contractMinor = Expected.minimumFfiContractMinor,
+                contractHash = Expected.ffiContractHash,
+                productCoordinateDigest = Expected.productCoordinateDigest,
+                snapshotSchemaVersion = Expected.snapshotSchema,
+                minimumSchemaVersion = Expected.minimumStorageSchema,
+                currentSchemaVersion = Expected.maximumStorageSchema,
+                sourceProvenanceDigest = Expected.sourceProvenanceDigest,
+                sourceFoundationBaseline = Expected.sourceFoundationBaseline,
+            )
+        val native =
+            BuildInfoDto(
+                sourceCommit = "a".repeat(40),
+                sourceDirty = "false",
+                radrootsRevision = "b".repeat(40),
+                rustToolchain = "1.97.1",
+                javaToolchain = "native-value-must-not-win",
+                kotlinToolchain = "native-value-must-not-win",
+                provenanceDigest = "c".repeat(64),
+                sourceDateEpoch = 1_700_000_000UL,
+                ffiContractId = descriptor.contractId,
+                ffiContractHash = descriptor.contractHash,
+                snapshotSchemaVersion = Expected.snapshotSchema,
+                minimumStorageSchemaVersion = Expected.minimumStorageSchema,
+                currentStorageSchemaVersion = Expected.maximumStorageSchema,
+            )
+
+        val mapped = native.toBuildInfo(descriptor)
+
+        assertEquals(Expected.productVersion, mapped.productVersion)
+        assertEquals(Expected.distributionPackageVersion, mapped.distributionPackageVersion)
+        assertEquals("9.5.0", mapped.gradleToolchain)
+        assertEquals("2.4.10", mapped.kotlinToolchain)
+        assertEquals("1.11.1", mapped.composeMultiplatformVersion)
+        assertEquals(EventRegistryState.NotApplicable, mapped.eventRegistryState)
+        assertTrue(mapped.releaseReady, mapped.releaseReadinessProblems.toString())
+    }
+
     @Test
     fun everyGeneratedEnumMapsExhaustively() {
         assertEquals(

@@ -41,6 +41,12 @@ val verifyCompatibilityBaseline by tasks.registering {
     dependsOn(verifyProductCoordinates)
 }
 
+val verifySourceProvenance by tasks.registering {
+    group = "verification"
+    description = "Validates canonical source provenance and its governed digest."
+    dependsOn(verifyProductCoordinates)
+}
+
 val verifyProductCoordinateConsumers by tasks.registering(VerifyProductCoordinateConsumers::class) {
     group = "verification"
     description = "Validates that build and runtime identities consume the product manifest."

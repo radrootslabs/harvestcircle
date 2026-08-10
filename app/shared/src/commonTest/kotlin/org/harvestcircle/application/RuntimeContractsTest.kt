@@ -9,28 +9,49 @@ import kotlin.test.assertTrue
 class RuntimeContractsTest {
     @Test
     fun buildInfoRejectsUnknownAndDirtyReleaseInputsAndKeepsDiagnosticsSafe() {
-        val clean =
-            BuildInfo(
-                sourceCommit = "a".repeat(40),
-                sourceDirty = BuildDirtyState.Clean,
-                radrootsRevision = "b".repeat(40),
-                rustToolchain = "1.97.1",
-                javaToolchain = "21.0.11",
-                kotlinToolchain = "2.4.10",
-                provenanceDigest = "d".repeat(64),
-                sourceDateEpoch = 1_700_000_000UL,
-                ffiContractId = "harvestcircle-desktop-ffi-v4",
-                ffiContractHash = "c".repeat(64),
-                snapshotSchemaVersion = 1U,
-                minimumStorageSchemaVersion = 5U,
-                currentStorageSchemaVersion = 10U,
-            )
+        val clean = releaseReadyBuildInfo()
         assertTrue(clean.releaseReady)
+        assertEquals(emptySet(), clean.releaseReadinessProblems)
         assertEquals("1700000000", clean.safeDiagnostics()["sourceDateEpoch"])
+        assertEquals("not_applicable", clean.safeDiagnostics()["eventRegistryState"])
         assertFalse(clean.safeDiagnostics().values.any { it.contains("nsec1") })
-        assertFalse(clean.copy(sourceDirty = BuildDirtyState.Dirty).releaseReady)
-        assertFalse(clean.copy(sourceCommit = UNKNOWN_PROVENANCE).releaseReady)
         assertFalse(BuildInfo.unknown().releaseReady)
+    }
+
+    @Test
+    fun buildInfoReportsEveryFieldSpecificReadinessFailure() {
+        val clean = releaseReadyBuildInfo()
+        val failures =
+            mapOf(
+                ReleaseReadinessProblem.ProductVersion to clean.copy(productVersion = "wrong"),
+                ReleaseReadinessProblem.DistributionPackageVersion to
+                    clean.copy(distributionPackageVersion = "wrong"),
+                ReleaseReadinessProblem.SourceCommit to clean.copy(sourceCommit = "A".repeat(40)),
+                ReleaseReadinessProblem.SourceDirty to clean.copy(sourceDirty = BuildDirtyState.Dirty),
+                ReleaseReadinessProblem.RadrootsRevision to clean.copy(radrootsRevision = "short"),
+                ReleaseReadinessProblem.RustToolchain to clean.copy(rustToolchain = UNKNOWN_PROVENANCE),
+                ReleaseReadinessProblem.GradleToolchain to clean.copy(gradleToolchain = UNKNOWN_PROVENANCE),
+                ReleaseReadinessProblem.JavaToolchain to clean.copy(javaToolchain = UNKNOWN_PROVENANCE),
+                ReleaseReadinessProblem.KotlinToolchain to clean.copy(kotlinToolchain = UNKNOWN_PROVENANCE),
+                ReleaseReadinessProblem.ComposeMultiplatform to
+                    clean.copy(composeMultiplatformVersion = UNKNOWN_PROVENANCE),
+                ReleaseReadinessProblem.ProvenanceDigest to clean.copy(provenanceDigest = "bad"),
+                ReleaseReadinessProblem.SourceDateEpoch to clean.copy(sourceDateEpoch = 0UL),
+                ReleaseReadinessProblem.FfiContractId to clean.copy(ffiContractId = "wrong"),
+                ReleaseReadinessProblem.FfiContractMajor to clean.copy(ffiContractMajor = 5.toUShort()),
+                ReleaseReadinessProblem.FfiContractMinor to clean.copy(ffiContractMinor = 1.toUShort()),
+                ReleaseReadinessProblem.FfiContractHash to clean.copy(ffiContractHash = "bad"),
+                ReleaseReadinessProblem.SnapshotSchema to clean.copy(snapshotSchemaVersion = 0U),
+                ReleaseReadinessProblem.StorageSchema to
+                    clean.copy(minimumStorageSchemaVersion = 11U, currentStorageSchemaVersion = 10U),
+                ReleaseReadinessProblem.EventRegistry to
+                    clean.copy(eventRegistryState = EventRegistryState.Unknown),
+            )
+
+        failures.forEach { (expected, buildInfo) ->
+            assertEquals(setOf(expected), buildInfo.releaseReadinessProblems, expected.diagnosticName)
+            assertFalse(buildInfo.releaseReady)
+        }
     }
 
     @Test
@@ -151,6 +172,44 @@ class RuntimeContractsTest {
         assertEquals(8, commands.map(::commandName).distinct().size)
         assertTrue(commands.none { it.toString().contains("nsec1boundedsecret") })
     }
+}
+
+private fun releaseReadyBuildInfo(): BuildInfo {
+    val criteria =
+        BuildReleaseCriteria(
+            productVersion = "0.1.0-alpha",
+            distributionPackageVersion = "1.0.0",
+            ffiContractId = "harvestcircle-desktop-ffi-v4",
+            ffiContractMajor = 4.toUShort(),
+            ffiContractMinor = 0.toUShort(),
+            ffiContractHash = "c".repeat(64),
+            snapshotSchemaVersion = 1U,
+            minimumStorageSchemaVersion = 5U,
+            maximumStorageSchemaVersion = 10U,
+        )
+    return BuildInfo(
+        productVersion = criteria.productVersion,
+        distributionPackageVersion = criteria.distributionPackageVersion,
+        sourceCommit = "a".repeat(40),
+        sourceDirty = BuildDirtyState.Clean,
+        radrootsRevision = "b".repeat(40),
+        rustToolchain = "1.97.1",
+        gradleToolchain = "9.5.0",
+        javaToolchain = "21.0.11",
+        kotlinToolchain = "2.4.10",
+        composeMultiplatformVersion = "1.11.1",
+        provenanceDigest = "d".repeat(64),
+        sourceDateEpoch = 1_700_000_000UL,
+        ffiContractId = criteria.ffiContractId,
+        ffiContractMajor = criteria.ffiContractMajor,
+        ffiContractMinor = criteria.ffiContractMinor,
+        ffiContractHash = criteria.ffiContractHash,
+        snapshotSchemaVersion = criteria.snapshotSchemaVersion,
+        minimumStorageSchemaVersion = criteria.minimumStorageSchemaVersion,
+        currentStorageSchemaVersion = criteria.maximumStorageSchemaVersion,
+        eventRegistryState = EventRegistryState.NotApplicable,
+        releaseCriteria = criteria,
+    )
 }
 
 private fun snapshot(revision: ULong): ApplicationSnapshot {
