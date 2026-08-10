@@ -12,10 +12,10 @@ import java.awt.Taskbar
 import javax.imageio.ImageIO
 
 private const val APPLICATION_NAME = "HarvestCircle"
-private const val INITIAL_WINDOW_WIDTH = 1284
-private const val INITIAL_WINDOW_HEIGHT = 795
-private const val MINIMUM_WINDOW_WIDTH = 1080
-private const val MINIMUM_WINDOW_HEIGHT = 720
+internal const val INITIAL_WINDOW_WIDTH = 1280
+internal const val INITIAL_WINDOW_HEIGHT = 800
+internal const val MINIMUM_WINDOW_WIDTH = 1100
+internal const val MINIMUM_WINDOW_HEIGHT = 720
 
 private val isMacOs: Boolean =
     System

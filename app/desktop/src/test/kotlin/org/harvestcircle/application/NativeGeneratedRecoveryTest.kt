@@ -1,8 +1,6 @@
 package org.harvestcircle.application
 
 import kotlinx.coroutines.test.runTest
-import org.harvestcircle.ffi.HarvestCircleAppCore
-import org.harvestcircle.ffi.compatibilityDescriptor
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.AfterTest
@@ -30,24 +28,19 @@ class NativeGeneratedRecoveryTest {
     @Test
     fun generatedRecoveryCrossesTheNativeBoundaryAndCancelsWithoutPersistence() =
         runTest {
-            val core =
-                HarvestCircleAppCore.openCompatible(
-                    expectation = verifyNativeCompatibility(compatibilityDescriptor()),
-                    developmentMode = true,
-                )
-            val gateway = NativeHarvestCircleCoreGateway(core)
+            val runtime = NativeHarvestCircleRuntime.open(developmentMode = true)
             try {
-                gateway.bootstrap()
-                val recovery = gateway.beginGeneratedIdentity()
+                runtime.bootstrap()
+                val recovery = runtime.prepareLocalIdentity()
 
                 assertTrue(recovery.identity.npub.startsWith("npub1"))
-                assertTrue(recovery.takeRecoveryNsec().startsWith("nsec1"))
-                assertTrue(recovery.cancel())
-                assertFalse(recovery.cancel())
-                assertEquals(0, gateway.snapshot().identities.size)
-                recovery.close()
+                assertTrue(recovery.backup.revealNsec().startsWith("nsec1"))
+                runtime.execute(ApplicationCommand.CancelGeneratedIdentity(recovery.requestId))
+                recovery.backup.clear()
+                assertFalse(runtime.currentSnapshot().identities.isNotEmpty())
+                assertEquals(0, runtime.currentSnapshot().identities.size)
             } finally {
-                gateway.shutdown()
+                runtime.shutdown()
             }
         }
 }
