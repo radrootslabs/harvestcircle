@@ -1,18 +1,21 @@
 package org.harvestcircle.application
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.identities.ui.HarvestCircleScreen
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
+import org.harvestcircle.identities.ui.ShutdownFailureScreen
 import org.harvestcircle.identities.ui.StartupFailureScreen
 import org.harvestcircle.identities.ui.toUiModel
 import java.util.concurrent.atomic.AtomicLong
@@ -20,11 +23,19 @@ import java.util.concurrent.atomic.AtomicLong
 internal typealias HarvestCirclePresenterFactory = (CoroutineScope) -> HarvestCirclePresenter
 
 @Composable
-fun HarvestCircleApplication(presenterFactory: HarvestCirclePresenterFactory = ::createHarvestCirclePresenter) {
+fun HarvestCircleApplication(
+    closeRequested: Boolean = false,
+    onExitApproved: () -> Unit = {},
+    shutdownTimeoutMillis: Long = DEFAULT_SHUTDOWN_TIMEOUT_MILLIS,
+    presenterFactory: HarvestCirclePresenterFactory = ::createHarvestCirclePresenter,
+) {
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     val presenterResult = remember { runCatching { presenterFactory(scope) } }
     val presenter = presenterResult.getOrNull()
     if (presenter == null) {
+        LaunchedEffect(closeRequested) {
+            if (closeRequested) onExitApproved()
+        }
         val message =
             (presenterResult.exceptionOrNull() as? ApplicationFailure)?.problem?.safeMessage
                 ?: "The application could not start."
@@ -33,15 +44,24 @@ fun HarvestCircleApplication(presenterFactory: HarvestCirclePresenterFactory = :
     }
     val clipboard = remember { SecretClipboardController(scope) }
     val state by presenter.state.collectAsState()
+    var shutdownProblem by remember { mutableStateOf<String?>(null) }
 
-    DisposableEffect(presenter, clipboard) {
-        onDispose {
+    LaunchedEffect(closeRequested, presenter) {
+        if (closeRequested) {
             clipboard.close()
-            scope.launch {
-                presenter.close()
+            val receipt = withTimeoutOrNull(shutdownTimeoutMillis) { presenter.close() }
+            if (receipt?.closed == true) {
                 scope.cancel()
+                onExitApproved()
+            } else {
+                shutdownProblem = "Native shutdown did not complete within the safe timeout."
             }
         }
+    }
+
+    shutdownProblem?.let { problem ->
+        ShutdownFailureScreen(problem = problem, forceExit = onExitApproved)
+        return
     }
 
     HarvestCircleScreen(
@@ -72,6 +92,8 @@ fun HarvestCircleApplication(presenterFactory: HarvestCirclePresenterFactory = :
         platformActions = HarvestCirclePlatformActions(copySecret = clipboard::copy),
     )
 }
+
+internal const val DEFAULT_SHUTDOWN_TIMEOUT_MILLIS = 5_000L
 
 internal fun createHarvestCirclePresenter(scope: CoroutineScope): HarvestCirclePresenter {
     val developmentMode = java.lang.Boolean.getBoolean("harvestcircle.development")

@@ -111,7 +111,10 @@ class HarvestCirclePresenterTest {
             assertTrue(runtime.executeCancelled)
             assertTrue(runtime.shutdownCalled)
             assertEquals(HarvestCircleRoute.CLOSED, presenter.state.value.route)
-            assertTrue(receipt.await()?.closed == true)
+            val first = receipt.await()
+            assertTrue(first?.closed == true)
+            assertEquals(first, presenter.close())
+            assertEquals(1, runtime.shutdownCalls)
         }
 
     @Test
@@ -203,6 +206,7 @@ private class FakePresenterRuntime(
     var executeCalls = 0
     var executeCancelled = false
     var shutdownCalled = false
+    var shutdownCalls = 0
     var generatedCancellationCalls = 0
     var removalCancellationCalls = 0
     val importedSecrets = mutableListOf<String>()
@@ -260,6 +264,7 @@ private class FakePresenterRuntime(
 
     override suspend fun shutdown(): ShutdownReceipt {
         shutdownCalled = true
+        shutdownCalls += 1
         return ShutdownReceipt(current.revision, closed = true)
     }
 

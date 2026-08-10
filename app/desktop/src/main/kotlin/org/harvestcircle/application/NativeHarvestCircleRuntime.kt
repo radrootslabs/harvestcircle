@@ -1,12 +1,13 @@
 package org.harvestcircle.application
 
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.harvestcircle.ffi.AppSnapshotDto
 import org.harvestcircle.ffi.GeneratedRecoveryRequest
 import org.harvestcircle.ffi.HarvestCircleAppCore
@@ -44,14 +45,18 @@ class NativeHarvestCircleRuntime internal constructor(
         }
 
     override fun changes(): Flow<ApplicationChange> =
-        callbackFlow {
+        channelFlow {
             val subscription =
                 callNative {
                     native.subscribe { change ->
                         trySend(change.toApplicationChange())
                     }
                 }
-            awaitClose(subscription::close)
+            try {
+                awaitCancellation()
+            } finally {
+                withContext(NonCancellable) { subscription.unsubscribe() }
+            }
         }
 
     override suspend fun execute(command: ApplicationCommand): ApplicationCommandResult =
@@ -318,8 +323,8 @@ internal interface NativeRemovalHandle : AutoCloseable {
     fun expiresAtSeconds(): Long
 }
 
-internal fun interface NativeSubscriptionHandle : AutoCloseable {
-    override fun close()
+internal fun interface NativeSubscriptionHandle {
+    suspend fun unsubscribe()
 }
 
 private class UniFfiNativeCorePort(
@@ -413,9 +418,9 @@ private class UniFfiRemovalHandle(
 private class UniFfiNativeSubscriptionHandle(
     private val subscription: ObserverSubscription,
 ) : NativeSubscriptionHandle {
-    override fun close() {
+    override suspend fun unsubscribe() {
         try {
-            runBlocking { subscription.unsubscribe() }
+            subscription.unsubscribe()
         } finally {
             subscription.close()
         }

@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class HarvestCirclePresenter(
     private val runtime: HarvestCircleRuntime,
@@ -27,6 +29,8 @@ class HarvestCirclePresenter(
     private var pendingRecovery: GeneratedIdentityRecovery? = null
     private var pendingRemoval: IdentityRemovalRequest? = null
     private var pendingRetry: PendingRetry? = null
+    private val closeMutex = Mutex()
+    private var closeReceipt: ShutdownReceipt? = null
     private var closed = false
 
     val state: StateFlow<HarvestCirclePresenterState> = mutableState.asStateFlow()
@@ -75,30 +79,33 @@ class HarvestCirclePresenter(
         }
     }
 
-    suspend fun close(): ShutdownReceipt? {
-        if (closed) return null
-        closed = true
-        updateState { copy(route = HarvestCircleRoute.SHUTTING_DOWN, busy = true, problem = null) }
-        commandJob?.cancelAndJoin()
-        subscriptionJob?.cancelAndJoin()
-        releaseRecovery()
-        pendingRemoval = null
-        return try {
-            runtime.shutdown().also { receipt ->
-                updateState {
-                    copy(
-                        route = if (receipt.closed) HarvestCircleRoute.CLOSED else HarvestCircleRoute.FATAL,
-                        busy = false,
-                        problem = if (receipt.closed) null else "The application could not shut down safely.",
-                    )
+    suspend fun close(): ShutdownReceipt? =
+        closeMutex.withLock {
+            closeReceipt?.let { return@withLock it }
+            if (closed) return@withLock null
+            closed = true
+            updateState { copy(route = HarvestCircleRoute.SHUTTING_DOWN, busy = true, problem = null) }
+            commandJob?.cancelAndJoin()
+            subscriptionJob?.cancelAndJoin()
+            releaseRecovery()
+            pendingRemoval = null
+            return try {
+                runtime.shutdown().also { receipt ->
+                    closeReceipt = receipt
+                    updateState {
+                        copy(
+                            route = if (receipt.closed) HarvestCircleRoute.CLOSED else HarvestCircleRoute.FATAL,
+                            busy = false,
+                            problem = if (receipt.closed) null else "The application could not shut down safely.",
+                        )
+                    }
                 }
+            } catch (error: Exception) {
+                acceptFailure(error, null)
+                updateState { copy(route = HarvestCircleRoute.FATAL, busy = false) }
+                null
             }
-        } catch (error: Exception) {
-            acceptFailure(error, null)
-            updateState { copy(route = HarvestCircleRoute.FATAL, busy = false) }
-            null
         }
-    }
 
     private fun editImportDraft(value: String) {
         updateState {

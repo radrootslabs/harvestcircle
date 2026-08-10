@@ -15,6 +15,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runComposeUiTest
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlin.test.Test
@@ -23,41 +24,94 @@ import kotlin.test.assertEquals
 class HarvestCircleApplicationTest {
     @OptIn(ExperimentalTestApi::class)
     @Test
-    fun applicationCreatesOnePresenterAcrossRecompositionAndClosesItOnDisposal() =
+    fun applicationCreatesOnePresenterAndAwaitsCloseBeforeApprovingExit() =
         runComposeUiTest {
-            var applicationVisible by mutableStateOf(true)
+            var closeRequested by mutableStateOf(false)
             var factoryCalls = 0
+            var approvedExits = 0
             var runtime: ApplicationRuntime? = null
 
             setContent {
-                if (applicationVisible) {
-                    HarvestCircleApplication { scope ->
-                        factoryCalls += 1
-                        val createdRuntime = ApplicationRuntime()
-                        runtime = createdRuntime
-                        HarvestCirclePresenter(
-                            runtime = createdRuntime,
-                            scope = scope,
-                            clock = ApplicationClock { UnixSeconds(0) },
-                            operationIds = OperationIdSource { OperationId.from("application-test") },
-                        )
-                    }
+                HarvestCircleApplication(
+                    closeRequested = closeRequested,
+                    onExitApproved = { approvedExits += 1 },
+                ) { scope ->
+                    factoryCalls += 1
+                    val createdRuntime = ApplicationRuntime()
+                    runtime = createdRuntime
+                    HarvestCirclePresenter(
+                        runtime = createdRuntime,
+                        scope = scope,
+                        clock = ApplicationClock { UnixSeconds(0) },
+                        operationIds = OperationIdSource { OperationId.from("application-test") },
+                    )
                 }
                 BasicText(
-                    text = "Toggle",
+                    text = "Close",
                     modifier =
                         Modifier
-                            .testTag("toggle-application")
-                            .clickable { applicationVisible = !applicationVisible },
+                            .testTag("close-application")
+                            .clickable { closeRequested = true },
                 )
             }
 
             onNodeWithText("HarvestCircle").assertIsDisplayed()
-            onNodeWithTag("toggle-application").performClick()
-            waitUntil { runtime?.closed == true }
+            onNodeWithTag("close-application").performClick()
+            waitUntil { runtime?.closed == true && approvedExits == 1 }
 
             assertEquals(1, factoryCalls)
             assertEquals(true, runtime?.closed)
+        }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun failedNativeShutdownRequiresAnExplicitForceExitChoice() =
+        runComposeUiTest {
+            var approvedExits = 0
+            setContent {
+                HarvestCircleApplication(
+                    closeRequested = true,
+                    onExitApproved = { approvedExits += 1 },
+                ) { scope ->
+                    HarvestCirclePresenter(
+                        runtime = ApplicationRuntime(shutdownClosed = false),
+                        scope = scope,
+                        clock = ApplicationClock { UnixSeconds(0) },
+                        operationIds = OperationIdSource { OperationId.from("application-test") },
+                    )
+                }
+            }
+
+            onNodeWithTag("shutdown-failure").assertIsDisplayed()
+            assertEquals(0, approvedExits)
+            onNodeWithTag("force-exit").performClick()
+            assertEquals(1, approvedExits)
+        }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun shutdownTimeoutRequiresAnExplicitForceExitChoice() =
+        runComposeUiTest {
+            var approvedExits = 0
+            setContent {
+                HarvestCircleApplication(
+                    closeRequested = true,
+                    onExitApproved = { approvedExits += 1 },
+                    shutdownTimeoutMillis = 1,
+                ) { scope ->
+                    HarvestCirclePresenter(
+                        runtime = ApplicationRuntime(shutdownGate = CompletableDeferred()),
+                        scope = scope,
+                        clock = ApplicationClock { UnixSeconds(0) },
+                        operationIds = OperationIdSource { OperationId.from("application-test") },
+                    )
+                }
+            }
+
+            onNodeWithTag("shutdown-failure").assertIsDisplayed()
+            assertEquals(0, approvedExits)
+            onNodeWithTag("force-exit").performClick()
+            assertEquals(1, approvedExits)
         }
 
     @OptIn(ExperimentalTestApi::class)
@@ -76,7 +130,10 @@ class HarvestCircleApplicationTest {
         }
 }
 
-private class ApplicationRuntime : HarvestCircleRuntime {
+private class ApplicationRuntime(
+    private val shutdownClosed: Boolean = true,
+    private val shutdownGate: CompletableDeferred<Unit>? = null,
+) : HarvestCircleRuntime {
     var closed = false
 
     override suspend fun bootstrap(): ApplicationSnapshot = applicationSnapshot(SnapshotRevision(1UL))
@@ -94,8 +151,9 @@ private class ApplicationRuntime : HarvestCircleRuntime {
     override suspend fun cancelIdentityRemoval(requestId: RemovalRequestId): Boolean = false
 
     override suspend fun shutdown(): ShutdownReceipt {
+        shutdownGate?.await()
         closed = true
-        return ShutdownReceipt(SnapshotRevision(1UL), closed = true)
+        return ShutdownReceipt(SnapshotRevision(1UL), closed = shutdownClosed)
     }
 }
 

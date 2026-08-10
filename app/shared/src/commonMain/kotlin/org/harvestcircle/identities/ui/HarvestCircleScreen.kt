@@ -81,6 +81,32 @@ fun StartupFailureScreen(problem: String) {
 }
 
 @Composable
+fun ShutdownFailureScreen(
+    problem: String,
+    forceExit: () -> Unit,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(WindowBackgroundColor)
+                .padding(24.dp)
+                .verticalScroll(rememberScrollState())
+                .testTag("shutdown-failure"),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        BasicText("HarvestCircle could not close safely")
+        BasicText(problem, Modifier.testTag("shutdown-problem"))
+        TextAction(
+            text = "Force exit",
+            testTag = "force-exit",
+            contentDescription = "Force HarvestCircle to exit",
+            onClick = forceExit,
+        )
+    }
+}
+
+@Composable
 fun HarvestCircleScreen(
     model: HarvestCircleUiModel,
     actions: HarvestCircleUiActions,

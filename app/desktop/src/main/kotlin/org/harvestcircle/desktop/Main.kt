@@ -1,6 +1,10 @@
 package org.harvestcircle.desktop
 
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -26,8 +30,11 @@ fun main() {
     val nativeStartupProblem = if (isMacOs) configureMacOsApplication() else null
 
     application {
+        var closeRequested by remember { mutableStateOf(false) }
         Window(
-            onCloseRequest = ::exitApplication,
+            onCloseRequest = {
+                if (nativeStartupProblem == null) closeRequested = true else exitApplication()
+            },
             title = APPLICATION_NAME,
             state =
                 rememberWindowState(
@@ -49,7 +56,10 @@ fun main() {
             }
 
             if (nativeStartupProblem == null) {
-                HarvestCircleApplication()
+                HarvestCircleApplication(
+                    closeRequested = closeRequested,
+                    onExitApproved = ::exitApplication,
+                )
             } else {
                 StartupFailureScreen(nativeStartupProblem)
             }

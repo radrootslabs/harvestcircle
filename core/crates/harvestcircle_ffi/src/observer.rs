@@ -163,7 +163,10 @@ impl HarvestCircleAppCore {
     /// Returns a safe closed or timeout error when shutdown cannot complete.
     pub async fn shutdown_v2(&self) -> Result<ShutdownReceiptDto, HarvestCircleError> {
         if self.inner.closed.swap(true, Ordering::AcqRel) {
-            return Err(closed_error());
+            return Ok(ShutdownReceiptDto {
+                final_revision: self.inner.actor.snapshot().revision().value(),
+                closed: true,
+            });
         }
         let handles = std::mem::take(
             &mut *self
@@ -342,8 +345,9 @@ mod tests {
                 .expect("observer task");
             handle.abort();
 
-            core.shutdown_v2().await.expect("shutdown");
-            assert!(core.shutdown_v2().await.is_err());
+            let first = core.shutdown_v2().await.expect("shutdown");
+            let repeated = core.shutdown_v2().await.expect("repeated shutdown");
+            assert_eq!(repeated, first);
 
             assert!(
                 core.subscribe_changes_v2(Box::new(ArcObserver(observer)))
