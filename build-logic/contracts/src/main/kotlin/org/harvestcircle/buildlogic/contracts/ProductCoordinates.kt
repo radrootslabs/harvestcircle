@@ -1,5 +1,7 @@
 package org.harvestcircle.buildlogic.contracts
 
+import java.io.File
+
 public class ProductCoordinates private constructor(
     private val values: Map<String, String>,
     public val canonical: String,
@@ -10,6 +12,7 @@ public class ProductCoordinates private constructor(
 
     public companion object {
         public const val SCHEMA: String = "harvestcircle.product.v1"
+        public const val schema: String = SCHEMA
 
         public val requiredKeys: List<String> =
             listOf(
@@ -31,6 +34,8 @@ public class ProductCoordinates private constructor(
                 "vendor.name",
                 "copyright.notice",
             )
+
+        public fun load(file: File): ProductCoordinates = parse(file.readText())
 
         public fun parse(source: String): ProductCoordinates {
             require(!source.startsWith('\uFEFF')) { "Product coordinates must not contain a UTF-8 BOM" }

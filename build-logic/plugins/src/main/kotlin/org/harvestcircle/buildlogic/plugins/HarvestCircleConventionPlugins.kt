@@ -3,10 +3,6 @@ package org.harvestcircle.buildlogic.plugins
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 
-public class HarvestCircleRootPlugin : Plugin<Project> {
-    override fun apply(target: Project) = Unit
-}
-
 public class HarvestCircleKmpSharedPlugin : Plugin<Project> {
     override fun apply(target: Project) = Unit
 }

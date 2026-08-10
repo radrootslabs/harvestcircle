@@ -1,5 +1,7 @@
 package org.harvestcircle.buildlogic.contracts
 
+import java.io.File
+
 public class SourceProvenance private constructor(
     private val root: Map<String, String>,
     private val imports: List<Map<String, String>>,
@@ -28,6 +30,8 @@ public class SourceProvenance private constructor(
             )
         private val importKeys = linkedSetOf("component", "commit")
         private val assignment = Regex("^([A-Za-z0-9_]+)\\s*=\\s*\"([^\"]*)\"\\s*(?:#.*)?$")
+
+        public fun load(file: File): SourceProvenance = parse(file.readText())
 
         public fun parse(source: String): SourceProvenance {
             require(!source.startsWith('\uFEFF')) { "Source provenance must not contain a UTF-8 BOM" }

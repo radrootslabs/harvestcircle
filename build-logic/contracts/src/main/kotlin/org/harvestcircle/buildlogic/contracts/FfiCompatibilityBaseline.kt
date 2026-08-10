@@ -1,5 +1,7 @@
 package org.harvestcircle.buildlogic.contracts
 
+import java.io.File
+
 public class FfiCompatibilityBaseline private constructor(
     private val values: Map<String, String>,
 ) {
@@ -22,6 +24,8 @@ public class FfiCompatibilityBaseline private constructor(
                 "source.provenance_digest",
                 "source.foundation_baseline",
             )
+
+        public fun load(file: File): FfiCompatibilityBaseline = parse(file.readText())
 
         public fun parse(source: String): FfiCompatibilityBaseline {
             require(!source.startsWith('\uFEFF')) { "FFI baseline must not contain a UTF-8 BOM" }
