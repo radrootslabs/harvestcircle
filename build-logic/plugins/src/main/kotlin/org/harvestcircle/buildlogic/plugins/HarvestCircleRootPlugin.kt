@@ -62,6 +62,11 @@ public class HarvestCircleRootPlugin : Plugin<Project> {
                     "build-logic/plugins/src/main/kotlin/org/harvestcircle/buildlogic/plugins/HarvestCircleRustFfiPlugin.kt",
                 ),
             )
+            task.packagingPluginFile.set(
+                target.layout.projectDirectory.file(
+                    "build-logic/plugins/src/main/kotlin/org/harvestcircle/buildlogic/plugins/HarvestCirclePackagingPlugin.kt",
+                ),
+            )
             task.uniFfiConfigFile.set(target.layout.projectDirectory.file("core/crates/harvestcircle_ffi/uniffi.toml"))
             task.productBuildFile.set(target.layout.projectDirectory.file("core/crates/harvestcircle_product/build.rs"))
             task.ffiConsumerFile.set(target.layout.projectDirectory.file("core/crates/harvestcircle_ffi/src/commands.rs"))

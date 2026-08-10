@@ -34,10 +34,11 @@ class ProductCoordinateConsumerTest {
                 "app/desktop/build.gradle.kts",
                 "build-logic/plugins/src/main/kotlin/org/harvestcircle/buildlogic/plugins/HarvestCircleDesktopAppPlugin.kt",
                 "build-logic/plugins/src/main/kotlin/org/harvestcircle/buildlogic/plugins/HarvestCircleRustFfiPlugin.kt",
+                "build-logic/plugins/src/main/kotlin/org/harvestcircle/buildlogic/plugins/HarvestCirclePackagingPlugin.kt",
             ).joinToString("\n") { relativePath -> root.resolve(relativePath).readText() }
-        assertTrue(build.contains("ProductCoordinates.parse"))
+        assertTrue(build.contains("ProductCoordinates.load"))
         assertTrue(build.contains("application.mainClass = mainClass"))
-        assertTrue(build.contains("bundleID = bundleId"))
+        assertTrue(build.contains("mac.bundleID = bundleId"))
         assertTrue(build.contains("expectedPackage.set(productCoordinates[\"ffi.kotlin_package\"])"))
         assertFalse(Files.exists(root.resolve("core/compatibility/v5-baseline.properties")))
     }

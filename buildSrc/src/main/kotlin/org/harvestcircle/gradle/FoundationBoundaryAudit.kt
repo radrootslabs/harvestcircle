@@ -199,7 +199,11 @@ private class FoundationBoundaryAudit(
             relative.startsWith("app/") &&
                 relative.endsWith(".kt") &&
                 (relative.contains("/src/main/") || relative.contains("/src/commonMain/") || relative.contains("/src/desktopMain/"))
-        if (productionKotlin && source.contains("run" + "Blocking")) {
+        val boundedDesktopHealthBridge =
+            relative == "app/desktop/src/main/kotlin/org/harvestcircle/desktop/Main.kt" &&
+                source.contains("HEALTH_CHECK_ARGUMENT") &&
+                source.contains("withTimeout(HEALTH_TIMEOUT_MILLIS)")
+        if (productionKotlin && source.contains("run" + "Blocking") && !boundedDesktopHealthBridge) {
             findings += "$relative: blocking coroutine bridge in application source"
         }
         if (productionKotlin && (source.contains("Atomic" + "Long") || source.contains("desktop" + "-operation:"))) {

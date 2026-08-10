@@ -28,6 +28,7 @@ class ConventionPluginSmokeTest {
                     setOf(
                         "org.harvestcircle.build.desktop-app",
                         "org.harvestcircle.build.rust-ffi",
+                        "org.harvestcircle.build.packaging",
                     )
             fixture.resolve("settings.gradle.kts").writeText(
                 buildString {
@@ -52,6 +53,12 @@ class ConventionPluginSmokeTest {
                     "org.harvestcircle.build.kmp-shared" -> kmpPlugins
                     "org.harvestcircle.build.rust-ffi" ->
                         "id(\"org.harvestcircle.build.desktop-app\")\nid(\"$pluginId\")"
+                    "org.harvestcircle.build.packaging" ->
+                        """
+                        id("org.harvestcircle.build.desktop-app")
+                        id("org.harvestcircle.build.rust-ffi")
+                        id("$pluginId")
+                        """.trimIndent()
                     else -> "id(\"$pluginId\")"
                 }
             buildFile.writeText("plugins { $pluginBlock }\n")
@@ -273,6 +280,56 @@ class ConventionPluginSmokeTest {
         }
     }
 
+    @Test
+    fun packagingPluginLaunchesAndClosesThePackagedHealthEntry() {
+        val fixture = createTempDirectory("harvestcircle-package-health-")
+        preparePackagingBuild(fixture, "printf 'HARVESTCIRCLE_HEALTH_READY\\nHARVESTCIRCLE_HEALTH_CLOSED\\n'")
+
+        val result =
+            GradleRunner.create()
+                .withProjectDir(fixture.toFile())
+                .withPluginClasspath()
+                .withArguments(
+                    ":app:desktop:verifyPackagedApplicationHealth",
+                    "-x",
+                    ":app:desktop:createDistributable",
+                    "--stacktrace",
+                )
+                .build()
+
+        assertTrue(result.output.contains("BUILD SUCCESSFUL"), result.output)
+    }
+
+    @Test
+    fun packagingPluginRejectsMissingCloseTimeoutAndSecretOutput() {
+        listOf(
+            Triple("close", "printf 'HARVESTCIRCLE_HEALTH_READY\\n'", "did not report closed health evidence"),
+            Triple("timeout", "sleep 5", "health-check timed out"),
+            Triple(
+                "redaction",
+                "printf 'nsec1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HARVESTCIRCLE_HEALTH_READY HARVESTCIRCLE_HEALTH_CLOSED\\n'",
+                "emitted secret material",
+            ),
+        ).forEach { (caseName, scriptBody, expected) ->
+            val fixture = createTempDirectory("harvestcircle-package-$caseName-")
+            preparePackagingBuild(fixture, scriptBody, timeoutSeconds = if (caseName == "timeout") 1L else 10L)
+
+            val result =
+                GradleRunner.create()
+                    .withProjectDir(fixture.toFile())
+                    .withPluginClasspath()
+                    .withArguments(
+                        ":app:desktop:verifyPackagedApplicationHealth",
+                        "-x",
+                        ":app:desktop:createDistributable",
+                        "--stacktrace",
+                    )
+                    .buildAndFail()
+
+            assertTrue(result.output.contains(expected), result.output)
+        }
+    }
+
     private fun prepareDesktopBuild(
         fixture: java.nio.file.Path,
         withUnitTest: Boolean,
@@ -305,6 +362,33 @@ class ConventionPluginSmokeTest {
             }
 
             $extraBuildLogic
+            """.trimIndent() + "\n",
+        )
+    }
+
+    private fun preparePackagingBuild(
+        fixture: java.nio.file.Path,
+        scriptBody: String,
+        timeoutSeconds: Long = 10L,
+    ) {
+        prepareDesktopBuild(fixture, withUnitTest = true)
+        val executable = fixture.resolve("app/desktop/fixture-health.sh")
+        executable.writeText("#!/bin/sh\n$scriptBody\n")
+        check(executable.toFile().setExecutable(true))
+        fixture.resolve("app/desktop/build.gradle.kts").writeText(
+            """
+            plugins {
+                id("org.harvestcircle.build.desktop-app")
+                id("org.harvestcircle.build.rust-ffi")
+                id("org.harvestcircle.build.packaging")
+            }
+
+            tasks.named<org.harvestcircle.buildlogic.plugins.tasks.VerifyPackagedApplicationHealth>(
+                "verifyPackagedApplicationHealth",
+            ) {
+                executable.set(layout.projectDirectory.file("fixture-health.sh"))
+                timeoutSeconds.set(${timeoutSeconds}L)
+            }
             """.trimIndent() + "\n",
         )
     }

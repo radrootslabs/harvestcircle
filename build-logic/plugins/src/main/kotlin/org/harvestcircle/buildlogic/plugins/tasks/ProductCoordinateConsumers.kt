@@ -27,6 +27,10 @@ abstract class VerifyProductCoordinateConsumers : DefaultTask() {
 
     @get:InputFile
     @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val packagingPluginFile: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val uniFfiConfigFile: RegularFileProperty
 
     @get:InputFile
@@ -49,7 +53,9 @@ abstract class VerifyProductCoordinateConsumers : DefaultTask() {
                 "\n" +
                 desktopPluginFile.get().asFile.readText() +
                 "\n" +
-                rustPluginFile.get().asFile.readText()
+                rustPluginFile.get().asFile.readText() +
+                "\n" +
+                packagingPluginFile.get().asFile.readText()
         listOf(
             "product.name",
             "product.slug",
@@ -62,7 +68,7 @@ abstract class VerifyProductCoordinateConsumers : DefaultTask() {
             "vendor.name",
             "copyright.notice",
         ).forEach { key ->
-            check(desktopBuild.contains("productCoordinates[\"$key\"]")) {
+            check(Regex("(?:productCoordinates|coordinates)\\[\\\"${Regex.escape(key)}\\\"\\]").containsMatchIn(desktopBuild)) {
                 "Desktop build logic does not consume product coordinate $key"
             }
         }

@@ -5,10 +5,10 @@ CARGO ?= cargo
 CARGO_MANIFEST := core/Cargo.toml
 EXTBUILD ?= $(if $(shell cargo extbuild --version 2>/dev/null),cargo extbuild run --)
 
-.PHONY: help doctor lock metadata build-logic-check format format-fix lint test check build bindings dev run audit licenses foundation-check package source-check package-check signing-check notarization-check release-check clean
+.PHONY: help doctor lock metadata build-logic-check format format-fix lint test check build bindings dev run audit licenses foundation-check package host-package-check governed-package-check source-check package-check signing-check notarization-check release-check clean
 
 help:
-	@printf '%s\n' doctor lock metadata build-logic-check format format-fix lint test check build bindings dev run audit licenses foundation-check package source-check package-check signing-check notarization-check release-check clean
+	@printf '%s\n' doctor lock metadata build-logic-check format format-fix lint test check build bindings dev run audit licenses foundation-check package host-package-check governed-package-check source-check package-check signing-check notarization-check release-check clean
 
 doctor:
 	$(if $(strip $(EXTBUILD)),cargo extbuild doctor,@:)
@@ -71,6 +71,19 @@ foundation-check: doctor
 
 package: check
 	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:verifyHostPackage
+
+host-package-check:
+	java -version
+	$(CARGO) --version
+	$(GRADLE) --version
+	$(GRADLE) --no-daemon :app:desktop:verifyHostPackage
+
+governed-package-check:
+	cargo extbuild doctor
+	cargo extbuild run -- java -version
+	cargo extbuild run -- $(CARGO) --version
+	cargo extbuild run -- $(GRADLE) --version
+	cargo extbuild run -- $(GRADLE) --no-daemon :app:desktop:verifyHostPackage
 
 source-check: check bindings licenses
 	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:sourceReadiness

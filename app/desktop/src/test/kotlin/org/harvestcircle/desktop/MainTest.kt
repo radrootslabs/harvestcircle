@@ -3,7 +3,9 @@ package org.harvestcircle.desktop
 import java.io.ByteArrayInputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class MainTest {
     @Test
@@ -18,5 +20,12 @@ class MainTest {
     fun missingOrInvalidRuntimeIconFailsSafely() {
         assertNull(loadRuntimeIcon { null })
         assertNull(loadRuntimeIcon { ByteArrayInputStream("not an image".encodeToByteArray()) })
+    }
+
+    @Test
+    fun healthCheckEntryRequiresTheSingleSupportedArgument() {
+        assertTrue(isHealthCheck(arrayOf(HEALTH_CHECK_ARGUMENT)))
+        assertFalse(isHealthCheck(emptyArray()))
+        assertFalse(isHealthCheck(arrayOf(HEALTH_CHECK_ARGUMENT, "unexpected")))
     }
 }
