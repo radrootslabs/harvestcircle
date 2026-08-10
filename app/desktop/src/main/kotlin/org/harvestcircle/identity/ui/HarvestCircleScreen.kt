@@ -128,7 +128,7 @@ fun HarvestCircleScreen(
                 InactiveIdentitiesScreen(model, actions)
             }
         }
-        HarvestCircleRoute.IDENTITYS -> InactiveIdentitiesScreen(model, actions)
+        HarvestCircleRoute.IDENTITIES -> InactiveIdentitiesScreen(model, actions)
     }
 }
 
@@ -261,7 +261,7 @@ private fun RecoveryAction(
     model: HarvestCircleUiModel,
     actions: HarvestCircleUiActions,
 ) {
-    if (model.recoveryAction == org.harvestcircle.ffi.WireRecoveryAction.RETRY) {
+    if (model.recoveryAction == org.harvestcircle.application.RecoveryAction.Retry) {
         TextAction(
             text = "Retry",
             testTag = "retry-last-command",

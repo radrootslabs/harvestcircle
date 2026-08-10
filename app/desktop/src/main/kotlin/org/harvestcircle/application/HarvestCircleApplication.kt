@@ -2,75 +2,92 @@ package org.harvestcircle.application
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.CoroutineScope
-import org.harvestcircle.ffi.HarvestCircleAppCore
-import org.harvestcircle.ffi.HarvestCircleException
-import org.harvestcircle.ffi.compatibilityDescriptor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import org.harvestcircle.identities.ui.HarvestCircleScreen
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 import org.harvestcircle.identities.ui.StartupFailureScreen
 import org.harvestcircle.identities.ui.toUiModel
+import java.util.concurrent.atomic.AtomicLong
 
-internal typealias HarvestCircleStoreFactory = (CoroutineScope) -> HarvestCircleAppStore
+internal typealias HarvestCirclePresenterFactory = (CoroutineScope) -> HarvestCirclePresenter
 
 @Composable
-fun HarvestCircleApplication(storeFactory: HarvestCircleStoreFactory = ::createHarvestCircleAppStore) {
-    val scope = rememberCoroutineScope()
-    val storeResult = remember { runCatching { storeFactory(scope) } }
-    val store = storeResult.getOrNull()
-    if (store == null) {
-        val error = storeResult.exceptionOrNull()
+fun HarvestCircleApplication(presenterFactory: HarvestCirclePresenterFactory = ::createHarvestCirclePresenter) {
+    val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
+    val presenterResult = remember { runCatching { presenterFactory(scope) } }
+    val presenter = presenterResult.getOrNull()
+    if (presenter == null) {
         val message =
-            (error as? HarvestCircleException.Failure)?.safeMessage
+            (presenterResult.exceptionOrNull() as? ApplicationFailure)?.problem?.safeMessage
                 ?: "The application could not start."
         StartupFailureScreen(message)
         return
     }
     val clipboard = remember { SecretClipboardController(scope) }
+    val state by presenter.state.collectAsState()
 
-    DisposableEffect(store, clipboard) {
+    DisposableEffect(presenter, clipboard) {
         onDispose {
             clipboard.close()
-            store.close()
+            scope.launch {
+                presenter.close()
+                scope.cancel()
+            }
         }
     }
 
     HarvestCircleScreen(
-        model = store.state.value.toUiModel(),
+        model = state.toUiModel(),
         actions =
             HarvestCircleUiActions(
-                chooseCreateIdentity = store::chooseCreateIdentity,
-                chooseImportIdentity = store::chooseImportIdentity,
-                cancelIdentityEntry = store::cancelIdentityEntry,
-                editImportDraft = store::editImportDraft,
-                generateIdentity = store::generateIdentity,
-                importSecretKey = store::importSecretKey,
-                copyText = { value -> clipboard.copy(value) },
-                acknowledgeGeneratedKeyBackup = store::acknowledgeGeneratedKeyBackup,
-                cancelGeneratedKeyBackup = store::cancelGeneratedKeyBackup,
-                selectIdentity = store::selectIdentity,
-                activateIdentity = store::activateIdentity,
-                requestIdentityRemoval = store::requestIdentityRemoval,
-                cancelIdentityRemoval = store::cancelIdentityRemoval,
-                confirmIdentityRemoval = store::confirmIdentityRemoval,
-                refreshActiveProfile = store::refreshActiveProfile,
-                retryLastCommand = store::retryLastCommand,
-                signOut = store::signOut,
-                showIdentityChooser = store::showIdentityChooser,
-                hideIdentityChooser = store::hideIdentityChooser,
+                chooseCreateIdentity = { presenter.dispatch(HarvestCircleIntent.ChooseCreateIdentity) },
+                chooseImportIdentity = { presenter.dispatch(HarvestCircleIntent.ChooseImportIdentity) },
+                cancelIdentityEntry = { presenter.dispatch(HarvestCircleIntent.CancelIdentityEntry) },
+                editImportDraft = { presenter.dispatch(HarvestCircleIntent.EditImportDraft(it)) },
+                generateIdentity = { presenter.dispatch(HarvestCircleIntent.GenerateIdentity) },
+                importSecretKey = { presenter.dispatch(HarvestCircleIntent.ImportIdentity) },
+                copyText = clipboard::copy,
+                acknowledgeGeneratedKeyBackup = { presenter.dispatch(HarvestCircleIntent.AcknowledgeGeneratedRecovery) },
+                cancelGeneratedKeyBackup = { presenter.dispatch(HarvestCircleIntent.CancelGeneratedRecovery) },
+                selectIdentity = { presenter.dispatch(HarvestCircleIntent.SelectIdentity(IdentityId.fromPublicKeyHex(it))) },
+                activateIdentity = { presenter.dispatch(HarvestCircleIntent.ActivateIdentity(IdentityId.fromPublicKeyHex(it))) },
+                requestIdentityRemoval = {
+                    presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(IdentityId.fromPublicKeyHex(it)))
+                },
+                cancelIdentityRemoval = { presenter.dispatch(HarvestCircleIntent.CancelIdentityRemoval) },
+                confirmIdentityRemoval = { presenter.dispatch(HarvestCircleIntent.ConfirmIdentityRemoval) },
+                refreshActiveProfile = { presenter.dispatch(HarvestCircleIntent.RefreshActiveProfile) },
+                retryLastCommand = { presenter.dispatch(HarvestCircleIntent.RetryLastCommand) },
+                signOut = { presenter.dispatch(HarvestCircleIntent.SignOut) },
+                showIdentityChooser = { presenter.dispatch(HarvestCircleIntent.ShowIdentityChooser) },
+                hideIdentityChooser = { presenter.dispatch(HarvestCircleIntent.HideIdentityChooser) },
             ),
     )
 }
 
-internal fun createHarvestCircleAppStore(scope: CoroutineScope): HarvestCircleAppStore {
+internal fun createHarvestCirclePresenter(scope: CoroutineScope): HarvestCirclePresenter {
     val developmentMode = java.lang.Boolean.getBoolean("harvestcircle.development")
-    val descriptor = compatibilityDescriptor()
-    val core =
-        HarvestCircleAppCore.openCompatible(
-            expectation = verifyNativeCompatibility(descriptor),
-            developmentMode = developmentMode,
-        )
-    return HarvestCircleAppStore(NativeHarvestCircleCoreGateway(core), scope)
+    return HarvestCirclePresenter(
+        runtime = NativeHarvestCircleRuntime.open(developmentMode),
+        scope = scope,
+        clock = DesktopApplicationClock,
+        operationIds = DesktopOperationIdSource,
+    )
+}
+
+private object DesktopApplicationClock : ApplicationClock {
+    override fun now(): UnixSeconds = UnixSeconds(System.currentTimeMillis() / 1_000)
+}
+
+private object DesktopOperationIdSource : OperationIdSource {
+    private val next = AtomicLong(1)
+
+    override fun next(): OperationId = OperationId.from("desktop-operation:${next.getAndIncrement()}")
 }

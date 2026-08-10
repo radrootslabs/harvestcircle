@@ -99,5 +99,11 @@ interface HarvestCircleRuntime {
 
     suspend fun requestIdentityRemoval(identityId: IdentityId): IdentityRemovalRequest
 
+    suspend fun cancelIdentityRemoval(requestId: RemovalRequestId): Boolean
+
     suspend fun shutdown(): ShutdownReceipt
 }
+
+class ApplicationFailure(
+    val problem: ApplicationProblem,
+) : Exception(problem.safeMessage)

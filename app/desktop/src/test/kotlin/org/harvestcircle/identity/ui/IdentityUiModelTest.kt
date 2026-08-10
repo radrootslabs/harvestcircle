@@ -1,19 +1,26 @@
 package org.harvestcircle.identities.ui
 
+import org.harvestcircle.application.ActiveIdentity
+import org.harvestcircle.application.ApplicationErrorCategory
+import org.harvestcircle.application.ApplicationErrorCode
+import org.harvestcircle.application.ApplicationLifecycle
+import org.harvestcircle.application.ApplicationProblem
+import org.harvestcircle.application.ApplicationSnapshot
 import org.harvestcircle.application.GeneratedKeyBackup
-import org.harvestcircle.application.HarvestCircleStoreState
-import org.harvestcircle.ffi.ActiveIdentityDto
-import org.harvestcircle.ffi.AppLifecycleDto
-import org.harvestcircle.ffi.AppSnapshotDto
-import org.harvestcircle.ffi.IdentityDto
-import org.harvestcircle.ffi.ProfileDto
-import org.harvestcircle.ffi.ProfileLoadStateDto
-import org.harvestcircle.ffi.RelayConnectionStateDto
-import org.harvestcircle.ffi.SessionStateDto
-import org.harvestcircle.ffi.SignerAvailabilityDto
-import org.harvestcircle.ffi.SignerBindingKindDto
-import org.harvestcircle.ffi.WireErrorCode
-import org.harvestcircle.ffi.WireRecoveryAction
+import org.harvestcircle.application.HarvestCirclePresenterState
+import org.harvestcircle.application.IdentityId
+import org.harvestcircle.application.IdentitySummary
+import org.harvestcircle.application.ProfileLoadState
+import org.harvestcircle.application.ProfileSummary
+import org.harvestcircle.application.RecoveryAction
+import org.harvestcircle.application.RelayConnectionState
+import org.harvestcircle.application.RelaySummary
+import org.harvestcircle.application.SessionLifecycle
+import org.harvestcircle.application.SignerAvailability
+import org.harvestcircle.application.SignerBindingKind
+import org.harvestcircle.application.SignerBindingSummary
+import org.harvestcircle.application.SnapshotRevision
+import org.harvestcircle.application.UnixSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -28,15 +35,15 @@ class IdentityUiModelTest {
             snapshot(
                 identity = identity,
                 active =
-                    ActiveIdentityDto(
+                    ActiveIdentity(
                         identity = identity,
-                        relayState = RelayConnectionStateDto.CONNECTED,
-                        profileState = ProfileLoadStateDto.FRESH,
-                        profile = ProfileDto("alice", "Alice", "alice@example.com", "Farmer", "https://example.com/a.png"),
+                        relays = RelaySummary(listOf("ws://localhost:8080"), RelayConnectionState.Connected),
+                        profileState = ProfileLoadState.Fresh,
+                        profile = ProfileSummary("alice", "Alice", "alice@example.com", "Farmer", "https://example.com/a.png"),
                     ),
             )
 
-        val model = HarvestCircleStoreState(snapshot).toUiModel()
+        val model = HarvestCirclePresenterState(snapshot).toUiModel()
 
         assertEquals("Alice", model.activeIdentity?.heading)
         assertEquals("connected", model.activeIdentity?.relayState)
@@ -57,7 +64,7 @@ class IdentityUiModelTest {
     @Test
     fun mapsSafeProblemAndTransientBackupSeparatelyFromSnapshot() {
         val state =
-            HarvestCircleStoreState(
+            HarvestCirclePresenterState(
                 snapshot = snapshot(),
                 generatedKeyBackup = GeneratedKeyBackup("npub1generated", "nsec1generated"),
                 problem = "Try again.",
@@ -79,15 +86,14 @@ class IdentityUiModelTest {
     @Test
     fun mapsTypedImportFailuresToSpecificRepairGuidance() {
         val invalid =
-            HarvestCircleStoreState(
+            HarvestCirclePresenterState(
                 snapshot = snapshot(),
-                lastFailureCode = WireErrorCode.INVALID_SECRET_KEY,
+                lastProblem = problem(ApplicationErrorCode.InvalidSecretKey),
             ).toUiModel()
         val repair =
-            HarvestCircleStoreState(
+            HarvestCirclePresenterState(
                 snapshot = snapshot(),
-                lastFailureCode = WireErrorCode.CREDENTIAL_MISSING,
-                recoveryAction = WireRecoveryAction.REPAIR_CREDENTIAL,
+                lastProblem = problem(ApplicationErrorCode.CredentialMissing, RecoveryAction.RepairCredential),
             ).toUiModel()
 
         assertEquals("Enter a valid nsec or 64-character hexadecimal secret key.", invalid.importGuidance)
@@ -99,29 +105,40 @@ class IdentityUiModelTest {
 }
 
 private fun snapshot(
-    identity: IdentityDto? = null,
-    active: ActiveIdentityDto? = null,
-) = AppSnapshotDto(
-    revision = 1UL,
-    lifecycle = AppLifecycleDto.READY,
-    lifecycleError = null,
+    identity: IdentitySummary? = null,
+    active: ActiveIdentity? = null,
+) = ApplicationSnapshot(
+    revision = SnapshotRevision(1UL),
+    lifecycle = ApplicationLifecycle.Ready,
+    lifecycleProblem = null,
     configuredRelays = listOf("ws://localhost:8080"),
     identities = listOfNotNull(identity),
-    selectedPublicKeyHex = identity?.publicKeyHex,
-    session = if (active == null) SessionStateDto.SIGNED_OUT else SessionStateDto.ACTIVE,
-    sessionSubjectPublicKeyHex = active?.identity?.publicKeyHex,
-    sessionError = null,
+    selectedIdentityId = identity?.id,
+    session = if (active == null) SessionLifecycle.SignedOut else SessionLifecycle.Active,
+    sessionSubjectIdentityId = active?.identity?.id,
+    sessionProblem = null,
     activeIdentity = active,
     recoverableProblem = null,
 )
 
 private fun identity() =
-    IdentityDto(
-        publicKeyHex = "12".repeat(32),
+    IdentitySummary(
+        id = IdentityId.fromPublicKeyHex("12".repeat(32)),
         npub = "npub1abcdefghijklmnopqrstuvwxyz1234567890",
         displayLabel = "Alice",
-        signerBindingKind = SignerBindingKindDto.LOCAL_KEYRING,
-        signerAvailability = SignerAvailabilityDto.AVAILABLE,
-        createdAtSeconds = 1,
-        lastUsedAtSeconds = null,
+        signer = SignerBindingSummary(SignerBindingKind.LocalKeyring, SignerAvailability.Available),
+        createdAt = UnixSeconds(1),
+        lastUsedAt = null,
     )
+
+private fun problem(
+    code: ApplicationErrorCode,
+    recoveryAction: RecoveryAction = RecoveryAction.None,
+) = ApplicationProblem(
+    code = code,
+    category = ApplicationErrorCategory.Input,
+    retryable = false,
+    recoveryAction = recoveryAction,
+    operationId = null,
+    safeMessage = "Safe problem.",
+)

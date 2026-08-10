@@ -21,10 +21,6 @@ import org.harvestcircle.ffi.SnapshotChangeDto
 import org.harvestcircle.ffi.compatibilityDescriptor
 import java.util.concurrent.atomic.AtomicLong
 
-class HarvestCircleRuntimeException(
-    val problem: ApplicationProblem,
-) : Exception(problem.safeMessage)
-
 class NativeHarvestCircleRuntime internal constructor(
     private val native: NativeCorePort,
     private val handleIds: NativeHandleIdSource = AtomicNativeHandleIdSource(),
@@ -41,10 +37,10 @@ class NativeHarvestCircleRuntime internal constructor(
     override fun currentSnapshot(): ApplicationSnapshot =
         try {
             native.snapshot().toApplicationSnapshot()
-        } catch (error: HarvestCircleRuntimeException) {
+        } catch (error: ApplicationFailure) {
             throw error
         } catch (error: Exception) {
-            throw HarvestCircleRuntimeException(error.toApplicationProblem())
+            throw ApplicationFailure(error.toApplicationProblem())
         }
 
     override fun changes(): Flow<ApplicationChange> =
@@ -86,12 +82,12 @@ class NativeHarvestCircleRuntime internal constructor(
         } catch (error: CancellationException) {
             handle.close()
             throw error
-        } catch (error: HarvestCircleRuntimeException) {
+        } catch (error: ApplicationFailure) {
             handle.close()
             throw error
         } catch (error: Exception) {
             handle.close()
-            throw HarvestCircleRuntimeException(error.toApplicationProblem())
+            throw ApplicationFailure(error.toApplicationProblem())
         }
     }
 
@@ -112,13 +108,19 @@ class NativeHarvestCircleRuntime internal constructor(
         } catch (error: CancellationException) {
             handle.close()
             throw error
-        } catch (error: HarvestCircleRuntimeException) {
+        } catch (error: ApplicationFailure) {
             handle.close()
             throw error
         } catch (error: Exception) {
             handle.close()
-            throw HarvestCircleRuntimeException(error.toApplicationProblem())
+            throw ApplicationFailure(error.toApplicationProblem())
         }
+    }
+
+    override suspend fun cancelIdentityRemoval(requestId: RemovalRequestId): Boolean {
+        val handle = removalMutex.withLock { removalHandles.remove(requestId) } ?: return false
+        handle.close()
+        return true
     }
 
     override suspend fun shutdown(): ShutdownReceipt =
@@ -201,8 +203,8 @@ class NativeHarvestCircleRuntime internal constructor(
     private fun missingHandle(
         kind: String,
         operationId: OperationId? = null,
-    ): HarvestCircleRuntimeException =
-        HarvestCircleRuntimeException(
+    ): ApplicationFailure =
+        ApplicationFailure(
             ApplicationProblem(
                 code = ApplicationErrorCode.InvalidApplicationState,
                 category = ApplicationErrorCategory.Lifecycle,
@@ -213,8 +215,8 @@ class NativeHarvestCircleRuntime internal constructor(
             ),
         )
 
-    private fun incompleteShutdown(): HarvestCircleRuntimeException =
-        HarvestCircleRuntimeException(
+    private fun incompleteShutdown(): ApplicationFailure =
+        ApplicationFailure(
             ApplicationProblem(
                 code = ApplicationErrorCode.InvalidApplicationState,
                 category = ApplicationErrorCategory.Lifecycle,
@@ -233,10 +235,10 @@ class NativeHarvestCircleRuntime internal constructor(
             operation()
         } catch (error: CancellationException) {
             throw error
-        } catch (error: HarvestCircleRuntimeException) {
+        } catch (error: ApplicationFailure) {
             throw error
         } catch (error: Exception) {
-            throw HarvestCircleRuntimeException(error.toApplicationProblem(fallbackOperationId))
+            throw ApplicationFailure(error.toApplicationProblem(fallbackOperationId))
         }
 
     companion object {

@@ -61,6 +61,14 @@ value class UnixSeconds(
     val value: Long,
 )
 
+fun interface ApplicationClock {
+    fun now(): UnixSeconds
+}
+
+fun interface OperationIdSource {
+    fun next(): OperationId
+}
+
 data class RequestContext(
     val operationId: OperationId,
     val expectedRevision: SnapshotRevision,

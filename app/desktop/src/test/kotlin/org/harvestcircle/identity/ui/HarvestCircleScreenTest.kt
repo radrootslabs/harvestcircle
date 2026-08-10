@@ -19,10 +19,12 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import org.harvestcircle.application.HarvestCircleRoute
 import org.harvestcircle.application.IdentityEntryMode
+import org.harvestcircle.application.IdentityId
+import org.harvestcircle.application.RecoveryAction
 import org.harvestcircle.application.RemovalImpactState
 import org.harvestcircle.application.RemovalStatus
-import org.harvestcircle.ffi.SessionStateDto
-import org.harvestcircle.ffi.WireRecoveryAction
+import org.harvestcircle.application.SessionLifecycle
+import org.harvestcircle.application.UnixSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -188,7 +190,12 @@ class HarvestCircleScreenTest {
                             pendingRemovalPublicKeyHex = pendingRemoval,
                             removalImpact =
                                 pendingRemoval?.let {
-                                    RemovalImpactState(it, deletesLocalCredential = true, signsOut = true, expiresAtSeconds = 60)
+                                    RemovalImpactState(
+                                        IdentityId.fromPublicKeyHex(it),
+                                        deletesLocalCredential = true,
+                                        signsOut = true,
+                                        expiresAt = UnixSeconds(60),
+                                    )
                                 },
                         ),
                     actions =
@@ -267,7 +274,7 @@ class HarvestCircleScreenTest {
                             identities = listOf(identity),
                             activeIdentity = active,
                             configuredRelays = listOf("ws://localhost:8080"),
-                            session = SessionStateDto.ACTIVE,
+                            session = SessionLifecycle.Active,
                         ),
                     actions =
                         HarvestCircleUiActions(
@@ -313,7 +320,7 @@ class HarvestCircleScreenTest {
                             route = HarvestCircleRoute.ACTIVE_IDENTITY,
                             identities = listOf(first, second),
                             activeIdentity = active,
-                            session = SessionStateDto.ACTIVE,
+                            session = SessionLifecycle.Active,
                             identityChooserVisible = chooserVisible,
                         ),
                     actions =
@@ -332,11 +339,11 @@ class HarvestCircleScreenTest {
             onNodeWithTag("activate-identity:${second.publicKeyHex}", useUnmergedTree = true).performClick()
             assertEquals(second.publicKeyHex, activated)
             assertEquals(
-                SessionStateDto.ACTIVE,
+                SessionLifecycle.Active,
                 emptyUiModel()
                     .copy(
                         activeIdentity = active,
-                        session = SessionStateDto.ACTIVE,
+                        session = SessionLifecycle.Active,
                     ).session,
             )
             onNodeWithTag("return-home").performClick()
@@ -348,9 +355,9 @@ private fun emptyUiModel(
     importDraft: String = "",
     problem: String? = null,
     importGuidance: String? = null,
-    recoveryAction: WireRecoveryAction = WireRecoveryAction.NONE,
+    recoveryAction: RecoveryAction = RecoveryAction.None,
 ) = HarvestCircleUiModel(
-    route = HarvestCircleRoute.IDENTITYS,
+    route = HarvestCircleRoute.IDENTITIES,
     identities = emptyList(),
     activeIdentity = null,
     configuredRelays = emptyList(),
@@ -362,7 +369,7 @@ private fun emptyUiModel(
     lastRemovedPublicKeyHex = null,
     identityChooserVisible = false,
     identityEntryMode = IdentityEntryMode.CHOICE,
-    session = SessionStateDto.SIGNED_OUT,
+    session = SessionLifecycle.SignedOut,
     busy = false,
     problem = problem,
     importGuidance = importGuidance,

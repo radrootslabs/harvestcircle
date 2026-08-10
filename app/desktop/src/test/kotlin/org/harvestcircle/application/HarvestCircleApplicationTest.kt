@@ -15,28 +15,32 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runComposeUiTest
-import org.harvestcircle.ffi.AppLifecycleDto
-import org.harvestcircle.ffi.AppSnapshotDto
-import org.harvestcircle.ffi.SessionStateDto
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class HarvestCircleApplicationTest {
     @OptIn(ExperimentalTestApi::class)
     @Test
-    fun applicationCreatesOneStoreAcrossRecompositionAndClosesItOnDisposal() =
+    fun applicationCreatesOnePresenterAcrossRecompositionAndClosesItOnDisposal() =
         runComposeUiTest {
             var applicationVisible by mutableStateOf(true)
             var factoryCalls = 0
-            var gateway: ApplicationGateway? = null
+            var runtime: ApplicationRuntime? = null
 
             setContent {
                 if (applicationVisible) {
                     HarvestCircleApplication { scope ->
                         factoryCalls += 1
-                        val createdGateway = ApplicationGateway()
-                        gateway = createdGateway
-                        HarvestCircleAppStore(createdGateway, scope)
+                        val createdRuntime = ApplicationRuntime()
+                        runtime = createdRuntime
+                        HarvestCirclePresenter(
+                            runtime = createdRuntime,
+                            scope = scope,
+                            clock = ApplicationClock { UnixSeconds(0) },
+                            operationIds = OperationIdSource { OperationId.from("application-test") },
+                        )
                     }
                 }
                 BasicText(
@@ -50,10 +54,10 @@ class HarvestCircleApplicationTest {
 
             onNodeWithText("HarvestCircle").assertIsDisplayed()
             onNodeWithTag("toggle-application").performClick()
-            waitForIdle()
+            waitUntil { runtime?.closed == true }
 
             assertEquals(1, factoryCalls)
-            assertEquals(true, gateway?.closed)
+            assertEquals(true, runtime?.closed)
         }
 
     @OptIn(ExperimentalTestApi::class)
@@ -72,44 +76,40 @@ class HarvestCircleApplicationTest {
         }
 }
 
-private class ApplicationGateway : HarvestCircleCoreGateway {
+private class ApplicationRuntime : HarvestCircleRuntime {
     var closed = false
 
-    override fun snapshot() = applicationSnapshot(0UL)
+    override suspend fun bootstrap(): ApplicationSnapshot = applicationSnapshot(SnapshotRevision(1UL))
 
-    override suspend fun subscribeChanges(onChange: (HarvestCircleChange) -> Unit) = AutoCloseable {}
+    override fun currentSnapshot(): ApplicationSnapshot = applicationSnapshot(SnapshotRevision(0UL))
 
-    override suspend fun execute(command: HarvestCircleCommand): HarvestCircleCommandResult = error("unused")
+    override fun changes(): Flow<ApplicationChange> = emptyFlow()
 
-    override suspend fun bootstrap() = applicationSnapshot(1UL)
+    override suspend fun execute(command: ApplicationCommand): ApplicationCommandResult = error("unused")
 
-    override suspend fun beginGeneratedIdentity(): GeneratedRecoveryTicket = error("unused")
+    override suspend fun prepareLocalIdentity(): GeneratedIdentityRecovery = error("unused")
 
-    override suspend fun requestIdentityRemoval(publicKeyHex: String): RemovalTicket = error("unused")
+    override suspend fun requestIdentityRemoval(identityId: IdentityId): IdentityRemovalRequest = error("unused")
 
-    override suspend fun confirmIdentityRemoval(ticket: RemovalTicket) = error("unused")
+    override suspend fun cancelIdentityRemoval(requestId: RemovalRequestId): Boolean = false
 
-    override fun shutdown(): HarvestCircleShutdownReceipt {
+    override suspend fun shutdown(): ShutdownReceipt {
         closed = true
-        return HarvestCircleShutdownReceipt(1UL, closed = true)
-    }
-
-    override fun close() {
-        shutdown()
+        return ShutdownReceipt(SnapshotRevision(1UL), closed = true)
     }
 }
 
-private fun applicationSnapshot(revision: ULong) =
-    AppSnapshotDto(
+private fun applicationSnapshot(revision: SnapshotRevision) =
+    ApplicationSnapshot(
         revision = revision,
-        lifecycle = AppLifecycleDto.READY,
-        lifecycleError = null,
+        lifecycle = ApplicationLifecycle.Ready,
+        lifecycleProblem = null,
         configuredRelays = emptyList(),
         identities = emptyList(),
-        selectedPublicKeyHex = null,
-        session = SessionStateDto.SIGNED_OUT,
-        sessionSubjectPublicKeyHex = null,
-        sessionError = null,
+        selectedIdentityId = null,
+        session = SessionLifecycle.SignedOut,
+        sessionSubjectIdentityId = null,
+        sessionProblem = null,
         activeIdentity = null,
         recoverableProblem = null,
     )

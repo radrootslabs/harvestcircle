@@ -1,17 +1,17 @@
 package org.harvestcircle.identities.ui
 
+import org.harvestcircle.application.ActiveIdentity
+import org.harvestcircle.application.ApplicationErrorCode
+import org.harvestcircle.application.HarvestCirclePresenterState
 import org.harvestcircle.application.HarvestCircleRoute
-import org.harvestcircle.application.HarvestCircleStoreState
 import org.harvestcircle.application.IdentityEntryMode
+import org.harvestcircle.application.IdentitySummary
+import org.harvestcircle.application.ProfileLoadState
+import org.harvestcircle.application.RecoveryAction
+import org.harvestcircle.application.RelayConnectionState
 import org.harvestcircle.application.RemovalImpactState
 import org.harvestcircle.application.RemovalStatus
-import org.harvestcircle.ffi.ActiveIdentityDto
-import org.harvestcircle.ffi.IdentityDto
-import org.harvestcircle.ffi.ProfileLoadStateDto
-import org.harvestcircle.ffi.RelayConnectionStateDto
-import org.harvestcircle.ffi.SessionStateDto
-import org.harvestcircle.ffi.WireErrorCode
-import org.harvestcircle.ffi.WireRecoveryAction
+import org.harvestcircle.application.SessionLifecycle
 
 data class IdentityUiModel(
     val publicKeyHex: String,
@@ -59,21 +59,25 @@ data class HarvestCircleUiModel(
     val lastRemovedPublicKeyHex: String?,
     val identityChooserVisible: Boolean,
     val identityEntryMode: IdentityEntryMode,
-    val session: SessionStateDto,
+    val session: SessionLifecycle,
     val busy: Boolean,
     val problem: String?,
     val importGuidance: String?,
-    val recoveryAction: WireRecoveryAction,
+    val recoveryAction: RecoveryAction,
 )
 
-fun HarvestCircleStoreState.toUiModel(): HarvestCircleUiModel {
-    val selectedPublicKeyHex = snapshot.selectedPublicKeyHex
-    val activePublicKeyHex = snapshot.activeIdentity?.identity?.publicKeyHex
+fun HarvestCirclePresenterState.toUiModel(): HarvestCircleUiModel {
+    val selectedPublicKeyHex = snapshot.selectedIdentityId?.value
+    val activePublicKeyHex =
+        snapshot.activeIdentity
+            ?.identity
+            ?.id
+            ?.value
     val identities =
         snapshot.identities.map {
             it.toUiModel(
-                selected = it.publicKeyHex == selectedPublicKeyHex,
-                active = it.publicKeyHex == activePublicKeyHex,
+                selected = it.id.value == selectedPublicKeyHex,
+                active = it.id.value == activePublicKeyHex,
             )
         }
     return HarvestCircleUiModel(
@@ -86,32 +90,32 @@ fun HarvestCircleStoreState.toUiModel(): HarvestCircleUiModel {
             generatedKeyBackup?.let {
                 GeneratedKeyBackupUiModel(npub = it.npub, nsec = it.revealNsec())
             },
-        pendingRemovalPublicKeyHex = pendingRemovalPublicKeyHex,
+        pendingRemovalPublicKeyHex = pendingRemovalIdentityId?.value,
         removalImpact = removalImpact,
         removalStatus = removalStatus,
-        lastRemovedPublicKeyHex = lastRemovedPublicKeyHex,
+        lastRemovedPublicKeyHex = lastRemovedIdentityId?.value,
         identityChooserVisible = identityChooserVisible,
         identityEntryMode = identityEntryMode,
         session = snapshot.session,
         busy = busy,
         problem =
             problem
-                ?: snapshot.recoverableProblem?.message
-                ?: snapshot.sessionError?.message
-                ?: snapshot.lifecycleError?.message,
-        importGuidance = importGuidance(lastFailureCode, recoveryAction),
-        recoveryAction = recoveryAction,
+                ?: snapshot.recoverableProblem?.safeMessage
+                ?: snapshot.sessionProblem?.safeMessage
+                ?: snapshot.lifecycleProblem?.safeMessage,
+        importGuidance = importGuidance(lastProblem?.code, lastProblem?.recoveryAction ?: RecoveryAction.None),
+        recoveryAction = lastProblem?.recoveryAction ?: RecoveryAction.None,
     )
 }
 
 private fun importGuidance(
-    code: WireErrorCode?,
-    recoveryAction: WireRecoveryAction,
+    code: ApplicationErrorCode?,
+    recoveryAction: RecoveryAction,
 ): String? =
     when {
-        code == WireErrorCode.INVALID_SECRET_KEY -> "Enter a valid nsec or 64-character hexadecimal secret key."
-        code == WireErrorCode.IDENTITY_ALREADY_EXISTS -> "This Nostr identity is already saved."
-        code == WireErrorCode.CREDENTIAL_MISSING || recoveryAction == WireRecoveryAction.REPAIR_CREDENTIAL ->
+        code == ApplicationErrorCode.InvalidSecretKey -> "Enter a valid nsec or 64-character hexadecimal secret key."
+        code == ApplicationErrorCode.IdentityAlreadyExists -> "This Nostr identity is already saved."
+        code == ApplicationErrorCode.CredentialMissing || recoveryAction == RecoveryAction.RepairCredential ->
             "This saved identity is missing its local credential. Re-enter its secret key to repair it."
         else -> null
     }
@@ -127,31 +131,34 @@ fun shortenNpub(npub: String): String =
         "${npub.take(SHORT_NPUB_PREFIX_LENGTH)}…${npub.takeLast(SHORT_NPUB_SUFFIX_LENGTH)}"
     }
 
-private fun IdentityDto.toUiModel(
+private fun IdentitySummary.toUiModel(
     selected: Boolean,
     active: Boolean = false,
 ) = IdentityUiModel(
-    publicKeyHex = publicKeyHex,
+    publicKeyHex = id.value,
     npub = npub,
     shortNpub = shortenNpub(npub),
     label = displayLabel.ifBlank { shortenNpub(npub) },
-    signerAvailability = signerAvailability.name.lowercase().replace('_', ' '),
+    signerAvailability =
+        signer.availability.name
+            .lowercase()
+            .replace('_', ' '),
     selected = selected,
     active = active,
 )
 
-private fun ActiveIdentityDto.toUiModel(selectedPublicKeyHex: String?) =
+private fun ActiveIdentity.toUiModel(selectedPublicKeyHex: String?) =
     ActiveIdentityUiModel(
         identity =
             identity.toUiModel(
-                selected = identity.publicKeyHex == selectedPublicKeyHex,
+                selected = identity.id.value == selectedPublicKeyHex,
                 active = true,
             ),
         heading =
             profile?.displayName?.takeIf(String::isNotBlank)
                 ?: profile?.name?.takeIf(String::isNotBlank)
                 ?: identity.displayLabel.ifBlank { shortenNpub(identity.npub) },
-        relayState = relayState.toDisplayText(),
+        relayState = relays.state.toDisplayText(),
         profileState = profileState.toDisplayText(),
         profile =
             ProfileUiModel(
@@ -163,6 +170,6 @@ private fun ActiveIdentityDto.toUiModel(selectedPublicKeyHex: String?) =
             ),
     )
 
-private fun RelayConnectionStateDto.toDisplayText(): String = name.lowercase().replace('_', ' ')
+private fun RelayConnectionState.toDisplayText(): String = name.lowercase().replace('_', ' ')
 
-private fun ProfileLoadStateDto.toDisplayText(): String = name.lowercase().replace('_', ' ')
+private fun ProfileLoadState.toDisplayText(): String = name.lowercase().replace('_', ' ')
