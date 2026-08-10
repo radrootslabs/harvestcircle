@@ -26,9 +26,7 @@ pub use app_core::{AppCore, RemovalConfirmationToken, RemovalImpact};
 pub use change_stream::{
     ChangeSubscriptionId, OrderedSnapshotChanges, SnapshotChange, SnapshotChangeReceiver,
 };
-pub use config::{
-    RelayRuntimeMode, relay_configuration_from_environment, relay_configuration_from_value,
-};
+pub use config::{RelayRuntimeMode, relay_configuration_from_urls};
 pub use custody::{
     GENERATED_KEY_STAGE_TTL, GeneratedKeyRecoveryHandle, GeneratedKeyStage, GeneratedKeyStageView,
     RecoveryStageId, StagedGeneratedKey,

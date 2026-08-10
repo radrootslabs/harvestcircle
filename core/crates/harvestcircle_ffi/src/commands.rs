@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use directories::ProjectDirs;
 use harvestcircle_application::{
     Clock, DurableRequestId, GeneratedKeyRecoveryHandle, RelayConfiguration, RelayRuntimeMode,
-    RemovalConfirmationToken, relay_configuration_from_environment,
+    RemovalConfirmationToken, relay_configuration_from_urls,
 };
 use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
 use harvestcircle_nostr::SdkNostrClient;
@@ -41,6 +41,12 @@ pub struct RequestContextDto {
     pub request_id: String,
     pub expected_revision: u64,
     pub deadline_millis: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct RelayBootstrapInputDto {
+    pub relay_urls: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -261,9 +267,10 @@ impl HarvestCircleAppCore {
     pub fn open_compatible(
         expectation: CompatibilityExpectation,
         development_mode: bool,
+        relay_input: RelayBootstrapInputDto,
     ) -> Result<Arc<Self>, HarvestCircleError> {
         let path = application_database_path(development_mode)?;
-        Self::open_path_compatible(&path, &expectation, development_mode)
+        Self::open_path_compatible(&path, &expectation, development_mode, relay_input)
     }
 
     /// Restores durable public application state.
@@ -535,25 +542,31 @@ impl HarvestCircleAppCore {
         path: &Path,
         expectation: &CompatibilityExpectation,
         development_mode: bool,
+        relay_input: RelayBootstrapInputDto,
     ) -> Result<Arc<Self>, HarvestCircleError> {
         verify_compatibility(expectation)?;
         std::fs::create_dir_all(path.parent().ok_or_else(path_unavailable)?)
             .map_err(|_| path_unavailable())?;
-        Self::open_path(path, development_mode)
+        Self::open_path(path, development_mode, relay_input)
     }
 
     // The concrete product opener binds operating-system paths, keyrings, and
     // SQLite ownership. Platform installation lanes exercise this adapter;
     // deterministic coverage owns the compatibility and runtime policies.
     #[cfg_attr(coverage_nightly, coverage(off))]
-    fn open_path(path: &Path, development_mode: bool) -> Result<Arc<Self>, HarvestCircleError> {
+    fn open_path(
+        path: &Path,
+        development_mode: bool,
+        relay_input: RelayBootstrapInputDto,
+    ) -> Result<Arc<Self>, HarvestCircleError> {
         let mode = if development_mode {
             RelayRuntimeMode::Development
         } else {
             RelayRuntimeMode::Packaged
         };
-        let (relays, startup_relay_problem) =
-            local_first_relay_configuration(relay_configuration_from_environment(mode));
+        let (relays, startup_relay_problem) = local_first_relay_configuration(
+            relay_configuration_from_urls(&relay_input.relay_urls, mode),
+        );
         let runtime = runtime()?;
         let actor = runtime.block_on(RuntimeActorHandle::open(
             path,
@@ -728,7 +741,7 @@ mod tests {
     use std::num::NonZeroUsize;
     use std::sync::Arc;
 
-    use harvestcircle_application::{InMemorySecretStore, RelayConfiguration};
+    use harvestcircle_application::{InMemorySecretStore, RelayConfiguration, RelayRuntimeMode};
     use harvestcircle_domain::SafeError;
     use harvestcircle_nostr::SdkNostrClient;
     use harvestcircle_runtime::{
@@ -741,9 +754,9 @@ mod tests {
         ACTOR_MAILBOX_CAPACITY, CompatibilityExpectation, DATABASE_APPLICATION, DATABASE_FILENAME,
         DATABASE_ORGANIZATION, DATABASE_QUALIFIER, FFI_CONTRACT_HASH, FFI_CONTRACT_ID,
         FFI_CONTRACT_MAJOR, FFI_CONTRACT_MINOR, HarvestCircleAppCore, HarvestCircleError,
-        PRODUCT_COORDINATE_DIGEST, ProjectDirs, RequestContextDto, RuntimeCore,
-        SNAPSHOT_SCHEMA_VERSION, SystemClock, WireErrorCategory, WireErrorCode, WireRecoveryAction,
-        actor_mailbox_capacity, compatibility_descriptor, confirmation_expired,
+        PRODUCT_COORDINATE_DIGEST, ProjectDirs, RelayBootstrapInputDto, RequestContextDto,
+        RuntimeCore, SNAPSHOT_SCHEMA_VERSION, SystemClock, WireErrorCategory, WireErrorCode,
+        WireRecoveryAction, actor_mailbox_capacity, compatibility_descriptor, confirmation_expired,
         generated_commit_failed, local_first_relay_configuration, path_unavailable, runtime,
         runtime_unavailable, verify_compatibility,
     };
@@ -1088,7 +1101,15 @@ mod tests {
             ..compatible
         };
         assert!(
-            HarvestCircleAppCore::open_path_compatible(&rejected, &incompatible, true).is_err()
+            HarvestCircleAppCore::open_path_compatible(
+                &rejected,
+                &incompatible,
+                true,
+                RelayBootstrapInputDto {
+                    relay_urls: Vec::new(),
+                },
+            )
+            .is_err()
         );
         assert!(!rejected.parent().expect("parent").exists());
     }
@@ -1139,5 +1160,36 @@ mod tests {
 
         assert!(relays.relays().is_empty());
         assert_eq!(degraded, Some(problem));
+    }
+
+    #[test]
+    fn injected_relay_input_distinguishes_development_packaged_and_invalid_values() {
+        let development = harvestcircle_application::relay_configuration_from_urls(
+            &["ws://localhost:8080".to_owned()],
+            RelayRuntimeMode::Development,
+        )
+        .expect("explicit local development relay");
+        assert_eq!(development.relays()[0].as_str(), "ws://localhost:8080/");
+
+        let packaged = harvestcircle_application::relay_configuration_from_urls(
+            &["wss://relay.example".to_owned()],
+            RelayRuntimeMode::Packaged,
+        )
+        .expect("explicit packaged relay");
+        assert_eq!(packaged.relays()[0].as_str(), "wss://relay.example/");
+
+        for input in [Vec::new(), vec!["https://not-a-relay.example".to_owned()]] {
+            let (relays, degraded) = local_first_relay_configuration(
+                harvestcircle_application::relay_configuration_from_urls(
+                    &input,
+                    RelayRuntimeMode::Packaged,
+                ),
+            );
+            assert!(relays.relays().is_empty());
+            assert_eq!(
+                degraded.map(|problem| problem.code()),
+                Some(harvestcircle_domain::SafeErrorCode::InvalidRelayConfiguration)
+            );
+        }
     }
 }

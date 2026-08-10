@@ -4,51 +4,30 @@ use harvestcircle_domain::{
 
 use crate::RelayConfiguration;
 
-pub const RELAY_ENVIRONMENT_VARIABLE: &str = "RADROOTS_NOSTR_RELAYS";
-const DEVELOPMENT_RELAY: &str = "ws://localhost:8080";
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RelayRuntimeMode {
     Development,
     Packaged,
 }
 
-/// Reads the process relay configuration once through the Rust-owned boundary.
+/// Validates relay URLs supplied by a platform host without reading process state.
 ///
 /// # Errors
 ///
-/// Returns a safe configuration error for missing Unicode or invalid relay data.
-pub fn relay_configuration_from_environment(
+/// Returns a safe configuration error when an entry is invalid or no relay was
+/// explicitly supplied.
+pub fn relay_configuration_from_urls(
+    values: &[String],
     mode: RelayRuntimeMode,
 ) -> Result<RelayConfiguration, SafeError> {
-    let value = match std::env::var(RELAY_ENVIRONMENT_VARIABLE) {
-        Ok(value) => Some(value),
-        Err(std::env::VarError::NotPresent) => None,
-        Err(std::env::VarError::NotUnicode(_)) => return Err(invalid_configuration()),
+    if values.is_empty() {
+        return Err(invalid_configuration());
+    }
+    let policy = match mode {
+        RelayRuntimeMode::Development => RelayDestinationPolicy::Local,
+        RelayRuntimeMode::Packaged => RelayDestinationPolicy::Public,
     };
-    relay_configuration_from_value(value.as_deref(), mode)
-}
-
-/// Parses an injected comma-separated relay list without mutating process state.
-///
-/// # Errors
-///
-/// Returns a safe configuration error when an entry is invalid or packaged mode
-/// has no configured relay.
-pub fn relay_configuration_from_value(
-    value: Option<&str>,
-    mode: RelayRuntimeMode,
-) -> Result<RelayConfiguration, SafeError> {
-    let configured = value.unwrap_or_default().trim();
-    let (source, policy) = if configured.is_empty() {
-        match mode {
-            RelayRuntimeMode::Development => (DEVELOPMENT_RELAY, RelayDestinationPolicy::Local),
-            RelayRuntimeMode::Packaged => return Err(invalid_configuration()),
-        }
-    } else {
-        (configured, RelayDestinationPolicy::Public)
-    };
-    let normalized = normalize_relay_urls(source.split(',').map(str::trim), policy)?;
+    let normalized = normalize_relay_urls(values.iter().map(String::as_str), policy)?;
     if normalized.is_empty() {
         return Err(invalid_configuration());
     }
@@ -66,24 +45,31 @@ const fn invalid_configuration() -> SafeError {
 mod tests {
     use harvestcircle_domain::SafeErrorCode;
 
-    use super::{RelayRuntimeMode, relay_configuration_from_value};
+    use super::{RelayRuntimeMode, relay_configuration_from_urls};
 
     #[test]
-    fn relay_config_uses_localhost_fallback_only_for_development() {
-        for value in [None, Some(""), Some("   ")] {
-            let development = relay_configuration_from_value(value, RelayRuntimeMode::Development)
-                .expect("development fallback");
-            assert_eq!(development.relays()[0].as_str(), "ws://localhost:8080/");
-            let packaged = relay_configuration_from_value(value, RelayRuntimeMode::Packaged)
-                .expect_err("packaged configuration required");
-            assert_eq!(packaged.code(), SafeErrorCode::InvalidRelayConfiguration);
+    fn relay_config_requires_explicit_input_in_every_mode() {
+        for mode in [RelayRuntimeMode::Development, RelayRuntimeMode::Packaged] {
+            let error = relay_configuration_from_urls(&[], mode).expect_err("input required");
+            assert_eq!(error.code(), SafeErrorCode::InvalidRelayConfiguration);
         }
+
+        let development = relay_configuration_from_urls(
+            &["ws://localhost:8080".to_owned()],
+            RelayRuntimeMode::Development,
+        )
+        .expect("explicit development relay");
+        assert_eq!(development.relays()[0].as_str(), "ws://localhost:8080/");
     }
 
     #[test]
     fn relay_config_trims_deduplicates_and_preserves_order() {
-        let configuration = relay_configuration_from_value(
-            Some(" wss://relay.one ,wss://relay.two,wss://relay.one/ "),
+        let configuration = relay_configuration_from_urls(
+            &[
+                " wss://relay.one ".to_owned(),
+                "wss://relay.two".to_owned(),
+                "wss://relay.one/ ".to_owned(),
+            ],
             RelayRuntimeMode::Packaged,
         )
         .expect("configuration");
@@ -97,8 +83,11 @@ mod tests {
 
     #[test]
     fn relay_config_rejects_any_invalid_comma_separated_entry() {
-        let error = relay_configuration_from_value(
-            Some("wss://relay.one,https://not-a-relay.test"),
+        let error = relay_configuration_from_urls(
+            &[
+                "wss://relay.one".to_owned(),
+                "https://not-a-relay.test".to_owned(),
+            ],
             RelayRuntimeMode::Packaged,
         )
         .expect_err("invalid entry");

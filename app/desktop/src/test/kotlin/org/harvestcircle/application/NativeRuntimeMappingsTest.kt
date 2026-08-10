@@ -183,6 +183,25 @@ class NativeRuntimeMappingsTest {
         assertEquals(SignerBindingKind.LocalKeyring, SignerBindingKindDto.LOCAL_KEYRING.toSignerBindingKind())
         assertEquals(1, SignerBindingKindDto.entries.size)
     }
+
+    @Test
+    fun desktopHostBuildsExplicitRelayBootstrapInput() {
+        assertEquals(
+            listOf(HARVESTCIRCLE_LOCAL_DEVELOPMENT_RELAY),
+            desktopRelayBootstrapInput(developmentMode = true, configuredValue = null).relayUrls,
+        )
+        assertEquals(
+            emptyList(),
+            desktopRelayBootstrapInput(developmentMode = false, configuredValue = null).relayUrls,
+        )
+        assertEquals(
+            listOf("wss://relay.one", "wss://relay.two"),
+            desktopRelayBootstrapInput(
+                developmentMode = false,
+                configuredValue = " wss://relay.one, wss://relay.two ",
+            ).relayUrls,
+        )
+    }
 }
 
 class NativeHarvestCircleRuntimeTest {

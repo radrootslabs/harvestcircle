@@ -15,6 +15,7 @@ import org.harvestcircle.ffi.HarvestCircleChangeObserver
 import org.harvestcircle.ffi.IdentityCommandReceiptDto
 import org.harvestcircle.ffi.IdentityDto
 import org.harvestcircle.ffi.ObserverSubscription
+import org.harvestcircle.ffi.RelayBootstrapInputDto
 import org.harvestcircle.ffi.RemovalRequest
 import org.harvestcircle.ffi.RequestContextDto
 import org.harvestcircle.ffi.ShutdownReceiptDto
@@ -247,13 +248,33 @@ class NativeHarvestCircleRuntime internal constructor(
         }
 
     companion object {
-        fun open(developmentMode: Boolean): NativeHarvestCircleRuntime {
+        fun open(
+            developmentMode: Boolean,
+            relayInput: RelayBootstrapInputDto = desktopRelayBootstrapInput(developmentMode),
+        ): NativeHarvestCircleRuntime {
             val expectation = verifyNativeCompatibility(compatibilityDescriptor())
             return NativeHarvestCircleRuntime(
-                UniFfiNativeCorePort(HarvestCircleAppCore.openCompatible(expectation, developmentMode)),
+                UniFfiNativeCorePort(HarvestCircleAppCore.openCompatible(expectation, developmentMode, relayInput)),
             )
         }
     }
+}
+
+internal const val HARVESTCIRCLE_NOSTR_RELAYS_ENVIRONMENT = "HARVESTCIRCLE_NOSTR_RELAYS"
+internal const val HARVESTCIRCLE_LOCAL_DEVELOPMENT_RELAY = "ws://localhost:8080"
+
+internal fun desktopRelayBootstrapInput(
+    developmentMode: Boolean,
+    configuredValue: String? = System.getenv(HARVESTCIRCLE_NOSTR_RELAYS_ENVIRONMENT),
+): RelayBootstrapInputDto {
+    val configured = configuredValue?.trim().orEmpty()
+    val relayUrls =
+        when {
+            configured.isNotEmpty() -> configured.split(',').map(String::trim)
+            developmentMode -> listOf(HARVESTCIRCLE_LOCAL_DEVELOPMENT_RELAY)
+            else -> emptyList()
+        }
+    return RelayBootstrapInputDto(relayUrls)
 }
 
 internal fun interface NativeHandleIdSource {

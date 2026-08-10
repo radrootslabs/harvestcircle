@@ -8,7 +8,7 @@ mod observer;
 
 pub use commands::{
     GeneratedRecoveryRequest, HarvestCircleAppCore, HarvestCircleError, IdentityCommandReceiptDto,
-    RemovalRequest, RequestContextDto,
+    RelayBootstrapInputDto, RemovalRequest, RequestContextDto,
 };
 pub use contract::{
     DISTRIBUTION_PACKAGE_VERSION, FFI_CONTRACT_HASH, FFI_CONTRACT_ID, FFI_CONTRACT_MAJOR,

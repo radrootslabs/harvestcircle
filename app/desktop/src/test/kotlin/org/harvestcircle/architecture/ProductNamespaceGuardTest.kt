@@ -12,6 +12,18 @@ import kotlin.test.assertTrue
 
 class ProductNamespaceGuardTest {
     @Test
+    fun reusableApplicationCoreDoesNotReadTheProcessEnvironment() {
+        val root = findRepositoryRoot()
+        val environmentRead = listOf("std", "env").joinToString("::")
+        val findings =
+            trackedFiles(root)
+                .filter { it.startsWith("core/crates/harvestcircle_application/src/") && it.endsWith(".rs") }
+                .filter { root.resolve(it).readText().contains(environmentRead) }
+
+        assertEquals(emptyList(), findings.sorted())
+    }
+
+    @Test
     fun productionKotlinDoesNotMintProcessLocalOperationCounters() {
         val root = findRepositoryRoot()
         val counterType = "Atomic" + "Long"
