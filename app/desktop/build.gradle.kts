@@ -1,7 +1,5 @@
-import com.github.jk1.license.filter.SpdxLicenseBundleNormalizer
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
-import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
@@ -11,7 +9,6 @@ import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFile
-import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
@@ -19,68 +16,22 @@ import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.tasks.Jar
 import org.harvestcircle.gradle.FfiCompatibilityBaseline
 import org.harvestcircle.gradle.GenerateCompatibilityExpectations
-import org.harvestcircle.gradle.GenerateDesktopBuildMetadata
 import org.harvestcircle.gradle.ProductCoordinates
 import org.harvestcircle.gradle.VerifyGeneratedCompatibilityExpectations
-import org.harvestcircle.gradle.VerifyGeneratedDesktopBuildMetadata
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.File
 import java.security.MessageDigest
 import java.util.jar.JarFile
 
 plugins {
-    id("org.jetbrains.kotlin.jvm")
-    id("org.jetbrains.compose")
-    id("org.jetbrains.kotlin.plugin.compose")
-    id("dev.detekt")
-    id("org.jlleitschuh.gradle.ktlint")
-    alias(libs.plugins.license.report)
-    alias(libs.plugins.owasp.dependency.check)
-}
-
-licenseReport {
-    projects = arrayOf(project)
-    configurations = arrayOf("runtimeClasspath")
-    excludeGroups = arrayOf("harvestcircle.app")
-    filters = arrayOf(SpdxLicenseBundleNormalizer())
-    allowedLicensesFile = rootProject.layout.projectDirectory.file("config/licenses/allowed-licenses.json")
-}
-
-dependencyCheck {
-    failBuildOnCVSS = 0.0F
-    failOnError = true
-    formats = listOf("HTML", "JSON")
-    scanConfigurations = listOf("runtimeClasspath")
-    skipTestGroups = true
-    providers.environmentVariable("NVD_API_KEY").orNull?.takeIf(String::isNotBlank)?.let {
-        nvd.apiKey = it
-    }
-}
-
-tasks.matching { it.name.startsWith("dependencyCheck") }.configureEach {
-    notCompatibleWithConfigurationCache("Advisory data and environment-only credentials must not be cached")
-}
-
-configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
-    additionalEditorconfig.set(
-        mapOf(
-            "ktlint_function_naming_ignore_when_annotated_with" to "Composable",
-        ),
-    )
-    filter {
-        exclude("**/generated/uniffi/**")
-    }
+    id("org.harvestcircle.build.desktop-app")
 }
 
 val rustCoreSource =
     rootProject.layout.projectDirectory
         .dir("core")
         .asFile
-providers.environmentVariable("EXT_BUILD_GRADLE_BUILD_DIR").orNull?.let { extBuildGradleRoot ->
-    layout.buildDirectory.set(file(extBuildGradleRoot).resolve("app-desktop"))
-}
 val cargoTargetRoot =
     providers.environmentVariable("CARGO_TARGET_DIR").orNull?.let(::file)
         ?: rustCoreSource.resolve("target")
@@ -137,7 +88,6 @@ check(Regex("""[1-9]\d*(\.\d+){0,2}""").matches(installableVersion)) {
 val applicationName = productCoordinates["product.name"]
 val productSlug = productCoordinates["product.slug"]
 val bundleId = productCoordinates["desktop.bundle_id"]
-val desktopMainClass = productCoordinates["desktop.main_class"]
 val ffiKotlinPackage = productCoordinates["ffi.kotlin_package"]
 val environmentPrefix = productCoordinates["environment.prefix"]
 
@@ -146,9 +96,6 @@ val developmentDataDirectoryEnvironment =
     productEnvironment("DEVELOPMENT_DATA_DIR")
 val copyrightNotice = productCoordinates["copyright.notice"]
 val vendorName = productCoordinates["vendor.name"]
-group = productCoordinates["desktop.application_id"]
-version = appVersion
-
 val rustSources =
     fileTree(rustCoreSource) {
         include(
@@ -292,34 +239,12 @@ val generatedCompatibilityFile =
     generatedCompatibilityKotlin.map {
         it.file("org/harvestcircle/application/generated/NativeCompatibilityExpectations.kt")
     }
-val generatedDesktopBuildMetadataFile =
-    generatedCompatibilityKotlin.map {
-        it.file("org/harvestcircle/application/generated/DesktopBuildMetadata.kt")
-    }
-
-fun org.harvestcircle.gradle.DesktopBuildMetadataTask.configureDesktopBuildMetadata() {
-    productVersion.set(appVersion)
-    distributionPackageVersion.set(installableVersion)
-    gradleToolchain.set(gradle.gradleVersion)
-    javaToolchain.set(System.getProperty("java.version"))
-    kotlinToolchain.set(libs.versions.kotlin.get())
-    composeMultiplatformVersion.set(libs.versions.compose.get())
-}
-val generateDesktopBuildMetadata by tasks.registering(GenerateDesktopBuildMetadata::class) {
-    configureDesktopBuildMetadata()
-    outputFile.set(generatedDesktopBuildMetadataFile)
-}
 val generateCompatibilityExpectations by tasks.registering(GenerateCompatibilityExpectations::class) {
     baselineFile.set(ffiCompatibilityBaselineFile)
     outputFile.set(generatedCompatibilityFile)
 }
-val verifyGeneratedDesktopBuildMetadata by tasks.registering(VerifyGeneratedDesktopBuildMetadata::class) {
-    dependsOn(generateDesktopBuildMetadata)
-    configureDesktopBuildMetadata()
-    generatedFile.set(generatedDesktopBuildMetadataFile)
-}
 val verifyGeneratedSources by tasks.registering(VerifyGeneratedCompatibilityExpectations::class) {
-    dependsOn(generateCompatibilityExpectations, verifyGeneratedDesktopBuildMetadata)
+    dependsOn(generateCompatibilityExpectations)
     baselineFile.set(ffiCompatibilityBaselineFile)
     generatedFile.set(generatedCompatibilityFile)
 }
@@ -758,76 +683,14 @@ abstract class VerifyMacOsNotarization : DefaultTask() {
     }
 }
 
-dependencies {
-    implementation(projects.app.shared)
-    implementation(compose.desktop.currentOs)
-    implementation(libs.compose.foundation)
-    implementation(libs.jna)
-    implementation(libs.kotlinx.coroutines.core)
-
-    testImplementation(kotlin("test-junit"))
-    testImplementation(libs.compose.ui.test.junit4)
-    testImplementation(libs.kotlinx.coroutines.test)
-}
-
-val testInventoryRoot =
-    providers
-        .gradleProperty("testInventoryRoot")
-        .orElse("src/test/kotlin")
-val expectedTests =
-    fileTree(testInventoryRoot.get()) {
-        include("**/*Test.kt")
-    }
-
-abstract class VerifyTestInventory : DefaultTask() {
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val testFiles: ConfigurableFileCollection
-
-    @get:Input
-    abstract val sourceRoot: Property<String>
-
-    @TaskAction
-    fun verify() {
-        if (testFiles.isEmpty) {
-            throw GradleException("No Kotlin tests found under ${sourceRoot.get()}")
-        }
-    }
-}
-val verifyTestInventory by tasks.registering(VerifyTestInventory::class) {
-    testFiles.from(expectedTests)
-    sourceRoot.set(testInventoryRoot)
-}
-
-tasks.withType<Test>().configureEach {
-    dependsOn(verifyTestInventory)
-    failOnNoDiscoveredTests.set(true)
-}
-
 tasks.named("check") {
-    dependsOn(rootProject.tasks.named("verifyProductCoordinates"))
-    dependsOn(rootProject.tasks.named("verifyProductCoordinateConsumers"))
     dependsOn(verifyGeneratedSources)
     dependsOn(verifyDesktopBuildMetadataArtifact)
 }
 
-kotlin {
-    compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_21)
-    }
-
-    jvmToolchain(21)
-}
-
 tasks.named<KotlinCompile>("compileKotlin") {
-    dependsOn(generateUniFfiKotlin, generateCompatibilityExpectations, generateDesktopBuildMetadata)
+    dependsOn(generateUniFfiKotlin, generateCompatibilityExpectations)
     source(generatedUniFfiKotlin, generatedCompatibilityKotlin)
-}
-tasks.named("runKtlintCheckOverMainSourceSet") {
-    dependsOn(generateUniFfiKotlin)
-}
-tasks.named("runKtlintFormatOverMainSourceSet") {
-    dependsOn(generateUniFfiKotlin)
 }
 tasks.withType<Test>().configureEach {
     dependsOn(buildRustCoreDebug)
@@ -863,8 +726,6 @@ compose.desktop {
         val desktopJar = tasks.named<Jar>("jar").flatMap { it.archiveFile }
         mainJar.set(desktopJar)
         fromFiles(desktopJar, configurations.runtimeClasspath, releaseNativeRuntimeJar)
-        mainClass = desktopMainClass
-
         if (isMacOsHost) {
             jvmArgs +=
                 listOf(

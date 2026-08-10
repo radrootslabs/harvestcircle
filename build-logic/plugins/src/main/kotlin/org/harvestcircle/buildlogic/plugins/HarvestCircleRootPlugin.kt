@@ -52,6 +52,11 @@ public class HarvestCircleRootPlugin : Plugin<Project> {
             task.description = "Validates that build and runtime identities consume the product manifest."
             task.manifestFile.set(productCoordinatesFile)
             task.desktopBuildFile.set(target.layout.projectDirectory.file("app/desktop/build.gradle.kts"))
+            task.desktopPluginFile.set(
+                target.layout.projectDirectory.file(
+                    "build-logic/plugins/src/main/kotlin/org/harvestcircle/buildlogic/plugins/HarvestCircleDesktopAppPlugin.kt",
+                ),
+            )
             task.uniFfiConfigFile.set(target.layout.projectDirectory.file("core/crates/harvestcircle_ffi/uniffi.toml"))
             task.productBuildFile.set(target.layout.projectDirectory.file("core/crates/harvestcircle_product/build.rs"))
             task.ffiConsumerFile.set(target.layout.projectDirectory.file("core/crates/harvestcircle_ffi/src/commands.rs"))

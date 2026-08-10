@@ -19,6 +19,10 @@ abstract class VerifyProductCoordinateConsumers : DefaultTask() {
 
     @get:InputFile
     @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val desktopPluginFile: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val uniFfiConfigFile: RegularFileProperty
 
     @get:InputFile
@@ -36,7 +40,10 @@ abstract class VerifyProductCoordinateConsumers : DefaultTask() {
     @TaskAction
     fun verify() {
         val coordinates = ProductCoordinates.load(manifestFile.get().asFile)
-        val desktopBuild = desktopBuildFile.get().asFile.readText()
+        val desktopBuild =
+            desktopBuildFile.get().asFile.readText() +
+                "\n" +
+                desktopPluginFile.get().asFile.readText()
         listOf(
             "product.name",
             "product.slug",
@@ -50,7 +57,7 @@ abstract class VerifyProductCoordinateConsumers : DefaultTask() {
             "copyright.notice",
         ).forEach { key ->
             check(desktopBuild.contains("productCoordinates[\"$key\"]")) {
-                "Desktop build does not consume product coordinate $key"
+                "Desktop build logic does not consume product coordinate $key"
             }
         }
         listOf(

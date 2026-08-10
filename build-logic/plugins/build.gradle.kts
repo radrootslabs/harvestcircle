@@ -17,6 +17,8 @@ dependencies {
     implementation("org.jetbrains.compose:compose-gradle-plugin:${libs.versions.compose.get()}")
     implementation("dev.detekt:detekt-gradle-plugin:${libs.versions.detekt.get()}")
     implementation("org.jlleitschuh.gradle:ktlint-gradle:${libs.versions.ktlint.get()}")
+    implementation("com.github.jk1:gradle-license-report:${libs.versions.license.report.get()}")
+    implementation("org.owasp:dependency-check-gradle:${libs.versions.owasp.dependency.check.get()}")
     testImplementation(kotlin("test"))
 }
 

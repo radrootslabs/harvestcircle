@@ -23,14 +23,27 @@ class ConventionPluginSmokeTest {
 
         pluginIds.forEach { pluginId ->
             val fixture = temporaryDirectory.resolve(pluginId.substringAfterLast('.')).createDirectories()
+            val desktopFixture = pluginId == "org.harvestcircle.build.desktop-app"
             fixture.resolve("settings.gradle.kts").writeText(
-                "pluginManagement { repositories { gradlePluginPortal(); mavenCentral() } }\nrootProject.name = \"fixture\"\n",
+                buildString {
+                    append("pluginManagement { repositories { gradlePluginPortal(); mavenCentral() } }\n")
+                    append("dependencyResolutionManagement { repositories { mavenCentral() } }\n")
+                    append("rootProject.name = \"fixture\"\n")
+                    if (desktopFixture) append("include(\":app:shared\", \":app:desktop\")\n")
+                },
             )
-            if (pluginId == "org.harvestcircle.build.kmp-shared") {
+            if (pluginId in setOf("org.harvestcircle.build.kmp-shared", "org.harvestcircle.build.desktop-app")) {
                 fixture.resolve("gradle").createDirectories().resolve("libs.versions.toml").writeText(kmpCatalog)
             }
+            val buildFile =
+                if (desktopFixture) {
+                    prepareDesktopFixture(fixture)
+                    fixture.resolve("app/desktop/build.gradle.kts")
+                } else {
+                    fixture.resolve("build.gradle.kts")
+                }
             val pluginBlock = if (pluginId == "org.harvestcircle.build.kmp-shared") kmpPlugins else "id(\"$pluginId\")"
-            fixture.resolve("build.gradle.kts").writeText("plugins { $pluginBlock }\n")
+            buildFile.writeText("plugins { $pluginBlock }\n")
 
             val runner =
                 GradleRunner.create()
@@ -44,6 +57,26 @@ class ConventionPluginSmokeTest {
                 assertTrue(result.output.contains("verifyProductCoordinates"), result.output)
                 assertTrue(runner.build().output.contains("Reusing configuration cache"))
             }
+        }
+    }
+
+    private fun prepareDesktopFixture(
+        fixture: java.nio.file.Path,
+        withUnitTest: Boolean = true,
+    ) {
+        fixture.resolve("build.gradle.kts").writeText("plugins { id(\"org.harvestcircle.build.root\") }\n")
+        fixture.resolve("app/shared").createDirectories().resolve("build.gradle.kts").writeText("plugins { `java-library` }\n")
+        fixture.resolve("app/desktop").createDirectories()
+        fixture.resolve("config/product").createDirectories().resolve("harvestcircle-v1.properties").writeText(productCoordinates)
+        fixture.resolve("config/licenses").createDirectories().resolve("allowed-licenses.json").writeText("{}\n")
+        fixture.resolve("core/compatibility").createDirectories().resolve("harvestcircle-ffi-v4.properties").writeText(ffiBaseline)
+        fixture.resolve("core").resolve("Cargo.toml").writeText(
+            "[workspace.package]\nversion = \"0.1.0-alpha\"\n",
+        )
+        if (withUnitTest) {
+            fixture.resolve("app/desktop/src/test/kotlin").createDirectories().resolve("FixtureTest.kt").writeText(
+                "class FixtureTest\n",
+            )
         }
     }
 
@@ -90,6 +123,63 @@ class ConventionPluginSmokeTest {
         assertTrue(result.output.contains("prohibited common-source dependency"), result.output)
     }
 
+    @Test
+    fun desktopPluginPublishesTheApplicationContractWithoutClaimingIntegrationExecution() {
+        val fixture = createTempDirectory("harvestcircle-desktop-plugin-")
+        prepareDesktopBuild(fixture, withUnitTest = true)
+
+        val result =
+            GradleRunner.create()
+                .withProjectDir(fixture.toFile())
+                .withPluginClasspath()
+                .withArguments(":app:desktop:tasks", "--all", "--stacktrace")
+                .build()
+
+        listOf(
+            "checkLicense",
+            "dependencyCheckAnalyze",
+            "generateDesktopBuildMetadata",
+            "verifyGeneratedDesktopBuildMetadata",
+            "verifyTestInventory",
+            "compileIntegrationTestKotlin",
+        ).forEach { taskName -> assertTrue(result.output.contains(taskName), result.output) }
+        assertTrue(!result.output.lineSequence().any { it.startsWith("integrationTest -") }, result.output)
+    }
+
+    @Test
+    fun desktopPluginRejectsAnEmptyUnitTestInventory() {
+        val fixture = createTempDirectory("harvestcircle-desktop-no-tests-")
+        prepareDesktopBuild(fixture, withUnitTest = false)
+
+        val result =
+            GradleRunner.create()
+                .withProjectDir(fixture.toFile())
+                .withPluginClasspath()
+                .withArguments(":app:desktop:verifyTestInventory", "--stacktrace")
+                .buildAndFail()
+
+        assertTrue(result.output.contains("No Kotlin tests found under src/test/kotlin"), result.output)
+    }
+
+    private fun prepareDesktopBuild(
+        fixture: java.nio.file.Path,
+        withUnitTest: Boolean,
+    ) {
+        fixture.resolve("settings.gradle.kts").writeText(
+            """
+            pluginManagement { repositories { gradlePluginPortal(); mavenCentral() } }
+            dependencyResolutionManagement { repositories { mavenCentral() } }
+            rootProject.name = "fixture"
+            include(":app:shared", ":app:desktop")
+            """.trimIndent() + "\n",
+        )
+        fixture.resolve("gradle").createDirectories().resolve("libs.versions.toml").writeText(kmpCatalog)
+        prepareDesktopFixture(fixture, withUnitTest)
+        fixture.resolve("app/desktop/build.gradle.kts").writeText(
+            "plugins { id(\"org.harvestcircle.build.desktop-app\") }\n",
+        )
+    }
+
     private val kmpCatalog =
         """
         [versions]
@@ -104,10 +194,49 @@ class ConventionPluginSmokeTest {
         compose-ui-test-junit4 = { module = "org.jetbrains.compose.ui:ui-test-junit4", version.ref = "compose" }
         kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
         kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+        jna = { module = "net.java.dev.jna:jna", version = "5.17.0" }
         """.trimIndent() + "\n"
 
     private val kmpPlugins =
         """
         id("org.harvestcircle.build.kmp-shared")
         """.trimIndent()
+
+    private val productCoordinates =
+        """
+        schema=harvestcircle.product.v1
+        product.name=HarvestCircle
+        product.slug=harvestcircle
+        kotlin.root_namespace=org.harvestcircle
+        desktop.application_id=org.harvestcircle.desktop
+        desktop.bundle_id=org.harvestcircle.desktop
+        desktop.main_class=org.harvestcircle.desktop.MainKt
+        ffi.kotlin_package=org.harvestcircle.ffi
+        ffi.cdylib_name=harvestcircle_ffi
+        database.qualifier=org
+        database.organization=harvestcircle
+        database.application=desktop
+        database.filename=harvestcircle.sqlite3
+        keyring.service=org.harvestcircle.desktop.nostr
+        environment.prefix=HARVESTCIRCLE_
+        vendor.name=Radroots Labs
+        copyright.notice=Copyright © 2026 HarvestCircle contributors
+        """.trimIndent() + "\n"
+
+    private val ffiBaseline =
+        """
+        schema=harvestcircle.ffi.v4
+        contract.id=harvestcircle-desktop-ffi-v4
+        contract.major=4
+        contract.minor=1
+        contract.hash=c7a84960e53cd9df35d676bab28294eb048a8b86c766d81cded2635b64a7f3d6
+        product.coordinate_digest=93bf10e334e989b20ba5fb8ed05e5d55b83f4502efba5f893aef4dc1a66c8223
+        snapshot.schema=1
+        storage.schema.minimum=5
+        storage.schema.current=10
+        product.version=0.1.0-alpha
+        package.version=1.0.0
+        source.provenance_digest=db238195b4a5938a8d4d9ac5681c4b125e65c57aa8133ad03e59da4e4bd062bc
+        source.foundation_baseline=a2038b3e25b9e34f0b8fd001f26a8ed10b5772cb
+        """.trimIndent() + "\n"
 }
