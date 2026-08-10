@@ -7,17 +7,17 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use harvestcircle_application::{
-    ActorMailbox, AppSnapshot, ChangeSubscriptionId, Clock, CommandContext, CommandEnvelope,
-    CommandReceipt, CommandResult, CommandSubmission, DurableRequestId, ForegroundSessionBinding,
-    GenerateAccountReceipt, GeneratedKeyRecoveryHandle, GeneratedKeyStage, ImportAccountReceipt,
+    ActiveSessionBinding, ActorMailbox, AppSnapshot, ChangeSubscriptionId, Clock, CommandContext,
+    CommandEnvelope, CommandReceipt, CommandResult, CommandSubmission, DurableRequestId,
+    GenerateIdentityReceipt, GeneratedKeyRecoveryHandle, GeneratedKeyStage, ImportIdentityReceipt,
     LifecycleGate, NostrClient, OrderedSnapshotChanges, ProfileFetchResult, ProfileRefreshPlan,
     RecoveryStageId, RelayConfiguration, RemovalConfirmationToken, RequestId, RuntimeCommandClass,
     RuntimeLifecycle, SecretStore, SessionGeneration, SnapshotChange, SnapshotChangeReceiver,
     SnapshotRevision, StagedGeneratedKey, TaskCorrelation,
 };
 use harvestcircle_domain::{
-    AccountIdentity, BindingAvailability, LocalSignerBinding, PublicKey, SafeError, SafeErrorCode,
-    SafeMessage, SecretKeyInput,
+    LocalKeyringBinding, NostrIdentityReference, PublicKey, SafeError, SafeErrorCode, SafeMessage,
+    SecretKeyInput, SignerAvailability,
 };
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -31,7 +31,7 @@ const DEFAULT_BLOCKING_CAPACITY: usize = 4;
 
 enum RuntimeCommand {
     Snapshot,
-    GenerateAccount {
+    GenerateIdentity {
         durable_request: DurableRequestId,
         expected_revision: u64,
     },
@@ -46,12 +46,12 @@ enum RuntimeCommand {
         durable_request: DurableRequestId,
         expected_revision: u64,
     },
-    SelectAccount(PublicKey),
-    ActivateAccount(PublicKey),
+    SelectIdentity(PublicKey),
+    ActivateIdentity(PublicKey),
     SignOut,
     RefreshActiveProfile,
-    RequestAccountRemoval(PublicKey),
-    ConfirmAccountRemoval {
+    RequestIdentityRemoval(PublicKey),
+    ConfirmIdentityRemoval {
         token: RemovalConfirmationToken,
         durable_request: DurableRequestId,
     },
@@ -62,10 +62,10 @@ enum RuntimeCommand {
 
 enum RuntimeCommandValue {
     Snapshot(Box<AppSnapshot>),
-    Generated(GenerateAccountReceipt),
+    Generated(GenerateIdentityReceipt),
     GeneratedKeyStage(GeneratedKeyRecoveryHandle),
     GeneratedKeyStageCancelled(bool),
-    Imported(ImportAccountReceipt),
+    Imported(ImportIdentityReceipt),
     RemovalRequest(RemovalConfirmationToken),
     Subscription(RuntimeChangeSubscription),
     Unsubscribed(bool),
@@ -78,15 +78,15 @@ impl RuntimeCommand {
             Self::Snapshot | Self::SubscribeChanges(_) | Self::UnsubscribeChanges(_) => {
                 RuntimeCommandClass::Observe
             }
-            Self::GenerateAccount { .. }
+            Self::GenerateIdentity { .. }
             | Self::BeginGeneratedKeyStage
             | Self::AcknowledgeGeneratedKeyStage { .. }
             | Self::ImportSecretKey { .. }
-            | Self::ActivateAccount(_)
-            | Self::ConfirmAccountRemoval { .. } => RuntimeCommandClass::UseCredential,
-            Self::SelectAccount(_)
+            | Self::ActivateIdentity(_)
+            | Self::ConfirmIdentityRemoval { .. } => RuntimeCommandClass::UseCredential,
+            Self::SelectIdentity(_)
             | Self::SignOut
-            | Self::RequestAccountRemoval(_)
+            | Self::RequestIdentityRemoval(_)
             | Self::CancelGeneratedKeyStage => RuntimeCommandClass::MutateLocalState,
             Self::RefreshActiveProfile => RuntimeCommandClass::UseRelay,
             Self::Close => RuntimeCommandClass::Shutdown,
@@ -96,7 +96,7 @@ impl RuntimeCommand {
     const fn resolves_revision_through_durable_replay(&self) -> bool {
         matches!(
             self,
-            Self::GenerateAccount { .. } | Self::ImportSecretKey { .. }
+            Self::GenerateIdentity { .. } | Self::ImportSecretKey { .. }
         )
     }
 }
@@ -113,7 +113,7 @@ struct RuntimeActor {
     published_session_generation: Arc<AtomicU64>,
     profile_tasks: BTreeMap<RequestId, PendingProfileTask>,
     changes: OrderedSnapshotChanges,
-    published_foreground_session: Arc<Mutex<Option<ForegroundSessionBinding>>>,
+    published_foreground_session: Arc<Mutex<Option<ActiveSessionBinding>>>,
     generated_key_stage: GeneratedKeyStage,
 }
 
@@ -137,7 +137,7 @@ pub struct RuntimeActorHandle {
     lifecycle: Arc<Mutex<LifecycleGate>>,
     next_request: Arc<AtomicU64>,
     session_generation: Arc<AtomicU64>,
-    foreground_session: Arc<Mutex<Option<ForegroundSessionBinding>>>,
+    foreground_session: Arc<Mutex<Option<ActiveSessionBinding>>>,
     installation_identity: InstallationIdentity,
     runtime: Handle,
     actor_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
@@ -316,7 +316,7 @@ impl RuntimeActorHandle {
     }
 
     #[must_use]
-    pub fn foreground_session(&self) -> Option<ForegroundSessionBinding> {
+    pub fn foreground_session(&self) -> Option<ActiveSessionBinding> {
         self.foreground_session
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -342,20 +342,20 @@ impl RuntimeActorHandle {
         Self::expect_snapshot(self.dispatch(RuntimeCommand::Snapshot, None).await?)
     }
 
-    /// Generates one account through the serialized actor boundary.
+    /// Generates one identity through the serialized actor boundary.
     ///
     /// # Errors
     ///
-    /// Returns a safe account, storage, keyring, timeout, or actor error.
-    pub async fn generate_account(
+    /// Returns a safe identity, storage, keyring, timeout, or actor error.
+    pub async fn generate_identity(
         &self,
         request: DurableRequestId,
         expected_revision: SnapshotRevision,
         timeout: Duration,
-    ) -> Result<GenerateAccountReceipt, SafeError> {
+    ) -> Result<GenerateIdentityReceipt, SafeError> {
         match self
             .dispatch_durable(
-                RuntimeCommand::GenerateAccount {
+                RuntimeCommand::GenerateIdentity {
                     durable_request: request,
                     expected_revision: expected_revision.value(),
                 },
@@ -384,7 +384,7 @@ impl RuntimeActorHandle {
         }
     }
 
-    /// Acknowledges recovery and commits the staged account and credential once.
+    /// Acknowledges recovery and commits the staged identity and credential once.
     ///
     /// # Errors
     ///
@@ -424,18 +424,18 @@ impl RuntimeActorHandle {
         }
     }
 
-    /// Imports one account through the serialized actor boundary.
+    /// Imports one identity through the serialized actor boundary.
     ///
     /// # Errors
     ///
-    /// Returns a safe account, storage, keyring, timeout, or actor error.
+    /// Returns a safe identity, storage, keyring, timeout, or actor error.
     pub async fn import_secret_key(
         &self,
         request: DurableRequestId,
         expected_revision: SnapshotRevision,
         input: SecretKeyInput,
         timeout: Duration,
-    ) -> Result<ImportAccountReceipt, SafeError> {
+    ) -> Result<ImportIdentityReceipt, SafeError> {
         match self
             .dispatch_durable(
                 RuntimeCommand::ImportSecretKey {
@@ -453,26 +453,26 @@ impl RuntimeActorHandle {
         }
     }
 
-    /// Selects one account through the serialized actor boundary.
+    /// Selects one identity through the serialized actor boundary.
     ///
     /// # Errors
     ///
-    /// Returns a safe account, storage, timeout, or actor error.
-    pub async fn select_account(&self, public_key: PublicKey) -> Result<AppSnapshot, SafeError> {
+    /// Returns a safe identity, storage, timeout, or actor error.
+    pub async fn select_identity(&self, public_key: PublicKey) -> Result<AppSnapshot, SafeError> {
         let value = self
-            .dispatch(RuntimeCommand::SelectAccount(public_key), None)
+            .dispatch(RuntimeCommand::SelectIdentity(public_key), None)
             .await?;
         Self::expect_snapshot(value)
     }
 
-    /// Activates one account through the serialized actor boundary.
+    /// Activates one identity through the serialized actor boundary.
     ///
     /// # Errors
     ///
-    /// Returns a safe account, credential, storage, timeout, or actor error.
-    pub async fn activate_account(&self, public_key: PublicKey) -> Result<AppSnapshot, SafeError> {
+    /// Returns a safe identity, credential, storage, timeout, or actor error.
+    pub async fn activate_identity(&self, public_key: PublicKey) -> Result<AppSnapshot, SafeError> {
         let value = self
-            .dispatch(RuntimeCommand::ActivateAccount(public_key), None)
+            .dispatch(RuntimeCommand::ActivateIdentity(public_key), None)
             .await?;
         Self::expect_snapshot(value)
     }
@@ -503,13 +503,13 @@ impl RuntimeActorHandle {
     ///
     /// # Errors
     ///
-    /// Returns a safe account, timeout, or actor error.
-    pub async fn request_account_removal(
+    /// Returns a safe identity, timeout, or actor error.
+    pub async fn request_identity_removal(
         &self,
         public_key: PublicKey,
     ) -> Result<RemovalConfirmationToken, SafeError> {
         match self
-            .dispatch(RuntimeCommand::RequestAccountRemoval(public_key), None)
+            .dispatch(RuntimeCommand::RequestIdentityRemoval(public_key), None)
             .await?
         {
             RuntimeCommandValue::RemovalRequest(token) => Ok(token),
@@ -521,8 +521,8 @@ impl RuntimeActorHandle {
     ///
     /// # Errors
     ///
-    /// Returns a safe account, credential, storage, timeout, or actor error.
-    pub async fn confirm_account_removal(
+    /// Returns a safe identity, credential, storage, timeout, or actor error.
+    pub async fn confirm_identity_removal(
         &self,
         token: RemovalConfirmationToken,
         request: DurableRequestId,
@@ -531,7 +531,7 @@ impl RuntimeActorHandle {
     ) -> Result<AppSnapshot, SafeError> {
         let value = self
             .dispatch_durable(
-                RuntimeCommand::ConfirmAccountRemoval {
+                RuntimeCommand::ConfirmIdentityRemoval {
                     token,
                     durable_request: request,
                 },
@@ -710,7 +710,7 @@ impl RuntimeActorHandle {
     async fn import_secret_key_test(
         &self,
         input: SecretKeyInput,
-    ) -> Result<ImportAccountReceipt, SafeError> {
+    ) -> Result<ImportIdentityReceipt, SafeError> {
         let request_number = self.next_request.fetch_add(1, Ordering::Relaxed);
         self.import_secret_key(
             DurableRequestId::parse(format!("test:import:{request_number}"))?,
@@ -737,12 +737,12 @@ impl RuntimeActorHandle {
     }
 
     #[cfg(test)]
-    async fn confirm_account_removal_test(
+    async fn confirm_identity_removal_test(
         &self,
         token: RemovalConfirmationToken,
     ) -> Result<AppSnapshot, SafeError> {
         let request_number = self.next_request.fetch_add(1, Ordering::Relaxed);
-        self.confirm_account_removal(
+        self.confirm_identity_removal(
             token,
             DurableRequestId::parse(format!("test:remove:{request_number}"))?,
             self.snapshot().revision(),
@@ -756,7 +756,7 @@ impl RuntimeActorHandle {
         &self,
         input: SecretKeyInput,
         timeout: Duration,
-    ) -> Result<ImportAccountReceipt, SafeError> {
+    ) -> Result<ImportIdentityReceipt, SafeError> {
         let raw_request = self.next_request.fetch_add(1, Ordering::Relaxed);
         let request_id = RequestId::new(raw_request).ok_or_else(request_space_exhausted)?;
         let expected_revision = self.adapter.core().snapshot().revision();
@@ -836,9 +836,9 @@ impl RuntimeActor {
         }
         let changes_session = matches!(
             command,
-            RuntimeCommand::ActivateAccount(_)
+            RuntimeCommand::ActivateIdentity(_)
                 | RuntimeCommand::SignOut
-                | RuntimeCommand::ConfirmAccountRemoval { .. }
+                | RuntimeCommand::ConfirmIdentityRemoval { .. }
         );
         let begins_generated_recovery = matches!(&command, RuntimeCommand::BeginGeneratedKeyStage);
         let result = self.execute_command(context, command).await;
@@ -909,13 +909,13 @@ impl RuntimeActor {
             RuntimeCommand::Snapshot => Ok(RuntimeCommandValue::Snapshot(Box::new(
                 self.adapter.core().snapshot(),
             ))),
-            RuntimeCommand::GenerateAccount {
+            RuntimeCommand::GenerateIdentity {
                 durable_request,
                 expected_revision,
             } => {
                 self.run_blocking(context.deadline(), move |adapter, secrets, clock| {
                     adapter
-                        .generate_account_durable(
+                        .generate_identity_durable(
                             &durable_request,
                             expected_revision,
                             secrets.as_ref(),
@@ -978,19 +978,19 @@ impl RuntimeActor {
                 })
                 .await
             }
-            RuntimeCommand::SelectAccount(public_key) => {
+            RuntimeCommand::SelectIdentity(public_key) => {
                 self.run_blocking(context.deadline(), move |adapter, _, _| {
                     adapter
-                        .select_account(public_key)
+                        .select_identity(public_key)
                         .map(Box::new)
                         .map(RuntimeCommandValue::Snapshot)
                 })
                 .await
             }
-            RuntimeCommand::ActivateAccount(public_key) => {
+            RuntimeCommand::ActivateIdentity(public_key) => {
                 self.run_blocking(context.deadline(), move |adapter, secrets, clock| {
                     adapter
-                        .activate_account(public_key, secrets.as_ref(), clock.as_ref())
+                        .activate_identity(public_key, secrets.as_ref(), clock.as_ref())
                         .map(Box::new)
                         .map(RuntimeCommandValue::Snapshot)
                 })
@@ -1001,17 +1001,17 @@ impl RuntimeActor {
                 .sign_out()
                 .map(Box::new)
                 .map(RuntimeCommandValue::Snapshot),
-            RuntimeCommand::RequestAccountRemoval(public_key) => self
+            RuntimeCommand::RequestIdentityRemoval(public_key) => self
                 .adapter
-                .request_account_removal(public_key, self.clock.as_ref())
+                .request_identity_removal(public_key, self.clock.as_ref())
                 .map(RuntimeCommandValue::RemovalRequest),
-            RuntimeCommand::ConfirmAccountRemoval {
+            RuntimeCommand::ConfirmIdentityRemoval {
                 token,
                 durable_request,
             } => {
                 self.run_blocking(context.deadline(), move |adapter, secrets, clock| {
                     adapter
-                        .confirm_account_removal_durable(
+                        .confirm_identity_removal_durable(
                             &durable_request,
                             token,
                             secrets.as_ref(),
@@ -1105,7 +1105,7 @@ impl RuntimeActor {
         let correlation = TaskCorrelation::new(
             context.request_id(),
             plan.public_key(),
-            foreground.signer(),
+            foreground.signer_binding(),
             plan.expected_revision(),
             self.session_generation,
         );
@@ -1114,7 +1114,7 @@ impl RuntimeActor {
         let request_id = context.request_id();
         let handle = self.runtime.spawn(async move {
             let result = client
-                .fetch_profile(correlation.account(), &relays, context.deadline())
+                .fetch_profile(correlation.identity(), &relays, context.deadline())
                 .await;
             let _ = completion_sender
                 .send(ProfileCompletion { request_id, result })
@@ -1183,12 +1183,12 @@ impl RuntimeActor {
         let correlated = task.correlation.session_generation() == self.session_generation
             && foreground.is_some_and(|binding| {
                 binding.generation() == task.correlation.session_generation()
-                    && binding.identity().public_key() == task.correlation.account()
-                    && binding.signer() == task.correlation.binding()
+                    && binding.identity().public_key() == task.correlation.identity()
+                    && binding.signer_binding() == task.correlation.binding()
             })
-            && current
-                .active_account()
-                .is_some_and(|active| active.account().public_key() == task.correlation.account());
+            && current.active_identity().is_some_and(|active| {
+                active.identity().public_key() == task.correlation.identity()
+            });
         let result = if correlated {
             let plan = task.plan.clone();
             let completed = self
@@ -1238,12 +1238,12 @@ impl RuntimeActor {
             .adapter
             .core()
             .snapshot()
-            .active_account()
+            .active_identity()
             .map(|active| {
-                let public_key = active.account().public_key();
-                ForegroundSessionBinding::new(
-                    AccountIdentity::derive(public_key)?,
-                    LocalSignerBinding::new(public_key, BindingAvailability::Available),
+                let public_key = active.identity().public_key();
+                ActiveSessionBinding::new(
+                    NostrIdentityReference::derive(public_key)?,
+                    LocalKeyringBinding::new(public_key, SignerAvailability::Available),
                     self.session_generation,
                 )
             });
@@ -1313,7 +1313,7 @@ const fn request_space_exhausted() -> SafeError {
 const fn stale_profile_binding() -> SafeError {
     SafeError::new(
         SafeErrorCode::InvalidApplicationState,
-        SafeMessage::new("The active account binding changed before profile refresh."),
+        SafeMessage::new("The active identity binding changed before profile refresh."),
     )
 }
 
@@ -1384,13 +1384,13 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use harvestcircle_application::{
-        BoxFuture, Clock, DurableRequestId, FailureSecretStore, ForegroundSessionBinding,
+        ActiveSessionBinding, BoxFuture, Clock, DurableRequestId, FailureSecretStore,
         InMemorySecretStore, NostrClient, ProfileFetchResult, RelayConfiguration, RuntimeLifecycle,
         SecretStore, SecretStoreOperation, SessionGeneration, SessionState, SnapshotRevision,
     };
     use harvestcircle_domain::{
-        AccountIdentity, BindingAvailability, LocalSignerBinding, PublicKey,
-        RelayDestinationPolicy, RelayUrl, SafeError, SafeErrorCode, SecretKeyInput, UnixTimestamp,
+        LocalKeyringBinding, NostrIdentityReference, PublicKey, RelayDestinationPolicy, RelayUrl,
+        SafeError, SafeErrorCode, SecretKeyInput, SignerAvailability, UnixTimestamp,
     };
 
     use super::{
@@ -1636,7 +1636,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn account_mutations_run_serially_through_one_ready_actor() {
+    async fn identity_mutations_run_serially_through_one_ready_actor() {
         let (actor, secrets) = actor().await;
         assert_eq!(actor.lifecycle(), RuntimeLifecycle::Ready);
 
@@ -1649,12 +1649,12 @@ mod tests {
             )
             .await
             .expect("import");
-        let public_key = imported.account().public_key();
-        let activated = actor.activate_account(public_key).await.expect("activate");
+        let public_key = imported.identity().public_key();
+        let activated = actor.activate_identity(public_key).await.expect("activate");
         assert_eq!(activated.session(), SessionState::Active);
         let foreground = actor.foreground_session().expect("foreground session");
         assert_eq!(foreground.identity().public_key(), public_key);
-        assert_eq!(foreground.signer().account(), public_key);
+        assert_eq!(foreground.signer_binding().identity(), public_key);
         assert_eq!(foreground.generation(), actor.session_generation());
         assert!(secrets.contains(public_key).expect("credential"));
 
@@ -1662,14 +1662,14 @@ mod tests {
         assert_eq!(signed_out.session(), SessionState::SignedOut);
         assert!(actor.foreground_session().is_none());
         let removal = actor
-            .request_account_removal(public_key)
+            .request_identity_removal(public_key)
             .await
             .expect("removal request");
         let removed = actor
-            .confirm_account_removal_test(removal)
+            .confirm_identity_removal_test(removal)
             .await
             .expect("remove");
-        assert!(removed.accounts().is_empty());
+        assert!(removed.identities().is_empty());
         assert!(!secrets.contains(public_key).expect("credential removed"));
     }
 
@@ -1679,34 +1679,34 @@ mod tests {
         let unchanged = actor
             .refresh_active_profile()
             .await
-            .expect("refresh without an active account");
-        assert!(unchanged.active_account().is_none());
+            .expect("refresh without an active identity");
+        assert!(unchanged.active_identity().is_none());
 
         let generated = actor
-            .generate_account(
+            .generate_identity(
                 DurableRequestId::parse("test:generate:public-surface").expect("request"),
                 actor.snapshot().revision(),
                 DEFAULT_COMMAND_TIMEOUT,
             )
             .await
-            .expect("generate account");
+            .expect("generate identity");
         let selected = actor
-            .select_account(generated.account().public_key())
+            .select_identity(generated.identity().public_key())
             .await
-            .expect("select generated account");
+            .expect("select generated identity");
         assert_eq!(
-            selected.selected_account(),
-            Some(generated.account().public_key())
+            selected.selected_identity(),
+            Some(generated.identity().public_key())
         );
 
         let missing =
             PublicKey::from_hex("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798")
                 .expect("public key");
-        let error = match actor.request_account_removal(missing).await {
-            Ok(_) => panic!("unknown account removal must fail"),
+        let error = match actor.request_identity_removal(missing).await {
+            Ok(_) => panic!("unknown identity removal must fail"),
             Err(error) => error,
         };
-        assert_eq!(error.code(), SafeErrorCode::AccountNotFound);
+        assert_eq!(error.code(), SafeErrorCode::IdentityNotFound);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1766,7 +1766,7 @@ mod tests {
         assert_eq!(actor.snapshot(), initial);
         assert!(
             !secrets
-                .contains(stage.view().account().public_key())
+                .contains(stage.view().identity().public_key())
                 .expect("keyring")
         );
         assert!(actor.sign_out().await.is_err());
@@ -1796,7 +1796,7 @@ mod tests {
             .begin_generated_key_stage()
             .await
             .expect("generated key stage");
-        let public_key = handle.view().account().public_key();
+        let public_key = handle.view().identity().public_key();
         let recovery = handle.take_recovery_nsec().expect("recovery material");
         assert_eq!(recovery.with_exposed_secret(str::len), 63);
         assert!(handle.take_recovery_nsec().is_err());
@@ -1807,8 +1807,8 @@ mod tests {
             .acknowledge_generated_key_stage_test(handle.id())
             .await
             .expect("acknowledge");
-        assert_eq!(committed.accounts().len(), 1);
-        assert_eq!(committed.selected_account(), Some(public_key));
+        assert_eq!(committed.identities().len(), 1);
+        assert_eq!(committed.selected_identity(), Some(public_key));
         assert!(secrets.contains(public_key).expect("credential committed"));
         assert!(
             actor
@@ -1842,7 +1842,7 @@ mod tests {
             .expect_err("injected keyring failure");
 
         assert_eq!(error.code(), SafeErrorCode::KeyringUnavailable);
-        assert!(actor.snapshot().accounts().is_empty());
+        assert!(actor.snapshot().identities().is_empty());
         actor
             .begin_generated_key_stage()
             .await
@@ -1875,7 +1875,7 @@ mod tests {
             .await
             .expect("import");
         actor
-            .activate_account(imported.account().public_key())
+            .activate_identity(imported.identity().public_key())
             .await
             .expect("activate");
         assert_eq!(actor.session_generation().value(), 1);
@@ -1893,7 +1893,7 @@ mod tests {
         assert_eq!(actor.session_generation().value(), 2);
         assert_eq!(signed_out.session(), SessionState::SignedOut);
         assert_eq!(cancelled.session(), SessionState::SignedOut);
-        assert!(cancelled.active_account().is_none());
+        assert!(cancelled.active_identity().is_none());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1917,21 +1917,21 @@ mod tests {
             ))
             .await
             .expect("import");
-        let public_key = imported.account().public_key();
-        actor.activate_account(public_key).await.expect("activate");
+        let public_key = imported.identity().public_key();
+        actor.activate_identity(public_key).await.expect("activate");
         let binding = actor.foreground_session().expect("foreground binding");
-        let stale_binding = ForegroundSessionBinding::new(
-            AccountIdentity::derive(public_key).expect("identity"),
-            LocalSignerBinding::new(public_key, BindingAvailability::Available),
+        let stale_binding = ActiveSessionBinding::new(
+            NostrIdentityReference::derive(public_key).expect("identity"),
+            LocalKeyringBinding::new(public_key, SignerAvailability::Available),
             SessionGeneration::from_value(binding.generation().value() + 1),
         )
         .expect("stale binding fixture");
         let other_public_key =
             PublicKey::from_hex("c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5")
                 .expect("other public key");
-        let other_binding = ForegroundSessionBinding::new(
-            AccountIdentity::derive(other_public_key).expect("other identity"),
-            LocalSignerBinding::new(other_public_key, BindingAvailability::Available),
+        let other_binding = ActiveSessionBinding::new(
+            NostrIdentityReference::derive(other_public_key).expect("other identity"),
+            LocalKeyringBinding::new(other_public_key, SignerAvailability::Available),
             binding.generation(),
         )
         .expect("other binding fixture");
@@ -1946,7 +1946,7 @@ mod tests {
             .expect_err("stale generation must reject before relay work");
         assert_eq!(
             error.message().as_str(),
-            "The active account binding changed before profile refresh."
+            "The active identity binding changed before profile refresh."
         );
 
         *actor
@@ -1956,10 +1956,10 @@ mod tests {
         let error = actor
             .refresh_active_profile()
             .await
-            .expect_err("different account binding must reject before relay work");
+            .expect_err("different identity binding must reject before relay work");
         assert_eq!(
             error.message().as_str(),
-            "The active account binding changed before profile refresh."
+            "The active identity binding changed before profile refresh."
         );
 
         *actor
@@ -2024,7 +2024,7 @@ mod tests {
         let unchanged = refresh
             .await
             .expect("refresh task")
-            .expect("different account binding returns current snapshot");
+            .expect("different identity binding returns current snapshot");
         assert_eq!(unchanged.revision(), actor.snapshot().revision());
 
         *actor
@@ -2089,10 +2089,15 @@ mod tests {
             .expect_err("accepted stale revision conflicts explicitly");
         assert_eq!(
             second.message().as_str(),
-            "The account operation conflicts with the current application state."
+            "The identity operation conflicts with the current application state."
         );
         assert_eq!(
-            actor.bootstrap().await.expect("snapshot").accounts().len(),
+            actor
+                .bootstrap()
+                .await
+                .expect("snapshot")
+                .identities()
+                .len(),
             1
         );
     }
@@ -2131,7 +2136,12 @@ mod tests {
         secrets.release();
         first.await.expect("first task").expect("first command");
         assert_eq!(
-            actor.bootstrap().await.expect("snapshot").accounts().len(),
+            actor
+                .bootstrap()
+                .await
+                .expect("snapshot")
+                .identities()
+                .len(),
             1
         );
     }
@@ -2218,7 +2228,7 @@ mod tests {
                 .bootstrap()
                 .await
                 .expect("still open")
-                .accounts()
+                .identities()
                 .len(),
             1
         );
@@ -2247,7 +2257,7 @@ mod tests {
             .await
             .expect("import");
         actor
-            .activate_account(imported.account().public_key())
+            .activate_identity(imported.identity().public_key())
             .await
             .expect("activate");
         let mut changes = actor

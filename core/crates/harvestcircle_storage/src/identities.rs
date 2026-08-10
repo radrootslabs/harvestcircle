@@ -1,14 +1,14 @@
-use harvestcircle_application::{AccountRepository, AppStateRepository};
+use harvestcircle_application::{AppStateRepository, IdentityRepository};
 use harvestcircle_domain::{
-    AccountCreatedAt, AccountIdentity, AccountLabel, AccountSummary, BindingAvailability,
-    LocalSignerBinding, PublicKey, SafeError, SafeErrorCode, SafeMessage, UnixTimestamp,
+    IdentityCreatedAt, IdentityLabel, LocalKeyringBinding, NostrIdentity, NostrIdentityReference,
+    PublicKey, SafeError, SafeErrorCode, SafeMessage, SignerAvailability, UnixTimestamp,
 };
 use rusqlite::{OptionalExtension, Row, params};
 
 use crate::Database;
 
-impl AccountRepository for Database {
-    fn list_accounts(&self) -> Result<Vec<AccountSummary>, SafeError> {
+impl IdentityRepository for Database {
+    fn list_identities(&self) -> Result<Vec<NostrIdentity>, SafeError> {
         let connection = self.connection();
         let mut statement = connection
             .prepare(
@@ -21,13 +21,13 @@ impl AccountRepository for Database {
             )
             .map_err(|_| storage_error())?;
         let rows = statement
-            .query_map([], decode_account)
+            .query_map([], decode_identity)
             .map_err(|_| storage_error())?;
         rows.map(|row| row.map_err(|_| corrupt_storage_error()))
             .collect()
     }
 
-    fn find_account(&self, public_key: PublicKey) -> Result<Option<AccountSummary>, SafeError> {
+    fn find_identity(&self, public_key: PublicKey) -> Result<Option<NostrIdentity>, SafeError> {
         self.connection()
             .query_row(
                 "SELECT identity.public_key, identity.npub, binding.binding_kind, \
@@ -37,14 +37,14 @@ impl AccountRepository for Database {
                  ON binding.account_public_key = identity.public_key \
                  WHERE identity.public_key = ?1",
                 [public_key.to_hex()],
-                decode_account,
+                decode_identity,
             )
             .optional()
             .map_err(|_| storage_error())
     }
 
-    fn insert_account(&self, account: &AccountSummary) -> Result<(), SafeError> {
-        let encoded = EncodedAccount::from(account);
+    fn insert_identity(&self, identity: &NostrIdentity) -> Result<(), SafeError> {
+        let encoded = EncodedIdentity::from(identity);
         let mut connection = self.connection();
         let transaction = connection.transaction().map_err(|_| storage_error())?;
         let result = transaction.execute(
@@ -60,7 +60,7 @@ impl AccountRepository for Database {
         );
         match result {
             Ok(1) => {}
-            Err(error) if is_constraint_violation(&error) => return Err(account_exists()),
+            Err(error) if is_constraint_violation(&error) => return Err(identity_exists()),
             Ok(_) | Err(_) => return Err(storage_error()),
         }
         if transaction
@@ -81,8 +81,8 @@ impl AccountRepository for Database {
         transaction.commit().map_err(|_| storage_error())
     }
 
-    fn update_account(&self, account: &AccountSummary) -> Result<(), SafeError> {
-        let encoded = EncodedAccount::from(account);
+    fn update_identity(&self, identity: &NostrIdentity) -> Result<(), SafeError> {
+        let encoded = EncodedIdentity::from(identity);
         let mut connection = self.connection();
         let transaction = connection.transaction().map_err(|_| storage_error())?;
         let identity_rows = transaction
@@ -101,7 +101,7 @@ impl AccountRepository for Database {
             )
             .map_err(|_| storage_error())?;
         if identity_rows == 0 {
-            return Err(account_not_found());
+            return Err(identity_not_found());
         }
         if identity_rows != 1 {
             return Err(storage_error());
@@ -123,20 +123,20 @@ impl AccountRepository for Database {
         transaction.commit().map_err(|_| storage_error())
     }
 
-    fn remove_account(&self, public_key: PublicKey) -> Result<(), SafeError> {
+    fn remove_identity(&self, public_key: PublicKey) -> Result<(), SafeError> {
         match self.connection().execute(
             "DELETE FROM account_identities WHERE public_key = ?1",
             [public_key.to_hex()],
         ) {
             Ok(1) => Ok(()),
-            Ok(0) => Err(account_not_found()),
+            Ok(0) => Err(identity_not_found()),
             Ok(_) | Err(_) => Err(storage_error()),
         }
     }
 }
 
 impl AppStateRepository for Database {
-    fn load_selected_account(&self) -> Result<Option<PublicKey>, SafeError> {
+    fn load_selected_identity(&self) -> Result<Option<PublicKey>, SafeError> {
         let value = self
             .connection()
             .query_row(
@@ -150,7 +150,7 @@ impl AppStateRepository for Database {
             .transpose()
     }
 
-    fn save_selected_account(&self, public_key: Option<PublicKey>) -> Result<(), SafeError> {
+    fn save_selected_identity(&self, public_key: Option<PublicKey>) -> Result<(), SafeError> {
         let mut connection = self.connection();
         let transaction = connection.transaction().map_err(|_| storage_error())?;
         if let Some(public_key) = public_key {
@@ -162,7 +162,7 @@ impl AppStateRepository for Database {
                 )
                 .map_err(|_| storage_error())?;
             if !exists {
-                return Err(account_not_found());
+                return Err(identity_not_found());
             }
         }
         let rows = transaction
@@ -178,7 +178,7 @@ impl AppStateRepository for Database {
     }
 }
 
-struct EncodedAccount {
+struct EncodedIdentity {
     public_key: String,
     npub: String,
     signer_kind: &'static str,
@@ -188,21 +188,21 @@ struct EncodedAccount {
     last_used_at: Option<i64>,
 }
 
-impl From<&AccountSummary> for EncodedAccount {
-    fn from(account: &AccountSummary) -> Self {
+impl From<&NostrIdentity> for EncodedIdentity {
+    fn from(identity: &NostrIdentity) -> Self {
         Self {
-            public_key: account.public_key().to_hex(),
-            npub: account.npub().as_str().to_owned(),
+            public_key: identity.public_key().to_hex(),
+            npub: identity.npub().as_str().to_owned(),
             signer_kind: "local_secret",
-            key_availability: encode_key_availability(account.signer().availability()),
-            label: account.label().map(|label| label.as_str().to_owned()),
-            created_at: account.created_at().timestamp().as_seconds(),
-            last_used_at: account.last_used_at().map(UnixTimestamp::as_seconds),
+            key_availability: encode_key_availability(identity.signer_binding().availability()),
+            label: identity.label().map(|label| label.as_str().to_owned()),
+            created_at: identity.created_at().timestamp().as_seconds(),
+            last_used_at: identity.last_used_at().map(UnixTimestamp::as_seconds),
         }
     }
 }
 
-fn decode_account(row: &Row<'_>) -> rusqlite::Result<AccountSummary> {
+fn decode_identity(row: &Row<'_>) -> rusqlite::Result<NostrIdentity> {
     let public_key =
         PublicKey::from_hex(row.get::<_, String>(0)?.as_str()).map_err(|_| invalid_column(0))?;
     let npub: String = row.get(1)?;
@@ -212,7 +212,7 @@ fn decode_account(row: &Row<'_>) -> rusqlite::Result<AccountSummary> {
     let key_availability = decode_key_availability(row.get::<_, String>(3)?.as_str())?;
     let label = row
         .get::<_, Option<String>>(4)?
-        .map(|value| AccountLabel::parse(&value).map_err(|_| invalid_column(4)))
+        .map(|value| IdentityLabel::parse(&value).map_err(|_| invalid_column(4)))
         .transpose()?;
     let created_at = UnixTimestamp::from_seconds(row.get(5)?).ok_or_else(|| invalid_column(5))?;
     let last_used_at = row
@@ -220,29 +220,29 @@ fn decode_account(row: &Row<'_>) -> rusqlite::Result<AccountSummary> {
         .map(|value| UnixTimestamp::from_seconds(value).ok_or_else(|| invalid_column(6)))
         .transpose()?;
 
-    AccountSummary::new(
-        AccountIdentity::verify(public_key, npub).map_err(|_| invalid_column(1))?,
-        LocalSignerBinding::new(public_key, key_availability),
+    NostrIdentity::new(
+        NostrIdentityReference::verify(public_key, npub).map_err(|_| invalid_column(1))?,
+        LocalKeyringBinding::new(public_key, key_availability),
         label,
-        AccountCreatedAt::new(created_at),
+        IdentityCreatedAt::new(created_at),
         last_used_at,
     )
     .map_err(|_| invalid_column(0))
 }
 
-const fn encode_key_availability(value: BindingAvailability) -> &'static str {
+const fn encode_key_availability(value: SignerAvailability) -> &'static str {
     match value {
-        BindingAvailability::Available => "available",
-        BindingAvailability::CredentialMissing => "credential_missing",
-        BindingAvailability::StoreUnavailable => "store_unavailable",
+        SignerAvailability::Available => "available",
+        SignerAvailability::CredentialMissing => "credential_missing",
+        SignerAvailability::StoreUnavailable => "store_unavailable",
     }
 }
 
-fn decode_key_availability(value: &str) -> rusqlite::Result<BindingAvailability> {
+fn decode_key_availability(value: &str) -> rusqlite::Result<SignerAvailability> {
     match value {
-        "available" => Ok(BindingAvailability::Available),
-        "credential_missing" => Ok(BindingAvailability::CredentialMissing),
-        "store_unavailable" => Ok(BindingAvailability::StoreUnavailable),
+        "available" => Ok(SignerAvailability::Available),
+        "credential_missing" => Ok(SignerAvailability::CredentialMissing),
+        "store_unavailable" => Ok(SignerAvailability::StoreUnavailable),
         _ => Err(invalid_column(3)),
     }
 }
@@ -250,7 +250,7 @@ fn decode_key_availability(value: &str) -> rusqlite::Result<BindingAvailability>
 fn invalid_column(index: usize) -> rusqlite::Error {
     rusqlite::Error::InvalidColumnType(
         index,
-        "public account metadata".to_owned(),
+        "public identity metadata".to_owned(),
         rusqlite::types::Type::Text,
     )
 }
@@ -282,17 +282,17 @@ const fn corrupt_storage_error() -> SafeError {
     )
 }
 
-const fn account_exists() -> SafeError {
+const fn identity_exists() -> SafeError {
     SafeError::new(
-        SafeErrorCode::AccountAlreadyExists,
-        SafeMessage::new("The Nostr account is already saved."),
+        SafeErrorCode::IdentityAlreadyExists,
+        SafeMessage::new("The Nostr identity is already saved."),
     )
 }
 
-const fn account_not_found() -> SafeError {
+const fn identity_not_found() -> SafeError {
     SafeError::new(
-        SafeErrorCode::AccountNotFound,
-        SafeMessage::new("The account was not found."),
+        SafeErrorCode::IdentityNotFound,
+        SafeMessage::new("The identity was not found."),
     )
 }
 
@@ -300,10 +300,10 @@ const fn account_not_found() -> SafeError {
 mod tests {
     use std::fs;
 
-    use harvestcircle_application::{AccountRepository, AppStateRepository};
+    use harvestcircle_application::{AppStateRepository, IdentityRepository};
     use harvestcircle_domain::{
-        AccountCreatedAt, AccountIdentity, AccountLabel, AccountSummary, BindingAvailability,
-        LocalSignerBinding, PublicKey, SafeErrorCode, UnixTimestamp,
+        IdentityCreatedAt, IdentityLabel, LocalKeyringBinding, NostrIdentity,
+        NostrIdentityReference, PublicKey, SafeErrorCode, SignerAvailability, UnixTimestamp,
     };
     use tempfile::{TempDir, tempdir_in};
 
@@ -322,114 +322,114 @@ mod tests {
         PublicKey::from_hex(value).expect("valid public key")
     }
 
-    fn account(key_byte: u8, created_at: i64) -> AccountSummary {
+    fn identity(key_byte: u8, created_at: i64) -> NostrIdentity {
         let public_key = public_key(key_byte);
-        AccountSummary::new(
-            AccountIdentity::derive(public_key).expect("identity"),
-            LocalSignerBinding::new(public_key, BindingAvailability::Available),
-            Some(AccountLabel::parse("Farm account").expect("valid label")),
-            AccountCreatedAt::new(
+        NostrIdentity::new(
+            NostrIdentityReference::derive(public_key).expect("identity"),
+            LocalKeyringBinding::new(public_key, SignerAvailability::Available),
+            Some(IdentityLabel::parse("Farm identity").expect("valid label")),
+            IdentityCreatedAt::new(
                 UnixTimestamp::from_seconds(created_at).expect("valid timestamp"),
             ),
             None,
         )
-        .expect("account")
+        .expect("identity")
     }
 
     #[test]
-    fn accounts_insert_list_update_and_reject_duplicates() {
+    fn identities_insert_list_update_and_reject_duplicates() {
         let database = Database::in_memory().expect("database");
-        let first = account(1, 20);
-        let second = account(2, 10);
+        let first = identity(1, 20);
+        let second = identity(2, 10);
 
-        database.insert_account(&first).expect("insert first");
-        database.insert_account(&second).expect("insert second");
-        let duplicate = database.insert_account(&first).expect_err("duplicate");
+        database.insert_identity(&first).expect("insert first");
+        database.insert_identity(&second).expect("insert second");
+        let duplicate = database.insert_identity(&first).expect_err("duplicate");
 
-        assert_eq!(duplicate.code(), SafeErrorCode::AccountAlreadyExists);
+        assert_eq!(duplicate.code(), SafeErrorCode::IdentityAlreadyExists);
         assert_eq!(
-            database.list_accounts().expect("list"),
+            database.list_identities().expect("list"),
             vec![second, first.clone()]
         );
         assert_eq!(
-            database.find_account(first.public_key()).expect("find"),
+            database.find_identity(first.public_key()).expect("find"),
             Some(first)
         );
     }
 
     #[test]
-    fn accounts_and_selection_survive_restart_without_secret_text() {
+    fn identities_and_selection_survive_restart_without_secret_text() {
         let directory = tempdir().expect("temporary directory");
         let path = directory.path().join("harvestcircle.sqlite3");
-        let account = account(3, 30);
+        let identity = identity(3, 30);
 
         {
             let database = Database::open(&path).expect("database");
-            database.insert_account(&account).expect("insert");
+            database.insert_identity(&identity).expect("insert");
             database
-                .save_selected_account(Some(account.public_key()))
+                .save_selected_identity(Some(identity.public_key()))
                 .expect("select");
         }
         let reopened = Database::open(&path).expect("reopen");
 
         assert_eq!(
-            reopened.list_accounts().expect("list"),
-            vec![account.clone()]
+            reopened.list_identities().expect("list"),
+            vec![identity.clone()]
         );
         assert_eq!(
-            reopened.load_selected_account().expect("selection"),
-            Some(account.public_key())
+            reopened.load_selected_identity().expect("selection"),
+            Some(identity.public_key())
         );
         let bytes = fs::read(path).expect("database bytes");
         assert!(!String::from_utf8_lossy(&bytes).contains("nsec1known-test-secret"));
     }
 
     #[test]
-    fn selection_requires_an_existing_account_and_clears_on_delete() {
+    fn selection_requires_an_existing_identity_and_clears_on_delete() {
         let database = Database::in_memory().expect("database");
-        let account = account(4, 40);
+        let identity = identity(4, 40);
 
         let missing = database
-            .save_selected_account(Some(account.public_key()))
-            .expect_err("missing account");
-        assert_eq!(missing.code(), SafeErrorCode::AccountNotFound);
+            .save_selected_identity(Some(identity.public_key()))
+            .expect_err("missing identity");
+        assert_eq!(missing.code(), SafeErrorCode::IdentityNotFound);
 
-        database.insert_account(&account).expect("insert");
+        database.insert_identity(&identity).expect("insert");
         database
-            .save_selected_account(Some(account.public_key()))
+            .save_selected_identity(Some(identity.public_key()))
             .expect("select");
         database
-            .remove_account(account.public_key())
+            .remove_identity(identity.public_key())
             .expect("remove");
 
-        assert_eq!(database.load_selected_account().expect("selection"), None);
+        assert_eq!(database.load_selected_identity().expect("selection"), None);
     }
 
     #[test]
-    fn account_mutations_reject_missing_and_corrupt_rows() {
+    fn identity_mutations_reject_missing_and_corrupt_rows() {
         let database = Database::in_memory().expect("database");
-        let missing = account(3, 30);
+        let missing = identity(3, 30);
         assert_eq!(
             database
-                .update_account(&missing)
+                .update_identity(&missing)
                 .expect_err("missing update")
                 .code(),
-            SafeErrorCode::AccountNotFound
+            SafeErrorCode::IdentityNotFound
         );
         assert_eq!(
             database
-                .remove_account(missing.public_key())
+                .remove_identity(missing.public_key())
                 .expect_err("missing removal")
                 .code(),
-            SafeErrorCode::AccountNotFound
+            SafeErrorCode::IdentityNotFound
         );
         assert_eq!(
-            database.find_account(missing.public_key()).expect("find"),
+            database.find_identity(missing.public_key()).expect("find"),
             None
         );
 
-        database.insert_account(&missing).expect("insert");
-        database.update_account(&missing).expect("update");
+        database.insert_identity(&missing).expect("insert");
+        database.update_identity(&missing).expect("update");
         database
             .connection()
             .execute(
@@ -439,7 +439,7 @@ mod tests {
             .expect("delete binding");
         assert_eq!(
             database
-                .update_account(&missing)
+                .update_identity(&missing)
                 .expect_err("missing binding must fail")
                 .code(),
             SafeErrorCode::StorageCorrupt
@@ -464,14 +464,14 @@ mod tests {
             .expect("corrupt binding kind");
         assert_eq!(
             database
-                .list_accounts()
+                .list_identities()
                 .expect_err("corrupt binding must fail")
                 .code(),
             SafeErrorCode::StorageCorrupt
         );
 
         let database = Database::in_memory().expect("database");
-        database.insert_account(&missing).expect("insert");
+        database.insert_identity(&missing).expect("insert");
         database
             .connection()
             .pragma_update(None, "ignore_check_constraints", "ON")
@@ -485,7 +485,7 @@ mod tests {
             .expect("corrupt availability");
         assert_eq!(
             database
-                .find_account(missing.public_key())
+                .find_identity(missing.public_key())
                 .expect_err("corrupt availability must fail")
                 .code(),
             SafeErrorCode::StorageUnavailable
@@ -498,7 +498,7 @@ mod tests {
             .expect("delete runtime singleton");
         assert_eq!(
             database
-                .save_selected_account(None)
+                .save_selected_identity(None)
                 .expect_err("missing runtime singleton must fail")
                 .code(),
             SafeErrorCode::StorageCorrupt
@@ -511,7 +511,7 @@ mod tests {
             .expect("enable query-only mode");
         assert_eq!(
             read_only
-                .insert_account(&missing)
+                .insert_identity(&missing)
                 .expect_err("non-constraint insertion failure must fail closed")
                 .code(),
             SafeErrorCode::StorageUnavailable

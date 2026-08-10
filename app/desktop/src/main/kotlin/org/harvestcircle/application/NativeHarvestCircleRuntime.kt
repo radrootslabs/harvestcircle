@@ -7,12 +7,12 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.harvestcircle.ffi.AccountCommandReceiptDto
-import org.harvestcircle.ffi.AccountDto
 import org.harvestcircle.ffi.AppSnapshotDto
 import org.harvestcircle.ffi.GeneratedRecoveryRequest
 import org.harvestcircle.ffi.HarvestCircleAppCore
 import org.harvestcircle.ffi.HarvestCircleChangeObserver
+import org.harvestcircle.ffi.IdentityCommandReceiptDto
+import org.harvestcircle.ffi.IdentityDto
 import org.harvestcircle.ffi.ObserverSubscription
 import org.harvestcircle.ffi.RemovalRequest
 import org.harvestcircle.ffi.RequestContextDto
@@ -74,7 +74,7 @@ class NativeHarvestCircleRuntime internal constructor(
         val handle = callNative { native.beginGeneratedIdentity() }
         val requestId = RecoveryRequestId.from(handleIds.next("recovery"))
         return try {
-            val identity = handle.account().toIdentitySummary()
+            val identity = handle.identity().toIdentitySummary()
             val backup = GeneratedKeyBackup(identity.npub, handle.takeRecoverySecret())
             recoveryMutex.withLock { recoveryHandles[requestId] = handle }
             GeneratedIdentityRecovery(
@@ -278,7 +278,7 @@ internal interface NativeCorePort : AutoCloseable {
     suspend fun importIdentity(
         context: RequestContextDto,
         secretKey: ByteArray,
-    ): AccountCommandReceiptDto
+    ): IdentityCommandReceiptDto
 
     suspend fun selectIdentity(publicKeyHex: String): AppSnapshotDto
 
@@ -299,7 +299,7 @@ internal interface NativeCorePort : AutoCloseable {
 }
 
 internal interface NativeGeneratedRecoveryHandle : AutoCloseable {
-    fun account(): AccountDto
+    fun identity(): IdentityDto
 
     fun expiresAtSeconds(): Long
 
@@ -338,36 +338,36 @@ private class UniFfiNativeCorePort(
     }
 
     override suspend fun beginGeneratedIdentity(): NativeGeneratedRecoveryHandle =
-        UniFfiGeneratedRecoveryHandle(core.beginGeneratedAccountV2())
+        UniFfiGeneratedRecoveryHandle(core.beginGeneratedIdentity())
 
     override suspend fun acknowledgeGeneratedIdentity(
         context: RequestContextDto,
         request: NativeGeneratedRecoveryHandle,
-    ): AppSnapshotDto = core.acknowledgeGeneratedAccountV2(context, request.generated())
+    ): AppSnapshotDto = core.acknowledgeGeneratedIdentity(context, request.generated())
 
     override suspend fun cancelGeneratedIdentity(request: NativeGeneratedRecoveryHandle): Boolean =
-        core.cancelGeneratedAccountV2(request.generated())
+        core.cancelGeneratedIdentity(request.generated())
 
     override suspend fun importIdentity(
         context: RequestContextDto,
         secretKey: ByteArray,
-    ): AccountCommandReceiptDto = core.importAccountV2(context, secretKey)
+    ): IdentityCommandReceiptDto = core.importIdentity(context, secretKey)
 
-    override suspend fun selectIdentity(publicKeyHex: String): AppSnapshotDto = core.selectAccount(publicKeyHex)
+    override suspend fun selectIdentity(publicKeyHex: String): AppSnapshotDto = core.selectIdentity(publicKeyHex)
 
-    override suspend fun activateIdentity(publicKeyHex: String): AppSnapshotDto = core.activateAccount(publicKeyHex)
+    override suspend fun activateIdentity(publicKeyHex: String): AppSnapshotDto = core.activateIdentity(publicKeyHex)
 
     override suspend fun signOut(): AppSnapshotDto = core.signOut()
 
     override suspend fun refreshActiveProfile(): AppSnapshotDto = core.refreshActiveProfile()
 
     override suspend fun requestIdentityRemoval(publicKeyHex: String): NativeRemovalHandle =
-        UniFfiRemovalHandle(core.requestAccountRemoval(publicKeyHex))
+        UniFfiRemovalHandle(core.requestIdentityRemoval(publicKeyHex))
 
     override suspend fun confirmIdentityRemoval(
         context: RequestContextDto,
         request: NativeRemovalHandle,
-    ): AppSnapshotDto = core.confirmAccountRemoval(context, request.generated())
+    ): AppSnapshotDto = core.confirmIdentityRemoval(context, request.generated())
 
     override suspend fun shutdown(): ShutdownReceiptDto = core.shutdownV2()
 
@@ -385,7 +385,7 @@ private class UniFfiNativeCorePort(
 private class UniFfiGeneratedRecoveryHandle(
     val request: GeneratedRecoveryRequest,
 ) : NativeGeneratedRecoveryHandle {
-    override fun account(): AccountDto = request.account()
+    override fun identity(): IdentityDto = request.identity()
 
     override fun expiresAtSeconds(): Long = request.expiresAtSeconds()
 

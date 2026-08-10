@@ -379,7 +379,7 @@ mod tests {
 
     use tempfile::{TempDir, tempdir_in};
 
-    use harvestcircle_application::{AccountRepository, AppStateRepository};
+    use harvestcircle_application::{AppStateRepository, IdentityRepository};
     use harvestcircle_domain::{PublicKey, SafeErrorCode};
     use refinery::Target;
     use rusqlite::Connection;
@@ -454,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn normalized_schema_is_strict_and_enforces_same_account_bindings() {
+    fn normalized_schema_is_strict_and_enforces_same_identity_bindings() {
         let database = Database::in_memory().expect("open memory database");
         let connection = database.connection();
         let strict_tables: i64 = connection
@@ -502,7 +502,7 @@ mod tests {
                     "INSERT INTO accounts (pubkey, npub, signer_kind, key_availability, created_at) VALUES (?1, ?2, 'local_secret', 'available', 10)",
                     [&public_key, "npub1qurswpc8qurswpc8qurswpc8qurswpc8qurswpc8qurswpc8qursnvjvl7"],
                 )
-                .expect("legacy account");
+                .expect("legacy identity");
             connection
                 .execute(
                     "UPDATE app_state SET selected_pubkey = ?1 WHERE singleton = 1",
@@ -519,9 +519,9 @@ mod tests {
 
         let database = Database::open(&path).expect("migrated database");
         assert_eq!(database.schema_version().expect("version"), 10);
-        assert_eq!(database.list_accounts().expect("accounts").len(), 1);
+        assert_eq!(database.list_identities().expect("identities").len(), 1);
         assert_eq!(
-            database.load_selected_account().expect("selection"),
+            database.load_selected_identity().expect("selection"),
             Some(PublicKey::from_bytes([7; 32]).expect("valid public key"))
         );
         let connection = database.connection();
@@ -576,7 +576,7 @@ mod tests {
                     "INSERT INTO accounts (pubkey, npub, signer_kind, key_availability, created_at) VALUES (?1, ?2, 'local_secret', 'available', 10)",
                     ["07".repeat(32), "npub10elfcs4fr0l0r8af98jlmgdh9c8tcxjvz9qkw038js35mp4dma8qzvjptg".to_owned()],
                 )
-                .expect("mismatched legacy account");
+                .expect("mismatched legacy identity");
         }
 
         assert!(Database::open(&path).is_err());
@@ -588,10 +588,10 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("legacy version");
-        let accounts: i64 = connection
+        let identities: i64 = connection
             .query_row("SELECT COUNT(*) FROM accounts", [], |row| row.get(0))
-            .expect("legacy accounts");
-        assert_eq!((version, accounts), (5, 1));
+            .expect("legacy identities");
+        assert_eq!((version, identities), (5, 1));
     }
 
     #[test]
@@ -728,7 +728,7 @@ mod tests {
                     "INSERT INTO accounts (pubkey, npub, signer_kind, key_availability, created_at) VALUES (?1, ?2, 'local_secret', 'available', 10)",
                     [&public_key, "npub1qurswpc8qurswpc8qurswpc8qurswpc8qurswpc8qurswpc8qursnvjvl7"],
                 )
-                .expect("legacy account");
+                .expect("legacy identity");
             connection
                 .execute(
                     "INSERT INTO profile_cache (subject_pubkey, event_id, event_created_at, refreshed_at, refresh_status) VALUES (?1, 'invalid', 11, 12, 'success')",

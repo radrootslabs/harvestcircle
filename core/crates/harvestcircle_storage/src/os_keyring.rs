@@ -79,15 +79,15 @@ const fn map_read_error(error: &KeyringError) -> SafeError {
 
 const fn credential_exists() -> SafeError {
     SafeError::new(
-        SafeErrorCode::AccountAlreadyExists,
-        SafeMessage::new("The Nostr account credential already exists."),
+        SafeErrorCode::IdentityAlreadyExists,
+        SafeMessage::new("The Nostr identity credential already exists."),
     )
 }
 
 const fn credential_missing() -> SafeError {
     SafeError::new(
         SafeErrorCode::CredentialMissing,
-        SafeMessage::new("The Nostr account credential is missing."),
+        SafeMessage::new("The Nostr identity credential is missing."),
     )
 }
 

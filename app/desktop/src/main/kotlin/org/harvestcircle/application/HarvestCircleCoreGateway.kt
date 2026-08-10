@@ -2,12 +2,12 @@ package org.harvestcircle.application
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
-import org.harvestcircle.ffi.AccountDto
 import org.harvestcircle.ffi.AppSnapshotDto
 import org.harvestcircle.ffi.GeneratedRecoveryRequest
 import org.harvestcircle.ffi.HarvestCircleAppCore
 import org.harvestcircle.ffi.HarvestCircleChangeObserver
 import org.harvestcircle.ffi.HarvestCircleException
+import org.harvestcircle.ffi.IdentityDto
 import org.harvestcircle.ffi.ObserverSubscription
 import org.harvestcircle.ffi.RemovalRequest
 import org.harvestcircle.ffi.RequestContextDto
@@ -26,7 +26,7 @@ interface RemovalTicket : AutoCloseable {
 
 interface GeneratedRecoveryTicket : AutoCloseable {
     val requestId: String
-    val account: AccountDto
+    val identity: IdentityDto
 
     fun takeRecoveryNsec(): String
 
@@ -41,15 +41,15 @@ data class HarvestCircleChange(
 )
 
 sealed interface HarvestCircleCommand {
-    data class ImportAccount(
+    data class ImportIdentity(
         val bytes: ByteArray,
     ) : HarvestCircleCommand
 
-    data class SelectAccount(
+    data class SelectIdentity(
         val publicKeyHex: String,
     ) : HarvestCircleCommand
 
-    data class ActivateAccount(
+    data class ActivateIdentity(
         val publicKeyHex: String,
     ) : HarvestCircleCommand
 
@@ -97,11 +97,11 @@ interface HarvestCircleCoreGateway : AutoCloseable {
 
     suspend fun bootstrap(): AppSnapshotDto
 
-    suspend fun beginGeneratedAccount(): GeneratedRecoveryTicket
+    suspend fun beginGeneratedIdentity(): GeneratedRecoveryTicket
 
-    suspend fun requestAccountRemoval(publicKeyHex: String): RemovalTicket
+    suspend fun requestIdentityRemoval(publicKeyHex: String): RemovalTicket
 
-    suspend fun confirmAccountRemoval(ticket: RemovalTicket): AppSnapshotDto
+    suspend fun confirmIdentityRemoval(ticket: RemovalTicket): AppSnapshotDto
 
     fun shutdown(): HarvestCircleShutdownReceipt
 }
@@ -132,14 +132,14 @@ class NativeHarvestCircleCoreGateway(
         return try {
             val snapshot =
                 when (command) {
-                    is HarvestCircleCommand.ImportAccount ->
+                    is HarvestCircleCommand.ImportIdentity ->
                         try {
-                            core.importAccountV2(context, command.bytes).snapshot
+                            core.importIdentity(context, command.bytes).snapshot
                         } finally {
                             command.bytes.fill(0)
                         }
-                    is HarvestCircleCommand.SelectAccount -> core.selectAccount(command.publicKeyHex)
-                    is HarvestCircleCommand.ActivateAccount -> core.activateAccount(command.publicKeyHex)
+                    is HarvestCircleCommand.SelectIdentity -> core.selectIdentity(command.publicKeyHex)
+                    is HarvestCircleCommand.ActivateIdentity -> core.activateIdentity(command.publicKeyHex)
                     HarvestCircleCommand.SignOut -> core.signOut()
                     HarvestCircleCommand.RefreshProfile -> core.refreshActiveProfile()
                 }
@@ -155,12 +155,12 @@ class NativeHarvestCircleCoreGateway(
 
     override suspend fun bootstrap(): AppSnapshotDto = core.bootstrap()
 
-    override suspend fun beginGeneratedAccount(): GeneratedRecoveryTicket {
+    override suspend fun beginGeneratedIdentity(): GeneratedRecoveryTicket {
         val requestId = nextRequestId()
         return try {
-            val request = core.beginGeneratedAccountV2()
+            val request = core.beginGeneratedIdentity()
             try {
-                NativeGeneratedRecoveryTicket(core, request, ::requestContext, requestId, request.account())
+                NativeGeneratedRecoveryTicket(core, request, ::requestContext, requestId, request.identity())
             } catch (error: Exception) {
                 request.close()
                 throw error
@@ -177,12 +177,12 @@ class NativeHarvestCircleCoreGateway(
         }
     }
 
-    override suspend fun requestAccountRemoval(publicKeyHex: String): RemovalTicket =
-        NativeRemovalTicket(core.requestAccountRemoval(publicKeyHex))
+    override suspend fun requestIdentityRemoval(publicKeyHex: String): RemovalTicket =
+        NativeRemovalTicket(core.requestIdentityRemoval(publicKeyHex))
 
-    override suspend fun confirmAccountRemoval(ticket: RemovalTicket): AppSnapshotDto {
+    override suspend fun confirmIdentityRemoval(ticket: RemovalTicket): AppSnapshotDto {
         require(ticket is NativeRemovalTicket) { "Removal ticket does not belong to native core" }
-        return core.confirmAccountRemoval(requestContext(), ticket.request)
+        return core.confirmIdentityRemoval(requestContext(), ticket.request)
     }
 
     override fun shutdown(): HarvestCircleShutdownReceipt =
@@ -260,7 +260,7 @@ private class NativeGeneratedRecoveryTicket(
     private val request: GeneratedRecoveryRequest,
     private val requestContext: () -> RequestContextDto,
     override val requestId: String,
-    override val account: AccountDto,
+    override val identity: IdentityDto,
 ) : GeneratedRecoveryTicket {
     override fun takeRecoveryNsec(): String =
         try {
@@ -276,14 +276,14 @@ private class NativeGeneratedRecoveryTicket(
 
     override suspend fun acknowledge(): AppSnapshotDto {
         val context = requestContext()
-        return call("The generated account could not be saved.", context.requestId) {
-            core.acknowledgeGeneratedAccountV2(context, request)
+        return call("The generated identity could not be saved.", context.requestId) {
+            core.acknowledgeGeneratedIdentity(context, request)
         }
     }
 
     override suspend fun cancel(): Boolean =
         call("The generated key could not be cancelled safely.") {
-            core.cancelGeneratedAccountV2(request)
+            core.cancelGeneratedIdentity(request)
         }
 
     override fun close() {

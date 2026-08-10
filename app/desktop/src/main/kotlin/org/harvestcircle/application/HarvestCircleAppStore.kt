@@ -20,8 +20,8 @@ enum class HarvestCircleRoute {
     ACQUIRING_OWNERSHIP,
     MIGRATING,
     RECOVERING,
-    ACCOUNTS,
-    ACTIVE_ACCOUNT,
+    IDENTITYS,
+    ACTIVE_IDENTITY,
     DEGRADED,
     BLOCKED,
     SHUTTING_DOWN,
@@ -39,7 +39,7 @@ enum class CommandStatus {
     FAILED_TERMINAL,
 }
 
-enum class AccountEntryMode {
+enum class IdentityEntryMode {
     CHOICE,
     CREATE,
     IMPORT,
@@ -69,8 +69,8 @@ data class HarvestCircleStoreState(
     val removalImpact: RemovalImpactState? = null,
     val removalStatus: RemovalStatus = RemovalStatus.NONE,
     val lastRemovedPublicKeyHex: String? = null,
-    val accountChooserVisible: Boolean = false,
-    val accountEntryMode: AccountEntryMode = AccountEntryMode.CHOICE,
+    val identityChooserVisible: Boolean = false,
+    val identityEntryMode: IdentityEntryMode = IdentityEntryMode.CHOICE,
     val busy: Boolean = false,
     val commandStatus: CommandStatus = CommandStatus.IDLE,
     val lastCommandRequestId: String? = null,
@@ -123,29 +123,29 @@ class HarvestCircleAppStore(
             )
     }
 
-    fun chooseCreateAccount() {
-        mutableState.value = mutableState.value.copy(accountEntryMode = AccountEntryMode.CREATE, problem = null)
+    fun chooseCreateIdentity() {
+        mutableState.value = mutableState.value.copy(identityEntryMode = IdentityEntryMode.CREATE, problem = null)
     }
 
-    fun chooseImportAccount() {
-        mutableState.value = mutableState.value.copy(accountEntryMode = AccountEntryMode.IMPORT, problem = null)
+    fun chooseImportIdentity() {
+        mutableState.value = mutableState.value.copy(identityEntryMode = IdentityEntryMode.IMPORT, problem = null)
     }
 
-    fun cancelAccountEntry() {
+    fun cancelIdentityEntry() {
         mutableState.value =
             mutableState.value.copy(
-                accountEntryMode = AccountEntryMode.CHOICE,
+                identityEntryMode = IdentityEntryMode.CHOICE,
                 importDraft = "",
                 problem = null,
             )
     }
 
-    fun generateAccount() {
+    fun generateIdentity() {
         launchCommand {
-            val recovery = gateway.beginGeneratedAccount()
+            val recovery = gateway.beginGeneratedIdentity()
             var installed = false
             try {
-                val backup = GeneratedKeyBackup(recovery.account.npub, recovery.takeRecoveryNsec())
+                val backup = GeneratedKeyBackup(recovery.identity.npub, recovery.takeRecoveryNsec())
                 pendingGeneratedRecovery = PendingGeneratedRecovery(recovery, backup)
                 mutableState.value = mutableState.value.copy(generatedKeyBackup = backup)
                 installed = true
@@ -205,27 +205,27 @@ class HarvestCircleAppStore(
         if (rejectIfUnavailable()) return
         val input = mutableState.value.importDraft.encodeToByteArray()
         mutableState.value = mutableState.value.copy(importDraft = "")
-        runTypedCommand(HarvestCircleCommand.ImportAccount(input))
+        runTypedCommand(HarvestCircleCommand.ImportIdentity(input))
     }
 
-    fun selectAccount(publicKeyHex: String) {
-        runTypedCommand(HarvestCircleCommand.SelectAccount(publicKeyHex))
+    fun selectIdentity(publicKeyHex: String) {
+        runTypedCommand(HarvestCircleCommand.SelectIdentity(publicKeyHex))
     }
 
-    fun activateAccount(publicKeyHex: String) {
-        runTypedCommand(HarvestCircleCommand.ActivateAccount(publicKeyHex), hideChooser = true)
+    fun activateIdentity(publicKeyHex: String) {
+        runTypedCommand(HarvestCircleCommand.ActivateIdentity(publicKeyHex), hideChooser = true)
     }
 
     fun signOut() {
         runTypedCommand(HarvestCircleCommand.SignOut, hideChooser = true)
     }
 
-    fun showAccountChooser() {
-        mutableState.value = mutableState.value.copy(accountChooserVisible = true, problem = null)
+    fun showIdentityChooser() {
+        mutableState.value = mutableState.value.copy(identityChooserVisible = true, problem = null)
     }
 
-    fun hideAccountChooser() {
-        mutableState.value = mutableState.value.copy(accountChooserVisible = false)
+    fun hideIdentityChooser() {
+        mutableState.value = mutableState.value.copy(identityChooserVisible = false)
     }
 
     fun refreshActiveProfile() {
@@ -241,12 +241,12 @@ class HarvestCircleAppStore(
         runTypedCommand(retry)
     }
 
-    fun requestAccountRemoval(publicKeyHex: String) {
+    fun requestIdentityRemoval(publicKeyHex: String) {
         launchCommand {
             runCatching {
                 pendingRemoval?.close()
                 pendingRemoval = null
-                val ticket = gateway.requestAccountRemoval(publicKeyHex)
+                val ticket = gateway.requestIdentityRemoval(publicKeyHex)
                 if (closed) {
                     ticket.close()
                     return@runCatching
@@ -268,7 +268,7 @@ class HarvestCircleAppStore(
         }
     }
 
-    fun cancelAccountRemoval() {
+    fun cancelIdentityRemoval() {
         pendingRemoval?.close()
         pendingRemoval = null
         mutableState.value =
@@ -279,17 +279,17 @@ class HarvestCircleAppStore(
             )
     }
 
-    fun confirmAccountRemoval() {
+    fun confirmIdentityRemoval() {
         val ticket =
             pendingRemoval ?: run {
-                rejectUnavailableIntent("Account removal confirmation is not available.")
+                rejectUnavailableIntent("Identity removal confirmation is not available.")
                 return
             }
         pendingRemoval = null
         mutableState.value = mutableState.value.copy(removalStatus = RemovalStatus.CONFIRMING)
         runSnapshotCommand {
             try {
-                gateway.confirmAccountRemoval(ticket).also {
+                gateway.confirmIdentityRemoval(ticket).also {
                     mutableState.value =
                         mutableState.value.copy(
                             pendingRemovalPublicKeyHex = null,
@@ -337,13 +337,13 @@ class HarvestCircleAppStore(
                             recoveryAction = WireRecoveryAction.NONE,
                         )
                     if (hideChooser) {
-                        mutableState.value = mutableState.value.copy(accountChooserVisible = false)
+                        mutableState.value = mutableState.value.copy(identityChooserVisible = false)
                     }
                 }
                 is HarvestCircleCommandResult.Rejected -> {
                     retryableCommand =
                         command.takeIf {
-                            result.failure.retryable && it !is HarvestCircleCommand.ImportAccount
+                            result.failure.retryable && it !is HarvestCircleCommand.ImportIdentity
                         }
                     mutableState.value =
                         mutableState.value.copy(
@@ -405,7 +405,7 @@ class HarvestCircleAppStore(
                 )
             return true
         }
-        if (mutableState.value.route !in setOf(HarvestCircleRoute.ACCOUNTS, HarvestCircleRoute.ACTIVE_ACCOUNT)) {
+        if (mutableState.value.route !in setOf(HarvestCircleRoute.IDENTITYS, HarvestCircleRoute.ACTIVE_IDENTITY)) {
             mutableState.value =
                 mutableState.value.copy(
                     commandStatus = CommandStatus.FAILED_TERMINAL,
@@ -499,7 +499,7 @@ internal fun AppSnapshotDto.toHarvestCircleRoute(): HarvestCircleRoute =
         AppLifecycleDto.ACQUIRING_OWNERSHIP -> HarvestCircleRoute.ACQUIRING_OWNERSHIP
         AppLifecycleDto.MIGRATING -> HarvestCircleRoute.MIGRATING
         AppLifecycleDto.RECOVERING -> HarvestCircleRoute.RECOVERING
-        AppLifecycleDto.READY -> if (activeAccount != null) HarvestCircleRoute.ACTIVE_ACCOUNT else HarvestCircleRoute.ACCOUNTS
+        AppLifecycleDto.READY -> if (activeIdentity != null) HarvestCircleRoute.ACTIVE_IDENTITY else HarvestCircleRoute.IDENTITYS
         AppLifecycleDto.DEGRADED -> HarvestCircleRoute.DEGRADED
         AppLifecycleDto.BLOCKED -> HarvestCircleRoute.BLOCKED
         AppLifecycleDto.SHUTTING_DOWN -> HarvestCircleRoute.SHUTTING_DOWN

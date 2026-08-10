@@ -5,8 +5,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
-import org.harvestcircle.accounts.ui.StartupFailureScreen
 import org.harvestcircle.application.HarvestCircleApplication
+import org.harvestcircle.identities.ui.StartupFailureScreen
 import java.awt.Dimension
 import java.awt.Taskbar
 import javax.imageio.ImageIO

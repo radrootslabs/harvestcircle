@@ -23,7 +23,7 @@ pub trait SecretStore: Send + Sync {
     ///
     /// Returns a safe keyring error when availability cannot be determined.
     fn contains(&self, public_key: PublicKey) -> Result<bool, SafeError>;
-    /// Deletes a credential without affecting public account metadata.
+    /// Deletes a credential without affecting public identity metadata.
     ///
     /// # Errors
     ///
@@ -181,15 +181,15 @@ impl SecretStore for InMemorySecretStore {
 
 const fn credential_exists() -> SafeError {
     SafeError::new(
-        SafeErrorCode::AccountAlreadyExists,
-        SafeMessage::new("The Nostr account credential already exists."),
+        SafeErrorCode::IdentityAlreadyExists,
+        SafeMessage::new("The Nostr identity credential already exists."),
     )
 }
 
 const fn credential_missing() -> SafeError {
     SafeError::new(
         SafeErrorCode::CredentialMissing,
-        SafeMessage::new("The Nostr account credential is missing."),
+        SafeMessage::new("The Nostr identity credential is missing."),
     )
 }
 
@@ -246,7 +246,7 @@ mod tests {
                 SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
             )
             .expect_err("duplicate");
-        assert_eq!(duplicate.code(), SafeErrorCode::AccountAlreadyExists);
+        assert_eq!(duplicate.code(), SafeErrorCode::IdentityAlreadyExists);
         store.delete(public_key).expect("delete");
         let missing = store.delete(public_key).expect_err("missing delete");
         assert_eq!(missing.code(), SafeErrorCode::CredentialMissing);

@@ -1,7 +1,7 @@
 use std::fs;
 
 use harvestcircle_application::{
-    AccountNamespaceRepository, AccountPreferenceKey, Clock, InMemorySecretStore,
+    Clock, IdentityNamespaceRepository, IdentityPreferenceKey, InMemorySecretStore,
     RelayConfiguration, SessionState,
 };
 use harvestcircle_domain::{SecretKeyInput, UnixTimestamp};
@@ -20,7 +20,7 @@ impl Clock for FixedClock {
 }
 
 #[test]
-fn restart_restores_selection_and_keeps_account_namespaces_isolated() {
+fn restart_restores_selection_and_keeps_identity_namespaces_isolated() {
     let directory = tempdir().expect("temporary directory");
     let path = directory
         .path()
@@ -40,8 +40,8 @@ fn restart_restores_selection_and_keeps_account_namespaces_isolated() {
                 &secrets,
                 &FixedClock,
             )
-            .expect("account A")
-            .account()
+            .expect("identity A")
+            .identity()
             .public_key();
         owner_b = adapter
             .import_secret_key(
@@ -49,39 +49,39 @@ fn restart_restores_selection_and_keeps_account_namespaces_isolated() {
                 &secrets,
                 &FixedClock,
             )
-            .expect("account B")
-            .account()
+            .expect("identity B")
+            .identity()
             .public_key();
         adapter
             .database()
-            .set_value(owner_a, AccountPreferenceKey::NamespaceProbe, "account-a")
+            .set_value(owner_a, IdentityPreferenceKey::NamespaceProbe, "identity-a")
             .expect("namespace A");
         adapter
             .database()
-            .set_value(owner_b, AccountPreferenceKey::NamespaceProbe, "account-b")
+            .set_value(owner_b, IdentityPreferenceKey::NamespaceProbe, "identity-b")
             .expect("namespace B");
-        adapter.select_account(owner_b).expect("select B");
+        adapter.select_identity(owner_b).expect("select B");
     }
 
     let reopened =
         PersistentAppCore::open(&path, RelayConfiguration::default()).expect("reopen adapter");
     let restored = reopened.bootstrap(&secrets, &FixedClock).expect("restore");
-    assert_eq!(restored.accounts().len(), 2);
-    assert_eq!(restored.selected_account(), Some(owner_b));
+    assert_eq!(restored.identities().len(), 2);
+    assert_eq!(restored.selected_identity(), Some(owner_b));
     assert_eq!(restored.session(), SessionState::SignedOut);
     assert_eq!(
         reopened
             .database()
-            .get_value(owner_a, AccountPreferenceKey::NamespaceProbe)
+            .get_value(owner_a, IdentityPreferenceKey::NamespaceProbe)
             .expect("read A"),
-        Some("account-a".to_owned())
+        Some("identity-a".to_owned())
     );
     assert_eq!(
         reopened
             .database()
-            .get_value(owner_b, AccountPreferenceKey::NamespaceProbe)
+            .get_value(owner_b, IdentityPreferenceKey::NamespaceProbe)
             .expect("read B"),
-        Some("account-b".to_owned())
+        Some("identity-b".to_owned())
     );
 
     let database = fs::read(path).expect("database bytes");

@@ -7,7 +7,7 @@ mod dto;
 mod observer;
 
 pub use commands::{
-    AccountCommandReceiptDto, GeneratedRecoveryRequest, HarvestCircleAppCore, HarvestCircleError,
+    GeneratedRecoveryRequest, HarvestCircleAppCore, HarvestCircleError, IdentityCommandReceiptDto,
     RemovalRequest, RequestContextDto,
 };
 pub use contract::{
@@ -16,9 +16,10 @@ pub use contract::{
     SNAPSHOT_SCHEMA_VERSION, SOURCE_FOUNDATION_BASELINE, SOURCE_PROVENANCE_DIGEST,
 };
 pub use dto::{
-    AccountDto, ActiveAccountDto, AppLifecycleDto, AppSnapshotDto, KeyAvailabilityDto, ProfileDto,
-    ProfileLoadStateDto, RelayConnectionStateDto, SafeErrorDto, SessionStateDto, SignerKindDto,
-    WireErrorCategory, WireErrorCode, WireRecoveryAction,
+    ActiveIdentityDto, AppLifecycleDto, AppSnapshotDto, IdentityDto, ProfileDto,
+    ProfileLoadStateDto, RelayConnectionStateDto, SafeErrorDto, SessionStateDto,
+    SignerAvailabilityDto, SignerBindingKindDto, WireErrorCategory, WireErrorCode,
+    WireRecoveryAction,
 };
 pub use observer::{
     HarvestCircleChangeObserver, ObserverSubscription, ShutdownReceiptDto, SnapshotChangeDto,

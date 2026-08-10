@@ -147,11 +147,11 @@ const fn corrupt_storage_error() -> SafeError {
 #[cfg(test)]
 mod tests {
     use harvestcircle_application::{
-        AccountRepository, CachedProfile, ProfileRefreshStatus, ProfileRepository,
+        CachedProfile, IdentityRepository, ProfileRefreshStatus, ProfileRepository,
     };
     use harvestcircle_domain::{
-        AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, EventId,
-        Kind0ProfileCandidate, LocalSignerBinding, ProfileMetadata, PublicKey, UnixTimestamp,
+        EventId, IdentityCreatedAt, Kind0ProfileCandidate, LocalKeyringBinding, NostrIdentity,
+        NostrIdentityReference, ProfileMetadata, PublicKey, SignerAvailability, UnixTimestamp,
     };
 
     use crate::Database;
@@ -160,15 +160,15 @@ mod tests {
         PublicKey::from_bytes([7; 32]).expect("valid public key")
     }
 
-    fn account(public_key: PublicKey) -> AccountSummary {
-        AccountSummary::new(
-            AccountIdentity::derive(public_key).expect("identity"),
-            LocalSignerBinding::new(public_key, BindingAvailability::Available),
+    fn identity(public_key: PublicKey) -> NostrIdentity {
+        NostrIdentity::new(
+            NostrIdentityReference::derive(public_key).expect("identity"),
+            LocalKeyringBinding::new(public_key, SignerAvailability::Available),
             None,
-            AccountCreatedAt::new(UnixTimestamp::from_seconds(1).expect("time")),
+            IdentityCreatedAt::new(UnixTimestamp::from_seconds(1).expect("time")),
             None,
         )
-        .expect("account")
+        .expect("identity")
     }
 
     fn profile(public_key: PublicKey, id: u8, created_at: i64, name: &str) -> CachedProfile {
@@ -190,8 +190,8 @@ mod tests {
         let database = Database::in_memory().expect("database");
         let public_key = public_key();
         database
-            .insert_account(&account(public_key))
-            .expect("account");
+            .insert_identity(&identity(public_key))
+            .expect("identity");
         database
             .save_profile(&profile(public_key, 1, 10, "Farm"))
             .expect("save profile");
@@ -217,8 +217,8 @@ mod tests {
         let database = Database::in_memory().expect("database");
         let public_key = public_key();
         database
-            .insert_account(&account(public_key))
-            .expect("account");
+            .insert_identity(&identity(public_key))
+            .expect("identity");
         database
             .save_profile(&profile(public_key, 9, 20, "High ID"))
             .expect("initial");
@@ -238,16 +238,18 @@ mod tests {
     }
 
     #[test]
-    fn profile_cache_cascades_with_account_removal() {
+    fn profile_cache_cascades_with_identity_removal() {
         let database = Database::in_memory().expect("database");
         let public_key = public_key();
         database
-            .insert_account(&account(public_key))
-            .expect("account");
+            .insert_identity(&identity(public_key))
+            .expect("identity");
         database
             .save_profile(&profile(public_key, 1, 10, "Farm"))
             .expect("profile");
-        database.remove_account(public_key).expect("remove account");
+        database
+            .remove_identity(public_key)
+            .expect("remove identity");
 
         assert_eq!(database.load_profile(public_key).expect("load"), None);
     }

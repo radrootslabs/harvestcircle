@@ -26,19 +26,10 @@ enum class SignerAvailability {
     Available,
     CredentialMissing,
     StoreUnavailable,
-    NotRequired,
 }
 
-sealed interface SignerBindingKind {
-    data object LocalKeyring : SignerBindingKind
-
-    data class Unsupported(
-        val protocol: String,
-    ) : SignerBindingKind {
-        init {
-            requireSafeText(protocol, "Signer protocol", 64)
-        }
-    }
+enum class SignerBindingKind {
+    LocalKeyring,
 }
 
 data class SignerBindingSummary(

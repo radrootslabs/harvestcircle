@@ -1,11 +1,11 @@
 use crate::{
-    AccountRepository, ActiveAccountSnapshot, AppCore, AppSnapshot, AppStateRepository, Clock,
+    ActiveIdentitySnapshot, AppCore, AppSnapshot, AppStateRepository, Clock, IdentityRepository,
     ProfileLoadState, ProfileRepository, RelayConnectionState, SecretStore, StateTransition,
 };
 use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage};
 
 impl AppCore {
-    /// Drops the active session while retaining accounts, selection, and credentials.
+    /// Drops the active session while retaining identities, selection, and credentials.
     ///
     /// # Errors
     ///
@@ -17,24 +17,24 @@ impl AppCore {
         self.apply_transition(StateTransition::SignOut)
     }
 
-    /// Validates and prepares a saved local account before replacing the active session.
+    /// Validates and prepares a saved local identity before replacing the active session.
     ///
     /// # Errors
     ///
-    /// Returns a safe account, credential, profile-cache, persistence, or state
+    /// Returns a safe identity, credential, profile-cache, persistence, or state
     /// error while preserving any previously active session.
-    pub fn activate_account(
+    pub fn activate_identity(
         &self,
         public_key: PublicKey,
-        accounts: &(impl AccountRepository + ?Sized),
+        identities: &(impl IdentityRepository + ?Sized),
         app_state: &(impl AppStateRepository + ?Sized),
         profiles: &(impl ProfileRepository + ?Sized),
         secrets: &(impl SecretStore + ?Sized),
         clock: &(impl Clock + ?Sized),
     ) -> Result<AppSnapshot, SafeError> {
-        let account = accounts
-            .find_account(public_key)?
-            .ok_or_else(account_not_found)?;
+        let identity = identities
+            .find_identity(public_key)?
+            .ok_or_else(identity_not_found)?;
         self.apply_transition(StateTransition::BeginActivation(public_key))?;
         let prepared = (|| {
             let credential = secrets.load(public_key)?;
@@ -45,8 +45,8 @@ impl AppCore {
                 return Err(invalid_credential());
             }
             let cached = profiles.load_profile(public_key)?;
-            let active = ActiveAccountSnapshot::new(
-                account.with_last_used_at(clock.now()),
+            let active = ActiveIdentitySnapshot::new(
+                identity.with_last_used_at(clock.now()),
                 RelayConnectionState::Disconnected,
                 if cached.is_some() {
                     ProfileLoadState::Cached
@@ -55,8 +55,8 @@ impl AppCore {
                 },
                 cached.map(|profile| profile.candidate().metadata().clone()),
             );
-            accounts.update_account(active.account())?;
-            app_state.save_selected_account(Some(public_key))?;
+            identities.update_identity(active.identity())?;
+            app_state.save_selected_identity(Some(public_key))?;
             Ok(active)
         })();
         match prepared {
@@ -71,17 +71,17 @@ impl AppCore {
     }
 }
 
-const fn account_not_found() -> SafeError {
+const fn identity_not_found() -> SafeError {
     SafeError::new(
-        SafeErrorCode::AccountNotFound,
-        SafeMessage::new("The account was not found."),
+        SafeErrorCode::IdentityNotFound,
+        SafeMessage::new("The identity was not found."),
     )
 }
 
 const fn invalid_credential() -> SafeError {
     SafeError::new(
         SafeErrorCode::InvalidSecretKey,
-        SafeMessage::new("The Nostr account credential is invalid."),
+        SafeMessage::new("The Nostr identity credential is invalid."),
     )
 }
 
@@ -90,7 +90,7 @@ mod tests {
     use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
 
     use crate::{
-        AppCore, CachedProfile, Clock, InMemoryAccountRepository, InMemoryOperationJournal,
+        AppCore, CachedProfile, Clock, InMemoryIdentityRepository, InMemoryOperationJournal,
         InMemorySecretStore, ProfileRefreshStatus, ProfileRepository, RelayConfiguration,
         SecretStore, SessionState,
     };
@@ -134,9 +134,9 @@ mod tests {
     }
 
     #[test]
-    fn activate_account_switches_only_after_candidate_is_ready() {
+    fn activate_identity_switches_only_after_candidate_is_ready() {
         let core = AppCore::in_memory(RelayConfiguration::default());
-        let accounts = InMemoryAccountRepository::default();
+        let identities = InMemoryIdentityRepository::default();
         let secrets = InMemorySecretStore::default();
         let journal = InMemoryOperationJournal::default();
         let profiles = EmptyProfiles;
@@ -144,31 +144,31 @@ mod tests {
         let first = core
             .import_secret_key(
                 input("7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7"),
-                &accounts,
-                &accounts,
+                &identities,
+                &identities,
                 &secrets,
                 &journal,
                 &FixedClock,
             )
             .expect("first")
-            .account()
+            .identity()
             .public_key();
         let second = core
             .import_secret_key(
                 input("1111111111111111111111111111111111111111111111111111111111111111"),
-                &accounts,
-                &accounts,
+                &identities,
+                &identities,
                 &secrets,
                 &journal,
                 &FixedClock,
             )
             .expect("second")
-            .account()
+            .identity()
             .public_key();
-        core.activate_account(
+        core.activate_identity(
             first,
-            &accounts,
-            &accounts,
+            &identities,
+            &identities,
             &profiles,
             &secrets,
             &FixedClock,
@@ -177,17 +177,17 @@ mod tests {
         assert_eq!(core.snapshot().session(), SessionState::Active);
         assert_eq!(
             core.snapshot()
-                .active_account()
-                .map(|active| active.account().public_key()),
+                .active_identity()
+                .map(|active| active.identity().public_key()),
             Some(first)
         );
 
         secrets.delete(second).expect("remove second credential");
         let error = core
-            .activate_account(
+            .activate_identity(
                 second,
-                &accounts,
-                &accounts,
+                &identities,
+                &identities,
                 &profiles,
                 &secrets,
                 &FixedClock,
@@ -204,10 +204,10 @@ mod tests {
             )
             .expect("mismatched credential");
         let invalid = core
-            .activate_account(
+            .activate_identity(
                 second,
-                &accounts,
-                &accounts,
+                &identities,
+                &identities,
                 &profiles,
                 &secrets,
                 &FixedClock,
@@ -220,16 +220,16 @@ mod tests {
         assert_eq!(core.snapshot().session(), SessionState::Active);
         assert_eq!(
             core.snapshot()
-                .active_account()
-                .map(|active| active.account().public_key()),
+                .active_identity()
+                .map(|active| active.identity().public_key()),
             Some(first)
         );
     }
 
     #[test]
-    fn sign_out_retains_saved_account_selection_and_credential() {
+    fn sign_out_retains_saved_identity_selection_and_credential() {
         let core = AppCore::in_memory(RelayConfiguration::default());
-        let accounts = InMemoryAccountRepository::default();
+        let identities = InMemoryIdentityRepository::default();
         let secrets = InMemorySecretStore::default();
         let journal = InMemoryOperationJournal::default();
         let profiles = EmptyProfiles;
@@ -237,19 +237,19 @@ mod tests {
         let public_key = core
             .import_secret_key(
                 input("7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7"),
-                &accounts,
-                &accounts,
+                &identities,
+                &identities,
                 &secrets,
                 &journal,
                 &FixedClock,
             )
             .expect("import")
-            .account()
+            .identity()
             .public_key();
-        core.activate_account(
+        core.activate_identity(
             public_key,
-            &accounts,
-            &accounts,
+            &identities,
+            &identities,
             &profiles,
             &secrets,
             &FixedClock,
@@ -260,9 +260,9 @@ mod tests {
         let repeated = core.sign_out().expect("idempotent sign out");
         assert_eq!(signed_out, repeated);
         assert_eq!(signed_out.session(), SessionState::SignedOut);
-        assert!(signed_out.active_account().is_none());
-        assert_eq!(signed_out.accounts().len(), 1);
-        assert_eq!(signed_out.selected_account(), Some(public_key));
+        assert!(signed_out.active_identity().is_none());
+        assert_eq!(signed_out.identities().len(), 1);
+        assert_eq!(signed_out.selected_identity(), Some(public_key));
         assert!(secrets.contains(public_key).expect("credential retained"));
     }
 }

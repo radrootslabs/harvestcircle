@@ -1,9 +1,10 @@
 use harvestcircle_domain::{PublicKey, SafeError};
 
 use crate::{
-    AccountOperationKind, AccountOperationPhase, AccountRepository, AppCore, AppStateRepository,
-    Clock, DurableAccountOperation, DurableOperationKind, DurableOperationPhase,
-    DurableOperationRepository, DurableTerminalOutcome, OperationJournal, SecretStore,
+    AppCore, AppStateRepository, Clock, DurableIdentityOperation, DurableOperationKind,
+    DurableOperationPhase, DurableOperationRepository, DurableTerminalOutcome,
+    IdentityOperationKind, IdentityOperationPhase, IdentityRepository, OperationJournal,
+    SecretStore,
 };
 
 impl AppCore {
@@ -15,7 +16,7 @@ impl AppCore {
     /// at its last durable phase for a later retry.
     pub fn recover_durable_operations(
         &self,
-        accounts: &(impl AccountRepository + ?Sized),
+        identities: &(impl IdentityRepository + ?Sized),
         app_state: &(impl AppStateRepository + ?Sized),
         secrets: &(impl SecretStore + ?Sized),
         operations: &(impl DurableOperationRepository + ?Sized),
@@ -26,10 +27,10 @@ impl AppCore {
                 DurableOperationKind::Create
                 | DurableOperationKind::Import
                 | DurableOperationKind::Repair => recover_durable_addition(
-                    &operation, accounts, app_state, secrets, operations, clock,
+                    &operation, identities, app_state, secrets, operations, clock,
                 )?,
                 DurableOperationKind::Remove => recover_durable_removal(
-                    &operation, accounts, app_state, secrets, operations, clock,
+                    &operation, identities, app_state, secrets, operations, clock,
                 )?,
             }
         }
@@ -46,7 +47,7 @@ impl AppCore {
     /// the unfinished journal entry for a later retry.
     pub fn recover_pending_operations(
         &self,
-        accounts: &(impl AccountRepository + ?Sized),
+        identities: &(impl IdentityRepository + ?Sized),
         app_state: &(impl AppStateRepository + ?Sized),
         secrets: &(impl SecretStore + ?Sized),
         journal: &(impl OperationJournal + ?Sized),
@@ -54,11 +55,11 @@ impl AppCore {
     ) -> Result<(), SafeError> {
         for operation in journal.list_pending_operations()? {
             match operation.kind() {
-                AccountOperationKind::Remove => {
-                    recover_removal(&operation, accounts, app_state, secrets, journal, clock)?;
+                IdentityOperationKind::Remove => {
+                    recover_removal(&operation, identities, app_state, secrets, journal, clock)?;
                 }
-                AccountOperationKind::Add | AccountOperationKind::Import => {
-                    recover_addition(&operation, accounts, secrets, journal, clock)?;
+                IdentityOperationKind::Add | IdentityOperationKind::Import => {
+                    recover_addition(&operation, identities, secrets, journal, clock)?;
                 }
             }
         }
@@ -67,19 +68,19 @@ impl AppCore {
 }
 
 fn recover_durable_removal(
-    operation: &DurableAccountOperation,
-    accounts: &(impl AccountRepository + ?Sized),
+    operation: &DurableIdentityOperation,
+    identities: &(impl IdentityRepository + ?Sized),
     app_state: &(impl AppStateRepository + ?Sized),
     secrets: &(impl SecretStore + ?Sized),
     operations: &(impl DurableOperationRepository + ?Sized),
     clock: &(impl Clock + ?Sized),
 ) -> Result<(), SafeError> {
     let request = operation.request_id();
-    let account = operation.account();
+    let identity = operation.identity();
     let mut phase = operation.phase();
     if phase == DurableOperationPhase::IntentRecorded {
-        if secrets.contains(account)? {
-            secrets.delete(account)?;
+        if secrets.contains(identity)? {
+            secrets.delete(identity)?;
         }
         operations.advance_durable_operation(
             request,
@@ -91,8 +92,8 @@ fn recover_durable_removal(
         phase = DurableOperationPhase::CredentialDeleted;
     }
     if phase == DurableOperationPhase::CredentialDeleted {
-        if accounts.find_account(account)?.is_some() {
-            accounts.remove_account(account)?;
+        if identities.find_identity(identity)?.is_some() {
+            identities.remove_identity(identity)?;
         }
         operations.advance_durable_operation(
             request,
@@ -104,7 +105,7 @@ fn recover_durable_removal(
         phase = DurableOperationPhase::MetadataDeleted;
     }
     if phase == DurableOperationPhase::MetadataDeleted {
-        app_state.save_selected_account(operation.prior().selected_account())?;
+        app_state.save_selected_identity(operation.prior().selected_identity())?;
         operations.advance_durable_operation(
             request,
             phase,
@@ -127,19 +128,19 @@ fn recover_durable_removal(
 }
 
 fn recover_durable_addition(
-    operation: &DurableAccountOperation,
-    accounts: &(impl AccountRepository + ?Sized),
+    operation: &DurableIdentityOperation,
+    identities: &(impl IdentityRepository + ?Sized),
     app_state: &(impl AppStateRepository + ?Sized),
     secrets: &(impl SecretStore + ?Sized),
     operations: &(impl DurableOperationRepository + ?Sized),
     clock: &(impl Clock + ?Sized),
 ) -> Result<(), SafeError> {
     let request = operation.request_id();
-    let account = operation.account();
+    let identity = operation.identity();
     match operation.phase() {
         DurableOperationPhase::IntentRecorded => {
-            if secrets.contains(account)? {
-                secrets.delete(account)?;
+            if secrets.contains(identity)? {
+                secrets.delete(identity)?;
             }
             operations.finalize_durable_operation(
                 request,
@@ -150,10 +151,10 @@ fn recover_durable_addition(
             )?;
         }
         DurableOperationPhase::CredentialWritten => {
-            let metadata = accounts.find_account(account)?;
+            let metadata = identities.find_identity(identity)?;
             let committed = metadata.as_ref().is_some_and(|saved| {
-                saved.signer().availability()
-                    == harvestcircle_domain::BindingAvailability::Available
+                saved.signer_binding().availability()
+                    == harvestcircle_domain::SignerAvailability::Available
             });
             if committed {
                 operations.advance_durable_operation(
@@ -173,7 +174,7 @@ fn recover_durable_addition(
                     None,
                 )?;
                 compensate_durable_addition(
-                    operation, accounts, app_state, secrets, operations, clock,
+                    operation, identities, app_state, secrets, operations, clock,
                 )?;
             }
         }
@@ -191,7 +192,7 @@ fn recover_durable_addition(
         }
         DurableOperationPhase::CompensationPending => {
             compensate_durable_addition(
-                operation, accounts, app_state, secrets, operations, clock,
+                operation, identities, app_state, secrets, operations, clock,
             )?;
         }
         DurableOperationPhase::CredentialDeleted | DurableOperationPhase::MetadataDeleted => {
@@ -209,12 +210,12 @@ fn recover_durable_addition(
 }
 
 fn finish_durable_selection(
-    operation: &DurableAccountOperation,
+    operation: &DurableIdentityOperation,
     app_state: &(impl AppStateRepository + ?Sized),
     operations: &(impl DurableOperationRepository + ?Sized),
     clock: &(impl Clock + ?Sized),
 ) -> Result<(), SafeError> {
-    app_state.save_selected_account(Some(operation.account()))?;
+    app_state.save_selected_identity(Some(operation.identity()))?;
     operations.advance_durable_operation(
         operation.request_id(),
         DurableOperationPhase::MetadataCommitted,
@@ -233,24 +234,24 @@ fn finish_durable_selection(
 }
 
 fn compensate_durable_addition(
-    operation: &DurableAccountOperation,
-    accounts: &(impl AccountRepository + ?Sized),
+    operation: &DurableIdentityOperation,
+    identities: &(impl IdentityRepository + ?Sized),
     app_state: &(impl AppStateRepository + ?Sized),
     secrets: &(impl SecretStore + ?Sized),
     operations: &(impl DurableOperationRepository + ?Sized),
     clock: &(impl Clock + ?Sized),
 ) -> Result<(), SafeError> {
-    if secrets.contains(operation.account())? {
-        secrets.delete(operation.account())?;
+    if secrets.contains(operation.identity())? {
+        secrets.delete(operation.identity())?;
     }
     if let Some(availability) = operation.prior().binding_availability() {
-        if let Some(previous) = accounts.find_account(operation.account())? {
-            accounts.update_account(&previous.with_binding_availability(availability))?;
+        if let Some(previous) = identities.find_identity(operation.identity())? {
+            identities.update_identity(&previous.with_binding_availability(availability))?;
         }
-    } else if accounts.find_account(operation.account())?.is_some() {
-        accounts.remove_account(operation.account())?;
+    } else if identities.find_identity(operation.identity())?.is_some() {
+        identities.remove_identity(operation.identity())?;
     }
-    app_state.save_selected_account(operation.prior().selected_account())?;
+    app_state.save_selected_identity(operation.prior().selected_identity())?;
     operations.advance_durable_operation(
         operation.request_id(),
         DurableOperationPhase::CompensationPending,
@@ -269,15 +270,15 @@ fn compensate_durable_addition(
 }
 
 fn recover_removal(
-    operation: &crate::PendingAccountOperation,
-    accounts: &(impl AccountRepository + ?Sized),
+    operation: &crate::PendingIdentityOperation,
+    identities: &(impl IdentityRepository + ?Sized),
     app_state: &(impl AppStateRepository + ?Sized),
     secrets: &(impl SecretStore + ?Sized),
     journal: &(impl OperationJournal + ?Sized),
     clock: &(impl Clock + ?Sized),
 ) -> Result<(), SafeError> {
     let public_key = operation.subject();
-    if operation.phase() == AccountOperationPhase::IntentRecorded {
+    if operation.phase() == IdentityOperationPhase::IntentRecorded {
         match secrets.delete(public_key) {
             Ok(()) => {}
             Err(error)
@@ -286,22 +287,22 @@ fn recover_removal(
         }
         journal.update_operation(
             operation.id(),
-            AccountOperationPhase::CredentialDeleted,
+            IdentityOperationPhase::CredentialDeleted,
             clock.now(),
             None,
         )?;
     }
     if matches!(
         operation.phase(),
-        AccountOperationPhase::IntentRecorded | AccountOperationPhase::CredentialDeleted
+        IdentityOperationPhase::IntentRecorded | IdentityOperationPhase::CredentialDeleted
     ) {
-        let registry = accounts.list_accounts()?;
-        let selected = removal_fallback(&registry, app_state.load_selected_account()?, public_key);
-        accounts.remove_account(public_key)?;
-        app_state.save_selected_account(selected)?;
+        let registry = identities.list_identities()?;
+        let selected = removal_fallback(&registry, app_state.load_selected_identity()?, public_key);
+        identities.remove_identity(public_key)?;
+        app_state.save_selected_identity(selected)?;
         journal.update_operation(
             operation.id(),
-            AccountOperationPhase::MetadataDeleted,
+            IdentityOperationPhase::MetadataDeleted,
             clock.now(),
             None,
         )?;
@@ -310,15 +311,15 @@ fn recover_removal(
 }
 
 fn recover_addition(
-    operation: &crate::PendingAccountOperation,
-    accounts: &(impl AccountRepository + ?Sized),
+    operation: &crate::PendingIdentityOperation,
+    identities: &(impl IdentityRepository + ?Sized),
     secrets: &(impl SecretStore + ?Sized),
     journal: &(impl OperationJournal + ?Sized),
     clock: &(impl Clock + ?Sized),
 ) -> Result<(), SafeError> {
-    let has_metadata = accounts.find_account(operation.subject())?.is_some();
+    let has_metadata = identities.find_identity(operation.subject())?.is_some();
     match operation.phase() {
-        AccountOperationPhase::CredentialWritten | AccountOperationPhase::CompensationPending
+        IdentityOperationPhase::CredentialWritten | IdentityOperationPhase::CompensationPending
             if !has_metadata =>
         {
             match secrets.delete(operation.subject()) {
@@ -329,7 +330,7 @@ fn recover_addition(
             }
             journal.update_operation(
                 operation.id(),
-                AccountOperationPhase::MetadataDeleted,
+                IdentityOperationPhase::MetadataDeleted,
                 clock.now(),
                 None,
             )?;
@@ -340,7 +341,7 @@ fn recover_addition(
 }
 
 fn removal_fallback(
-    registry: &[harvestcircle_domain::AccountSummary],
+    registry: &[harvestcircle_domain::NostrIdentity],
     selected: Option<PublicKey>,
     removed: PublicKey,
 ) -> Option<PublicKey> {
@@ -349,11 +350,11 @@ fn removal_fallback(
     }
     let index = registry
         .iter()
-        .position(|account| account.public_key() == removed)?;
+        .position(|identity| identity.public_key() == removed)?;
     registry
         .get(index + 1)
         .or_else(|| index.checked_sub(1).and_then(|before| registry.get(before)))
-        .map(harvestcircle_domain::AccountSummary::public_key)
+        .map(harvestcircle_domain::NostrIdentity::public_key)
 }
 
 #[cfg(test)]
@@ -361,14 +362,14 @@ pub(crate) mod tests {
     use std::sync::{Mutex, MutexGuard};
 
     use harvestcircle_domain::{
-        BindingAvailability, PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput,
+        PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput, SignerAvailability,
         UnixTimestamp,
     };
 
     use super::*;
     use crate::{
         DurableOperationReceipt, DurableOperationStart, DurableRequestId, FailureSecretStore,
-        InMemoryAccountRepository, InMemoryOperationJournal, InMemorySecretStore,
+        InMemoryIdentityRepository, InMemoryOperationJournal, InMemorySecretStore,
         RelayConfiguration, SecretStore, SecretStoreOperation,
     };
 
@@ -381,41 +382,41 @@ pub(crate) mod tests {
     }
 
     pub(crate) struct TestDurableRepository {
-        operation: Mutex<DurableAccountOperation>,
+        operation: Mutex<DurableIdentityOperation>,
         return_existing: bool,
     }
 
     impl TestDurableRepository {
-        pub(crate) fn new(operation: DurableAccountOperation) -> Self {
+        pub(crate) fn new(operation: DurableIdentityOperation) -> Self {
             Self {
                 operation: Mutex::new(operation),
                 return_existing: true,
             }
         }
 
-        pub(crate) fn fresh(operation: DurableAccountOperation) -> Self {
+        pub(crate) fn fresh(operation: DurableIdentityOperation) -> Self {
             Self {
                 operation: Mutex::new(operation),
                 return_existing: false,
             }
         }
 
-        pub(crate) fn operation(&self) -> MutexGuard<'_, DurableAccountOperation> {
+        pub(crate) fn operation(&self) -> MutexGuard<'_, DurableIdentityOperation> {
             self.operation
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
         }
 
         fn replace(
-            current: &DurableAccountOperation,
+            current: &DurableIdentityOperation,
             phase: DurableOperationPhase,
             diagnostic: Option<crate::OperationDiagnostic>,
             terminal: Option<DurableOperationReceipt>,
-        ) -> DurableAccountOperation {
-            DurableAccountOperation::new(
+        ) -> DurableIdentityOperation {
+            DurableIdentityOperation::new(
                 current.request_id().clone(),
                 current.kind(),
-                current.account(),
+                current.identity(),
                 current.expected_revision(),
                 phase,
                 current.prior(),
@@ -431,7 +432,7 @@ pub(crate) mod tests {
             &self,
             _request_id: &DurableRequestId,
             _kind: DurableOperationKind,
-            _account: PublicKey,
+            _identity: PublicKey,
             _expected_revision: Option<u64>,
             _prior: crate::OperationPriorState,
             _updated_at: UnixTimestamp,
@@ -447,7 +448,7 @@ pub(crate) mod tests {
         fn load_durable_operation(
             &self,
             request_id: &DurableRequestId,
-        ) -> Result<Option<DurableAccountOperation>, SafeError> {
+        ) -> Result<Option<DurableIdentityOperation>, SafeError> {
             if !self.return_existing {
                 return Ok(None);
             }
@@ -462,7 +463,7 @@ pub(crate) mod tests {
             next_phase: DurableOperationPhase,
             _updated_at: UnixTimestamp,
             diagnostic: Option<crate::OperationDiagnostic>,
-        ) -> Result<DurableAccountOperation, SafeError> {
+        ) -> Result<DurableIdentityOperation, SafeError> {
             let mut operation = self.operation();
             if operation.request_id() != request_id || operation.phase() != expected_phase {
                 return Err(conflict());
@@ -485,7 +486,7 @@ pub(crate) mod tests {
             }
             let receipt = DurableOperationReceipt::new(
                 request_id.clone(),
-                operation.account(),
+                operation.identity(),
                 outcome,
                 resulting_revision,
             );
@@ -500,7 +501,7 @@ pub(crate) mod tests {
 
         fn list_unfinished_durable_operations(
             &self,
-        ) -> Result<Vec<DurableAccountOperation>, SafeError> {
+        ) -> Result<Vec<DurableIdentityOperation>, SafeError> {
             Ok(vec![self.operation().clone()])
         }
     }
@@ -514,38 +515,38 @@ pub(crate) mod tests {
 
     fn seeded() -> (
         AppCore,
-        InMemoryAccountRepository,
+        InMemoryIdentityRepository,
         InMemorySecretStore,
         InMemoryOperationJournal,
         PublicKey,
     ) {
         let core = AppCore::in_memory(RelayConfiguration::default());
-        let accounts = InMemoryAccountRepository::default();
+        let identities = InMemoryIdentityRepository::default();
         let secrets = InMemorySecretStore::default();
         let journal = InMemoryOperationJournal::default();
         core.bootstrap().expect("bootstrap");
         let receipt = core
-            .generate_account(&accounts, &accounts, &secrets, &journal, &FixedClock)
-            .expect("seed account");
+            .generate_identity(&identities, &identities, &secrets, &journal, &FixedClock)
+            .expect("seed identity");
         (
             core,
-            accounts,
+            identities,
             secrets,
             journal,
-            receipt.account().public_key(),
+            receipt.identity().public_key(),
         )
     }
 
     pub(crate) fn operation(
         kind: DurableOperationKind,
         phase: DurableOperationPhase,
-        account: PublicKey,
-        prior_availability: Option<BindingAvailability>,
-    ) -> DurableAccountOperation {
-        DurableAccountOperation::new(
+        identity: PublicKey,
+        prior_availability: Option<SignerAvailability>,
+    ) -> DurableIdentityOperation {
+        DurableIdentityOperation::new(
             DurableRequestId::parse(format!("{kind:?}-{phase:?}")).expect("durable request ID"),
             kind,
-            account,
+            identity,
             Some(1),
             phase,
             crate::OperationPriorState::new(None, prior_availability),
@@ -557,12 +558,12 @@ pub(crate) mod tests {
 
     fn run_durable(
         core: &AppCore,
-        accounts: &InMemoryAccountRepository,
+        identities: &InMemoryIdentityRepository,
         secrets: &InMemorySecretStore,
-        operation: DurableAccountOperation,
-    ) -> DurableAccountOperation {
+        operation: DurableIdentityOperation,
+    ) -> DurableIdentityOperation {
         let repository = TestDurableRepository::new(operation);
-        core.recover_durable_operations(accounts, accounts, secrets, &repository, &FixedClock)
+        core.recover_durable_operations(identities, identities, secrets, &repository, &FixedClock)
             .expect("durable recovery");
         repository.operation().clone()
     }
@@ -576,7 +577,7 @@ pub(crate) mod tests {
             DurableOperationPhase::SelectionCommitted,
             DurableOperationPhase::Finalized,
         ] {
-            let (core, accounts, secrets, _journal, public_key) = seeded();
+            let (core, identities, secrets, _journal, public_key) = seeded();
             if phase != DurableOperationPhase::IntentRecorded {
                 secrets.delete(public_key).expect("delete credential");
             }
@@ -586,23 +587,27 @@ pub(crate) mod tests {
                     | DurableOperationPhase::SelectionCommitted
                     | DurableOperationPhase::Finalized
             ) {
-                accounts.remove_account(public_key).expect("remove account");
+                identities
+                    .remove_identity(public_key)
+                    .expect("remove identity");
             }
             let recovered = run_durable(
                 &core,
-                &accounts,
+                &identities,
                 &secrets,
                 operation(DurableOperationKind::Remove, phase, public_key, None),
             );
             assert_eq!(recovered.phase(), DurableOperationPhase::Finalized);
         }
 
-        let (core, accounts, secrets, _journal, public_key) = seeded();
+        let (core, identities, secrets, _journal, public_key) = seeded();
         secrets.delete(public_key).expect("delete credential");
-        accounts.remove_account(public_key).expect("remove account");
+        identities
+            .remove_identity(public_key)
+            .expect("remove identity");
         let recovered = run_durable(
             &core,
-            &accounts,
+            &identities,
             &secrets,
             operation(
                 DurableOperationKind::Remove,
@@ -625,15 +630,15 @@ pub(crate) mod tests {
             DurableOperationPhase::MetadataDeleted,
             DurableOperationPhase::Finalized,
         ] {
-            let (core, accounts, secrets, _journal, public_key) = seeded();
+            let (core, identities, secrets, _journal, public_key) = seeded();
             if phase == DurableOperationPhase::IntentRecorded {
-                accounts
-                    .remove_account(public_key)
+                identities
+                    .remove_identity(public_key)
                     .expect("remove metadata");
             }
             let recovered = run_durable(
                 &core,
-                &accounts,
+                &identities,
                 &secrets,
                 operation(DurableOperationKind::Create, phase, public_key, None),
             );
@@ -641,15 +646,15 @@ pub(crate) mod tests {
         }
 
         for (prior, retain_metadata, retain_secret) in [
-            (Some(BindingAvailability::CredentialMissing), true, true),
-            (Some(BindingAvailability::CredentialMissing), false, true),
+            (Some(SignerAvailability::CredentialMissing), true, true),
+            (Some(SignerAvailability::CredentialMissing), false, true),
             (None, true, true),
             (None, false, false),
         ] {
-            let (core, accounts, secrets, _journal, public_key) = seeded();
+            let (core, identities, secrets, _journal, public_key) = seeded();
             if !retain_metadata {
-                accounts
-                    .remove_account(public_key)
+                identities
+                    .remove_identity(public_key)
                     .expect("remove metadata");
             }
             if !retain_secret {
@@ -657,7 +662,7 @@ pub(crate) mod tests {
             }
             let recovered = run_durable(
                 &core,
-                &accounts,
+                &identities,
                 &secrets,
                 operation(
                     DurableOperationKind::Repair,
@@ -669,13 +674,13 @@ pub(crate) mod tests {
             assert_eq!(recovered.phase(), DurableOperationPhase::Finalized);
         }
 
-        let (core, accounts, secrets, _journal, public_key) = seeded();
-        accounts
-            .remove_account(public_key)
+        let (core, identities, secrets, _journal, public_key) = seeded();
+        identities
+            .remove_identity(public_key)
             .expect("remove metadata");
         let recovered = run_durable(
             &core,
-            &accounts,
+            &identities,
             &secrets,
             operation(
                 DurableOperationKind::Import,
@@ -686,14 +691,14 @@ pub(crate) mod tests {
         );
         assert_eq!(recovered.phase(), DurableOperationPhase::Finalized);
 
-        let (core, accounts, secrets, _journal, public_key) = seeded();
-        accounts
-            .remove_account(public_key)
+        let (core, identities, secrets, _journal, public_key) = seeded();
+        identities
+            .remove_identity(public_key)
             .expect("remove metadata");
         secrets.delete(public_key).expect("delete credential");
         let recovered = run_durable(
             &core,
-            &accounts,
+            &identities,
             &secrets,
             operation(
                 DurableOperationKind::Create,
@@ -708,30 +713,36 @@ pub(crate) mod tests {
     #[test]
     fn pending_recovery_exercises_removal_and_addition_presence_branches() {
         for credential_present in [true, false] {
-            let (core, accounts, secrets, journal, public_key) = seeded();
+            let (core, identities, secrets, journal, public_key) = seeded();
             if !credential_present {
                 secrets.delete(public_key).expect("delete credential");
-                accounts
-                    .save_selected_account(None)
+                identities
+                    .save_selected_identity(None)
                     .expect("clear selection");
             }
             journal
-                .begin_operation(AccountOperationKind::Remove, public_key, FixedClock.now())
+                .begin_operation(IdentityOperationKind::Remove, public_key, FixedClock.now())
                 .expect("removal intent");
-            core.recover_pending_operations(&accounts, &accounts, &secrets, &journal, &FixedClock)
-                .expect("removal recovery");
+            core.recover_pending_operations(
+                &identities,
+                &identities,
+                &secrets,
+                &journal,
+                &FixedClock,
+            )
+            .expect("removal recovery");
             assert!(journal.list_pending_operations().unwrap().is_empty());
         }
 
         for (kind, metadata_present, credential_present) in [
-            (AccountOperationKind::Add, false, true),
-            (AccountOperationKind::Import, false, false),
-            (AccountOperationKind::Add, true, true),
+            (IdentityOperationKind::Add, false, true),
+            (IdentityOperationKind::Import, false, false),
+            (IdentityOperationKind::Add, true, true),
         ] {
-            let (core, accounts, secrets, journal, public_key) = seeded();
+            let (core, identities, secrets, journal, public_key) = seeded();
             if !metadata_present {
-                accounts
-                    .remove_account(public_key)
+                identities
+                    .remove_identity(public_key)
                     .expect("remove metadata");
             }
             if !credential_present {
@@ -743,19 +754,25 @@ pub(crate) mod tests {
             journal
                 .update_operation(
                     id,
-                    AccountOperationPhase::CredentialWritten,
+                    IdentityOperationPhase::CredentialWritten,
                     FixedClock.now(),
                     None,
                 )
                 .expect("credential phase");
-            core.recover_pending_operations(&accounts, &accounts, &secrets, &journal, &FixedClock)
-                .expect("addition recovery");
+            core.recover_pending_operations(
+                &identities,
+                &identities,
+                &secrets,
+                &journal,
+                &FixedClock,
+            )
+            .expect("addition recovery");
             assert!(journal.list_pending_operations().unwrap().is_empty());
         }
 
-        let (core, accounts, _secrets, journal, public_key) = seeded();
-        accounts
-            .remove_account(public_key)
+        let (core, identities, _secrets, journal, public_key) = seeded();
+        identities
+            .remove_identity(public_key)
             .expect("remove metadata");
         let secrets = FailureSecretStore::default();
         secrets
@@ -769,19 +786,25 @@ pub(crate) mod tests {
             .expect("store credential");
         secrets.fail_next(SecretStoreOperation::Delete);
         let id = journal
-            .begin_operation(AccountOperationKind::Add, public_key, FixedClock.now())
+            .begin_operation(IdentityOperationKind::Add, public_key, FixedClock.now())
             .expect("addition intent");
         journal
             .update_operation(
                 id,
-                AccountOperationPhase::CredentialWritten,
+                IdentityOperationPhase::CredentialWritten,
                 FixedClock.now(),
                 None,
             )
             .expect("credential phase");
         assert!(
-            core.recover_pending_operations(&accounts, &accounts, &secrets, &journal, &FixedClock,)
-                .is_err()
+            core.recover_pending_operations(
+                &identities,
+                &identities,
+                &secrets,
+                &journal,
+                &FixedClock,
+            )
+            .is_err()
         );
     }
 }

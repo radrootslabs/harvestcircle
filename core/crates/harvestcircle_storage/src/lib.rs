@@ -1,10 +1,10 @@
 #![doc = "HarvestCircle persistence adapters."]
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
-pub mod account_namespace;
-pub mod accounts;
 mod compatibility;
 pub mod db;
+pub mod identities;
+pub mod identity_namespace;
 mod installation;
 pub mod journal;
 // The operating-system credential store requires an explicit, ignored host smoke test.

@@ -5,13 +5,13 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.CoroutineScope
-import org.harvestcircle.accounts.ui.HarvestCircleScreen
-import org.harvestcircle.accounts.ui.HarvestCircleUiActions
-import org.harvestcircle.accounts.ui.StartupFailureScreen
-import org.harvestcircle.accounts.ui.toUiModel
 import org.harvestcircle.ffi.HarvestCircleAppCore
 import org.harvestcircle.ffi.HarvestCircleException
 import org.harvestcircle.ffi.compatibilityDescriptor
+import org.harvestcircle.identities.ui.HarvestCircleScreen
+import org.harvestcircle.identities.ui.HarvestCircleUiActions
+import org.harvestcircle.identities.ui.StartupFailureScreen
+import org.harvestcircle.identities.ui.toUiModel
 
 internal typealias HarvestCircleStoreFactory = (CoroutineScope) -> HarvestCircleAppStore
 
@@ -41,25 +41,25 @@ fun HarvestCircleApplication(storeFactory: HarvestCircleStoreFactory = ::createH
         model = store.state.value.toUiModel(),
         actions =
             HarvestCircleUiActions(
-                chooseCreateAccount = store::chooseCreateAccount,
-                chooseImportAccount = store::chooseImportAccount,
-                cancelAccountEntry = store::cancelAccountEntry,
+                chooseCreateIdentity = store::chooseCreateIdentity,
+                chooseImportIdentity = store::chooseImportIdentity,
+                cancelIdentityEntry = store::cancelIdentityEntry,
                 editImportDraft = store::editImportDraft,
-                generateAccount = store::generateAccount,
+                generateIdentity = store::generateIdentity,
                 importSecretKey = store::importSecretKey,
                 copyText = { value -> clipboard.copy(value) },
                 acknowledgeGeneratedKeyBackup = store::acknowledgeGeneratedKeyBackup,
                 cancelGeneratedKeyBackup = store::cancelGeneratedKeyBackup,
-                selectAccount = store::selectAccount,
-                activateAccount = store::activateAccount,
-                requestAccountRemoval = store::requestAccountRemoval,
-                cancelAccountRemoval = store::cancelAccountRemoval,
-                confirmAccountRemoval = store::confirmAccountRemoval,
+                selectIdentity = store::selectIdentity,
+                activateIdentity = store::activateIdentity,
+                requestIdentityRemoval = store::requestIdentityRemoval,
+                cancelIdentityRemoval = store::cancelIdentityRemoval,
+                confirmIdentityRemoval = store::confirmIdentityRemoval,
                 refreshActiveProfile = store::refreshActiveProfile,
                 retryLastCommand = store::retryLastCommand,
                 signOut = store::signOut,
-                showAccountChooser = store::showAccountChooser,
-                hideAccountChooser = store::hideAccountChooser,
+                showIdentityChooser = store::showIdentityChooser,
+                hideIdentityChooser = store::hideIdentityChooser,
             ),
     )
 }

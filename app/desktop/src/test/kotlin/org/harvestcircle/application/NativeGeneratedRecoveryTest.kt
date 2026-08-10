@@ -38,13 +38,13 @@ class NativeGeneratedRecoveryTest {
             val gateway = NativeHarvestCircleCoreGateway(core)
             try {
                 gateway.bootstrap()
-                val recovery = gateway.beginGeneratedAccount()
+                val recovery = gateway.beginGeneratedIdentity()
 
-                assertTrue(recovery.account.npub.startsWith("npub1"))
+                assertTrue(recovery.identity.npub.startsWith("npub1"))
                 assertTrue(recovery.takeRecoveryNsec().startsWith("nsec1"))
                 assertTrue(recovery.cancel())
                 assertFalse(recovery.cancel())
-                assertEquals(0, gateway.snapshot().accounts.size)
+                assertEquals(0, gateway.snapshot().identities.size)
                 recovery.close()
             } finally {
                 gateway.shutdown()

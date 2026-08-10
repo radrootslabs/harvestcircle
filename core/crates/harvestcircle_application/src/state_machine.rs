@@ -1,30 +1,30 @@
-use harvestcircle_domain::{AccountSummary, PublicKey, SafeError, SafeErrorCode, SafeMessage};
+use harvestcircle_domain::{NostrIdentity, PublicKey, SafeError, SafeErrorCode, SafeMessage};
 
-use crate::{ActiveAccountSnapshot, AppLifecycle, AppSnapshot, RelayConfiguration, SessionState};
+use crate::{ActiveIdentitySnapshot, AppLifecycle, AppSnapshot, RelayConfiguration, SessionState};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StateTransition {
     Bootstrap,
     BootstrapRegistry {
-        accounts: Vec<AccountSummary>,
+        identities: Vec<NostrIdentity>,
         selected: Option<PublicKey>,
     },
     Fatal(SafeError),
     ReplaceRegistry {
-        accounts: Vec<AccountSummary>,
+        identities: Vec<NostrIdentity>,
         selected: Option<PublicKey>,
     },
     ReplaceRegistryPreservingSession {
-        accounts: Vec<AccountSummary>,
+        identities: Vec<NostrIdentity>,
         selected: Option<PublicKey>,
     },
     Select(PublicKey),
     BeginActivation(PublicKey),
-    ActivationSucceeded(Box<ActiveAccountSnapshot>),
+    ActivationSucceeded(Box<ActiveIdentitySnapshot>),
     ActivationFailed(SafeError),
-    UpdateActiveAccount {
+    UpdateActiveIdentity {
         expected: PublicKey,
-        active_account: Box<ActiveAccountSnapshot>,
+        active_identity: Box<ActiveIdentitySnapshot>,
         problem: Option<SafeError>,
     },
     SignOut,
@@ -34,7 +34,7 @@ pub enum StateTransition {
 #[derive(Clone)]
 struct PreviousSession {
     session: SessionState,
-    active_account: Option<ActiveAccountSnapshot>,
+    active_identity: Option<ActiveIdentitySnapshot>,
 }
 
 pub struct StateMachine {
@@ -60,7 +60,7 @@ impl StateMachine {
     ///
     /// # Errors
     ///
-    /// Returns a safe application error when the transition violates account,
+    /// Returns a safe application error when the transition violates identity,
     /// revision, activation, or snapshot invariants.
     pub fn apply(
         &mut self,
@@ -75,39 +75,44 @@ impl StateMachine {
 
         let next = match transition {
             StateTransition::Bootstrap => self.bootstrap(next_revision, relay_configuration)?,
-            StateTransition::BootstrapRegistry { accounts, selected } => {
-                self.bootstrap_registry(next_revision, relay_configuration, accounts, selected)?
+            StateTransition::BootstrapRegistry {
+                identities,
+                selected,
+            } => {
+                self.bootstrap_registry(next_revision, relay_configuration, identities, selected)?
             }
             StateTransition::Fatal(error) => {
                 AppSnapshot::fatal(next_revision, relay_configuration.clone(), error)
             }
-            StateTransition::ReplaceRegistry { accounts, selected } => {
-                self.replace_registry(next_revision, accounts, selected)?
-            }
-            StateTransition::ReplaceRegistryPreservingSession { accounts, selected } => {
-                self.replace_registry_preserving_session(next_revision, accounts, selected)?
-            }
+            StateTransition::ReplaceRegistry {
+                identities,
+                selected,
+            } => self.replace_registry(next_revision, identities, selected)?,
+            StateTransition::ReplaceRegistryPreservingSession {
+                identities,
+                selected,
+            } => self.replace_registry_preserving_session(next_revision, identities, selected)?,
             StateTransition::Select(public_key) => self.select(next_revision, public_key)?,
             StateTransition::BeginActivation(public_key) => {
                 self.begin_activation(next_revision, public_key)?
             }
-            StateTransition::ActivationSucceeded(active_account) => {
-                self.activation_succeeded(next_revision, *active_account)?
+            StateTransition::ActivationSucceeded(active_identity) => {
+                self.activation_succeeded(next_revision, *active_identity)?
             }
             StateTransition::ActivationFailed(problem) => {
                 self.activation_failed(next_revision, problem)?
             }
-            StateTransition::UpdateActiveAccount {
+            StateTransition::UpdateActiveIdentity {
                 expected,
-                active_account,
+                active_identity,
                 problem,
-            } => self.update_active_account(next_revision, expected, *active_account, problem)?,
+            } => self.update_active_identity(next_revision, expected, *active_identity, problem)?,
             StateTransition::SignOut => self.sign_out(next_revision)?,
             StateTransition::SetProblem(problem) => self.copy_ready(
                 next_revision,
-                self.snapshot.selected_account(),
+                self.snapshot.selected_identity(),
                 self.snapshot.session(),
-                self.snapshot.active_account().cloned(),
+                self.snapshot.active_identity().cloned(),
                 problem,
             )?,
         };
@@ -138,7 +143,7 @@ impl StateMachine {
         &self,
         revision: crate::SnapshotRevision,
         relay_configuration: &RelayConfiguration,
-        accounts: Vec<AccountSummary>,
+        identities: Vec<NostrIdentity>,
         selected: Option<PublicKey>,
     ) -> Result<AppSnapshot, SafeError> {
         if !matches!(self.snapshot.lifecycle(), AppLifecycle::Booting) {
@@ -147,7 +152,7 @@ impl StateMachine {
         AppSnapshot::ready(
             revision,
             relay_configuration.clone(),
-            accounts,
+            identities,
             selected,
             SessionState::SignedOut,
             None,
@@ -158,14 +163,14 @@ impl StateMachine {
     fn replace_registry(
         &mut self,
         revision: crate::SnapshotRevision,
-        accounts: Vec<AccountSummary>,
+        identities: Vec<NostrIdentity>,
         selected: Option<PublicKey>,
     ) -> Result<AppSnapshot, SafeError> {
         self.pending_activation = None;
         AppSnapshot::ready(
             revision,
             self.snapshot.relay_configuration().clone(),
-            accounts,
+            identities,
             selected,
             SessionState::SignedOut,
             None,
@@ -176,17 +181,17 @@ impl StateMachine {
     fn replace_registry_preserving_session(
         &mut self,
         revision: crate::SnapshotRevision,
-        accounts: Vec<AccountSummary>,
+        identities: Vec<NostrIdentity>,
         selected: Option<PublicKey>,
     ) -> Result<AppSnapshot, SafeError> {
         self.pending_activation = None;
         AppSnapshot::ready(
             revision,
             self.snapshot.relay_configuration().clone(),
-            accounts,
+            identities,
             selected,
             self.snapshot.session(),
-            self.snapshot.active_account().cloned(),
+            self.snapshot.active_identity().cloned(),
             None,
         )
     }
@@ -196,12 +201,12 @@ impl StateMachine {
         revision: crate::SnapshotRevision,
         public_key: PublicKey,
     ) -> Result<AppSnapshot, SafeError> {
-        self.require_account(public_key)?;
+        self.require_identity(public_key)?;
         self.copy_ready(
             revision,
             Some(public_key),
             self.snapshot.session(),
-            self.snapshot.active_account().cloned(),
+            self.snapshot.active_identity().cloned(),
             None,
         )
     }
@@ -211,7 +216,7 @@ impl StateMachine {
         revision: crate::SnapshotRevision,
         public_key: PublicKey,
     ) -> Result<AppSnapshot, SafeError> {
-        self.require_account(public_key)?;
+        self.require_identity(public_key)?;
         if self.pending_activation.is_some() {
             return Err(invalid_application_state());
         }
@@ -219,14 +224,14 @@ impl StateMachine {
             public_key,
             PreviousSession {
                 session: self.snapshot.session(),
-                active_account: self.snapshot.active_account().cloned(),
+                active_identity: self.snapshot.active_identity().cloned(),
             },
         ));
         self.copy_ready(
             revision,
-            self.snapshot.selected_account(),
+            self.snapshot.selected_identity(),
             SessionState::Activating(public_key),
-            self.snapshot.active_account().cloned(),
+            self.snapshot.active_identity().cloned(),
             None,
         )
     }
@@ -234,12 +239,12 @@ impl StateMachine {
     fn activation_succeeded(
         &mut self,
         revision: crate::SnapshotRevision,
-        active_account: ActiveAccountSnapshot,
+        active_identity: ActiveIdentitySnapshot,
     ) -> Result<AppSnapshot, SafeError> {
         let Some((target, _previous)) = self.pending_activation.as_ref() else {
             return Err(invalid_application_state());
         };
-        if active_account.account().public_key() != *target {
+        if active_identity.identity().public_key() != *target {
             return Err(invalid_application_state());
         }
         let target = *target;
@@ -248,7 +253,7 @@ impl StateMachine {
             revision,
             Some(target),
             SessionState::Active,
-            Some(active_account),
+            Some(active_identity),
             None,
         )
     }
@@ -263,9 +268,9 @@ impl StateMachine {
         };
         self.copy_ready(
             revision,
-            self.snapshot.selected_account(),
+            self.snapshot.selected_identity(),
             previous.session,
-            previous.active_account,
+            previous.active_identity,
             Some(problem),
         )
     }
@@ -274,67 +279,67 @@ impl StateMachine {
         self.pending_activation = None;
         self.copy_ready(
             revision,
-            self.snapshot.selected_account(),
+            self.snapshot.selected_identity(),
             SessionState::SignedOut,
             None,
             None,
         )
     }
 
-    fn update_active_account(
+    fn update_active_identity(
         &self,
         revision: crate::SnapshotRevision,
         expected: PublicKey,
-        active_account: ActiveAccountSnapshot,
+        active_identity: ActiveIdentitySnapshot,
         problem: Option<SafeError>,
     ) -> Result<AppSnapshot, SafeError> {
         if !matches!(self.snapshot.session(), SessionState::Active)
             || self
                 .snapshot
-                .active_account()
-                .map(|active| active.account().public_key())
+                .active_identity()
+                .map(|active| active.identity().public_key())
                 != Some(expected)
-            || active_account.account().public_key() != expected
+            || active_identity.identity().public_key() != expected
         {
             return Err(invalid_application_state());
         }
         self.copy_ready(
             revision,
-            self.snapshot.selected_account(),
+            self.snapshot.selected_identity(),
             SessionState::Active,
-            Some(active_account),
+            Some(active_identity),
             problem,
         )
     }
 
-    fn require_account(&self, public_key: PublicKey) -> Result<(), SafeError> {
+    fn require_identity(&self, public_key: PublicKey) -> Result<(), SafeError> {
         if self
             .snapshot
-            .accounts()
+            .identities()
             .iter()
-            .any(|account| account.public_key() == public_key)
+            .any(|identity| identity.public_key() == public_key)
         {
             Ok(())
         } else {
-            Err(account_not_found())
+            Err(identity_not_found())
         }
     }
 
     fn copy_ready(
         &self,
         revision: crate::SnapshotRevision,
-        selected_account: Option<PublicKey>,
+        selected_identity: Option<PublicKey>,
         session: SessionState,
-        active_account: Option<ActiveAccountSnapshot>,
+        active_identity: Option<ActiveIdentitySnapshot>,
         recoverable_problem: Option<SafeError>,
     ) -> Result<AppSnapshot, SafeError> {
         AppSnapshot::ready(
             revision,
             self.snapshot.relay_configuration().clone(),
-            self.snapshot.accounts().to_vec(),
-            selected_account,
+            self.snapshot.identities().to_vec(),
+            selected_identity,
             session,
-            active_account,
+            active_identity,
             recoverable_problem,
         )
     }
@@ -347,41 +352,41 @@ const fn invalid_application_state() -> SafeError {
     )
 }
 
-const fn account_not_found() -> SafeError {
+const fn identity_not_found() -> SafeError {
     SafeError::new(
-        SafeErrorCode::AccountNotFound,
-        SafeMessage::new("The account was not found."),
+        SafeErrorCode::IdentityNotFound,
+        SafeMessage::new("The identity was not found."),
     )
 }
 
 #[cfg(test)]
 mod tests {
     use harvestcircle_domain::{
-        AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
-        SafeError, SafeErrorCode, SafeMessage, UnixTimestamp,
+        IdentityCreatedAt, LocalKeyringBinding, NostrIdentity, NostrIdentityReference, SafeError,
+        SafeErrorCode, SafeMessage, SignerAvailability, UnixTimestamp,
     };
 
     use crate::{
-        ActiveAccountSnapshot, ProfileLoadState, RelayConfiguration, RelayConnectionState,
+        ActiveIdentitySnapshot, ProfileLoadState, RelayConfiguration, RelayConnectionState,
         SessionState, StateMachine, StateTransition,
     };
 
-    fn account(key_byte: u8) -> AccountSummary {
+    fn identity(key_byte: u8) -> NostrIdentity {
         let public_key =
             crate::test_support::valid_test_public_key(key_byte).expect("valid public key");
-        AccountSummary::new(
-            AccountIdentity::derive(public_key).expect("identity"),
-            LocalSignerBinding::new(public_key, BindingAvailability::Available),
+        NostrIdentity::new(
+            NostrIdentityReference::derive(public_key).expect("identity"),
+            LocalKeyringBinding::new(public_key, SignerAvailability::Available),
             None,
-            AccountCreatedAt::new(UnixTimestamp::from_seconds(1).expect("valid time")),
+            IdentityCreatedAt::new(UnixTimestamp::from_seconds(1).expect("valid time")),
             None,
         )
-        .expect("account")
+        .expect("identity")
     }
 
-    fn active(account: AccountSummary) -> ActiveAccountSnapshot {
-        ActiveAccountSnapshot::new(
-            account,
+    fn active(identity: NostrIdentity) -> ActiveIdentitySnapshot {
+        ActiveIdentitySnapshot::new(
+            identity,
             RelayConnectionState::Disconnected,
             ProfileLoadState::Empty,
             None,
@@ -390,13 +395,13 @@ mod tests {
 
     #[test]
     fn state_machine_command_trace_preserves_working_session_on_failed_replacement() {
-        let first = account(1);
-        let second = account(2);
+        let first = identity(1);
+        let second = identity(2);
         let mut machine = StateMachine::booting();
         let relays = RelayConfiguration::default();
         let problem = SafeError::new(
             SafeErrorCode::CredentialMissing,
-            SafeMessage::new("The account credential is missing."),
+            SafeMessage::new("The identity credential is missing."),
         );
 
         machine
@@ -405,7 +410,7 @@ mod tests {
         machine
             .apply(
                 StateTransition::ReplaceRegistry {
-                    accounts: vec![first.clone(), second.clone()],
+                    identities: vec![first.clone(), second.clone()],
                     selected: Some(first.public_key()),
                 },
                 &relays,
@@ -442,16 +447,16 @@ mod tests {
         );
         assert_eq!(
             pending
-                .active_account()
-                .map(|value| value.account().public_key()),
+                .active_identity()
+                .map(|value| value.identity().public_key()),
             Some(first.public_key())
         );
         assert_eq!(restored.session(), SessionState::Active);
-        assert_eq!(restored.selected_account(), Some(second.public_key()));
+        assert_eq!(restored.selected_identity(), Some(second.public_key()));
         assert_eq!(
             restored
-                .active_account()
-                .map(|value| value.account().public_key()),
+                .active_identity()
+                .map(|value| value.identity().public_key()),
             Some(first.public_key())
         );
         assert_eq!(restored.recoverable_problem(), Some(problem));
@@ -460,7 +465,7 @@ mod tests {
 
     #[test]
     fn state_machine_rejects_missing_targets_and_signs_out_without_deleting() {
-        let account = account(1);
+        let identity = identity(1);
         let mut machine = StateMachine::booting();
         let relays = RelayConfiguration::default();
         machine
@@ -469,8 +474,8 @@ mod tests {
         machine
             .apply(
                 StateTransition::ReplaceRegistry {
-                    accounts: vec![account.clone()],
-                    selected: Some(account.public_key()),
+                    identities: vec![identity.clone()],
+                    selected: Some(identity.public_key()),
                 },
                 &relays,
             )
@@ -483,18 +488,18 @@ mod tests {
                 ),
                 &relays,
             )
-            .expect_err("missing account");
-        assert_eq!(error.code(), SafeErrorCode::AccountNotFound);
+            .expect_err("missing identity");
+        assert_eq!(error.code(), SafeErrorCode::IdentityNotFound);
 
         machine
             .apply(
-                StateTransition::BeginActivation(account.public_key()),
+                StateTransition::BeginActivation(identity.public_key()),
                 &relays,
             )
             .expect("begin activation");
         machine
             .apply(
-                StateTransition::ActivationSucceeded(Box::new(active(account.clone()))),
+                StateTransition::ActivationSucceeded(Box::new(active(identity.clone()))),
                 &relays,
             )
             .expect("activate");
@@ -502,25 +507,25 @@ mod tests {
             .apply(StateTransition::SignOut, &relays)
             .expect("sign out");
 
-        assert_eq!(signed_out.accounts(), &[account]);
+        assert_eq!(signed_out.identities(), &[identity]);
         assert_eq!(signed_out.session(), SessionState::SignedOut);
-        assert!(signed_out.active_account().is_none());
+        assert!(signed_out.active_identity().is_none());
     }
 
     #[test]
     fn activation_state_policy_rejects_every_stale_or_mismatched_transition() {
-        let first = account(1);
-        let second = account(2);
+        let first = identity(1);
+        let second = identity(2);
         let relays = RelayConfiguration::default();
         let problem = SafeError::new(
             SafeErrorCode::CredentialMissing,
-            SafeMessage::new("The account credential is missing."),
+            SafeMessage::new("The identity credential is missing."),
         );
         let mut machine = StateMachine::booting();
         machine
             .apply(
                 StateTransition::BootstrapRegistry {
-                    accounts: vec![first.clone(), second.clone()],
+                    identities: vec![first.clone(), second.clone()],
                     selected: Some(first.public_key()),
                 },
                 &relays,
@@ -529,13 +534,13 @@ mod tests {
         let unchanged = machine
             .apply(
                 StateTransition::BootstrapRegistry {
-                    accounts: Vec::new(),
+                    identities: Vec::new(),
                     selected: None,
                 },
                 &relays,
             )
             .expect("repeated bootstrap is idempotent");
-        assert_eq!(unchanged.accounts().len(), 2);
+        assert_eq!(unchanged.identities().len(), 2);
 
         assert!(
             machine
@@ -586,9 +591,9 @@ mod tests {
             assert!(
                 machine
                     .apply(
-                        StateTransition::UpdateActiveAccount {
+                        StateTransition::UpdateActiveIdentity {
                             expected,
-                            active_account: Box::new(active(candidate)),
+                            active_identity: Box::new(active(candidate)),
                             problem: None,
                         },
                         &relays,
@@ -603,9 +608,9 @@ mod tests {
         assert!(
             machine
                 .apply(
-                    StateTransition::UpdateActiveAccount {
+                    StateTransition::UpdateActiveIdentity {
                         expected: first.public_key(),
-                        active_account: Box::new(active(first)),
+                        active_identity: Box::new(active(first)),
                         problem: None,
                     },
                     &relays,

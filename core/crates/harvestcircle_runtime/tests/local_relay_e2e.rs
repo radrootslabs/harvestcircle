@@ -37,7 +37,7 @@ async fn local_relay_e2e_imports_activates_refreshes_and_caches_profile() {
         .send_event_builder(EventBuilder::metadata(
             &Metadata::new()
                 .name("farmer")
-                .display_name("Farm Account")
+                .display_name("Farm Identity")
                 .about("Local food profile"),
         ))
         .await
@@ -57,12 +57,12 @@ async fn local_relay_e2e_imports_activates_refreshes_and_caches_profile() {
             &secrets,
             &FixedClock,
         )
-        .expect("import account");
-    let public_key = imported.account().public_key();
+        .expect("import identity");
+    let public_key = imported.identity().public_key();
     assert!(secrets.contains(public_key).expect("credential exists"));
     adapter
-        .activate_account(public_key, &secrets, &FixedClock)
-        .expect("activate account");
+        .activate_identity(public_key, &secrets, &FixedClock)
+        .expect("activate identity");
 
     let refreshed = adapter
         .core()
@@ -76,12 +76,12 @@ async fn local_relay_e2e_imports_activates_refreshes_and_caches_profile() {
         .expect("refresh profile");
 
     assert_eq!(refreshed.session(), SessionState::Active);
-    let active = refreshed.active_account().expect("active account");
+    let active = refreshed.active_identity().expect("active identity");
     assert_eq!(active.relay_state(), RelayConnectionState::Connected);
     assert_eq!(active.profile_state(), ProfileLoadState::Fresh);
     assert_eq!(
         active.profile().and_then(|profile| profile.display_name()),
-        Some("Farm Account")
+        Some("Farm Identity")
     );
     let cached = adapter
         .database()
@@ -90,7 +90,7 @@ async fn local_relay_e2e_imports_activates_refreshes_and_caches_profile() {
         .expect("cached profile");
     assert_eq!(
         cached.candidate().metadata().preferred_name(),
-        Some("Farm Account")
+        Some("Farm Identity")
     );
     let public_debug = format!("{refreshed:?}");
     assert!(!public_debug.contains(SECRET_HEX));

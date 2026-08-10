@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use harvestcircle_domain::{
-    AccountSummary, ProfileMetadata, PublicKey, RelayUrl, SafeError, SafeErrorCode, SafeMessage,
+    NostrIdentity, ProfileMetadata, PublicKey, RelayUrl, SafeError, SafeErrorCode, SafeMessage,
 };
 
 pub const MAX_CONFIGURED_RELAYS: usize = 16;
@@ -99,23 +99,23 @@ const fn relay_limit_exceeded() -> SafeError {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ActiveAccountSnapshot {
-    account: AccountSummary,
+pub struct ActiveIdentitySnapshot {
+    identity: NostrIdentity,
     relay_state: RelayConnectionState,
     profile_state: ProfileLoadState,
     profile: Option<ProfileMetadata>,
 }
 
-impl ActiveAccountSnapshot {
+impl ActiveIdentitySnapshot {
     #[must_use]
     pub const fn new(
-        account: AccountSummary,
+        identity: NostrIdentity,
         relay_state: RelayConnectionState,
         profile_state: ProfileLoadState,
         profile: Option<ProfileMetadata>,
     ) -> Self {
         Self {
-            account,
+            identity,
             relay_state,
             profile_state,
             profile,
@@ -123,8 +123,8 @@ impl ActiveAccountSnapshot {
     }
 
     #[must_use]
-    pub const fn account(&self) -> &AccountSummary {
-        &self.account
+    pub const fn identity(&self) -> &NostrIdentity {
+        &self.identity
     }
 
     #[must_use]
@@ -148,10 +148,10 @@ pub struct AppSnapshot {
     revision: SnapshotRevision,
     lifecycle: AppLifecycle,
     relay_configuration: RelayConfiguration,
-    accounts: Vec<AccountSummary>,
-    selected_account: Option<PublicKey>,
+    identities: Vec<NostrIdentity>,
+    selected_identity: Option<PublicKey>,
     session: SessionState,
-    active_account: Option<ActiveAccountSnapshot>,
+    active_identity: Option<ActiveIdentitySnapshot>,
     recoverable_problem: Option<SafeError>,
 }
 
@@ -162,10 +162,10 @@ impl AppSnapshot {
             revision: SnapshotRevision::initial(),
             lifecycle: AppLifecycle::Booting,
             relay_configuration: RelayConfiguration::default(),
-            accounts: Vec::new(),
-            selected_account: None,
+            identities: Vec::new(),
+            selected_identity: None,
             session: SessionState::SignedOut,
-            active_account: None,
+            active_identity: None,
             recoverable_problem: None,
         }
     }
@@ -180,10 +180,10 @@ impl AppSnapshot {
             revision,
             lifecycle: AppLifecycle::Fatal(error),
             relay_configuration,
-            accounts: Vec::new(),
-            selected_account: None,
+            identities: Vec::new(),
+            selected_identity: None,
             session: SessionState::SignedOut,
-            active_account: None,
+            active_identity: None,
             recoverable_problem: None,
         }
     }
@@ -192,31 +192,31 @@ impl AppSnapshot {
     ///
     /// # Errors
     ///
-    /// Returns a safe invalid-state error for duplicate accounts, invalid
+    /// Returns a safe invalid-state error for duplicate identities, invalid
     /// selection, or inconsistent active-session state.
     pub fn ready(
         revision: SnapshotRevision,
         relay_configuration: RelayConfiguration,
-        accounts: Vec<AccountSummary>,
-        selected_account: Option<PublicKey>,
+        identities: Vec<NostrIdentity>,
+        selected_identity: Option<PublicKey>,
         session: SessionState,
-        active_account: Option<ActiveAccountSnapshot>,
+        active_identity: Option<ActiveIdentitySnapshot>,
         recoverable_problem: Option<SafeError>,
     ) -> Result<Self, SafeError> {
         validate_snapshot(
-            &accounts,
-            selected_account,
+            &identities,
+            selected_identity,
             session,
-            active_account.as_ref(),
+            active_identity.as_ref(),
         )?;
         Ok(Self {
             revision,
             lifecycle: AppLifecycle::Ready,
             relay_configuration,
-            accounts,
-            selected_account,
+            identities,
+            selected_identity,
             session,
-            active_account,
+            active_identity,
             recoverable_problem,
         })
     }
@@ -237,13 +237,13 @@ impl AppSnapshot {
     }
 
     #[must_use]
-    pub fn accounts(&self) -> &[AccountSummary] {
-        &self.accounts
+    pub fn identities(&self) -> &[NostrIdentity] {
+        &self.identities
     }
 
     #[must_use]
-    pub const fn selected_account(&self) -> Option<PublicKey> {
-        self.selected_account
+    pub const fn selected_identity(&self) -> Option<PublicKey> {
+        self.selected_identity
     }
 
     #[must_use]
@@ -252,8 +252,8 @@ impl AppSnapshot {
     }
 
     #[must_use]
-    pub const fn active_account(&self) -> Option<&ActiveAccountSnapshot> {
-        self.active_account.as_ref()
+    pub const fn active_identity(&self) -> Option<&ActiveIdentitySnapshot> {
+        self.active_identity.as_ref()
     }
 
     #[must_use]
@@ -263,22 +263,22 @@ impl AppSnapshot {
 }
 
 fn validate_snapshot(
-    accounts: &[AccountSummary],
-    selected_account: Option<PublicKey>,
+    identities: &[NostrIdentity],
+    selected_identity: Option<PublicKey>,
     session: SessionState,
-    active_account: Option<&ActiveAccountSnapshot>,
+    active_identity: Option<&ActiveIdentitySnapshot>,
 ) -> Result<(), SafeError> {
-    let unique_accounts = accounts
+    let unique_identities = identities
         .iter()
-        .map(AccountSummary::public_key)
+        .map(NostrIdentity::public_key)
         .collect::<HashSet<_>>();
-    if unique_accounts.len() != accounts.len()
-        || (accounts.is_empty() != selected_account.is_none())
-        || selected_account.is_some_and(|key| !unique_accounts.contains(&key))
-        || active_account
-            .is_some_and(|active| !unique_accounts.contains(&active.account().public_key()))
-        || (matches!(session, SessionState::Active) && active_account.is_none())
-        || (matches!(session, SessionState::SignedOut) && active_account.is_some())
+    if unique_identities.len() != identities.len()
+        || (identities.is_empty() != selected_identity.is_none())
+        || selected_identity.is_some_and(|key| !unique_identities.contains(&key))
+        || active_identity
+            .is_some_and(|active| !unique_identities.contains(&active.identity().public_key()))
+        || (matches!(session, SessionState::Active) && active_identity.is_none())
+        || (matches!(session, SessionState::SignedOut) && active_identity.is_some())
     {
         return Err(invalid_snapshot());
     }
@@ -295,26 +295,26 @@ const fn invalid_snapshot() -> SafeError {
 #[cfg(test)]
 mod tests {
     use harvestcircle_domain::{
-        AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
-        RelayDestinationPolicy, RelayUrl, SafeErrorCode, UnixTimestamp,
+        IdentityCreatedAt, LocalKeyringBinding, NostrIdentity, NostrIdentityReference,
+        RelayDestinationPolicy, RelayUrl, SafeErrorCode, SignerAvailability, UnixTimestamp,
     };
 
     use super::{
-        ActiveAccountSnapshot, AppLifecycle, AppSnapshot, ProfileLoadState, RelayConfiguration,
+        ActiveIdentitySnapshot, AppLifecycle, AppSnapshot, ProfileLoadState, RelayConfiguration,
         RelayConnectionState, SessionState, SnapshotRevision,
     };
 
-    fn account(key_byte: u8) -> AccountSummary {
+    fn identity(key_byte: u8) -> NostrIdentity {
         let public_key =
             crate::test_support::valid_test_public_key(key_byte).expect("valid public key");
-        AccountSummary::new(
-            AccountIdentity::derive(public_key).expect("identity"),
-            LocalSignerBinding::new(public_key, BindingAvailability::Available),
+        NostrIdentity::new(
+            NostrIdentityReference::derive(public_key).expect("identity"),
+            LocalKeyringBinding::new(public_key, SignerAvailability::Available),
             None,
-            AccountCreatedAt::new(UnixTimestamp::from_seconds(1).expect("valid time")),
+            IdentityCreatedAt::new(UnixTimestamp::from_seconds(1).expect("valid time")),
             None,
         )
-        .expect("account")
+        .expect("identity")
     }
 
     #[test]
@@ -325,9 +325,9 @@ mod tests {
         assert_eq!(snapshot.revision(), SnapshotRevision::initial());
         assert_eq!(snapshot.lifecycle(), AppLifecycle::Booting);
         assert_eq!(snapshot.session(), SessionState::SignedOut);
-        assert!(snapshot.accounts().is_empty());
-        assert!(snapshot.selected_account().is_none());
-        assert!(snapshot.active_account().is_none());
+        assert!(snapshot.identities().is_empty());
+        assert!(snapshot.selected_identity().is_none());
+        assert!(snapshot.active_identity().is_none());
         assert!(snapshot.relay_configuration().relays().is_empty());
         assert!(snapshot.recoverable_problem().is_none());
         assert!(!debug.contains("nsec1"));
@@ -362,9 +362,9 @@ mod tests {
 
     #[test]
     fn ready_snapshot_requires_valid_selection_and_active_session() {
-        let first = account(1);
-        let second = account(2);
-        let active = ActiveAccountSnapshot::new(
+        let first = identity(1);
+        let second = identity(2);
+        let active = ActiveIdentitySnapshot::new(
             second.clone(),
             RelayConnectionState::Disconnected,
             ProfileLoadState::Empty,
@@ -382,11 +382,11 @@ mod tests {
         .expect("valid ready snapshot");
 
         assert_eq!(valid.lifecycle(), AppLifecycle::Ready);
-        assert_eq!(valid.selected_account(), Some(first.public_key()));
+        assert_eq!(valid.selected_identity(), Some(first.public_key()));
         assert_eq!(
             valid
-                .active_account()
-                .map(|value| value.account().public_key()),
+                .active_identity()
+                .map(|value| value.identity().public_key()),
             Some(second.public_key())
         );
 
@@ -415,7 +415,7 @@ mod tests {
             .is_err()
         );
 
-        let missing = account(3);
+        let missing = identity(3);
         for result in [
             AppSnapshot::ready(
                 SnapshotRevision::initial(),
@@ -450,7 +450,7 @@ mod tests {
                 vec![second.clone()],
                 Some(second.public_key()),
                 SessionState::SignedOut,
-                Some(ActiveAccountSnapshot::new(
+                Some(ActiveIdentitySnapshot::new(
                     missing,
                     RelayConnectionState::Disconnected,
                     ProfileLoadState::Empty,
@@ -464,7 +464,7 @@ mod tests {
                 vec![second.clone()],
                 Some(second.public_key()),
                 SessionState::SignedOut,
-                Some(ActiveAccountSnapshot::new(
+                Some(ActiveIdentitySnapshot::new(
                     second,
                     RelayConnectionState::Disconnected,
                     ProfileLoadState::Empty,

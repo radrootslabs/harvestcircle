@@ -83,11 +83,11 @@ private class ApplicationGateway : HarvestCircleCoreGateway {
 
     override suspend fun bootstrap() = applicationSnapshot(1UL)
 
-    override suspend fun beginGeneratedAccount(): GeneratedRecoveryTicket = error("unused")
+    override suspend fun beginGeneratedIdentity(): GeneratedRecoveryTicket = error("unused")
 
-    override suspend fun requestAccountRemoval(publicKeyHex: String): RemovalTicket = error("unused")
+    override suspend fun requestIdentityRemoval(publicKeyHex: String): RemovalTicket = error("unused")
 
-    override suspend fun confirmAccountRemoval(ticket: RemovalTicket) = error("unused")
+    override suspend fun confirmIdentityRemoval(ticket: RemovalTicket) = error("unused")
 
     override fun shutdown(): HarvestCircleShutdownReceipt {
         closed = true
@@ -105,11 +105,11 @@ private fun applicationSnapshot(revision: ULong) =
         lifecycle = AppLifecycleDto.READY,
         lifecycleError = null,
         configuredRelays = emptyList(),
-        accounts = emptyList(),
+        identities = emptyList(),
         selectedPublicKeyHex = null,
         session = SessionStateDto.SIGNED_OUT,
         sessionSubjectPublicKeyHex = null,
         sessionError = null,
-        activeAccount = null,
+        activeIdentity = null,
         recoverableProblem = null,
     )

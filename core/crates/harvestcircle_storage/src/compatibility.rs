@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use harvestcircle_domain::{
-    AccountIdentity, PersistedPublicKeyClassification, SafeError, SafeErrorCode, SafeMessage,
-    classify_persisted_public_key,
+    NostrIdentityReference, PersistedPublicKeyClassification, SafeError, SafeErrorCode,
+    SafeMessage, classify_persisted_public_key,
 };
 use rusqlite::{Connection, OpenFlags};
 use sha2::{Digest, Sha256};
@@ -259,7 +259,7 @@ fn scan_display_identities(
         else {
             continue;
         };
-        if AccountIdentity::verify(public_key, npub.clone()).is_err() {
+        if NostrIdentityReference::verify(public_key, npub.clone()).is_err() {
             issues.push(issue(
                 table,
                 npub_column,
@@ -339,7 +339,7 @@ mod tests {
         scan_display_identities, scan_public_key_column,
     };
     use crate::Database;
-    use harvestcircle_domain::{AccountIdentity, PublicKey, SafeErrorCode};
+    use harvestcircle_domain::{NostrIdentityReference, PublicKey, SafeErrorCode};
 
     fn tempdir() -> std::io::Result<TempDir> {
         tempdir_in(std::env::temp_dir().canonicalize()?)
@@ -418,12 +418,12 @@ mod tests {
     fn identity_scans_classify_all_persisted_key_and_display_failures() {
         let connection = Connection::open_in_memory().expect("database");
         connection
-            .execute("CREATE TABLE identities (public_key TEXT, npub TEXT)", [])
+            .execute("CREATE TABLE accounts (public_key TEXT, npub TEXT)", [])
             .expect("identity table");
         let canonical =
             PublicKey::from_hex("585591529da0bab31b3b1b1f986611cf5f435dca84f978c89ee8a40cca7103df")
                 .expect("canonical key");
-        let npub = AccountIdentity::derive(canonical)
+        let npub = NostrIdentityReference::derive(canonical)
             .expect("identity")
             .npub()
             .as_str()
@@ -438,19 +438,19 @@ mod tests {
         for (public_key, npub) in values {
             connection
                 .execute(
-                    "INSERT INTO identities (public_key, npub) VALUES (?1, ?2)",
+                    "INSERT INTO accounts (public_key, npub) VALUES (?1, ?2)",
                     params![public_key, npub],
                 )
                 .expect("identity row");
         }
 
-        assert!(column_exists(&connection, "identities", "public_key").expect("column"));
+        assert!(column_exists(&connection, "accounts", "public_key").expect("column"));
         assert!(!column_exists(&connection, "missing", "public_key").expect("missing table"));
-        assert!(!column_exists(&connection, "identities", "missing").expect("missing column"));
+        assert!(!column_exists(&connection, "accounts", "missing").expect("missing column"));
         let mut issues = Vec::new();
-        scan_public_key_column(&connection, "identities", "public_key", &mut issues)
+        scan_public_key_column(&connection, "accounts", "public_key", &mut issues)
             .expect("scan public keys");
-        scan_display_identities(&connection, "identities", "public_key", "npub", &mut issues)
+        scan_display_identities(&connection, "accounts", "public_key", "npub", &mut issues)
             .expect("scan display identities");
         scan_display_identities(&connection, "missing", "public_key", "npub", &mut issues)
             .expect("skip missing table");
@@ -469,7 +469,7 @@ mod tests {
             assert!(issues.iter().any(|issue| issue.kind() == kind));
         }
         for issue in &issues {
-            assert_eq!(issue.table(), "identities");
+            assert_eq!(issue.table(), "accounts");
             assert!(matches!(issue.column(), "public_key" | "npub"));
             assert!(issue.row_id() > 0);
             assert_ne!(issue.fingerprint(), &[0_u8; 32]);

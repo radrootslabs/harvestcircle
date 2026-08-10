@@ -243,7 +243,7 @@ mod tests {
     fn profile_fields_are_trimmed_bounded_and_public() {
         let metadata = ProfileMetadata::new(
             Some("  farmer  ".to_owned()),
-            Some("  Farm Account  ".to_owned()),
+            Some("  Farm Identity  ".to_owned()),
             Some("farmer@example.test".to_owned()),
             Some("First line\nSecond line".to_owned()),
             Some("https://images.example.test/profile.png".to_owned()),
@@ -251,8 +251,8 @@ mod tests {
         .expect("valid profile");
 
         assert_eq!(metadata.name(), Some("farmer"));
-        assert_eq!(metadata.display_name(), Some("Farm Account"));
-        assert_eq!(metadata.preferred_name(), Some("Farm Account"));
+        assert_eq!(metadata.display_name(), Some("Farm Identity"));
+        assert_eq!(metadata.preferred_name(), Some("Farm Identity"));
         assert_eq!(metadata.nip05(), Some("farmer@example.test"));
         assert_eq!(metadata.about(), Some("First line\nSecond line"));
         assert_eq!(

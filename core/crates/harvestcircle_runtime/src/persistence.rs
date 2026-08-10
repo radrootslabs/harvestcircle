@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use harvestcircle_application::{
-    AppCore, AppSnapshot, Clock, DurableRequestId, GenerateAccountReceipt, ImportAccountReceipt,
+    AppCore, AppSnapshot, Clock, DurableRequestId, GenerateIdentityReceipt, ImportIdentityReceipt,
     KeyMaterialProvider, RelayConfiguration, RemovalConfirmationToken, SecretStore,
     StagedGeneratedKey,
 };
@@ -45,7 +45,7 @@ impl PersistentAppCore {
         staged: StagedGeneratedKey,
         secrets: &(impl SecretStore + ?Sized),
         clock: &(impl Clock + ?Sized),
-    ) -> Result<ImportAccountReceipt, SafeError> {
+    ) -> Result<ImportIdentityReceipt, SafeError> {
         self.core.commit_staged_generated_key(
             request_id,
             staged,
@@ -89,7 +89,7 @@ impl PersistentAppCore {
         self.key_material.as_ref()
     }
 
-    /// Restores public accounts and selection while keeping the session signed out.
+    /// Restores public identities and selection while keeping the session signed out.
     ///
     /// # Errors
     ///
@@ -117,17 +117,17 @@ impl PersistentAppCore {
         self.core.bootstrap_from(&self.database, &self.database)
     }
 
-    /// Generates and durably persists one selected, signed-out local account.
+    /// Generates and durably persists one selected, signed-out local identity.
     ///
     /// # Errors
     ///
     /// Returns a safe credential, storage, key, or application-state error.
-    pub fn generate_account(
+    pub fn generate_identity(
         &self,
         secrets: &(impl SecretStore + ?Sized),
         clock: &(impl Clock + ?Sized),
-    ) -> Result<GenerateAccountReceipt, SafeError> {
-        self.core.generate_account(
+    ) -> Result<GenerateIdentityReceipt, SafeError> {
+        self.core.generate_identity(
             &self.database,
             &self.database,
             secrets,
@@ -136,7 +136,7 @@ impl PersistentAppCore {
         )
     }
 
-    /// Imports and durably persists one selected, signed-out local account.
+    /// Imports and durably persists one selected, signed-out local identity.
     ///
     /// # Errors
     ///
@@ -146,7 +146,7 @@ impl PersistentAppCore {
         input: SecretKeyInput,
         secrets: &(impl SecretStore + ?Sized),
         clock: &(impl Clock + ?Sized),
-    ) -> Result<ImportAccountReceipt, SafeError> {
+    ) -> Result<ImportIdentityReceipt, SafeError> {
         self.core.import_secret_key(
             input,
             &self.database,
@@ -157,19 +157,19 @@ impl PersistentAppCore {
         )
     }
 
-    /// Generates an account through the durable request coordinator.
+    /// Generates an identity through the durable request coordinator.
     ///
     /// # Errors
     ///
     /// Returns a safe conflict, credential, storage, or application-state error.
-    pub fn generate_account_durable(
+    pub fn generate_identity_durable(
         &self,
         request_id: &DurableRequestId,
         expected_revision: u64,
         secrets: &(impl SecretStore + ?Sized),
         clock: &(impl Clock + ?Sized),
-    ) -> Result<GenerateAccountReceipt, SafeError> {
-        self.core.generate_account_durable(
+    ) -> Result<GenerateIdentityReceipt, SafeError> {
+        self.core.generate_identity_durable(
             request_id,
             expected_revision,
             &self.database,
@@ -180,7 +180,7 @@ impl PersistentAppCore {
         )
     }
 
-    /// Imports or repairs an account through the durable request coordinator.
+    /// Imports or repairs an identity through the durable request coordinator.
     ///
     /// # Errors
     ///
@@ -192,7 +192,7 @@ impl PersistentAppCore {
         input: SecretKeyInput,
         secrets: &(impl SecretStore + ?Sized),
         clock: &(impl Clock + ?Sized),
-    ) -> Result<ImportAccountReceipt, SafeError> {
+    ) -> Result<ImportIdentityReceipt, SafeError> {
         self.core.import_secret_key_durable(
             request_id,
             expected_revision,
@@ -205,28 +205,28 @@ impl PersistentAppCore {
         )
     }
 
-    /// Persists and publishes one saved-account selection without activation.
+    /// Persists and publishes one saved-identity selection without activation.
     ///
     /// # Errors
     ///
-    /// Returns a safe account, storage, or application-state error.
-    pub fn select_account(&self, public_key: PublicKey) -> Result<AppSnapshot, SafeError> {
+    /// Returns a safe identity, storage, or application-state error.
+    pub fn select_identity(&self, public_key: PublicKey) -> Result<AppSnapshot, SafeError> {
         self.core
-            .select_account(public_key, &self.database, &self.database)
+            .select_identity(public_key, &self.database, &self.database)
     }
 
-    /// Activates a saved account after validating its credential and cached profile.
+    /// Activates a saved identity after validating its credential and cached profile.
     ///
     /// # Errors
     ///
-    /// Returns a safe account, credential, storage, or application-state error.
-    pub fn activate_account(
+    /// Returns a safe identity, credential, storage, or application-state error.
+    pub fn activate_identity(
         &self,
         public_key: PublicKey,
         secrets: &(impl SecretStore + ?Sized),
         clock: &(impl Clock + ?Sized),
     ) -> Result<AppSnapshot, SafeError> {
-        self.core.activate_account(
+        self.core.activate_identity(
             public_key,
             &self.database,
             &self.database,
@@ -236,7 +236,7 @@ impl PersistentAppCore {
         )
     }
 
-    /// Signs out while retaining durable account data and credentials.
+    /// Signs out while retaining durable identity data and credentials.
     ///
     /// # Errors
     ///
@@ -245,31 +245,31 @@ impl PersistentAppCore {
         self.core.sign_out()
     }
 
-    /// Issues a revision-bound, single-use account-removal confirmation.
+    /// Issues a revision-bound, single-use identity-removal confirmation.
     ///
     /// # Errors
     ///
-    /// Returns a safe error when the target account is not saved.
-    pub fn request_account_removal(
+    /// Returns a safe error when the target identity is not saved.
+    pub fn request_identity_removal(
         &self,
         public_key: PublicKey,
         clock: &(impl Clock + ?Sized),
     ) -> Result<RemovalConfirmationToken, SafeError> {
-        self.core.request_account_removal(public_key, clock)
+        self.core.request_identity_removal(public_key, clock)
     }
 
-    /// Permanently removes one confirmed account and its credential.
+    /// Permanently removes one confirmed identity and its credential.
     ///
     /// # Errors
     ///
     /// Returns a safe confirmation, credential, storage, recovery, or state error.
-    pub fn confirm_account_removal(
+    pub fn confirm_identity_removal(
         &self,
         token: RemovalConfirmationToken,
         secrets: &(impl SecretStore + ?Sized),
         clock: &(impl Clock + ?Sized),
     ) -> Result<AppSnapshot, SafeError> {
-        self.core.confirm_account_removal(
+        self.core.confirm_identity_removal(
             token,
             &self.database,
             &self.database,
@@ -284,14 +284,14 @@ impl PersistentAppCore {
     /// # Errors
     ///
     /// Returns a safe expiry, conflict, credential, storage, recovery, or state error.
-    pub fn confirm_account_removal_durable(
+    pub fn confirm_identity_removal_durable(
         &self,
         request_id: &DurableRequestId,
         token: RemovalConfirmationToken,
         secrets: &(impl SecretStore + ?Sized),
         clock: &(impl Clock + ?Sized),
     ) -> Result<AppSnapshot, SafeError> {
-        self.core.confirm_account_removal_durable(
+        self.core.confirm_identity_removal_durable(
             request_id,
             token,
             &self.database,
@@ -318,30 +318,30 @@ mod tests {
     use std::fs;
 
     use harvestcircle_application::{
-        AccountOperationKind, AccountOperationPhase, AccountRepository, AppLifecycle,
-        AppStateRepository, Clock, DurableOperationKind, DurableOperationPhase,
+        AppLifecycle, AppStateRepository, Clock, DurableOperationKind, DurableOperationPhase,
         DurableOperationRepository, DurableRequestId, DurableTerminalOutcome, FailureSecretStore,
-        InMemorySecretStore, OperationJournal, OperationPriorState, RelayConfiguration,
-        SecretStore, SecretStoreOperation, SessionState,
+        IdentityOperationKind, IdentityOperationPhase, IdentityRepository, InMemorySecretStore,
+        OperationJournal, OperationPriorState, RelayConfiguration, SecretStore,
+        SecretStoreOperation, SessionState,
     };
     use harvestcircle_domain::{
-        AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
-        PublicKey, SafeErrorCode, SecretKeyInput, UnixTimestamp,
+        IdentityCreatedAt, LocalKeyringBinding, NostrIdentity, NostrIdentityReference, PublicKey,
+        SafeErrorCode, SecretKeyInput, SignerAvailability, UnixTimestamp,
     };
     use tempfile::tempdir;
 
     use super::PersistentAppCore;
 
-    fn account() -> AccountSummary {
+    fn identity() -> NostrIdentity {
         let public_key = PublicKey::from_bytes([7; 32]).expect("valid public key");
-        AccountSummary::new(
-            AccountIdentity::derive(public_key).expect("identity"),
-            LocalSignerBinding::new(public_key, BindingAvailability::Available),
+        NostrIdentity::new(
+            NostrIdentityReference::derive(public_key).expect("identity"),
+            LocalKeyringBinding::new(public_key, SignerAvailability::Available),
             None,
-            AccountCreatedAt::new(UnixTimestamp::from_seconds(1).expect("time")),
+            IdentityCreatedAt::new(UnixTimestamp::from_seconds(1).expect("time")),
             None,
         )
-        .expect("account")
+        .expect("identity")
     }
 
     struct FixedClock;
@@ -360,7 +360,7 @@ mod tests {
             .canonicalize()
             .expect("canonical temporary directory")
             .join("harvestcircle.sqlite3");
-        let public_key = account().public_key();
+        let public_key = identity().public_key();
         let secrets = InMemorySecretStore::default();
         {
             let adapter = PersistentAppCore::open(&path, RelayConfiguration::default())
@@ -368,14 +368,14 @@ mod tests {
             let fresh = adapter
                 .bootstrap(&secrets, &FixedClock)
                 .expect("fresh bootstrap");
-            assert!(fresh.accounts().is_empty());
+            assert!(fresh.identities().is_empty());
             adapter
                 .database()
-                .insert_account(&account())
-                .expect("account");
+                .insert_identity(&identity())
+                .expect("identity");
             adapter
                 .database()
-                .save_selected_account(Some(public_key))
+                .save_selected_identity(Some(public_key))
                 .expect("selection");
         }
 
@@ -383,10 +383,10 @@ mod tests {
             PersistentAppCore::open(&path, RelayConfiguration::default()).expect("reopen adapter");
         let restored = adapter.bootstrap(&secrets, &FixedClock).expect("restore");
         assert_eq!(restored.lifecycle(), AppLifecycle::Ready);
-        assert_eq!(restored.accounts().len(), 1);
-        assert_eq!(restored.selected_account(), Some(public_key));
+        assert_eq!(restored.identities().len(), 1);
+        assert_eq!(restored.selected_identity(), Some(public_key));
         assert_eq!(restored.session(), SessionState::SignedOut);
-        assert!(restored.active_account().is_none());
+        assert!(restored.active_identity().is_none());
     }
 
     #[test]
@@ -424,11 +424,11 @@ mod tests {
                 PersistentAppCore::open(&path, RelayConfiguration::default()).expect("adapter");
             adapter.bootstrap(&secrets, &FixedClock).expect("bootstrap");
             let generated = adapter
-                .generate_account(&secrets, &FixedClock)
+                .generate_identity(&secrets, &FixedClock)
                 .expect("generate");
             assert!(
                 secrets
-                    .contains(generated.account().public_key())
+                    .contains(generated.identity().public_key())
                     .expect("generated credential")
             );
             let imported = adapter
@@ -442,8 +442,8 @@ mod tests {
                     &FixedClock,
                 )
                 .expect("import");
-            selected = imported.account().public_key();
-            assert_eq!(adapter.core().snapshot().accounts().len(), 2);
+            selected = imported.identity().public_key();
+            assert_eq!(adapter.core().snapshot().identities().len(), 2);
         }
 
         let bytes = fs::read(&path).expect("database bytes");
@@ -454,8 +454,8 @@ mod tests {
         let reopened =
             PersistentAppCore::open(&path, RelayConfiguration::default()).expect("reopen");
         let restored = reopened.bootstrap(&secrets, &FixedClock).expect("restore");
-        assert_eq!(restored.accounts().len(), 2);
-        assert_eq!(restored.selected_account(), Some(selected));
+        assert_eq!(restored.identities().len(), 2);
+        assert_eq!(restored.selected_identity(), Some(selected));
         assert_eq!(restored.session(), SessionState::SignedOut);
     }
 
@@ -483,7 +483,7 @@ mod tests {
             .expect("operation")
             .expect("durable record");
         let receipt = operation.terminal().expect("terminal receipt");
-        assert_eq!(receipt.account(), imported.account().public_key());
+        assert_eq!(receipt.identity(), imported.identity().public_key());
         assert_eq!(
             receipt.resulting_revision(),
             Some(adapter.core().snapshot().revision().value())
@@ -494,14 +494,14 @@ mod tests {
     fn durable_recovery_preserves_repair_metadata_and_deletes_orphan_credentials() {
         let adapter = PersistentAppCore::in_memory(RelayConfiguration::default()).expect("adapter");
         let secrets = InMemorySecretStore::default();
-        let missing = account().with_binding_availability(BindingAvailability::CredentialMissing);
+        let missing = identity().with_binding_availability(SignerAvailability::CredentialMissing);
         adapter
             .database()
-            .insert_account(&missing)
-            .expect("account");
+            .insert_identity(&missing)
+            .expect("identity");
         adapter
             .database()
-            .save_selected_account(Some(missing.public_key()))
+            .save_selected_identity(Some(missing.public_key()))
             .expect("selection");
         let request = DurableRequestId::parse("repair:recovery:1").expect("request");
         adapter
@@ -513,7 +513,7 @@ mod tests {
                 Some(0),
                 OperationPriorState::new(
                     Some(missing.public_key()),
-                    Some(BindingAvailability::CredentialMissing),
+                    Some(SignerAvailability::CredentialMissing),
                 ),
                 FixedClock.now(),
             )
@@ -541,12 +541,12 @@ mod tests {
         adapter.bootstrap(&secrets, &FixedClock).expect("recovery");
         let repaired = adapter
             .database()
-            .find_account(missing.public_key())
+            .find_identity(missing.public_key())
             .expect("lookup")
-            .expect("preserved account");
+            .expect("preserved identity");
         assert_eq!(
-            repaired.signer().availability(),
-            BindingAvailability::CredentialMissing
+            repaired.signer_binding().availability(),
+            SignerAvailability::CredentialMissing
         );
         assert!(!secrets.contains(missing.public_key()).expect("credential"));
         assert_eq!(
@@ -566,8 +566,11 @@ mod tests {
     fn durable_recovery_covers_response_loss_and_irreversible_removal_windows() {
         let secrets = InMemorySecretStore::default();
         let adapter = PersistentAppCore::in_memory(RelayConfiguration::default()).expect("adapter");
-        let saved = account();
-        adapter.database().insert_account(&saved).expect("account");
+        let saved = identity();
+        adapter
+            .database()
+            .insert_identity(&saved)
+            .expect("identity");
         let import = DurableRequestId::parse("import:response-loss:1").expect("request");
         adapter
             .database()
@@ -603,7 +606,7 @@ mod tests {
         let restored = adapter
             .bootstrap(&secrets, &FixedClock)
             .expect("response recovery");
-        assert_eq!(restored.selected_account(), Some(saved.public_key()));
+        assert_eq!(restored.selected_identity(), Some(saved.public_key()));
         assert_eq!(
             adapter
                 .database()
@@ -620,11 +623,11 @@ mod tests {
             PersistentAppCore::in_memory(RelayConfiguration::default()).expect("remove adapter");
         removal_adapter
             .database()
-            .insert_account(&saved)
-            .expect("remove account");
+            .insert_identity(&saved)
+            .expect("remove identity");
         removal_adapter
             .database()
-            .save_selected_account(Some(saved.public_key()))
+            .save_selected_identity(Some(saved.public_key()))
             .expect("remove selection");
         let removal = DurableRequestId::parse("remove:response-loss:1").expect("request");
         removal_adapter
@@ -634,7 +637,7 @@ mod tests {
                 DurableOperationKind::Remove,
                 saved.public_key(),
                 Some(0),
-                OperationPriorState::new(None, Some(BindingAvailability::Available)),
+                OperationPriorState::new(None, Some(SignerAvailability::Available)),
                 FixedClock.now(),
             )
             .expect("remove intent");
@@ -651,8 +654,8 @@ mod tests {
         let removed = removal_adapter
             .bootstrap(&secrets, &FixedClock)
             .expect("removal recovery");
-        assert!(removed.accounts().is_empty());
-        assert_eq!(removed.selected_account(), None);
+        assert!(removed.identities().is_empty());
+        assert_eq!(removed.selected_identity(), None);
     }
 
     #[test]
@@ -671,25 +674,25 @@ mod tests {
                 PersistentAppCore::open(&path, RelayConfiguration::default()).expect("adapter");
             adapter.bootstrap(&secrets, &FixedClock).expect("bootstrap");
             first = adapter
-                .generate_account(&secrets, &FixedClock)
+                .generate_identity(&secrets, &FixedClock)
                 .expect("first")
-                .account()
+                .identity()
                 .public_key();
             removed = adapter
-                .generate_account(&secrets, &FixedClock)
+                .generate_identity(&secrets, &FixedClock)
                 .expect("removed")
-                .account()
+                .identity()
                 .public_key();
             let operation = adapter
                 .database()
-                .begin_operation(AccountOperationKind::Remove, removed, FixedClock.now())
+                .begin_operation(IdentityOperationKind::Remove, removed, FixedClock.now())
                 .expect("intent");
             secrets.delete(removed).expect("credential deletion");
             adapter
                 .database()
                 .update_operation(
                     operation,
-                    AccountOperationPhase::CredentialDeleted,
+                    IdentityOperationPhase::CredentialDeleted,
                     FixedClock.now(),
                     None,
                 )
@@ -701,8 +704,8 @@ mod tests {
         let restored = reopened
             .bootstrap(&secrets, &FixedClock)
             .expect("recover and bootstrap");
-        assert_eq!(restored.accounts().len(), 1);
-        assert_eq!(restored.selected_account(), Some(first));
+        assert_eq!(restored.identities().len(), 1);
+        assert_eq!(restored.selected_identity(), Some(first));
         assert_eq!(restored.session(), SessionState::SignedOut);
         assert!(
             reopened
@@ -714,7 +717,7 @@ mod tests {
         assert!(
             reopened
                 .database()
-                .find_account(removed)
+                .find_identity(removed)
                 .expect("removed")
                 .is_none()
         );
@@ -732,17 +735,17 @@ mod tests {
         let adapter = PersistentAppCore::in_memory(RelayConfiguration::default()).expect("adapter");
         adapter
             .database()
-            .insert_account(&account())
-            .expect("account");
+            .insert_identity(&identity())
+            .expect("identity");
         adapter
             .database()
-            .save_selected_account(Some(account().public_key()))
+            .save_selected_identity(Some(identity().public_key()))
             .expect("selection");
         adapter
             .database()
             .begin_operation(
-                AccountOperationKind::Remove,
-                account().public_key(),
+                IdentityOperationKind::Remove,
+                identity().public_key(),
                 FixedClock.now(),
             )
             .expect("intent");
@@ -757,6 +760,6 @@ mod tests {
             .list_pending_operations()
             .expect("pending");
         assert_eq!(pending.len(), 1);
-        assert_eq!(pending[0].phase(), AccountOperationPhase::IntentRecorded);
+        assert_eq!(pending[0].phase(), IdentityOperationPhase::IntentRecorded);
     }
 }

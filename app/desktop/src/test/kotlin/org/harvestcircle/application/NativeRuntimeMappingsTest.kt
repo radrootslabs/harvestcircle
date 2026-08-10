@@ -4,13 +4,12 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.harvestcircle.ffi.AccountCommandReceiptDto
-import org.harvestcircle.ffi.AccountDto
-import org.harvestcircle.ffi.ActiveAccountDto
+import org.harvestcircle.ffi.ActiveIdentityDto
 import org.harvestcircle.ffi.AppLifecycleDto
 import org.harvestcircle.ffi.AppSnapshotDto
 import org.harvestcircle.ffi.HarvestCircleException
-import org.harvestcircle.ffi.KeyAvailabilityDto
+import org.harvestcircle.ffi.IdentityCommandReceiptDto
+import org.harvestcircle.ffi.IdentityDto
 import org.harvestcircle.ffi.ProfileDto
 import org.harvestcircle.ffi.ProfileLoadStateDto
 import org.harvestcircle.ffi.RelayConnectionStateDto
@@ -18,7 +17,8 @@ import org.harvestcircle.ffi.RequestContextDto
 import org.harvestcircle.ffi.SafeErrorDto
 import org.harvestcircle.ffi.SessionStateDto
 import org.harvestcircle.ffi.ShutdownReceiptDto
-import org.harvestcircle.ffi.SignerKindDto
+import org.harvestcircle.ffi.SignerAvailabilityDto
+import org.harvestcircle.ffi.SignerBindingKindDto
 import org.harvestcircle.ffi.SnapshotChangeDto
 import org.harvestcircle.ffi.WireErrorCategory
 import org.harvestcircle.ffi.WireErrorCode
@@ -49,16 +49,16 @@ class NativeRuntimeMappingsTest {
                 .size,
         )
         assertEquals(
-            3,
-            SignerKindDto.entries
-                .map(SignerKindDto::toSignerBindingKind)
+            1,
+            SignerBindingKindDto.entries
+                .map(SignerBindingKindDto::toSignerBindingKind)
                 .distinct()
                 .size,
         )
         assertEquals(
-            4,
-            KeyAvailabilityDto.entries
-                .map(KeyAvailabilityDto::toSignerAvailability)
+            3,
+            SignerAvailabilityDto.entries
+                .map(SignerAvailabilityDto::toSignerAvailability)
                 .distinct()
                 .size,
         )
@@ -109,7 +109,7 @@ class NativeRuntimeMappingsTest {
         assertEquals(ApplicationErrorCode.RelayConnectionFailed, mapped.lifecycleProblem?.code)
         assertEquals(native.configuredRelays, mapped.configuredRelays)
         assertEquals(
-            native.accounts.single().publicKeyHex,
+            native.identities.single().publicKeyHex,
             mapped.identities
                 .single()
                 .id.value,
@@ -135,7 +135,7 @@ class NativeRuntimeMappingsTest {
     fun receiptChangeContextAndShutdownMappingsPreserveRevisions() {
         val snapshot = populatedSnapshot(revision = 2UL)
         val result =
-            AccountCommandReceiptDto("operation-7", 2UL, snapshot)
+            IdentityCommandReceiptDto("operation-7", 2UL, snapshot)
                 .toApplicationResult()
         assertEquals(OperationId.from("operation-7"), result.operationId)
         assertEquals(SnapshotRevision(2UL), result.committedRevision)
@@ -179,10 +179,9 @@ class NativeRuntimeMappingsTest {
     }
 
     @Test
-    fun signerVariantsRemainExplicitWithoutClaimingFutureSupport() {
-        assertEquals(SignerBindingKind.LocalKeyring, SignerKindDto.LOCAL_SECRET.toSignerBindingKind())
-        assertIs<SignerBindingKind.Unsupported>(SignerKindDto.WATCH_ONLY.toSignerBindingKind())
-        assertIs<SignerBindingKind.Unsupported>(SignerKindDto.REMOTE_NIP46.toSignerBindingKind())
+    fun onlyTheImplementedLocalKeyringBindingIsPublished() {
+        assertEquals(SignerBindingKind.LocalKeyring, SignerBindingKindDto.LOCAL_KEYRING.toSignerBindingKind())
+        assertEquals(1, SignerBindingKindDto.entries.size)
     }
 }
 
@@ -207,7 +206,7 @@ class NativeHarvestCircleRuntimeTest {
             runtime.execute(ApplicationCommand.AcknowledgeGeneratedIdentity(recovery.requestId, context))
             assertTrue(port.generated.closed)
 
-            val identityId = IdentityId.fromPublicKeyHex(nativeAccount().publicKeyHex)
+            val identityId = IdentityId.fromPublicKeyHex(nativeIdentity().publicKeyHex)
             val removal = runtime.requestIdentityRemoval(identityId)
             assertEquals("removal-1", removal.requestId.value)
             runtime.execute(ApplicationCommand.ConfirmIdentityRemoval(removal.requestId, context))
@@ -277,9 +276,9 @@ private class FakeNativeCorePort : NativeCorePort {
     override suspend fun importIdentity(
         context: RequestContextDto,
         secretKey: ByteArray,
-    ): AccountCommandReceiptDto {
+    ): IdentityCommandReceiptDto {
         importedSecret = secretKey.copyOf()
-        return AccountCommandReceiptDto(context.requestId, snapshot.revision, snapshot)
+        return IdentityCommandReceiptDto(context.requestId, snapshot.revision, snapshot)
     }
 
     override suspend fun selectIdentity(publicKeyHex: String): AppSnapshotDto = snapshot
@@ -314,7 +313,7 @@ private class FakeNativeCorePort : NativeCorePort {
 private class FakeGeneratedRecoveryHandle : NativeGeneratedRecoveryHandle {
     var closed = false
 
-    override fun account(): AccountDto = nativeAccount()
+    override fun identity(): IdentityDto = nativeIdentity()
 
     override fun expiresAtSeconds(): Long = 100
 
@@ -328,7 +327,7 @@ private class FakeGeneratedRecoveryHandle : NativeGeneratedRecoveryHandle {
 private class FakeRemovalHandle : NativeRemovalHandle {
     var closed = false
 
-    override fun publicKeyHex(): String = nativeAccount().publicKeyHex
+    override fun publicKeyHex(): String = nativeIdentity().publicKeyHex
 
     override fun deletesLocalCredential(): Boolean = true
 
@@ -342,20 +341,20 @@ private class FakeRemovalHandle : NativeRemovalHandle {
 }
 
 private fun populatedSnapshot(revision: ULong): AppSnapshotDto {
-    val account = nativeAccount()
+    val identity = nativeIdentity()
     return AppSnapshotDto(
         revision = revision,
         lifecycle = AppLifecycleDto.DEGRADED,
         lifecycleError = safeError(WireErrorCode.RELAY_CONNECTION_FAILED),
         configuredRelays = listOf("wss://relay.example"),
-        accounts = listOf(account),
-        selectedPublicKeyHex = account.publicKeyHex,
+        identities = listOf(identity),
+        selectedPublicKeyHex = identity.publicKeyHex,
         session = SessionStateDto.ACTIVE,
-        sessionSubjectPublicKeyHex = account.publicKeyHex,
+        sessionSubjectPublicKeyHex = identity.publicKeyHex,
         sessionError = safeError(WireErrorCode.CREDENTIAL_MISSING),
-        activeAccount =
-            ActiveAccountDto(
-                account = account,
+        activeIdentity =
+            ActiveIdentityDto(
+                identity = identity,
                 relayState = RelayConnectionStateDto.CONNECTED,
                 profileState = ProfileLoadStateDto.FRESH,
                 profile = ProfileDto("name", "display", "name@example.com", "about", "https://example.com/p.png"),
@@ -370,22 +369,22 @@ private fun emptySnapshot(): AppSnapshotDto =
         lifecycle = AppLifecycleDto.READY,
         lifecycleError = null,
         configuredRelays = emptyList(),
-        accounts = emptyList(),
+        identities = emptyList(),
         selectedPublicKeyHex = null,
         session = SessionStateDto.SIGNED_OUT,
         sessionSubjectPublicKeyHex = null,
         sessionError = null,
-        activeAccount = null,
+        activeIdentity = null,
         recoverableProblem = null,
     )
 
-private fun nativeAccount(): AccountDto =
-    AccountDto(
+private fun nativeIdentity(): IdentityDto =
+    IdentityDto(
         publicKeyHex = "01".repeat(32),
         npub = "npub1identity",
         displayLabel = "Identity",
-        signerKind = SignerKindDto.LOCAL_SECRET,
-        keyAvailability = KeyAvailabilityDto.AVAILABLE,
+        signerBindingKind = SignerBindingKindDto.LOCAL_KEYRING,
+        signerAvailability = SignerAvailabilityDto.AVAILABLE,
         createdAtSeconds = 1,
         lastUsedAtSeconds = 2,
     )

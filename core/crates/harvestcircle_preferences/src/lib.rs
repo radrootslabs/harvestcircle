@@ -3,7 +3,7 @@
 //!
 //! This module carries forward the uniquely required preference behavior from
 //! source commit `6074a4745be361f21bb47d4778c74a14b2d57954`. It intentionally
-//! excludes that source's process-global state, sample account, and FFI layer.
+//! excludes that source's process-global state, sample identity, and FFI layer.
 
 use url::Url;
 

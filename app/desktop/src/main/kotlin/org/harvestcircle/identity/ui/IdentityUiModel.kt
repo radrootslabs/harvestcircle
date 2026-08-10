@@ -1,24 +1,24 @@
-package org.harvestcircle.accounts.ui
+package org.harvestcircle.identities.ui
 
-import org.harvestcircle.application.AccountEntryMode
 import org.harvestcircle.application.HarvestCircleRoute
 import org.harvestcircle.application.HarvestCircleStoreState
+import org.harvestcircle.application.IdentityEntryMode
 import org.harvestcircle.application.RemovalImpactState
 import org.harvestcircle.application.RemovalStatus
-import org.harvestcircle.ffi.AccountDto
-import org.harvestcircle.ffi.ActiveAccountDto
+import org.harvestcircle.ffi.ActiveIdentityDto
+import org.harvestcircle.ffi.IdentityDto
 import org.harvestcircle.ffi.ProfileLoadStateDto
 import org.harvestcircle.ffi.RelayConnectionStateDto
 import org.harvestcircle.ffi.SessionStateDto
 import org.harvestcircle.ffi.WireErrorCode
 import org.harvestcircle.ffi.WireRecoveryAction
 
-data class AccountUiModel(
+data class IdentityUiModel(
     val publicKeyHex: String,
     val npub: String,
     val shortNpub: String,
     val label: String,
-    val keyAvailability: String,
+    val signerAvailability: String,
     val selected: Boolean,
     val active: Boolean,
 )
@@ -31,8 +31,8 @@ data class ProfileUiModel(
     val picture: String,
 )
 
-data class ActiveAccountUiModel(
-    val account: AccountUiModel,
+data class ActiveIdentityUiModel(
+    val identity: IdentityUiModel,
     val heading: String,
     val relayState: String,
     val profileState: String,
@@ -48,8 +48,8 @@ class GeneratedKeyBackupUiModel(
 
 data class HarvestCircleUiModel(
     val route: HarvestCircleRoute,
-    val accounts: List<AccountUiModel>,
-    val activeAccount: ActiveAccountUiModel?,
+    val identities: List<IdentityUiModel>,
+    val activeIdentity: ActiveIdentityUiModel?,
     val configuredRelays: List<String>,
     val importDraft: String,
     val generatedKeyBackup: GeneratedKeyBackupUiModel?,
@@ -57,8 +57,8 @@ data class HarvestCircleUiModel(
     val removalImpact: RemovalImpactState?,
     val removalStatus: RemovalStatus,
     val lastRemovedPublicKeyHex: String?,
-    val accountChooserVisible: Boolean,
-    val accountEntryMode: AccountEntryMode,
+    val identityChooserVisible: Boolean,
+    val identityEntryMode: IdentityEntryMode,
     val session: SessionStateDto,
     val busy: Boolean,
     val problem: String?,
@@ -68,9 +68,9 @@ data class HarvestCircleUiModel(
 
 fun HarvestCircleStoreState.toUiModel(): HarvestCircleUiModel {
     val selectedPublicKeyHex = snapshot.selectedPublicKeyHex
-    val activePublicKeyHex = snapshot.activeAccount?.account?.publicKeyHex
-    val accounts =
-        snapshot.accounts.map {
+    val activePublicKeyHex = snapshot.activeIdentity?.identity?.publicKeyHex
+    val identities =
+        snapshot.identities.map {
             it.toUiModel(
                 selected = it.publicKeyHex == selectedPublicKeyHex,
                 active = it.publicKeyHex == activePublicKeyHex,
@@ -78,8 +78,8 @@ fun HarvestCircleStoreState.toUiModel(): HarvestCircleUiModel {
         }
     return HarvestCircleUiModel(
         route = route,
-        accounts = accounts,
-        activeAccount = snapshot.activeAccount?.toUiModel(selectedPublicKeyHex),
+        identities = identities,
+        activeIdentity = snapshot.activeIdentity?.toUiModel(selectedPublicKeyHex),
         configuredRelays = snapshot.configuredRelays,
         importDraft = importDraft,
         generatedKeyBackup =
@@ -90,8 +90,8 @@ fun HarvestCircleStoreState.toUiModel(): HarvestCircleUiModel {
         removalImpact = removalImpact,
         removalStatus = removalStatus,
         lastRemovedPublicKeyHex = lastRemovedPublicKeyHex,
-        accountChooserVisible = accountChooserVisible,
-        accountEntryMode = accountEntryMode,
+        identityChooserVisible = identityChooserVisible,
+        identityEntryMode = identityEntryMode,
         session = snapshot.session,
         busy = busy,
         problem =
@@ -110,9 +110,9 @@ private fun importGuidance(
 ): String? =
     when {
         code == WireErrorCode.INVALID_SECRET_KEY -> "Enter a valid nsec or 64-character hexadecimal secret key."
-        code == WireErrorCode.ACCOUNT_ALREADY_EXISTS -> "This Nostr account is already saved."
+        code == WireErrorCode.IDENTITY_ALREADY_EXISTS -> "This Nostr identity is already saved."
         code == WireErrorCode.CREDENTIAL_MISSING || recoveryAction == WireRecoveryAction.REPAIR_CREDENTIAL ->
-            "This saved account is missing its local credential. Re-enter its secret key to repair it."
+            "This saved identity is missing its local credential. Re-enter its secret key to repair it."
         else -> null
     }
 
@@ -127,30 +127,30 @@ fun shortenNpub(npub: String): String =
         "${npub.take(SHORT_NPUB_PREFIX_LENGTH)}…${npub.takeLast(SHORT_NPUB_SUFFIX_LENGTH)}"
     }
 
-private fun AccountDto.toUiModel(
+private fun IdentityDto.toUiModel(
     selected: Boolean,
     active: Boolean = false,
-) = AccountUiModel(
+) = IdentityUiModel(
     publicKeyHex = publicKeyHex,
     npub = npub,
     shortNpub = shortenNpub(npub),
     label = displayLabel.ifBlank { shortenNpub(npub) },
-    keyAvailability = keyAvailability.name.lowercase().replace('_', ' '),
+    signerAvailability = signerAvailability.name.lowercase().replace('_', ' '),
     selected = selected,
     active = active,
 )
 
-private fun ActiveAccountDto.toUiModel(selectedPublicKeyHex: String?) =
-    ActiveAccountUiModel(
-        account =
-            account.toUiModel(
-                selected = account.publicKeyHex == selectedPublicKeyHex,
+private fun ActiveIdentityDto.toUiModel(selectedPublicKeyHex: String?) =
+    ActiveIdentityUiModel(
+        identity =
+            identity.toUiModel(
+                selected = identity.publicKeyHex == selectedPublicKeyHex,
                 active = true,
             ),
         heading =
             profile?.displayName?.takeIf(String::isNotBlank)
                 ?: profile?.name?.takeIf(String::isNotBlank)
-                ?: account.displayLabel.ifBlank { shortenNpub(account.npub) },
+                ?: identity.displayLabel.ifBlank { shortenNpub(identity.npub) },
         relayState = relayState.toDisplayText(),
         profileState = profileState.toDisplayText(),
         profile =

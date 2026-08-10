@@ -10,17 +10,17 @@ import kotlin.test.assertEquals
 
 class NostrOnlySourceGuardTest {
     @Test
-    fun activeKotlinSourcesContainNoRetiredAccountArchitecture() {
+    fun activeKotlinSourcesContainNoRetiredIdentityArchitecture() {
         val sourceRoot = findSourceRoot()
         val forbidden =
             listOf(
                 "server" + "url",
-                "account" + " server",
+                "identity" + " server",
                 "editadd" + "server" + "url",
                 "login" + "status",
                 "java.util." + "uuid",
-                "accounts" + "reducer",
-                "accounts" + "store",
+                "identities" + "reducer",
+                "identities" + "store",
             )
         val findings =
             Files.walk(sourceRoot).use { paths ->

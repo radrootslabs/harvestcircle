@@ -1,4 +1,4 @@
-//! Time values shared by account and profile records.
+//! Time values shared by identity and profile records.
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct UnixTimestamp(i64);

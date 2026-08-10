@@ -195,7 +195,7 @@ mod tests {
         publisher.wait_for_connection(Duration::from_secs(2)).await;
         publisher
             .send_event_builder(EventBuilder::metadata(
-                &Metadata::new().name("Farmer").display_name("Farm Account"),
+                &Metadata::new().name("Farmer").display_name("Farm Identity"),
             ))
             .await
             .expect("publish metadata");
@@ -217,7 +217,7 @@ mod tests {
         let profile = profile.expect("published profile");
 
         assert_eq!(profile.author(), public_key);
-        assert_eq!(profile.metadata().preferred_name(), Some("Farm Account"));
+        assert_eq!(profile.metadata().preferred_name(), Some("Farm Identity"));
         assert_eq!(
             completeness,
             harvestcircle_application::RelayFetchCompleteness::Complete

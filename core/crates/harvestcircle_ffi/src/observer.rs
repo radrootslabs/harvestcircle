@@ -437,7 +437,7 @@ mod tests {
             .await
             .expect("subscribe");
         let imported = core
-            .import_account_v2(
+            .import_identity(
                 crate::RequestContextDto {
                     request_id: "observer-import".to_owned(),
                     expected_revision: core.snapshot().revision,
@@ -449,13 +449,13 @@ mod tests {
             .expect("import")
             .snapshot;
         let public_key = imported.selected_public_key_hex.expect("selection");
-        core.activate_account(public_key).await.expect("activate");
+        core.activate_identity(public_key).await.expect("activate");
         core.refresh_active_profile().await.expect("refresh");
 
         wait_for_fresh_profile(&observer).await;
         let snapshots = observer.snapshots.lock().expect("snapshots").clone();
         assert!(snapshots.iter().any(|snapshot| {
-            snapshot.active_account.as_ref().is_some_and(|active| {
+            snapshot.active_identity.as_ref().is_some_and(|active| {
                 active.profile_state == ProfileLoadStateDto::Fresh
                     && active
                         .profile
@@ -503,7 +503,7 @@ mod tests {
                     .expect("snapshots")
                     .iter()
                     .any(|snapshot| {
-                        snapshot.active_account.as_ref().is_some_and(|active| {
+                        snapshot.active_identity.as_ref().is_some_and(|active| {
                             active.profile_state == ProfileLoadStateDto::Fresh
                         })
                     });

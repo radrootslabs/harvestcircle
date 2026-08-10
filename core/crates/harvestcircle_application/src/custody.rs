@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use crate::KeyMaterialProvider;
 use harvestcircle_domain::{
-    AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
-    Nsec, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput, UnixTimestamp,
+    IdentityCreatedAt, LocalKeyringBinding, NostrIdentity, NostrIdentityReference, Nsec, SafeError,
+    SafeErrorCode, SafeMessage, SecretKeyInput, SignerAvailability, UnixTimestamp,
 };
 pub const GENERATED_KEY_STAGE_TTL: Duration = Duration::from_mins(5);
 
@@ -26,14 +26,14 @@ impl RecoveryStageId {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GeneratedKeyStageView {
-    account: AccountSummary,
+    identity: NostrIdentity,
     expires_at: UnixTimestamp,
 }
 
 impl GeneratedKeyStageView {
     #[must_use]
-    pub const fn account(&self) -> &AccountSummary {
-        &self.account
+    pub const fn identity(&self) -> &NostrIdentity {
+        &self.identity
     }
 
     #[must_use]
@@ -44,7 +44,7 @@ impl GeneratedKeyStageView {
 
 pub struct StagedGeneratedKey {
     id: RecoveryStageId,
-    account: AccountSummary,
+    identity: NostrIdentity,
     secret: SecretKeyInput,
     expected_revision: u64,
     expires_at: UnixTimestamp,
@@ -54,7 +54,7 @@ impl StagedGeneratedKey {
     #[must_use]
     pub fn view(&self) -> GeneratedKeyStageView {
         GeneratedKeyStageView {
-            account: self.account.clone(),
+            identity: self.identity.clone(),
             expires_at: self.expires_at,
         }
     }
@@ -70,13 +70,13 @@ impl StagedGeneratedKey {
     }
 
     #[must_use]
-    pub const fn account(&self) -> &AccountSummary {
-        &self.account
+    pub const fn identity(&self) -> &NostrIdentity {
+        &self.identity
     }
 
     #[must_use]
-    pub fn into_commit_parts(self) -> (AccountSummary, SecretKeyInput) {
-        (self.account, self.secret)
+    pub fn into_commit_parts(self) -> (NostrIdentity, SecretKeyInput) {
+        (self.identity, self.secret)
     }
 }
 
@@ -143,11 +143,11 @@ impl GeneratedKeyStage {
         }
         let generated = key_material.generate()?;
         let (public_key, npub, secret, recovery_nsec) = generated.into_parts();
-        let account = AccountSummary::new(
-            AccountIdentity::verify(public_key, npub.as_str().to_owned())?,
-            LocalSignerBinding::new(public_key, BindingAvailability::Available),
+        let identity = NostrIdentity::new(
+            NostrIdentityReference::verify(public_key, npub.as_str().to_owned())?,
+            LocalKeyringBinding::new(public_key, SignerAvailability::Available),
             None,
-            AccountCreatedAt::new(now),
+            IdentityCreatedAt::new(now),
             None,
         )?;
         let ttl =
@@ -159,7 +159,7 @@ impl GeneratedKeyStage {
             .ok_or_else(invalid_stage_expiry)?;
         let pending = StagedGeneratedKey {
             id,
-            account,
+            identity,
             secret,
             expected_revision,
             expires_at,
@@ -263,7 +263,7 @@ mod tests {
         assert!(handle.take_recovery_nsec().is_err());
         assert!(stage.cancel());
         assert!(!stage.cancel());
-        assert!(format!("{view:?}").contains(view.account().npub().as_str()));
+        assert!(format!("{view:?}").contains(view.identity().npub().as_str()));
         assert!(!format!("{view:?}").contains("nsec1"));
     }
 

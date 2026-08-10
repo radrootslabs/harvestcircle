@@ -1,9 +1,9 @@
 use std::fs;
 
-use harvestcircle_application::{AccountOperationKind, AccountRepository, OperationJournal};
+use harvestcircle_application::{IdentityOperationKind, IdentityRepository, OperationJournal};
 use harvestcircle_domain::{
-    AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
-    PublicKey, UnixTimestamp,
+    IdentityCreatedAt, LocalKeyringBinding, NostrIdentity, NostrIdentityReference, PublicKey,
+    SignerAvailability, UnixTimestamp,
 };
 use harvestcircle_storage::Database;
 use tempfile::{TempDir, tempdir_in};
@@ -35,19 +35,19 @@ fn redaction_guards_sqlite_schema_and_non_secret_records() {
     {
         let database = Database::open(&path).expect("database");
         let public_key = PublicKey::from_bytes([7; 32]).expect("valid public key");
-        let account = AccountSummary::new(
-            AccountIdentity::derive(public_key).expect("identity"),
-            LocalSignerBinding::new(public_key, BindingAvailability::Available),
+        let identity = NostrIdentity::new(
+            NostrIdentityReference::derive(public_key).expect("identity"),
+            LocalKeyringBinding::new(public_key, SignerAvailability::Available),
             None,
-            AccountCreatedAt::new(UnixTimestamp::from_seconds(1).expect("time")),
+            IdentityCreatedAt::new(UnixTimestamp::from_seconds(1).expect("time")),
             None,
         )
-        .expect("account");
-        database.insert_account(&account).expect("account");
+        .expect("identity");
+        database.insert_identity(&identity).expect("identity");
         database
             .begin_operation(
-                AccountOperationKind::Add,
-                account.public_key(),
+                IdentityOperationKind::Add,
+                identity.public_key(),
                 UnixTimestamp::from_seconds(2).expect("time"),
             )
             .expect("journal");

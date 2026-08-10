@@ -2,7 +2,7 @@ use harvestcircle_domain::{PublicKey, RelayUrl, SafeError, SafeErrorCode};
 use std::time::Instant;
 
 use crate::{
-    ActiveAccountSnapshot, AppCore, AppSnapshot, CachedProfile, Clock, NostrClient,
+    ActiveIdentitySnapshot, AppCore, AppSnapshot, CachedProfile, Clock, NostrClient,
     ProfileFetchResult, ProfileLoadState, ProfileRefreshStatus, ProfileRepository,
     RelayConnectionState, RelayFetchCompleteness, SnapshotRevision, StateTransition,
 };
@@ -10,7 +10,7 @@ use crate::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProfileRefreshPlan {
     public_key: PublicKey,
-    active_account: ActiveAccountSnapshot,
+    active_identity: ActiveIdentitySnapshot,
     relays: Vec<RelayUrl>,
     expected_revision: SnapshotRevision,
 }
@@ -22,8 +22,8 @@ impl ProfileRefreshPlan {
     }
 
     #[must_use]
-    pub const fn active_account(&self) -> &ActiveAccountSnapshot {
-        &self.active_account
+    pub const fn active_identity(&self) -> &ActiveIdentitySnapshot {
+        &self.active_identity
     }
 
     #[must_use]
@@ -38,7 +38,7 @@ impl ProfileRefreshPlan {
 }
 
 impl AppCore {
-    /// Manually refreshes the active account's Nostr kind-0 profile.
+    /// Manually refreshes the active identity's Nostr kind-0 profile.
     ///
     /// Cached public metadata remains visible while the asynchronous request is
     /// running. Calling this command while signed out is an idempotent no-op.
@@ -54,19 +54,19 @@ impl AppCore {
         clock: &(impl Clock + ?Sized),
         deadline: Instant,
     ) -> Result<AppSnapshot, SafeError> {
-        self.refresh_profile_for_active_account(profiles, client, clock, deadline)
+        self.refresh_profile_for_active_identity(profiles, client, clock, deadline)
             .await
     }
 
-    /// Refreshes the current active account while retaining any cached profile.
+    /// Refreshes the current active identity while retaining any cached profile.
     ///
-    /// Stale results are discarded when the account is replaced or signed out.
+    /// Stale results are discarded when the identity is replaced or signed out.
     ///
     /// # Errors
     ///
     /// Returns a safe storage or application-state error. Relay and invalid-data
     /// failures are represented as nonfatal snapshot state.
-    async fn refresh_profile_for_active_account(
+    async fn refresh_profile_for_active_identity(
         &self,
         profiles: &(impl ProfileRepository + ?Sized),
         client: &(impl NostrClient + ?Sized),
@@ -88,14 +88,14 @@ impl AppCore {
     ///
     /// Returns a safe state error when the loading transition is invalid.
     pub fn begin_profile_refresh(&self) -> Result<Option<ProfileRefreshPlan>, SafeError> {
-        let Some(active) = self.snapshot().active_account().cloned() else {
+        let Some(active) = self.snapshot().active_identity().cloned() else {
             return Ok(None);
         };
-        let public_key = active.account().public_key();
-        let loading = self.apply_transition(StateTransition::UpdateActiveAccount {
+        let public_key = active.identity().public_key();
+        let loading = self.apply_transition(StateTransition::UpdateActiveIdentity {
             expected: public_key,
-            active_account: Box::new(ActiveAccountSnapshot::new(
-                active.account().clone(),
+            active_identity: Box::new(ActiveIdentitySnapshot::new(
+                active.identity().clone(),
                 RelayConnectionState::Connecting,
                 ProfileLoadState::Loading,
                 active.profile().cloned(),
@@ -104,7 +104,7 @@ impl AppCore {
         })?;
         Ok(Some(ProfileRefreshPlan {
             public_key,
-            active_account: active,
+            active_identity: active,
             relays: loading.relay_configuration().relays().to_vec(),
             expected_revision: loading.revision(),
         }))
@@ -129,7 +129,7 @@ impl AppCore {
 
         let current_active = self
             .snapshot()
-            .active_account()
+            .active_identity()
             .cloned()
             .ok_or_else(invalid_profile_completion)?;
 
@@ -148,10 +148,10 @@ impl AppCore {
             Err(error) => {
                 let status = refresh_status(error);
                 profiles.record_refresh_status(plan.public_key(), clock.now(), status)?;
-                self.apply_transition(StateTransition::UpdateActiveAccount {
+                self.apply_transition(StateTransition::UpdateActiveIdentity {
                     expected: plan.public_key(),
-                    active_account: Box::new(ActiveAccountSnapshot::new(
-                        current_active.account().clone(),
+                    active_identity: Box::new(ActiveIdentitySnapshot::new(
+                        current_active.identity().clone(),
                         RelayConnectionState::Degraded,
                         ProfileLoadState::Error(error),
                         current_active.profile().cloned(),
@@ -165,7 +165,7 @@ impl AppCore {
     fn complete_successful_profile_fetch(
         &self,
         plan: &ProfileRefreshPlan,
-        current_active: ActiveAccountSnapshot,
+        current_active: ActiveIdentitySnapshot,
         candidate: Option<harvestcircle_domain::Kind0ProfileCandidate>,
         completeness: RelayFetchCompleteness,
         profiles: &(impl ProfileRepository + ?Sized),
@@ -191,10 +191,10 @@ impl AppCore {
                     || candidate.metadata().clone(),
                     |profile| profile.candidate().metadata().clone(),
                 );
-                self.apply_transition(StateTransition::UpdateActiveAccount {
+                self.apply_transition(StateTransition::UpdateActiveIdentity {
                     expected: plan.public_key(),
-                    active_account: Box::new(ActiveAccountSnapshot::new(
-                        current_active.account().clone(),
+                    active_identity: Box::new(ActiveIdentitySnapshot::new(
+                        current_active.identity().clone(),
                         relay_state,
                         ProfileLoadState::Fresh,
                         Some(winning_profile),
@@ -202,10 +202,10 @@ impl AppCore {
                     problem,
                 })
             }
-            None => self.apply_transition(StateTransition::UpdateActiveAccount {
+            None => self.apply_transition(StateTransition::UpdateActiveIdentity {
                 expected: plan.public_key(),
-                active_account: Box::new(ActiveAccountSnapshot::new(
-                    current_active.account().clone(),
+                active_identity: Box::new(ActiveIdentitySnapshot::new(
+                    current_active.identity().clone(),
                     relay_state,
                     if current_active.profile().is_some() {
                         ProfileLoadState::Cached
@@ -236,8 +236,8 @@ const fn invalid_profile_completion() -> SafeError {
 
 fn is_current_active(core: &AppCore, public_key: PublicKey) -> bool {
     core.snapshot()
-        .active_account()
-        .is_some_and(|active| active.account().public_key() == public_key)
+        .active_identity()
+        .is_some_and(|active| active.identity().public_key() == public_key)
 }
 
 const fn refresh_status(error: SafeError) -> ProfileRefreshStatus {
@@ -261,10 +261,10 @@ mod tests {
     };
 
     use crate::{
-        ActiveAccountSnapshot, AppCore, BoxFuture, CachedProfile, Clock, InMemoryAccountRepository,
-        InMemoryOperationJournal, InMemorySecretStore, NostrClient, ProfileFetchResult,
-        ProfileLoadState, ProfileRefreshStatus, ProfileRepository, RelayConfiguration,
-        RelayConnectionState,
+        ActiveIdentitySnapshot, AppCore, BoxFuture, CachedProfile, Clock,
+        InMemoryIdentityRepository, InMemoryOperationJournal, InMemorySecretStore, NostrClient,
+        ProfileFetchResult, ProfileLoadState, ProfileRefreshStatus, ProfileRepository,
+        RelayConfiguration, RelayConnectionState,
     };
 
     #[derive(Default)]
@@ -378,7 +378,7 @@ mod tests {
         ])
         .expect("relay configuration");
         let core = AppCore::in_memory(relays);
-        let accounts = InMemoryAccountRepository::default();
+        let identities = InMemoryIdentityRepository::default();
         let secrets = InMemorySecretStore::default();
         let journal = InMemoryOperationJournal::default();
         core.bootstrap().expect("bootstrap");
@@ -388,14 +388,14 @@ mod tests {
                     "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7".to_owned(),
                 )
                 .expect("secret"),
-                &accounts,
-                &accounts,
+                &identities,
+                &identities,
                 &secrets,
                 &journal,
                 &FixedClock,
             )
             .expect("import")
-            .account()
+            .identity()
             .public_key();
         if let Some(name) = cached_name {
             profiles
@@ -406,10 +406,10 @@ mod tests {
                 ))
                 .expect("cache");
         }
-        core.activate_account(
+        core.activate_identity(
             public_key,
-            &accounts,
-            &accounts,
+            &identities,
+            &identities,
             profiles,
             &secrets,
             &FixedClock,
@@ -424,8 +424,8 @@ mod tests {
         let (core, public_key) = active_core(&profiles, Some("Cached"));
         assert_eq!(
             core.snapshot()
-                .active_account()
-                .map(crate::ActiveAccountSnapshot::profile_state),
+                .active_identity()
+                .map(crate::ActiveIdentitySnapshot::profile_state),
             Some(ProfileLoadState::Cached)
         );
         let plan = core
@@ -435,14 +435,14 @@ mod tests {
         let loading = core.snapshot();
         assert_eq!(
             loading
-                .active_account()
-                .map(crate::ActiveAccountSnapshot::profile_state),
+                .active_identity()
+                .map(crate::ActiveIdentitySnapshot::profile_state),
             Some(ProfileLoadState::Loading)
         );
         assert_eq!(
             loading
-                .active_account()
-                .map(crate::ActiveAccountSnapshot::relay_state),
+                .active_identity()
+                .map(crate::ActiveIdentitySnapshot::relay_state),
             Some(RelayConnectionState::Connecting)
         );
         let client = FixedClient(Ok(Some(profile(public_key, "Fresh", 20))));
@@ -453,7 +453,7 @@ mod tests {
             .expect("complete refresh");
         assert_eq!(
             core.snapshot()
-                .active_account()
+                .active_identity()
                 .and_then(|active| active.profile())
                 .and_then(ProfileMetadata::name),
             Some("Fresh")
@@ -471,7 +471,7 @@ mod tests {
         );
 
         let snapshot = core
-            .refresh_profile_for_active_account(
+            .refresh_profile_for_active_identity(
                 &profiles,
                 &FixedClient(Err(error)),
                 &FixedClock,
@@ -483,8 +483,8 @@ mod tests {
         assert_eq!(snapshot.recoverable_problem(), Some(error));
         assert_eq!(
             snapshot
-                .active_account()
-                .map(crate::ActiveAccountSnapshot::relay_state),
+                .active_identity()
+                .map(crate::ActiveIdentitySnapshot::relay_state),
             Some(RelayConnectionState::Degraded)
         );
         assert_eq!(
@@ -504,7 +504,7 @@ mod tests {
         let client = BlockingClient::new(Ok(Some(profile(public_key, "Stale", 20))));
 
         let refresh =
-            core.refresh_profile_for_active_account(&profiles, &client, &FixedClock, deadline());
+            core.refresh_profile_for_active_identity(&profiles, &client, &FixedClock, deadline());
         let sign_out = async {
             let permit = client.started.acquire().await.expect("refresh starts");
             permit.forget();
@@ -516,7 +516,7 @@ mod tests {
         assert!(
             result
                 .expect("stale result is harmless")
-                .active_account()
+                .active_identity()
                 .is_none()
         );
         assert_eq!(
@@ -557,7 +557,7 @@ mod tests {
         assert!(second.revision() > first.revision());
         assert_eq!(
             second
-                .active_account()
+                .active_identity()
                 .and_then(|active| active.profile())
                 .and_then(ProfileMetadata::name),
             Some("Second")
@@ -592,7 +592,7 @@ mod tests {
                 &FixedClock,
             )
             .expect("partial completion");
-        let active = snapshot.active_account().expect("active account");
+        let active = snapshot.active_identity().expect("active identity");
         assert_eq!(active.relay_state(), RelayConnectionState::Degraded);
         assert_eq!(active.profile_state(), ProfileLoadState::Fresh);
         assert_eq!(
@@ -640,8 +640,8 @@ mod tests {
 
         assert_eq!(
             final_snapshot
-                .active_account()
-                .and_then(ActiveAccountSnapshot::profile)
+                .active_identity()
+                .and_then(ActiveIdentitySnapshot::profile)
                 .and_then(ProfileMetadata::name),
             Some("Newest")
         );

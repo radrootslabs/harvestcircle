@@ -1,4 +1,4 @@
-use harvestcircle_application::{AccountNamespaceRepository, AccountPreferenceKey};
+use harvestcircle_application::{IdentityNamespaceRepository, IdentityPreferenceKey};
 use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage};
 use rusqlite::{OptionalExtension, params};
 
@@ -6,11 +6,11 @@ use crate::Database;
 
 const MAX_VALUE_CHARS: usize = 4_096;
 
-impl AccountNamespaceRepository for Database {
+impl IdentityNamespaceRepository for Database {
     fn get_value(
         &self,
         owner: PublicKey,
-        key: AccountPreferenceKey,
+        key: IdentityPreferenceKey,
     ) -> Result<Option<String>, SafeError> {
         self.connection()
             .query_row(
@@ -26,7 +26,7 @@ impl AccountNamespaceRepository for Database {
     fn set_value(
         &self,
         owner: PublicKey,
-        key: AccountPreferenceKey,
+        key: IdentityPreferenceKey,
         value: &str,
     ) -> Result<(), SafeError> {
         if value.chars().count() > MAX_VALUE_CHARS || value.chars().any(char::is_control) {
@@ -54,34 +54,34 @@ impl AccountNamespaceRepository for Database {
     }
 }
 
-const fn encode_key(key: AccountPreferenceKey) -> &'static str {
+const fn encode_key(key: IdentityPreferenceKey) -> &'static str {
     match key {
-        AccountPreferenceKey::NamespaceProbe => "namespace_probe",
+        IdentityPreferenceKey::NamespaceProbe => "namespace_probe",
     }
 }
 
 const fn storage_error() -> SafeError {
     SafeError::new(
         SafeErrorCode::StorageUnavailable,
-        SafeMessage::new("The account preference is unavailable."),
+        SafeMessage::new("The identity preference is unavailable."),
     )
 }
 
 const fn invalid_preference() -> SafeError {
     SafeError::new(
-        SafeErrorCode::InvalidAccountMetadata,
-        SafeMessage::new("The account preference is invalid."),
+        SafeErrorCode::InvalidIdentityMetadata,
+        SafeMessage::new("The identity preference is invalid."),
     )
 }
 
 #[cfg(test)]
 mod tests {
     use harvestcircle_application::{
-        AccountNamespaceRepository, AccountPreferenceKey, AccountRepository, AppStateRepository,
+        AppStateRepository, IdentityNamespaceRepository, IdentityPreferenceKey, IdentityRepository,
     };
     use harvestcircle_domain::{
-        AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
-        PublicKey, UnixTimestamp,
+        IdentityCreatedAt, LocalKeyringBinding, NostrIdentity, NostrIdentityReference, PublicKey,
+        SignerAvailability, UnixTimestamp,
     };
 
     use crate::Database;
@@ -95,16 +95,16 @@ mod tests {
         PublicKey::from_hex(value).expect("valid public key")
     }
 
-    fn account(byte: u8) -> AccountSummary {
+    fn identity(byte: u8) -> NostrIdentity {
         let public_key = public_key(byte);
-        AccountSummary::new(
-            AccountIdentity::derive(public_key).expect("identity"),
-            LocalSignerBinding::new(public_key, BindingAvailability::Available),
+        NostrIdentity::new(
+            NostrIdentityReference::derive(public_key).expect("identity"),
+            LocalKeyringBinding::new(public_key, SignerAvailability::Available),
             None,
-            AccountCreatedAt::new(UnixTimestamp::from_seconds(i64::from(byte)).expect("time")),
+            IdentityCreatedAt::new(UnixTimestamp::from_seconds(i64::from(byte)).expect("time")),
             None,
         )
-        .expect("account")
+        .expect("identity")
     }
 
     #[test]
@@ -112,31 +112,31 @@ mod tests {
         let database = Database::in_memory().expect("database");
         let owner_a = public_key(1);
         let owner_b = public_key(2);
-        database.insert_account(&account(1)).expect("account a");
-        database.insert_account(&account(2)).expect("account b");
+        database.insert_identity(&identity(1)).expect("identity a");
+        database.insert_identity(&identity(2)).expect("identity b");
         database
-            .set_value(owner_a, AccountPreferenceKey::NamespaceProbe, "A")
+            .set_value(owner_a, IdentityPreferenceKey::NamespaceProbe, "A")
             .expect("set a");
         database
-            .set_value(owner_b, AccountPreferenceKey::NamespaceProbe, "B")
+            .set_value(owner_b, IdentityPreferenceKey::NamespaceProbe, "B")
             .expect("set b");
 
         database
-            .save_selected_account(Some(owner_b))
+            .save_selected_identity(Some(owner_b))
             .expect("select b");
         let selected = database
-            .load_selected_account()
+            .load_selected_identity()
             .expect("selection")
             .expect("selected owner");
         assert_eq!(
             database
-                .get_value(selected, AccountPreferenceKey::NamespaceProbe)
+                .get_value(selected, IdentityPreferenceKey::NamespaceProbe)
                 .expect("selected value"),
             Some("B".to_owned())
         );
         assert_eq!(
             database
-                .get_value(owner_a, AccountPreferenceKey::NamespaceProbe)
+                .get_value(owner_a, IdentityPreferenceKey::NamespaceProbe)
                 .expect("owner a value"),
             Some("A".to_owned())
         );
@@ -146,24 +146,24 @@ mod tests {
     fn namespace_updates_and_cascades_with_owner_removal() {
         let database = Database::in_memory().expect("database");
         let owner = public_key(3);
-        database.insert_account(&account(3)).expect("account");
+        database.insert_identity(&identity(3)).expect("identity");
         database
-            .set_value(owner, AccountPreferenceKey::NamespaceProbe, "before")
+            .set_value(owner, IdentityPreferenceKey::NamespaceProbe, "before")
             .expect("set");
         database
-            .set_value(owner, AccountPreferenceKey::NamespaceProbe, "after")
+            .set_value(owner, IdentityPreferenceKey::NamespaceProbe, "after")
             .expect("update");
         assert_eq!(
             database
-                .get_value(owner, AccountPreferenceKey::NamespaceProbe)
+                .get_value(owner, IdentityPreferenceKey::NamespaceProbe)
                 .expect("value"),
             Some("after".to_owned())
         );
 
-        database.remove_account(owner).expect("remove");
+        database.remove_identity(owner).expect("remove");
         assert_eq!(
             database
-                .get_value(owner, AccountPreferenceKey::NamespaceProbe)
+                .get_value(owner, IdentityPreferenceKey::NamespaceProbe)
                 .expect("deleted value"),
             None
         );
@@ -173,16 +173,16 @@ mod tests {
     fn namespace_rejects_oversized_and_control_character_values() {
         let database = Database::in_memory().expect("database");
         let owner = public_key(3);
-        database.insert_account(&account(3)).expect("account");
+        database.insert_identity(&identity(3)).expect("identity");
         let oversized = "a".repeat(super::MAX_VALUE_CHARS + 1);
         assert!(
             database
-                .set_value(owner, AccountPreferenceKey::NamespaceProbe, &oversized)
+                .set_value(owner, IdentityPreferenceKey::NamespaceProbe, &oversized)
                 .is_err()
         );
         assert!(
             database
-                .set_value(owner, AccountPreferenceKey::NamespaceProbe, "line\nbreak")
+                .set_value(owner, IdentityPreferenceKey::NamespaceProbe, "line\nbreak")
                 .is_err()
         );
     }

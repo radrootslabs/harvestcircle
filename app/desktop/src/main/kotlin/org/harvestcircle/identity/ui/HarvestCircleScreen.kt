@@ -1,4 +1,4 @@
-package org.harvestcircle.accounts.ui
+package org.harvestcircle.identities.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -31,33 +31,33 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import org.harvestcircle.application.AccountEntryMode
 import org.harvestcircle.application.HarvestCircleRoute
+import org.harvestcircle.application.IdentityEntryMode
 
 private val WindowBackgroundColor = Color(0xFFF5F5F2)
 private val ButtonBackgroundColor = Color(0xFFE7E7E2)
 private val InputBackgroundColor = Color(0xFFFEFDF8)
 
 data class HarvestCircleUiActions(
-    val chooseCreateAccount: () -> Unit = {},
-    val chooseImportAccount: () -> Unit = {},
-    val cancelAccountEntry: () -> Unit = {},
+    val chooseCreateIdentity: () -> Unit = {},
+    val chooseImportIdentity: () -> Unit = {},
+    val cancelIdentityEntry: () -> Unit = {},
     val editImportDraft: (String) -> Unit = {},
-    val generateAccount: () -> Unit = {},
+    val generateIdentity: () -> Unit = {},
     val importSecretKey: () -> Unit = {},
     val copyText: (String) -> Unit = {},
     val acknowledgeGeneratedKeyBackup: () -> Unit = {},
     val cancelGeneratedKeyBackup: () -> Unit = {},
-    val selectAccount: (String) -> Unit = {},
-    val activateAccount: (String) -> Unit = {},
-    val requestAccountRemoval: (String) -> Unit = {},
-    val cancelAccountRemoval: () -> Unit = {},
-    val confirmAccountRemoval: () -> Unit = {},
+    val selectIdentity: (String) -> Unit = {},
+    val activateIdentity: (String) -> Unit = {},
+    val requestIdentityRemoval: (String) -> Unit = {},
+    val cancelIdentityRemoval: () -> Unit = {},
+    val confirmIdentityRemoval: () -> Unit = {},
     val refreshActiveProfile: () -> Unit = {},
     val retryLastCommand: () -> Unit = {},
     val signOut: () -> Unit = {},
-    val showAccountChooser: () -> Unit = {},
-    val hideAccountChooser: () -> Unit = {},
+    val showIdentityChooser: () -> Unit = {},
+    val hideIdentityChooser: () -> Unit = {},
 )
 
 @Composable
@@ -87,7 +87,7 @@ fun HarvestCircleScreen(
         return
     }
     when (model.route) {
-        HarvestCircleRoute.OPENING -> LifecycleScreen("Opening local account store", "lifecycle-opening")
+        HarvestCircleRoute.OPENING -> LifecycleScreen("Opening local identity store", "lifecycle-opening")
         HarvestCircleRoute.CHECKING_COMPATIBILITY ->
             LifecycleScreen(
                 "Checking native compatibility",
@@ -95,24 +95,24 @@ fun HarvestCircleScreen(
             )
         HarvestCircleRoute.ACQUIRING_OWNERSHIP ->
             LifecycleScreen(
-                "Acquiring local account store",
+                "Acquiring local identity store",
                 "lifecycle-ownership",
             )
         HarvestCircleRoute.MIGRATING ->
             LifecycleScreen(
-                "Updating local account store",
+                "Updating local identity store",
                 "lifecycle-migrating",
             )
         HarvestCircleRoute.RECOVERING ->
             LifecycleScreen(
-                "Recovering local account state",
+                "Recovering local identity state",
                 "lifecycle-recovering",
             )
         HarvestCircleRoute.SHUTTING_DOWN -> LifecycleScreen("Shutting down", "lifecycle-shutting-down")
         HarvestCircleRoute.CLOSED -> LifecycleScreen("Closed", "lifecycle-closed")
         HarvestCircleRoute.BLOCKED ->
             LifecycleScreen(
-                model.problem ?: "Local account access is blocked.",
+                model.problem ?: "Local identity access is blocked.",
                 "lifecycle-blocked",
             )
         HarvestCircleRoute.FATAL ->
@@ -120,15 +120,15 @@ fun HarvestCircleScreen(
                 model.problem ?: "The application could not continue.",
                 "lifecycle-fatal",
             )
-        HarvestCircleRoute.DEGRADED -> InactiveAccountsScreen(model, actions, degraded = true)
-        HarvestCircleRoute.ACTIVE_ACCOUNT -> {
-            if (model.activeAccount != null && !model.accountChooserVisible) {
-                ActiveAccountHome(model, model.activeAccount, actions)
+        HarvestCircleRoute.DEGRADED -> InactiveIdentitiesScreen(model, actions, degraded = true)
+        HarvestCircleRoute.ACTIVE_IDENTITY -> {
+            if (model.activeIdentity != null && !model.identityChooserVisible) {
+                ActiveIdentityHome(model, model.activeIdentity, actions)
             } else {
-                InactiveAccountsScreen(model, actions)
+                InactiveIdentitiesScreen(model, actions)
             }
         }
-        HarvestCircleRoute.ACCOUNTS -> InactiveAccountsScreen(model, actions)
+        HarvestCircleRoute.IDENTITYS -> InactiveIdentitiesScreen(model, actions)
     }
 }
 
@@ -152,9 +152,9 @@ private fun LifecycleScreen(
 }
 
 @Composable
-private fun ActiveAccountHome(
+private fun ActiveIdentityHome(
     model: HarvestCircleUiModel,
-    active: ActiveAccountUiModel,
+    active: ActiveIdentityUiModel,
     actions: HarvestCircleUiActions,
 ) {
     Column(
@@ -169,8 +169,8 @@ private fun ActiveAccountHome(
     ) {
         BasicText("HarvestCircle")
         BasicText(active.heading)
-        BasicText(active.account.npub, Modifier.testTag("active-npub"))
-        BasicText(active.account.publicKeyHex, Modifier.testTag("active-pubkey-hex"))
+        BasicText(active.identity.npub, Modifier.testTag("active-npub"))
+        BasicText(active.identity.publicKeyHex, Modifier.testTag("active-pubkey-hex"))
         BasicText("Name: ${active.profile.name}", Modifier.testTag("active-profile-name"))
         BasicText("Display name: ${active.profile.displayName}")
         BasicText("NIP-05 (unverified): ${active.profile.nip05}")
@@ -185,11 +185,11 @@ private fun ActiveAccountHome(
             model.configuredRelays.forEach { relay -> BasicText(relay) }
         }
         TextAction(
-            text = "Switch account",
-            testTag = "switch-account",
-            contentDescription = "Choose another saved account",
+            text = "Switch identity",
+            testTag = "switch-identity",
+            contentDescription = "Choose another saved identity",
             enabled = !model.busy,
-            onClick = actions.showAccountChooser,
+            onClick = actions.showIdentityChooser,
         )
         TextAction(
             text = "Refresh metadata",
@@ -201,7 +201,7 @@ private fun ActiveAccountHome(
         TextAction(
             text = "Sign out",
             testTag = "sign-out",
-            contentDescription = "Sign out of the active account",
+            contentDescription = "Sign out of the active identity",
             enabled = !model.busy,
             onClick = actions.signOut,
         )
@@ -211,7 +211,7 @@ private fun ActiveAccountHome(
 }
 
 @Composable
-private fun InactiveAccountsScreen(
+private fun InactiveIdentitiesScreen(
     model: HarvestCircleUiModel,
     actions: HarvestCircleUiActions,
     degraded: Boolean = false,
@@ -222,36 +222,36 @@ private fun InactiveAccountsScreen(
                 .fillMaxSize()
                 .background(WindowBackgroundColor)
                 .padding(24.dp)
-                .testTag("accounts-screen"),
+                .testTag("identities-screen"),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         BasicText("HarvestCircle")
-        BasicText("Accounts")
+        BasicText("Identities")
         if (degraded) {
-            BasicText(model.problem ?: "Nostr relay access is unavailable. Local accounts remain available.")
+            BasicText(model.problem ?: "Nostr relay access is unavailable. Local identities remain available.")
         }
 
-        if (model.activeAccount != null) {
-            BasicText("Choose an account to activate. The current account remains active until replacement succeeds.")
+        if (model.activeIdentity != null) {
+            BasicText("Choose an identity to activate. The current identity remains active until replacement succeeds.")
             TextAction(
-                text = "Back to active account",
+                text = "Back to active identity",
                 testTag = "return-home",
-                contentDescription = "Return to the active account",
-                onClick = actions.hideAccountChooser,
+                contentDescription = "Return to the active identity",
+                onClick = actions.hideIdentityChooser,
             )
         }
 
-        AccountEntry(model, actions)
+        IdentityEntry(model, actions)
 
         model.problem?.let {
-            BasicText(it, Modifier.testTag("accounts-problem"))
+            BasicText(it, Modifier.testTag("identities-problem"))
         }
         RecoveryAction(model, actions)
 
-        if (model.accounts.isEmpty()) {
-            BasicText("No saved accounts.", Modifier.testTag("accounts-empty"))
+        if (model.identities.isEmpty()) {
+            BasicText("No saved identities.", Modifier.testTag("identities-empty"))
         } else {
-            SavedAccountList(model, actions)
+            SavedIdentityList(model, actions)
         }
     }
 }
@@ -273,52 +273,52 @@ private fun RecoveryAction(
 }
 
 @Composable
-private fun AccountEntry(
+private fun IdentityEntry(
     model: HarvestCircleUiModel,
     actions: HarvestCircleUiActions,
 ) {
-    when (model.accountEntryMode) {
-        AccountEntryMode.CHOICE -> {
+    when (model.identityEntryMode) {
+        IdentityEntryMode.CHOICE -> {
             TextAction(
-                text = "Create account",
-                testTag = "choose-create-account",
-                contentDescription = "Create a new Nostr account",
+                text = "Create identity",
+                testTag = "choose-create-identity",
+                contentDescription = "Create a new Nostr identity",
                 enabled = !model.busy,
-                onClick = actions.chooseCreateAccount,
+                onClick = actions.chooseCreateIdentity,
             )
             TextAction(
                 text = "Import key",
-                testTag = "choose-import-account",
+                testTag = "choose-import-identity",
                 contentDescription = "Import an existing Nostr secret key",
                 enabled = !model.busy,
-                onClick = actions.chooseImportAccount,
+                onClick = actions.chooseImportIdentity,
             )
         }
-        AccountEntryMode.CREATE -> {
+        IdentityEntryMode.CREATE -> {
             TextAction(
                 text = "Back",
-                testTag = "cancel-account-entry",
-                contentDescription = "Return to account choices",
+                testTag = "cancel-identity-entry",
+                contentDescription = "Return to identity choices",
                 enabled = !model.busy,
-                onClick = actions.cancelAccountEntry,
+                onClick = actions.cancelIdentityEntry,
             )
             TextAction(
                 text = "Generate new key",
                 testTag = "generate-key",
                 contentDescription = "Generate a new Nostr key",
                 enabled = !model.busy && model.generatedKeyBackup == null,
-                onClick = actions.generateAccount,
+                onClick = actions.generateIdentity,
             )
         }
-        AccountEntryMode.IMPORT -> {
+        IdentityEntryMode.IMPORT -> {
             val importFocusRequester = remember { FocusRequester() }
             LaunchedEffect(Unit) { importFocusRequester.requestFocus() }
             TextAction(
                 text = "Back",
-                testTag = "cancel-account-entry",
-                contentDescription = "Return to account choices",
+                testTag = "cancel-identity-entry",
+                contentDescription = "Return to identity choices",
                 enabled = !model.busy,
-                onClick = actions.cancelAccountEntry,
+                onClick = actions.cancelIdentityEntry,
             )
             BasicTextField(
                 value = model.importDraft,
@@ -355,7 +355,7 @@ private fun AccountEntry(
 }
 
 @Composable
-private fun ColumnScope.SavedAccountList(
+private fun ColumnScope.SavedIdentityList(
     model: HarvestCircleUiModel,
     actions: HarvestCircleUiActions,
 ) {
@@ -364,48 +364,48 @@ private fun ColumnScope.SavedAccountList(
             Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .testTag("saved-account-list"),
+                .testTag("saved-identity-list"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(model.accounts, key = AccountUiModel::publicKeyHex) { account ->
+        items(model.identities, key = IdentityUiModel::publicKeyHex) { identity ->
             Column(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .semantics { selected = account.selected }
-                        .testTag("account-row:${account.publicKeyHex}")
+                        .semantics { selected = identity.selected }
+                        .testTag("identity-row:${identity.publicKeyHex}")
                         .background(InputBackgroundColor)
                         .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                BasicText(account.label)
-                BasicText(account.npub)
-                BasicText("Key: ${account.keyAvailability}")
-                if (account.selected) BasicText("Selected")
-                if (account.active) BasicText("Active")
+                BasicText(identity.label)
+                BasicText(identity.npub)
+                BasicText("Key: ${identity.signerAvailability}")
+                if (identity.selected) BasicText("Selected")
+                if (identity.active) BasicText("Active")
                 TextAction(
-                    text = if (account.selected) "Selected account" else "Select",
-                    testTag = "select-account:${account.publicKeyHex}",
-                    contentDescription = "Select ${account.label}",
-                    enabled = !model.busy && !account.selected,
-                    onClick = { actions.selectAccount(account.publicKeyHex) },
+                    text = if (identity.selected) "Selected identity" else "Select",
+                    testTag = "select-identity:${identity.publicKeyHex}",
+                    contentDescription = "Select ${identity.label}",
+                    enabled = !model.busy && !identity.selected,
+                    onClick = { actions.selectIdentity(identity.publicKeyHex) },
                 )
                 TextAction(
-                    text = if (account.active) "Active account" else "Activate",
-                    testTag = "activate-account:${account.publicKeyHex}",
-                    contentDescription = "Activate ${account.label}",
-                    enabled = !model.busy && !account.active,
-                    onClick = { actions.activateAccount(account.publicKeyHex) },
+                    text = if (identity.active) "Active identity" else "Activate",
+                    testTag = "activate-identity:${identity.publicKeyHex}",
+                    contentDescription = "Activate ${identity.label}",
+                    enabled = !model.busy && !identity.active,
+                    onClick = { actions.activateIdentity(identity.publicKeyHex) },
                 )
                 TextAction(
                     text = "Remove",
-                    testTag = "remove-account:${account.publicKeyHex}",
-                    contentDescription = "Remove ${account.label}",
+                    testTag = "remove-identity:${identity.publicKeyHex}",
+                    contentDescription = "Remove ${identity.label}",
                     enabled = !model.busy,
-                    onClick = { actions.requestAccountRemoval(account.publicKeyHex) },
+                    onClick = { actions.requestIdentityRemoval(identity.publicKeyHex) },
                 )
-                if (model.pendingRemovalPublicKeyHex == account.publicKeyHex) {
-                    BasicText("Remove this saved account?")
+                if (model.pendingRemovalPublicKeyHex == identity.publicKeyHex) {
+                    BasicText("Remove this saved identity?")
                     if (model.removalImpact?.deletesLocalCredential == true) {
                         BasicText("Its local credential will be deleted from the operating-system keyring.")
                     }
@@ -415,15 +415,15 @@ private fun ColumnScope.SavedAccountList(
                     TextAction(
                         text = "Cancel",
                         testTag = "remove-cancel",
-                        contentDescription = "Cancel account removal",
-                        onClick = actions.cancelAccountRemoval,
+                        contentDescription = "Cancel identity removal",
+                        onClick = actions.cancelIdentityRemoval,
                     )
                     TextAction(
                         text = "Confirm removal",
                         testTag = "remove-confirm",
-                        contentDescription = "Confirm account removal",
+                        contentDescription = "Confirm identity removal",
                         enabled = !model.busy,
-                        onClick = actions.confirmAccountRemoval,
+                        onClick = actions.confirmIdentityRemoval,
                     )
                 }
             }
@@ -447,7 +447,7 @@ private fun GeneratedKeyRecoveryScreen(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         BasicText("Save this key")
-        BasicText("Losing this secret key means losing access to the account.")
+        BasicText("Losing this secret key means losing access to the identity.")
         BasicText(backup.npub)
         BasicText(backup.nsec, Modifier.testTag("generated-nsec"))
         TextAction(
@@ -459,7 +459,7 @@ private fun GeneratedKeyRecoveryScreen(
         TextAction(
             text = "Cancel",
             testTag = "cancel-generated-key",
-            contentDescription = "Cancel generated account",
+            contentDescription = "Cancel generated identity",
             onClick = actions.cancelGeneratedKeyBackup,
         )
         TextAction(

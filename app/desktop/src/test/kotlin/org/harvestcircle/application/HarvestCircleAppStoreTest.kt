@@ -3,12 +3,12 @@ package org.harvestcircle.application
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
-import org.harvestcircle.ffi.AccountDto
 import org.harvestcircle.ffi.AppLifecycleDto
 import org.harvestcircle.ffi.AppSnapshotDto
-import org.harvestcircle.ffi.KeyAvailabilityDto
+import org.harvestcircle.ffi.IdentityDto
 import org.harvestcircle.ffi.SessionStateDto
-import org.harvestcircle.ffi.SignerKindDto
+import org.harvestcircle.ffi.SignerAvailabilityDto
+import org.harvestcircle.ffi.SignerBindingKindDto
 import org.harvestcircle.ffi.WireErrorCategory
 import org.harvestcircle.ffi.WireErrorCode
 import org.harvestcircle.ffi.WireRecoveryAction
@@ -47,7 +47,7 @@ class HarvestCircleAppStoreTest {
             val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
 
-            store.generateAccount()
+            store.generateIdentity()
             advanceUntilIdle()
 
             assertEquals(
@@ -56,7 +56,7 @@ class HarvestCircleAppStoreTest {
                     ?.revealNsec(),
             )
             assertEquals(
-                "npub1account",
+                "npub1identity",
                 store.state.value.generatedKeyBackup
                     ?.npub,
             )
@@ -67,13 +67,13 @@ class HarvestCircleAppStoreTest {
         }
 
     @Test
-    fun `cancels staged generated account without committing it`() =
+    fun `cancels staged generated identity without committing it`() =
         runTest {
             val gateway = FakeHarvestCircleCoreGateway(snapshot(0UL))
             val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
             val revisionBeforeGeneration = store.state.value.snapshot.revision
-            store.generateAccount()
+            store.generateIdentity()
             advanceUntilIdle()
 
             store.cancelGeneratedKeyBackup()
@@ -94,7 +94,7 @@ class HarvestCircleAppStoreTest {
             val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
 
-            store.generateAccount()
+            store.generateIdentity()
             advanceUntilIdle()
 
             assertNull(store.state.value.generatedKeyBackup)
@@ -112,7 +112,7 @@ class HarvestCircleAppStoreTest {
                 }
             val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
-            store.generateAccount()
+            store.generateIdentity()
             advanceUntilIdle()
 
             store.acknowledgeGeneratedKeyBackup()
@@ -122,7 +122,7 @@ class HarvestCircleAppStoreTest {
             assertTrue(gateway.lastGeneratedRecoveryTicket?.closed == true)
             assertEquals("fake-generated-request", store.state.value.lastCommandRequestId)
             assertEquals(
-                "The generated account could not be saved. Import the recovery key you saved to try again.",
+                "The generated identity could not be saved. Import the recovery key you saved to try again.",
                 store.state.value.problem,
             )
             store.close()
@@ -137,7 +137,7 @@ class HarvestCircleAppStoreTest {
                 }
             val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
-            store.generateAccount()
+            store.generateIdentity()
             advanceUntilIdle()
 
             store.cancelGeneratedKeyBackup()
@@ -175,10 +175,10 @@ class HarvestCircleAppStoreTest {
             val store = HarvestCircleAppStore(gateway, this)
             advanceUntilIdle()
 
-            store.requestAccountRemoval("00".repeat(32))
+            store.requestIdentityRemoval("00".repeat(32))
             advanceUntilIdle()
             assertEquals("00".repeat(32), store.state.value.pendingRemovalPublicKeyHex)
-            store.confirmAccountRemoval()
+            store.confirmIdentityRemoval()
             advanceUntilIdle()
 
             assertNull(store.state.value.pendingRemovalPublicKeyHex)
@@ -343,7 +343,7 @@ private class FakeHarvestCircleCoreGateway(
             return it
         }
         when (command) {
-            is HarvestCircleCommand.ImportAccount -> {
+            is HarvestCircleCommand.ImportIdentity -> {
                 lastImportBuffer = command.bytes
                 importedSecrets += command.bytes.decodeToString()
                 command.bytes.fill(0)
@@ -363,9 +363,9 @@ private class FakeHarvestCircleCoreGateway(
 
     override suspend fun bootstrap(): AppSnapshotDto = bootstrapSnapshot.also(::emit)
 
-    override suspend fun beginGeneratedAccount(): GeneratedRecoveryTicket =
+    override suspend fun beginGeneratedIdentity(): GeneratedRecoveryTicket =
         FakeGeneratedRecoveryTicket(
-            account = account(),
+            identity = identity(),
             failRecoveryRead = failGeneratedRecoveryRead,
             failAcknowledgement = failGeneratedAcknowledgement,
             cancellationResult = generatedCancellationResult,
@@ -375,9 +375,9 @@ private class FakeHarvestCircleCoreGateway(
             committed(current)
         }.also { lastGeneratedRecoveryTicket = it }
 
-    override suspend fun requestAccountRemoval(publicKeyHex: String): RemovalTicket = FakeRemovalTicket().also { lastRemovalTicket = it }
+    override suspend fun requestIdentityRemoval(publicKeyHex: String): RemovalTicket = FakeRemovalTicket().also { lastRemovalTicket = it }
 
-    override suspend fun confirmAccountRemoval(ticket: RemovalTicket): AppSnapshotDto {
+    override suspend fun confirmIdentityRemoval(ticket: RemovalTicket): AppSnapshotDto {
         if (failRemovalConfirmation) error("injected confirmation failure")
         return current
     }
@@ -394,7 +394,7 @@ private class FakeHarvestCircleCoreGateway(
 }
 
 private class FakeGeneratedRecoveryTicket(
-    override val account: AccountDto,
+    override val identity: IdentityDto,
     private val failRecoveryRead: Boolean,
     private val failAcknowledgement: Boolean,
     private val cancellationResult: Boolean,
@@ -420,7 +420,7 @@ private class FakeGeneratedRecoveryTicket(
                     retryable = false,
                     WireRecoveryAction.NONE,
                     requestId,
-                    "The generated account could not be saved. Import the recovery key you saved to try again.",
+                    "The generated identity could not be saved. Import the recovery key you saved to try again.",
                 ),
             )
         }
@@ -460,22 +460,22 @@ private fun snapshot(
     lifecycle = lifecycle,
     lifecycleError = null,
     configuredRelays = emptyList(),
-    accounts = emptyList(),
+    identities = emptyList(),
     selectedPublicKeyHex = null,
     session = SessionStateDto.SIGNED_OUT,
     sessionSubjectPublicKeyHex = null,
     sessionError = null,
-    activeAccount = null,
+    activeIdentity = null,
     recoverableProblem = null,
 )
 
-private fun account() =
-    AccountDto(
+private fun identity() =
+    IdentityDto(
         publicKeyHex = "00".repeat(32),
-        npub = "npub1account",
-        displayLabel = "Account",
-        signerKind = SignerKindDto.LOCAL_SECRET,
-        keyAvailability = KeyAvailabilityDto.AVAILABLE,
+        npub = "npub1identity",
+        displayLabel = "Identity",
+        signerBindingKind = SignerBindingKindDto.LOCAL_KEYRING,
+        signerAvailability = SignerAvailabilityDto.AVAILABLE,
         createdAtSeconds = 0,
         lastUsedAtSeconds = null,
     )

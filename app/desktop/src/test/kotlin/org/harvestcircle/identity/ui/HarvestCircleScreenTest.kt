@@ -1,4 +1,4 @@
-package org.harvestcircle.accounts.ui
+package org.harvestcircle.identities.ui
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -17,8 +17,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
-import org.harvestcircle.application.AccountEntryMode
 import org.harvestcircle.application.HarvestCircleRoute
+import org.harvestcircle.application.IdentityEntryMode
 import org.harvestcircle.application.RemovalImpactState
 import org.harvestcircle.application.RemovalStatus
 import org.harvestcircle.ffi.SessionStateDto
@@ -30,7 +30,7 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class HarvestCircleScreenTest {
     @Test
-    fun rendersEveryNonReadyLifecycleRouteWithoutAccountControls() =
+    fun rendersEveryNonReadyLifecycleRouteWithoutIdentityControls() =
         runComposeUiTest {
             var model by mutableStateOf(emptyUiModel().copy(route = HarvestCircleRoute.OPENING))
             setContent { HarvestCircleScreen(model, HarvestCircleUiActions()) }
@@ -56,38 +56,38 @@ class HarvestCircleScreenTest {
 
             model = emptyUiModel(problem = "Relay access is unavailable.").copy(route = HarvestCircleRoute.DEGRADED)
             waitForIdle()
-            onNodeWithTag("accounts-screen").assertIsDisplayed()
-            onNodeWithTag("accounts-problem").assertIsDisplayed()
+            onNodeWithTag("identities-screen").assertIsDisplayed()
+            onNodeWithTag("identities-problem").assertIsDisplayed()
         }
 
     @Test
     fun inactiveScreenGeneratesAndImportsMaskedSecretInput() =
         runComposeUiTest {
             var importDraft by mutableStateOf("")
-            var accountEntryMode by mutableStateOf(AccountEntryMode.CHOICE)
+            var identityEntryMode by mutableStateOf(IdentityEntryMode.CHOICE)
             var generateCalls = 0
             var importCalls = 0
             setContent {
                 HarvestCircleScreen(
-                    model = emptyUiModel(importDraft = importDraft).copy(accountEntryMode = accountEntryMode),
+                    model = emptyUiModel(importDraft = importDraft).copy(identityEntryMode = identityEntryMode),
                     actions =
                         HarvestCircleUiActions(
-                            chooseCreateAccount = { accountEntryMode = AccountEntryMode.CREATE },
-                            chooseImportAccount = { accountEntryMode = AccountEntryMode.IMPORT },
-                            cancelAccountEntry = { accountEntryMode = AccountEntryMode.CHOICE },
+                            chooseCreateIdentity = { identityEntryMode = IdentityEntryMode.CREATE },
+                            chooseImportIdentity = { identityEntryMode = IdentityEntryMode.IMPORT },
+                            cancelIdentityEntry = { identityEntryMode = IdentityEntryMode.CHOICE },
                             editImportDraft = { importDraft = it },
-                            generateAccount = { generateCalls += 1 },
+                            generateIdentity = { generateCalls += 1 },
                             importSecretKey = { importCalls += 1 },
                         ),
                 )
             }
 
-            onNodeWithTag("accounts-screen").assertIsDisplayed()
+            onNodeWithTag("identities-screen").assertIsDisplayed()
             onNodeWithText("HarvestCircle").assertIsDisplayed()
-            onNodeWithTag("choose-create-account").performClick()
+            onNodeWithTag("choose-create-identity").performClick()
             onNodeWithTag("generate-key").performClick()
-            onNodeWithTag("cancel-account-entry").performClick()
-            onNodeWithTag("choose-import-account").performClick()
+            onNodeWithTag("cancel-identity-entry").performClick()
+            onNodeWithTag("choose-import-identity").performClick()
             onNodeWithTag("import-nsec-input").assertIsFocused()
             onNodeWithTag("import-nsec-input").performTextInput("nsec1secret")
             onNodeWithTag("import-key").performClick()
@@ -113,7 +113,7 @@ class HarvestCircleScreenTest {
             }
 
             onNodeWithText("The secret key is invalid.").assertIsDisplayed()
-            onNodeWithTag("accounts-empty").assertIsDisplayed()
+            onNodeWithTag("identities-empty").assertIsDisplayed()
         }
 
     @Test
@@ -135,7 +135,7 @@ class HarvestCircleScreenTest {
             }
 
             onNodeWithTag("generated-key-backup").assertIsDisplayed()
-            onAllNodesWithTag("accounts-screen").assertCountEquals(0)
+            onAllNodesWithTag("identities-screen").assertCountEquals(0)
             onAllNodesWithTag("generate-key").assertCountEquals(0)
             onNodeWithTag("generated-nsec").assertIsDisplayed()
             onNodeWithTag("copy-generated-key").performClick()
@@ -147,7 +147,7 @@ class HarvestCircleScreenTest {
         }
 
     @Test
-    fun generatedKeyRecoveryCanBeCancelledWithoutExposingAccountControls() =
+    fun generatedKeyRecoveryCanBeCancelledWithoutExposingIdentityControls() =
         runComposeUiTest {
             var backup: GeneratedKeyBackupUiModel? by mutableStateOf(
                 GeneratedKeyBackupUiModel("npub1generated", "nsec1generated"),
@@ -172,10 +172,10 @@ class HarvestCircleScreenTest {
         }
 
     @Test
-    fun savedAccountsSelectActivateAndRequireRemovalConfirmation() =
+    fun savedIdentitiesSelectActivateAndRequireRemovalConfirmation() =
         runComposeUiTest {
-            val first = accountUi("11".repeat(32), selected = true)
-            val second = accountUi("22".repeat(32), selected = false)
+            val first = identityUi("11".repeat(32), selected = true)
+            val second = identityUi("22".repeat(32), selected = false)
             var pendingRemoval: String? by mutableStateOf(null)
             val selected = mutableListOf<String>()
             val activated = mutableListOf<String>()
@@ -184,7 +184,7 @@ class HarvestCircleScreenTest {
                 HarvestCircleScreen(
                     model =
                         emptyUiModel().copy(
-                            accounts = listOf(first, second),
+                            identities = listOf(first, second),
                             pendingRemovalPublicKeyHex = pendingRemoval,
                             removalImpact =
                                 pendingRemoval?.let {
@@ -193,48 +193,48 @@ class HarvestCircleScreenTest {
                         ),
                     actions =
                         HarvestCircleUiActions(
-                            selectAccount = selected::add,
-                            activateAccount = activated::add,
-                            requestAccountRemoval = { pendingRemoval = it },
-                            cancelAccountRemoval = { pendingRemoval = null },
-                            confirmAccountRemoval = { confirmations += 1 },
+                            selectIdentity = selected::add,
+                            activateIdentity = activated::add,
+                            requestIdentityRemoval = { pendingRemoval = it },
+                            cancelIdentityRemoval = { pendingRemoval = null },
+                            confirmIdentityRemoval = { confirmations += 1 },
                         ),
                 )
             }
 
-            onNodeWithTag("saved-account-list").assertIsDisplayed()
-            onNodeWithTag("account-row:${first.publicKeyHex}").assertIsSelected()
-            onNodeWithTag("select-account:${second.publicKeyHex}", useUnmergedTree = true).performClick()
-            onNodeWithTag("activate-account:${second.publicKeyHex}", useUnmergedTree = true).performClick()
+            onNodeWithTag("saved-identity-list").assertIsDisplayed()
+            onNodeWithTag("identity-row:${first.publicKeyHex}").assertIsSelected()
+            onNodeWithTag("select-identity:${second.publicKeyHex}", useUnmergedTree = true).performClick()
+            onNodeWithTag("activate-identity:${second.publicKeyHex}", useUnmergedTree = true).performClick()
             assertEquals(listOf(second.publicKeyHex), selected)
             assertEquals(listOf(second.publicKeyHex), activated)
 
-            onNodeWithTag("remove-account:${second.publicKeyHex}", useUnmergedTree = true).performClick()
+            onNodeWithTag("remove-identity:${second.publicKeyHex}", useUnmergedTree = true).performClick()
             onNodeWithText("Its local credential will be deleted from the operating-system keyring.").assertIsDisplayed()
             onNodeWithText("The active session will be signed out before removal.").assertIsDisplayed()
             onNodeWithTag("remove-cancel", useUnmergedTree = true).performClick()
             assertEquals(null, pendingRemoval)
-            onNodeWithTag("remove-account:${second.publicKeyHex}", useUnmergedTree = true).performClick()
+            onNodeWithTag("remove-identity:${second.publicKeyHex}", useUnmergedTree = true).performClick()
             onNodeWithTag("remove-confirm", useUnmergedTree = true).performClick()
             assertEquals(1, confirmations)
         }
 
     @Test
-    fun savedAccountListRemainsReachableForLargeRegistries() =
+    fun savedIdentityListRemainsReachableForLargeRegistries() =
         runComposeUiTest {
-            val accounts =
+            val identities =
                 (0 until 100).map { index ->
-                    accountUi(index.toString(16).padStart(64, '0'), selected = index == 0)
+                    identityUi(index.toString(16).padStart(64, '0'), selected = index == 0)
                 }
             setContent {
                 HarvestCircleScreen(
-                    model = emptyUiModel().copy(accounts = accounts),
+                    model = emptyUiModel().copy(identities = identities),
                     actions = HarvestCircleUiActions(),
                 )
             }
 
-            val lastTag = "account-row:${accounts.last().publicKeyHex}"
-            onNodeWithTag("saved-account-list").performScrollToNode(hasTestTag(lastTag))
+            val lastTag = "identity-row:${identities.last().publicKeyHex}"
+            onNodeWithTag("saved-identity-list").performScrollToNode(hasTestTag(lastTag))
             onNodeWithTag(lastTag).assertIsDisplayed()
         }
 
@@ -243,10 +243,10 @@ class HarvestCircleScreenTest {
         runComposeUiTest {
             var refreshCalls = 0
             var signOutCalls = 0
-            val account = accountUi("33".repeat(32), selected = true)
+            val identity = identityUi("33".repeat(32), selected = true)
             val active =
-                ActiveAccountUiModel(
-                    account = account,
+                ActiveIdentityUiModel(
+                    identity = identity,
                     heading = "Alice",
                     relayState = "connected",
                     profileState = "fresh",
@@ -263,9 +263,9 @@ class HarvestCircleScreenTest {
                 HarvestCircleScreen(
                     model =
                         emptyUiModel().copy(
-                            route = HarvestCircleRoute.ACTIVE_ACCOUNT,
-                            accounts = listOf(account),
-                            activeAccount = active,
+                            route = HarvestCircleRoute.ACTIVE_IDENTITY,
+                            identities = listOf(identity),
+                            activeIdentity = active,
                             configuredRelays = listOf("ws://localhost:8080"),
                             session = SessionStateDto.ACTIVE,
                         ),
@@ -292,13 +292,13 @@ class HarvestCircleScreenTest {
         }
 
     @Test
-    fun activeAccountCanOpenChooserWithoutDroppingCurrentSession() =
+    fun activeIdentityCanOpenChooserWithoutDroppingCurrentSession() =
         runComposeUiTest {
-            val first = accountUi("44".repeat(32), selected = true, active = true)
-            val second = accountUi("55".repeat(32), selected = false)
+            val first = identityUi("44".repeat(32), selected = true, active = true)
+            val second = identityUi("55".repeat(32), selected = false)
             val active =
-                ActiveAccountUiModel(
-                    account = first,
+                ActiveIdentityUiModel(
+                    identity = first,
                     heading = first.label,
                     relayState = "connected",
                     profileState = "cached",
@@ -310,32 +310,32 @@ class HarvestCircleScreenTest {
                 HarvestCircleScreen(
                     model =
                         emptyUiModel().copy(
-                            route = HarvestCircleRoute.ACTIVE_ACCOUNT,
-                            accounts = listOf(first, second),
-                            activeAccount = active,
+                            route = HarvestCircleRoute.ACTIVE_IDENTITY,
+                            identities = listOf(first, second),
+                            activeIdentity = active,
                             session = SessionStateDto.ACTIVE,
-                            accountChooserVisible = chooserVisible,
+                            identityChooserVisible = chooserVisible,
                         ),
                     actions =
                         HarvestCircleUiActions(
-                            showAccountChooser = { chooserVisible = true },
-                            hideAccountChooser = { chooserVisible = false },
-                            activateAccount = { activated = it },
+                            showIdentityChooser = { chooserVisible = true },
+                            hideIdentityChooser = { chooserVisible = false },
+                            activateIdentity = { activated = it },
                         ),
                 )
             }
 
-            onNodeWithTag("switch-account").performClick()
-            onNodeWithTag("accounts-screen").assertIsDisplayed()
-            onNodeWithTag("activate-account:${first.publicKeyHex}", useUnmergedTree = true).assertIsNotEnabled()
+            onNodeWithTag("switch-identity").performClick()
+            onNodeWithTag("identities-screen").assertIsDisplayed()
+            onNodeWithTag("activate-identity:${first.publicKeyHex}", useUnmergedTree = true).assertIsNotEnabled()
             onNodeWithText("Active").assertIsDisplayed()
-            onNodeWithTag("activate-account:${second.publicKeyHex}", useUnmergedTree = true).performClick()
+            onNodeWithTag("activate-identity:${second.publicKeyHex}", useUnmergedTree = true).performClick()
             assertEquals(second.publicKeyHex, activated)
             assertEquals(
                 SessionStateDto.ACTIVE,
                 emptyUiModel()
                     .copy(
-                        activeAccount = active,
+                        activeIdentity = active,
                         session = SessionStateDto.ACTIVE,
                     ).session,
             )
@@ -350,9 +350,9 @@ private fun emptyUiModel(
     importGuidance: String? = null,
     recoveryAction: WireRecoveryAction = WireRecoveryAction.NONE,
 ) = HarvestCircleUiModel(
-    route = HarvestCircleRoute.ACCOUNTS,
-    accounts = emptyList(),
-    activeAccount = null,
+    route = HarvestCircleRoute.IDENTITYS,
+    identities = emptyList(),
+    activeIdentity = null,
     configuredRelays = emptyList(),
     importDraft = importDraft,
     generatedKeyBackup = null,
@@ -360,8 +360,8 @@ private fun emptyUiModel(
     removalImpact = null,
     removalStatus = RemovalStatus.NONE,
     lastRemovedPublicKeyHex = null,
-    accountChooserVisible = false,
-    accountEntryMode = AccountEntryMode.CHOICE,
+    identityChooserVisible = false,
+    identityEntryMode = IdentityEntryMode.CHOICE,
     session = SessionStateDto.SIGNED_OUT,
     busy = false,
     problem = problem,
@@ -369,16 +369,16 @@ private fun emptyUiModel(
     recoveryAction = recoveryAction,
 )
 
-private fun accountUi(
+private fun identityUi(
     publicKeyHex: String,
     selected: Boolean,
     active: Boolean = false,
-) = AccountUiModel(
+) = IdentityUiModel(
     publicKeyHex = publicKeyHex,
     npub = "npub1${publicKeyHex.take(12)}",
     shortNpub = "npub1${publicKeyHex.take(12)}",
-    label = "Account ${publicKeyHex.take(2)}",
-    keyAvailability = "available",
+    label = "Identity ${publicKeyHex.take(2)}",
+    signerAvailability = "available",
     selected = selected,
     active = active,
 )

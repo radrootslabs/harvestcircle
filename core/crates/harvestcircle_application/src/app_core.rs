@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage, UnixTimestamp};
 
 use crate::{
-    AccountRepository, AppSnapshot, AppStateRepository, KeyMaterialProvider, RelayConfiguration,
+    AppSnapshot, AppStateRepository, IdentityRepository, KeyMaterialProvider, RelayConfiguration,
     SnapshotRevision, StateMachine, StateTransition,
 };
 
@@ -120,17 +120,20 @@ impl AppCore {
     /// durable state cannot be read or violates application invariants.
     pub fn bootstrap_from(
         &self,
-        accounts: &(impl AccountRepository + ?Sized),
+        identities: &(impl IdentityRepository + ?Sized),
         app_state: &(impl AppStateRepository + ?Sized),
     ) -> Result<AppSnapshot, SafeError> {
-        let loaded = accounts.list_accounts().and_then(|accounts| {
+        let loaded = identities.list_identities().and_then(|identities| {
             app_state
-                .load_selected_account()
-                .map(|selected| (accounts, selected))
+                .load_selected_identity()
+                .map(|selected| (identities, selected))
         });
         match loaded {
-            Ok((accounts, selected)) => {
-                self.apply_transition(StateTransition::BootstrapRegistry { accounts, selected })
+            Ok((identities, selected)) => {
+                self.apply_transition(StateTransition::BootstrapRegistry {
+                    identities,
+                    selected,
+                })
             }
             Err(error) => {
                 self.apply_transition(StateTransition::Fatal(error))?;
@@ -159,17 +162,17 @@ impl AppCore {
         now: UnixTimestamp,
     ) -> Result<RemovalConfirmationToken, SafeError> {
         let mut state = self.lock_state();
-        let Some(account) = state
+        let Some(identity) = state
             .state_machine
             .snapshot()
-            .accounts()
+            .identities()
             .iter()
-            .find(|account| account.public_key() == public_key)
+            .find(|identity| identity.public_key() == public_key)
         else {
-            return Err(account_not_found());
+            return Err(identity_not_found());
         };
-        let deletes_local_credential = account.signer().availability()
-            != harvestcircle_domain::BindingAvailability::CredentialMissing;
+        let deletes_local_credential = identity.signer_binding().availability()
+            != harvestcircle_domain::SignerAvailability::CredentialMissing;
         let id = state.next_removal_token;
         state.next_removal_token = id.checked_add(1).ok_or_else(invalid_application_state)?;
         let revision = state.state_machine.snapshot().revision();
@@ -184,8 +187,8 @@ impl AppCore {
             signs_out: state
                 .state_machine
                 .snapshot()
-                .active_account()
-                .is_some_and(|active| active.account().public_key() == public_key),
+                .active_identity()
+                .is_some_and(|active| active.identity().public_key() == public_key),
         };
         state.removal_tokens.insert(
             id,
@@ -248,22 +251,22 @@ impl AppCore {
 const fn invalid_application_state() -> SafeError {
     SafeError::new(
         SafeErrorCode::InvalidApplicationState,
-        SafeMessage::new("The account removal confirmation is no longer valid."),
+        SafeMessage::new("The identity removal confirmation is no longer valid."),
     )
 }
 
-const fn account_not_found() -> SafeError {
+const fn identity_not_found() -> SafeError {
     SafeError::new(
-        SafeErrorCode::AccountNotFound,
-        SafeMessage::new("The account was not found."),
+        SafeErrorCode::IdentityNotFound,
+        SafeMessage::new("The identity was not found."),
     )
 }
 
 #[cfg(test)]
 mod tests {
     use harvestcircle_domain::{
-        AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
-        UnixTimestamp,
+        IdentityCreatedAt, LocalKeyringBinding, NostrIdentity, NostrIdentityReference,
+        SignerAvailability, UnixTimestamp,
     };
 
     use crate::{AppCore, AppLifecycle, RelayConfiguration, StateTransition};
@@ -294,16 +297,16 @@ mod tests {
     fn removal_impact_matches_missing_local_binding() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let public_key = crate::test_support::valid_test_public_key(9).expect("valid public key");
-        let account = AccountSummary::new(
-            AccountIdentity::derive(public_key).expect("identity"),
-            LocalSignerBinding::new(public_key, BindingAvailability::CredentialMissing),
+        let identity = NostrIdentity::new(
+            NostrIdentityReference::derive(public_key).expect("identity"),
+            LocalKeyringBinding::new(public_key, SignerAvailability::CredentialMissing),
             None,
-            AccountCreatedAt::new(UnixTimestamp::from_seconds(1).expect("time")),
+            IdentityCreatedAt::new(UnixTimestamp::from_seconds(1).expect("time")),
             None,
         )
-        .expect("account");
+        .expect("identity");
         core.apply_transition(StateTransition::BootstrapRegistry {
-            accounts: vec![account],
+            identities: vec![identity],
             selected: Some(public_key),
         })
         .expect("registry");
@@ -321,16 +324,16 @@ mod tests {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let public_key = crate::test_support::valid_test_public_key(7).expect("public key");
         let other_key = crate::test_support::valid_test_public_key(8).expect("other key");
-        let account = AccountSummary::new(
-            AccountIdentity::derive(public_key).expect("identity"),
-            LocalSignerBinding::new(public_key, BindingAvailability::Available),
+        let identity = NostrIdentity::new(
+            NostrIdentityReference::derive(public_key).expect("identity"),
+            LocalKeyringBinding::new(public_key, SignerAvailability::Available),
             None,
-            AccountCreatedAt::new(UnixTimestamp::from_seconds(1).expect("time")),
+            IdentityCreatedAt::new(UnixTimestamp::from_seconds(1).expect("time")),
             None,
         )
-        .expect("account");
+        .expect("identity");
         core.apply_transition(StateTransition::BootstrapRegistry {
-            accounts: vec![account],
+            identities: vec![identity],
             selected: Some(public_key),
         })
         .expect("registry");

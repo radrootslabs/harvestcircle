@@ -1,11 +1,11 @@
 use harvestcircle_application::{
-    AccountOperationKind, AccountOperationPhase, DurableAccountOperation, DurableOperationKind,
-    DurableOperationPhase, DurableOperationReceipt, DurableOperationRepository,
-    DurableOperationStart, DurableRequestId, DurableTerminalOutcome, OperationDiagnostic,
-    OperationId, OperationJournal, OperationPriorState, PendingAccountOperation,
+    DurableIdentityOperation, DurableOperationKind, DurableOperationPhase, DurableOperationReceipt,
+    DurableOperationRepository, DurableOperationStart, DurableRequestId, DurableTerminalOutcome,
+    IdentityOperationKind, IdentityOperationPhase, OperationDiagnostic, OperationId,
+    OperationJournal, OperationPriorState, PendingIdentityOperation,
 };
 use harvestcircle_domain::{
-    BindingAvailability, PublicKey, SafeError, SafeErrorCode, SafeMessage, UnixTimestamp,
+    PublicKey, SafeError, SafeErrorCode, SafeMessage, SignerAvailability, UnixTimestamp,
 };
 use rusqlite::{OptionalExtension, Row, params};
 
@@ -16,7 +16,7 @@ impl DurableOperationRepository for Database {
         &self,
         request_id: &DurableRequestId,
         kind: DurableOperationKind,
-        account: PublicKey,
+        identity: PublicKey,
         expected_revision: Option<u64>,
         prior: OperationPriorState,
         updated_at: UnixTimestamp,
@@ -36,9 +36,9 @@ impl DurableOperationRepository for Database {
                 params![
                     request_id.as_str(),
                     encode_durable_kind(kind),
-                    account.to_hex(),
+                    identity.to_hex(),
                     encoded_expected_revision,
-                    prior.selected_account().map(PublicKey::to_hex),
+                    prior.selected_identity().map(PublicKey::to_hex),
                     updated_at.as_seconds(),
                     prior
                         .binding_availability()
@@ -49,7 +49,7 @@ impl DurableOperationRepository for Database {
         let operation =
             query_durable_operation(&transaction, request_id)?.ok_or_else(corrupt_storage_error)?;
         if operation.kind() != kind
-            || operation.account() != account
+            || operation.identity() != identity
             || operation.expected_revision() != expected_revision
             || operation.prior() != prior
         {
@@ -66,7 +66,7 @@ impl DurableOperationRepository for Database {
     fn load_durable_operation(
         &self,
         request_id: &DurableRequestId,
-    ) -> Result<Option<DurableAccountOperation>, SafeError> {
+    ) -> Result<Option<DurableIdentityOperation>, SafeError> {
         query_durable_operation(&self.connection(), request_id)
     }
 
@@ -77,7 +77,7 @@ impl DurableOperationRepository for Database {
         next_phase: DurableOperationPhase,
         updated_at: UnixTimestamp,
         diagnostic: Option<OperationDiagnostic>,
-    ) -> Result<DurableAccountOperation, SafeError> {
+    ) -> Result<DurableIdentityOperation, SafeError> {
         let mut connection = self.connection();
         let transaction = connection.transaction().map_err(|_| storage_error())?;
         let rows = transaction
@@ -150,7 +150,7 @@ impl DurableOperationRepository for Database {
 
     fn list_unfinished_durable_operations(
         &self,
-    ) -> Result<Vec<DurableAccountOperation>, SafeError> {
+    ) -> Result<Vec<DurableIdentityOperation>, SafeError> {
         let connection = self.connection();
         let mut statement = connection
             .prepare(&format!(
@@ -172,7 +172,7 @@ const DURABLE_OPERATION_SELECT: &str = "SELECT request_id, operation_kind, accou
 fn query_durable_operation(
     connection: &rusqlite::Connection,
     request_id: &DurableRequestId,
-) -> Result<Option<DurableAccountOperation>, SafeError> {
+) -> Result<Option<DurableIdentityOperation>, SafeError> {
     connection
         .query_row(
             &format!("{DURABLE_OPERATION_SELECT} WHERE request_id = ?1"),
@@ -183,11 +183,11 @@ fn query_durable_operation(
         .map_err(|_| corrupt_storage_error())
 }
 
-fn decode_durable_operation(row: &Row<'_>) -> rusqlite::Result<DurableAccountOperation> {
+fn decode_durable_operation(row: &Row<'_>) -> rusqlite::Result<DurableIdentityOperation> {
     let request_id =
         DurableRequestId::parse(row.get::<_, String>(0)?).map_err(|_| invalid_column(0))?;
     let kind = decode_durable_kind(row.get::<_, String>(1)?.as_str())?;
-    let account =
+    let identity =
         PublicKey::from_hex(row.get::<_, String>(2)?.as_str()).map_err(|_| invalid_column(2))?;
     let expected_revision = row
         .get::<_, Option<i64>>(3)?
@@ -216,12 +216,12 @@ fn decode_durable_operation(row: &Row<'_>) -> rusqlite::Result<DurableAccountOpe
         .map(|value| u64::try_from(value).map_err(|_| invalid_column(10)))
         .transpose()?;
     let terminal = outcome.map(|outcome| {
-        DurableOperationReceipt::new(request_id.clone(), account, outcome, resulting_revision)
+        DurableOperationReceipt::new(request_id.clone(), identity, outcome, resulting_revision)
     });
-    Ok(DurableAccountOperation::new(
+    Ok(DurableIdentityOperation::new(
         request_id,
         kind,
-        account,
+        identity,
         expected_revision,
         phase,
         OperationPriorState::new(prior_selected, prior_availability),
@@ -234,7 +234,7 @@ fn decode_durable_operation(row: &Row<'_>) -> rusqlite::Result<DurableAccountOpe
 impl OperationJournal for Database {
     fn begin_operation(
         &self,
-        kind: AccountOperationKind,
+        kind: IdentityOperationKind,
         subject: PublicKey,
         updated_at: UnixTimestamp,
     ) -> Result<OperationId, SafeError> {
@@ -254,7 +254,7 @@ impl OperationJournal for Database {
     fn update_operation(
         &self,
         id: OperationId,
-        phase: AccountOperationPhase,
+        phase: IdentityOperationPhase,
         updated_at: UnixTimestamp,
         diagnostic: Option<OperationDiagnostic>,
     ) -> Result<(), SafeError> {
@@ -275,7 +275,7 @@ impl OperationJournal for Database {
         }
     }
 
-    fn list_pending_operations(&self) -> Result<Vec<PendingAccountOperation>, SafeError> {
+    fn list_pending_operations(&self) -> Result<Vec<PendingIdentityOperation>, SafeError> {
         let connection = self.connection();
         let mut statement = connection
             .prepare(
@@ -302,7 +302,7 @@ impl OperationJournal for Database {
     }
 }
 
-fn decode_operation(row: &Row<'_>) -> rusqlite::Result<PendingAccountOperation> {
+fn decode_operation(row: &Row<'_>) -> rusqlite::Result<PendingIdentityOperation> {
     let id = u64::try_from(row.get::<_, i64>(0)?).map_err(|_| invalid_column(0))?;
     let kind = decode_kind(row.get::<_, String>(1)?.as_str())?;
     let subject =
@@ -313,7 +313,7 @@ fn decode_operation(row: &Row<'_>) -> rusqlite::Result<PendingAccountOperation> 
         .get::<_, Option<String>>(5)?
         .map(|value| decode_diagnostic(&value))
         .transpose()?;
-    Ok(PendingAccountOperation::new(
+    Ok(PendingIdentityOperation::new(
         OperationId::from_raw(id),
         kind,
         subject,
@@ -386,59 +386,59 @@ fn decode_terminal_outcome(value: &str) -> rusqlite::Result<DurableTerminalOutco
     }
 }
 
-const fn encode_binding_availability(value: BindingAvailability) -> &'static str {
+const fn encode_binding_availability(value: SignerAvailability) -> &'static str {
     match value {
-        BindingAvailability::Available => "available",
-        BindingAvailability::CredentialMissing => "credential_missing",
-        BindingAvailability::StoreUnavailable => "store_unavailable",
+        SignerAvailability::Available => "available",
+        SignerAvailability::CredentialMissing => "credential_missing",
+        SignerAvailability::StoreUnavailable => "store_unavailable",
     }
 }
 
-fn decode_binding_availability(value: &str) -> rusqlite::Result<BindingAvailability> {
+fn decode_binding_availability(value: &str) -> rusqlite::Result<SignerAvailability> {
     match value {
-        "available" => Ok(BindingAvailability::Available),
-        "credential_missing" => Ok(BindingAvailability::CredentialMissing),
-        "store_unavailable" => Ok(BindingAvailability::StoreUnavailable),
+        "available" => Ok(SignerAvailability::Available),
+        "credential_missing" => Ok(SignerAvailability::CredentialMissing),
+        "store_unavailable" => Ok(SignerAvailability::StoreUnavailable),
         _ => Err(invalid_column(9)),
     }
 }
 
-const fn encode_kind(value: AccountOperationKind) -> &'static str {
+const fn encode_kind(value: IdentityOperationKind) -> &'static str {
     match value {
-        AccountOperationKind::Add => "add",
-        AccountOperationKind::Import => "import",
-        AccountOperationKind::Remove => "remove",
+        IdentityOperationKind::Add => "add",
+        IdentityOperationKind::Import => "import",
+        IdentityOperationKind::Remove => "remove",
     }
 }
 
-fn decode_kind(value: &str) -> rusqlite::Result<AccountOperationKind> {
+fn decode_kind(value: &str) -> rusqlite::Result<IdentityOperationKind> {
     match value {
-        "add" => Ok(AccountOperationKind::Add),
-        "import" => Ok(AccountOperationKind::Import),
-        "remove" => Ok(AccountOperationKind::Remove),
+        "add" => Ok(IdentityOperationKind::Add),
+        "import" => Ok(IdentityOperationKind::Import),
+        "remove" => Ok(IdentityOperationKind::Remove),
         _ => Err(invalid_column(1)),
     }
 }
 
-const fn encode_phase(value: AccountOperationPhase) -> &'static str {
+const fn encode_phase(value: IdentityOperationPhase) -> &'static str {
     match value {
-        AccountOperationPhase::IntentRecorded => "intent_recorded",
-        AccountOperationPhase::CredentialWritten => "credential_written",
-        AccountOperationPhase::MetadataCommitted => "metadata_committed",
-        AccountOperationPhase::CompensationPending => "compensation_pending",
-        AccountOperationPhase::CredentialDeleted => "credential_deleted",
-        AccountOperationPhase::MetadataDeleted => "metadata_deleted",
+        IdentityOperationPhase::IntentRecorded => "intent_recorded",
+        IdentityOperationPhase::CredentialWritten => "credential_written",
+        IdentityOperationPhase::MetadataCommitted => "metadata_committed",
+        IdentityOperationPhase::CompensationPending => "compensation_pending",
+        IdentityOperationPhase::CredentialDeleted => "credential_deleted",
+        IdentityOperationPhase::MetadataDeleted => "metadata_deleted",
     }
 }
 
-fn decode_phase(value: &str) -> rusqlite::Result<AccountOperationPhase> {
+fn decode_phase(value: &str) -> rusqlite::Result<IdentityOperationPhase> {
     match value {
-        "intent_recorded" => Ok(AccountOperationPhase::IntentRecorded),
-        "credential_written" => Ok(AccountOperationPhase::CredentialWritten),
-        "metadata_committed" => Ok(AccountOperationPhase::MetadataCommitted),
-        "compensation_pending" => Ok(AccountOperationPhase::CompensationPending),
-        "credential_deleted" => Ok(AccountOperationPhase::CredentialDeleted),
-        "metadata_deleted" => Ok(AccountOperationPhase::MetadataDeleted),
+        "intent_recorded" => Ok(IdentityOperationPhase::IntentRecorded),
+        "credential_written" => Ok(IdentityOperationPhase::CredentialWritten),
+        "metadata_committed" => Ok(IdentityOperationPhase::MetadataCommitted),
+        "compensation_pending" => Ok(IdentityOperationPhase::CompensationPending),
+        "credential_deleted" => Ok(IdentityOperationPhase::CredentialDeleted),
+        "metadata_deleted" => Ok(IdentityOperationPhase::MetadataDeleted),
         _ => Err(invalid_column(3)),
     }
 }
@@ -469,7 +469,7 @@ fn decode_diagnostic(value: &str) -> rusqlite::Result<OperationDiagnostic> {
 fn invalid_column(index: usize) -> rusqlite::Error {
     rusqlite::Error::InvalidColumnType(
         index,
-        "account operation journal".to_owned(),
+        "identity operation journal".to_owned(),
         rusqlite::types::Type::Text,
     )
 }
@@ -477,39 +477,39 @@ fn invalid_column(index: usize) -> rusqlite::Error {
 const fn storage_error() -> SafeError {
     SafeError::new(
         SafeErrorCode::StorageUnavailable,
-        SafeMessage::new("The account recovery journal is unavailable."),
+        SafeMessage::new("The identity recovery journal is unavailable."),
     )
 }
 
 const fn corrupt_storage_error() -> SafeError {
     SafeError::new(
         SafeErrorCode::StorageCorrupt,
-        SafeMessage::new("The account recovery journal could not be read."),
+        SafeMessage::new("The identity recovery journal could not be read."),
     )
 }
 
 const fn operation_not_found() -> SafeError {
     SafeError::new(
         SafeErrorCode::PendingOperationRecoveryRequired,
-        SafeMessage::new("The account recovery operation was not found."),
+        SafeMessage::new("The identity recovery operation was not found."),
     )
 }
 
 const fn operation_conflict() -> SafeError {
     SafeError::new(
         SafeErrorCode::InvalidApplicationState,
-        SafeMessage::new("The durable account operation conflicts with existing state."),
+        SafeMessage::new("The durable identity operation conflicts with existing state."),
     )
 }
 
 #[cfg(test)]
 mod tests {
     use harvestcircle_application::{
-        AccountOperationKind, AccountOperationPhase, DurableOperationKind, DurableOperationPhase,
-        DurableOperationRepository, DurableOperationStart, DurableRequestId,
-        DurableTerminalOutcome, OperationDiagnostic, OperationJournal, OperationPriorState,
+        DurableOperationKind, DurableOperationPhase, DurableOperationRepository,
+        DurableOperationStart, DurableRequestId, DurableTerminalOutcome, IdentityOperationKind,
+        IdentityOperationPhase, OperationDiagnostic, OperationJournal, OperationPriorState,
     };
-    use harvestcircle_domain::{BindingAvailability, PublicKey, UnixTimestamp};
+    use harvestcircle_domain::{PublicKey, SignerAvailability, UnixTimestamp};
 
     use crate::Database;
 
@@ -528,7 +528,7 @@ mod tests {
         let subject = public_key(7);
         let id = database
             .begin_operation(
-                AccountOperationKind::Import,
+                IdentityOperationKind::Import,
                 subject,
                 UnixTimestamp::from_seconds(10).expect("time"),
             )
@@ -536,7 +536,7 @@ mod tests {
         database
             .update_operation(
                 id,
-                AccountOperationPhase::CompensationPending,
+                IdentityOperationPhase::CompensationPending,
                 UnixTimestamp::from_seconds(11).expect("time"),
                 Some(OperationDiagnostic::KeyringUnavailable),
             )
@@ -545,10 +545,10 @@ mod tests {
         let pending = database.list_pending_operations().expect("pending");
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].subject(), subject);
-        assert_eq!(pending[0].kind(), AccountOperationKind::Import);
+        assert_eq!(pending[0].kind(), IdentityOperationKind::Import);
         assert_eq!(
             pending[0].phase(),
-            AccountOperationPhase::CompensationPending
+            IdentityOperationPhase::CompensationPending
         );
         assert_eq!(
             pending[0].diagnostic(),
@@ -569,7 +569,7 @@ mod tests {
         let database = Database::in_memory().expect("database");
         database
             .begin_operation(
-                AccountOperationKind::Remove,
+                IdentityOperationKind::Remove,
                 public_key(8),
                 UnixTimestamp::from_seconds(12).expect("time"),
             )
@@ -590,16 +590,16 @@ mod tests {
     fn durable_repository_replays_matching_requests_and_retains_terminal_receipts() {
         let database = Database::in_memory().expect("database");
         let request = DurableRequestId::parse("import:test:1").expect("request");
-        let account = public_key(9);
+        let identity = public_key(9);
         let prior = OperationPriorState::new(
             Some(public_key(8)),
-            Some(BindingAvailability::CredentialMissing),
+            Some(SignerAvailability::CredentialMissing),
         );
         let started = database
             .begin_durable_operation(
                 &request,
                 DurableOperationKind::Repair,
-                account,
+                identity,
                 Some(4),
                 prior,
                 UnixTimestamp::from_seconds(10).expect("time"),
@@ -610,7 +610,7 @@ mod tests {
             .begin_durable_operation(
                 &request,
                 DurableOperationKind::Repair,
-                account,
+                identity,
                 Some(4),
                 prior,
                 UnixTimestamp::from_seconds(11).expect("time"),
@@ -622,7 +622,7 @@ mod tests {
                 .begin_durable_operation(
                     &request,
                     DurableOperationKind::Remove,
-                    account,
+                    identity,
                     Some(4),
                     prior,
                     UnixTimestamp::from_seconds(11).expect("time"),
@@ -658,7 +658,7 @@ mod tests {
                 .begin_durable_operation(
                     &request,
                     DurableOperationKind::Repair,
-                    account,
+                    identity,
                     Some(5),
                     prior,
                     UnixTimestamp::from_seconds(11).expect("time"),
@@ -670,7 +670,7 @@ mod tests {
                 .begin_durable_operation(
                     &request,
                     DurableOperationKind::Repair,
-                    account,
+                    identity,
                     Some(4),
                     OperationPriorState::new(None, None),
                     UnixTimestamp::from_seconds(11).expect("time"),
@@ -746,7 +746,7 @@ mod tests {
             .begin_durable_operation(
                 &overflow_request,
                 DurableOperationKind::Import,
-                account,
+                identity,
                 None,
                 OperationPriorState::new(None, None),
                 UnixTimestamp::from_seconds(15).expect("time"),

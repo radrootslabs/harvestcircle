@@ -77,7 +77,7 @@ mod tests {
         let event = EventBuilder::metadata(
             &Metadata::new()
                 .name(" farmer ")
-                .display_name(" Farm Account ")
+                .display_name(" Farm Identity ")
                 .nip05("farmer@example.test")
                 .about("Local grower")
                 .picture(
@@ -100,7 +100,7 @@ mod tests {
 
         assert_eq!(candidate.author(), expected_author);
         assert_eq!(candidate.metadata().name(), Some("farmer"));
-        assert_eq!(candidate.metadata().display_name(), Some("Farm Account"));
+        assert_eq!(candidate.metadata().display_name(), Some("Farm Identity"));
         assert_eq!(candidate.metadata().nip05(), Some("farmer@example.test"));
         assert_eq!(candidate.metadata().about(), Some("Local grower"));
         assert_eq!(

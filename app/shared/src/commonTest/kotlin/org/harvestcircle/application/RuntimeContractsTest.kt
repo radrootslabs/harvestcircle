@@ -59,7 +59,7 @@ class RuntimeContractsTest {
                 .size,
         )
         assertEquals(
-            4,
+            3,
             SignerAvailability.entries
                 .map(::availabilityName)
                 .distinct()
@@ -177,7 +177,6 @@ private fun availabilityName(value: SignerAvailability): String =
         SignerAvailability.Available -> "available"
         SignerAvailability.CredentialMissing -> "credential-missing"
         SignerAvailability.StoreUnavailable -> "store-unavailable"
-        SignerAvailability.NotRequired -> "not-required"
     }
 
 private fun relayName(value: RelayConnectionState): String =

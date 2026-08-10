@@ -1,17 +1,17 @@
-#![doc = "HarvestCircle Nostr account domain types."]
+#![doc = "HarvestCircle Nostr identity domain types."]
 
-pub mod account;
 pub mod error;
+pub mod identity;
 pub mod key;
 pub mod profile;
 pub mod relay;
 pub mod time;
 
-pub use account::{
-    AccountCreatedAt, AccountIdentity, AccountLabel, AccountSummary, BindingAvailability,
-    BindingRepairAction, LocalSignerBinding,
-};
 pub use error::{SafeError, SafeErrorCode, SafeMessage};
+pub use identity::{
+    IdentityCreatedAt, IdentityLabel, LocalKeyringBinding, NostrIdentity, NostrIdentityReference,
+    SignerAvailability, SignerBinding, SignerRepairAction,
+};
 pub use key::{
     MAX_SECRET_KEY_INPUT_BYTES, Npub, Nsec, PersistedPublicKeyClassification, PublicKey,
     SecretKeyInput, SecretKeyInputKind, classify_persisted_public_key,

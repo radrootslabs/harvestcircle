@@ -1,7 +1,7 @@
 use harvestcircle_application::{AppSnapshot, RelayConfiguration, SessionState, SnapshotRevision};
 use harvestcircle_domain::{
-    AccountCreatedAt, AccountIdentity, AccountSummary, BindingAvailability, LocalSignerBinding,
-    PublicKey, SafeError, SafeErrorCode, SafeMessage, UnixTimestamp,
+    IdentityCreatedAt, LocalKeyringBinding, NostrIdentity, NostrIdentityReference, PublicKey,
+    SafeError, SafeErrorCode, SafeMessage, SignerAvailability, UnixTimestamp,
 };
 
 const SECRET_HEX: &str = "1111111111111111111111111111111111111111111111111111111111111111";
@@ -14,23 +14,23 @@ fn assert_redacted(text: &str) {
 
 #[test]
 fn redaction_guards_public_snapshot_and_safe_error_debug() {
-    let account = AccountSummary::new(
-        AccountIdentity::derive(PublicKey::from_bytes([7; 32]).expect("valid public key"))
+    let identity = NostrIdentity::new(
+        NostrIdentityReference::derive(PublicKey::from_bytes([7; 32]).expect("valid public key"))
             .expect("identity"),
-        LocalSignerBinding::new(
+        LocalKeyringBinding::new(
             PublicKey::from_bytes([7; 32]).expect("valid public key"),
-            BindingAvailability::Available,
+            SignerAvailability::Available,
         ),
         None,
-        AccountCreatedAt::new(UnixTimestamp::from_seconds(1).expect("time")),
+        IdentityCreatedAt::new(UnixTimestamp::from_seconds(1).expect("time")),
         None,
     )
-    .expect("account");
+    .expect("identity");
     let snapshot = AppSnapshot::ready(
         SnapshotRevision::from_value(1),
         RelayConfiguration::default(),
-        vec![account.clone()],
-        Some(account.public_key()),
+        vec![identity.clone()],
+        Some(identity.public_key()),
         SessionState::SignedOut,
         None,
         None,

@@ -1,9 +1,9 @@
 use harvestcircle_application::{
-    ActiveAccountSnapshot, AppLifecycle, AppSnapshot, ProfileLoadState, RelayConnectionState,
+    ActiveIdentitySnapshot, AppLifecycle, AppSnapshot, ProfileLoadState, RelayConnectionState,
     RuntimeLifecycle, SessionState,
 };
 use harvestcircle_domain::{
-    AccountSummary, BindingAvailability, ProfileMetadata, SafeError, SafeErrorCode,
+    NostrIdentity, ProfileMetadata, SafeError, SafeErrorCode, SignerAvailability,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -11,11 +11,11 @@ use harvestcircle_domain::{
 pub enum WireErrorCode {
     InvalidPublicKey,
     InvalidSecretKey,
-    InvalidAccountMetadata,
+    InvalidIdentityMetadata,
     InvalidProfileMetadata,
     InvalidApplicationState,
-    AccountAlreadyExists,
-    AccountNotFound,
+    IdentityAlreadyExists,
+    IdentityNotFound,
     KeyringUnavailable,
     CredentialMissing,
     StorageUnavailable,
@@ -119,19 +119,16 @@ pub enum ProfileLoadStateDto {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
-pub enum SignerKindDto {
-    LocalSecret,
-    WatchOnly,
-    RemoteNip46,
+pub enum SignerBindingKindDto {
+    LocalKeyring,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
-pub enum KeyAvailabilityDto {
+pub enum SignerAvailabilityDto {
     Available,
     CredentialMissing,
     StoreUnavailable,
-    NotRequired,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -146,20 +143,20 @@ pub struct ProfileDto {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
-pub struct AccountDto {
+pub struct IdentityDto {
     pub public_key_hex: String,
     pub npub: String,
     pub display_label: String,
-    pub signer_kind: SignerKindDto,
-    pub key_availability: KeyAvailabilityDto,
+    pub signer_binding_kind: SignerBindingKindDto,
+    pub signer_availability: SignerAvailabilityDto,
     pub created_at_seconds: i64,
     pub last_used_at_seconds: Option<i64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
-pub struct ActiveAccountDto {
-    pub account: AccountDto,
+pub struct ActiveIdentityDto {
+    pub identity: IdentityDto,
     pub relay_state: RelayConnectionStateDto,
     pub profile_state: ProfileLoadStateDto,
     pub profile: Option<ProfileDto>,
@@ -172,12 +169,12 @@ pub struct AppSnapshotDto {
     pub lifecycle: AppLifecycleDto,
     pub lifecycle_error: Option<SafeErrorDto>,
     pub configured_relays: Vec<String>,
-    pub accounts: Vec<AccountDto>,
+    pub identities: Vec<IdentityDto>,
     pub selected_public_key_hex: Option<String>,
     pub session: SessionStateDto,
     pub session_subject_public_key_hex: Option<String>,
     pub session_error: Option<SafeErrorDto>,
-    pub active_account: Option<ActiveAccountDto>,
+    pub active_identity: Option<ActiveIdentityDto>,
     pub recoverable_problem: Option<SafeErrorDto>,
 }
 
@@ -207,14 +204,18 @@ impl From<&AppSnapshot> for AppSnapshotDto {
                 .iter()
                 .map(|relay| relay.as_str().to_owned())
                 .collect(),
-            accounts: snapshot.accounts().iter().map(AccountDto::from).collect(),
+            identities: snapshot
+                .identities()
+                .iter()
+                .map(IdentityDto::from)
+                .collect(),
             selected_public_key_hex: snapshot
-                .selected_account()
+                .selected_identity()
                 .map(harvestcircle_domain::PublicKey::to_hex),
             session,
             session_subject_public_key_hex,
             session_error,
-            active_account: snapshot.active_account().map(ActiveAccountDto::from),
+            active_identity: snapshot.active_identity().map(ActiveIdentityDto::from),
             recoverable_problem: snapshot.recoverable_problem().map(SafeErrorDto::from),
         }
     }
@@ -250,26 +251,26 @@ impl AppSnapshotDto {
     }
 }
 
-impl From<&AccountSummary> for AccountDto {
-    fn from(account: &AccountSummary) -> Self {
+impl From<&NostrIdentity> for IdentityDto {
+    fn from(identity: &NostrIdentity) -> Self {
         Self {
-            public_key_hex: account.public_key().to_hex(),
-            npub: account.npub().as_str().to_owned(),
-            display_label: account.display_label(),
-            signer_kind: SignerKindDto::LocalSecret,
-            key_availability: account.signer().availability().into(),
-            created_at_seconds: account.created_at().timestamp().as_seconds(),
-            last_used_at_seconds: account
+            public_key_hex: identity.public_key().to_hex(),
+            npub: identity.npub().as_str().to_owned(),
+            display_label: identity.display_label(),
+            signer_binding_kind: SignerBindingKindDto::LocalKeyring,
+            signer_availability: identity.signer_binding().availability().into(),
+            created_at_seconds: identity.created_at().timestamp().as_seconds(),
+            last_used_at_seconds: identity
                 .last_used_at()
                 .map(harvestcircle_domain::UnixTimestamp::as_seconds),
         }
     }
 }
 
-impl From<&ActiveAccountSnapshot> for ActiveAccountDto {
-    fn from(active: &ActiveAccountSnapshot) -> Self {
+impl From<&ActiveIdentitySnapshot> for ActiveIdentityDto {
+    fn from(active: &ActiveIdentitySnapshot) -> Self {
         Self {
-            account: active.account().into(),
+            identity: active.identity().into(),
             relay_state: active.relay_state().into(),
             profile_state: active.profile_state().into(),
             profile: active.profile().map(ProfileDto::from),
@@ -307,11 +308,11 @@ impl From<SafeErrorCode> for WireErrorCode {
         match code {
             SafeErrorCode::InvalidPublicKey => Self::InvalidPublicKey,
             SafeErrorCode::InvalidSecretKey => Self::InvalidSecretKey,
-            SafeErrorCode::InvalidAccountMetadata => Self::InvalidAccountMetadata,
+            SafeErrorCode::InvalidIdentityMetadata => Self::InvalidIdentityMetadata,
             SafeErrorCode::InvalidProfileMetadata => Self::InvalidProfileMetadata,
             SafeErrorCode::InvalidApplicationState => Self::InvalidApplicationState,
-            SafeErrorCode::AccountAlreadyExists => Self::AccountAlreadyExists,
-            SafeErrorCode::AccountNotFound => Self::AccountNotFound,
+            SafeErrorCode::IdentityAlreadyExists => Self::IdentityAlreadyExists,
+            SafeErrorCode::IdentityNotFound => Self::IdentityNotFound,
             SafeErrorCode::KeyringUnavailable => Self::KeyringUnavailable,
             SafeErrorCode::CredentialMissing => Self::CredentialMissing,
             SafeErrorCode::StorageUnavailable => Self::StorageUnavailable,
@@ -338,11 +339,11 @@ pub(crate) const fn error_policy(
     match code {
         SafeErrorCode::InvalidPublicKey
         | SafeErrorCode::InvalidSecretKey
-        | SafeErrorCode::InvalidAccountMetadata
+        | SafeErrorCode::InvalidIdentityMetadata
         | SafeErrorCode::InvalidProfileMetadata => {
             (WireErrorCategory::Input, false, WireRecoveryAction::None)
         }
-        SafeErrorCode::AccountAlreadyExists | SafeErrorCode::AccountNotFound => {
+        SafeErrorCode::IdentityAlreadyExists | SafeErrorCode::IdentityNotFound => {
             (WireErrorCategory::Conflict, false, WireRecoveryAction::None)
         }
         SafeErrorCode::KeyringUnavailable => (
@@ -406,12 +407,12 @@ pub(crate) const fn error_policy(
     }
 }
 
-impl From<BindingAvailability> for KeyAvailabilityDto {
-    fn from(value: BindingAvailability) -> Self {
+impl From<SignerAvailability> for SignerAvailabilityDto {
+    fn from(value: SignerAvailability) -> Self {
         match value {
-            BindingAvailability::Available => Self::Available,
-            BindingAvailability::CredentialMissing => Self::CredentialMissing,
-            BindingAvailability::StoreUnavailable => Self::StoreUnavailable,
+            SignerAvailability::Available => Self::Available,
+            SignerAvailability::CredentialMissing => Self::CredentialMissing,
+            SignerAvailability::StoreUnavailable => Self::StoreUnavailable,
         }
     }
 }
@@ -450,12 +451,12 @@ mod tests {
     };
     use harvestcircle_nostr::NostrKeyMaterialProvider;
 
-    use harvestcircle_domain::{BindingAvailability, SafeError, SafeErrorCode, SafeMessage};
+    use harvestcircle_domain::{SafeError, SafeErrorCode, SafeMessage, SignerAvailability};
 
     use super::{
-        AppLifecycleDto, AppSnapshotDto, KeyAvailabilityDto, ProfileLoadStateDto,
-        RelayConnectionStateDto, SafeErrorDto, WireErrorCategory, WireErrorCode,
-        WireRecoveryAction, error_policy,
+        AppLifecycleDto, AppSnapshotDto, ProfileLoadStateDto, RelayConnectionStateDto,
+        SafeErrorDto, SignerAvailabilityDto, WireErrorCategory, WireErrorCode, WireRecoveryAction,
+        error_policy,
     };
 
     fn safe_error(code: SafeErrorCode) -> SafeError {
@@ -473,7 +474,7 @@ mod tests {
         let debug = format!("{dto:?}");
 
         assert_eq!(dto.revision, 1);
-        assert!(dto.accounts.is_empty());
+        assert!(dto.identities.is_empty());
         assert!(!debug.contains("nsec"));
         assert!(!debug.contains("secret_key"));
         assert!(!debug.contains("server_url"));
@@ -525,8 +526,8 @@ mod tests {
                 WireErrorCode::InvalidSecretKey,
             ),
             (
-                SafeErrorCode::InvalidAccountMetadata,
-                WireErrorCode::InvalidAccountMetadata,
+                SafeErrorCode::InvalidIdentityMetadata,
+                WireErrorCode::InvalidIdentityMetadata,
             ),
             (
                 SafeErrorCode::InvalidProfileMetadata,
@@ -537,12 +538,12 @@ mod tests {
                 WireErrorCode::InvalidApplicationState,
             ),
             (
-                SafeErrorCode::AccountAlreadyExists,
-                WireErrorCode::AccountAlreadyExists,
+                SafeErrorCode::IdentityAlreadyExists,
+                WireErrorCode::IdentityAlreadyExists,
             ),
             (
-                SafeErrorCode::AccountNotFound,
-                WireErrorCode::AccountNotFound,
+                SafeErrorCode::IdentityNotFound,
+                WireErrorCode::IdentityNotFound,
             ),
             (
                 SafeErrorCode::KeyringUnavailable,
@@ -675,19 +676,19 @@ mod tests {
 
         for (source, expected) in [
             (
-                BindingAvailability::Available,
-                KeyAvailabilityDto::Available,
+                SignerAvailability::Available,
+                SignerAvailabilityDto::Available,
             ),
             (
-                BindingAvailability::CredentialMissing,
-                KeyAvailabilityDto::CredentialMissing,
+                SignerAvailability::CredentialMissing,
+                SignerAvailabilityDto::CredentialMissing,
             ),
             (
-                BindingAvailability::StoreUnavailable,
-                KeyAvailabilityDto::StoreUnavailable,
+                SignerAvailability::StoreUnavailable,
+                SignerAvailabilityDto::StoreUnavailable,
             ),
         ] {
-            assert_eq!(KeyAvailabilityDto::from(source), expected);
+            assert_eq!(SignerAvailabilityDto::from(source), expected);
         }
         for (source, expected) in [
             (

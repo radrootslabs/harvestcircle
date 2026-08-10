@@ -2,8 +2,8 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use std::time::Instant;
 
 use harvestcircle_domain::{
-    AccountIdentity, BindingAvailability, LocalSignerBinding, PublicKey, SafeError, SafeErrorCode,
-    SafeMessage,
+    NostrIdentityReference, PublicKey, SafeError, SafeErrorCode, SafeMessage, SignerAvailability,
+    SignerBinding,
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -38,44 +38,45 @@ impl SessionGeneration {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ForegroundSessionBinding {
-    identity: AccountIdentity,
-    signer: LocalSignerBinding,
+pub struct ActiveSessionBinding {
+    identity: NostrIdentityReference,
+    signer_binding: SignerBinding,
     generation: SessionGeneration,
 }
 
-impl ForegroundSessionBinding {
+impl ActiveSessionBinding {
     /// Binds one foreground session to a ready local signer and generation.
     ///
     /// # Errors
     ///
-    /// Returns a safe state error when account and binding differ or when the
+    /// Returns a safe state error when identity and binding differ or when the
     /// signer is unavailable.
     pub fn new(
-        identity: AccountIdentity,
-        signer: LocalSignerBinding,
+        identity: NostrIdentityReference,
+        signer_binding: impl Into<SignerBinding>,
         generation: SessionGeneration,
     ) -> Result<Self, SafeError> {
-        if identity.public_key() != signer.account()
-            || signer.availability() != BindingAvailability::Available
+        let signer_binding = signer_binding.into();
+        if identity.public_key() != signer_binding.identity()
+            || signer_binding.availability() != SignerAvailability::Available
         {
             return Err(invalid_foreground_session());
         }
         Ok(Self {
             identity,
-            signer,
+            signer_binding,
             generation,
         })
     }
 
     #[must_use]
-    pub const fn identity(&self) -> &AccountIdentity {
+    pub const fn identity(&self) -> &NostrIdentityReference {
         &self.identity
     }
 
     #[must_use]
-    pub const fn signer(&self) -> LocalSignerBinding {
-        self.signer
+    pub const fn signer_binding(&self) -> SignerBinding {
+        self.signer_binding
     }
 
     #[must_use]
@@ -94,8 +95,8 @@ const fn invalid_foreground_session() -> SafeError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TaskCorrelation {
     request_id: RequestId,
-    account: PublicKey,
-    binding: LocalSignerBinding,
+    identity: PublicKey,
+    binding: SignerBinding,
     expected_revision: SnapshotRevision,
     session_generation: SessionGeneration,
 }
@@ -104,14 +105,14 @@ impl TaskCorrelation {
     #[must_use]
     pub const fn new(
         request_id: RequestId,
-        account: PublicKey,
-        binding: LocalSignerBinding,
+        identity: PublicKey,
+        binding: SignerBinding,
         expected_revision: SnapshotRevision,
         session_generation: SessionGeneration,
     ) -> Self {
         Self {
             request_id,
-            account,
+            identity,
             binding,
             expected_revision,
             session_generation,
@@ -124,12 +125,12 @@ impl TaskCorrelation {
     }
 
     #[must_use]
-    pub const fn account(self) -> PublicKey {
-        self.account
+    pub const fn identity(self) -> PublicKey {
+        self.identity
     }
 
     #[must_use]
-    pub const fn binding(self) -> LocalSignerBinding {
+    pub const fn binding(self) -> SignerBinding {
         self.binding
     }
 
@@ -572,11 +573,11 @@ mod tests {
     use std::num::NonZeroUsize;
     use std::time::{Duration, Instant};
 
-    use harvestcircle_domain::{AccountIdentity, BindingAvailability, LocalSignerBinding};
+    use harvestcircle_domain::{LocalKeyringBinding, NostrIdentityReference, SignerAvailability};
 
     use crate::{
-        ActorMailbox, CommandContext, CommandReceipt, CommandRejection, CommandResult,
-        CommandSubmission, ForegroundSessionBinding, LifecycleGate, RequestId, RuntimeCommandClass,
+        ActiveSessionBinding, ActorMailbox, CommandContext, CommandReceipt, CommandRejection,
+        CommandResult, CommandSubmission, LifecycleGate, RequestId, RuntimeCommandClass,
         RuntimeLifecycle, SessionGeneration,
     };
 
@@ -591,49 +592,49 @@ mod tests {
     #[test]
     fn foreground_session_requires_matching_available_binding_and_generation() {
         let public_key = crate::test_support::valid_test_public_key(3).expect("valid public key");
-        let identity = AccountIdentity::derive(public_key).expect("identity");
+        let identity = NostrIdentityReference::derive(public_key).expect("identity");
         let generation = SessionGeneration::from_value(4);
-        let session = ForegroundSessionBinding::new(
+        let session = ActiveSessionBinding::new(
             identity.clone(),
-            LocalSignerBinding::new(public_key, BindingAvailability::Available),
+            LocalKeyringBinding::new(public_key, SignerAvailability::Available),
             generation,
         )
         .expect("session");
         assert_eq!(session.identity(), &identity);
-        assert_eq!(session.signer().account(), public_key);
+        assert_eq!(session.signer_binding().identity(), public_key);
         assert_eq!(session.generation(), generation);
 
         let correlation = super::TaskCorrelation::new(
             RequestId::new(8).expect("request"),
             public_key,
-            session.signer(),
+            session.signer_binding(),
             crate::SnapshotRevision::from_value(9),
             generation,
         );
         assert_eq!(correlation.request_id().get(), 8);
-        assert_eq!(correlation.account(), public_key);
-        assert_eq!(correlation.binding(), session.signer());
+        assert_eq!(correlation.identity(), public_key);
+        assert_eq!(correlation.binding(), session.signer_binding());
         assert_eq!(correlation.expected_revision().value(), 9);
         assert_eq!(correlation.session_generation(), generation);
 
         assert!(
-            ForegroundSessionBinding::new(
+            ActiveSessionBinding::new(
                 identity.clone(),
-                LocalSignerBinding::new(
+                LocalKeyringBinding::new(
                     harvestcircle_domain::PublicKey::from_hex(
                         "e0266e3cfb0d2886f91c73f5f868f3b98273713e5fcd97c081663f5518a4b3af",
                     )
                     .expect("different valid public key"),
-                    BindingAvailability::Available,
+                    SignerAvailability::Available,
                 ),
                 generation,
             )
             .is_err()
         );
         assert!(
-            ForegroundSessionBinding::new(
+            ActiveSessionBinding::new(
                 identity,
-                LocalSignerBinding::new(public_key, BindingAvailability::CredentialMissing),
+                LocalKeyringBinding::new(public_key, SignerAvailability::CredentialMissing),
                 generation,
             )
             .is_err()

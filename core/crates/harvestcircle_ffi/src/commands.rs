@@ -23,7 +23,7 @@ use harvestcircle_runtime::{
 use harvestcircle_storage::OsKeyringSecretStore;
 
 use crate::{
-    AccountDto, AppSnapshotDto, WireErrorCategory, WireErrorCode, WireRecoveryAction,
+    AppSnapshotDto, IdentityDto, WireErrorCategory, WireErrorCode, WireRecoveryAction,
     contract::{
         DISTRIBUTION_PACKAGE_VERSION, FFI_CONTRACT_HASH, FFI_CONTRACT_ID, FFI_CONTRACT_MAJOR,
         FFI_CONTRACT_MINOR, MINIMUM_SCHEMA_VERSION, PRODUCT_COORDINATE_DIGEST, PRODUCT_VERSION,
@@ -45,7 +45,7 @@ pub struct RequestContextDto {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
-pub struct AccountCommandReceiptDto {
+pub struct IdentityCommandReceiptDto {
     pub request_id: String,
     pub committed_revision: u64,
     pub snapshot: AppSnapshotDto,
@@ -160,8 +160,8 @@ pub struct GeneratedRecoveryRequest {
 
 #[cfg_attr(not(coverage_nightly), uniffi::export)]
 impl GeneratedRecoveryRequest {
-    pub fn account(&self) -> AccountDto {
-        self.handle.view().account().into()
+    pub fn identity(&self) -> IdentityDto {
+        self.handle.view().identity().into()
     }
 
     pub fn expires_at_seconds(&self) -> i64 {
@@ -285,12 +285,12 @@ impl HarvestCircleAppCore {
         self.inner.snapshot_dto()
     }
 
-    /// Begins the exclusive generated-account recovery flow without persistence.
+    /// Begins the exclusive generated-identity recovery flow without persistence.
     ///
     /// # Errors
     ///
     /// Returns a safe key-generation, conflict, timeout, or lifecycle error.
-    pub async fn begin_generated_account_v2(
+    pub async fn begin_generated_identity(
         &self,
     ) -> Result<Arc<GeneratedRecoveryRequest>, HarvestCircleError> {
         self.inner
@@ -306,13 +306,13 @@ impl HarvestCircleAppCore {
             .map_err(HarvestCircleError::from)
     }
 
-    /// Acknowledges recovery and commits the generated account once.
+    /// Acknowledges recovery and commits the generated identity once.
     ///
     /// # Errors
     ///
     /// Returns a terminal safe recovery, credential, persistence, timeout, or lifecycle error.
     /// A failed commit must be recovered by importing the already-saved recovery key.
-    pub async fn acknowledge_generated_account_v2(
+    pub async fn acknowledge_generated_identity(
         &self,
         context: RequestContextDto,
         request: Arc<GeneratedRecoveryRequest>,
@@ -336,12 +336,12 @@ impl HarvestCircleAppCore {
             .map_err(generated_commit_failed)
     }
 
-    /// Cancels the exclusive generated-account recovery flow.
+    /// Cancels the exclusive generated-identity recovery flow.
     ///
     /// # Errors
     ///
     /// Returns a safe timeout or lifecycle error.
-    pub async fn cancel_generated_account_v2(
+    pub async fn cancel_generated_identity(
         &self,
         request: Arc<GeneratedRecoveryRequest>,
     ) -> Result<bool, HarvestCircleError> {
@@ -355,16 +355,16 @@ impl HarvestCircleAppCore {
             .map_err(HarvestCircleError::from)
     }
 
-    /// Imports or repairs an account using a caller-owned idempotency key.
+    /// Imports or repairs an identity using a caller-owned idempotency key.
     ///
     /// # Errors
     ///
     /// Returns a correlated validation, conflict, timeout, credential, or storage error.
-    pub async fn import_account_v2(
+    pub async fn import_identity(
         &self,
         context: RequestContextDto,
         secret_key: Vec<u8>,
-    ) -> Result<AccountCommandReceiptDto, HarvestCircleError> {
+    ) -> Result<IdentityCommandReceiptDto, HarvestCircleError> {
         let request_id = DurableRequestId::parse(context.request_id.clone())
             .map_err(|error| HarvestCircleError::correlated(error, &context.request_id))?;
         let timeout = command_timeout(context.deadline_millis, &context.request_id)?;
@@ -381,7 +381,7 @@ impl HarvestCircleAppCore {
             .await
             .map(|_| {
                 let snapshot = self.inner.snapshot_dto();
-                AccountCommandReceiptDto {
+                IdentityCommandReceiptDto {
                     request_id: context.request_id.clone(),
                     committed_revision: snapshot.revision,
                     snapshot,
@@ -390,43 +390,43 @@ impl HarvestCircleAppCore {
             .map_err(|error| HarvestCircleError::correlated(error, &context.request_id))
     }
 
-    /// Selects one saved account without activating it.
+    /// Selects one saved identity without activating it.
     ///
     /// # Errors
     ///
-    /// Returns a safe public-key, account, or storage error.
-    pub async fn select_account(
+    /// Returns a safe public-key, identity, or storage error.
+    pub async fn select_identity(
         &self,
         public_key_hex: String,
     ) -> Result<AppSnapshotDto, HarvestCircleError> {
         let public_key = parse_public_key(&public_key_hex)?;
         self.inner
             .actor
-            .select_account(public_key)
+            .select_identity(public_key)
             .await
             .map(|snapshot| self.inner.dto_for(&snapshot))
             .map_err(HarvestCircleError::from)
     }
 
-    /// Activates one saved account after validating its credential.
+    /// Activates one saved identity after validating its credential.
     ///
     /// # Errors
     ///
-    /// Returns a safe public-key, credential, account, or storage error.
-    pub async fn activate_account(
+    /// Returns a safe public-key, credential, identity, or storage error.
+    pub async fn activate_identity(
         &self,
         public_key_hex: String,
     ) -> Result<AppSnapshotDto, HarvestCircleError> {
         let public_key = parse_public_key(&public_key_hex)?;
         self.inner
             .actor
-            .activate_account(public_key)
+            .activate_identity(public_key)
             .await
             .map(|snapshot| self.inner.dto_for(&snapshot))
             .map_err(HarvestCircleError::from)
     }
 
-    /// Signs out while retaining accounts and credentials.
+    /// Signs out while retaining identities and credentials.
     ///
     /// # Errors
     ///
@@ -458,15 +458,15 @@ impl HarvestCircleAppCore {
     ///
     /// # Errors
     ///
-    /// Returns a safe public-key or account error.
-    pub async fn request_account_removal(
+    /// Returns a safe public-key or identity error.
+    pub async fn request_identity_removal(
         &self,
         public_key_hex: String,
     ) -> Result<Arc<RemovalRequest>, HarvestCircleError> {
         let public_key = parse_public_key(&public_key_hex)?;
         self.inner
             .actor
-            .request_account_removal(public_key)
+            .request_identity_removal(public_key)
             .await
             .map(|token| {
                 let impact = token.impact();
@@ -481,12 +481,12 @@ impl HarvestCircleAppCore {
             .map_err(HarvestCircleError::from)
     }
 
-    /// Permanently removes the account represented by a one-time request.
+    /// Permanently removes the identity represented by a one-time request.
     ///
     /// # Errors
     ///
     /// Returns a safe confirmation, credential, recovery, or storage error.
-    pub async fn confirm_account_removal(
+    pub async fn confirm_identity_removal(
         &self,
         context: RequestContextDto,
         request: Arc<RemovalRequest>,
@@ -502,7 +502,7 @@ impl HarvestCircleAppCore {
         let timeout = command_timeout(context.deadline_millis, &context.request_id)?;
         self.inner
             .actor
-            .confirm_account_removal(
+            .confirm_identity_removal(
                 token,
                 request_id,
                 harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
@@ -682,7 +682,7 @@ fn confirmation_expired() -> HarvestCircleError {
         retryable: false,
         recovery_action: WireRecoveryAction::None,
         correlation_id: None,
-        safe_message: "The account removal confirmation is no longer valid.".to_owned(),
+        safe_message: "The identity removal confirmation is no longer valid.".to_owned(),
     }
 }
 
@@ -706,7 +706,7 @@ fn generated_commit_failed(error: SafeError) -> HarvestCircleError {
         recovery_action: WireRecoveryAction::None,
         correlation_id: None,
         safe_message:
-            "The generated account could not be saved. Import the recovery key you saved to try again."
+            "The generated identity could not be saved. Import the recovery key you saved to try again."
                 .to_owned(),
     }
 }
@@ -793,16 +793,16 @@ mod tests {
         };
         let secret = b"7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
         let first = core
-            .import_account_v2(context.clone(), secret.to_vec())
+            .import_identity(context.clone(), secret.to_vec())
             .await
             .expect("first import");
         let replay = core
-            .import_account_v2(context, secret.to_vec())
+            .import_identity(context, secret.to_vec())
             .await
             .expect("replayed import");
 
         assert_eq!(first, replay);
-        assert_eq!(first.snapshot.accounts.len(), 1);
+        assert_eq!(first.snapshot.identities.len(), 1);
         assert_eq!(first.request_id, "ffi-test-import-1");
     }
 
@@ -811,7 +811,7 @@ mod tests {
         let core = in_memory_core().await;
         let initial = core.snapshot();
         let recovery = core
-            .begin_generated_account_v2()
+            .begin_generated_identity()
             .await
             .expect("begin recovery");
 
@@ -825,12 +825,12 @@ mod tests {
             deadline_millis: 5_000,
         };
         let committed = core
-            .acknowledge_generated_account_v2(context.clone(), Arc::clone(&recovery))
+            .acknowledge_generated_identity(context.clone(), Arc::clone(&recovery))
             .await
             .expect("acknowledge");
-        assert_eq!(committed.accounts.len(), 1);
+        assert_eq!(committed.identities.len(), 1);
         let repeated = core
-            .acknowledge_generated_account_v2(context, recovery)
+            .acknowledge_generated_identity(context, recovery)
             .await
             .expect_err("repeated acknowledgement");
         assert!(matches!(
@@ -841,11 +841,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn account_lifecycle_and_one_use_removal_are_exercised_through_the_ffi_boundary() {
+    async fn identity_lifecycle_and_one_use_removal_are_exercised_through_the_ffi_boundary() {
         let core = in_memory_core().await;
         let initial = core.bootstrap().await.expect("bootstrap");
         let imported = core
-            .import_account_v2(
+            .import_identity(
                 RequestContextDto {
                     request_id: "ffi-lifecycle-import".to_owned(),
                     expected_revision: initial.revision,
@@ -854,17 +854,17 @@ mod tests {
                 b"7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7".to_vec(),
             )
             .await
-            .expect("import account");
-        let public_key = imported.snapshot.accounts[0].public_key_hex.clone();
+            .expect("import identity");
+        let public_key = imported.snapshot.identities[0].public_key_hex.clone();
 
         let selected = core
-            .select_account(public_key.clone())
+            .select_identity(public_key.clone())
             .await
-            .expect("select account");
+            .expect("select identity");
         let active = core
-            .activate_account(public_key.clone())
+            .activate_identity(public_key.clone())
             .await
-            .expect("activate account");
+            .expect("activate identity");
         assert!(active.revision > selected.revision);
         let signed_out = core.sign_out().await.expect("sign out");
         assert!(signed_out.revision > active.revision);
@@ -875,7 +875,7 @@ mod tests {
         assert_eq!(refreshed.revision, signed_out.revision);
 
         let removal = core
-            .request_account_removal(public_key.clone())
+            .request_identity_removal(public_key.clone())
             .await
             .expect("request removal");
         assert_eq!(removal.public_key_hex(), public_key);
@@ -883,7 +883,7 @@ mod tests {
         assert!(!removal.signs_out());
         assert!(removal.expires_at_seconds() > 0);
         let removed = core
-            .confirm_account_removal(
+            .confirm_identity_removal(
                 RequestContextDto {
                     request_id: "ffi-lifecycle-remove".to_owned(),
                     expected_revision: signed_out.revision,
@@ -893,9 +893,9 @@ mod tests {
             )
             .await
             .expect("confirm removal");
-        assert!(removed.accounts.is_empty());
+        assert!(removed.identities.is_empty());
         assert!(
-            core.confirm_account_removal(
+            core.confirm_identity_removal(
                 RequestContextDto {
                     request_id: "ffi-lifecycle-remove-repeated".to_owned(),
                     expected_revision: removed.revision,
@@ -907,7 +907,7 @@ mod tests {
             .is_err()
         );
         assert!(
-            core.select_account("not-a-public-key".to_owned())
+            core.select_identity("not-a-public-key".to_owned())
                 .await
                 .is_err()
         );
@@ -917,19 +917,19 @@ mod tests {
     async fn generated_recovery_cancellation_and_request_validation_fail_closed() {
         let core = in_memory_core().await;
         let recovery = core
-            .begin_generated_account_v2()
+            .begin_generated_identity()
             .await
-            .expect("begin generated account");
-        assert_eq!(recovery.account().public_key_hex.len(), 64);
+            .expect("begin generated identity");
+        assert_eq!(recovery.identity().public_key_hex.len(), 64);
         assert!(recovery.expires_at_seconds() > 0);
         assert!(
-            core.cancel_generated_account_v2(Arc::clone(&recovery))
+            core.cancel_generated_identity(Arc::clone(&recovery))
                 .await
                 .expect("first cancellation")
         );
         assert!(
             !core
-                .cancel_generated_account_v2(recovery)
+                .cancel_generated_identity(recovery)
                 .await
                 .expect("second cancellation")
         );
@@ -951,10 +951,10 @@ mod tests {
                 deadline_millis: 30_001,
             },
         ] {
-            assert!(core.import_account_v2(context, vec![0; 32]).await.is_err());
+            assert!(core.import_identity(context, vec![0; 32]).await.is_err());
         }
         assert!(
-            core.import_account_v2(
+            core.import_identity(
                 RequestContextDto {
                     request_id: "ffi-invalid-secret".to_owned(),
                     expected_revision: 0,
@@ -993,7 +993,7 @@ mod tests {
                 WireErrorCategory::Lifecycle,
                 false,
                 WireRecoveryAction::None,
-                "The account removal confirmation is no longer valid.",
+                "The identity removal confirmation is no longer valid.",
             ),
             (
                 generated_commit_failed(SafeError::new(
@@ -1004,7 +1004,7 @@ mod tests {
                 WireErrorCategory::Storage,
                 false,
                 WireRecoveryAction::None,
-                "The generated account could not be saved. Import the recovery key you saved to try again.",
+                "The generated identity could not be saved. Import the recovery key you saved to try again.",
             ),
         ] {
             assert_eq!(error.to_string(), message);
@@ -1118,7 +1118,7 @@ mod tests {
         let commands = include_str!("commands.rs");
         let observer = include_str!("observer.rs");
         for forbidden in [
-            format!("pub async fn {}_account(", "generate"),
+            format!("pub async fn {}_identity(", "generate"),
             format!("pub async fn {}_secret_key(", "import"),
             format!("pub fn {}(development_mode", "open"),
             format!("pub async fn {}(", "subscribe"),

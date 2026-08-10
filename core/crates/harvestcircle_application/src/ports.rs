@@ -3,8 +3,8 @@ use std::pin::Pin;
 use std::time::Instant;
 
 use harvestcircle_domain::{
-    AccountSummary, BindingAvailability, Kind0ProfileCandidate, Npub, Nsec, PublicKey, RelayUrl,
-    SafeError, SafeErrorCode, SafeMessage, SecretKeyInput, UnixTimestamp,
+    Kind0ProfileCandidate, NostrIdentity, Npub, Nsec, PublicKey, RelayUrl, SafeError,
+    SafeErrorCode, SafeMessage, SecretKeyInput, SignerAvailability, UnixTimestamp,
 };
 
 const MAX_DURABLE_REQUEST_ID_BYTES: usize = 128;
@@ -65,29 +65,29 @@ pub enum DurableTerminalOutcome {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct OperationPriorState {
-    selected_account: Option<PublicKey>,
-    binding_availability: Option<BindingAvailability>,
+    selected_identity: Option<PublicKey>,
+    binding_availability: Option<SignerAvailability>,
 }
 
 impl OperationPriorState {
     #[must_use]
     pub const fn new(
-        selected_account: Option<PublicKey>,
-        binding_availability: Option<BindingAvailability>,
+        selected_identity: Option<PublicKey>,
+        binding_availability: Option<SignerAvailability>,
     ) -> Self {
         Self {
-            selected_account,
+            selected_identity,
             binding_availability,
         }
     }
 
     #[must_use]
-    pub const fn selected_account(self) -> Option<PublicKey> {
-        self.selected_account
+    pub const fn selected_identity(self) -> Option<PublicKey> {
+        self.selected_identity
     }
 
     #[must_use]
-    pub const fn binding_availability(self) -> Option<BindingAvailability> {
+    pub const fn binding_availability(self) -> Option<SignerAvailability> {
         self.binding_availability
     }
 }
@@ -95,7 +95,7 @@ impl OperationPriorState {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DurableOperationReceipt {
     request_id: DurableRequestId,
-    account: PublicKey,
+    identity: PublicKey,
     outcome: DurableTerminalOutcome,
     resulting_revision: Option<u64>,
 }
@@ -104,13 +104,13 @@ impl DurableOperationReceipt {
     #[must_use]
     pub const fn new(
         request_id: DurableRequestId,
-        account: PublicKey,
+        identity: PublicKey,
         outcome: DurableTerminalOutcome,
         resulting_revision: Option<u64>,
     ) -> Self {
         Self {
             request_id,
-            account,
+            identity,
             outcome,
             resulting_revision,
         }
@@ -122,8 +122,8 @@ impl DurableOperationReceipt {
     }
 
     #[must_use]
-    pub const fn account(&self) -> PublicKey {
-        self.account
+    pub const fn identity(&self) -> PublicKey {
+        self.identity
     }
 
     #[must_use]
@@ -138,10 +138,10 @@ impl DurableOperationReceipt {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DurableAccountOperation {
+pub struct DurableIdentityOperation {
     request_id: DurableRequestId,
     kind: DurableOperationKind,
-    account: PublicKey,
+    identity: PublicKey,
     expected_revision: Option<u64>,
     phase: DurableOperationPhase,
     prior: OperationPriorState,
@@ -150,13 +150,13 @@ pub struct DurableAccountOperation {
     terminal: Option<DurableOperationReceipt>,
 }
 
-impl DurableAccountOperation {
+impl DurableIdentityOperation {
     #[allow(clippy::too_many_arguments)]
     #[must_use]
     pub const fn new(
         request_id: DurableRequestId,
         kind: DurableOperationKind,
-        account: PublicKey,
+        identity: PublicKey,
         expected_revision: Option<u64>,
         phase: DurableOperationPhase,
         prior: OperationPriorState,
@@ -167,7 +167,7 @@ impl DurableAccountOperation {
         Self {
             request_id,
             kind,
-            account,
+            identity,
             expected_revision,
             phase,
             prior,
@@ -186,8 +186,8 @@ impl DurableAccountOperation {
         self.kind
     }
     #[must_use]
-    pub const fn account(&self) -> PublicKey {
-        self.account
+    pub const fn identity(&self) -> PublicKey {
+        self.identity
     }
     #[must_use]
     pub const fn expected_revision(&self) -> Option<u64> {
@@ -217,8 +217,8 @@ impl DurableAccountOperation {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DurableOperationStart {
-    Started(DurableAccountOperation),
-    Existing(DurableAccountOperation),
+    Started(DurableIdentityOperation),
+    Existing(DurableIdentityOperation),
 }
 
 const fn invalid_request_id() -> SafeError {
@@ -280,19 +280,19 @@ pub struct CachedProfile {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AccountPreferenceKey {
+pub enum IdentityPreferenceKey {
     NamespaceProbe,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AccountOperationKind {
+pub enum IdentityOperationKind {
     Add,
     Import,
     Remove,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AccountOperationPhase {
+pub enum IdentityOperationPhase {
     IntentRecorded,
     CredentialWritten,
     MetadataCommitted,
@@ -327,22 +327,22 @@ impl OperationId {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PendingAccountOperation {
+pub struct PendingIdentityOperation {
     id: OperationId,
-    kind: AccountOperationKind,
+    kind: IdentityOperationKind,
     subject: PublicKey,
-    phase: AccountOperationPhase,
+    phase: IdentityOperationPhase,
     updated_at: UnixTimestamp,
     diagnostic: Option<OperationDiagnostic>,
 }
 
-impl PendingAccountOperation {
+impl PendingIdentityOperation {
     #[must_use]
     pub const fn new(
         id: OperationId,
-        kind: AccountOperationKind,
+        kind: IdentityOperationKind,
         subject: PublicKey,
-        phase: AccountOperationPhase,
+        phase: IdentityOperationPhase,
         updated_at: UnixTimestamp,
         diagnostic: Option<OperationDiagnostic>,
     ) -> Self {
@@ -361,7 +361,7 @@ impl PendingAccountOperation {
         self.id
     }
     #[must_use]
-    pub const fn kind(&self) -> AccountOperationKind {
+    pub const fn kind(&self) -> IdentityOperationKind {
         self.kind
     }
     #[must_use]
@@ -369,7 +369,7 @@ impl PendingAccountOperation {
         self.subject
     }
     #[must_use]
-    pub const fn phase(&self) -> AccountOperationPhase {
+    pub const fn phase(&self) -> IdentityOperationPhase {
         self.phase
     }
     #[must_use]
@@ -412,38 +412,38 @@ impl CachedProfile {
     }
 }
 
-pub trait AccountRepository: Send + Sync {
-    /// Lists saved public account records in deterministic order.
+pub trait IdentityRepository: Send + Sync {
+    /// Lists saved public identity records in deterministic order.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when records cannot be read.
-    fn list_accounts(&self) -> Result<Vec<AccountSummary>, SafeError>;
-    /// Finds one saved public account record.
+    fn list_identities(&self) -> Result<Vec<NostrIdentity>, SafeError>;
+    /// Finds one saved public identity record.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when the lookup cannot complete.
-    fn find_account(&self, public_key: PublicKey) -> Result<Option<AccountSummary>, SafeError>;
-    /// Inserts one public account record.
+    fn find_identity(&self, public_key: PublicKey) -> Result<Option<NostrIdentity>, SafeError>;
+    /// Inserts one public identity record.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when the durable write fails.
-    fn insert_account(&self, account: &AccountSummary) -> Result<(), SafeError>;
-    /// Updates one existing public account record.
+    fn insert_identity(&self, identity: &NostrIdentity) -> Result<(), SafeError>;
+    /// Updates one existing public identity record.
     ///
     /// # Errors
     ///
-    /// Returns a safe storage or account-not-found error when the durable
+    /// Returns a safe storage or identity-not-found error when the durable
     /// update cannot complete.
-    fn update_account(&self, account: &AccountSummary) -> Result<(), SafeError>;
-    /// Removes one public account record.
+    fn update_identity(&self, identity: &NostrIdentity) -> Result<(), SafeError>;
+    /// Removes one public identity record.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when the durable delete fails.
-    fn remove_account(&self, public_key: PublicKey) -> Result<(), SafeError>;
+    fn remove_identity(&self, public_key: PublicKey) -> Result<(), SafeError>;
 }
 
 pub trait ProfileRepository: Send + Sync {
@@ -470,7 +470,7 @@ pub trait ProfileRepository: Send + Sync {
         refreshed_at: UnixTimestamp,
         status: ProfileRefreshStatus,
     ) -> Result<(), SafeError>;
-    /// Removes cached profile metadata for an account.
+    /// Removes cached profile metadata for an identity.
     ///
     /// # Errors
     ///
@@ -478,8 +478,8 @@ pub trait ProfileRepository: Send + Sync {
     fn remove_profile(&self, public_key: PublicKey) -> Result<(), SafeError>;
 }
 
-pub trait AccountNamespaceRepository: Send + Sync {
-    /// Reads one internal non-secret account-scoped value.
+pub trait IdentityNamespaceRepository: Send + Sync {
+    /// Reads one internal non-secret identity-scoped value.
     ///
     /// # Errors
     ///
@@ -487,9 +487,9 @@ pub trait AccountNamespaceRepository: Send + Sync {
     fn get_value(
         &self,
         owner: PublicKey,
-        key: AccountPreferenceKey,
+        key: IdentityPreferenceKey,
     ) -> Result<Option<String>, SafeError>;
-    /// Writes one internal non-secret account-scoped value.
+    /// Writes one internal non-secret identity-scoped value.
     ///
     /// # Errors
     ///
@@ -497,10 +497,10 @@ pub trait AccountNamespaceRepository: Send + Sync {
     fn set_value(
         &self,
         owner: PublicKey,
-        key: AccountPreferenceKey,
+        key: IdentityPreferenceKey,
         value: &str,
     ) -> Result<(), SafeError>;
-    /// Removes all internal values owned by an account.
+    /// Removes all internal values owned by an identity.
     ///
     /// # Errors
     ///
@@ -509,29 +509,29 @@ pub trait AccountNamespaceRepository: Send + Sync {
 }
 
 pub trait AppStateRepository: Send + Sync {
-    /// Loads the persisted selected account.
+    /// Loads the persisted selected identity.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when application state cannot be read.
-    fn load_selected_account(&self) -> Result<Option<PublicKey>, SafeError>;
-    /// Persists the selected account or the empty selection.
+    fn load_selected_identity(&self) -> Result<Option<PublicKey>, SafeError>;
+    /// Persists the selected identity or the empty selection.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when application state cannot be committed.
-    fn save_selected_account(&self, public_key: Option<PublicKey>) -> Result<(), SafeError>;
+    fn save_selected_identity(&self, public_key: Option<PublicKey>) -> Result<(), SafeError>;
 }
 
 pub trait OperationJournal: Send + Sync {
-    /// Records one cross-resource account operation intent.
+    /// Records one cross-resource identity operation intent.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when the entry cannot be committed.
     fn begin_operation(
         &self,
-        kind: AccountOperationKind,
+        kind: IdentityOperationKind,
         subject: PublicKey,
         updated_at: UnixTimestamp,
     ) -> Result<OperationId, SafeError>;
@@ -543,7 +543,7 @@ pub trait OperationJournal: Send + Sync {
     fn update_operation(
         &self,
         id: OperationId,
-        phase: AccountOperationPhase,
+        phase: IdentityOperationPhase,
         updated_at: UnixTimestamp,
         diagnostic: Option<OperationDiagnostic>,
     ) -> Result<(), SafeError>;
@@ -552,7 +552,7 @@ pub trait OperationJournal: Send + Sync {
     /// # Errors
     ///
     /// Returns a safe storage error when entries cannot be read.
-    fn list_pending_operations(&self) -> Result<Vec<PendingAccountOperation>, SafeError>;
+    fn list_pending_operations(&self) -> Result<Vec<PendingIdentityOperation>, SafeError>;
     /// Deletes one fully reconciled operation entry.
     ///
     /// # Errors
@@ -572,7 +572,7 @@ pub trait DurableOperationRepository: Send + Sync {
         &self,
         request_id: &DurableRequestId,
         kind: DurableOperationKind,
-        account: PublicKey,
+        identity: PublicKey,
         expected_revision: Option<u64>,
         prior: OperationPriorState,
         updated_at: UnixTimestamp,
@@ -585,7 +585,7 @@ pub trait DurableOperationRepository: Send + Sync {
     fn load_durable_operation(
         &self,
         request_id: &DurableRequestId,
-    ) -> Result<Option<DurableAccountOperation>, SafeError>;
+    ) -> Result<Option<DurableIdentityOperation>, SafeError>;
     /// Advances one operation only from the caller's expected phase.
     ///
     /// # Errors
@@ -598,7 +598,7 @@ pub trait DurableOperationRepository: Send + Sync {
         next_phase: DurableOperationPhase,
         updated_at: UnixTimestamp,
         diagnostic: Option<OperationDiagnostic>,
-    ) -> Result<DurableAccountOperation, SafeError>;
+    ) -> Result<DurableIdentityOperation, SafeError>;
     /// Finalizes one operation and durably retains its recoverable receipt.
     ///
     /// # Errors
@@ -617,8 +617,9 @@ pub trait DurableOperationRepository: Send + Sync {
     /// # Errors
     ///
     /// Returns a safe storage error when operations cannot be read.
-    fn list_unfinished_durable_operations(&self)
-    -> Result<Vec<DurableAccountOperation>, SafeError>;
+    fn list_unfinished_durable_operations(
+        &self,
+    ) -> Result<Vec<DurableIdentityOperation>, SafeError>;
 }
 
 pub trait NostrClient: Send + Sync {
@@ -707,13 +708,13 @@ mod tests {
 
     use std::sync::Mutex;
 
-    use harvestcircle_domain::{AccountSummary, PublicKey, RelayUrl, SafeError, UnixTimestamp};
+    use harvestcircle_domain::{NostrIdentity, PublicKey, RelayUrl, SafeError, UnixTimestamp};
 
     use super::{
-        AccountNamespaceRepository, AccountOperationKind, AccountOperationPhase,
-        AccountPreferenceKey, AccountRepository, AppStateRepository, BoxFuture, CachedProfile,
-        Clock, DurableOperationReceipt, DurableRequestId, DurableTerminalOutcome, NostrClient,
-        OperationDiagnostic, OperationId, OperationJournal, PendingAccountOperation,
+        AppStateRepository, BoxFuture, CachedProfile, Clock, DurableOperationReceipt,
+        DurableRequestId, DurableTerminalOutcome, IdentityNamespaceRepository,
+        IdentityOperationKind, IdentityOperationPhase, IdentityPreferenceKey, IdentityRepository,
+        NostrClient, OperationDiagnostic, OperationId, OperationJournal, PendingIdentityOperation,
         ProfileFetchResult, ProfileRefreshStatus, ProfileRepository,
     };
 
@@ -738,27 +739,27 @@ mod tests {
         selected: Mutex<Option<PublicKey>>,
     }
 
-    impl AccountRepository for FakePorts {
-        fn list_accounts(&self) -> Result<Vec<AccountSummary>, SafeError> {
+    impl IdentityRepository for FakePorts {
+        fn list_identities(&self) -> Result<Vec<NostrIdentity>, SafeError> {
             Ok(Vec::new())
         }
 
-        fn find_account(
+        fn find_identity(
             &self,
             _public_key: PublicKey,
-        ) -> Result<Option<AccountSummary>, SafeError> {
+        ) -> Result<Option<NostrIdentity>, SafeError> {
             Ok(None)
         }
 
-        fn insert_account(&self, _account: &AccountSummary) -> Result<(), SafeError> {
+        fn insert_identity(&self, _identity: &NostrIdentity) -> Result<(), SafeError> {
             Ok(())
         }
 
-        fn update_account(&self, _account: &AccountSummary) -> Result<(), SafeError> {
+        fn update_identity(&self, _identity: &NostrIdentity) -> Result<(), SafeError> {
             Ok(())
         }
 
-        fn remove_account(&self, _public_key: PublicKey) -> Result<(), SafeError> {
+        fn remove_identity(&self, _public_key: PublicKey) -> Result<(), SafeError> {
             Ok(())
         }
     }
@@ -786,11 +787,11 @@ mod tests {
         }
     }
 
-    impl AccountNamespaceRepository for FakePorts {
+    impl IdentityNamespaceRepository for FakePorts {
         fn get_value(
             &self,
             _owner: PublicKey,
-            _key: AccountPreferenceKey,
+            _key: IdentityPreferenceKey,
         ) -> Result<Option<String>, SafeError> {
             Ok(None)
         }
@@ -798,7 +799,7 @@ mod tests {
         fn set_value(
             &self,
             _owner: PublicKey,
-            _key: AccountPreferenceKey,
+            _key: IdentityPreferenceKey,
             _value: &str,
         ) -> Result<(), SafeError> {
             Ok(())
@@ -810,11 +811,11 @@ mod tests {
     }
 
     impl AppStateRepository for FakePorts {
-        fn load_selected_account(&self) -> Result<Option<PublicKey>, SafeError> {
+        fn load_selected_identity(&self) -> Result<Option<PublicKey>, SafeError> {
             Ok(*self.selected.lock().expect("selected lock"))
         }
 
-        fn save_selected_account(&self, public_key: Option<PublicKey>) -> Result<(), SafeError> {
+        fn save_selected_identity(&self, public_key: Option<PublicKey>) -> Result<(), SafeError> {
             *self.selected.lock().expect("selected lock") = public_key;
             Ok(())
         }
@@ -823,7 +824,7 @@ mod tests {
     impl OperationJournal for FakePorts {
         fn begin_operation(
             &self,
-            _kind: AccountOperationKind,
+            _kind: IdentityOperationKind,
             _subject: PublicKey,
             _updated_at: UnixTimestamp,
         ) -> Result<OperationId, SafeError> {
@@ -833,14 +834,14 @@ mod tests {
         fn update_operation(
             &self,
             _id: OperationId,
-            _phase: AccountOperationPhase,
+            _phase: IdentityOperationPhase,
             _updated_at: UnixTimestamp,
             _diagnostic: Option<OperationDiagnostic>,
         ) -> Result<(), SafeError> {
             Ok(())
         }
 
-        fn list_pending_operations(&self) -> Result<Vec<PendingAccountOperation>, SafeError> {
+        fn list_pending_operations(&self) -> Result<Vec<PendingIdentityOperation>, SafeError> {
             Ok(Vec::new())
         }
 
@@ -874,12 +875,12 @@ mod tests {
 
         let ports = FakePorts::default();
         ports
-            .save_selected_account(Some(
+            .save_selected_identity(Some(
                 PublicKey::from_bytes([7_u8; 32]).expect("valid public key"),
             ))
             .expect("save selection");
         assert_eq!(
-            ports.load_selected_account().expect("load selection"),
+            ports.load_selected_identity().expect("load selection"),
             Some(PublicKey::from_bytes([7_u8; 32]).expect("valid public key"))
         );
         assert_eq!(ports.now().as_seconds(), 1);

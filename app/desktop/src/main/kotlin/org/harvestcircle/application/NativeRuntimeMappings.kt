@@ -1,12 +1,11 @@
 package org.harvestcircle.application
 
-import org.harvestcircle.ffi.AccountCommandReceiptDto
-import org.harvestcircle.ffi.AccountDto
-import org.harvestcircle.ffi.ActiveAccountDto
+import org.harvestcircle.ffi.ActiveIdentityDto
 import org.harvestcircle.ffi.AppLifecycleDto
 import org.harvestcircle.ffi.AppSnapshotDto
 import org.harvestcircle.ffi.HarvestCircleException
-import org.harvestcircle.ffi.KeyAvailabilityDto
+import org.harvestcircle.ffi.IdentityCommandReceiptDto
+import org.harvestcircle.ffi.IdentityDto
 import org.harvestcircle.ffi.ProfileDto
 import org.harvestcircle.ffi.ProfileLoadStateDto
 import org.harvestcircle.ffi.RelayConnectionStateDto
@@ -14,7 +13,8 @@ import org.harvestcircle.ffi.RequestContextDto
 import org.harvestcircle.ffi.SafeErrorDto
 import org.harvestcircle.ffi.SessionStateDto
 import org.harvestcircle.ffi.ShutdownReceiptDto
-import org.harvestcircle.ffi.SignerKindDto
+import org.harvestcircle.ffi.SignerAvailabilityDto
+import org.harvestcircle.ffi.SignerBindingKindDto
 import org.harvestcircle.ffi.SnapshotChangeDto
 import org.harvestcircle.ffi.WireErrorCategory
 import org.harvestcircle.ffi.WireErrorCode
@@ -27,26 +27,26 @@ internal fun RequestContext.toNative(): RequestContextDto =
         deadlineMillis = deadlineMillis,
     )
 
-internal fun AccountCommandReceiptDto.toApplicationResult(): ApplicationCommandResult.Committed =
+internal fun IdentityCommandReceiptDto.toApplicationResult(): ApplicationCommandResult.Committed =
     ApplicationCommandResult.Committed(
         operationId = OperationId.from(requestId),
         committedRevision = SnapshotRevision(committedRevision),
         snapshot = snapshot.toApplicationSnapshot(),
     )
 
-internal fun AccountDto.toIdentitySummary(): IdentitySummary =
+internal fun IdentityDto.toIdentitySummary(): IdentitySummary =
     IdentitySummary(
         id = IdentityId.fromPublicKeyHex(publicKeyHex),
         npub = npub,
         displayLabel = displayLabel,
-        signer = SignerBindingSummary(signerKind.toSignerBindingKind(), keyAvailability.toSignerAvailability()),
+        signer = SignerBindingSummary(signerBindingKind.toSignerBindingKind(), signerAvailability.toSignerAvailability()),
         createdAt = UnixSeconds(createdAtSeconds),
         lastUsedAt = lastUsedAtSeconds?.let(::UnixSeconds),
     )
 
-internal fun ActiveAccountDto.toActiveIdentity(configuredRelays: List<String>): ActiveIdentity =
+internal fun ActiveIdentityDto.toActiveIdentity(configuredRelays: List<String>): ActiveIdentity =
     ActiveIdentity(
-        identity = account.toIdentitySummary(),
+        identity = identity.toIdentitySummary(),
         relays = RelaySummary(configuredRelays, relayState.toRelayConnectionState()),
         profileState = profileState.toProfileLoadState(),
         profile = profile?.toProfileSummary(),
@@ -58,12 +58,12 @@ internal fun AppSnapshotDto.toApplicationSnapshot(): ApplicationSnapshot =
         lifecycle = lifecycle.toApplicationLifecycle(),
         lifecycleProblem = lifecycleError?.toApplicationProblem(),
         configuredRelays = configuredRelays,
-        identities = accounts.map(AccountDto::toIdentitySummary),
+        identities = identities.map(IdentityDto::toIdentitySummary),
         selectedIdentityId = selectedPublicKeyHex?.let(IdentityId::fromPublicKeyHex),
         session = session.toSessionLifecycle(),
         sessionSubjectIdentityId = sessionSubjectPublicKeyHex?.let(IdentityId::fromPublicKeyHex),
         sessionProblem = sessionError?.toApplicationProblem(),
-        activeIdentity = activeAccount?.toActiveIdentity(configuredRelays),
+        activeIdentity = activeIdentity?.toActiveIdentity(configuredRelays),
         recoverableProblem = recoverableProblem?.toApplicationProblem(),
     )
 
@@ -134,19 +134,16 @@ internal fun SessionStateDto.toSessionLifecycle(): SessionLifecycle =
         SessionStateDto.FAILED -> SessionLifecycle.Failed
     }
 
-internal fun SignerKindDto.toSignerBindingKind(): SignerBindingKind =
+internal fun SignerBindingKindDto.toSignerBindingKind(): SignerBindingKind =
     when (this) {
-        SignerKindDto.LOCAL_SECRET -> SignerBindingKind.LocalKeyring
-        SignerKindDto.WATCH_ONLY -> SignerBindingKind.Unsupported("read-only")
-        SignerKindDto.REMOTE_NIP46 -> SignerBindingKind.Unsupported("remote-nip46")
+        SignerBindingKindDto.LOCAL_KEYRING -> SignerBindingKind.LocalKeyring
     }
 
-internal fun KeyAvailabilityDto.toSignerAvailability(): SignerAvailability =
+internal fun SignerAvailabilityDto.toSignerAvailability(): SignerAvailability =
     when (this) {
-        KeyAvailabilityDto.AVAILABLE -> SignerAvailability.Available
-        KeyAvailabilityDto.CREDENTIAL_MISSING -> SignerAvailability.CredentialMissing
-        KeyAvailabilityDto.STORE_UNAVAILABLE -> SignerAvailability.StoreUnavailable
-        KeyAvailabilityDto.NOT_REQUIRED -> SignerAvailability.NotRequired
+        SignerAvailabilityDto.AVAILABLE -> SignerAvailability.Available
+        SignerAvailabilityDto.CREDENTIAL_MISSING -> SignerAvailability.CredentialMissing
+        SignerAvailabilityDto.STORE_UNAVAILABLE -> SignerAvailability.StoreUnavailable
     }
 
 internal fun RelayConnectionStateDto.toRelayConnectionState(): RelayConnectionState =
@@ -171,11 +168,11 @@ internal fun WireErrorCode.toApplicationErrorCode(): ApplicationErrorCode =
     when (this) {
         WireErrorCode.INVALID_PUBLIC_KEY -> ApplicationErrorCode.InvalidPublicKey
         WireErrorCode.INVALID_SECRET_KEY -> ApplicationErrorCode.InvalidSecretKey
-        WireErrorCode.INVALID_ACCOUNT_METADATA -> ApplicationErrorCode.InvalidIdentityMetadata
+        WireErrorCode.INVALID_IDENTITY_METADATA -> ApplicationErrorCode.InvalidIdentityMetadata
         WireErrorCode.INVALID_PROFILE_METADATA -> ApplicationErrorCode.InvalidProfileMetadata
         WireErrorCode.INVALID_APPLICATION_STATE -> ApplicationErrorCode.InvalidApplicationState
-        WireErrorCode.ACCOUNT_ALREADY_EXISTS -> ApplicationErrorCode.IdentityAlreadyExists
-        WireErrorCode.ACCOUNT_NOT_FOUND -> ApplicationErrorCode.IdentityNotFound
+        WireErrorCode.IDENTITY_ALREADY_EXISTS -> ApplicationErrorCode.IdentityAlreadyExists
+        WireErrorCode.IDENTITY_NOT_FOUND -> ApplicationErrorCode.IdentityNotFound
         WireErrorCode.KEYRING_UNAVAILABLE -> ApplicationErrorCode.KeyringUnavailable
         WireErrorCode.CREDENTIAL_MISSING -> ApplicationErrorCode.CredentialMissing
         WireErrorCode.STORAGE_UNAVAILABLE -> ApplicationErrorCode.StorageUnavailable
