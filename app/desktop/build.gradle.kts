@@ -18,7 +18,9 @@ import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.tasks.Jar
 import org.harvestcircle.gradle.FfiCompatibilityBaseline
+import org.harvestcircle.gradle.GenerateCompatibilityExpectations
 import org.harvestcircle.gradle.ProductCoordinates
+import org.harvestcircle.gradle.VerifyGeneratedCompatibilityExpectations
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
@@ -283,6 +285,20 @@ val buildRustCoreRelease by tasks.registering(Exec::class) {
 }
 
 val generatedUniFfiKotlin = layout.buildDirectory.dir("generated/uniffi/kotlin")
+val generatedCompatibilityKotlin = layout.buildDirectory.dir("generated/compatibility/kotlin")
+val generatedCompatibilityFile =
+    generatedCompatibilityKotlin.map {
+        it.file("org/harvestcircle/application/generated/NativeCompatibilityExpectations.kt")
+    }
+val generateCompatibilityExpectations by tasks.registering(GenerateCompatibilityExpectations::class) {
+    baselineFile.set(ffiCompatibilityBaselineFile)
+    outputFile.set(generatedCompatibilityFile)
+}
+val verifyGeneratedSources by tasks.registering(VerifyGeneratedCompatibilityExpectations::class) {
+    dependsOn(generateCompatibilityExpectations)
+    baselineFile.set(ffiCompatibilityBaselineFile)
+    generatedFile.set(generatedCompatibilityFile)
+}
 val generatedReleaseNativeResources = layout.buildDirectory.dir("generated/uniffi/release-native-resources")
 val cleanGeneratedUniFfiKotlin by tasks.registering(Delete::class) {
     delete(generatedUniFfiKotlin)
@@ -729,6 +745,7 @@ tasks.withType<Test>().configureEach {
 tasks.named("check") {
     dependsOn(rootProject.tasks.named("verifyProductCoordinates"))
     dependsOn(rootProject.tasks.named("verifyProductCoordinateConsumers"))
+    dependsOn(verifyGeneratedSources)
 }
 
 kotlin {
@@ -740,8 +757,8 @@ kotlin {
 }
 
 tasks.named<KotlinCompile>("compileKotlin") {
-    dependsOn(generateUniFfiKotlin)
-    source(generatedUniFfiKotlin)
+    dependsOn(generateUniFfiKotlin, generateCompatibilityExpectations)
+    source(generatedUniFfiKotlin, generatedCompatibilityKotlin)
 }
 tasks.named("runKtlintCheckOverMainSourceSet") {
     dependsOn(generateUniFfiKotlin)

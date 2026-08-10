@@ -194,6 +194,27 @@ abstract class VerifyProductCoordinates : DefaultTask() {
         val baselineSource = ffiBaselineFile.get().asFile.readText()
         check(runCatching { FfiCompatibilityBaseline.parse(baselineSource + "\nunknown=value") }.isFailure)
         check(runCatching { FfiCompatibilityBaseline.parse(baselineSource.substringAfter('\n')) }.isFailure)
+        check(runCatching { FfiCompatibilityBaseline.parse("\uFEFF$baselineSource") }.isFailure)
+        check(
+            runCatching {
+                FfiCompatibilityBaseline.parse(
+                    baselineSource.replace(
+                        Regex("(?m)^contract\\.hash=.*$"),
+                        "contract.hash=malformed",
+                    ),
+                )
+            }.isFailure,
+        )
+        check(
+            runCatching {
+                FfiCompatibilityBaseline.parse(
+                    baselineSource.replace(
+                        Regex("(?m)^package\\.version=.*$"),
+                        "package.version=invalid",
+                    ),
+                )
+            }.isFailure,
+        )
         check(
             runCatching {
                 FfiCompatibilityBaseline.parse(
@@ -230,15 +251,14 @@ abstract class VerifyProductCoordinates : DefaultTask() {
             ).digest != provenance.digest,
         )
         val nativeCompatibility = nativeCompatibilityFile.get().asFile.readText()
+        check(nativeCompatibility.contains("NativeCompatibilityExpectations as Expected"))
         listOf(
-            "contract.id" to "EXPECTED_FFI_CONTRACT_ID",
-            "contract.hash" to "EXPECTED_FFI_CONTRACT_HASH",
-            "product.coordinate_digest" to "EXPECTED_PRODUCT_COORDINATE_DIGEST",
-            "source.provenance_digest" to "EXPECTED_SOURCE_PROVENANCE_DIGEST",
-            "source.foundation_baseline" to "EXPECTED_SOURCE_FOUNDATION_BASELINE",
-        ).forEach { (key, constant) ->
-            check(nativeCompatibility.contains("$constant = \"${baseline[key]}\""))
-        }
+            "contract.id",
+            "contract.hash",
+            "product.coordinate_digest",
+            "source.provenance_digest",
+            "source.foundation_baseline",
+        ).forEach { key -> check(!nativeCompatibility.contains(baseline[key])) }
     }
 
     private fun String.replaceCoordinate(

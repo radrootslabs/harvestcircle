@@ -4,14 +4,21 @@ import org.harvestcircle.ffi.CompatibilityDescriptor
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import org.harvestcircle.application.generated.NativeCompatibilityExpectations as Expected
 
 class NativeCompatibilityTest {
     @Test
     fun acceptsOnlyTheDeclaredNativeContractAndSchemaWindow() {
         val descriptor = compatibleDescriptor()
         val expectation = verifyNativeCompatibility(descriptor)
-        assertEquals(EXPECTED_FFI_CONTRACT_MAJOR, expectation.contractMajor)
-        assertEquals(EXPECTED_FFI_CONTRACT_HASH, expectation.contractHash)
+        assertEquals(Expected.ffiContractMajor, expectation.contractMajor)
+        assertEquals(Expected.ffiContractHash, expectation.contractHash)
+        assertEquals(
+            expectation,
+            verifyNativeCompatibility(
+                descriptor.copy(contractMinor = (Expected.minimumFfiContractMinor.toUInt() + 1U).toUShort()),
+            ),
+        )
 
         listOf(
             descriptor.copy(contractId = "wrong"),
@@ -35,18 +42,18 @@ class NativeCompatibilityTest {
 
     private fun compatibleDescriptor() =
         CompatibilityDescriptor(
-            contractId = EXPECTED_FFI_CONTRACT_ID,
-            productVersion = EXPECTED_PRODUCT_VERSION,
-            cargoPackageVersion = EXPECTED_CARGO_PACKAGE_VERSION,
-            distributionPackageVersion = EXPECTED_DISTRIBUTION_PACKAGE_VERSION,
-            contractMajor = EXPECTED_FFI_CONTRACT_MAJOR,
-            contractMinor = MINIMUM_FFI_CONTRACT_MINOR,
-            contractHash = EXPECTED_FFI_CONTRACT_HASH,
-            productCoordinateDigest = EXPECTED_PRODUCT_COORDINATE_DIGEST,
-            snapshotSchemaVersion = EXPECTED_SNAPSHOT_SCHEMA,
-            minimumSchemaVersion = MINIMUM_STORAGE_SCHEMA,
-            currentSchemaVersion = MAXIMUM_STORAGE_SCHEMA,
-            sourceProvenanceDigest = EXPECTED_SOURCE_PROVENANCE_DIGEST,
-            sourceFoundationBaseline = EXPECTED_SOURCE_FOUNDATION_BASELINE,
+            contractId = Expected.ffiContractId,
+            productVersion = Expected.productVersion,
+            cargoPackageVersion = Expected.cargoPackageVersion,
+            distributionPackageVersion = Expected.distributionPackageVersion,
+            contractMajor = Expected.ffiContractMajor,
+            contractMinor = Expected.minimumFfiContractMinor,
+            contractHash = Expected.ffiContractHash,
+            productCoordinateDigest = Expected.productCoordinateDigest,
+            snapshotSchemaVersion = Expected.snapshotSchema,
+            minimumSchemaVersion = Expected.minimumStorageSchema,
+            currentSchemaVersion = Expected.maximumStorageSchema,
+            sourceProvenanceDigest = Expected.sourceProvenanceDigest,
+            sourceFoundationBaseline = Expected.sourceFoundationBaseline,
         )
 }

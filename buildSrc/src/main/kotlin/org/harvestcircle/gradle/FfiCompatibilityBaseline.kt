@@ -28,6 +28,7 @@ class FfiCompatibilityBaseline private constructor(
         fun load(file: File): FfiCompatibilityBaseline = parse(file.readText())
 
         fun parse(source: String): FfiCompatibilityBaseline {
+            require(!source.startsWith('\uFEFF')) { "FFI baseline must not contain a UTF-8 BOM" }
             val values = linkedMapOf<String, String>()
             source.lineSequence().forEachIndexed { index, raw ->
                 val line = raw.trim()
@@ -37,7 +38,12 @@ class FfiCompatibilityBaseline private constructor(
                 val key = line.substring(0, separator).trim()
                 val value = line.substring(separator + 1).trim()
                 require(key in requiredKeys) { "Unknown FFI baseline key $key" }
-                require(value.isNotEmpty() && value.none(Char::isISOControl)) {
+                require(
+                    key.isNotEmpty() &&
+                        key.none(Char::isISOControl) &&
+                        value.isNotEmpty() &&
+                        value.none(Char::isISOControl),
+                ) {
                     "FFI baseline $key is empty or contains a control character"
                 }
                 require(values.put(key, value) == null) { "Duplicate FFI baseline key $key" }
@@ -58,6 +64,8 @@ class FfiCompatibilityBaseline private constructor(
                 require(values.getValue(key).matches(Regex("[0-9a-f]{64}")))
             }
             require(values.getValue("source.foundation_baseline").matches(Regex("[0-9a-f]{40}")))
+            require(values.getValue("product.version").matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?")))
+            require(values.getValue("package.version").matches(Regex("[1-9][0-9]*(?:\\.[0-9]+){0,2}")))
             return FfiCompatibilityBaseline(values.toMap())
         }
     }

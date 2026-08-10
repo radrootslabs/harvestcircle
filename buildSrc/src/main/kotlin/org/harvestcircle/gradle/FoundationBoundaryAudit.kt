@@ -151,6 +151,7 @@ private class FoundationBoundaryAudit(
             findings += "$relative: symbolic links are not allowed in public sources"
         }
         if (normalized.startsWith("core/target/") || normalized.contains("/build/") ||
+            normalized.contains("/generated/") ||
             normalized.contains("generated/uniffi") || normalized.endsWith(".dylib") ||
             normalized.endsWith(".so") || normalized.endsWith(".dll") || normalized.endsWith(".class")
         ) {
