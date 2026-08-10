@@ -1,7 +1,14 @@
+@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+
 package org.harvestcircle.application
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.harvestcircle.ffi.ActiveIdentityDto
@@ -253,6 +260,60 @@ class NativeHarvestCircleRuntimeTest {
             assertEquals(SnapshotRevision(2UL), change.snapshot.revision)
             runCurrent()
             assertTrue(port.subscriptionClosed)
+            assertEquals(1, port.subscriptionCloseCalls)
+        }
+
+    @Test
+    fun observerChangesConflateBurstsToTheLatestSnapshot() =
+        runTest {
+            val port = FakeNativeCorePort()
+            val runtime = NativeHarvestCircleRuntime(port)
+            val releaseCollector = CompletableDeferred<Unit>()
+            val pending =
+                async {
+                    runtime
+                        .changes()
+                        .onEach { change ->
+                            if (change.snapshot.revision == SnapshotRevision(2UL)) releaseCollector.await()
+                        }.take(2)
+                        .toList()
+                }
+            runCurrent()
+            port.emit(SnapshotChangeDto(populatedSnapshot(2UL), 1UL))
+            runCurrent()
+
+            (3UL..100UL).forEach { revision ->
+                port.emit(SnapshotChangeDto(populatedSnapshot(revision), revision - 1UL))
+            }
+            releaseCollector.complete(Unit)
+            val changes = pending.await()
+
+            assertEquals(listOf(2UL, 100UL), changes.map { it.snapshot.revision.value })
+            assertEquals(1, port.subscriptionCloseCalls)
+        }
+
+    @Test
+    fun invalidObserverDeliveryFailsTypedAndUnsubscribesOnce() =
+        runTest {
+            val port = FakeNativeCorePort()
+            val runtime = NativeHarvestCircleRuntime(port)
+            val pending =
+                async {
+                    try {
+                        runtime.changes().collect { }
+                        null
+                    } catch (failure: ApplicationFailure) {
+                        failure
+                    }
+                }
+            runCurrent()
+
+            port.emit(SnapshotChangeDto(populatedSnapshot(2UL), 2UL))
+            val failure = assertIs<ApplicationFailure>(pending.await())
+
+            assertEquals(ApplicationErrorCode.ObserverRegistrationFailed, failure.problem.code)
+            assertEquals(RecoveryAction.RestartApplication, failure.problem.recoveryAction)
+            assertEquals(1, port.subscriptionCloseCalls)
         }
 }
 
@@ -263,6 +324,7 @@ private class FakeNativeCorePort : NativeCorePort {
     var shutdownCalls = 0
     var closed = false
     var subscriptionClosed = false
+    var subscriptionCloseCalls = 0
     private var observer: ((SnapshotChangeDto) -> Unit)? = null
     private val snapshot = populatedSnapshot(2UL)
 
@@ -272,7 +334,10 @@ private class FakeNativeCorePort : NativeCorePort {
 
     override suspend fun subscribe(onChange: (SnapshotChangeDto) -> Unit): NativeSubscriptionHandle {
         observer = onChange
-        return NativeSubscriptionHandle { subscriptionClosed = true }
+        return NativeSubscriptionHandle {
+            subscriptionCloseCalls += 1
+            subscriptionClosed = true
+        }
     }
 
     fun emit(change: SnapshotChangeDto) {

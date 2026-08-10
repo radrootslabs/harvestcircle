@@ -1,9 +1,11 @@
 package org.harvestcircle.application
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -22,6 +24,7 @@ import org.harvestcircle.ffi.ShutdownReceiptDto
 import org.harvestcircle.ffi.SnapshotChangeDto
 import org.harvestcircle.ffi.compatibilityDescriptor
 import org.harvestcircle.ffi.generateOperationIdV7
+import java.util.concurrent.atomic.AtomicBoolean
 import org.harvestcircle.ffi.buildInfo as nativeBuildInfo
 
 class NativeHarvestCircleRuntime internal constructor(
@@ -50,18 +53,31 @@ class NativeHarvestCircleRuntime internal constructor(
 
     override fun changes(): Flow<ApplicationChange> =
         channelFlow {
+            val acceptingCallbacks = AtomicBoolean(true)
+            val deliveryFailure = CompletableDeferred<ApplicationFailure>()
             val subscription =
                 callNative {
                     native.subscribe { change ->
-                        trySend(change.toApplicationChange())
+                        if (!acceptingCallbacks.get()) return@subscribe
+                        val mapped =
+                            try {
+                                change.toApplicationChange()
+                            } catch (_: Exception) {
+                                deliveryFailure.complete(observerDeliveryFailure())
+                                return@subscribe
+                            }
+                        if (trySend(mapped).isFailure && acceptingCallbacks.get()) {
+                            deliveryFailure.complete(observerDeliveryFailure())
+                        }
                     }
                 }
             try {
-                awaitCancellation()
+                throw deliveryFailure.await()
             } finally {
+                acceptingCallbacks.set(false)
                 withContext(NonCancellable) { subscription.unsubscribe() }
             }
-        }
+        }.buffer(Channel.CONFLATED)
 
     override suspend fun execute(command: ApplicationCommand): ApplicationCommandResult =
         when (command) {
@@ -233,6 +249,18 @@ class NativeHarvestCircleRuntime internal constructor(
                 recoveryAction = RecoveryAction.None,
                 operationId = null,
                 safeMessage = "The native runtime did not complete shutdown.",
+            ),
+        )
+
+    private fun observerDeliveryFailure(): ApplicationFailure =
+        ApplicationFailure(
+            ApplicationProblem(
+                code = ApplicationErrorCode.ObserverRegistrationFailed,
+                category = ApplicationErrorCategory.Lifecycle,
+                retryable = false,
+                recoveryAction = RecoveryAction.RestartApplication,
+                operationId = null,
+                safeMessage = "Application updates could not be delivered.",
             ),
         )
 

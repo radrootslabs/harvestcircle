@@ -28,11 +28,68 @@ class HarvestCirclePresenterTest {
 
             assertEquals(1UL, presenter.state.value.snapshot.revision.value)
             runtime.emit(snapshot(3UL))
-            runtime.emit(snapshot(2UL))
+            runtime.emitChange(snapshot(2UL), SnapshotRevision(1UL))
             runCurrent()
 
             assertEquals(3UL, presenter.state.value.snapshot.revision.value)
             assertFalse(presenter.state.value.busy)
+            presenter.close()
+        }
+
+    @Test
+    fun revisionGapResnapshotsAndAcceptsOnlyTheAuthoritativeLatestState() =
+        runTest {
+            val runtime = FakePresenterRuntime()
+            val presenter = presenter(runtime)
+            runCurrent()
+            val callsBeforeGap = runtime.currentSnapshotCalls
+            runtime.setCurrent(snapshot(5UL))
+
+            runtime.emitChange(snapshot(4UL), SnapshotRevision(2UL))
+            runCurrent()
+
+            assertEquals(5UL, presenter.state.value.snapshot.revision.value)
+            assertEquals(callsBeforeGap + 1, runtime.currentSnapshotCalls)
+            presenter.close()
+        }
+
+    @Test
+    fun duplicateAndStaleChangesAreIgnoredWithoutResnapshotting() =
+        runTest {
+            val runtime = FakePresenterRuntime()
+            val presenter = presenter(runtime)
+            runCurrent()
+            runtime.emit(snapshot(2UL))
+            runCurrent()
+            val callsBeforeStale = runtime.currentSnapshotCalls
+
+            runtime.emitChange(snapshot(2UL), SnapshotRevision(1UL))
+            runtime.emitChange(snapshot(1UL), null)
+            runCurrent()
+
+            assertEquals(2UL, presenter.state.value.snapshot.revision.value)
+            assertEquals(callsBeforeStale, runtime.currentSnapshotCalls)
+            presenter.close()
+        }
+
+    @Test
+    fun insufficientGapResnapshotSurfacesATypedTerminalProblem() =
+        runTest {
+            val runtime = FakePresenterRuntime()
+            val presenter = presenter(runtime)
+            runCurrent()
+            runtime.setCurrent(snapshot(3UL))
+
+            runtime.emitChange(snapshot(5UL), SnapshotRevision(3UL))
+            runCurrent()
+
+            assertEquals(1UL, presenter.state.value.snapshot.revision.value)
+            assertEquals(
+                ApplicationErrorCode.ObserverRegistrationFailed,
+                presenter.state.value.lastProblem
+                    ?.code,
+            )
+            assertEquals(CommandStatus.FAILED_TERMINAL, presenter.state.value.commandStatus)
             presenter.close()
         }
 
@@ -204,6 +261,7 @@ private class FakePresenterRuntime(
 
     private val changes = MutableSharedFlow<ApplicationChange>(extraBufferCapacity = 8)
     private var current = snapshot(0UL)
+    var currentSnapshotCalls = 0
     var nextFailure: ApplicationProblem? = null
     var executeCalls = 0
     var executeCancelled = false
@@ -218,7 +276,10 @@ private class FakePresenterRuntime(
         return snapshot(1UL).also { current = it }
     }
 
-    override fun currentSnapshot(): ApplicationSnapshot = current
+    override fun currentSnapshot(): ApplicationSnapshot {
+        currentSnapshotCalls += 1
+        return current
+    }
 
     override fun changes(): Flow<ApplicationChange> = changes
 
@@ -271,8 +332,20 @@ private class FakePresenterRuntime(
     }
 
     fun emit(snapshot: ApplicationSnapshot) {
+        val previousRevision = current.revision
         current = snapshot
-        changes.tryEmit(ApplicationChange(snapshot, null))
+        emitChange(snapshot, previousRevision)
+    }
+
+    fun emitChange(
+        snapshot: ApplicationSnapshot,
+        previousRevision: SnapshotRevision?,
+    ) {
+        check(changes.tryEmit(ApplicationChange(snapshot, previousRevision)))
+    }
+
+    fun setCurrent(snapshot: ApplicationSnapshot) {
+        current = snapshot
     }
 }
 

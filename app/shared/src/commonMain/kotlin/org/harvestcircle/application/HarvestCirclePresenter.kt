@@ -40,7 +40,7 @@ class HarvestCirclePresenter(
         subscriptionJob =
             scope.launch {
                 try {
-                    runtime.changes().collect { change -> acceptSnapshot(change.snapshot) }
+                    runtime.changes().collect(::acceptChange)
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
@@ -365,6 +365,29 @@ class HarvestCirclePresenter(
         if (snapshot.revision.value >= state.value.snapshot.revision.value) {
             updateState { copy(snapshot = snapshot, route = snapshot.toHarvestCircleRoute()) }
         }
+    }
+
+    private fun acceptChange(change: ApplicationChange) {
+        val acceptedRevision = state.value.snapshot.revision
+        if (change.snapshot.revision.value <= acceptedRevision.value) return
+        if (change.previousRevision == acceptedRevision) {
+            acceptSnapshot(change.snapshot)
+            return
+        }
+        val refreshed = runtime.currentSnapshot()
+        if (refreshed.revision.value < change.snapshot.revision.value) {
+            throw ApplicationFailure(
+                ApplicationProblem(
+                    code = ApplicationErrorCode.ObserverRegistrationFailed,
+                    category = ApplicationErrorCategory.Lifecycle,
+                    retryable = false,
+                    recoveryAction = RecoveryAction.RestartApplication,
+                    operationId = null,
+                    safeMessage = "Application updates could not be synchronized.",
+                ),
+            )
+        }
+        acceptSnapshot(refreshed)
     }
 
     private fun acceptFailure(
