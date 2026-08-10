@@ -100,6 +100,9 @@ class HarvestCirclePresenter(
                         )
                     }
                 }
+            } catch (error: CancellationException) {
+                closed = false
+                throw error
             } catch (error: Exception) {
                 acceptFailure(error, null)
                 updateState { copy(route = HarvestCircleRoute.FATAL, busy = false) }

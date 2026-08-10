@@ -1,16 +1,19 @@
 package org.harvestcircle.application
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.harvestcircle.ffi.generateOperationIdV7
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
@@ -19,6 +22,7 @@ import org.harvestcircle.identities.ui.HarvestCircleUiActions
 import org.harvestcircle.identities.ui.ShutdownFailureScreen
 import org.harvestcircle.identities.ui.StartupFailureScreen
 import org.harvestcircle.identities.ui.toUiModel
+import java.util.concurrent.atomic.AtomicBoolean
 
 internal typealias HarvestCirclePresenterFactory = (CoroutineScope) -> HarvestCirclePresenter
 
@@ -32,6 +36,19 @@ fun HarvestCircleApplication(
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     val presenterResult = remember { runCatching { presenterFactory(scope) } }
     val presenter = presenterResult.getOrNull()
+    val clipboard = remember(presenter) { presenter?.let { SecretClipboardController(scope) } }
+    val lifecycle =
+        remember(scope, presenter, clipboard, shutdownTimeoutMillis) {
+            ApplicationLifecycleResources(
+                applicationScope = scope,
+                clipboard = clipboard,
+                closePresenter = presenter?.let { active -> suspend { active.close() } },
+                shutdownTimeoutMillis = shutdownTimeoutMillis,
+            )
+        }
+    DisposableEffect(lifecycle) {
+        onDispose { lifecycle.dispose() }
+    }
     if (presenter == null) {
         LaunchedEffect(closeRequested) {
             if (closeRequested) onExitApproved()
@@ -42,16 +59,16 @@ fun HarvestCircleApplication(
         StartupFailureScreen(message)
         return
     }
-    val clipboard = remember { SecretClipboardController(scope) }
+    checkNotNull(clipboard)
     val state by presenter.state.collectAsState()
     var shutdownProblem by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(closeRequested, presenter) {
         if (closeRequested) {
-            clipboard.close()
+            lifecycle.closeClipboard()
             val receipt = withTimeoutOrNull(shutdownTimeoutMillis) { presenter.close() }
             if (receipt?.closed == true) {
-                scope.cancel()
+                lifecycle.completeNormalClose()
                 onExitApproved()
             } else {
                 shutdownProblem = "Native shutdown did not complete within the safe timeout."
@@ -94,6 +111,49 @@ fun HarvestCircleApplication(
 }
 
 internal const val DEFAULT_SHUTDOWN_TIMEOUT_MILLIS = 5_000L
+
+internal class ApplicationLifecycleResources(
+    private val applicationScope: CoroutineScope,
+    private val clipboard: AutoCloseable?,
+    private val closePresenter: (suspend () -> ShutdownReceipt?)?,
+    private val shutdownTimeoutMillis: Long,
+    private val fallbackDispatcher: CoroutineDispatcher = Dispatchers.Default,
+) {
+    private val clipboardClosed = AtomicBoolean(false)
+    private val normalCloseCompleted = AtomicBoolean(false)
+    private val disposed = AtomicBoolean(false)
+
+    init {
+        require(shutdownTimeoutMillis > 0L) { "Shutdown timeout must be positive" }
+    }
+
+    fun closeClipboard() {
+        if (clipboardClosed.compareAndSet(false, true)) clipboard?.close()
+    }
+
+    fun completeNormalClose() {
+        normalCloseCompleted.set(true)
+        closeClipboard()
+        applicationScope.cancel()
+    }
+
+    fun dispose() {
+        if (!disposed.compareAndSet(false, true)) return
+        closeClipboard()
+        applicationScope.cancel()
+        val close = closePresenter ?: return
+        if (normalCloseCompleted.get()) return
+
+        val fallbackJob = SupervisorJob()
+        CoroutineScope(fallbackJob + fallbackDispatcher).launch {
+            try {
+                withTimeoutOrNull(shutdownTimeoutMillis) { close() }
+            } finally {
+                fallbackJob.cancel()
+            }
+        }
+    }
+}
 
 internal fun createHarvestCirclePresenter(scope: CoroutineScope): HarvestCirclePresenter {
     val developmentMode = java.lang.Boolean.getBoolean("harvestcircle.development")

@@ -74,6 +74,16 @@ class SecretClipboardControllerTest {
             replacedClipboard.writeText("replacement")
             replacedController.close()
             assertEquals("replacement", replacedClipboard.value)
+
+            val sharedClipboard = FakeTextClipboard()
+            val firstOwner = SecretClipboardController(this, sharedClipboard)
+            val replacementOwner = SecretClipboardController(this, sharedClipboard)
+            firstOwner.copy("nsec1first")
+            replacementOwner.copy("nsec1second")
+            firstOwner.close()
+            assertEquals("nsec1second", sharedClipboard.value)
+            replacementOwner.close()
+            assertEquals("", sharedClipboard.value)
         }
 
     @Test

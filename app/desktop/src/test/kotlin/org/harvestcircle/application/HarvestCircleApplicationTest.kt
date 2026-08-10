@@ -16,10 +16,14 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runComposeUiTest
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class HarvestCircleApplicationTest {
     @OptIn(ExperimentalTestApi::class)
@@ -30,12 +34,14 @@ class HarvestCircleApplicationTest {
             var factoryCalls = 0
             var approvedExits = 0
             var runtime: ApplicationRuntime? = null
+            var applicationJob: Job? = null
 
             setContent {
                 HarvestCircleApplication(
                     closeRequested = closeRequested,
                     onExitApproved = { approvedExits += 1 },
                 ) { scope ->
+                    applicationJob = scope.coroutineContext[Job]
                     factoryCalls += 1
                     val createdRuntime = ApplicationRuntime()
                     runtime = createdRuntime
@@ -61,6 +67,71 @@ class HarvestCircleApplicationTest {
 
             assertEquals(1, factoryCalls)
             assertEquals(true, runtime?.closed)
+            assertEquals(1, runtime?.shutdownCalls)
+            assertTrue(applicationJob?.isCancelled == true)
+        }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun abruptCompositionDisposalCancelsScopeAndFallsBackToNativeClose() =
+        runComposeUiTest {
+            var showApplication by mutableStateOf(true)
+            var runtime: ApplicationRuntime? = null
+            var applicationJob: Job? = null
+
+            setContent {
+                if (showApplication) {
+                    HarvestCircleApplication { scope ->
+                        applicationJob = scope.coroutineContext[Job]
+                        val createdRuntime = ApplicationRuntime()
+                        runtime = createdRuntime
+                        HarvestCirclePresenter(
+                            runtime = createdRuntime,
+                            scope = scope,
+                            clock = ApplicationClock { UnixSeconds(0) },
+                            operationIds = OperationIdSource { OperationId.from(TEST_OPERATION_ID) },
+                        )
+                    }
+                }
+                BasicText(
+                    text = "Dispose",
+                    modifier = Modifier.testTag("dispose-application").clickable { showApplication = false },
+                )
+            }
+
+            onNodeWithTag("dispose-application").performClick()
+            waitUntil { runtime?.closed == true }
+
+            assertEquals(1, runtime?.shutdownCalls)
+            assertTrue(applicationJob?.isCancelled == true)
+        }
+
+    @Test
+    fun repeatedDisposalIsIdempotentAndDoesNotLeaveCleanupWork() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val applicationJob = Job()
+            var clipboardCloses = 0
+            var presenterCloses = 0
+            val lifecycle =
+                ApplicationLifecycleResources(
+                    applicationScope = kotlinx.coroutines.CoroutineScope(applicationJob + dispatcher),
+                    clipboard = AutoCloseable { clipboardCloses += 1 },
+                    closePresenter = {
+                        presenterCloses += 1
+                        ShutdownReceipt(SnapshotRevision(1UL), closed = true)
+                    },
+                    shutdownTimeoutMillis = 5_000,
+                    fallbackDispatcher = dispatcher,
+                )
+
+            lifecycle.dispose()
+            lifecycle.dispose()
+            testScheduler.advanceUntilIdle()
+
+            assertTrue(applicationJob.isCancelled)
+            assertEquals(1, clipboardCloses)
+            assertEquals(1, presenterCloses)
         }
 
     @OptIn(ExperimentalTestApi::class)
@@ -137,6 +208,7 @@ private class ApplicationRuntime(
     override val buildInfo: BuildInfo = BuildInfo.unknown()
 
     var closed = false
+    var shutdownCalls = 0
 
     override suspend fun bootstrap(): ApplicationSnapshot = applicationSnapshot(SnapshotRevision(1UL))
 
@@ -153,6 +225,7 @@ private class ApplicationRuntime(
     override suspend fun cancelIdentityRemoval(requestId: RemovalRequestId): Boolean = false
 
     override suspend fun shutdown(): ShutdownReceipt {
+        shutdownCalls += 1
         shutdownGate?.await()
         closed = true
         return ShutdownReceipt(SnapshotRevision(1UL), closed = shutdownClosed)

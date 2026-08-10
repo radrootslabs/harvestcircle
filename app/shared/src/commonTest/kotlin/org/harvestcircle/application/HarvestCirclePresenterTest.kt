@@ -175,6 +175,26 @@ class HarvestCirclePresenterTest {
         }
 
     @Test
+    fun cancelledCloseCanBeRetriedByDisposalFallback() =
+        runTest {
+            val shutdownGate = CompletableDeferred<Unit>()
+            val runtime = FakePresenterRuntime(shutdownGate = shutdownGate)
+            val presenter = presenter(runtime)
+            runCurrent()
+
+            val interrupted = async { presenter.close() }
+            runCurrent()
+            interrupted.cancel()
+            runCurrent()
+            shutdownGate.complete(Unit)
+
+            val receipt = presenter.close()
+
+            assertTrue(receipt?.closed == true)
+            assertEquals(2, runtime.shutdownCalls)
+        }
+
+    @Test
     fun generatedRecoveryIsOneUseAndClearedOnCancellation() =
         runTest {
             val runtime = FakePresenterRuntime()
@@ -256,6 +276,7 @@ private class DeterministicOperationIds : OperationIdSource {
 private class FakePresenterRuntime(
     private val bootstrapGate: CompletableDeferred<Unit>? = null,
     private val executeGate: CompletableDeferred<Unit>? = null,
+    private val shutdownGate: CompletableDeferred<Unit>? = null,
 ) : HarvestCircleRuntime {
     override val buildInfo: BuildInfo = BuildInfo.unknown()
 
@@ -328,6 +349,7 @@ private class FakePresenterRuntime(
     override suspend fun shutdown(): ShutdownReceipt {
         shutdownCalled = true
         shutdownCalls += 1
+        shutdownGate?.await()
         return ShutdownReceipt(current.revision, closed = true)
     }
 
