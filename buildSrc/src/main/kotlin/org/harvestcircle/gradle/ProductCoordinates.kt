@@ -81,6 +81,18 @@ abstract class VerifyProductCoordinates : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val uniFfiConfigFile: RegularFileProperty
 
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val ffiBaselineFile: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val sourceProvenanceFile: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val nativeCompatibilityFile: RegularFileProperty
+
     @TaskAction
     fun verify() {
         val source = manifestFile.get().asFile.readText()
@@ -110,5 +122,35 @@ abstract class VerifyProductCoordinates : DefaultTask() {
                 "cdylib_name = \"${coordinates["ffi.cdylib_name"]}\"",
             ),
         )
+
+        val baseline = FfiCompatibilityBaseline.load(ffiBaselineFile.get().asFile)
+        val baselineSource = ffiBaselineFile.get().asFile.readText()
+        check(runCatching { FfiCompatibilityBaseline.parse(baselineSource + "\nunknown=value") }.isFailure)
+        check(runCatching { FfiCompatibilityBaseline.parse(baselineSource.substringAfter('\n')) }.isFailure)
+        check(
+            runCatching {
+                FfiCompatibilityBaseline.parse(
+                    baselineSource + "\ncontract.id=harvestcircle-desktop-ffi-v4",
+                )
+            }.isFailure,
+        )
+        check(baseline["product.coordinate_digest"] == coordinates.digest)
+        val provenance = sourceProvenanceFile.get().asFile
+        check(baseline["source.provenance_digest"] == FfiCompatibilityBaseline.digest(provenance))
+        check(
+            provenance.readLines().contains(
+                "foundation_baseline = \"${baseline["source.foundation_baseline"]}\"",
+            ),
+        )
+        val nativeCompatibility = nativeCompatibilityFile.get().asFile.readText()
+        listOf(
+            "contract.id" to "EXPECTED_FFI_CONTRACT_ID",
+            "contract.hash" to "EXPECTED_FFI_CONTRACT_HASH",
+            "product.coordinate_digest" to "EXPECTED_PRODUCT_COORDINATE_DIGEST",
+            "source.provenance_digest" to "EXPECTED_SOURCE_PROVENANCE_DIGEST",
+            "source.foundation_baseline" to "EXPECTED_SOURCE_FOUNDATION_BASELINE",
+        ).forEach { (key, constant) ->
+            check(nativeCompatibility.contains("$constant = \"${baseline[key]}\""))
+        }
     }
 }

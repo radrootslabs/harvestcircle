@@ -25,8 +25,9 @@ use harvestcircle_storage::OsKeyringSecretStore;
 use crate::{
     AccountDto, AppSnapshotDto, WireErrorCategory, WireErrorCode, WireRecoveryAction,
     contract::{
-        FFI_CONTRACT_HASH, FFI_CONTRACT_MAJOR, FFI_CONTRACT_MINOR, MINIMUM_SCHEMA_VERSION,
-        PRODUCT_VERSION,
+        DISTRIBUTION_PACKAGE_VERSION, FFI_CONTRACT_HASH, FFI_CONTRACT_ID, FFI_CONTRACT_MAJOR,
+        FFI_CONTRACT_MINOR, MINIMUM_SCHEMA_VERSION, PRODUCT_COORDINATE_DIGEST, PRODUCT_VERSION,
+        SNAPSHOT_SCHEMA_VERSION, SOURCE_FOUNDATION_BASELINE, SOURCE_PROVENANCE_DIGEST,
     },
     dto::error_policy,
 };
@@ -53,21 +54,30 @@ pub struct AccountCommandReceiptDto {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct CompatibilityDescriptor {
+    pub contract_id: String,
     pub product_version: String,
     pub cargo_package_version: String,
+    pub distribution_package_version: String,
     pub contract_major: u16,
     pub contract_minor: u16,
     pub contract_hash: String,
+    pub product_coordinate_digest: String,
+    pub snapshot_schema_version: u32,
     pub minimum_schema_version: u32,
     pub current_schema_version: u32,
+    pub source_provenance_digest: String,
+    pub source_foundation_baseline: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct CompatibilityExpectation {
+    pub contract_id: String,
     pub contract_major: u16,
     pub minimum_contract_minor: u16,
     pub contract_hash: String,
+    pub product_coordinate_digest: String,
+    pub snapshot_schema_version: u32,
     pub minimum_schema_version: u32,
     pub maximum_schema_version: u32,
 }
@@ -75,13 +85,19 @@ pub struct CompatibilityExpectation {
 #[cfg_attr(not(coverage_nightly), uniffi::export)]
 pub fn compatibility_descriptor() -> CompatibilityDescriptor {
     CompatibilityDescriptor {
+        contract_id: FFI_CONTRACT_ID.to_owned(),
         product_version: PRODUCT_VERSION.to_owned(),
         cargo_package_version: env!("CARGO_PKG_VERSION").to_owned(),
+        distribution_package_version: DISTRIBUTION_PACKAGE_VERSION.to_owned(),
         contract_major: FFI_CONTRACT_MAJOR,
         contract_minor: FFI_CONTRACT_MINOR,
         contract_hash: FFI_CONTRACT_HASH.to_owned(),
+        product_coordinate_digest: PRODUCT_COORDINATE_DIGEST.to_owned(),
+        snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
         minimum_schema_version: MINIMUM_SCHEMA_VERSION,
         current_schema_version: harvestcircle_storage::CURRENT_SCHEMA_VERSION,
+        source_provenance_digest: SOURCE_PROVENANCE_DIGEST.to_owned(),
+        source_foundation_baseline: SOURCE_FOUNDATION_BASELINE.to_owned(),
     }
 }
 
@@ -500,9 +516,12 @@ impl HarvestCircleAppCore {
 
 fn verify_compatibility(expectation: &CompatibilityExpectation) -> Result<(), HarvestCircleError> {
     let actual = compatibility_descriptor();
-    if expectation.contract_major != actual.contract_major
+    if expectation.contract_id != actual.contract_id
+        || expectation.contract_major != actual.contract_major
         || expectation.minimum_contract_minor > actual.contract_minor
         || expectation.contract_hash != actual.contract_hash
+        || expectation.product_coordinate_digest != actual.product_coordinate_digest
+        || expectation.snapshot_schema_version != actual.snapshot_schema_version
         || expectation.minimum_schema_version > actual.current_schema_version
         || expectation.maximum_schema_version < actual.minimum_schema_version
     {
@@ -720,10 +739,11 @@ mod tests {
 
     use super::{
         ACTOR_MAILBOX_CAPACITY, CompatibilityExpectation, DATABASE_APPLICATION, DATABASE_FILENAME,
-        DATABASE_ORGANIZATION, DATABASE_QUALIFIER, FFI_CONTRACT_HASH, FFI_CONTRACT_MAJOR,
-        FFI_CONTRACT_MINOR, HarvestCircleAppCore, HarvestCircleError, ProjectDirs,
-        RequestContextDto, RuntimeCore, SystemClock, WireErrorCategory, WireErrorCode,
-        WireRecoveryAction, actor_mailbox_capacity, compatibility_descriptor, confirmation_expired,
+        DATABASE_ORGANIZATION, DATABASE_QUALIFIER, FFI_CONTRACT_HASH, FFI_CONTRACT_ID,
+        FFI_CONTRACT_MAJOR, FFI_CONTRACT_MINOR, HarvestCircleAppCore, HarvestCircleError,
+        PRODUCT_COORDINATE_DIGEST, ProjectDirs, RequestContextDto, RuntimeCore,
+        SNAPSHOT_SCHEMA_VERSION, SystemClock, WireErrorCategory, WireErrorCode, WireRecoveryAction,
+        actor_mailbox_capacity, compatibility_descriptor, confirmation_expired,
         generated_commit_failed, local_first_relay_configuration, path_unavailable, runtime,
         runtime_unavailable, verify_compatibility,
     };
@@ -1010,15 +1030,22 @@ mod tests {
     fn compatibility_matrix_rejects_before_storage_mutation() {
         let actual = compatibility_descriptor();
         let compatible = CompatibilityExpectation {
+            contract_id: FFI_CONTRACT_ID.to_owned(),
             contract_major: FFI_CONTRACT_MAJOR,
             minimum_contract_minor: FFI_CONTRACT_MINOR,
             contract_hash: FFI_CONTRACT_HASH.to_owned(),
+            product_coordinate_digest: PRODUCT_COORDINATE_DIGEST.to_owned(),
+            snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
             minimum_schema_version: 5,
             maximum_schema_version: CURRENT_SCHEMA_VERSION,
         };
         verify_compatibility(&compatible).expect("compatible");
 
         for incompatible in [
+            CompatibilityExpectation {
+                contract_id: "wrong-contract".to_owned(),
+                ..compatible.clone()
+            },
             CompatibilityExpectation {
                 contract_major: FFI_CONTRACT_MAJOR + 1,
                 ..compatible.clone()
@@ -1029,6 +1056,14 @@ mod tests {
             },
             CompatibilityExpectation {
                 contract_hash: "wrong-contract".to_owned(),
+                ..compatible.clone()
+            },
+            CompatibilityExpectation {
+                product_coordinate_digest: "wrong-coordinates".to_owned(),
+                ..compatible.clone()
+            },
+            CompatibilityExpectation {
+                snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION + 1,
                 ..compatible.clone()
             },
             CompatibilityExpectation {

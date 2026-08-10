@@ -11,8 +11,9 @@ pub use commands::{
     RemovalRequest, RequestContextDto,
 };
 pub use contract::{
-    FFI_CONTRACT_HASH, FFI_CONTRACT_MAJOR, FFI_CONTRACT_MINOR, MINIMUM_SCHEMA_VERSION,
-    PRODUCT_VERSION,
+    DISTRIBUTION_PACKAGE_VERSION, FFI_CONTRACT_HASH, FFI_CONTRACT_ID, FFI_CONTRACT_MAJOR,
+    FFI_CONTRACT_MINOR, MINIMUM_SCHEMA_VERSION, PRODUCT_COORDINATE_DIGEST, PRODUCT_VERSION,
+    SNAPSHOT_SCHEMA_VERSION, SOURCE_FOUNDATION_BASELINE, SOURCE_PROVENANCE_DIGEST,
 };
 pub use dto::{
     AccountDto, ActiveAccountDto, AppLifecycleDto, AppSnapshotDto, KeyAvailabilityDto, ProfileDto,
@@ -39,7 +40,15 @@ mod tests {
         assert_eq!(super::native_runtime_version(), "0.1.0-alpha");
         assert_eq!(super::PRODUCT_VERSION, "0.1.0-alpha");
         assert_eq!(env!("CARGO_PKG_VERSION"), "0.1.0-alpha");
-        assert_eq!(super::FFI_CONTRACT_MAJOR, 3);
+        assert_eq!(super::FFI_CONTRACT_ID, "harvestcircle-desktop-ffi-v4");
+        assert_eq!(super::FFI_CONTRACT_MAJOR, 4);
+        assert_eq!(super::FFI_CONTRACT_MINOR, 0);
+        assert_eq!(super::SNAPSHOT_SCHEMA_VERSION, 1);
+        assert_eq!(
+            super::PRODUCT_COORDINATE_DIGEST,
+            harvestcircle_product::PRODUCT_COORDINATE_DIGEST
+        );
+        assert_eq!(super::DISTRIBUTION_PACKAGE_VERSION, "1.0.0");
         assert_eq!(super::FFI_CONTRACT_HASH.len(), 64);
         assert!(!super::contract::NORMALIZED_CONTRACT_METADATA.is_empty());
     }

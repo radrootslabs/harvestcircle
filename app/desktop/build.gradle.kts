@@ -16,6 +16,7 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.tasks.Jar
+import org.harvestcircle.gradle.FfiCompatibilityBaseline
 import org.harvestcircle.gradle.ProductCoordinates
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -110,9 +111,19 @@ val productCoordinatesFile =
     rootProject.layout.projectDirectory.file("config/product/harvestcircle-v1.properties")
 val productCoordinates =
     ProductCoordinates.parse(providers.fileContents(productCoordinatesFile).asText.get())
+val ffiCompatibilityBaselineFile =
+    rootProject.layout.projectDirectory.file("core/compatibility/harvestcircle-ffi-v4.properties")
+val ffiCompatibilityBaseline =
+    FfiCompatibilityBaseline.load(ffiCompatibilityBaselineFile.asFile)
 val appVersion = workspacePackageValue("version")
 val macOsBuildVersion = "1"
-val installableVersion = "1.0.0"
+check(ffiCompatibilityBaseline["product.version"] == appVersion) {
+    "FFI compatibility product version must match the Cargo workspace version"
+}
+check(ffiCompatibilityBaseline["product.coordinate_digest"] == productCoordinates.digest) {
+    "FFI compatibility product-coordinate digest is stale"
+}
+val installableVersion = ffiCompatibilityBaseline["package.version"]
 check(Regex("""[1-9]\d*(\.\d+){0,2}""").matches(installableVersion)) {
     "Package version must satisfy the macOS jpackage contract"
 }

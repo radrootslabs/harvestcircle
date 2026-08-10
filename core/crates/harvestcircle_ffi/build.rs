@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -12,12 +13,38 @@ const CONTRACT_SOURCES: &[&str] = &[
     "src/lib.rs",
     "src/observer.rs",
 ];
+const BASELINE_PATH: &str = "../../compatibility/harvestcircle-ffi-v4.properties";
+const PRODUCT_MANIFEST_PATH: &str = "../../../config/product/harvestcircle-v1.properties";
+const SOURCE_PROVENANCE_PATH: &str = concat!("../../provenance/", "stu", "dio-import-v1.toml");
+const BASELINE_KEYS: &[&str] = &[
+    "schema",
+    "contract.id",
+    "contract.major",
+    "contract.minor",
+    "contract.hash",
+    "product.coordinate_digest",
+    "snapshot.schema",
+    "storage.schema.minimum",
+    "storage.schema.current",
+    "product.version",
+    "package.version",
+    "source.provenance_digest",
+    "source.foundation_baseline",
+];
 
 fn main() {
     for source in CONTRACT_SOURCES {
         println!("cargo:rerun-if-changed={source}");
     }
     println!("cargo:rerun-if-changed=../harvestcircle_storage/migrations");
+    println!("cargo:rerun-if-changed={BASELINE_PATH}");
+    println!("cargo:rerun-if-changed={PRODUCT_MANIFEST_PATH}");
+    println!("cargo:rerun-if-changed={SOURCE_PROVENANCE_PATH}");
+
+    let baseline = parse_baseline(
+        &fs::read_to_string(BASELINE_PATH).expect("read HarvestCircle FFI baseline"),
+    );
+    validate_baseline_inputs(&baseline);
 
     let mut metadata = Vec::new();
     for source in CONTRACT_SOURCES {
@@ -42,16 +69,137 @@ fn main() {
     metadata.sort();
     metadata.dedup();
     let normalized = metadata.join("\n");
-    println!(
-        "cargo:rustc-env=HARVESTCIRCLE_FFI_CONTRACT_DIGEST={}",
-        hex_digest(normalized.as_bytes())
+    let contract_digest = hex_digest(normalized.as_bytes());
+    assert_eq!(
+        required(&baseline, "contract.hash"),
+        contract_digest,
+        "HarvestCircle FFI baseline hash is stale"
     );
+    emit(
+        "HARVESTCIRCLE_FFI_CONTRACT_ID",
+        required(&baseline, "contract.id"),
+    );
+    emit(
+        "HARVESTCIRCLE_PRODUCT_VERSION",
+        required(&baseline, "product.version"),
+    );
+    emit(
+        "HARVESTCIRCLE_PACKAGE_VERSION",
+        required(&baseline, "package.version"),
+    );
+    emit(
+        "HARVESTCIRCLE_PRODUCT_COORDINATE_DIGEST",
+        required(&baseline, "product.coordinate_digest"),
+    );
+    emit(
+        "HARVESTCIRCLE_SOURCE_PROVENANCE_DIGEST",
+        required(&baseline, "source.provenance_digest"),
+    );
+    emit(
+        "HARVESTCIRCLE_SOURCE_FOUNDATION_BASELINE",
+        required(&baseline, "source.foundation_baseline"),
+    );
+    emit("HARVESTCIRCLE_FFI_CONTRACT_DIGEST", &contract_digest);
     fs::write(
         PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"))
             .join("ffi_contract_metadata.txt"),
         normalized,
     )
     .expect("write normalized FFI metadata");
+}
+
+fn parse_baseline(source: &str) -> BTreeMap<String, String> {
+    let mut values = BTreeMap::new();
+    for (index, raw_line) in source.lines().enumerate() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (key, value) = line
+            .split_once('=')
+            .unwrap_or_else(|| panic!("invalid FFI baseline line {}", index + 1));
+        let key = key.trim();
+        let value = value.trim();
+        assert!(
+            !key.is_empty() && !value.is_empty(),
+            "empty FFI baseline entry"
+        );
+        assert!(
+            values.insert(key.to_owned(), value.to_owned()).is_none(),
+            "duplicate FFI baseline key: {key}"
+        );
+    }
+    let actual = values.keys().map(String::as_str).collect::<BTreeSet<_>>();
+    let expected = BASELINE_KEYS.iter().copied().collect::<BTreeSet<_>>();
+    assert_eq!(
+        actual, expected,
+        "FFI baseline keys differ from the contract"
+    );
+    values
+}
+
+fn validate_baseline_inputs(baseline: &BTreeMap<String, String>) {
+    assert_eq!(required(baseline, "schema"), "harvestcircle.ffi.v4");
+    assert_eq!(
+        required(baseline, "contract.id"),
+        "harvestcircle-desktop-ffi-v4"
+    );
+    assert_eq!(required(baseline, "contract.major"), "4");
+    assert_eq!(required(baseline, "contract.minor"), "0");
+    assert_eq!(required(baseline, "snapshot.schema"), "1");
+    assert_eq!(required(baseline, "storage.schema.minimum"), "5");
+    assert_eq!(required(baseline, "storage.schema.current"), "10");
+    assert_eq!(
+        required(baseline, "product.version"),
+        env!("CARGO_PKG_VERSION")
+    );
+
+    let product_digest =
+        hex_digest(&fs::read(PRODUCT_MANIFEST_PATH).expect("read product manifest"));
+    assert_eq!(
+        required(baseline, "product.coordinate_digest"),
+        product_digest
+    );
+    let provenance = fs::read(SOURCE_PROVENANCE_PATH).expect("read source provenance");
+    assert_eq!(
+        required(baseline, "source.provenance_digest"),
+        hex_digest(&provenance)
+    );
+    let provenance = String::from_utf8(provenance).expect("source provenance is UTF-8");
+    let foundation = format!(
+        "foundation_baseline = \"{}\"",
+        required(baseline, "source.foundation_baseline")
+    );
+    assert!(provenance.lines().any(|line| line == foundation));
+
+    let current_migration = fs::read_dir("../harvestcircle_storage/migrations")
+        .expect("read migration catalog")
+        .map(|entry| entry.expect("read migration entry"))
+        .filter_map(|entry| {
+            let file_name = entry.file_name();
+            let file_name = file_name.to_string_lossy();
+            file_name
+                .strip_prefix('V')
+                .and_then(|name| name.split_once("__"))
+                .and_then(|(version, _)| version.parse::<u32>().ok())
+        })
+        .max()
+        .expect("at least one storage migration");
+    assert_eq!(
+        required(baseline, "storage.schema.current"),
+        current_migration.to_string()
+    );
+}
+
+fn required<'a>(baseline: &'a BTreeMap<String, String>, key: &str) -> &'a str {
+    baseline
+        .get(key)
+        .unwrap_or_else(|| panic!("missing FFI baseline key: {key}"))
+        .as_str()
+}
+
+fn emit(name: &str, value: &str) {
+    println!("cargo:rustc-env={name}={value}");
 }
 
 fn collect_public_metadata(path: &Path, output: &mut Vec<String>) {
