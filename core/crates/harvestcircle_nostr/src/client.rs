@@ -1,15 +1,10 @@
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use harvestcircle_domain::{
-    PublicKey, RelayDestinationPolicy, RelayUrl, SafeError, SafeErrorCode, SafeMessage,
-    select_latest_kind0,
+    PublicKey, RelayUrl, SafeError, SafeErrorCode, SafeMessage, select_latest_kind0,
 };
-use radroots_transport::{
-    EventSource, FetchRequest, Target, TargetSet,
-    outcome::FetchTargetState,
-    source::{FetchBounds, FetchSelector},
-};
-use radroots_transport_nostr::{Config, NostrTransport, RelayUrlPolicy};
+use nostr::{Filter, JsonUtil, Kind, PublicKey as NostrPublicKey};
+use nostr_sdk::Client;
 
 use harvestcircle_application::{
     BoxFuture, MAX_CONFIGURED_RELAYS, NostrClient, ProfileFetchResult,
@@ -43,75 +38,46 @@ impl NostrClient for SdkNostrClient {
                 return Err(invalid_relay_configuration());
             }
 
-            let author = public_key.canonical();
+            let author = NostrPublicKey::from_slice(public_key.as_bytes())
+                .map_err(|_| invalid_relay_configuration())?;
             let deadline = deadline.min(Instant::now() + self.timeout);
             let mut candidates = Vec::new();
             let mut successful_relays = 0usize;
-            for policy in [
-                RelayDestinationPolicy::Public,
-                RelayDestinationPolicy::Local,
-                RelayDestinationPolicy::PrivateNetwork,
-            ] {
-                let policy_relays = relays
-                    .iter()
-                    .filter(|relay| relay.policy() == policy)
-                    .collect::<Vec<_>>();
-                if policy_relays.is_empty() {
-                    continue;
+            let filter = Filter::new()
+                .author(author)
+                .kind(Kind::Metadata)
+                .limit(MAX_PROFILE_EVENTS_PER_RELAY);
+            for relay in relays {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    break;
                 }
-                let config = Config::new(
-                    canonical_policy(policy),
-                    policy_relays.iter().map(|relay| relay.as_str()),
-                )
-                .and_then(|config| {
-                    let timeout_ms =
-                        timeout_millis(deadline.saturating_duration_since(Instant::now()));
-                    config.with_timeouts(timeout_ms, timeout_ms, timeout_ms)
+                let client = Client::default();
+                let result = match tokio::time::timeout_at(deadline.into(), async {
+                    client
+                        .add_relay(relay.as_str())
+                        .await
+                        .map_err(|_| relay_connection_failed())?;
+                    client
+                        .try_connect_relay(relay.as_str(), remaining)
+                        .await
+                        .map_err(|_| relay_connection_failed())?;
+                    client
+                        .fetch_events_from([relay.as_str()], filter.clone(), remaining)
+                        .await
+                        .map_err(|_| relay_connection_failed())
                 })
-                .map_err(|_| invalid_relay_configuration())?;
-                let targets = policy_relays
-                    .iter()
-                    .map(|relay| Target::nostr_relay(relay.as_str()))
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|_| invalid_relay_configuration())?;
-                let request = FetchRequest::new(
-                    format!("harvestcircle-profile-{policy:?}"),
-                    TargetSet::new(targets).map_err(|_| invalid_relay_configuration())?,
-                    FetchBounds::new(
-                        MAX_PROFILE_EVENTS_PER_RELAY as u16,
-                        unix_deadline(deadline.saturating_duration_since(Instant::now()))?,
-                    )
-                    .map_err(|_| invalid_relay_configuration())?,
-                )
-                .map_err(|_| invalid_relay_configuration())?
-                .with_selector(
-                    FetchSelector::all()
-                        .with_kinds(vec![0])
-                        .and_then(|selector| selector.with_authors(vec![author]))
-                        .map_err(|_| invalid_relay_configuration())?,
-                );
-                let page = tokio::time::timeout_at(
-                    deadline.into(),
-                    NostrTransport::new(config).fetch(request),
-                )
                 .await
-                .map_err(|_| relay_connection_failed())?
-                .map_err(|_| relay_connection_failed())?;
-                successful_relays += page
-                    .target_outcomes()
-                    .iter()
-                    .filter(|outcome| {
-                        matches!(
-                            outcome.state(),
-                            FetchTargetState::Complete | FetchTargetState::Partial
-                        )
-                    })
-                    .count();
-                for observed in page.events() {
-                    candidates.push(crate::parse_verified_kind0(
-                        observed.event().raw_json(),
-                        public_key,
-                    )?);
+                {
+                    Ok(result) => result,
+                    Err(_) => Err(relay_connection_failed()),
+                };
+                client.shutdown().await;
+                if let Ok(events) = result {
+                    successful_relays += 1;
+                    for event in events {
+                        candidates.push(crate::parse_verified_kind0(&event.as_json(), public_key)?);
+                    }
                 }
             }
             if successful_relays == 0 {
@@ -124,33 +90,6 @@ impl NostrClient for SdkNostrClient {
                 Ok(ProfileFetchResult::partial(candidate))
             }
         })
-    }
-}
-
-fn unix_deadline(timeout: Duration) -> Result<u64, SafeError> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| relay_connection_failed())?;
-    let deadline = now
-        .checked_add(timeout)
-        .ok_or_else(relay_connection_failed)?;
-    u64::try_from(deadline.as_millis())
-        .ok()
-        .filter(|deadline| *deadline > 0)
-        .ok_or_else(relay_connection_failed)
-}
-
-fn timeout_millis(timeout: Duration) -> u64 {
-    u64::try_from(timeout.as_millis())
-        .unwrap_or(u64::MAX)
-        .clamp(1, 120_000)
-}
-
-const fn canonical_policy(policy: RelayDestinationPolicy) -> RelayUrlPolicy {
-    match policy {
-        RelayDestinationPolicy::Public => RelayUrlPolicy::Public,
-        RelayDestinationPolicy::Local => RelayUrlPolicy::Local,
-        RelayDestinationPolicy::PrivateNetwork => RelayUrlPolicy::PrivateNetwork,
     }
 }
 
@@ -308,25 +247,17 @@ mod tests {
     }
 
     #[test]
-    fn harvestcircle_policy_maps_exactly_to_the_canonical_transport_policy() {
-        assert_eq!(
-            super::canonical_policy(RelayDestinationPolicy::Public),
-            radroots_transport_nostr::RelayUrlPolicy::Public
+    fn harvestcircle_relay_policy_remains_domain_owned_and_fail_closed() {
+        assert!(RelayUrl::parse("wss://relay.example", RelayDestinationPolicy::Public).is_ok());
+        assert!(RelayUrl::parse("ws://127.0.0.1:7777", RelayDestinationPolicy::Local).is_ok());
+        assert!(
+            RelayUrl::parse(
+                "wss://10.0.0.1:7777",
+                RelayDestinationPolicy::PrivateNetwork
+            )
+            .is_ok()
         );
-        assert_eq!(
-            super::canonical_policy(RelayDestinationPolicy::Local),
-            radroots_transport_nostr::RelayUrlPolicy::Local
-        );
-        assert_eq!(
-            super::canonical_policy(RelayDestinationPolicy::PrivateNetwork),
-            radroots_transport_nostr::RelayUrlPolicy::PrivateNetwork
-        );
-        assert_eq!(super::timeout_millis(Duration::ZERO), 1);
-        assert_eq!(
-            super::timeout_millis(Duration::from_secs(1_000_000)),
-            120_000
-        );
-        assert!(super::unix_deadline(Duration::from_secs(1)).is_ok());
+        assert!(RelayUrl::parse("ws://relay.example", RelayDestinationPolicy::Public).is_err());
         assert_eq!(
             super::invalid_relay_configuration().code(),
             SafeErrorCode::InvalidRelayConfiguration

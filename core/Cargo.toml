@@ -42,8 +42,6 @@ harvestcircle_runtime = { path = "crates/harvestcircle_runtime", version = "=0.1
 harvestcircle_storage = { path = "crates/harvestcircle_storage", version = "=0.1.0-alpha" }
 harvestcircle_uniffi_bindgen = { path = "crates/harvestcircle_uniffi_bindgen", version = "=0.1.0-alpha" }
 radroots_identity = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha", default-features = false }
-radroots_transport = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha", default-features = false }
-radroots_transport_nostr = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha", default-features = false }
 getrandom = { version = "0.2", default-features = false }
 hmac = { version = "0.12", default-features = false }
 quote = { version = "1" }
