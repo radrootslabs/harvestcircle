@@ -14,11 +14,15 @@ object VerificationLanes {
     private fun expected(environmentPrefix: String) =
         linkedMapOf(
             "schema" to "harvestcircle.verification-lanes.v2",
-            "orchestration" to "standalone-make",
-            "source.command" to "make source-check",
-            "source.runner" to "host",
+            "orchestration" to "explicit-make-modes",
+            "source.standalone.command" to "make source-check",
+            "source.governed.command" to "make governed-source-check",
             "source.credentials" to "none",
-            "package.command" to "make package-check",
+            "integration.standalone.command" to "make integration-check",
+            "integration.governed.command" to "make governed-integration-check",
+            "integration.credentials" to "none",
+            "package.standalone.command" to "make host-package-check",
+            "package.governed.command" to "make governed-package-check",
             "package.runners" to "linux,macos,windows",
             "package.credentials" to "none",
             "provenance.commit" to environmentPrefix + "BUILD_SOURCE_COMMIT",
@@ -31,6 +35,8 @@ object VerificationLanes {
             "notarization.command" to "make notarization-check",
             "notarization.runner" to "macos",
             "notarization.credentials" to "notarization",
+            "release.command" to "make release-check",
+            "release.mode" to "governed",
         )
 
     fun parse(
@@ -76,7 +82,7 @@ abstract class VerifyVerificationLanes : DefaultTask() {
         val environmentPrefix =
             ProductCoordinates.load(productManifestFile.get().asFile)["environment.prefix"]
         val policy = VerificationLanes.parse(source, environmentPrefix)
-        check(policy.size == 18)
+        check(policy.size == 24)
         check(runCatching { VerificationLanes.parse(source + "source.workflow=forbidden", environmentPrefix) }.isFailure)
         check(
             runCatching {
@@ -85,20 +91,19 @@ abstract class VerifyVerificationLanes : DefaultTask() {
         )
         check(
             runCatching {
-                VerificationLanes.parse(source.replace("source.runner=host", "source.runner=remote"), environmentPrefix)
+                VerificationLanes.parse(source.replace("release.mode=governed", "release.mode=standalone"), environmentPrefix)
             }.isFailure,
         )
         val root = repositoryRoot.get().asFile.toPath()
         val makefile = root.resolve("Makefile").toFile().readText()
-        listOf("source.command", "package.command", "signing.command", "notarization.command").forEach { key ->
-            val command = policy.getValue(key)
+        policy.filterKeys { it.endsWith(".command") }.forEach { (key, command) ->
             val target = command.removePrefix("make ")
             check(command == "make $target" && Regex("(?m)^${Regex.escape(target)}:").containsMatchIn(makefile)) {
-                "Verification lane $key does not name a standalone Make target"
+                "Verification lane $key does not name a Make target"
             }
         }
         check(policy.values.none { ".github/" in it || ".act/" in it }) {
-            "Standalone verification policy must not reference an orchestration root"
+            "Verification policy must not reference an orchestration root"
         }
     }
 }

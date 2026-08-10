@@ -4,110 +4,149 @@ GRADLE ?= ./gradlew
 CARGO ?= cargo
 CARGO_MANIFEST := core/Cargo.toml
 XTASK_MANIFEST := tools/xtask/Cargo.toml
-EXTBUILD ?= $(if $(shell cargo extbuild --version 2>/dev/null),cargo extbuild run --)
+BUILD_MODE ?= standalone
+VALID_BUILD_MODES := standalone governed
 
-.PHONY: help doctor lock metadata build-logic-check format format-fix lint test check build bindings dev run audit licenses foundation-check package host-package-check governed-package-check source-check package-check signing-check notarization-check release-check clean
+ifeq ($(filter $(BUILD_MODE),$(VALID_BUILD_MODES)),)
+$(error Unknown BUILD_MODE '$(BUILD_MODE)'; expected standalone or governed)
+endif
+
+ifeq ($(BUILD_MODE),governed)
+override BUILD_RUNNER := cargo extbuild run --
+else
+override BUILD_RUNNER :=
+endif
+
+.PHONY: help doctor governed-doctor lock metadata build-logic-check mode-check format format-fix lint test check governed-check build bindings dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check acceptance-check signing-check _signing-check notarization-check _notarization-check release-check _release-check clean
 
 help:
-	@printf '%s\n' doctor lock metadata build-logic-check format format-fix lint test check build bindings dev run audit licenses foundation-check package host-package-check governed-package-check source-check package-check signing-check notarization-check release-check clean
+	@printf '%s\n' doctor governed-doctor lock metadata build-logic-check mode-check format format-fix lint test check governed-check build bindings dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check acceptance-check signing-check notarization-check release-check clean
 
 doctor:
-	$(if $(strip $(EXTBUILD)),cargo extbuild doctor,@:)
-	$(EXTBUILD) java -version
-	$(EXTBUILD) $(CARGO) --version
-	$(EXTBUILD) $(GRADLE) --version
+	@printf '%s\n' "harvestcircle.build.mode=$(BUILD_MODE)"
+	$(BUILD_RUNNER) java -version
+	$(BUILD_RUNNER) $(CARGO) --version
+	$(BUILD_RUNNER) $(GRADLE) --version
+
+governed-doctor:
+	$(CARGO) extbuild doctor
+
+ifeq ($(BUILD_MODE),governed)
+doctor: governed-doctor
+endif
 
 lock: doctor
-	$(EXTBUILD) $(CARGO) generate-lockfile --manifest-path $(CARGO_MANIFEST)
-	$(EXTBUILD) $(CARGO) generate-lockfile --manifest-path $(XTASK_MANIFEST)
+	$(BUILD_RUNNER) $(CARGO) generate-lockfile --manifest-path $(CARGO_MANIFEST)
+	$(BUILD_RUNNER) $(CARGO) generate-lockfile --manifest-path $(XTASK_MANIFEST)
 
 metadata: doctor
-	$(EXTBUILD) $(CARGO) metadata --manifest-path $(CARGO_MANIFEST) --locked --format-version 1 --no-deps
+	$(BUILD_RUNNER) $(CARGO) metadata --manifest-path $(CARGO_MANIFEST) --locked --format-version 1 --no-deps
 
 build-logic-check: doctor
-	$(EXTBUILD) $(GRADLE) --no-daemon -p build-logic :contracts:check :plugins:check :plugins:functionalTest
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon -p build-logic :contracts:check :plugins:check :plugins:functionalTest
+
+mode-check:
+	tools/test-build-modes.sh
 
 format: doctor
-	$(EXTBUILD) $(CARGO) fmt --manifest-path $(CARGO_MANIFEST) --all -- --check
-	$(EXTBUILD) $(CARGO) fmt --manifest-path $(XTASK_MANIFEST) --all -- --check
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:shared:ktlintCheck :app:desktop:ktlintCheck
+	$(BUILD_RUNNER) $(CARGO) fmt --manifest-path $(CARGO_MANIFEST) --all -- --check
+	$(BUILD_RUNNER) $(CARGO) fmt --manifest-path $(XTASK_MANIFEST) --all -- --check
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:shared:ktlintCheck :app:desktop:ktlintCheck
 
 format-fix: doctor
-	$(EXTBUILD) $(CARGO) fmt --manifest-path $(CARGO_MANIFEST) --all
-	$(EXTBUILD) $(CARGO) fmt --manifest-path $(XTASK_MANIFEST) --all
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:shared:ktlintFormat :app:desktop:ktlintFormat
+	$(BUILD_RUNNER) $(CARGO) fmt --manifest-path $(CARGO_MANIFEST) --all
+	$(BUILD_RUNNER) $(CARGO) fmt --manifest-path $(XTASK_MANIFEST) --all
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:shared:ktlintFormat :app:desktop:ktlintFormat
 
 lint: doctor
-	$(EXTBUILD) $(CARGO) clippy --manifest-path $(CARGO_MANIFEST) --workspace --all-targets --locked -- -D warnings
-	$(EXTBUILD) $(CARGO) clippy --manifest-path $(XTASK_MANIFEST) --all-targets --locked -- -D warnings
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:shared:detektCommonMainSourceSet :app:shared:detektCommonTestSourceSet :app:desktop:detekt
+	$(BUILD_RUNNER) $(CARGO) clippy --manifest-path $(CARGO_MANIFEST) --workspace --all-targets --locked -- -D warnings
+	$(BUILD_RUNNER) $(CARGO) clippy --manifest-path $(XTASK_MANIFEST) --all-targets --locked -- -D warnings
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:shared:detektCommonMainSourceSet :app:shared:detektCommonTestSourceSet :app:desktop:detekt
 
 test: doctor
-	$(EXTBUILD) $(CARGO) test --manifest-path $(CARGO_MANIFEST) --workspace --locked
-	$(EXTBUILD) $(CARGO) test --manifest-path $(XTASK_MANIFEST) --locked
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:shared:desktopTest :app:desktop:test
+	$(BUILD_RUNNER) $(CARGO) test --manifest-path $(CARGO_MANIFEST) --workspace --locked
+	$(BUILD_RUNNER) $(CARGO) test --manifest-path $(XTASK_MANIFEST) --locked
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:shared:desktopTest :app:desktop:test
 
-check: format lint test foundation-check
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:shared:check :app:desktop:check
+check: format lint test foundation-check mode-check
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:shared:check :app:desktop:check
+
+governed-check:
+	$(MAKE) --no-print-directory BUILD_MODE=governed check
 
 build: doctor
-	$(EXTBUILD) $(CARGO) build --manifest-path $(CARGO_MANIFEST) --workspace --locked
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:build
+	$(BUILD_RUNNER) $(CARGO) build --manifest-path $(CARGO_MANIFEST) --workspace --locked
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:build
 
 bindings: doctor
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:verifyUniFfiBindings :app:desktop:verifyReleaseNativeLibrary
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:verifyUniFfiBindings :app:desktop:verifyReleaseNativeLibrary
 
 dev: doctor
-	$(EXTBUILD) $(GRADLE) :app:desktop:hotRun
+	$(BUILD_RUNNER) $(GRADLE) :app:desktop:hotRun
 
 run: doctor
-	$(EXTBUILD) $(GRADLE) :app:desktop:run
+	$(BUILD_RUNNER) $(GRADLE) :app:desktop:run
 
 audit: doctor
-	$(EXTBUILD) $(CARGO) audit --file core/Cargo.lock
-	$(EXTBUILD) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml advisories
-	$(EXTBUILD) $(GRADLE) --no-daemon --no-configuration-cache :app:desktop:dependencyCheckAnalyze
+	$(BUILD_RUNNER) $(CARGO) audit --file core/Cargo.lock
+	$(BUILD_RUNNER) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml advisories
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon --no-configuration-cache :app:desktop:dependencyCheckAnalyze
 
 licenses: doctor
-	$(EXTBUILD) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml licenses sources
-	$(EXTBUILD) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:checkLicense
+	$(BUILD_RUNNER) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml licenses sources
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:checkLicense
 
 foundation-check: doctor
-	$(EXTBUILD) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- qualification-report
+	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- qualification-report
 
 package: check
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:verifyHostPackage
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:verifyHostPackage
 
-host-package-check:
-	java -version
-	$(CARGO) --version
-	$(GRADLE) --version
-	$(GRADLE) --no-daemon :app:desktop:verifyHostPackage
+host-package-check: doctor
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:verifyHostPackage
 
 governed-package-check:
-	cargo extbuild doctor
-	cargo extbuild run -- java -version
-	cargo extbuild run -- $(CARGO) --version
-	cargo extbuild run -- $(GRADLE) --version
-	cargo extbuild run -- $(GRADLE) --no-daemon :app:desktop:verifyHostPackage
+	$(MAKE) --no-print-directory BUILD_MODE=governed host-package-check
 
 source-check: check bindings licenses
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:sourceReadiness
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:sourceReadiness
+
+governed-source-check:
+	$(MAKE) --no-print-directory BUILD_MODE=governed source-check
 
 package-check: source-check
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:packageReadiness
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:packageReadiness
 
-signing-check: doctor
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:signingReadiness
+integration-check: check
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:compileIntegrationTestKotlin
 
-notarization-check: doctor
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:notarizationReadiness
+governed-integration-check:
+	$(MAKE) --no-print-directory BUILD_MODE=governed integration-check
 
-release-check: doctor
-	$(EXTBUILD) $(CARGO) audit --file core/Cargo.lock
-	$(EXTBUILD) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml advisories licenses sources
-	$(EXTBUILD) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:releaseReadiness
+acceptance-check: integration-check host-package-check
+
+signing-check:
+	$(MAKE) --no-print-directory BUILD_MODE=governed _signing-check
+
+_signing-check: doctor
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:signingReadiness
+
+notarization-check:
+	$(MAKE) --no-print-directory BUILD_MODE=governed _notarization-check
+
+_notarization-check: doctor
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:notarizationReadiness
+
+release-check:
+	$(MAKE) --no-print-directory BUILD_MODE=governed _release-check
+
+_release-check: doctor
+	@test "$(BUILD_MODE)" = governed || { printf '%s\n' 'release-check requires governed mode'; exit 2; }
+	$(BUILD_RUNNER) $(CARGO) audit --file core/Cargo.lock
+	$(BUILD_RUNNER) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml advisories licenses sources
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:releaseReadiness
 
 clean: doctor
-	$(EXTBUILD) $(CARGO) clean --manifest-path $(CARGO_MANIFEST)
-	$(EXTBUILD) $(GRADLE) --no-daemon clean
+	$(BUILD_RUNNER) $(CARGO) clean --manifest-path $(CARGO_MANIFEST)
+	$(BUILD_RUNNER) $(CARGO) clean --manifest-path $(XTASK_MANIFEST)
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon clean

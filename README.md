@@ -35,6 +35,11 @@ make build
 make package
 ```
 
+These commands always use the standalone contributor lane. Use
+`make governed-check`, `make governed-integration-check`, or
+`make governed-package-check` when extbuild-governed output routing is
+required. Release, signing, and notarization checks are governed-only.
+
 ## Development branch
 
 Active implementation currently proceeds on `dev`.

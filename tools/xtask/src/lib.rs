@@ -27,6 +27,15 @@ impl FromStr for Command {
 }
 
 pub fn run(root: &Path, command: Command) -> Result<String, Vec<String>> {
+    let build_mode =
+        std::env::var("HARVESTCIRCLE_BUILD_MODE").unwrap_or_else(|_| "standalone".to_owned());
+    if command == Command::QualificationReport
+        && !matches!(build_mode.as_str(), "standalone" | "governed")
+    {
+        return Err(vec![format!(
+            "unknown qualification build mode: {build_mode}"
+        )]);
+    }
     let inventory = Inventory::load(root).map_err(|finding| vec![finding])?;
     let mut findings = Vec::new();
     match command {
@@ -53,8 +62,13 @@ pub fn run(root: &Path, command: Command) -> Result<String, Vec<String>> {
             Command::ProvenanceCheck => "provenance-check",
             Command::QualificationReport => "qualification-report",
         };
+        let mode = if command == Command::QualificationReport {
+            format!("harvestcircle.build.mode={build_mode}\n")
+        } else {
+            String::new()
+        };
         Ok(format!(
-            "harvestcircle.xtask.command={command_name}\nharvestcircle.xtask.inventory={inventory_kind}\nharvestcircle.xtask.result=pass\n"
+            "harvestcircle.xtask.command={command_name}\nharvestcircle.xtask.inventory={inventory_kind}\n{mode}harvestcircle.xtask.result=pass\n"
         ))
     } else {
         Err(findings)

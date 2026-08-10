@@ -106,16 +106,16 @@ keep implementation, tests, generated outputs, dependency evidence, and public
 behavior aligned while preserving unrelated work.
 
 The root `Makefile` is the standalone command surface and its durable behavior
-belongs in Gradle or public producer tools. When extbuild is installed, the
-Makefile routes commands through it. Without extbuild, Gradle uses its standard
-ignored `build/` directories and Cargo uses the ignored `core/target/` tree;
-the same checked-in tasks must remain functional. Set `EXTBUILD=` explicitly
-to exercise the standalone lane on a machine that also has extbuild. Run
-`make doctor` before the first mutating lane, use `make format`, `make lint`,
-and `make test` while iterating, and run `make check` for the complete source
-checkpoint. Use `make build`, `make bindings`, `make audit`, `make licenses`,
-`make package`, and `make release-check` when their affected artifact or
-release scope requires them.
+belongs in Gradle or public producer tools. Standalone targets never invoke or
+probe extbuild, even when it is installed. Explicit `governed-*` targets run a
+green extbuild doctor and route the same underlying commands through extbuild.
+Gradle otherwise uses its standard ignored `build/` directories and Cargo uses
+the ignored target trees. Run `make doctor` before the first standalone
+mutating lane and `make governed-doctor` before a governed lane. Use `make
+format`, `make lint`, and `make test` while iterating, and run `make check` or
+`make governed-check` for a complete source checkpoint. Signing, notarization,
+and release targets are governed-only. Unknown build modes fail before build
+mutation.
 
 Shared public Git dependencies and package or advisory lanes may require
 external services. Do not weaken immutable inputs or silently switch sources
