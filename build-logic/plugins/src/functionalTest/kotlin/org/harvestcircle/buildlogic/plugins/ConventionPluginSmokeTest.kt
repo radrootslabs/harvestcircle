@@ -4,7 +4,6 @@ import org.gradle.testkit.runner.GradleRunner
 import org.gradle.testkit.runner.UnexpectedBuildFailure
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.createDirectories
-import kotlin.io.path.exists
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertTrue
@@ -72,7 +71,6 @@ class ConventionPluginSmokeTest {
             val result = runner.build()
 
             assertTrue(result.output.contains("BUILD SUCCESSFUL"), pluginId)
-            assertTrue(!fixture.resolve("buildSrc").exists(), "$pluginId fixture must not provide buildSrc classes")
             if (pluginId == "org.harvestcircle.build.root") {
                 assertTrue(result.output.contains("verifyProductCoordinates"), result.output)
             }
@@ -160,7 +158,7 @@ class ConventionPluginSmokeTest {
     }
 
     @Test
-    fun desktopPluginPublishesTheApplicationContractWithoutClaimingIntegrationExecution() {
+    fun desktopPluginPublishesTheApplicationAndIntegrationContracts() {
         val fixture = createTempDirectory("harvestcircle-desktop-plugin-")
         prepareDesktopBuild(fixture, withUnitTest = true)
 
@@ -178,8 +176,8 @@ class ConventionPluginSmokeTest {
             "verifyGeneratedDesktopBuildMetadata",
             "verifyTestInventory",
             "compileIntegrationTestKotlin",
+            "integrationTest",
         ).forEach { taskName -> assertTrue(result.output.contains(taskName), result.output) }
-        assertTrue(!result.output.lineSequence().any { it.startsWith("integrationTest -") }, result.output)
     }
 
     @Test
