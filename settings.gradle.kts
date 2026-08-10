@@ -1,6 +1,8 @@
 import org.gradle.api.initialization.resolve.RepositoriesMode
 
 pluginManagement {
+    includeBuild("build-logic")
+
     repositories {
         google {
             mavenContent {
