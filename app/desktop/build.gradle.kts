@@ -895,9 +895,21 @@ val verifyReleaseBuildProvenance by tasks.registering(VerifyReleaseBuildProvenan
     radrootsRevision.set(buildRadrootsRevision)
     sourceDateEpoch.set(buildSourceDateEpoch)
 }
+val sourceReadiness by tasks.registering {
+    dependsOn(":verifyProductCoordinates", ":verifyVerificationLanes", ":app:shared:check", "check", verifyUniFfiBindings)
+}
+val packageReadiness by tasks.registering {
+    dependsOn(verifyHostPackage, verifyReleaseBuildProvenance)
+}
+val signingReadiness by tasks.registering {
+    dependsOn(verifyMacOsDeveloperIdSignature)
+}
+val notarizationReadiness by tasks.registering {
+    dependsOn(verifyMacOsNotarization)
+}
 tasks.register("releaseReadiness") {
-    dependsOn("checkLicense", "dependencyCheckAnalyze", verifyHostPackage, verifyReleaseBuildProvenance)
+    dependsOn("checkLicense", "dependencyCheckAnalyze", sourceReadiness, packageReadiness)
     if (isMacOsHost) {
-        dependsOn(verifyMacOsDeveloperIdSignature, verifyMacOsNotarization)
+        dependsOn(signingReadiness, notarizationReadiness)
     }
 }

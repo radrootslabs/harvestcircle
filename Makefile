@@ -5,10 +5,10 @@ CARGO ?= cargo
 CARGO_MANIFEST := core/Cargo.toml
 EXTBUILD ?= $(if $(shell cargo extbuild --version 2>/dev/null),cargo extbuild run --)
 
-.PHONY: help doctor lock metadata format format-fix lint test check build bindings dev run audit licenses package release-check clean
+.PHONY: help doctor lock metadata format format-fix lint test check build bindings dev run audit licenses package source-check package-check signing-check notarization-check release-check clean
 
 help:
-	@printf '%s\n' doctor lock metadata format format-fix lint test check build bindings dev run audit licenses package release-check clean
+	@printf '%s\n' doctor lock metadata format format-fix lint test check build bindings dev run audit licenses package source-check package-check signing-check notarization-check release-check clean
 
 doctor:
 	$(if $(strip $(EXTBUILD)),cargo extbuild doctor,@:)
@@ -65,6 +65,18 @@ licenses: doctor
 
 package: check
 	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:verifyHostPackage
+
+source-check: check bindings licenses
+	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:sourceReadiness
+
+package-check: source-check
+	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:packageReadiness
+
+signing-check: doctor
+	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:signingReadiness
+
+notarization-check: doctor
+	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:notarizationReadiness
 
 release-check: doctor
 	$(EXTBUILD) $(CARGO) audit --file core/Cargo.lock

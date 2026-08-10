@@ -1,4 +1,5 @@
 import org.harvestcircle.gradle.VerifyProductCoordinates
+import org.harvestcircle.gradle.VerifyVerificationLanes
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform) apply false
@@ -10,6 +11,7 @@ plugins {
 val productCoordinatesFile = layout.projectDirectory.file("config/product/harvestcircle-v1.properties")
 val ffiCompatibilityBaselineFile =
     layout.projectDirectory.file("core/compatibility/harvestcircle-ffi-v4.properties")
+val verificationLanesFile = layout.projectDirectory.file("config/verification/lanes-v1.properties")
 val legacyProduct = "stu" + "dio"
 
 val verifyProductCoordinates by tasks.registering(VerifyProductCoordinates::class) {
@@ -28,6 +30,12 @@ val verifyProductCoordinates by tasks.registering(VerifyProductCoordinates::clas
             "app/desktop/src/main/kotlin/org/harvestcircle/application/NativeCompatibility.kt",
         ),
     )
+}
+
+val verifyVerificationLanes by tasks.registering(VerifyVerificationLanes::class) {
+    group = "verification"
+    description = "Validates forge-agnostic verification lanes and least-privilege policy."
+    policyFile.set(verificationLanesFile)
 }
 
 providers.environmentVariable("EXT_BUILD_GRADLE_BUILD_DIR").orNull?.let { extBuildGradleRoot ->
