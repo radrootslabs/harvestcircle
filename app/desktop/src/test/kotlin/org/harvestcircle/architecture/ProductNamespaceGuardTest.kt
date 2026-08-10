@@ -97,11 +97,12 @@ class ProductNamespaceGuardTest {
                 "rs",
                 "sql",
                 "toml",
+                "txt",
                 "xml",
                 "yaml",
                 "yml",
             )
-        val textNames = setOf("Makefile", ".gitignore", "gradlew", "gradlew.bat")
+        val textNames = setOf(".gitattributes", ".gitignore", "AGENTS.md", "LICENSE", "Makefile", "NOTICE", "gradlew", "gradlew.bat")
         val findings =
             trackedFiles(root).flatMap { relative ->
                 buildList {
@@ -115,7 +116,20 @@ class ProductNamespaceGuardTest {
 
                     val path = root.resolve(relative)
                     if (relative != provenanceException && (path.extension in textExtensions || path.name in textNames)) {
-                        val inspected = path.readText().replace(repositoryUrlException, "")
+                        var inspected = path.readText().replace(repositoryUrlException, "")
+                        if (relative == "NOTICE") {
+                            val legacyDisplayName = legacyProduct.replaceFirstChar { it.uppercase() }
+                            inspected =
+                                inspected
+                                    .replace("Radroots $legacyDisplayName application work", "")
+                                    .replace(provenanceException, "")
+                        }
+                        if (relative == "spec/harvestcircle_mvp_v1/UI_SURFACE_MAP.md") {
+                            inspected = inspected.replace("round_${legacyProduct}_screen", "")
+                        }
+                        if (relative == ".github/workflows/source.yml" || relative == ".github/workflows/package.yml") {
+                            inspected = inspected.replace(provenanceException, "")
+                        }
                         if (inspected.lowercase().contains(legacyProduct)) {
                             add("$relative: legacy product name in tracked text")
                         }

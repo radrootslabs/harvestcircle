@@ -37,6 +37,7 @@ val verifyVerificationLanes by tasks.registering(VerifyVerificationLanes::class)
     group = "verification"
     description = "Validates forge-agnostic verification lanes and least-privilege policy."
     policyFile.set(verificationLanesFile)
+    repositoryRoot.set(layout.projectDirectory)
 }
 
 val verifyFoundationBoundaries by tasks.registering(VerifyFoundationBoundaries::class) {
