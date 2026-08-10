@@ -1,3 +1,4 @@
+import org.harvestcircle.gradle.VerifySharedBoundary
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
 
@@ -19,6 +20,9 @@ kotlin {
     }
 
     sourceSets {
+        commonMain.dependencies {
+            implementation(libs.kotlinx.coroutines.core)
+        }
         commonTest.dependencies {
             implementation(kotlin("test"))
         }
@@ -33,4 +37,16 @@ kotlin {
     ) {
         "HarvestCircle shared must declare exactly one KMP platform target named desktop"
     }
+}
+
+val verifySharedBoundary by tasks.registering(VerifySharedBoundary::class) {
+    commonSources.from(
+        fileTree("src/commonMain/kotlin") {
+            include("**/*.kt")
+        },
+    )
+}
+
+tasks.named("check") {
+    dependsOn(verifySharedBoundary)
 }
