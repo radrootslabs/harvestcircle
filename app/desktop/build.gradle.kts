@@ -896,7 +896,15 @@ val verifyReleaseBuildProvenance by tasks.registering(VerifyReleaseBuildProvenan
     sourceDateEpoch.set(buildSourceDateEpoch)
 }
 val sourceReadiness by tasks.registering {
-    dependsOn(":verifyProductCoordinates", ":verifyVerificationLanes", ":app:shared:check", "check", verifyUniFfiBindings)
+    dependsOn(
+        ":verifyProductCoordinates",
+        ":verifyVerificationLanes",
+        ":verifyFoundationBoundaries",
+        ":verifyFoundationArchive",
+        ":app:shared:check",
+        "check",
+        verifyUniFfiBindings,
+    )
 }
 val packageReadiness by tasks.registering {
     dependsOn(verifyHostPackage, verifyReleaseBuildProvenance)

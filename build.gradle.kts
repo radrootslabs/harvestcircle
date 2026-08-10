@@ -1,3 +1,4 @@
+import org.harvestcircle.gradle.VerifyFoundationBoundaries
 import org.harvestcircle.gradle.VerifyProductCoordinates
 import org.harvestcircle.gradle.VerifyVerificationLanes
 
@@ -36,6 +37,20 @@ val verifyVerificationLanes by tasks.registering(VerifyVerificationLanes::class)
     group = "verification"
     description = "Validates forge-agnostic verification lanes and least-privilege policy."
     policyFile.set(verificationLanesFile)
+}
+
+val verifyFoundationBoundaries by tasks.registering(VerifyFoundationBoundaries::class) {
+    group = "verification"
+    description = "Audits tracked sources against the HarvestCircle foundation boundaries."
+    repositoryRoot.set(layout.projectDirectory)
+    gitAware.set(true)
+}
+
+val verifyFoundationArchive by tasks.registering(VerifyFoundationBoundaries::class) {
+    group = "verification"
+    description = "Audits a source-archive inventory without Git metadata."
+    repositoryRoot.set(layout.projectDirectory)
+    gitAware.set(false)
 }
 
 providers.environmentVariable("EXT_BUILD_GRADLE_BUILD_DIR").orNull?.let { extBuildGradleRoot ->

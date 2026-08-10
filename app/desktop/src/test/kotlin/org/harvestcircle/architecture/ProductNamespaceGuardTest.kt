@@ -131,6 +131,17 @@ class ProductNamespaceGuardTest {
 }
 
 private fun trackedFiles(root: Path): List<String> {
+    if (!Files.exists(root.resolve(".git"))) {
+        return Files.walk(root).use { paths ->
+            paths
+                .filter(Files::isRegularFile)
+                .map { root.relativize(it).toString().replace('\\', '/') }
+                .filter { relative ->
+                    relative.split('/').none { it in setOf(".gradle", ".kotlin", "build", "target", "out") }
+                }.sorted()
+                .toList()
+        }
+    }
     val process =
         ProcessBuilder("git", "-C", root.toString(), "ls-files", "-z")
             .redirectErrorStream(true)

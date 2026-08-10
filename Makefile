@@ -5,10 +5,10 @@ CARGO ?= cargo
 CARGO_MANIFEST := core/Cargo.toml
 EXTBUILD ?= $(if $(shell cargo extbuild --version 2>/dev/null),cargo extbuild run --)
 
-.PHONY: help doctor lock metadata format format-fix lint test check build bindings dev run audit licenses package source-check package-check signing-check notarization-check release-check clean
+.PHONY: help doctor lock metadata format format-fix lint test check build bindings dev run audit licenses foundation-check package source-check package-check signing-check notarization-check release-check clean
 
 help:
-	@printf '%s\n' doctor lock metadata format format-fix lint test check build bindings dev run audit licenses package source-check package-check signing-check notarization-check release-check clean
+	@printf '%s\n' doctor lock metadata format format-fix lint test check build bindings dev run audit licenses foundation-check package source-check package-check signing-check notarization-check release-check clean
 
 doctor:
 	$(if $(strip $(EXTBUILD)),cargo extbuild doctor,@:)
@@ -38,7 +38,7 @@ test: doctor
 	$(EXTBUILD) $(CARGO) test --manifest-path $(CARGO_MANIFEST) --workspace --locked
 	$(EXTBUILD) $(GRADLE) --no-daemon :app:shared:desktopTest :app:desktop:test
 
-check: format lint test
+check: format lint test foundation-check
 	$(EXTBUILD) $(GRADLE) --no-daemon :app:shared:check :app:desktop:check
 
 build: doctor
@@ -62,6 +62,9 @@ audit: doctor
 licenses: doctor
 	$(EXTBUILD) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml licenses sources
 	$(EXTBUILD) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:checkLicense
+
+foundation-check: doctor
+	$(EXTBUILD) $(GRADLE) --no-daemon :verifyFoundationBoundaries :verifyFoundationArchive
 
 package: check
 	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:verifyHostPackage
