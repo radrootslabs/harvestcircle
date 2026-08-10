@@ -1401,8 +1401,8 @@ mod tests {
         SecretStore, SecretStoreOperation, SessionGeneration, SessionState, SnapshotRevision,
     };
     use harvestcircle_domain::{
-        LocalKeyringBinding, NostrIdentityReference, PublicKey, RelayDestinationPolicy, RelayUrl,
-        SafeError, SafeErrorCode, SecretKeyInput, SignerAvailability, UnixTimestamp,
+        LocalKeyringBinding, NostrIdentityReference, PublicKey, RelayDestinationPolicy,
+        RelayEndpoint, SafeError, SafeErrorCode, SecretKeyInput, SignerAvailability, UnixTimestamp,
     };
 
     use super::{
@@ -1444,7 +1444,7 @@ mod tests {
         fn fetch_profile<'a>(
             &'a self,
             _public_key: PublicKey,
-            _relays: &'a [RelayUrl],
+            _relays: &'a [RelayEndpoint],
             _deadline: Instant,
         ) -> BoxFuture<'a, Result<ProfileFetchResult, SafeError>> {
             Box::pin(async { Ok(ProfileFetchResult::complete(None)) })
@@ -1469,7 +1469,7 @@ mod tests {
         fn fetch_profile<'a>(
             &'a self,
             _public_key: PublicKey,
-            _relays: &'a [RelayUrl],
+            _relays: &'a [RelayEndpoint],
             _deadline: Instant,
         ) -> BoxFuture<'a, Result<ProfileFetchResult, SafeError>> {
             Box::pin(async move {
@@ -1867,8 +1867,13 @@ mod tests {
         let client = Arc::new(BlockingNostr::new());
         let actor = RuntimeActorHandle::in_memory(
             RelayConfiguration::new(vec![
-                RelayUrl::parse("ws://localhost:8080", RelayDestinationPolicy::Local)
-                    .expect("relay"),
+                RelayEndpoint::parse(
+                    "ws://localhost:8080",
+                    RelayDestinationPolicy::Local,
+                    true,
+                    true,
+                )
+                .expect("relay"),
             ])
             .expect("relay configuration"),
             dependencies(Arc::new(InMemorySecretStore::default()), client.clone()),
@@ -1913,8 +1918,13 @@ mod tests {
         let client = Arc::new(BlockingNostr::new());
         let actor = RuntimeActorHandle::in_memory(
             RelayConfiguration::new(vec![
-                RelayUrl::parse("ws://localhost:8080", RelayDestinationPolicy::Local)
-                    .expect("relay"),
+                RelayEndpoint::parse(
+                    "ws://localhost:8080",
+                    RelayDestinationPolicy::Local,
+                    true,
+                    true,
+                )
+                .expect("relay"),
             ])
             .expect("relay configuration"),
             dependencies(Arc::new(InMemorySecretStore::default()), client.clone()),
@@ -2252,8 +2262,13 @@ mod tests {
         let client = Arc::new(BlockingNostr::new());
         let actor = RuntimeActorHandle::in_memory(
             RelayConfiguration::new(vec![
-                RelayUrl::parse("ws://localhost:8080", RelayDestinationPolicy::Local)
-                    .expect("relay"),
+                RelayEndpoint::parse(
+                    "ws://localhost:8080",
+                    RelayDestinationPolicy::Local,
+                    true,
+                    true,
+                )
+                .expect("relay"),
             ])
             .expect("relay configuration"),
             dependencies(Arc::new(InMemorySecretStore::default()), client.clone()),

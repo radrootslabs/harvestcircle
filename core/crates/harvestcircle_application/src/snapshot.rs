@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use harvestcircle_domain::{
-    NostrIdentity, ProfileMetadata, PublicKey, RelayUrl, SafeError, SafeErrorCode, SafeMessage,
+    NostrIdentity, ProfileMetadata, PublicKey, RelayEndpoint, SafeError, SafeErrorCode, SafeMessage,
 };
 
 pub const MAX_CONFIGURED_RELAYS: usize = 16;
@@ -69,7 +69,7 @@ pub enum ProfileLoadState {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct RelayConfiguration(Vec<RelayUrl>);
+pub struct RelayConfiguration(Vec<RelayEndpoint>);
 
 impl RelayConfiguration {
     /// Creates a bounded, explicitly classified relay configuration.
@@ -78,7 +78,7 @@ impl RelayConfiguration {
     ///
     /// Returns a safe configuration error before runtime or network work when
     /// the relay count exceeds the HarvestCircle policy.
-    pub fn new(relays: Vec<RelayUrl>) -> Result<Self, SafeError> {
+    pub fn new(relays: Vec<RelayEndpoint>) -> Result<Self, SafeError> {
         if relays.len() > MAX_CONFIGURED_RELAYS {
             return Err(relay_limit_exceeded());
         }
@@ -86,7 +86,7 @@ impl RelayConfiguration {
     }
 
     #[must_use]
-    pub fn relays(&self) -> &[RelayUrl] {
+    pub fn relays(&self) -> &[RelayEndpoint] {
         &self.0
     }
 }
@@ -296,7 +296,7 @@ const fn invalid_snapshot() -> SafeError {
 mod tests {
     use harvestcircle_domain::{
         IdentityCreatedAt, LocalKeyringBinding, NostrIdentity, NostrIdentityReference,
-        RelayDestinationPolicy, RelayUrl, SafeErrorCode, SignerAvailability, UnixTimestamp,
+        RelayDestinationPolicy, RelayEndpoint, SafeErrorCode, SignerAvailability, UnixTimestamp,
     };
 
     use super::{
@@ -338,9 +338,11 @@ mod tests {
     fn relay_configuration_rejects_excess_targets_before_runtime_work() {
         let relays = (0..=super::MAX_CONFIGURED_RELAYS)
             .map(|index| {
-                RelayUrl::parse(
+                RelayEndpoint::parse(
                     format!("wss://relay-{index}.example").as_str(),
                     RelayDestinationPolicy::Public,
+                    true,
+                    true,
                 )
                 .expect("relay")
             })

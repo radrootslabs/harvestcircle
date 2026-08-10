@@ -1,4 +1,4 @@
-use harvestcircle_domain::{PublicKey, RelayUrl, SafeError, SafeErrorCode};
+use harvestcircle_domain::{PublicKey, RelayEndpoint, SafeError, SafeErrorCode};
 use std::time::Instant;
 
 use crate::{
@@ -11,7 +11,7 @@ use crate::{
 pub struct ProfileRefreshPlan {
     public_key: PublicKey,
     active_identity: ActiveIdentitySnapshot,
-    relays: Vec<RelayUrl>,
+    relays: Vec<RelayEndpoint>,
     expected_revision: SnapshotRevision,
 }
 
@@ -27,7 +27,7 @@ impl ProfileRefreshPlan {
     }
 
     #[must_use]
-    pub fn relays(&self) -> &[RelayUrl] {
+    pub fn relays(&self) -> &[RelayEndpoint] {
         &self.relays
     }
 
@@ -256,7 +256,7 @@ mod tests {
 
     use harvestcircle_domain::{
         EventId, Kind0ProfileCandidate, ProfileMetadata, PublicKey, RelayDestinationPolicy,
-        RelayUrl, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput, UnixTimestamp,
+        RelayEndpoint, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput, UnixTimestamp,
         select_latest_kind0,
     };
 
@@ -323,7 +323,7 @@ mod tests {
         fn fetch_profile<'a>(
             &'a self,
             _public_key: PublicKey,
-            _relays: &'a [RelayUrl],
+            _relays: &'a [RelayEndpoint],
             _deadline: std::time::Instant,
         ) -> BoxFuture<'a, Result<ProfileFetchResult, SafeError>> {
             let result = self.0.clone();
@@ -351,7 +351,7 @@ mod tests {
         fn fetch_profile<'a>(
             &'a self,
             _public_key: PublicKey,
-            _relays: &'a [RelayUrl],
+            _relays: &'a [RelayEndpoint],
             _deadline: std::time::Instant,
         ) -> BoxFuture<'a, Result<ProfileFetchResult, SafeError>> {
             Box::pin(async move {
@@ -374,7 +374,13 @@ mod tests {
 
     fn active_core(profiles: &MemoryProfiles, cached_name: Option<&str>) -> (AppCore, PublicKey) {
         let relays = RelayConfiguration::new(vec![
-            RelayUrl::parse("ws://localhost:8080", RelayDestinationPolicy::Local).expect("relay"),
+            RelayEndpoint::parse(
+                "ws://localhost:8080",
+                RelayDestinationPolicy::Local,
+                true,
+                true,
+            )
+            .expect("relay"),
         ])
         .expect("relay configuration");
         let core = AppCore::in_memory(relays);

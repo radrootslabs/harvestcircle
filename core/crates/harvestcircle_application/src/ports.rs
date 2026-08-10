@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::time::Instant;
 
 use harvestcircle_domain::{
-    Kind0ProfileCandidate, NostrIdentity, Npub, Nsec, PublicKey, RelayUrl, SafeError,
+    Kind0ProfileCandidate, NostrIdentity, Npub, Nsec, PublicKey, RelayEndpoint, SafeError,
     SafeErrorCode, SafeMessage, SecretKeyInput, SignerAvailability, UnixTimestamp,
 };
 
@@ -626,7 +626,7 @@ pub trait NostrClient: Send + Sync {
     fn fetch_profile<'a>(
         &'a self,
         public_key: PublicKey,
-        relays: &'a [RelayUrl],
+        relays: &'a [RelayEndpoint],
         deadline: Instant,
     ) -> BoxFuture<'a, Result<ProfileFetchResult, SafeError>>;
 }
@@ -708,7 +708,7 @@ mod tests {
 
     use std::sync::Mutex;
 
-    use harvestcircle_domain::{NostrIdentity, PublicKey, RelayUrl, SafeError, UnixTimestamp};
+    use harvestcircle_domain::{NostrIdentity, PublicKey, RelayEndpoint, SafeError, UnixTimestamp};
 
     use super::{
         AppStateRepository, BoxFuture, CachedProfile, Clock, DurableOperationReceipt,
@@ -879,7 +879,7 @@ mod tests {
         fn fetch_profile<'a>(
             &'a self,
             _public_key: PublicKey,
-            _relays: &'a [RelayUrl],
+            _relays: &'a [RelayEndpoint],
             _deadline: Instant,
         ) -> BoxFuture<'a, Result<ProfileFetchResult, SafeError>> {
             Box::pin(async { Ok(ProfileFetchResult::complete(None)) })

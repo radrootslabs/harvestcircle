@@ -4,7 +4,7 @@ use harvestcircle_application::{
     Clock, InMemorySecretStore, ProfileLoadState, ProfileRepository, RelayConfiguration,
     RelayConnectionState, SecretStore, SessionState,
 };
-use harvestcircle_domain::{RelayDestinationPolicy, RelayUrl, SecretKeyInput, UnixTimestamp};
+use harvestcircle_domain::{RelayDestinationPolicy, RelayEndpoint, SecretKeyInput, UnixTimestamp};
 use harvestcircle_nostr::SdkNostrClient;
 use harvestcircle_runtime::PersistentAppCore;
 use nostr::{EventBuilder, Keys, Metadata};
@@ -43,8 +43,13 @@ async fn local_relay_e2e_imports_activates_refreshes_and_caches_profile() {
         .await
         .expect("publish profile");
 
-    let relay =
-        RelayUrl::parse(relay_url.as_str(), RelayDestinationPolicy::Local).expect("relay URL");
+    let relay = RelayEndpoint::parse(
+        relay_url.as_str(),
+        RelayDestinationPolicy::Local,
+        true,
+        true,
+    )
+    .expect("relay endpoint");
     let adapter = PersistentAppCore::in_memory(
         RelayConfiguration::new(vec![relay]).expect("relay configuration"),
     )

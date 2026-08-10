@@ -89,7 +89,7 @@ internal fun IdentityDto.toIdentitySummary(): IdentitySummary =
         lastUsedAt = lastUsedAtSeconds?.let(::UnixSeconds),
     )
 
-internal fun ActiveIdentityDto.toActiveIdentity(configuredRelays: List<String>): ActiveIdentity =
+internal fun ActiveIdentityDto.toActiveIdentity(configuredRelays: List<RelayEndpoint>): ActiveIdentity =
     ActiveIdentity(
         identity = identity.toIdentitySummary(),
         relays = RelaySummary(configuredRelays, relayState.toRelayConnectionState()),
@@ -102,14 +102,27 @@ internal fun AppSnapshotDto.toApplicationSnapshot(): ApplicationSnapshot =
         revision = SnapshotRevision(revision),
         lifecycle = lifecycle.toApplicationLifecycle(),
         lifecycleProblem = lifecycleError?.toApplicationProblem(),
-        configuredRelays = configuredRelays,
+        configuredRelays = configuredRelays.map { it.toRelayEndpoint() },
         identities = identities.map(IdentityDto::toIdentitySummary),
         selectedIdentityId = selectedPublicKeyHex?.let(IdentityId::fromPublicKeyHex),
         session = session.toSessionLifecycle(),
         sessionSubjectIdentityId = sessionSubjectPublicKeyHex?.let(IdentityId::fromPublicKeyHex),
         sessionProblem = sessionError?.toApplicationProblem(),
-        activeIdentity = activeIdentity?.toActiveIdentity(configuredRelays),
+        activeIdentity = activeIdentity?.toActiveIdentity(configuredRelays.map { it.toRelayEndpoint() }),
         recoverableProblem = recoverableProblem?.toApplicationProblem(),
+    )
+
+internal fun org.harvestcircle.ffi.RelayEndpointDto.toRelayEndpoint(): RelayEndpoint =
+    RelayEndpoint(
+        url = url,
+        destination =
+            when (destination) {
+                org.harvestcircle.ffi.RelayDestinationDto.LOCAL -> RelayDestination.Local
+                org.harvestcircle.ffi.RelayDestinationDto.PRIVATE_NETWORK -> RelayDestination.PrivateNetwork
+                org.harvestcircle.ffi.RelayDestinationDto.PUBLIC -> RelayDestination.Public
+            },
+        read = read,
+        write = write,
     )
 
 internal fun ProfileDto.toProfileSummary(): ProfileSummary =

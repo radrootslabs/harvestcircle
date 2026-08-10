@@ -8,10 +8,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use directories::ProjectDirs;
 use harvestcircle_application::{
-    Clock, DurableRequestId, GeneratedKeyRecoveryHandle, RelayConfiguration, RelayRuntimeMode,
-    RemovalConfirmationToken, relay_configuration_from_urls,
+    Clock, DurableRequestId, GeneratedKeyRecoveryHandle, RelayConfiguration, RelayEndpointInput,
+    RemovalConfirmationToken, relay_configuration_from_endpoints,
 };
-use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
+use harvestcircle_domain::{
+    PublicKey, RelayDestinationPolicy, SafeError, SecretKeyInput, UnixTimestamp,
+};
 use harvestcircle_nostr::SdkNostrClient;
 use harvestcircle_product::{
     DATABASE_APPLICATION, DATABASE_FILENAME, DATABASE_ORGANIZATION, DATABASE_QUALIFIER,
@@ -23,7 +25,8 @@ use harvestcircle_runtime::{
 use harvestcircle_storage::OsKeyringSecretStore;
 
 use crate::{
-    AppSnapshotDto, IdentityDto, WireErrorCategory, WireErrorCode, WireRecoveryAction,
+    AppSnapshotDto, IdentityDto, RelayDestinationDto, RelayEndpointDto, WireErrorCategory,
+    WireErrorCode, WireRecoveryAction,
     contract::{
         BUILD_JAVA_TOOLCHAIN, BUILD_KOTLIN_TOOLCHAIN, BUILD_PROVENANCE_DIGEST,
         BUILD_RADROOTS_REVISION, BUILD_RUST_TOOLCHAIN, BUILD_SOURCE_COMMIT,
@@ -49,7 +52,7 @@ pub struct RequestContextDto {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct RelayBootstrapInputDto {
-    pub relay_urls: Vec<String>,
+    pub endpoints: Vec<RelayEndpointDto>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -313,7 +316,7 @@ impl HarvestCircleAppCore {
         relay_input: RelayBootstrapInputDto,
     ) -> Result<Arc<Self>, HarvestCircleError> {
         let path = application_database_path(development_mode)?;
-        Self::open_path_compatible(&path, &expectation, development_mode, relay_input)
+        Self::open_path_compatible(&path, &expectation, relay_input)
     }
 
     /// Restores durable public application state.
@@ -584,13 +587,12 @@ impl HarvestCircleAppCore {
     fn open_path_compatible(
         path: &Path,
         expectation: &CompatibilityExpectation,
-        development_mode: bool,
         relay_input: RelayBootstrapInputDto,
     ) -> Result<Arc<Self>, HarvestCircleError> {
         verify_compatibility(expectation)?;
         std::fs::create_dir_all(path.parent().ok_or_else(path_unavailable)?)
             .map_err(|_| path_unavailable())?;
-        Self::open_path(path, development_mode, relay_input)
+        Self::open_path(path, relay_input)
     }
 
     // The concrete product opener binds operating-system paths, keyrings, and
@@ -599,17 +601,28 @@ impl HarvestCircleAppCore {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn open_path(
         path: &Path,
-        development_mode: bool,
         relay_input: RelayBootstrapInputDto,
     ) -> Result<Arc<Self>, HarvestCircleError> {
-        let mode = if development_mode {
-            RelayRuntimeMode::Development
-        } else {
-            RelayRuntimeMode::Packaged
-        };
-        let (relays, startup_relay_problem) = local_first_relay_configuration(
-            relay_configuration_from_urls(&relay_input.relay_urls, mode),
-        );
+        let relay_endpoints = relay_input
+            .endpoints
+            .into_iter()
+            .map(|endpoint| {
+                RelayEndpointInput::new(
+                    endpoint.url,
+                    match endpoint.destination {
+                        RelayDestinationDto::Local => RelayDestinationPolicy::Local,
+                        RelayDestinationDto::PrivateNetwork => {
+                            RelayDestinationPolicy::PrivateNetwork
+                        }
+                        RelayDestinationDto::Public => RelayDestinationPolicy::Public,
+                    },
+                    endpoint.read,
+                    endpoint.write,
+                )
+            })
+            .collect::<Vec<_>>();
+        let (relays, startup_relay_problem) =
+            local_first_relay_configuration(relay_configuration_from_endpoints(&relay_endpoints));
         let runtime = runtime()?;
         let actor = runtime.block_on(RuntimeActorHandle::open(
             path,
@@ -784,8 +797,11 @@ mod tests {
     use std::num::NonZeroUsize;
     use std::sync::Arc;
 
-    use harvestcircle_application::{InMemorySecretStore, RelayConfiguration, RelayRuntimeMode};
-    use harvestcircle_domain::SafeError;
+    use harvestcircle_application::{
+        InMemorySecretStore, RelayConfiguration, RelayEndpointInput,
+        relay_configuration_from_endpoints,
+    };
+    use harvestcircle_domain::{RelayDestinationPolicy, SafeError};
     use harvestcircle_nostr::SdkNostrClient;
     use harvestcircle_runtime::{
         RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,
@@ -1147,9 +1163,8 @@ mod tests {
             HarvestCircleAppCore::open_path_compatible(
                 &rejected,
                 &incompatible,
-                true,
                 RelayBootstrapInputDto {
-                    relay_urls: Vec::new(),
+                    endpoints: Vec::new(),
                 },
             )
             .is_err()
@@ -1206,28 +1221,36 @@ mod tests {
     }
 
     #[test]
-    fn injected_relay_input_distinguishes_development_packaged_and_invalid_values() {
-        let development = harvestcircle_application::relay_configuration_from_urls(
-            &["ws://localhost:8080".to_owned()],
-            RelayRuntimeMode::Development,
-        )
-        .expect("explicit local development relay");
-        assert_eq!(development.relays()[0].as_str(), "ws://localhost:8080/");
+    fn injected_relay_input_is_explicit_mixed_and_fail_closed() {
+        let mixed = relay_configuration_from_endpoints(&[
+            RelayEndpointInput::new(
+                "ws://localhost:8080",
+                RelayDestinationPolicy::Local,
+                true,
+                true,
+            ),
+            RelayEndpointInput::new(
+                "wss://relay.example",
+                RelayDestinationPolicy::Public,
+                true,
+                true,
+            ),
+        ])
+        .expect("explicit mixed relays");
+        assert_eq!(mixed.relays()[0].url().as_str(), "ws://localhost:8080/");
+        assert_eq!(mixed.relays()[1].url().as_str(), "wss://relay.example/");
 
-        let packaged = harvestcircle_application::relay_configuration_from_urls(
-            &["wss://relay.example".to_owned()],
-            RelayRuntimeMode::Packaged,
-        )
-        .expect("explicit packaged relay");
-        assert_eq!(packaged.relays()[0].as_str(), "wss://relay.example/");
-
-        for input in [Vec::new(), vec!["https://not-a-relay.example".to_owned()]] {
-            let (relays, degraded) = local_first_relay_configuration(
-                harvestcircle_application::relay_configuration_from_urls(
-                    &input,
-                    RelayRuntimeMode::Packaged,
-                ),
-            );
+        for input in [
+            Vec::new(),
+            vec![RelayEndpointInput::new(
+                "https://not-a-relay.example",
+                RelayDestinationPolicy::Public,
+                true,
+                true,
+            )],
+        ] {
+            let (relays, degraded) =
+                local_first_relay_configuration(relay_configuration_from_endpoints(&input));
             assert!(relays.relays().is_empty());
             assert_eq!(
                 degraded.map(|problem| problem.code()),

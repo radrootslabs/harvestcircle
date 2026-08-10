@@ -18,6 +18,8 @@ import org.harvestcircle.ffi.IdentityCommandReceiptDto
 import org.harvestcircle.ffi.IdentityDto
 import org.harvestcircle.ffi.ObserverSubscription
 import org.harvestcircle.ffi.RelayBootstrapInputDto
+import org.harvestcircle.ffi.RelayDestinationDto
+import org.harvestcircle.ffi.RelayEndpointDto
 import org.harvestcircle.ffi.RemovalRequest
 import org.harvestcircle.ffi.RequestContextDto
 import org.harvestcircle.ffi.ShutdownReceiptDto
@@ -292,20 +294,40 @@ class NativeHarvestCircleRuntime internal constructor(
 }
 
 internal const val HARVESTCIRCLE_NOSTR_RELAYS_ENVIRONMENT = "HARVESTCIRCLE_NOSTR_RELAYS"
-internal const val HARVESTCIRCLE_LOCAL_DEVELOPMENT_RELAY = "ws://localhost:8080"
+internal const val HARVESTCIRCLE_LOCAL_DEVELOPMENT_RELAY = "local|ws://localhost:8080"
 
 internal fun desktopRelayBootstrapInput(
     developmentMode: Boolean,
     configuredValue: String? = System.getenv(HARVESTCIRCLE_NOSTR_RELAYS_ENVIRONMENT),
 ): RelayBootstrapInputDto {
     val configured = configuredValue?.trim().orEmpty()
-    val relayUrls =
+    val entries =
         when {
             configured.isNotEmpty() -> configured.split(',').map(String::trim)
             developmentMode -> listOf(HARVESTCIRCLE_LOCAL_DEVELOPMENT_RELAY)
             else -> emptyList()
         }
-    return RelayBootstrapInputDto(relayUrls)
+    return RelayBootstrapInputDto(entries.map(::parseRelayEndpoint))
+}
+
+private fun parseRelayEndpoint(value: String): RelayEndpointDto {
+    val parts = value.split('|', limit = 2)
+    require(parts.size == 2 && parts.all(String::isNotBlank)) {
+        "Relay entries must include an explicit destination classification"
+    }
+    val destination =
+        when (parts[0].trim()) {
+            "local" -> RelayDestinationDto.LOCAL
+            "private" -> RelayDestinationDto.PRIVATE_NETWORK
+            "public" -> RelayDestinationDto.PUBLIC
+            else -> error("Relay destination classification is invalid")
+        }
+    return RelayEndpointDto(
+        url = parts[1].trim(),
+        destination = destination,
+        read = true,
+        write = true,
+    )
 }
 
 internal fun interface NativeHandleIdSource {

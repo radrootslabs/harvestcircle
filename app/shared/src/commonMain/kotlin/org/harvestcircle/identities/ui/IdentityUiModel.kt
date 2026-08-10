@@ -84,7 +84,7 @@ fun HarvestCirclePresenterState.toUiModel(): HarvestCircleUiModel {
         route = route,
         identities = identities,
         activeIdentity = snapshot.activeIdentity?.toUiModel(selectedPublicKeyHex),
-        configuredRelays = snapshot.configuredRelays,
+        configuredRelays = snapshot.configuredRelays.map { it.url },
         importDraft = importDraft,
         generatedKeyBackup =
             generatedKeyBackup?.let {

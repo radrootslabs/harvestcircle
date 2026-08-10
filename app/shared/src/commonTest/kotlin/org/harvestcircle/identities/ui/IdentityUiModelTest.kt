@@ -14,6 +14,8 @@ import org.harvestcircle.application.ProfileLoadState
 import org.harvestcircle.application.ProfileSummary
 import org.harvestcircle.application.RecoveryAction
 import org.harvestcircle.application.RelayConnectionState
+import org.harvestcircle.application.RelayDestination
+import org.harvestcircle.application.RelayEndpoint
 import org.harvestcircle.application.RelaySummary
 import org.harvestcircle.application.SessionLifecycle
 import org.harvestcircle.application.SignerAvailability
@@ -37,7 +39,7 @@ class IdentityUiModelTest {
                 active =
                     ActiveIdentity(
                         identity = identity,
-                        relays = RelaySummary(listOf("ws://localhost:8080"), RelayConnectionState.Connected),
+                        relays = RelaySummary(listOf(localRelay()), RelayConnectionState.Connected),
                         profileState = ProfileLoadState.Fresh,
                         profile = ProfileSummary("alice", "Alice", "alice@example.com", "Farmer", "https://example.com/a.png"),
                     ),
@@ -111,7 +113,7 @@ private fun snapshot(
     revision = SnapshotRevision(1UL),
     lifecycle = ApplicationLifecycle.Ready,
     lifecycleProblem = null,
-    configuredRelays = listOf("ws://localhost:8080"),
+    configuredRelays = listOf(localRelay()),
     identities = listOfNotNull(identity),
     selectedIdentityId = identity?.id,
     session = if (active == null) SessionLifecycle.SignedOut else SessionLifecycle.Active,
@@ -120,6 +122,14 @@ private fun snapshot(
     activeIdentity = active,
     recoverableProblem = null,
 )
+
+private fun localRelay() =
+    RelayEndpoint(
+        url = "ws://localhost:8080",
+        destination = RelayDestination.Local,
+        read = true,
+        write = true,
+    )
 
 private fun identity() =
     IdentitySummary(

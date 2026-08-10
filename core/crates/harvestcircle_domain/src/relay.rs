@@ -1,6 +1,5 @@
 //! Validated Nostr relay values.
 
-use std::collections::HashSet;
 use std::fmt::{self, Display, Formatter};
 
 use url::{Host, Url};
@@ -18,6 +17,57 @@ pub enum RelayDestinationPolicy {
 pub struct RelayUrl {
     value: String,
     policy: RelayDestinationPolicy,
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RelayEndpoint {
+    url: RelayUrl,
+    read: bool,
+    write: bool,
+}
+
+impl RelayEndpoint {
+    /// Validates one explicitly classified relay endpoint and its capabilities.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe configuration error when the URL and destination conflict
+    /// or when the endpoint has neither read nor write capability.
+    pub fn parse(
+        value: &str,
+        destination: RelayDestinationPolicy,
+        read: bool,
+        write: bool,
+    ) -> Result<Self, SafeError> {
+        if !read && !write {
+            return Err(invalid_relay());
+        }
+        Ok(Self {
+            url: RelayUrl::parse(value, destination)?,
+            read,
+            write,
+        })
+    }
+
+    #[must_use]
+    pub const fn url(&self) -> &RelayUrl {
+        &self.url
+    }
+
+    #[must_use]
+    pub const fn destination(&self) -> RelayDestinationPolicy {
+        self.url.policy()
+    }
+
+    #[must_use]
+    pub const fn can_read(&self) -> bool {
+        self.read
+    }
+
+    #[must_use]
+    pub const fn can_write(&self) -> bool {
+        self.write
+    }
 }
 
 impl RelayUrl {
@@ -42,7 +92,8 @@ impl RelayUrl {
         }
 
         match (policy, parsed.scheme()) {
-            (RelayDestinationPolicy::Public | RelayDestinationPolicy::PrivateNetwork, "wss") => {}
+            (RelayDestinationPolicy::Public, "wss") if is_public_destination(&parsed) => {}
+            (RelayDestinationPolicy::PrivateNetwork, "wss") if is_private_network(&parsed) => {}
             (RelayDestinationPolicy::Local, "ws" | "wss") if is_loopback(&parsed) => {}
             _ => return Err(invalid_relay()),
         }
@@ -74,35 +125,42 @@ impl Display for RelayUrl {
     }
 }
 
-/// Parses relay values and removes duplicates without changing first-seen order.
-///
-/// # Errors
-///
-/// Returns the first safe relay validation error.
-pub fn normalize_relay_urls<I, S>(
-    values: I,
-    policy: RelayDestinationPolicy,
-) -> Result<Vec<RelayUrl>, SafeError>
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<str>,
-{
-    let mut seen = HashSet::new();
-    let mut relays = Vec::new();
-    for value in values {
-        let relay = RelayUrl::parse(value.as_ref(), policy)?;
-        if seen.insert(relay.clone()) {
-            relays.push(relay);
-        }
-    }
-    Ok(relays)
-}
-
 fn is_loopback(url: &Url) -> bool {
     match url.host() {
         Some(Host::Domain(domain)) => domain == "localhost",
         Some(Host::Ipv4(address)) => address.octets()[0] == 127,
         Some(Host::Ipv6(address)) => address.is_loopback(),
+        None => false,
+    }
+}
+
+fn is_private_network(url: &Url) -> bool {
+    match url.host() {
+        Some(Host::Ipv4(address)) => address.is_private() || address.is_link_local(),
+        Some(Host::Ipv6(address)) => {
+            let first = address.segments()[0];
+            first & 0xfe00 == 0xfc00 || first & 0xffc0 == 0xfe80
+        }
+        Some(Host::Domain(_)) | None => false,
+    }
+}
+
+fn is_public_destination(url: &Url) -> bool {
+    match url.host() {
+        Some(Host::Domain(domain)) => domain != "localhost" && !domain.ends_with(".local"),
+        Some(Host::Ipv4(address)) => {
+            !address.is_loopback()
+                && !address.is_private()
+                && !address.is_link_local()
+                && !address.is_unspecified()
+        }
+        Some(Host::Ipv6(address)) => {
+            let first = address.segments()[0];
+            !address.is_loopback()
+                && !address.is_unspecified()
+                && first & 0xfe00 != 0xfc00
+                && first & 0xffc0 != 0xfe80
+        }
         None => false,
     }
 }
@@ -116,7 +174,7 @@ const fn invalid_relay() -> SafeError {
 
 #[cfg(test)]
 mod tests {
-    use super::{RelayDestinationPolicy, RelayUrl, normalize_relay_urls};
+    use super::{RelayDestinationPolicy, RelayEndpoint, RelayUrl};
     use crate::SafeErrorCode;
 
     #[test]
@@ -169,21 +227,25 @@ mod tests {
     }
 
     #[test]
-    fn relay_deduplication_preserves_normalized_first_seen_order() {
-        let relays = normalize_relay_urls(
-            [
-                "wss://relay.example",
-                " wss://second.example/path ",
-                "wss://RELAY.example/",
-                "wss://second.example/path",
-            ],
+    fn relay_endpoint_requires_a_direction_capability() {
+        let endpoint = RelayEndpoint::parse(
+            "wss://relay.example",
             RelayDestinationPolicy::Public,
+            true,
+            false,
         )
-        .expect("valid relays");
-
-        assert_eq!(
-            relays.iter().map(RelayUrl::as_str).collect::<Vec<_>>(),
-            vec!["wss://relay.example/", "wss://second.example/path"]
+        .expect("read endpoint");
+        assert!(endpoint.can_read());
+        assert!(!endpoint.can_write());
+        assert_eq!(endpoint.destination(), RelayDestinationPolicy::Public);
+        assert!(
+            RelayEndpoint::parse(
+                "wss://relay.example",
+                RelayDestinationPolicy::Public,
+                false,
+                false,
+            )
+            .is_err()
         );
     }
 
@@ -191,6 +253,14 @@ mod tests {
     fn relay_destination_policy_is_explicit_and_fail_closed() {
         assert!(RelayUrl::parse("ws://localhost:8080", RelayDestinationPolicy::Public).is_err());
         assert!(RelayUrl::parse("wss://relay.example", RelayDestinationPolicy::Local).is_err());
+        assert!(RelayUrl::parse("wss://10.0.0.4", RelayDestinationPolicy::Public).is_err());
+        assert!(
+            RelayUrl::parse(
+                "wss://relay.example",
+                RelayDestinationPolicy::PrivateNetwork
+            )
+            .is_err()
+        );
         let private = RelayUrl::parse("wss://10.0.0.4", RelayDestinationPolicy::PrivateNetwork)
             .expect("explicit private network");
         assert_eq!(private.policy(), RelayDestinationPolicy::PrivateNetwork);

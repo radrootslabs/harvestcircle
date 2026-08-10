@@ -22,6 +22,8 @@ import org.harvestcircle.ffi.IdentityDto
 import org.harvestcircle.ffi.ProfileDto
 import org.harvestcircle.ffi.ProfileLoadStateDto
 import org.harvestcircle.ffi.RelayConnectionStateDto
+import org.harvestcircle.ffi.RelayDestinationDto
+import org.harvestcircle.ffi.RelayEndpointDto
 import org.harvestcircle.ffi.RequestContextDto
 import org.harvestcircle.ffi.SafeErrorDto
 import org.harvestcircle.ffi.SessionStateDto
@@ -163,7 +165,7 @@ class NativeRuntimeMappingsTest {
         assertEquals(SnapshotRevision(2UL), mapped.revision)
         assertEquals(ApplicationLifecycle.Degraded, mapped.lifecycle)
         assertEquals(ApplicationErrorCode.RelayConnectionFailed, mapped.lifecycleProblem?.code)
-        assertEquals(native.configuredRelays, mapped.configuredRelays)
+        assertEquals(native.configuredRelays.map { it.url }, mapped.configuredRelays.map { it.url })
         assertEquals(
             native.identities.single().publicKeyHex,
             mapped.identities
@@ -242,21 +244,26 @@ class NativeRuntimeMappingsTest {
 
     @Test
     fun desktopHostBuildsExplicitRelayBootstrapInput() {
-        assertEquals(
-            listOf(HARVESTCIRCLE_LOCAL_DEVELOPMENT_RELAY),
-            desktopRelayBootstrapInput(developmentMode = true, configuredValue = null).relayUrls,
-        )
+        val development = desktopRelayBootstrapInput(developmentMode = true, configuredValue = null)
+        assertEquals("ws://localhost:8080", development.endpoints.single().url)
+        assertEquals(RelayDestinationDto.LOCAL, development.endpoints.single().destination)
         assertEquals(
             emptyList(),
-            desktopRelayBootstrapInput(developmentMode = false, configuredValue = null).relayUrls,
+            desktopRelayBootstrapInput(developmentMode = false, configuredValue = null).endpoints,
         )
-        assertEquals(
-            listOf("wss://relay.one", "wss://relay.two"),
+        val mixed =
             desktopRelayBootstrapInput(
-                developmentMode = false,
-                configuredValue = " wss://relay.one, wss://relay.two ",
-            ).relayUrls,
+                developmentMode = true,
+                configuredValue = " local|ws://127.0.0.1:8080, public|wss://relay.example ",
+            ).endpoints
+        assertEquals(
+            listOf(RelayDestinationDto.LOCAL, RelayDestinationDto.PUBLIC),
+            mixed.map { it.destination },
         )
+        assertTrue(mixed.all { it.read && it.write })
+        assertFailsWith<IllegalArgumentException> {
+            desktopRelayBootstrapInput(developmentMode = true, configuredValue = "wss://unclassified.example")
+        }
     }
 }
 
@@ -479,7 +486,15 @@ private fun populatedSnapshot(revision: ULong): AppSnapshotDto {
         revision = revision,
         lifecycle = AppLifecycleDto.DEGRADED,
         lifecycleError = safeError(WireErrorCode.RELAY_CONNECTION_FAILED),
-        configuredRelays = listOf("wss://relay.example"),
+        configuredRelays =
+            listOf(
+                RelayEndpointDto(
+                    url = "wss://relay.example",
+                    destination = RelayDestinationDto.PUBLIC,
+                    read = true,
+                    write = true,
+                ),
+            ),
         identities = listOf(identity),
         selectedPublicKeyHex = identity.publicKeyHex,
         session = SessionStateDto.ACTIVE,

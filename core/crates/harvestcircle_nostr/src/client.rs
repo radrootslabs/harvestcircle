@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use harvestcircle_domain::{
-    PublicKey, RelayUrl, SafeError, SafeErrorCode, SafeMessage, select_latest_kind0,
+    PublicKey, RelayEndpoint, SafeError, SafeErrorCode, SafeMessage, select_latest_kind0,
 };
 use nostr::{Filter, JsonUtil, Kind, PublicKey as NostrPublicKey};
 use nostr_sdk::Client;
@@ -27,11 +27,15 @@ impl NostrClient for SdkNostrClient {
     fn fetch_profile<'a>(
         &'a self,
         public_key: PublicKey,
-        relays: &'a [RelayUrl],
+        relays: &'a [RelayEndpoint],
         deadline: Instant,
     ) -> BoxFuture<'a, Result<ProfileFetchResult, SafeError>> {
         Box::pin(async move {
-            if relays.is_empty() {
+            let readable_relays = relays
+                .iter()
+                .filter(|endpoint| endpoint.can_read())
+                .collect::<Vec<_>>();
+            if readable_relays.is_empty() {
                 return Err(invalid_relay_configuration());
             }
             if relays.len() > MAX_CONFIGURED_RELAYS {
@@ -47,7 +51,8 @@ impl NostrClient for SdkNostrClient {
                 .author(author)
                 .kind(Kind::Metadata)
                 .limit(MAX_PROFILE_EVENTS_PER_RELAY);
-            for relay in relays {
+            for relay in &readable_relays {
+                let relay_url = relay.url().as_str();
                 let remaining = deadline.saturating_duration_since(Instant::now());
                 if remaining.is_zero() {
                     break;
@@ -55,15 +60,15 @@ impl NostrClient for SdkNostrClient {
                 let client = Client::default();
                 let result = match tokio::time::timeout_at(deadline.into(), async {
                     client
-                        .add_relay(relay.as_str())
+                        .add_relay(relay_url)
                         .await
                         .map_err(|_| relay_connection_failed())?;
                     client
-                        .try_connect_relay(relay.as_str(), remaining)
+                        .try_connect_relay(relay_url, remaining)
                         .await
                         .map_err(|_| relay_connection_failed())?;
                     client
-                        .fetch_events_from([relay.as_str()], filter.clone(), remaining)
+                        .fetch_events_from([relay_url], filter.clone(), remaining)
                         .await
                         .map_err(|_| relay_connection_failed())
                 })
@@ -84,7 +89,7 @@ impl NostrClient for SdkNostrClient {
                 return Err(relay_connection_failed());
             }
             let candidate = select_latest_kind0(candidates);
-            if successful_relays == relays.len() {
+            if successful_relays == readable_relays.len() {
                 Ok(ProfileFetchResult::complete(candidate))
             } else {
                 Ok(ProfileFetchResult::partial(candidate))
@@ -111,7 +116,9 @@ const fn relay_connection_failed() -> SafeError {
 mod tests {
     use std::time::Duration;
 
-    use harvestcircle_domain::{PublicKey, RelayDestinationPolicy, RelayUrl, SafeErrorCode};
+    use harvestcircle_domain::{
+        PublicKey, RelayDestinationPolicy, RelayEndpoint, RelayUrl, SafeErrorCode,
+    };
     use nostr::{EventBuilder, Keys, Metadata};
     use nostr_relay_builder::MockRelay;
     use nostr_sdk::Client;
@@ -140,8 +147,7 @@ mod tests {
             .expect("publish metadata");
 
         let adapter = SdkNostrClient::new(Duration::from_secs(2));
-        let domain_relay = RelayUrl::parse(relay_url.as_str(), RelayDestinationPolicy::Local)
-            .expect("domain relay URL");
+        let domain_relay = endpoint(relay_url.as_str(), RelayDestinationPolicy::Local);
         let public_key =
             PublicKey::from_bytes(keys.public_key().to_bytes()).expect("valid public key");
         let fetched = adapter
@@ -178,8 +184,24 @@ mod tests {
 
         assert_eq!(error.code(), SafeErrorCode::InvalidRelayConfiguration);
 
-        let relay = RelayUrl::parse("wss://relay.example.test", RelayDestinationPolicy::Public)
-            .expect("relay URL");
+        let write_only = RelayEndpoint::parse(
+            "wss://relay.example.test",
+            RelayDestinationPolicy::Public,
+            false,
+            true,
+        )
+        .expect("write-only relay");
+        let error = SdkNostrClient::new(Duration::from_millis(10))
+            .fetch_profile(
+                PublicKey::from_bytes([7; 32]).expect("valid public key"),
+                &[write_only],
+                std::time::Instant::now() + Duration::from_millis(10),
+            )
+            .await
+            .expect_err("read capability required");
+        assert_eq!(error.code(), SafeErrorCode::InvalidRelayConfiguration);
+
+        let relay = endpoint("wss://relay.example.test", RelayDestinationPolicy::Public);
         let too_many = vec![relay; harvestcircle_application::MAX_CONFIGURED_RELAYS + 1];
         let error = SdkNostrClient::new(Duration::from_millis(10))
             .fetch_profile(
@@ -194,8 +216,7 @@ mod tests {
 
     #[tokio::test]
     async fn sdk_client_fails_when_no_configured_relay_completes() {
-        let relay = RelayUrl::parse("ws://127.0.0.1:1", RelayDestinationPolicy::Local)
-            .expect("unavailable relay");
+        let relay = endpoint("ws://127.0.0.1:1", RelayDestinationPolicy::Local);
         let error = SdkNostrClient::new(Duration::from_millis(25))
             .fetch_profile(
                 PublicKey::from_bytes([7; 32]).expect("valid public key"),
@@ -224,9 +245,8 @@ mod tests {
             .expect("publish metadata");
 
         let configured = [
-            RelayUrl::parse(relay_url.as_str(), RelayDestinationPolicy::Local).expect("live relay"),
-            RelayUrl::parse("ws://127.0.0.1:1", RelayDestinationPolicy::Local)
-                .expect("unavailable relay"),
+            endpoint(relay_url.as_str(), RelayDestinationPolicy::Local),
+            endpoint("ws://127.0.0.1:1", RelayDestinationPolicy::Local),
         ];
         let fetched = SdkNostrClient::new(Duration::from_millis(250))
             .fetch_profile(
@@ -266,5 +286,9 @@ mod tests {
             super::relay_connection_failed().code(),
             SafeErrorCode::RelayConnectionFailed
         );
+    }
+
+    fn endpoint(value: &str, destination: RelayDestinationPolicy) -> RelayEndpoint {
+        RelayEndpoint::parse(value, destination, true, true).expect("relay endpoint")
     }
 }

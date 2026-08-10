@@ -223,7 +223,7 @@ mod tests {
     use std::time::Duration;
 
     use harvestcircle_application::{InMemorySecretStore, RelayConfiguration};
-    use harvestcircle_domain::{RelayDestinationPolicy, RelayUrl};
+    use harvestcircle_domain::{RelayDestinationPolicy, RelayEndpoint};
     use harvestcircle_nostr::SdkNostrClient;
     use harvestcircle_runtime::{
         RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,
@@ -427,8 +427,13 @@ mod tests {
 
         let core = core_with_relays(
             RelayConfiguration::new(vec![
-                RelayUrl::parse(relay_url.as_str(), RelayDestinationPolicy::Local)
-                    .expect("relay URL"),
+                RelayEndpoint::parse(
+                    relay_url.as_str(),
+                    RelayDestinationPolicy::Local,
+                    true,
+                    true,
+                )
+                .expect("relay endpoint"),
             ])
             .expect("relay configuration"),
         )

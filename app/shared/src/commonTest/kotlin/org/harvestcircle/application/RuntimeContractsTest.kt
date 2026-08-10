@@ -39,7 +39,7 @@ class RuntimeContractsTest {
                 ReleaseReadinessProblem.SourceDateEpoch to clean.copy(sourceDateEpoch = 0UL),
                 ReleaseReadinessProblem.FfiContractId to clean.copy(ffiContractId = "wrong"),
                 ReleaseReadinessProblem.FfiContractMajor to clean.copy(ffiContractMajor = 5.toUShort()),
-                ReleaseReadinessProblem.FfiContractMinor to clean.copy(ffiContractMinor = 1.toUShort()),
+                ReleaseReadinessProblem.FfiContractMinor to clean.copy(ffiContractMinor = 2.toUShort()),
                 ReleaseReadinessProblem.FfiContractHash to clean.copy(ffiContractHash = "bad"),
                 ReleaseReadinessProblem.SnapshotSchema to clean.copy(snapshotSchemaVersion = 0U),
                 ReleaseReadinessProblem.StorageSchema to
@@ -181,7 +181,7 @@ private fun releaseReadyBuildInfo(): BuildInfo {
             distributionPackageVersion = "1.0.0",
             ffiContractId = "harvestcircle-desktop-ffi-v4",
             ffiContractMajor = 4.toUShort(),
-            ffiContractMinor = 0.toUShort(),
+            ffiContractMinor = 1.toUShort(),
             ffiContractHash = "c".repeat(64),
             snapshotSchemaVersion = 1U,
             minimumStorageSchemaVersion = 5U,
@@ -226,7 +226,10 @@ private fun snapshot(revision: ULong): ApplicationSnapshot {
         revision = SnapshotRevision(revision),
         lifecycle = ApplicationLifecycle.Ready,
         lifecycleProblem = null,
-        configuredRelays = listOf("wss://relay.example"),
+        configuredRelays =
+            listOf(
+                RelayEndpoint("wss://relay.example", RelayDestination.Public, read = true, write = true),
+            ),
         identities = listOf(identity),
         selectedIdentityId = identity.id,
         session = SessionLifecycle.SignedOut,

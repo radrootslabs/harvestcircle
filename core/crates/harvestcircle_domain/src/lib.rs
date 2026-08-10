@@ -17,5 +17,5 @@ pub use key::{
     SecretKeyInput, SecretKeyInputKind, classify_persisted_public_key,
 };
 pub use profile::{EventId, Kind0ProfileCandidate, ProfileMetadata, select_latest_kind0};
-pub use relay::{RelayDestinationPolicy, RelayUrl, normalize_relay_urls};
+pub use relay::{RelayDestinationPolicy, RelayEndpoint, RelayUrl};
 pub use time::UnixTimestamp;

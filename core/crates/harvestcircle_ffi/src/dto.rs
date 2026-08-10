@@ -3,7 +3,8 @@ use harvestcircle_application::{
     RuntimeLifecycle, SessionState,
 };
 use harvestcircle_domain::{
-    NostrIdentity, ProfileMetadata, SafeError, SafeErrorCode, SignerAvailability,
+    NostrIdentity, ProfileMetadata, RelayDestinationPolicy, RelayEndpoint, SafeError,
+    SafeErrorCode, SignerAvailability,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -119,6 +120,23 @@ pub enum ProfileLoadStateDto {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
+pub enum RelayDestinationDto {
+    Local,
+    PrivateNetwork,
+    Public,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct RelayEndpointDto {
+    pub url: String,
+    pub destination: RelayDestinationDto,
+    pub read: bool,
+    pub write: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
 pub enum SignerBindingKindDto {
     LocalKeyring,
 }
@@ -168,7 +186,7 @@ pub struct AppSnapshotDto {
     pub revision: u64,
     pub lifecycle: AppLifecycleDto,
     pub lifecycle_error: Option<SafeErrorDto>,
-    pub configured_relays: Vec<String>,
+    pub configured_relays: Vec<RelayEndpointDto>,
     pub identities: Vec<IdentityDto>,
     pub selected_public_key_hex: Option<String>,
     pub session: SessionStateDto,
@@ -202,7 +220,7 @@ impl From<&AppSnapshot> for AppSnapshotDto {
                 .relay_configuration()
                 .relays()
                 .iter()
-                .map(|relay| relay.as_str().to_owned())
+                .map(RelayEndpointDto::from)
                 .collect(),
             identities: snapshot
                 .identities()
@@ -263,6 +281,27 @@ impl From<&NostrIdentity> for IdentityDto {
             last_used_at_seconds: identity
                 .last_used_at()
                 .map(harvestcircle_domain::UnixTimestamp::as_seconds),
+        }
+    }
+}
+
+impl From<&RelayEndpoint> for RelayEndpointDto {
+    fn from(endpoint: &RelayEndpoint) -> Self {
+        Self {
+            url: endpoint.url().as_str().to_owned(),
+            destination: endpoint.destination().into(),
+            read: endpoint.can_read(),
+            write: endpoint.can_write(),
+        }
+    }
+}
+
+impl From<RelayDestinationPolicy> for RelayDestinationDto {
+    fn from(destination: RelayDestinationPolicy) -> Self {
+        match destination {
+            RelayDestinationPolicy::Local => Self::Local,
+            RelayDestinationPolicy::PrivateNetwork => Self::PrivateNetwork,
+            RelayDestinationPolicy::Public => Self::Public,
         }
     }
 }

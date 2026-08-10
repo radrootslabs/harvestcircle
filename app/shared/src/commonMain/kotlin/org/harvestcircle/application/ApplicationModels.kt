@@ -62,13 +62,32 @@ enum class RelayConnectionState {
     Error,
 }
 
+enum class RelayDestination {
+    Local,
+    PrivateNetwork,
+    Public,
+}
+
+data class RelayEndpoint(
+    val url: String,
+    val destination: RelayDestination,
+    val read: Boolean,
+    val write: Boolean,
+) {
+    init {
+        requireSafeText(url, "Relay URL", 2048)
+        require(read || write) { "Relay endpoint must allow reading or writing" }
+    }
+}
+
 data class RelaySummary(
-    val destinations: List<String>,
+    val endpoints: List<RelayEndpoint>,
     val state: RelayConnectionState,
 ) {
     init {
-        require(destinations.distinct() == destinations) { "Relay destinations must be unique" }
-        destinations.forEach { requireSafeText(it, "Relay destination", 2048) }
+        require(endpoints.map(RelayEndpoint::url).distinct().size == endpoints.size) {
+            "Relay endpoints must be unique"
+        }
     }
 }
 
@@ -169,7 +188,7 @@ data class ApplicationSnapshot(
     val revision: SnapshotRevision,
     val lifecycle: ApplicationLifecycle,
     val lifecycleProblem: ApplicationProblem?,
-    val configuredRelays: List<String>,
+    val configuredRelays: List<RelayEndpoint>,
     val identities: List<IdentitySummary>,
     val selectedIdentityId: IdentityId?,
     val session: SessionLifecycle,
@@ -179,8 +198,9 @@ data class ApplicationSnapshot(
     val recoverableProblem: ApplicationProblem?,
 ) {
     init {
-        require(configuredRelays.distinct() == configuredRelays) { "Configured relays must be unique" }
-        configuredRelays.forEach { requireSafeText(it, "Configured relay", 2048) }
+        require(configuredRelays.map(RelayEndpoint::url).distinct().size == configuredRelays.size) {
+            "Configured relays must be unique"
+        }
         require(identities.map(IdentitySummary::id).distinct().size == identities.size) {
             "Snapshot identities must be unique"
         }
@@ -197,7 +217,7 @@ data class ApplicationSnapshot(
         require((session == SessionLifecycle.Active) == (activeIdentity != null)) {
             "Active session and active identity must agree"
         }
-        require(activeIdentity == null || activeIdentity.relays.destinations == configuredRelays) {
+        require(activeIdentity == null || activeIdentity.relays.endpoints == configuredRelays) {
             "Active identity relays do not match configured relays"
         }
     }

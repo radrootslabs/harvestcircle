@@ -1,37 +1,59 @@
+use std::collections::HashSet;
+
 use harvestcircle_domain::{
-    RelayDestinationPolicy, SafeError, SafeErrorCode, SafeMessage, normalize_relay_urls,
+    RelayDestinationPolicy, RelayEndpoint, SafeError, SafeErrorCode, SafeMessage,
 };
 
 use crate::RelayConfiguration;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RelayRuntimeMode {
-    Development,
-    Packaged,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RelayEndpointInput {
+    url: String,
+    destination: RelayDestinationPolicy,
+    read: bool,
+    write: bool,
 }
 
-/// Validates relay URLs supplied by a platform host without reading process state.
+impl RelayEndpointInput {
+    #[must_use]
+    pub fn new(
+        url: impl Into<String>,
+        destination: RelayDestinationPolicy,
+        read: bool,
+        write: bool,
+    ) -> Self {
+        Self {
+            url: url.into(),
+            destination,
+            read,
+            write,
+        }
+    }
+}
+
+/// Validates explicitly classified relay endpoints supplied by a platform host.
 ///
 /// # Errors
 ///
 /// Returns a safe configuration error when an entry is invalid or no relay was
 /// explicitly supplied.
-pub fn relay_configuration_from_urls(
-    values: &[String],
-    mode: RelayRuntimeMode,
+pub fn relay_configuration_from_endpoints(
+    values: &[RelayEndpointInput],
 ) -> Result<RelayConfiguration, SafeError> {
     if values.is_empty() {
         return Err(invalid_configuration());
     }
-    let policy = match mode {
-        RelayRuntimeMode::Development => RelayDestinationPolicy::Local,
-        RelayRuntimeMode::Packaged => RelayDestinationPolicy::Public,
-    };
-    let normalized = normalize_relay_urls(values.iter().map(String::as_str), policy)?;
-    if normalized.is_empty() {
-        return Err(invalid_configuration());
+    let mut seen = HashSet::new();
+    let mut endpoints = Vec::with_capacity(values.len());
+    for value in values {
+        let endpoint =
+            RelayEndpoint::parse(&value.url, value.destination, value.read, value.write)?;
+        if !seen.insert(endpoint.url().as_str().to_owned()) {
+            return Err(invalid_configuration());
+        }
+        endpoints.push(endpoint);
     }
-    RelayConfiguration::new(normalized)
+    RelayConfiguration::new(endpoints)
 }
 
 const fn invalid_configuration() -> SafeError {
@@ -43,53 +65,84 @@ const fn invalid_configuration() -> SafeError {
 
 #[cfg(test)]
 mod tests {
-    use harvestcircle_domain::SafeErrorCode;
+    use harvestcircle_domain::{RelayDestinationPolicy, SafeErrorCode};
 
-    use super::{RelayRuntimeMode, relay_configuration_from_urls};
+    use super::{RelayEndpointInput, relay_configuration_from_endpoints};
 
     #[test]
-    fn relay_config_requires_explicit_input_in_every_mode() {
-        for mode in [RelayRuntimeMode::Development, RelayRuntimeMode::Packaged] {
-            let error = relay_configuration_from_urls(&[], mode).expect_err("input required");
-            assert_eq!(error.code(), SafeErrorCode::InvalidRelayConfiguration);
-        }
+    fn relay_config_requires_explicit_input_and_supports_mixed_destinations() {
+        let error = relay_configuration_from_endpoints(&[]).expect_err("input required");
+        assert_eq!(error.code(), SafeErrorCode::InvalidRelayConfiguration);
 
-        let development = relay_configuration_from_urls(
-            &["ws://localhost:8080".to_owned()],
-            RelayRuntimeMode::Development,
-        )
+        let development = relay_configuration_from_endpoints(&[
+            RelayEndpointInput::new(
+                "ws://localhost:8080",
+                RelayDestinationPolicy::Local,
+                true,
+                true,
+            ),
+            RelayEndpointInput::new(
+                "wss://relay.example",
+                RelayDestinationPolicy::Public,
+                true,
+                true,
+            ),
+        ])
         .expect("explicit development relay");
-        assert_eq!(development.relays()[0].as_str(), "ws://localhost:8080/");
+        assert_eq!(
+            development.relays()[0].url().as_str(),
+            "ws://localhost:8080/"
+        );
+        assert_eq!(
+            development.relays()[1].destination(),
+            RelayDestinationPolicy::Public
+        );
     }
 
     #[test]
-    fn relay_config_trims_deduplicates_and_preserves_order() {
-        let configuration = relay_configuration_from_urls(
-            &[
-                " wss://relay.one ".to_owned(),
-                "wss://relay.two".to_owned(),
-                "wss://relay.one/ ".to_owned(),
+    fn relay_config_rejects_normalized_duplicates_and_capability_free_entries() {
+        for values in [
+            vec![
+                RelayEndpointInput::new(
+                    "wss://relay.one",
+                    RelayDestinationPolicy::Public,
+                    true,
+                    false,
+                ),
+                RelayEndpointInput::new(
+                    "wss://RELAY.one/",
+                    RelayDestinationPolicy::Public,
+                    false,
+                    true,
+                ),
             ],
-            RelayRuntimeMode::Packaged,
-        )
-        .expect("configuration");
-        let relays = configuration
-            .relays()
-            .iter()
-            .map(harvestcircle_domain::RelayUrl::as_str)
-            .collect::<Vec<_>>();
-        assert_eq!(relays, ["wss://relay.one/", "wss://relay.two/"]);
+            vec![RelayEndpointInput::new(
+                "wss://relay.one",
+                RelayDestinationPolicy::Public,
+                false,
+                false,
+            )],
+        ] {
+            assert!(relay_configuration_from_endpoints(&values).is_err());
+        }
     }
 
     #[test]
     fn relay_config_rejects_any_invalid_comma_separated_entry() {
-        let error = relay_configuration_from_urls(
-            &[
-                "wss://relay.one".to_owned(),
-                "https://not-a-relay.test".to_owned(),
-            ],
-            RelayRuntimeMode::Packaged,
-        )
+        let error = relay_configuration_from_endpoints(&[
+            RelayEndpointInput::new(
+                "wss://relay.one",
+                RelayDestinationPolicy::Public,
+                true,
+                true,
+            ),
+            RelayEndpointInput::new(
+                "https://not-a-relay.test",
+                RelayDestinationPolicy::Public,
+                true,
+                true,
+            ),
+        ])
         .expect_err("invalid entry");
         assert_eq!(error.code(), SafeErrorCode::InvalidRelayConfiguration);
     }
