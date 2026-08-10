@@ -5,10 +5,11 @@
 - Repository: HarvestCircle standalone capsule at the configured public origin
 - Branch: `dev`
 - Starting SHA: `1f8e5728f4815961d7dac0545c2b03464991b592`
-- Qualified source SHA: `aff09a20eb5b2e6eee195c865954c2a57623f599`
+- Qualified source SHA: `5186bd45d9a368a8ae28c76d36bab45569325a26`
 - Qualification record: the commit containing this file
-- Final status: locally qualified on macOS; public CI, the NVD-backed dependency
-  scan, Developer ID signing, and notarization remain outstanding
+- Final status: source and package workflows are locally qualified through the
+  consuming monorepo's governed `act` launcher on macOS; the NVD-backed
+  dependency scan, Developer ID signing, and notarization remain outstanding
 
 ## Commits
 
@@ -28,6 +29,7 @@
 | 12 | `0fcc40ffb626` | `architecture: record transport and tooling decisions` | Public documentation and foundation-boundary checks passed. |
 | QF-1 | `aff09a20eb5b` | `test: stabilize observer qualification timing` | Observer tests passed 20 consecutive runs; the full governed gate passed. |
 | 13 | This record | `release: qualify the corrected HarvestCircle foundation` | Complete local matrix recorded below; external gates remain explicit. |
+| QF-2 | `5186bd45d9a3` | `ci: return workflow authority to local orchestration` | The capsule gate and both root-owned local `act` workflows passed. |
 
 QF-1 is a qualification-time corrective deviation between planned checkpoints
 12 and 13. It changes only test timing and observer-cleanup synchronization; it
@@ -37,12 +39,12 @@ does not change the public runtime contract.
 
 | Issue ID | Resolution | Tests/evidence |
 |---|---|---|
-| HC-FC-001 | Published the bounded public specification/governance surface and thin CI wrappers. | Foundation-boundary, archive, and verification-lane tasks passed; exact-candidate public execution awaits an authorized push. |
+| HC-FC-001 | Published the bounded public specification/governance surface, removed forbidden capsule workflows, and retained portable standalone verification. | Foundation-boundary, archive, standalone-lane, and root-owned local `act` source/package workflows passed. |
 | HC-FC-002 | Rust and Gradle now hash a shared semantic canonical form for product coordinates and provenance. | Cross-language vectors passed, including newline and field-order variants. |
 | HC-FC-003 | Snapshot delivery is conflated-latest, revision-aware, and gap-recovering. | Duplicate, stale, burst, gap, refresh-failure, unsubscribe, and observer-cleanup tests passed. |
 | HC-FC-004 | The product coordinate manifest is the sole approved-value authority. | Mutation propagation and duplicate-authority audits passed. |
 | HC-FC-005 | Kotlin compatibility expectations are generated into ignored build output. | Generation freshness, mismatch tests, tracked-output audit, and both binding lanes passed. |
-| HC-FC-006 | This public qualification report records local results and remaining external gates. | Report boundary checks passed; exact-candidate workflow evidence remains pending. |
+| HC-FC-006 | This public qualification report records local results and remaining external gates. | Report boundary checks and exact-candidate local workflow proof passed. |
 | HC-FC-007 | Git dependencies must be immutable revision pins. | Positive source scan and negative policy fixtures passed. |
 | HC-FC-008 | Build information is complete and release readiness fails closed. | Unknown, dirty, malformed, mismatched, and exact clean-provenance cases passed. |
 | HC-FC-009 | Application-owned scopes and clipboard resources close on normal and abrupt disposal. | Normal, abrupt, repeated, and late-callback tests passed. |
@@ -97,22 +99,26 @@ does not change the public runtime contract.
 - Compose Multiplatform: `1.11.1`
 - Registry state: typed `NotApplicable`
 - Exact-candidate provenance: source
-  `aff09a20eb5b2e6eee195c865954c2a57623f599`, clean source, Radroots revision
-  `09065a610d95e57acdc895a14c07580fa099e7c3`, source epoch `1786387014`
+  `5186bd45d9a368a8ae28c76d36bab45569325a26`, clean source, Radroots revision
+  `09065a610d95e57acdc895a14c07580fa099e7c3`, source epoch `1786389775`
 - Release-ready result: passed for the exact clean candidate. Missing or
   malformed provenance failed closed as designed.
 
-## Public CI
+## Local workflow proof
 
-- Source workflow:
-  <https://github.com/radrootslabs/%73tudio_app/actions/workflows/source.yml>
-- Package workflow:
-  <https://github.com/radrootslabs/%73tudio_app/actions/workflows/package.yml>
-- Status: pending. The qualified source commit has not been pushed in this
-  qualification turn, so no exact-candidate public workflow run or artifact is
-  claimed.
-- Platform matrix: local macOS packaging passed. Linux, macOS, and Windows
-  public package conclusions remain pending exact-candidate workflow runs.
+- Authority: workflow definitions are forbidden in this OSS capsule. The
+  consuming monorepo owns `harvestcircle-source.yml` and
+  `harvestcircle-package.yml` under its root `.act/workflows/**` surface.
+- Launcher: the guarded root launcher requires `act 0.2.89`, rejects arbitrary
+  lanes, maps only the local macOS runner, derives provenance from the clean
+  nested Git repository, and invokes this capsule's Make targets.
+- Source result: passed for `5186bd45d9a368a8ae28c76d36bab45569325a26`
+  through `make source-check` in approximately 90 seconds.
+- Package result: passed for the same source through `make package-check` in
+  approximately 98 seconds and produced `HarvestCircle-1.0.0.dmg`.
+- Platform scope: macOS is proven on this machine. Linux and Windows package
+  production require corresponding local hosts or explicitly governed local
+  virtualized runners; no remote workflow result is claimed.
 
 ## Commands
 
@@ -130,6 +136,7 @@ does not change the public runtime contract.
 | `make package` | Pass | macOS produced and verified `HarvestCircle-1.0.0.dmg` (approximately 72 MiB). |
 | `make package-check` without provenance | Expected fail | Failed closed because the source commit was unknown. |
 | `make package-check` with exact candidate provenance | Pass | Clean source SHA, Radroots revision, and source epoch above were injected explicitly. |
+| Root `cto.harvestcircle.all` | Pass | Local `act` source and package jobs both completed successfully on macOS. |
 | Rust format, workspace check, Clippy, and workspace tests | Pass | Exact candidate; locked workspace; all targets for Clippy; warnings denied. |
 | `cargo deny` source and licence checks | Pass | Revision policy and licence policy passed. |
 | Product, compatibility, generated-source, boundary, archive, lane, provenance, shared desktop, and desktop Gradle verification | Pass | Actual scoped Gradle tasks passed together on the exact candidate. |
@@ -140,7 +147,7 @@ does not change the public runtime contract.
 | Isolated fresh RustSec database scan | Pass with warning | No actionable vulnerability failure; `instant 0.1.13` was reported as unmaintained through rust-nostr. |
 | OWASP dependency analysis | External blocker | No NVD API key was available and the feed update made no progress during the bounded run; the run was stopped without weakening policy. |
 
-Two task names in the planning matrix were stale. Public-repository policy is
+Two task names in the planning matrix were stale. Repository policy is
 integrated into the foundation-boundary task, and generated-source verification
 is scoped to the desktop project. The actual authoritative tasks were run and
 passed.
@@ -169,22 +176,28 @@ passed.
 - Package readiness intentionally requires explicit source provenance. The
   unqualified invocation failed closed, and the exact-candidate invocation
   passed.
+- The original remote workflow design was superseded by the repository-wide
+  rule that forbids `.github/**` in every OSS capsule. QF-2 removes those files
+  and moves orchestration to guarded root-owned local `act` workflows without
+  moving build behavior out of this capsule.
 
 ## Unresolved issues
 
 - Push the qualification lineage to `origin/dev` under separate authorization.
-- Inspect the public source workflow for the exact pushed candidate.
-- Inspect Linux, macOS, and Windows public package workflow conclusions and
-  record their run URLs and artifacts or exact platform/tool blockers.
+- Exercise Linux and Windows package production on corresponding governed
+  local hosts or local virtualized runners if cross-platform package proof is
+  required before release.
 - Provide reliable NVD feed access or an API key, then rerun the OWASP-backed
   dependency analysis.
 - Provide Developer ID credentials and notarization service access before any
   release claim that requires signed and notarized macOS media.
-- Update this evidence after the external gates complete; the documentation-only
-  qualification record will then require its own exact public CI conclusion.
+- Update this evidence after any additional platform or external release gates
+  complete.
 
 ## Safe to begin next handoff
 
-No. The corrected source foundation is locally qualified, but the required
-exact-candidate public workflows and external release/security gates above are
-not yet complete. This report makes no production-release claim.
+Yes, for separately authorized product-shell source work. The exact source and
+macOS package workflows are proven locally through the governed root `act`
+launcher. This does not authorize a production release, and the external
+security-feed, signing, notarization, Linux, and Windows gates above remain
+explicit.
