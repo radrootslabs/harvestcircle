@@ -32,11 +32,7 @@ public abstract class VerifyDesktopBuildMetadataArtifact : DefaultTask() {
                 jar.getJarEntry("org/harvestcircle/application/generated/DesktopBuildMetadata.class")
                     ?: throw GradleException("Desktop build metadata is missing from the application artifact")
             val metadata = jar.getInputStream(entry).use { it.readBytes() }.toString(Charsets.ISO_8859_1)
-            expectedBuildEvidence.get().forEach { evidence ->
-                require(metadata.contains(evidence)) {
-                    "Desktop application artifact is missing generated build evidence"
-                }
-            }
+            requireBuildMetadataEvidence(metadata, expectedBuildEvidence.get())
         }
     }
 }
@@ -315,26 +311,48 @@ public abstract class VerifyReleaseBuildProvenance : DefaultTask() {
 private fun packagedNativeLibraries(
     root: File,
     expectedEntry: String,
-): List<ByteArray> =
-    root.walkTopDown()
-        .filter { it.isFile && it.extension == "jar" }
-        .flatMap { jarFile ->
-            JarFile(jarFile).use { jar ->
-                val nativeEntries =
+): List<ByteArray> {
+    val entries =
+        root.walkTopDown()
+            .filter { it.isFile && it.extension == "jar" }
+            .flatMap { jarFile ->
+                JarFile(jarFile).use { jar ->
                     jar.entries().asSequence().filter { entry ->
                         !entry.isDirectory &&
                             entry.name.substringAfterLast('.').lowercase() in setOf("dylib", "so", "dll")
-                    }.toList()
-                val productEntries =
-                    nativeEntries.filter { entry ->
-                        entry.name == expectedEntry || entry.name.lowercase().contains("harvestcircle")
-                    }
-                require(productEntries.none { it.name != expectedEntry }) {
-                    "Package contains an unexpected or test native payload"
-                }
-                productEntries.map { entry -> jar.getInputStream(entry).use { it.readBytes() } }
-            }.asSequence()
-        }.toList()
+                    }.map { entry -> entry.name to jar.getInputStream(entry).use { it.readBytes() } }.toList()
+                }.asSequence()
+            }.toList()
+    requireSingleCanonicalProductNativeEntry(entries.map { it.first }, expectedEntry)
+    return entries.filter { it.first == expectedEntry }.map { it.second }
+}
+
+internal fun requireBuildMetadataEvidence(
+    metadata: String,
+    expectedBuildEvidence: List<String>,
+) {
+    expectedBuildEvidence.forEach { evidence ->
+        require(metadata.contains(evidence)) {
+            "Desktop application artifact is missing generated build evidence"
+        }
+    }
+}
+
+internal fun requireSingleCanonicalProductNativeEntry(
+    nativeEntries: List<String>,
+    expectedEntry: String,
+) {
+    val productEntries =
+        nativeEntries.filter { entry ->
+            entry == expectedEntry || entry.lowercase().contains("harvestcircle")
+        }
+    require(productEntries.none { it != expectedEntry }) {
+        "Package contains an unexpected or test native payload"
+    }
+    require(productEntries.size == 1) {
+        "Package must contain exactly one production native library"
+    }
+}
 
 private fun commandOutput(vararg command: String): String {
     val process = ProcessBuilder(*command).redirectErrorStream(true).start()

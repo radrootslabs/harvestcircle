@@ -4,6 +4,7 @@ import org.gradle.testkit.runner.GradleRunner
 import org.gradle.testkit.runner.UnexpectedBuildFailure
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.createDirectories
+import kotlin.io.path.exists
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertTrue
@@ -71,14 +72,28 @@ class ConventionPluginSmokeTest {
             val result = runner.build()
 
             assertTrue(result.output.contains("BUILD SUCCESSFUL"), pluginId)
+            assertTrue(!fixture.resolve("buildSrc").exists(), "$pluginId fixture must not provide buildSrc classes")
             if (pluginId == "org.harvestcircle.build.root") {
                 assertTrue(result.output.contains("verifyProductCoordinates"), result.output)
-                assertTrue(runner.build().output.contains("Reusing configuration cache"))
             }
-            if (pluginId == "org.harvestcircle.build.rust-ffi") {
-                assertTrue(runner.build().output.contains("Reusing configuration cache"))
-            }
+            assertTrue(runner.build().output.contains("Reusing configuration cache"), pluginId)
         }
+    }
+
+    @Test
+    fun rootPluginFailsClosedWhenTheProductManifestIsMissing() {
+        val fixture = createTempDirectory("harvestcircle-root-missing-manifest-")
+        fixture.resolve("settings.gradle.kts").writeText("rootProject.name = \"fixture\"\n")
+        fixture.resolve("build.gradle.kts").writeText("plugins { id(\"org.harvestcircle.build.root\") }\n")
+
+        val result =
+            GradleRunner.create()
+                .withProjectDir(fixture.toFile())
+                .withPluginClasspath()
+                .withArguments("verifyProductCoordinates", "--stacktrace")
+                .buildAndFail()
+
+        assertTrue(result.output.contains("harvestcircle-v1.properties"), result.output)
     }
 
     private fun prepareDesktopFixture(
@@ -328,6 +343,46 @@ class ConventionPluginSmokeTest {
 
             assertTrue(result.output.contains(expected), result.output)
         }
+    }
+
+    @Test
+    fun packagingPluginAcceptsGovernedProvenanceAndRejectsUnknownInputs() {
+        val governed = createTempDirectory("harvestcircle-package-governed-provenance-")
+        preparePackagingBuild(governed, "exit 0")
+        val governedEnvironment =
+            System.getenv() +
+                mapOf(
+                    "HARVESTCIRCLE_BUILD_SOURCE_COMMIT" to "a".repeat(40),
+                    "HARVESTCIRCLE_BUILD_SOURCE_DIRTY" to "false",
+                    "HARVESTCIRCLE_BUILD_RADROOTS_REVISION" to "b".repeat(40),
+                    "SOURCE_DATE_EPOCH" to "1770000000",
+                )
+        val success =
+            GradleRunner.create()
+                .withProjectDir(governed.toFile())
+                .withPluginClasspath()
+                .withEnvironment(governedEnvironment)
+                .withArguments(":app:desktop:verifyReleaseBuildProvenance", "--stacktrace")
+                .build()
+        assertTrue(success.output.contains("BUILD SUCCESSFUL"), success.output)
+
+        val standalone = createTempDirectory("harvestcircle-package-unknown-provenance-")
+        preparePackagingBuild(standalone, "exit 0")
+        val failure =
+            GradleRunner.create()
+                .withProjectDir(standalone.toFile())
+                .withPluginClasspath()
+                .withEnvironment(
+                    System.getenv() -
+                        setOf(
+                            "HARVESTCIRCLE_BUILD_SOURCE_COMMIT",
+                            "HARVESTCIRCLE_BUILD_SOURCE_DIRTY",
+                            "HARVESTCIRCLE_BUILD_RADROOTS_REVISION",
+                            "SOURCE_DATE_EPOCH",
+                        ),
+                ).withArguments(":app:desktop:verifyReleaseBuildProvenance", "--stacktrace")
+                .buildAndFail()
+        assertTrue(failure.output.contains("Release source commit provenance is unknown or malformed"), failure.output)
     }
 
     private fun prepareDesktopBuild(
