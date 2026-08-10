@@ -410,9 +410,10 @@ class HarvestCirclePresenter(
     }
 
     private fun releaseRecovery() {
-        pendingRecovery?.backup?.clear()
+        val recovery = pendingRecovery
         pendingRecovery = null
         updateState { copy(generatedKeyBackup = null) }
+        recovery?.backup?.clear()
     }
 
     private fun requestContext(operationId: OperationId): RequestContext =

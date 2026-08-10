@@ -87,8 +87,10 @@ fun HarvestCirclePresenterState.toUiModel(): HarvestCircleUiModel {
         configuredRelays = snapshot.configuredRelays.map { it.url },
         importDraft = importDraft,
         generatedKeyBackup =
-            generatedKeyBackup?.let {
-                GeneratedKeyBackupUiModel(npub = it.npub, nsec = it.revealNsec())
+            generatedKeyBackup?.let { backup ->
+                backup.revealNsecOrNull()?.let { nsec ->
+                    GeneratedKeyBackupUiModel(npub = backup.npub, nsec = nsec)
+                }
             },
         pendingRemovalPublicKeyHex = pendingRemovalIdentityId?.value,
         removalImpact = removalImpact,

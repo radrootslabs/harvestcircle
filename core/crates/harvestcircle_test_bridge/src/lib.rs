@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use harvestcircle_application::{
     AppLifecycle, AppSnapshot, Clock, DurableRequestId, GeneratedKeyRecoveryHandle,
-    InMemorySecretStore, RelayConfiguration, SessionState, SnapshotRevision,
+    InMemorySecretStore, RelayConfiguration, SecretStore, SessionState, SnapshotRevision,
 };
 use harvestcircle_domain::{
     PublicKey, RelayDestinationPolicy, RelayEndpoint, SafeError, SecretKeyInput, UnixTimestamp,
@@ -259,13 +259,17 @@ impl HarvestCircleTestBridge {
         Ok(to_snapshot(self.runtime.block_on(actor.sign_out())?))
     }
 
-    pub fn seed_profile(
-        &self,
-        secret_hex: String,
-        display_name: String,
-    ) -> Result<(), TestBridgeError> {
+    pub fn seed_selected_profile(&self, display_name: String) -> Result<(), TestBridgeError> {
+        let selected = self
+            .actor()?
+            .snapshot()
+            .selected_identity()
+            .ok_or_else(request_unavailable)?;
+        let secret = self.secrets.load(selected)?;
         self.runtime.block_on(async {
-            let keys = Keys::parse(&secret_hex).map_err(|_| invalid_secret())?;
+            let keys = secret
+                .with_exposed_secret(Keys::parse)
+                .map_err(|_| invalid_secret())?;
             let publisher = Client::new(keys);
             publisher
                 .add_relay(&self.relay_url)
@@ -366,18 +370,23 @@ impl HarvestCircleTestBridge {
         let snapshot = self.snapshot()?;
         let _ = self.stop_observer();
         self.close_actor()?;
+        Ok(TestSnapshot {
+            lifecycle: "closed".to_owned(),
+            ..snapshot
+        })
+    }
+}
+
+impl Drop for HarvestCircleTestBridge {
+    fn drop(&mut self) {
         if let Some(relay) = self
             .relay
-            .lock()
+            .get_mut()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take()
         {
             relay.shutdown();
         }
-        Ok(TestSnapshot {
-            lifecycle: "closed".to_owned(),
-            ..snapshot
-        })
     }
 }
 

@@ -25,6 +25,7 @@ import org.harvestcircle.identities.ui.toUiModel
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal typealias HarvestCirclePresenterFactory = (CoroutineScope) -> HarvestCirclePresenter
+internal typealias SecretClipboardFactory = (CoroutineScope) -> SecretClipboardController
 
 @Composable
 fun HarvestCircleApplication(
@@ -32,11 +33,26 @@ fun HarvestCircleApplication(
     onExitApproved: () -> Unit = {},
     shutdownTimeoutMillis: Long = DEFAULT_SHUTDOWN_TIMEOUT_MILLIS,
     presenterFactory: HarvestCirclePresenterFactory = ::createHarvestCirclePresenter,
+) = HarvestCircleApplicationWithDependencies(
+    closeRequested = closeRequested,
+    onExitApproved = onExitApproved,
+    shutdownTimeoutMillis = shutdownTimeoutMillis,
+    clipboardFactory = ::SecretClipboardController,
+    presenterFactory = presenterFactory,
+)
+
+@Composable
+internal fun HarvestCircleApplicationWithDependencies(
+    closeRequested: Boolean = false,
+    onExitApproved: () -> Unit = {},
+    shutdownTimeoutMillis: Long = DEFAULT_SHUTDOWN_TIMEOUT_MILLIS,
+    clipboardFactory: SecretClipboardFactory,
+    presenterFactory: HarvestCirclePresenterFactory,
 ) {
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     val presenterResult = remember { runCatching { presenterFactory(scope) } }
     val presenter = presenterResult.getOrNull()
-    val clipboard = remember(presenter) { presenter?.let { SecretClipboardController(scope) } }
+    val clipboard = remember(presenter, clipboardFactory) { presenter?.let { clipboardFactory(scope) } }
     val lifecycle =
         remember(scope, presenter, clipboard, shutdownTimeoutMillis) {
             ApplicationLifecycleResources(

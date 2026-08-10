@@ -11,6 +11,8 @@ class GeneratedKeyBackup(
             "Generated recovery material is no longer available"
         }
 
+    fun revealNsecOrNull(): String? = recoveryText
+
     fun clear() {
         recoveryText = null
     }

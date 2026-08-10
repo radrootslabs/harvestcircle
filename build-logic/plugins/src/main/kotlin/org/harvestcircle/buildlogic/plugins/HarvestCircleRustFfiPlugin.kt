@@ -231,6 +231,11 @@ public class HarvestCircleRustFfiPlugin : Plugin<Project> {
         target.tasks.named("compileIntegrationTestKotlin", KotlinCompile::class.java) { task ->
             task.dependsOn(generateTestUniFfi)
             task.source(generatedTestUniFfi)
+            task.compilerOptions.freeCompilerArgs.add(
+                target.layout.buildDirectory.dir("classes/kotlin/main").map { output ->
+                    "-Xfriend-paths=${output.asFile.absolutePath}"
+                },
+            )
         }
         target.tasks.named("integrationTest", Test::class.java) { task ->
             task.dependsOn(verifyTestIsolation)

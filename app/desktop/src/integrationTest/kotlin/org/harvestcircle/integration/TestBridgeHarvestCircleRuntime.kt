@@ -155,12 +155,14 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
         }
     }
 
-    fun seedProfile(
-        secret: String,
-        displayName: String,
-    ) = callBridge { bridge.seedProfile(secret, displayName) }
+    fun seedSelectedProfile(displayName: String) = callBridge { bridge.seedSelectedProfile(displayName) }
 
-    fun restart(): ApplicationSnapshot = callBridge { bridge.restart().toApplicationSnapshot() }
+    fun restart(): ApplicationSnapshot {
+        val snapshot = callBridge { bridge.restart().toApplicationSnapshot() }
+        closed = false
+        shutdownReceipt = null
+        return snapshot
+    }
 
     fun nativeBridge(): HarvestCircleTestBridge = bridge
 

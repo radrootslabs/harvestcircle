@@ -53,7 +53,7 @@ class NativeRuntimeIntegrationTest {
                     assertEquals(created.revision.value, assertNotNull(bridge.nextObservedSnapshot(2_000UL)).revision)
                     assertTrue(bridge.stopObserver())
 
-                    runtime.seedProfile(recoverySecret, "Farm Identity")
+                    runtime.seedSelectedProfile("Farm Identity")
                     val generatedId = assertNotNull(created.selectedIdentityId)
                     runtime.execute(ApplicationCommand.ActivateIdentity(generatedId))
                     val refreshed = runtime.execute(ApplicationCommand.RefreshActiveProfile).snapshot
