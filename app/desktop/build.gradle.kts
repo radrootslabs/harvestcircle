@@ -37,6 +37,7 @@ plugins {
 licenseReport {
     projects = arrayOf(project)
     configurations = arrayOf("runtimeClasspath")
+    excludeGroups = arrayOf("harvestcircle.app")
     filters = arrayOf(SpdxLicenseBundleNormalizer())
     allowedLicensesFile = rootProject.layout.projectDirectory.file("config/licenses/allowed-licenses.json")
 }

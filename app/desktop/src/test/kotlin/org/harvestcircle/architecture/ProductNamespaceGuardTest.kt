@@ -12,6 +12,37 @@ import kotlin.test.assertTrue
 
 class ProductNamespaceGuardTest {
     @Test
+    fun inheritedNonProductPreferenceIdentifiersAreAbsent() {
+        val root = findRepositoryRoot()
+        val separator = "_"
+        val forbidden =
+            listOf(
+                listOf("use", "radroots", "dns").joinToString(separator),
+                listOf("use", "radroots", "subnets").joinToString(separator),
+                listOf("vpn", "on", "demand", "enabled").joinToString(separator),
+                listOf("run", "as", "exit", "node").joinToString(separator),
+                listOf("automatically", "check", "for", "updates").joinToString(separator),
+                listOf("update", "channel").joinToString(separator),
+                listOf("last", "update", "check", "summary").joinToString(separator),
+                listOf("alternate", "server", "url").joinToString(separator),
+            )
+        val findings =
+            trackedFiles(root)
+                .filter { relative ->
+                    relative.endsWith(".rs") ||
+                        relative.endsWith(".kt") ||
+                        relative.endsWith(".kts") ||
+                        relative.endsWith(".toml") ||
+                        relative.endsWith(".properties")
+                }.flatMap { relative ->
+                    val source = root.resolve(relative).readText().lowercase()
+                    forbidden.filter(source::contains).map { token -> "$relative: $token" }
+                }
+
+        assertEquals(emptyList(), findings.sorted())
+    }
+
+    @Test
     fun reusableApplicationCoreDoesNotReadTheProcessEnvironment() {
         val root = findRepositoryRoot()
         val environmentRead = listOf("std", "env").joinToString("::")
@@ -112,6 +143,7 @@ private fun trackedFiles(root: Path): List<String> {
         .toString(StandardCharsets.UTF_8)
         .split('\u0000')
         .filter(String::isNotEmpty)
+        .filter { Files.isRegularFile(root.resolve(it)) }
 }
 
 private fun findRepositoryRoot(): Path =
