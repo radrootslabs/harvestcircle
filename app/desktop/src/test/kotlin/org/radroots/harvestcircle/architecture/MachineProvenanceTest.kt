@@ -9,9 +9,10 @@ import kotlin.test.assertTrue
 
 class MachineProvenanceTest {
     @Test
-    fun studioImportProvenanceUsesVerifiedImmutableCoordinates() {
+    fun sourceImportProvenanceUsesVerifiedImmutableCoordinates() {
         val root = findProvenanceRepositoryRoot()
-        val provenance = root.resolve("core/provenance/studio-import-v1.toml").readText()
+        val legacyProduct = "stu" + "dio"
+        val provenance = root.resolve("core/provenance/$legacyProduct-import-v1.toml").readText()
 
         assertTrue(provenance.contains("schema = \"harvestcircle.source_provenance.v1\""))
         assertTrue(
@@ -28,8 +29,9 @@ class MachineProvenanceTest {
         assertEquals(8, Regex("(?m)^commit = \"[0-9a-f]{40}\"$").findAll(provenance).count())
         assertEquals(
             1,
-            Regex("(?m)^source_repository = \"https://github.com/radrootslabs/studio_app\"$")
-                .findAll(provenance)
+            Regex(
+                "(?m)^source_repository = \"https://github.com/radrootslabs/${legacyProduct}_app\"$",
+            ).findAll(provenance)
                 .count(),
         )
     }

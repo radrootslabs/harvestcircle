@@ -1126,6 +1126,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "harvestcircle_product"
+version = "0.1.0-alpha"
+dependencies = [
+ "sha2",
+]
+
+[[package]]
 name = "harvestcircle_runtime"
 version = "0.1.0-alpha"
 dependencies = [

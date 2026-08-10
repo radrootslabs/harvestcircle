@@ -1,7 +1,17 @@
+import org.harvestcircle.gradle.VerifyProductCoordinates
+
 plugins {
     alias(libs.plugins.kotlin.jvm) apply false
     alias(libs.plugins.compose.multiplatform) apply false
     alias(libs.plugins.compose.compiler) apply false
+}
+
+val productCoordinatesFile = layout.projectDirectory.file("config/product/harvestcircle-v1.properties")
+
+val verifyProductCoordinates by tasks.registering(VerifyProductCoordinates::class) {
+    group = "verification"
+    description = "Validates the canonical HarvestCircle product-coordinate authority."
+    manifestFile.set(productCoordinatesFile)
 }
 
 providers.environmentVariable("EXT_BUILD_GRADLE_BUILD_DIR").orNull?.let { extBuildGradleRoot ->

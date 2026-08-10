@@ -1,0 +1,19 @@
+[package]
+name = "harvestcircle_product"
+description = "Validated product coordinates for HarvestCircle"
+version = "0.1.0-alpha"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license = "GPL-3.0-only"
+repository.workspace = true
+homepage.workspace = true
+publish = false
+build = "build.rs"
+include = ["build.rs", "src/**", "Cargo.toml"]
+
+[build-dependencies]
+sha2.workspace = true
+
+[lints]
+workspace = true

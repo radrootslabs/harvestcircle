@@ -642,6 +642,10 @@ tasks.withType<Test>().configureEach {
     failOnNoDiscoveredTests.set(true)
 }
 
+tasks.named("check") {
+    dependsOn(rootProject.tasks.named("verifyProductCoordinates"))
+}
+
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_21)

@@ -5,6 +5,7 @@ members = [
   "crates/harvestcircle_ffi",
   "crates/harvestcircle_nostr",
   "crates/harvestcircle_preferences",
+  "crates/harvestcircle_product",
   "crates/harvestcircle_runtime",
   "crates/harvestcircle_storage",
   "crates/harvestcircle_uniffi_bindgen",
@@ -38,6 +39,7 @@ harvestcircle_domain = { path = "crates/harvestcircle_domain", version = "=0.1.0
 harvestcircle_ffi = { path = "crates/harvestcircle_ffi", version = "=0.1.0-alpha" }
 harvestcircle_nostr = { path = "crates/harvestcircle_nostr", version = "=0.1.0-alpha" }
 harvestcircle_preferences = { path = "crates/harvestcircle_preferences", version = "=0.1.0-alpha" }
+harvestcircle_product = { path = "crates/harvestcircle_product", version = "=0.1.0-alpha" }
 harvestcircle_runtime = { path = "crates/harvestcircle_runtime", version = "=0.1.0-alpha" }
 harvestcircle_storage = { path = "crates/harvestcircle_storage", version = "=0.1.0-alpha" }
 harvestcircle_uniffi_bindgen = { path = "crates/harvestcircle_uniffi_bindgen", version = "=0.1.0-alpha" }
