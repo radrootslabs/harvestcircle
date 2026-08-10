@@ -69,7 +69,7 @@ abstract class VerifyFoundationBoundaries : DefaultTask() {
     ) {
         val fixtures =
             listOf(
-                ".github/workflows/source.yml" to "name: source",
+                ".github/ISSUE_TEMPLATE/bug.md" to "# Bug report",
                 "app/shared/src/commonMain/kotlin/org/harvestcircle/application/Leak.kt" to
                     ("import org.harvestcircle." + "ffi.BuildInfoDto"),
                 "app/desktop/src/main/kotlin/org/harvestcircle/desktop/Blocking.kt" to
@@ -86,6 +86,17 @@ abstract class VerifyFoundationBoundaries : DefaultTask() {
                 }.isFailure,
             ) { "Foundation audit accepted negative fixture $path" }
         }
+        val symlinkPath = "spec/harvestcircle_mvp_v1/escape.md"
+        check(
+            runCatching {
+                FoundationBoundaryAudit(
+                    root,
+                    paths + symlinkPath,
+                    overrides = mapOf(symlinkPath to "outside"),
+                    symbolicLinks = setOf(symlinkPath),
+                ).verify()
+            }.isFailure,
+        ) { "Foundation audit accepted symlink fixture $symlinkPath" }
         val provenancePath = "core/provenance/" + "stu" + "dio-import-v1.toml"
         val altered = root.resolve(provenancePath).readText().replace("09065a610d95e57acdc895a14c07580fa099e7c3", "0".repeat(40))
         check(
@@ -100,6 +111,7 @@ private class FoundationBoundaryAudit(
     private val root: Path,
     paths: List<String>,
     private val overrides: Map<String, String> = emptyMap(),
+    private val symbolicLinks: Set<String> = emptySet(),
 ) {
     private val inventory = paths.distinct().sorted()
     private val legacyProduct = "stu" + "dio"
@@ -107,8 +119,9 @@ private class FoundationBoundaryAudit(
     private val legacyRepository = "https://github.com/radrootslabs/${legacyProduct}_app"
     private val temporaryNamespace = listOf("org", "radroots", "harvestcircle").joinToString(".")
     private val textExtensions =
-        setOf("gradle", "json", "kt", "kts", "lock", "md", "properties", "rs", "sql", "toml", "xml", "yaml", "yml")
-    private val textNames = setOf(".gitattributes", ".gitignore", "AGENTS.md", "Makefile", "gradlew", "gradlew.bat")
+        setOf("gradle", "json", "kt", "kts", "lock", "md", "properties", "rs", "sql", "toml", "txt", "xml", "yaml", "yml")
+    private val textNames =
+        setOf(".gitattributes", ".gitignore", "AGENTS.md", "LICENSE", "Makefile", "NOTICE", "gradlew", "gradlew.bat")
 
     fun verify() {
         val findings = mutableListOf<String>()
@@ -128,10 +141,14 @@ private class FoundationBoundaryAudit(
         findings: MutableList<String>,
     ) {
         val normalized = relative.lowercase()
-        if (normalized.startsWith("docs/") || normalized.startsWith("spec/") ||
-            normalized.startsWith(".github/") || normalized.startsWith(".act/")
+        if ((normalized.startsWith("docs/") || normalized.startsWith("spec/") ||
+                normalized.startsWith(".github/") || normalized.startsWith(".act/")) &&
+            !isApprovedPublicPath(normalized)
         ) {
             findings += "$relative: forbidden repository root"
+        }
+        if (relative in symbolicLinks || Files.isSymbolicLink(root.resolve(relative))) {
+            findings += "$relative: symbolic links are not allowed in public sources"
         }
         if (normalized.startsWith("core/target/") || normalized.contains("/build/") ||
             normalized.contains("generated/uniffi") || normalized.endsWith(".dylib") ||
@@ -163,7 +180,17 @@ private class FoundationBoundaryAudit(
         findings: MutableList<String>,
     ) {
         if (relative != provenancePath) {
-            val inspected = if (relative == "core/Cargo.toml") source.replace(legacyRepository, "") else source
+            var inspected = if (relative == "core/Cargo.toml") source.replace(legacyRepository, "") else source
+            if (relative == "NOTICE") {
+                val legacyDisplayName = legacyProduct.replaceFirstChar { it.uppercase() }
+                inspected =
+                    inspected
+                        .replace("Radroots $legacyDisplayName application work", "")
+                        .replace("core/provenance/$legacyProduct-import-v1.toml", "")
+            }
+            if (relative == "spec/harvestcircle_mvp_v1/UI_SURFACE_MAP.md") {
+                inspected = inspected.replace("round_${legacyProduct}_screen", "")
+            }
             if (inspected.lowercase().contains(legacyProduct)) {
                 findings += "$relative: legacy product name outside the exact provenance allowlist"
             }
@@ -205,6 +232,28 @@ private class FoundationBoundaryAudit(
     }
 
     private fun verifyExactContracts(findings: MutableList<String>) {
+        val requiredPublicFiles =
+            setOf(
+                "README.md",
+                "NOTICE",
+                "CONTRIBUTING.md",
+                "SECURITY.md",
+                "LICENSE",
+                "LICENSES/GPL-3.0-only.txt",
+                "spec/harvestcircle_mvp_v1/PRODUCT_SPEC.md",
+                "spec/harvestcircle_mvp_v1/ARCHITECTURE.md",
+                "spec/harvestcircle_mvp_v1/IDENTITY_AND_BOOTSTRAP.md",
+                "spec/harvestcircle_mvp_v1/UI_SURFACE_MAP.md",
+                "spec/harvestcircle_mvp_v1/UI_COPY_CONTRACT.md",
+                "spec/harvestcircle_mvp_v1/SECURITY_AND_PRIVACY.md",
+                "spec/harvestcircle_mvp_v1/ACCEPTANCE_CRITERIA.md",
+                "docs/decisions/ADR-0008-public-specs-and-ci.md",
+                "docs/decisions/ADR-0009-canonical-manifest-digests.md",
+                "docs/decisions/ADR-0010-gap-aware-snapshot-delivery.md",
+            )
+        (requiredPublicFiles - inventory.toSet()).sorted().forEach { relative ->
+            findings += "$relative: required public repository file is missing"
+        }
         val cargo = text("core/Cargo.toml")
         if (cargo.lineSequence().count { it.trim() == "repository = \"$legacyRepository\"" } != 1) {
             findings += "core/Cargo.toml: legacy repository allowlist must be exact"
@@ -248,6 +297,23 @@ private class FoundationBoundaryAudit(
             listOf("alternate", "server", "url").joinToString(separator),
         )
     }
+
+    private fun isApprovedPublicPath(normalized: String): Boolean =
+        normalized in
+            setOf(
+                "spec",
+                "spec/harvestcircle_mvp_v1",
+                "docs",
+                "docs/decisions",
+                "docs/qualification",
+                ".github",
+                ".github/workflows",
+            ) ||
+            normalized.startsWith("spec/harvestcircle_mvp_v1/") ||
+            normalized.startsWith("docs/decisions/") ||
+            normalized.startsWith("docs/qualification/") ||
+            normalized == ".github/workflows/source.yml" ||
+            normalized == ".github/workflows/package.yml"
 
     private fun isText(relative: String): Boolean {
         val path = Path.of(relative)

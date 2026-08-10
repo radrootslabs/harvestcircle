@@ -1,0 +1,16 @@
+HarvestCircle
+
+Copyright © 2026 HarvestCircle contributors.
+
+This repository was derived from Radroots Studio application work and imports
+product-specific Rust foundations whose provenance is recorded in:
+
+```text
+core/provenance/studio-import-v1.toml
+```
+
+Canonical reusable Radroots dependencies remain sourced from the public
+`radrootslabs/lib` repository at exact immutable revisions.
+
+Third-party licence notices are governed by the checked-in dependency and
+licence verification configuration.

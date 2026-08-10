@@ -57,10 +57,17 @@ local artifacts, absolute host paths, or an enclosing monorepo layout.
   implicit sibling override, dirty source cache, or unrecorded native binary.
   Local product crates are workspace path dependencies; shared Radroots
   packages remain immutable public Git dependencies.
-- Human specifications, decisions, runbooks, migration history, qualification
-  records, and execution evidence are parent-owned and absent from standalone
-  clones. Physical or tracked `docs/**`, `.github/**`, and `.act/**` roots are
-  forbidden, including symlinks. Public commands remain forge agnostic.
+- The repository tracks durable public product specifications, decisions,
+  contributor and security guidance, qualification evidence, and thin CI
+  wrappers. Approved public surfaces are `README.md`, `NOTICE`,
+  `CONTRIBUTING.md`, `SECURITY.md`, `LICENSE`, `LICENSES/**`,
+  `spec/harvestcircle_mvp_v1/**`, `docs/decisions/**`,
+  `docs/qualification/**`, and `.github/workflows/{source,package}.yml`.
+  These roots are inspected by the same namespace, secret, generated-output,
+  credential, and symlink rules as source code. Internal handoffs, RCLDs,
+  migration narratives, and execution records remain parent-owned. Other
+  `docs/**`, `spec/**`, `.github/**`, and all `.act/**` paths are forbidden.
+  CI must remain a thin wrapper around repository-owned Make targets.
 
 Generated UniFFI Kotlin and native libraries are derived build output. Change
 the local canonical Rust producer contract/generator first, regenerate into
