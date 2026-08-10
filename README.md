@@ -39,17 +39,12 @@ make package
 
 Active implementation currently proceeds on `dev`.
 
-## Specifications
+## Project documentation
 
-The durable product contract is under:
-
-```text
-spec/harvestcircle_mvp_v1/
-```
-
-Accepted architecture and tooling decisions are under `docs/decisions/`,
-including the [direct rust-nostr transport decision](docs/decisions/ADR-0011-direct-rust-nostr-transport.md)
-and the [Detekt compatibility exception](docs/decisions/ADR-0012-detekt-tooling-exception.md).
+The consuming Radroots monorepo owns normative HarvestCircle specifications,
+decisions, handoffs, reviews, and qualification evidence under
+`docs/oss/harvestcircle/`. This standalone source tree remains independently
+buildable and testable without that documentation tree.
 
 ## Security
 

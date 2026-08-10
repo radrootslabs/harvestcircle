@@ -57,18 +57,15 @@ local artifacts, absolute host paths, or an enclosing monorepo layout.
   implicit sibling override, dirty source cache, or unrecorded native binary.
   Local product crates are workspace path dependencies; shared Radroots
   packages remain immutable public Git dependencies.
-- The repository tracks durable public product specifications, decisions,
-  contributor and security guidance, and qualification evidence. Approved
-  public surfaces are `README.md`, `NOTICE`,
-  `CONTRIBUTING.md`, `SECURITY.md`, `LICENSE`, `LICENSES/**`,
-  `spec/harvestcircle_mvp_v1/**`, `docs/decisions/**`,
-  and `docs/qualification/**`. These roots are inspected by the same
-  namespace, secret, generated-output, credential, and symlink rules as source
-  code. Internal handoffs, RCLDs, migration narratives, and execution records
-  remain parent-owned. Other `docs/**` and `spec/**` paths are forbidden. All
-  `.github/**` and `.act/**` paths are forbidden; local workflow orchestration
-  belongs to the consuming monorepo's governed `.act/**` surface and must call
-  this capsule's standalone Make targets.
+- The repository retains only concise standalone governance and operational
+  guidance in `README.md`, `NOTICE`, `CONTRIBUTING.md`, `SECURITY.md`,
+  `LICENSE`, and `LICENSES/**`. Authoritative product specifications,
+  decisions, reviews, handoffs, and qualification evidence are owned by the
+  consuming Radroots monorepo under `docs/oss/harvestcircle/**` and must not be
+  required to build or test this standalone source tree. All `docs/**`,
+  `spec/**`, `.github/**`, and `.act/**` paths are forbidden here. Local
+  workflow orchestration belongs to the consuming monorepo's governed
+  `.act/**` surface and must call this capsule's standalone Make targets.
 
 Generated UniFFI Kotlin and native libraries are derived build output. Change
 the local canonical Rust producer contract/generator first, regenerate into

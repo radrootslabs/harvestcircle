@@ -1,15 +1,11 @@
 # Contributing
 
-## Start with the specification
+## Start with the repository contract
 
-Read:
-
-```text
-spec/harvestcircle_mvp_v1/
-AGENTS.md
-```
-
-before changing product behaviour or architecture.
+Read `AGENTS.md` before changing product behaviour or architecture. When this
+repository is consumed by the Radroots monorepo, also read the relevant
+normative material under its `docs/oss/harvestcircle/` tree. Standalone changes
+must not add normative documentation roots to this repository.
 
 ## Development flow
 

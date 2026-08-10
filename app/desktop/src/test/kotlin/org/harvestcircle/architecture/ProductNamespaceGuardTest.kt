@@ -71,6 +71,16 @@ class ProductNamespaceGuardTest {
     }
 
     @Test
+    fun standaloneRepositoryDoesNotTrackMonorepoDocumentationOrWorkflowRoots() {
+        val forbiddenRoots = listOf("spec/", "docs/", ".github/", ".act/")
+        val findings =
+            trackedFiles(findRepositoryRoot())
+                .filter { relative -> forbiddenRoots.any(relative::startsWith) }
+
+        assertEquals(emptyList(), findings.sorted())
+    }
+
+    @Test
     fun trackedSourcesUseTheHarvestCircleNamingContract() {
         val root = findRepositoryRoot()
         val contract = root.resolve("AGENTS.md").readText()
@@ -123,9 +133,6 @@ class ProductNamespaceGuardTest {
                                 inspected
                                     .replace("Radroots $legacyDisplayName application work", "")
                                     .replace(provenanceException, "")
-                        }
-                        if (relative == "spec/harvestcircle_mvp_v1/UI_SURFACE_MAP.md") {
-                            inspected = inspected.replace("round_${legacyProduct}_screen", "")
                         }
                         if (inspected.lowercase().contains(legacyProduct)) {
                             add("$relative: legacy product name in tracked text")

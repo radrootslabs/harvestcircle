@@ -44,6 +44,7 @@ abstract class VerifyFoundationBoundaries : DefaultTask() {
             .toString(StandardCharsets.UTF_8)
             .split('\u0000')
             .filter(String::isNotEmpty)
+            .filter { Files.exists(root.resolve(it)) }
             .sorted()
     }
 
@@ -86,7 +87,7 @@ abstract class VerifyFoundationBoundaries : DefaultTask() {
                 }.isFailure,
             ) { "Foundation audit accepted negative fixture $path" }
         }
-        val symlinkPath = "spec/harvestcircle_mvp_v1/escape.md"
+        val symlinkPath = "docs/escape.md"
         check(
             runCatching {
                 FoundationBoundaryAudit(
@@ -141,10 +142,8 @@ private class FoundationBoundaryAudit(
         findings: MutableList<String>,
     ) {
         val normalized = relative.lowercase()
-        if ((normalized.startsWith("docs/") || normalized.startsWith("spec/") ||
-                normalized.startsWith(".github/") || normalized.startsWith(".act/")) &&
-            !isApprovedPublicPath(normalized)
-        ) {
+        if (normalized.startsWith("docs/") || normalized.startsWith("spec/") ||
+            normalized.startsWith(".github/") || normalized.startsWith(".act/")) {
             findings += "$relative: forbidden repository root"
         }
         if (relative in symbolicLinks || Files.isSymbolicLink(root.resolve(relative))) {
@@ -188,9 +187,6 @@ private class FoundationBoundaryAudit(
                     inspected
                         .replace("Radroots $legacyDisplayName application work", "")
                         .replace("core/provenance/$legacyProduct-import-v1.toml", "")
-            }
-            if (relative == "spec/harvestcircle_mvp_v1/UI_SURFACE_MAP.md") {
-                inspected = inspected.replace("round_${legacyProduct}_screen", "")
             }
             if (inspected.lowercase().contains(legacyProduct)) {
                 findings += "$relative: legacy product name outside the exact provenance allowlist"
@@ -241,16 +237,6 @@ private class FoundationBoundaryAudit(
                 "SECURITY.md",
                 "LICENSE",
                 "LICENSES/GPL-3.0-only.txt",
-                "spec/harvestcircle_mvp_v1/PRODUCT_SPEC.md",
-                "spec/harvestcircle_mvp_v1/ARCHITECTURE.md",
-                "spec/harvestcircle_mvp_v1/IDENTITY_AND_BOOTSTRAP.md",
-                "spec/harvestcircle_mvp_v1/UI_SURFACE_MAP.md",
-                "spec/harvestcircle_mvp_v1/UI_COPY_CONTRACT.md",
-                "spec/harvestcircle_mvp_v1/SECURITY_AND_PRIVACY.md",
-                "spec/harvestcircle_mvp_v1/ACCEPTANCE_CRITERIA.md",
-                "docs/decisions/ADR-0008-public-specs-and-ci.md",
-                "docs/decisions/ADR-0009-canonical-manifest-digests.md",
-                "docs/decisions/ADR-0010-gap-aware-snapshot-delivery.md",
             )
         (requiredPublicFiles - inventory.toSet()).sorted().forEach { relative ->
             findings += "$relative: required public repository file is missing"
@@ -306,19 +292,6 @@ private class FoundationBoundaryAudit(
             listOf("alternate", "server", "url").joinToString(separator),
         )
     }
-
-    private fun isApprovedPublicPath(normalized: String): Boolean =
-        normalized in
-            setOf(
-                "spec",
-                "spec/harvestcircle_mvp_v1",
-                "docs",
-                "docs/decisions",
-                "docs/qualification",
-            ) ||
-            normalized.startsWith("spec/harvestcircle_mvp_v1/") ||
-            normalized.startsWith("docs/decisions/") ||
-            normalized.startsWith("docs/qualification/")
 
     private fun isText(relative: String): Boolean {
         val path = Path.of(relative)
