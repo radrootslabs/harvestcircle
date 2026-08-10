@@ -1069,6 +1069,7 @@ dependencies = [
  "harvestcircle_domain",
  "secrecy",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

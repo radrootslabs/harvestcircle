@@ -20,11 +20,11 @@ import org.harvestcircle.ffi.RequestContextDto
 import org.harvestcircle.ffi.ShutdownReceiptDto
 import org.harvestcircle.ffi.SnapshotChangeDto
 import org.harvestcircle.ffi.compatibilityDescriptor
-import java.util.concurrent.atomic.AtomicLong
+import org.harvestcircle.ffi.generateOperationIdV7
 
 class NativeHarvestCircleRuntime internal constructor(
     private val native: NativeCorePort,
-    private val handleIds: NativeHandleIdSource = AtomicNativeHandleIdSource(),
+    private val handleIds: NativeHandleIdSource = GeneratedNativeHandleIdSource,
 ) : HarvestCircleRuntime {
     private val recoveryMutex = Mutex()
     private val recoveryHandles = mutableMapOf<RecoveryRequestId, NativeGeneratedRecoveryHandle>()
@@ -260,10 +260,8 @@ internal fun interface NativeHandleIdSource {
     fun next(kind: String): String
 }
 
-private class AtomicNativeHandleIdSource : NativeHandleIdSource {
-    private val next = AtomicLong(1)
-
-    override fun next(kind: String): String = "native-$kind:${next.getAndIncrement()}"
+private object GeneratedNativeHandleIdSource : NativeHandleIdSource {
+    override fun next(kind: String): String = "$kind:${generateOperationIdV7()}"
 }
 
 internal interface NativeCorePort : AutoCloseable {

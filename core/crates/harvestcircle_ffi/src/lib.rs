@@ -33,6 +33,14 @@ pub fn native_runtime_version() -> String {
     PRODUCT_VERSION.to_owned()
 }
 
+#[cfg_attr(not(coverage_nightly), uniffi::export)]
+#[must_use]
+pub fn generate_operation_id_v7() -> String {
+    harvestcircle_application::DurableRequestId::new_v7()
+        .as_str()
+        .to_owned()
+}
+
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
@@ -52,5 +60,7 @@ mod tests {
         assert_eq!(super::DISTRIBUTION_PACKAGE_VERSION, "1.0.0");
         assert_eq!(super::FFI_CONTRACT_HASH.len(), 64);
         assert!(!super::contract::NORMALIZED_CONTRACT_METADATA.is_empty());
+        let operation_id = super::generate_operation_id_v7();
+        assert!(harvestcircle_application::DurableRequestId::parse(operation_id).is_ok());
     }
 }

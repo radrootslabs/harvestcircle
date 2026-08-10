@@ -589,7 +589,8 @@ mod tests {
     #[test]
     fn durable_repository_replays_matching_requests_and_retains_terminal_receipts() {
         let database = Database::in_memory().expect("database");
-        let request = DurableRequestId::parse("import:test:1").expect("request");
+        let request =
+            DurableRequestId::parse("01890f3e-7b1c-7000-8000-000000000011").expect("request");
         let identity = public_key(9);
         let prior = OperationPriorState::new(
             Some(public_key(8)),
@@ -629,7 +630,8 @@ mod tests {
                 )
                 .is_err()
         );
-        let missing_request = DurableRequestId::parse("import:test:missing").expect("request");
+        let missing_request =
+            DurableRequestId::parse("01890f3e-7b1c-7000-8000-000000000012").expect("request");
         assert!(
             database
                 .finalize_durable_operation(
@@ -741,7 +743,8 @@ mod tests {
                 )
                 .is_err()
         );
-        let overflow_request = DurableRequestId::parse("import:test:overflow").expect("request");
+        let overflow_request =
+            DurableRequestId::parse("01890f3e-7b1c-7000-8000-000000000013").expect("request");
         database
             .begin_durable_operation(
                 &overflow_request,

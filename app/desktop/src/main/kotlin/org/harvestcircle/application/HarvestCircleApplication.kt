@@ -12,13 +12,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.withTimeoutOrNull
+import org.harvestcircle.ffi.generateOperationIdV7
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.identities.ui.HarvestCircleScreen
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 import org.harvestcircle.identities.ui.ShutdownFailureScreen
 import org.harvestcircle.identities.ui.StartupFailureScreen
 import org.harvestcircle.identities.ui.toUiModel
-import java.util.concurrent.atomic.AtomicLong
 
 internal typealias HarvestCirclePresenterFactory = (CoroutineScope) -> HarvestCirclePresenter
 
@@ -110,7 +110,5 @@ private object DesktopApplicationClock : ApplicationClock {
 }
 
 private object DesktopOperationIdSource : OperationIdSource {
-    private val next = AtomicLong(1)
-
-    override fun next(): OperationId = OperationId.from("desktop-operation:${next.getAndIncrement()}")
+    override fun next(): OperationId = OperationId.from(generateOperationIdV7())
 }

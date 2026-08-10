@@ -12,6 +12,22 @@ import kotlin.test.assertTrue
 
 class ProductNamespaceGuardTest {
     @Test
+    fun productionKotlinDoesNotMintProcessLocalOperationCounters() {
+        val root = findRepositoryRoot()
+        val counterType = "Atomic" + "Long"
+        val legacyPrefix = "desktop" + "-operation:"
+        val findings =
+            trackedFiles(root)
+                .filter { it.startsWith("app/") && it.contains("/src/") && it.contains("/main/") && it.endsWith(".kt") }
+                .filter { relative ->
+                    val source = root.resolve(relative).readText()
+                    source.contains(counterType) || source.contains(legacyPrefix)
+                }
+
+        assertEquals(emptyList(), findings.sorted())
+    }
+
+    @Test
     fun trackedSourcesUseTheHarvestCircleNamingContract() {
         val root = findRepositoryRoot()
         val contract = root.resolve("AGENTS.md").readText()

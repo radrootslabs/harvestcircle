@@ -443,7 +443,7 @@ mod tests {
         let imported = core
             .import_identity(
                 crate::RequestContextDto {
-                    request_id: "observer-import".to_owned(),
+                    request_id: "01890f3e-7b1c-7000-8000-000000000049".to_owned(),
                     expected_revision: core.snapshot().revision,
                     deadline_millis: 5_000,
                 },

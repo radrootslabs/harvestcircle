@@ -60,13 +60,13 @@ class HarvestCirclePresenterTest {
             val ids = DeterministicOperationIds()
             val presenter = presenter(runtime, ids)
             runCurrent()
-            runtime.nextFailure = problem(retryable = true, operationId = OperationId.from("operation-1"))
+            runtime.nextFailure = problem(retryable = true, operationId = OperationId.from(TEST_OPERATION_ID))
 
             presenter.dispatch(HarvestCircleIntent.SignOut)
             advanceUntilIdle()
 
             assertEquals(CommandStatus.FAILED_RETRYABLE, presenter.state.value.commandStatus)
-            assertEquals(OperationId.from("operation-1"), presenter.state.value.lastCommandOperationId)
+            assertEquals(OperationId.from(TEST_OPERATION_ID), presenter.state.value.lastCommandOperationId)
             presenter.dispatch(HarvestCircleIntent.RetryLastCommand)
             advanceUntilIdle()
 
@@ -192,7 +192,7 @@ private class DeterministicOperationIds : OperationIdSource {
 
     override fun next(): OperationId {
         calls += 1
-        return OperationId.from("operation-$calls")
+        return OperationId.from("01890f3e-7b1c-7000-8000-${calls.toString().padStart(12, '0')}")
     }
 }
 
@@ -310,3 +310,5 @@ private fun snapshot(revision: ULong) =
         activeIdentity = null,
         recoverableProblem = null,
     )
+
+private const val TEST_OPERATION_ID = "01890f3e-7b1c-7000-8000-000000000001"

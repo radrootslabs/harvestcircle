@@ -135,17 +135,17 @@ class NativeRuntimeMappingsTest {
     fun receiptChangeContextAndShutdownMappingsPreserveRevisions() {
         val snapshot = populatedSnapshot(revision = 2UL)
         val result =
-            IdentityCommandReceiptDto("operation-7", 2UL, snapshot)
+            IdentityCommandReceiptDto(TEST_OPERATION_ID, 2UL, snapshot)
                 .toApplicationResult()
-        assertEquals(OperationId.from("operation-7"), result.operationId)
+        assertEquals(OperationId.from(TEST_OPERATION_ID), result.operationId)
         assertEquals(SnapshotRevision(2UL), result.committedRevision)
 
         val change = SnapshotChangeDto(snapshot, 1UL).toApplicationChange()
         assertEquals(SnapshotRevision(1UL), change.previousRevision)
         assertEquals(SnapshotRevision(2UL), change.snapshot.revision)
 
-        val context = RequestContext(OperationId.from("operation-7"), SnapshotRevision(1UL), 5_000UL).toNative()
-        assertEquals("operation-7", context.requestId)
+        val context = RequestContext(OperationId.from(TEST_OPERATION_ID), SnapshotRevision(1UL), 5_000UL).toNative()
+        assertEquals(TEST_OPERATION_ID, context.requestId)
         assertEquals(1UL, context.expectedRevision)
         assertEquals(5_000UL, context.deadlineMillis)
 
@@ -164,17 +164,17 @@ class NativeRuntimeMappingsTest {
                     category = WireErrorCategory.CREDENTIAL,
                     retryable = false,
                     recoveryAction = WireRecoveryAction.REPAIR_CREDENTIAL,
-                    correlationId = "operation-7",
+                    correlationId = TEST_OPERATION_ID,
                     safeMessage = "The local credential is unavailable.",
                 ).toApplicationProblem()
         assertEquals(ApplicationErrorCode.CredentialMissing, native.code)
-        assertEquals(OperationId.from("operation-7"), native.operationId)
+        assertEquals(OperationId.from(TEST_OPERATION_ID), native.operationId)
         assertEquals(RecoveryAction.RepairCredential, native.recoveryAction)
 
-        val unknown = IllegalStateException("sensitive detail").toApplicationProblem(OperationId.from("fallback-1"))
+        val unknown = IllegalStateException("sensitive detail").toApplicationProblem(OperationId.from(FALLBACK_OPERATION_ID))
         assertEquals(ApplicationErrorCode.Internal, unknown.code)
         assertEquals("The application command failed.", unknown.safeMessage)
-        assertEquals(OperationId.from("fallback-1"), unknown.operationId)
+        assertEquals(OperationId.from(FALLBACK_OPERATION_ID), unknown.operationId)
         assertFalse(unknown.toString().contains("sensitive detail"))
     }
 
@@ -191,7 +191,7 @@ class NativeHarvestCircleRuntimeTest {
         runTest {
             val port = FakeNativeCorePort()
             val runtime = NativeHarvestCircleRuntime(port, NativeHandleIdSource { kind -> "$kind-1" })
-            val context = RequestContext(OperationId.from("operation-7"), SnapshotRevision(2UL), 5_000UL)
+            val context = RequestContext(OperationId.from(TEST_OPERATION_ID), SnapshotRevision(2UL), 5_000UL)
 
             val secret = SecretKeyInput.from("nsec1boundedsecret")
             val imported =
@@ -266,7 +266,7 @@ private class FakeNativeCorePort : NativeCorePort {
         context: RequestContextDto,
         request: NativeGeneratedRecoveryHandle,
     ): AppSnapshotDto {
-        assertEquals("operation-7", context.requestId)
+        assertEquals(TEST_OPERATION_ID, context.requestId)
         assertEquals(generated, request)
         return snapshot
     }
@@ -295,7 +295,7 @@ private class FakeNativeCorePort : NativeCorePort {
         context: RequestContextDto,
         request: NativeRemovalHandle,
     ): AppSnapshotDto {
-        assertEquals("operation-7", context.requestId)
+        assertEquals(TEST_OPERATION_ID, context.requestId)
         assertEquals(removal, request)
         return snapshot
     }
@@ -397,3 +397,6 @@ private fun safeError(code: WireErrorCode): SafeErrorDto =
         recoveryAction = WireRecoveryAction.RETRY,
         message = "A safe problem occurred.",
     )
+
+private const val TEST_OPERATION_ID = "01890f3e-7b1c-7000-8000-000000000007"
+private const val FALLBACK_OPERATION_ID = "01890f3e-7b1c-7000-8000-000000000008"

@@ -2,6 +2,7 @@ package org.harvestcircle.application
 
 private val lowercaseHex = Regex("[0-9a-f]{64}")
 private val opaqueIdentifier = Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+private val canonicalUuidV7 = Regex("[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 
 @JvmInline
 value class IdentityId private constructor(
@@ -21,7 +22,7 @@ value class OperationId private constructor(
 ) {
     companion object {
         fun from(value: String): OperationId {
-            require(opaqueIdentifier.matches(value)) { "Operation ID is malformed" }
+            require(canonicalUuidV7.matches(value)) { "Operation ID must be canonical UUIDv7 text" }
             return OperationId(value)
         }
     }

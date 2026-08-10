@@ -713,7 +713,10 @@ impl RuntimeActorHandle {
     ) -> Result<ImportIdentityReceipt, SafeError> {
         let request_number = self.next_request.fetch_add(1, Ordering::Relaxed);
         self.import_secret_key(
-            DurableRequestId::parse(format!("test:import:{request_number}"))?,
+            DurableRequestId::parse(format!(
+                "01890f3e-7b1c-7000-8000-{:012x}",
+                request_number + 0x1000
+            ))?,
             self.snapshot().revision(),
             input,
             DEFAULT_COMMAND_TIMEOUT,
@@ -729,7 +732,10 @@ impl RuntimeActorHandle {
         let request_number = self.next_request.fetch_add(1, Ordering::Relaxed);
         self.acknowledge_generated_key_stage(
             id,
-            DurableRequestId::parse(format!("test:generate:{request_number}"))?,
+            DurableRequestId::parse(format!(
+                "01890f3e-7b1c-7000-8000-{:012x}",
+                request_number + 0x2000
+            ))?,
             self.snapshot().revision(),
             DEFAULT_COMMAND_TIMEOUT,
         )
@@ -744,7 +750,10 @@ impl RuntimeActorHandle {
         let request_number = self.next_request.fetch_add(1, Ordering::Relaxed);
         self.confirm_identity_removal(
             token,
-            DurableRequestId::parse(format!("test:remove:{request_number}"))?,
+            DurableRequestId::parse(format!(
+                "01890f3e-7b1c-7000-8000-{:012x}",
+                request_number + 0x3000
+            ))?,
             self.snapshot().revision(),
             DEFAULT_COMMAND_TIMEOUT,
         )
@@ -760,7 +769,10 @@ impl RuntimeActorHandle {
         let raw_request = self.next_request.fetch_add(1, Ordering::Relaxed);
         let request_id = RequestId::new(raw_request).ok_or_else(request_space_exhausted)?;
         let expected_revision = self.adapter.core().snapshot().revision();
-        let durable_request = DurableRequestId::parse(format!("test:timeout:{raw_request}"))?;
+        let durable_request = DurableRequestId::parse(format!(
+            "01890f3e-7b1c-7000-8000-{:012x}",
+            raw_request + 0x4000
+        ))?;
         match self
             .dispatch_with_deadline(
                 RuntimeCommand::ImportSecretKey {
@@ -1684,7 +1696,7 @@ mod tests {
 
         let generated = actor
             .generate_identity(
-                DurableRequestId::parse("test:generate:public-surface").expect("request"),
+                DurableRequestId::parse("01890f3e-7b1c-7000-8000-000000005001").expect("request"),
                 actor.snapshot().revision(),
                 DEFAULT_COMMAND_TIMEOUT,
             )
@@ -1720,7 +1732,7 @@ mod tests {
         let error = actor
             .acknowledge_generated_key_stage(
                 handle.id(),
-                DurableRequestId::parse("test:generate:stale-revision").expect("request"),
+                DurableRequestId::parse("01890f3e-7b1c-7000-8000-000000005002").expect("request"),
                 stale,
                 DEFAULT_COMMAND_TIMEOUT,
             )

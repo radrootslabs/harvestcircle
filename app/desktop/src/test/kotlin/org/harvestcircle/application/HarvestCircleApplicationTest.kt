@@ -43,7 +43,7 @@ class HarvestCircleApplicationTest {
                         runtime = createdRuntime,
                         scope = scope,
                         clock = ApplicationClock { UnixSeconds(0) },
-                        operationIds = OperationIdSource { OperationId.from("application-test") },
+                        operationIds = OperationIdSource { OperationId.from(TEST_OPERATION_ID) },
                     )
                 }
                 BasicText(
@@ -77,7 +77,7 @@ class HarvestCircleApplicationTest {
                         runtime = ApplicationRuntime(shutdownClosed = false),
                         scope = scope,
                         clock = ApplicationClock { UnixSeconds(0) },
-                        operationIds = OperationIdSource { OperationId.from("application-test") },
+                        operationIds = OperationIdSource { OperationId.from(TEST_OPERATION_ID) },
                     )
                 }
             }
@@ -103,7 +103,7 @@ class HarvestCircleApplicationTest {
                         runtime = ApplicationRuntime(shutdownGate = CompletableDeferred()),
                         scope = scope,
                         clock = ApplicationClock { UnixSeconds(0) },
-                        operationIds = OperationIdSource { OperationId.from("application-test") },
+                        operationIds = OperationIdSource { OperationId.from(TEST_OPERATION_ID) },
                     )
                 }
             }
@@ -171,3 +171,5 @@ private fun applicationSnapshot(revision: SnapshotRevision) =
         activeIdentity = null,
         recoverableProblem = null,
     )
+
+private const val TEST_OPERATION_ID = "01890f3e-7b1c-7000-8000-000000000009"

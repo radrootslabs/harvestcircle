@@ -787,7 +787,7 @@ mod tests {
         let core = in_memory_core().await;
         let initial = core.snapshot();
         let context = RequestContextDto {
-            request_id: "ffi-test-import-1".to_owned(),
+            request_id: "01890f3e-7b1c-7000-8000-000000000041".to_owned(),
             expected_revision: initial.revision,
             deadline_millis: 5_000,
         };
@@ -803,7 +803,7 @@ mod tests {
 
         assert_eq!(first, replay);
         assert_eq!(first.snapshot.identities.len(), 1);
-        assert_eq!(first.request_id, "ffi-test-import-1");
+        assert_eq!(first.request_id, "01890f3e-7b1c-7000-8000-000000000041");
     }
 
     #[tokio::test]
@@ -820,7 +820,7 @@ mod tests {
         assert!(nsec.starts_with("nsec1"));
         assert!(recovery.take_recovery_nsec().is_err());
         let context = RequestContextDto {
-            request_id: "ffi-test-generate-1".to_owned(),
+            request_id: "01890f3e-7b1c-7000-8000-000000000042".to_owned(),
             expected_revision: initial.revision,
             deadline_millis: 5_000,
         };
@@ -847,7 +847,7 @@ mod tests {
         let imported = core
             .import_identity(
                 RequestContextDto {
-                    request_id: "ffi-lifecycle-import".to_owned(),
+                    request_id: "01890f3e-7b1c-7000-8000-000000000043".to_owned(),
                     expected_revision: initial.revision,
                     deadline_millis: 5_000,
                 },
@@ -885,7 +885,7 @@ mod tests {
         let removed = core
             .confirm_identity_removal(
                 RequestContextDto {
-                    request_id: "ffi-lifecycle-remove".to_owned(),
+                    request_id: "01890f3e-7b1c-7000-8000-000000000044".to_owned(),
                     expected_revision: signed_out.revision,
                     deadline_millis: 5_000,
                 },
@@ -897,7 +897,7 @@ mod tests {
         assert!(
             core.confirm_identity_removal(
                 RequestContextDto {
-                    request_id: "ffi-lifecycle-remove-repeated".to_owned(),
+                    request_id: "01890f3e-7b1c-7000-8000-000000000045".to_owned(),
                     expected_revision: removed.revision,
                     deadline_millis: 5_000,
                 },
@@ -941,12 +941,12 @@ mod tests {
                 deadline_millis: 5_000,
             },
             RequestContextDto {
-                request_id: "ffi-zero-deadline".to_owned(),
+                request_id: "01890f3e-7b1c-7000-8000-000000000046".to_owned(),
                 expected_revision: 0,
                 deadline_millis: 0,
             },
             RequestContextDto {
-                request_id: "ffi-long-deadline".to_owned(),
+                request_id: "01890f3e-7b1c-7000-8000-000000000047".to_owned(),
                 expected_revision: 0,
                 deadline_millis: 30_001,
             },
@@ -956,7 +956,7 @@ mod tests {
         assert!(
             core.import_identity(
                 RequestContextDto {
-                    request_id: "ffi-invalid-secret".to_owned(),
+                    request_id: "01890f3e-7b1c-7000-8000-000000000048".to_owned(),
                     expected_revision: 0,
                     deadline_millis: 5_000,
                 },

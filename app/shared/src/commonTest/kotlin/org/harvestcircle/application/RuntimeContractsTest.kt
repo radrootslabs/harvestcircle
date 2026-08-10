@@ -12,9 +12,13 @@ class RuntimeContractsTest {
         val identityId = IdentityId.fromPublicKeyHex("01".repeat(32))
         assertEquals("01".repeat(32), identityId.value)
         assertFailsWith<IllegalArgumentException> { IdentityId.fromPublicKeyHex("AB".repeat(32)) }
+        assertEquals(TEST_OPERATION_ID, OperationId.from(TEST_OPERATION_ID).value)
         assertFailsWith<IllegalArgumentException> { OperationId.from("contains space") }
+        assertFailsWith<IllegalArgumentException> { OperationId.from("01890f3e-7b1c-4000-8000-000000000001") }
+        assertFailsWith<IllegalArgumentException> { OperationId.from(TEST_OPERATION_ID.uppercase()) }
+        assertFailsWith<IllegalArgumentException> { OperationId.from("01890f3e-7b1c-6000-8000-000000000001") }
         assertFailsWith<IllegalArgumentException> {
-            RequestContext(OperationId.from("operation-1"), SnapshotRevision(0UL), 0UL)
+            RequestContext(OperationId.from(TEST_OPERATION_ID), SnapshotRevision(0UL), 0UL)
         }
 
         val secret = SecretKeyInput.from("nsec1boundedsecret")
@@ -35,7 +39,7 @@ class RuntimeContractsTest {
         }
         assertFailsWith<IllegalArgumentException> {
             ApplicationCommandResult.Committed(
-                operationId = OperationId.from("operation-1"),
+                operationId = OperationId.from(TEST_OPERATION_ID),
                 committedRevision = SnapshotRevision(1UL),
                 snapshot = snapshot,
             )
@@ -105,7 +109,7 @@ class RuntimeContractsTest {
     @Test
     fun everyFoundationCommandHasAnExplicitRuntimeKind() {
         val id = IdentityId.fromPublicKeyHex("01".repeat(32))
-        val context = RequestContext(OperationId.from("operation-1"), SnapshotRevision(1UL), 1_000UL)
+        val context = RequestContext(OperationId.from(TEST_OPERATION_ID), SnapshotRevision(1UL), 1_000UL)
         val commands =
             listOf(
                 ApplicationCommand.AcknowledgeGeneratedIdentity(RecoveryRequestId.from("recovery-1"), context),
@@ -214,3 +218,5 @@ private fun commandName(value: ApplicationCommand): String =
         ApplicationCommand.RefreshActiveProfile -> "refresh-profile"
         is ApplicationCommand.ConfirmIdentityRemoval -> "confirm-removal"
     }
+
+private const val TEST_OPERATION_ID = "01890f3e-7b1c-7000-8000-000000000001"

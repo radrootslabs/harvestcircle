@@ -7,27 +7,27 @@ use harvestcircle_domain::{
     SafeErrorCode, SafeMessage, SecretKeyInput, SignerAvailability, UnixTimestamp,
 };
 
-const MAX_DURABLE_REQUEST_ID_BYTES: usize = 128;
-
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DurableRequestId(String);
 
 impl DurableRequestId {
-    /// Validates an opaque caller-generated idempotency key.
+    /// Validates a canonical caller-generated UUIDv7 idempotency key.
     ///
     /// # Errors
     ///
-    /// Returns a safe validation error when the value is empty, oversized, or contains anything
-    /// other than visible ASCII characters.
+    /// Returns a safe validation error when the value is not canonical UUIDv7 text.
     pub fn parse(value: impl Into<String>) -> Result<Self, SafeError> {
         let value = value.into();
-        if value.is_empty()
-            || value.len() > MAX_DURABLE_REQUEST_ID_BYTES
-            || !value.bytes().all(|byte| byte.is_ascii_graphic())
-        {
+        let parsed = uuid::Uuid::parse_str(&value).map_err(|_| invalid_request_id())?;
+        if parsed.get_version_num() != 7 || parsed.hyphenated().to_string() != value {
             return Err(invalid_request_id());
         }
         Ok(Self(value))
+    }
+
+    #[must_use]
+    pub fn new_v7() -> Self {
+        Self(uuid::Uuid::now_v7().hyphenated().to_string())
     }
 
     #[must_use]
@@ -720,7 +720,8 @@ mod tests {
 
     #[test]
     fn durable_request_ids_and_terminal_receipts_are_bounded_and_public() {
-        let request = DurableRequestId::parse("create:desktop:0001").expect("request id");
+        let request =
+            DurableRequestId::parse("01890f3e-7b1c-7000-8000-000000000031").expect("request id");
         let receipt = DurableOperationReceipt::new(
             request.clone(),
             PublicKey::from_bytes([7; 32]).expect("valid public key"),
@@ -729,9 +730,33 @@ mod tests {
         );
         assert_eq!(receipt.request_id(), &request);
         assert_eq!(receipt.resulting_revision(), Some(42));
-        for invalid in ["", "contains space", &"x".repeat(129)] {
+        for invalid in [
+            "",
+            "contains space",
+            "01890f3e-7b1c-4000-8000-000000000031",
+            "01890F3E-7B1C-7000-8000-000000000031",
+            "01890f3e-7b1c-6000-8000-000000000031",
+        ] {
             assert!(DurableRequestId::parse(invalid).is_err());
         }
+    }
+
+    #[test]
+    fn durable_request_id_source_is_stateless_canonical_and_unique() {
+        let first = DurableRequestId::new_v7();
+        let second = DurableRequestId::new_v7();
+
+        assert_eq!(first.as_str().len(), 36);
+        assert_eq!(first.as_str().as_bytes()[14], b'7');
+        assert!(matches!(
+            first.as_str().as_bytes()[19],
+            b'8' | b'9' | b'a' | b'b'
+        ));
+        assert_eq!(
+            DurableRequestId::parse(first.as_str()).expect("generated UUIDv7"),
+            first
+        );
+        assert_ne!(first, second);
     }
 
     #[derive(Default)]

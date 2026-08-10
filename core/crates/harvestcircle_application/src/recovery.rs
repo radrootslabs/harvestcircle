@@ -544,7 +544,7 @@ pub(crate) mod tests {
         prior_availability: Option<SignerAvailability>,
     ) -> DurableIdentityOperation {
         DurableIdentityOperation::new(
-            DurableRequestId::parse(format!("{kind:?}-{phase:?}")).expect("durable request ID"),
+            DurableRequestId::new_v7(),
             kind,
             identity,
             Some(1),

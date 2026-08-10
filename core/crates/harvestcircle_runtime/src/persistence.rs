@@ -464,7 +464,8 @@ mod tests {
         let adapter = PersistentAppCore::in_memory(RelayConfiguration::default()).expect("adapter");
         let secrets = InMemorySecretStore::default();
         let snapshot = adapter.bootstrap(&secrets, &FixedClock).expect("bootstrap");
-        let request = DurableRequestId::parse("import:adapter:1").expect("request");
+        let request =
+            DurableRequestId::parse("01890f3e-7b1c-7000-8000-000000000021").expect("request");
         let imported = adapter
             .import_secret_key_durable(
                 &request,
@@ -503,7 +504,8 @@ mod tests {
             .database()
             .save_selected_identity(Some(missing.public_key()))
             .expect("selection");
-        let request = DurableRequestId::parse("repair:recovery:1").expect("request");
+        let request =
+            DurableRequestId::parse("01890f3e-7b1c-7000-8000-000000000022").expect("request");
         adapter
             .database()
             .begin_durable_operation(
@@ -571,7 +573,8 @@ mod tests {
             .database()
             .insert_identity(&saved)
             .expect("identity");
-        let import = DurableRequestId::parse("import:response-loss:1").expect("request");
+        let import =
+            DurableRequestId::parse("01890f3e-7b1c-7000-8000-000000000023").expect("request");
         adapter
             .database()
             .begin_durable_operation(
@@ -629,7 +632,8 @@ mod tests {
             .database()
             .save_selected_identity(Some(saved.public_key()))
             .expect("remove selection");
-        let removal = DurableRequestId::parse("remove:response-loss:1").expect("request");
+        let removal =
+            DurableRequestId::parse("01890f3e-7b1c-7000-8000-000000000024").expect("request");
         removal_adapter
             .database()
             .begin_durable_operation(
