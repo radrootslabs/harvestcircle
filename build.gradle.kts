@@ -14,7 +14,7 @@ plugins {
 val productCoordinatesFile = layout.projectDirectory.file("config/product/harvestcircle-v1.properties")
 val ffiCompatibilityBaselineFile =
     layout.projectDirectory.file("core/compatibility/harvestcircle-ffi-v4.properties")
-val verificationLanesFile = layout.projectDirectory.file("config/verification/lanes-v1.properties")
+val verificationLanesFile = layout.projectDirectory.file("config/verification/lanes-v2.properties")
 val legacyProduct = "stu" + "dio"
 
 val verifyProductCoordinates by tasks.registering(VerifyProductCoordinates::class) {

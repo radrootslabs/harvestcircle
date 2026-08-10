@@ -2,7 +2,7 @@
 
 The foundation is complete when:
 
-- public specs/governance and CI exist;
+- public specs/governance and portable standalone verification exist;
 - product/provenance digests are canonical;
 - coordinate values have one authority;
 - Kotlin compatibility expectations are generated;

@@ -58,16 +58,17 @@ local artifacts, absolute host paths, or an enclosing monorepo layout.
   Local product crates are workspace path dependencies; shared Radroots
   packages remain immutable public Git dependencies.
 - The repository tracks durable public product specifications, decisions,
-  contributor and security guidance, qualification evidence, and thin CI
-  wrappers. Approved public surfaces are `README.md`, `NOTICE`,
+  contributor and security guidance, and qualification evidence. Approved
+  public surfaces are `README.md`, `NOTICE`,
   `CONTRIBUTING.md`, `SECURITY.md`, `LICENSE`, `LICENSES/**`,
   `spec/harvestcircle_mvp_v1/**`, `docs/decisions/**`,
-  `docs/qualification/**`, and `.github/workflows/{source,package}.yml`.
-  These roots are inspected by the same namespace, secret, generated-output,
-  credential, and symlink rules as source code. Internal handoffs, RCLDs,
-  migration narratives, and execution records remain parent-owned. Other
-  `docs/**`, `spec/**`, `.github/**`, and all `.act/**` paths are forbidden.
-  CI must remain a thin wrapper around repository-owned Make targets.
+  and `docs/qualification/**`. These roots are inspected by the same
+  namespace, secret, generated-output, credential, and symlink rules as source
+  code. Internal handoffs, RCLDs, migration narratives, and execution records
+  remain parent-owned. Other `docs/**` and `spec/**` paths are forbidden. All
+  `.github/**` and `.act/**` paths are forbidden; local workflow orchestration
+  belongs to the consuming monorepo's governed `.act/**` surface and must call
+  this capsule's standalone Make targets.
 
 Generated UniFFI Kotlin and native libraries are derived build output. Change
 the local canonical Rust producer contract/generator first, regenerate into
@@ -128,8 +129,8 @@ blockers exactly.
 Verify exact manifests/lock agreement, generated binding and native artifact
 freshness when affected, compatibility and architecture guards,
 license/source policy, zero forbidden roots, `git diff --check`, and final
-status and diff. Do not treat parent-only workflow proof as a substitute for
-standalone repository validation.
+status and diff. Parent local-`act` proof is integration evidence only: it must
+execute, and never replace, the standalone repository validation commands.
 
 ## Git and external gates
 

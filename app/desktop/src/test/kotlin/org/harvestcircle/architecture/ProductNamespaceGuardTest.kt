@@ -127,9 +127,6 @@ class ProductNamespaceGuardTest {
                         if (relative == "spec/harvestcircle_mvp_v1/UI_SURFACE_MAP.md") {
                             inspected = inspected.replace("round_${legacyProduct}_screen", "")
                         }
-                        if (relative == ".github/workflows/source.yml" || relative == ".github/workflows/package.yml") {
-                            inspected = inspected.replace(provenanceException, "")
-                        }
                         if (inspected.lowercase().contains(legacyProduct)) {
                             add("$relative: legacy product name in tracked text")
                         }

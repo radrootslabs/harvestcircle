@@ -12,17 +12,13 @@ import org.gradle.api.tasks.TaskAction
 object VerificationLanes {
     private fun expected(environmentPrefix: String) =
         linkedMapOf(
-            "schema" to "harvestcircle.verification-lanes.v1",
-            "orchestration" to "github-actions",
+            "schema" to "harvestcircle.verification-lanes.v2",
+            "orchestration" to "standalone-make",
             "source.command" to "make source-check",
-            "source.runner" to "linux",
-            "source.workflow" to ".github/workflows/source.yml",
-            "source.permissions" to "contents:read",
+            "source.runner" to "host",
             "source.credentials" to "none",
             "package.command" to "make package-check",
             "package.runners" to "linux,macos,windows",
-            "package.workflow" to ".github/workflows/package.yml",
-            "package.permissions" to "contents:read",
             "package.credentials" to "none",
             "provenance.commit" to environmentPrefix + "BUILD_SOURCE_COMMIT",
             "provenance.dirty" to environmentPrefix + "BUILD_SOURCE_DIRTY",
@@ -30,11 +26,9 @@ object VerificationLanes {
             "provenance.epoch" to "SOURCE_DATE_EPOCH",
             "signing.command" to "make signing-check",
             "signing.runner" to "macos",
-            "signing.permissions" to "contents:read",
             "signing.credentials" to "signing",
             "notarization.command" to "make notarization-check",
             "notarization.runner" to "macos",
-            "notarization.permissions" to "contents:read",
             "notarization.credentials" to "notarization",
         )
 
@@ -81,13 +75,8 @@ abstract class VerifyVerificationLanes : DefaultTask() {
         val environmentPrefix =
             ProductCoordinates.load(productManifestFile.get().asFile)["environment.prefix"]
         val policy = VerificationLanes.parse(source, environmentPrefix)
-        check(policy.size == 24)
-        check(runCatching { VerificationLanes.parse(source + "source.permissions=write", environmentPrefix) }.isFailure)
-        check(
-            runCatching {
-                VerificationLanes.parse(source.replace("contents:read", "contents:write"), environmentPrefix)
-            }.isFailure,
-        )
+        check(policy.size == 18)
+        check(runCatching { VerificationLanes.parse(source + "source.workflow=forbidden", environmentPrefix) }.isFailure)
         check(
             runCatching {
                 VerificationLanes.parse(source.replace("credentials=none", "credentials=all"), environmentPrefix)
@@ -95,46 +84,20 @@ abstract class VerifyVerificationLanes : DefaultTask() {
         )
         check(
             runCatching {
-                VerificationLanes.parse(source.replace("source.runner=linux", "source.runner=macos"), environmentPrefix)
+                VerificationLanes.parse(source.replace("source.runner=host", "source.runner=remote"), environmentPrefix)
             }.isFailure,
         )
         val root = repositoryRoot.get().asFile.toPath()
-        val sourceWorkflow = root.resolve(policy.getValue("source.workflow")).toFile().readText()
-        val packageWorkflow = root.resolve(policy.getValue("package.workflow")).toFile().readText()
-        verifyWorkflow(sourceWorkflow, policy.getValue("source.command"))
-        verifyWorkflow(packageWorkflow, policy.getValue("package.command"))
-        check(sourceWorkflow.contains("runs-on: ubuntu-latest"))
-        listOf("ubuntu-latest", "macos-latest", "windows-latest").forEach { runner ->
-            check(packageWorkflow.contains("- $runner")) { "Package workflow is missing $runner" }
+        val makefile = root.resolve("Makefile").toFile().readText()
+        listOf("source.command", "package.command", "signing.command", "notarization.command").forEach { key ->
+            val command = policy.getValue(key)
+            val target = command.removePrefix("make ")
+            check(command == "make $target" && Regex("(?m)^${Regex.escape(target)}:").containsMatchIn(makefile)) {
+                "Verification lane $key does not name a standalone Make target"
+            }
         }
-        listOf(
-            policy.getValue("provenance.commit"),
-            policy.getValue("provenance.dirty"),
-            policy.getValue("provenance.radroots"),
-            policy.getValue("provenance.epoch"),
-        ).forEach { variable ->
-            check(sourceWorkflow.contains(variable)) { "Source workflow is missing provenance variable $variable" }
-            check(packageWorkflow.contains(variable)) { "Package workflow is missing provenance variable $variable" }
-        }
-    }
-
-    private fun verifyWorkflow(
-        source: String,
-        command: String,
-    ) {
-        check(Regex("(?m)^permissions:\\s*\\n\\s{2}contents: read$").containsMatchIn(source)) {
-            "Workflow permissions must be contents: read"
-        }
-        check(source.contains("run: $command")) { "Workflow does not invoke $command" }
-        check(source.contains("persist-credentials: false")) { "Checkout credentials must not persist" }
-        val actionPins = Regex("(?m)^\\s*uses:\\s+[^@\\s]+@([0-9a-f]{40})(?:\\s+#.*)?$").findAll(source).toList()
-        check(actionPins.isNotEmpty()) { "Workflow does not use any pinned actions" }
-        check(source.lineSequence().filter { "uses:" in it }.count() == actionPins.size) {
-            "Every workflow action must use a full immutable commit SHA"
-        }
-        val forbidden = listOf("contents: write", "id-token: write", "pull-requests: write", "secrets.", "publish", "deploy")
-        forbidden.forEach { token ->
-            check(!source.contains(token, ignoreCase = true)) { "Workflow contains forbidden capability $token" }
+        check(policy.values.none { ".github/" in it || ".act/" in it }) {
+            "Standalone verification policy must not reference an orchestration root"
         }
     }
 }

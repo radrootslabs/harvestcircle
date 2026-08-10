@@ -10,4 +10,4 @@
 - no silent provider fallback;
 - no private event through public sinks;
 - unknown protocol versions fail closed;
-- public CI uses least privilege.
+- local workflow orchestration is parent-owned, credential-free, and fail-closed.

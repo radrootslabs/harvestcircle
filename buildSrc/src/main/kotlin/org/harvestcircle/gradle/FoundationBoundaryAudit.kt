@@ -192,9 +192,6 @@ private class FoundationBoundaryAudit(
             if (relative == "spec/harvestcircle_mvp_v1/UI_SURFACE_MAP.md") {
                 inspected = inspected.replace("round_${legacyProduct}_screen", "")
             }
-            if (relative == ".github/workflows/source.yml" || relative == ".github/workflows/package.yml") {
-                inspected = inspected.replace("core/provenance/$legacyProduct-import-v1.toml", "")
-            }
             if (inspected.lowercase().contains(legacyProduct)) {
                 findings += "$relative: legacy product name outside the exact provenance allowlist"
             }
@@ -254,8 +251,6 @@ private class FoundationBoundaryAudit(
                 "docs/decisions/ADR-0008-public-specs-and-ci.md",
                 "docs/decisions/ADR-0009-canonical-manifest-digests.md",
                 "docs/decisions/ADR-0010-gap-aware-snapshot-delivery.md",
-                ".github/workflows/source.yml",
-                ".github/workflows/package.yml",
             )
         (requiredPublicFiles - inventory.toSet()).sorted().forEach { relative ->
             findings += "$relative: required public repository file is missing"
@@ -320,14 +315,10 @@ private class FoundationBoundaryAudit(
                 "docs",
                 "docs/decisions",
                 "docs/qualification",
-                ".github",
-                ".github/workflows",
             ) ||
             normalized.startsWith("spec/harvestcircle_mvp_v1/") ||
             normalized.startsWith("docs/decisions/") ||
-            normalized.startsWith("docs/qualification/") ||
-            normalized == ".github/workflows/source.yml" ||
-            normalized == ".github/workflows/package.yml"
+            normalized.startsWith("docs/qualification/")
 
     private fun isText(relative: String): Boolean {
         val path = Path.of(relative)
