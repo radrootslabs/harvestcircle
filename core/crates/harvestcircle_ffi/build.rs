@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use harvestcircle_product::{parser as product_manifest, provenance as source_provenance};
 use quote::ToTokens;
 use sha2::{Digest, Sha256};
 use syn::{ImplItem, Item, Visibility};
@@ -231,23 +232,26 @@ fn validate_baseline_inputs(baseline: &BTreeMap<String, String>) {
         env!("CARGO_PKG_VERSION")
     );
 
+    let product_source =
+        fs::read_to_string(PRODUCT_MANIFEST_PATH).expect("read product manifest as UTF-8");
     let product_digest =
-        hex_digest(&fs::read(PRODUCT_MANIFEST_PATH).expect("read product manifest"));
+        product_manifest::digest(&product_source).expect("canonicalize product manifest");
     assert_eq!(
         required(baseline, "product.coordinate_digest"),
         product_digest
     );
-    let provenance = fs::read(SOURCE_PROVENANCE_PATH).expect("read source provenance");
+    let provenance_source =
+        fs::read_to_string(SOURCE_PROVENANCE_PATH).expect("read source provenance as UTF-8");
+    let provenance =
+        source_provenance::parse(&provenance_source).expect("canonicalize source provenance");
     assert_eq!(
         required(baseline, "source.provenance_digest"),
-        hex_digest(&provenance)
+        provenance.digest()
     );
-    let provenance = String::from_utf8(provenance).expect("source provenance is UTF-8");
-    let foundation = format!(
-        "foundation_baseline = \"{}\"",
+    assert_eq!(
+        provenance.foundation_baseline(),
         required(baseline, "source.foundation_baseline")
     );
-    assert!(provenance.lines().any(|line| line == foundation));
 
     let current_migration = fs::read_dir("../harvestcircle_storage/migrations")
         .expect("read migration catalog")

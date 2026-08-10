@@ -33,6 +33,12 @@ val verifyProductCoordinates by tasks.registering(VerifyProductCoordinates::clas
     )
 }
 
+val verifyCompatibilityBaseline by tasks.registering {
+    group = "verification"
+    description = "Validates the generated-code and native compatibility baseline."
+    dependsOn(verifyProductCoordinates)
+}
+
 val verifyVerificationLanes by tasks.registering(VerifyVerificationLanes::class) {
     group = "verification"
     description = "Validates forge-agnostic verification lanes and least-privilege policy."

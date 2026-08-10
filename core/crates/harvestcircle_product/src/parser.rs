@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use sha2::{Digest, Sha256};
+
 pub const REQUIRED: &[(&str, &str)] = &[
     ("schema", "harvestcircle.product.v1"),
     ("product.name", "HarvestCircle"),
@@ -24,6 +26,9 @@ pub const REQUIRED: &[(&str, &str)] = &[
 ];
 
 pub fn parse(source: &str) -> Result<BTreeMap<String, String>, String> {
+    if source.starts_with('\u{feff}') {
+        return Err("product coordinates must not contain a UTF-8 BOM".to_owned());
+    }
     let mut parsed = BTreeMap::new();
     for (index, raw) in source.lines().enumerate() {
         let line = raw.trim();
@@ -35,7 +40,11 @@ pub fn parse(source: &str) -> Result<BTreeMap<String, String>, String> {
             .ok_or_else(|| format!("line {} is not key=value", index + 1))?;
         let key = key.trim();
         let value = value.trim();
-        if key.is_empty() || value.is_empty() || value.chars().any(char::is_control) {
+        if key.is_empty()
+            || value.is_empty()
+            || key.chars().any(char::is_control)
+            || value.chars().any(char::is_control)
+        {
             return Err(format!("line {} has an invalid key or value", index + 1));
         }
         if !REQUIRED.iter().any(|(required, _)| *required == key) {
@@ -57,4 +66,24 @@ pub fn parse(source: &str) -> Result<BTreeMap<String, String>, String> {
         }
     }
     Ok(parsed)
+}
+
+pub fn canonicalize(source: &str) -> Result<String, String> {
+    let parsed = parse(source)?;
+    let mut canonical = String::new();
+    for (key, _) in REQUIRED {
+        canonical.push_str(key);
+        canonical.push('=');
+        canonical.push_str(parsed.get(*key).expect("required coordinate was validated"));
+        canonical.push('\n');
+    }
+    Ok(canonical)
+}
+
+pub fn digest(source: &str) -> Result<String, String> {
+    let canonical = canonicalize(source)?;
+    Ok(Sha256::digest(canonical.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
 }

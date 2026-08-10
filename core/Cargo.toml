@@ -48,4 +48,5 @@ quote = { version = "1" }
 rustix = { version = "1", features = ["fs", "process", "std"] }
 sha2 = { version = "0.10", default-features = false }
 syn = { version = "2", features = ["full", "parsing", "visit", "visit-mut"] }
+toml = { version = "1.1.4" }
 uuid = { version = "1.22.0", features = ["v4", "v7"] }

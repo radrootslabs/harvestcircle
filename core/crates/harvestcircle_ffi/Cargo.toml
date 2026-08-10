@@ -27,6 +27,7 @@ tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "sync", 
 uniffi = "=0.32.0"
 
 [build-dependencies]
+harvestcircle_product.workspace = true
 quote.workspace = true
 sha2.workspace = true
 syn.workspace = true

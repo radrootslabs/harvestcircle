@@ -1,7 +1,6 @@
 package org.harvestcircle.gradle
 
 import java.io.File
-import java.security.MessageDigest
 
 class FfiCompatibilityBaseline private constructor(
     private val values: Map<String, String>,
@@ -61,11 +60,5 @@ class FfiCompatibilityBaseline private constructor(
             require(values.getValue("source.foundation_baseline").matches(Regex("[0-9a-f]{40}")))
             return FfiCompatibilityBaseline(values.toMap())
         }
-
-        fun digest(file: File): String =
-            MessageDigest
-                .getInstance("SHA-256")
-                .digest(file.readBytes())
-                .joinToString("") { byte -> "%02x".format(byte) }
     }
 }

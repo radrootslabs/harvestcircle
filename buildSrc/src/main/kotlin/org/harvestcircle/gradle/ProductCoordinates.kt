@@ -40,6 +40,7 @@ class ProductCoordinates private constructor(
         fun load(file: File): ProductCoordinates = parse(file.readText())
 
         fun parse(source: String): ProductCoordinates {
+            require(!source.startsWith('\uFEFF')) { "Product coordinates must not contain a UTF-8 BOM" }
             val parsed = linkedMapOf<String, String>()
             source.lineSequence().forEachIndexed { index, raw ->
                 val line = raw.trim()
@@ -49,7 +50,7 @@ class ProductCoordinates private constructor(
                 val key = line.substring(0, separator).trim()
                 val value = line.substring(separator + 1).trim()
                 require(key in required) { "Unknown product coordinate $key" }
-                require(value.isNotEmpty() && value.none(Char::isISOControl)) {
+                require(key.isNotEmpty() && key.none(Char::isISOControl) && value.isNotEmpty() && value.none(Char::isISOControl)) {
                     "Product coordinate $key is empty or contains a control character"
                 }
                 require(parsed.put(key, value) == null) { "Duplicate product coordinate $key" }
@@ -62,10 +63,16 @@ class ProductCoordinates private constructor(
                     "Product coordinate $key does not match the approved value"
                 }
             }
+            val canonical =
+                buildString {
+                    required.keys.forEach { key ->
+                        append(key).append('=').append(parsed.getValue(key)).append('\n')
+                    }
+                }
             val digest =
                 MessageDigest
                     .getInstance("SHA-256")
-                    .digest(source.toByteArray())
+                    .digest(canonical.toByteArray(Charsets.UTF_8))
                     .joinToString("") { byte -> "%02x".format(byte) }
             return ProductCoordinates(parsed.toMap(), digest)
         }
@@ -100,6 +107,19 @@ abstract class VerifyProductCoordinates : DefaultTask() {
         check(coordinates["product.name"] == "HarvestCircle")
         check(coordinates["desktop.application_id"] == "org.harvestcircle.desktop")
         check(coordinates.digest.matches(Regex("[0-9a-f]{64}")))
+        val equivalentSources =
+            listOf(
+                source.replace("\n", "\r\n"),
+                source.trimEnd(),
+                "# comment\n$source",
+                source.lineSequence().joinToString("\n") { line ->
+                    if (line.isBlank() || line.startsWith('#')) line else line.replaceFirst("=", " = ")
+                },
+            )
+        equivalentSources.forEach { equivalent ->
+            check(ProductCoordinates.parse(equivalent).digest == coordinates.digest)
+        }
+        check(runCatching { ProductCoordinates.parse("\uFEFF$source") }.isFailure)
         check(runCatching { ProductCoordinates.parse(source + "\nschema=harvestcircle.product.v1") }.isFailure)
         check(runCatching { ProductCoordinates.parse(source + "\nunknown=value") }.isFailure)
         check(runCatching { ProductCoordinates.parse(source.substringAfter('\n')) }.isFailure)
@@ -135,12 +155,32 @@ abstract class VerifyProductCoordinates : DefaultTask() {
             }.isFailure,
         )
         check(baseline["product.coordinate_digest"] == coordinates.digest)
-        val provenance = sourceProvenanceFile.get().asFile
-        check(baseline["source.provenance_digest"] == FfiCompatibilityBaseline.digest(provenance))
+        val provenanceSource = sourceProvenanceFile.get().asFile.readText()
+        val provenance = SourceProvenance.parse(provenanceSource)
+        check(baseline["source.provenance_digest"] == provenance.digest)
+        check(provenance.foundationBaseline == baseline["source.foundation_baseline"])
+        val equivalentProvenance =
+            listOf(
+                provenanceSource.replace("\n", "\r\n"),
+                provenanceSource.trimEnd(),
+                "# comment\n$provenanceSource",
+                provenanceSource.replace(
+                    "component = \"domain\"\ncommit = \"a4d7deebec3e2ce2c1daa455de6d79857839aed0\"",
+                    "commit = \"a4d7deebec3e2ce2c1daa455de6d79857839aed0\"\ncomponent = \"domain\"",
+                ),
+            )
+        equivalentProvenance.forEach { equivalent ->
+            check(SourceProvenance.parse(equivalent).digest == provenance.digest)
+        }
+        check(runCatching { SourceProvenance.parse("\uFEFF$provenanceSource") }.isFailure)
+        check(runCatching { SourceProvenance.parse("unknown = \"value\"\n$provenanceSource") }.isFailure)
         check(
-            provenance.readLines().contains(
-                "foundation_baseline = \"${baseline["source.foundation_baseline"]}\"",
-            ),
+            SourceProvenance.parse(
+                provenanceSource.replace(
+                    "a4d7deebec3e2ce2c1daa455de6d79857839aed0",
+                    "b4d7deebec3e2ce2c1daa455de6d79857839aed0",
+                ),
+            ).digest != provenance.digest,
         )
         val nativeCompatibility = nativeCompatibilityFile.get().asFile.readText()
         listOf(
