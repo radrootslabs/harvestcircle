@@ -208,7 +208,6 @@ public class HarvestCircleDesktopAppPlugin : Plugin<Project> {
         }
         target.tasks.named("check") { task ->
             task.dependsOn(target.rootProject.tasks.named("verifyProductCoordinates"))
-            task.dependsOn(target.rootProject.tasks.named("verifyProductCoordinateConsumers"))
             task.dependsOn(verify)
         }
     }

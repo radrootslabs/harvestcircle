@@ -3,6 +3,7 @@
 GRADLE ?= ./gradlew
 CARGO ?= cargo
 CARGO_MANIFEST := core/Cargo.toml
+XTASK_MANIFEST := tools/xtask/Cargo.toml
 EXTBUILD ?= $(if $(shell cargo extbuild --version 2>/dev/null),cargo extbuild run --)
 
 .PHONY: help doctor lock metadata build-logic-check format format-fix lint test check build bindings dev run audit licenses foundation-check package host-package-check governed-package-check source-check package-check signing-check notarization-check release-check clean
@@ -18,6 +19,7 @@ doctor:
 
 lock: doctor
 	$(EXTBUILD) $(CARGO) generate-lockfile --manifest-path $(CARGO_MANIFEST)
+	$(EXTBUILD) $(CARGO) generate-lockfile --manifest-path $(XTASK_MANIFEST)
 
 metadata: doctor
 	$(EXTBUILD) $(CARGO) metadata --manifest-path $(CARGO_MANIFEST) --locked --format-version 1 --no-deps
@@ -27,18 +29,22 @@ build-logic-check: doctor
 
 format: doctor
 	$(EXTBUILD) $(CARGO) fmt --manifest-path $(CARGO_MANIFEST) --all -- --check
+	$(EXTBUILD) $(CARGO) fmt --manifest-path $(XTASK_MANIFEST) --all -- --check
 	$(EXTBUILD) $(GRADLE) --no-daemon :app:shared:ktlintCheck :app:desktop:ktlintCheck
 
 format-fix: doctor
 	$(EXTBUILD) $(CARGO) fmt --manifest-path $(CARGO_MANIFEST) --all
+	$(EXTBUILD) $(CARGO) fmt --manifest-path $(XTASK_MANIFEST) --all
 	$(EXTBUILD) $(GRADLE) --no-daemon :app:shared:ktlintFormat :app:desktop:ktlintFormat
 
 lint: doctor
 	$(EXTBUILD) $(CARGO) clippy --manifest-path $(CARGO_MANIFEST) --workspace --all-targets --locked -- -D warnings
+	$(EXTBUILD) $(CARGO) clippy --manifest-path $(XTASK_MANIFEST) --all-targets --locked -- -D warnings
 	$(EXTBUILD) $(GRADLE) --no-daemon :app:shared:detektCommonMainSourceSet :app:shared:detektCommonTestSourceSet :app:desktop:detekt
 
 test: doctor
 	$(EXTBUILD) $(CARGO) test --manifest-path $(CARGO_MANIFEST) --workspace --locked
+	$(EXTBUILD) $(CARGO) test --manifest-path $(XTASK_MANIFEST) --locked
 	$(EXTBUILD) $(GRADLE) --no-daemon :app:shared:desktopTest :app:desktop:test
 
 check: format lint test foundation-check
@@ -67,7 +73,7 @@ licenses: doctor
 	$(EXTBUILD) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:checkLicense
 
 foundation-check: doctor
-	$(EXTBUILD) $(GRADLE) --no-daemon :verifyFoundationBoundaries :verifyFoundationArchive
+	$(EXTBUILD) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- qualification-report
 
 package: check
 	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:verifyHostPackage

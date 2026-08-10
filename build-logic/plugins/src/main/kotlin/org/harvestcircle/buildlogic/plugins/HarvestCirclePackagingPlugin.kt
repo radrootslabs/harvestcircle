@@ -236,8 +236,6 @@ public class HarvestCirclePackagingPlugin : Plugin<Project> {
                 task.dependsOn(
                     ":verifyProductCoordinates",
                     ":verifyVerificationLanes",
-                    ":verifyFoundationBoundaries",
-                    ":verifyFoundationArchive",
                     ":app:shared:check",
                     "check",
                     "verifyUniFfiBindings",
