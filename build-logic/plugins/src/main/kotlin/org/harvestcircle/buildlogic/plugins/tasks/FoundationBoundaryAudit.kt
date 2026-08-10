@@ -273,7 +273,7 @@ private class FoundationBoundaryAudit(
             findings += "core/compatibility/harvestcircle-ffi-v4.properties: FFI v4 identity changed"
         }
         val sharedBuild = text("app/shared/build.gradle.kts")
-        if (Regex("(?m)^\\s*jvm\\(\"desktop\"\\)").findAll(sharedBuild).count() != 1 ||
+        if (!sharedBuild.contains("id(\"org.harvestcircle.build.kmp-shared\")") ||
             listOf("androidTarget", "iosArm", "iosX", "js(", "wasm").any(sharedBuild::contains)
         ) {
             findings += "app/shared/build.gradle.kts: shared KMP target boundary changed"

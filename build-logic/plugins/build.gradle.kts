@@ -12,6 +12,11 @@ kotlin {
 
 dependencies {
     implementation(project(":contracts"))
+    implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:${libs.versions.kotlin.get()}")
+    implementation("org.jetbrains.kotlin:compose-compiler-gradle-plugin:${libs.versions.kotlin.get()}")
+    implementation("org.jetbrains.compose:compose-gradle-plugin:${libs.versions.compose.get()}")
+    implementation("dev.detekt:detekt-gradle-plugin:${libs.versions.detekt.get()}")
+    implementation("org.jlleitschuh.gradle:ktlint-gradle:${libs.versions.ktlint.get()}")
     testImplementation(kotlin("test"))
 }
 

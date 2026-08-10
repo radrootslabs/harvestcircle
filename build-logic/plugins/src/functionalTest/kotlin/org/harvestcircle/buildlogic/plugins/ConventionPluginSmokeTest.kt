@@ -23,8 +23,14 @@ class ConventionPluginSmokeTest {
 
         pluginIds.forEach { pluginId ->
             val fixture = temporaryDirectory.resolve(pluginId.substringAfterLast('.')).createDirectories()
-            fixture.resolve("settings.gradle.kts").writeText("rootProject.name = \"fixture\"\n")
-            fixture.resolve("build.gradle.kts").writeText("plugins { id(\"$pluginId\") }\n")
+            fixture.resolve("settings.gradle.kts").writeText(
+                "pluginManagement { repositories { gradlePluginPortal(); mavenCentral() } }\nrootProject.name = \"fixture\"\n",
+            )
+            if (pluginId == "org.harvestcircle.build.kmp-shared") {
+                fixture.resolve("gradle").createDirectories().resolve("libs.versions.toml").writeText(kmpCatalog)
+            }
+            val pluginBlock = if (pluginId == "org.harvestcircle.build.kmp-shared") kmpPlugins else "id(\"$pluginId\")"
+            fixture.resolve("build.gradle.kts").writeText("plugins { $pluginBlock }\n")
 
             val runner =
                 GradleRunner.create()
@@ -61,4 +67,47 @@ class ConventionPluginSmokeTest {
         assertTrue(failure is UnexpectedBuildFailure)
         assertTrue(failure.message.orEmpty().contains("may only be applied to the root project"))
     }
+
+    @Test
+    fun sharedPluginRejectsPlatformDependenciesFromCommonSources() {
+        val fixture = createTempDirectory("harvestcircle-shared-plugin-")
+        fixture.resolve("settings.gradle.kts").writeText(
+            "pluginManagement { repositories { gradlePluginPortal(); mavenCentral() } }\nrootProject.name = \"fixture\"\n",
+        )
+        fixture.resolve("gradle").createDirectories().resolve("libs.versions.toml").writeText(kmpCatalog)
+        fixture.resolve("build.gradle.kts").writeText("plugins { id(\"org.harvestcircle.build.kmp-shared\") }\n")
+        fixture.resolve("src/commonMain/kotlin").createDirectories().resolve("Leak.kt").writeText(
+            "package fixture\nimport org.harvestcircle.ffi.BuildInfoDto\n",
+        )
+
+        val result =
+            GradleRunner.create()
+                .withProjectDir(fixture.toFile())
+                .withPluginClasspath()
+                .withArguments("verifySharedBoundary", "--stacktrace")
+                .buildAndFail()
+
+        assertTrue(result.output.contains("prohibited common-source dependency"), result.output)
+    }
+
+    private val kmpCatalog =
+        """
+        [versions]
+        kotlin = "2.4.10"
+        compose = "1.11.1"
+        coroutines = "1.9.0"
+
+        [libraries]
+        compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose" }
+        compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose" }
+        compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose" }
+        compose-ui-test-junit4 = { module = "org.jetbrains.compose.ui:ui-test-junit4", version.ref = "compose" }
+        kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+        kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+        """.trimIndent() + "\n"
+
+    private val kmpPlugins =
+        """
+        id("org.harvestcircle.build.kmp-shared")
+        """.trimIndent()
 }

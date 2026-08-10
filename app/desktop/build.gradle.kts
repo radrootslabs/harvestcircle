@@ -31,11 +31,11 @@ import java.security.MessageDigest
 import java.util.jar.JarFile
 
 plugins {
-    alias(libs.plugins.kotlin.jvm)
-    alias(libs.plugins.compose.multiplatform)
-    alias(libs.plugins.compose.compiler)
-    alias(libs.plugins.detekt)
-    alias(libs.plugins.ktlint)
+    id("org.jetbrains.kotlin.jvm")
+    id("org.jetbrains.compose")
+    id("org.jetbrains.kotlin.plugin.compose")
+    id("dev.detekt")
+    id("org.jlleitschuh.gradle.ktlint")
     alias(libs.plugins.license.report)
     alias(libs.plugins.owasp.dependency.check)
 }
