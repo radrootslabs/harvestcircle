@@ -47,6 +47,10 @@ The durable product contract is under:
 spec/harvestcircle_mvp_v1/
 ```
 
+Accepted architecture and tooling decisions are under `docs/decisions/`,
+including the [direct rust-nostr transport decision](docs/decisions/ADR-0011-direct-rust-nostr-transport.md)
+and the [Detekt compatibility exception](docs/decisions/ADR-0012-detekt-tooling-exception.md).
+
 ## Security
 
 Do not submit secret keys, nsec values, signer secrets, or decrypted private
