@@ -9,8 +9,8 @@ mod parser;
 mod tests {
     use super::parser::{REQUIRED, parse};
     use super::{
-        DESKTOP_APPLICATION_ID, FFI_CDYLIB_NAME, KOTLIN_ROOT_NAMESPACE, PRODUCT_COORDINATE_DIGEST,
-        PRODUCT_NAME,
+        DESKTOP_APPLICATION_ID, DEVELOPMENT_DATA_DIR_ENVIRONMENT, FFI_CDYLIB_NAME,
+        KOTLIN_ROOT_NAMESPACE, PRODUCT_COORDINATE_DIGEST, PRODUCT_NAME,
     };
 
     #[test]
@@ -19,6 +19,10 @@ mod tests {
         assert_eq!(KOTLIN_ROOT_NAMESPACE, "org.harvestcircle");
         assert_eq!(DESKTOP_APPLICATION_ID, "org.harvestcircle.desktop");
         assert_eq!(FFI_CDYLIB_NAME, "harvestcircle_ffi");
+        assert_eq!(
+            DEVELOPMENT_DATA_DIR_ENVIRONMENT,
+            "HARVESTCIRCLE_DEVELOPMENT_DATA_DIR"
+        );
         assert_eq!(PRODUCT_COORDINATE_DIGEST.len(), 64);
         assert!(
             PRODUCT_COORDINATE_DIGEST

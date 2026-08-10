@@ -12,6 +12,9 @@ val verifyProductCoordinates by tasks.registering(VerifyProductCoordinates::clas
     group = "verification"
     description = "Validates the canonical HarvestCircle product-coordinate authority."
     manifestFile.set(productCoordinatesFile)
+    uniFfiConfigFile.set(
+        layout.projectDirectory.file("core/crates/harvestcircle_ffi/uniffi.toml"),
+    )
 }
 
 providers.environmentVariable("EXT_BUILD_GRADLE_BUILD_DIR").orNull?.let { extBuildGradleRoot ->

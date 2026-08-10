@@ -77,6 +77,10 @@ abstract class VerifyProductCoordinates : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val manifestFile: RegularFileProperty
 
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val uniFfiConfigFile: RegularFileProperty
+
     @TaskAction
     fun verify() {
         val source = manifestFile.get().asFile.readText()
@@ -93,6 +97,18 @@ abstract class VerifyProductCoordinates : DefaultTask() {
                     source.replace("product.slug=harvestcircle", "product.slug=other"),
                 )
             }.isFailure,
+        )
+
+        val uniFfiConfig = uniFfiConfigFile.get().asFile.readText()
+        check(
+            uniFfiConfig.contains(
+                "package_name = \"${coordinates["ffi.kotlin_package"]}\"",
+            ),
+        )
+        check(
+            uniFfiConfig.contains(
+                "cdylib_name = \"${coordinates["ffi.cdylib_name"]}\"",
+            ),
         )
     }
 }

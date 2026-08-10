@@ -3,6 +3,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use harvestcircle_domain::{SafeError, SafeErrorCode, SafeMessage};
+use harvestcircle_product::DATABASE_FILENAME;
 use hmac::{Hmac, Mac};
 use rusqlite::{Connection, MAIN_DB, OpenFlags};
 use sha2::{Digest, Sha256};
@@ -142,7 +143,7 @@ pub(crate) fn install_candidate(
         return Err(storage_error());
     }
     copy_secure(&candidate.path, &replacement)?;
-    let retained = parent.join("harvestcircle.sqlite3.quarantined-evidence");
+    let retained = parent.join(format!("{DATABASE_FILENAME}.quarantined-evidence"));
     if retained.try_exists().map_err(|_| storage_error())? {
         let _ = fs::remove_file(&replacement);
         return Err(storage_error());

@@ -23,7 +23,7 @@ Product-owned names use the HarvestCircle identity consistently:
 - Human-facing product name: `HarvestCircle`.
 - Rust crate directories, Cargo packages, and dependency keys:
   `harvestcircle_*`.
-- Kotlin source namespace: `org.radroots.harvestcircle`.
+- Kotlin source namespace: `org.harvestcircle`.
 - Product-owned Kotlin and UniFFI types: `HarvestCircle*`.
 - Product-owned environment variables: `HARVESTCIRCLE_*`.
 
@@ -41,9 +41,9 @@ local artifacts, absolute host paths, or an enclosing monorepo layout.
 - `core/Cargo.toml`, `core/Cargo.lock`, `core/rust-toolchain.toml`, and the
   product crates under `core/crates/**` own the Rust workspace inputs.
 - Gradle settings, build scripts, the version catalog, wrapper properties,
-  policy configuration, and `core/compatibility/v5-baseline.properties` own
-  the desktop build, dependency, compatibility, and package inputs. Kotlin and
-  Rust source and tests are implementation evidence.
+  policy configuration, and `config/product/harvestcircle-v1.properties` own
+  the desktop build, dependency, product-coordinate, and package inputs.
+  Kotlin and Rust source and tests are implementation evidence.
 - `gradlew`, `gradlew.bat`, and `gradle/wrapper/gradle-wrapper.jar` are
   checked-in command implementation and supply-chain inputs, not policy
   authority. Review them with `gradle-wrapper.properties`; keep the launcher,

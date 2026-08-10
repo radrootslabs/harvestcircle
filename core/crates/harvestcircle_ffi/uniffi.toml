@@ -1,3 +1,3 @@
 [crates.harvestcircle_ffi.bindings.kotlin]
-package_name = "org.radroots.harvestcircle.ffi"
+package_name = "org.harvestcircle.ffi"
 cdylib_name = "harvestcircle_ffi"

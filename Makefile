@@ -49,7 +49,7 @@ bindings: doctor
 	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:verifyUniFfiBindings :app:desktop:verifyReleaseNativeLibrary
 
 dev: doctor
-	$(EXTBUILD) $(GRADLE) :app:desktop:hotRun --mainClass org.radroots.harvestcircle.desktop.MainKt
+	$(EXTBUILD) $(GRADLE) :app:desktop:hotRun
 
 run: doctor
 	$(EXTBUILD) $(GRADLE) :app:desktop:run

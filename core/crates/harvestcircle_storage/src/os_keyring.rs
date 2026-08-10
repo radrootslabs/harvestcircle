@@ -2,10 +2,11 @@ use std::sync::{Mutex, MutexGuard};
 
 use harvestcircle_application::SecretStore;
 use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput};
+use harvestcircle_product::KEYRING_SERVICE;
 use keyring::{Entry, Error as KeyringError};
 use zeroize::Zeroizing;
 
-pub const CREDENTIAL_SERVICE: &str = "org.radroots.harvestcircle.nostr";
+pub const CREDENTIAL_SERVICE: &str = KEYRING_SERVICE;
 
 #[derive(Default)]
 pub struct OsKeyringSecretStore {
@@ -109,7 +110,7 @@ mod tests {
         let public_key =
             PublicKey::from_hex("7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7")
                 .expect("valid public key");
-        assert_eq!(CREDENTIAL_SERVICE, "org.radroots.harvestcircle.nostr");
+        assert_eq!(CREDENTIAL_SERVICE, "org.harvestcircle.desktop.nostr");
         assert_eq!(
             public_key.to_hex(),
             "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7"

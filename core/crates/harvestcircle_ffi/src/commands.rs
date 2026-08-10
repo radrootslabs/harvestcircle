@@ -13,6 +13,10 @@ use harvestcircle_application::{
 };
 use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
 use harvestcircle_nostr::SdkNostrClient;
+use harvestcircle_product::{
+    DATABASE_APPLICATION, DATABASE_FILENAME, DATABASE_ORGANIZATION, DATABASE_QUALIFIER,
+    DEVELOPMENT_DATA_DIR_ENVIRONMENT,
+};
 use harvestcircle_runtime::{
     RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,
 };
@@ -27,11 +31,6 @@ use crate::{
     dto::error_policy,
 };
 
-const DATABASE_QUALIFIER: &str = "org";
-const DATABASE_ORGANIZATION: &str = "radroots";
-const DATABASE_APPLICATION: &str = "harvestcircle";
-const DATABASE_FILENAME: &str = "harvestcircle.sqlite3";
-const DEVELOPMENT_DATA_DIR_ENVIRONMENT: &str = "HARVESTCIRCLE_DEVELOPMENT_DATA_DIR";
 pub(crate) const ACTOR_MAILBOX_CAPACITY: usize = 64;
 const MAX_COMMAND_DEADLINE_MILLIS: u64 = 30_000;
 
@@ -722,9 +721,9 @@ mod tests {
     use super::{
         ACTOR_MAILBOX_CAPACITY, CompatibilityExpectation, DATABASE_APPLICATION, DATABASE_FILENAME,
         DATABASE_ORGANIZATION, DATABASE_QUALIFIER, FFI_CONTRACT_HASH, FFI_CONTRACT_MAJOR,
-        FFI_CONTRACT_MINOR, HarvestCircleAppCore, HarvestCircleError, RequestContextDto,
-        RuntimeCore, SystemClock, WireErrorCategory, WireErrorCode, WireRecoveryAction,
-        actor_mailbox_capacity, compatibility_descriptor, confirmation_expired,
+        FFI_CONTRACT_MINOR, HarvestCircleAppCore, HarvestCircleError, ProjectDirs,
+        RequestContextDto, RuntimeCore, SystemClock, WireErrorCategory, WireErrorCode,
+        WireRecoveryAction, actor_mailbox_capacity, compatibility_descriptor, confirmation_expired,
         generated_commit_failed, local_first_relay_configuration, path_unavailable, runtime,
         runtime_unavailable, verify_compatibility,
     };
@@ -1060,34 +1059,23 @@ mod tests {
     }
 
     #[test]
-    fn v5_compatibility_fixture_preserves_external_coordinates() {
-        let fixture = include_str!("../../../compatibility/v5-baseline.properties");
-        let property = |key: &str| {
-            fixture.lines().find_map(|line| {
-                line.split_once('=')
-                    .filter(|(candidate, _)| *candidate == key)
-                    .map(|(_, value)| value)
-            })
-        };
+    fn final_product_coordinates_do_not_adopt_the_temporary_namespace() {
+        assert_eq!(DATABASE_QUALIFIER, "org");
+        assert_eq!(DATABASE_ORGANIZATION, "harvestcircle");
+        assert_eq!(DATABASE_APPLICATION, "desktop");
+        assert_eq!(DATABASE_FILENAME, "harvestcircle.sqlite3");
+        assert_eq!(CREDENTIAL_SERVICE, "org.harvestcircle.desktop.nostr");
 
-        assert_eq!(property("baseline.id"), Some("harvestcircle-runtime-v5"));
-        assert_eq!(property("schema.version"), Some("5"));
+        let current = ProjectDirs::from(
+            DATABASE_QUALIFIER,
+            DATABASE_ORGANIZATION,
+            DATABASE_APPLICATION,
+        )
+        .expect("current product coordinates");
+        let temporary =
+            ProjectDirs::from("org", "radroots", "harvestcircle").expect("temporary coordinates");
+        assert_ne!(current.data_dir(), temporary.data_dir());
         assert_eq!(CURRENT_SCHEMA_VERSION, 10);
-        assert_eq!(property("ffi.contract"), Some("legacy-unversioned-v1"));
-        assert_eq!(property("ffi.snapshot.schema"), Some("1"));
-        assert_eq!(property("ffi.runtime.version"), Some("0.1.0-alpha"));
-        assert_eq!(property("database.qualifier"), Some(DATABASE_QUALIFIER));
-        assert_eq!(
-            property("database.organization"),
-            Some(DATABASE_ORGANIZATION)
-        );
-        assert_eq!(property("database.application"), Some(DATABASE_APPLICATION));
-        assert_eq!(property("database.filename"), Some(DATABASE_FILENAME));
-        assert_eq!(property("keyring.service"), Some(CREDENTIAL_SERVICE));
-        assert_eq!(
-            property("keyring.account"),
-            Some("canonical-lowercase-public-key-hex")
-        );
     }
 
     #[test]

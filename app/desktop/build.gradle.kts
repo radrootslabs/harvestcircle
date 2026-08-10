@@ -16,11 +16,11 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.tasks.Jar
+import org.harvestcircle.gradle.ProductCoordinates
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.File
-import java.util.Properties
 import java.util.jar.JarFile
 
 plugins {
@@ -106,28 +106,25 @@ fun workspacePackageValue(key: String): String {
         ?: throw GradleException("Cargo workspace package metadata is missing $key")
 }
 
-val compatibilityBaseline = rootProject.layout.projectDirectory.file("core/compatibility/v5-baseline.properties")
+val productCoordinatesFile =
+    rootProject.layout.projectDirectory.file("config/product/harvestcircle-v1.properties")
+val productCoordinates =
+    ProductCoordinates.parse(providers.fileContents(productCoordinatesFile).asText.get())
 val appVersion = workspacePackageValue("version")
 val macOsBuildVersion = "1"
-val baseline =
-    Properties().apply {
-        compatibilityBaseline.asFile.inputStream().use(::load)
-    }
-
-fun baselineValue(key: String): String =
-    baseline.getProperty(key)?.takeIf(String::isNotBlank)
-        ?: throw GradleException("Compatibility baseline is missing $key")
-
-check(baselineValue("ffi.runtime.version") == appVersion) {
-    "Compatibility runtime version must match the Cargo workspace version"
-}
-val installableVersion = baselineValue("package.version")
+val installableVersion = "1.0.0"
 check(Regex("""[1-9]\d*(\.\d+){0,2}""").matches(installableVersion)) {
-    "Compatibility package version must satisfy the macOS jpackage contract"
+    "Package version must satisfy the macOS jpackage contract"
 }
-val applicationName = baselineValue("package.name")
-val bundleId = baselineValue("package.bundle_id")
-val applicationNamespace = baselineValue("source.namespace")
+val applicationName = productCoordinates["product.name"]
+val bundleId = productCoordinates["desktop.bundle_id"]
+val desktopMainClass = productCoordinates["desktop.main_class"]
+val ffiKotlinPackage = productCoordinates["ffi.kotlin_package"]
+val developmentDataDirectoryEnvironment =
+    productCoordinates["environment.prefix"] + "DEVELOPMENT_DATA_DIR"
+val copyrightNotice = productCoordinates["copyright.notice"]
+val vendorName = productCoordinates["vendor.name"]
+group = productCoordinates["desktop.application_id"]
 version = appVersion
 
 val rustSources =
@@ -150,29 +147,35 @@ data class NativeTarget(
 fun resolveNativeTarget(
     osName: String,
     architecture: String,
+    cdylibName: String,
 ): NativeTarget {
     val os = osName.lowercase()
     val arch = architecture.lowercase()
     return when {
         os.startsWith("mac") && arch in setOf("aarch64", "arm64") ->
-            NativeTarget("libharvestcircle_ffi.dylib", "darwin-aarch64")
+            NativeTarget("lib$cdylibName.dylib", "darwin-aarch64")
         os.startsWith("mac") && arch in setOf("x86_64", "amd64") ->
-            NativeTarget("libharvestcircle_ffi.dylib", "darwin-x86-64")
+            NativeTarget("lib$cdylibName.dylib", "darwin-x86-64")
         os.startsWith("windows") && arch in setOf("aarch64", "arm64") ->
-            NativeTarget("harvestcircle_ffi.dll", "win32-aarch64")
+            NativeTarget("$cdylibName.dll", "win32-aarch64")
         os.startsWith("windows") && arch in setOf("x86_64", "amd64") ->
-            NativeTarget("harvestcircle_ffi.dll", "win32-x86-64")
+            NativeTarget("$cdylibName.dll", "win32-x86-64")
         os.startsWith("linux") && arch in setOf("aarch64", "arm64") ->
-            NativeTarget("libharvestcircle_ffi.so", "linux-aarch64")
+            NativeTarget("lib$cdylibName.so", "linux-aarch64")
         os.startsWith("linux") && arch in setOf("x86_64", "amd64") ->
-            NativeTarget("libharvestcircle_ffi.so", "linux-x86-64")
+            NativeTarget("lib$cdylibName.so", "linux-x86-64")
         else -> throw GradleException("Unsupported native desktop host: $osName/$architecture")
     }
 }
 
 val nativeOsName = providers.gradleProperty("nativeOs").getOrElse(System.getProperty("os.name"))
 val nativeArchitecture = providers.gradleProperty("nativeArch").getOrElse(System.getProperty("os.arch"))
-val nativeTarget = resolveNativeTarget(nativeOsName, nativeArchitecture)
+val nativeTarget =
+    resolveNativeTarget(
+        nativeOsName,
+        nativeArchitecture,
+        productCoordinates["ffi.cdylib_name"],
+    )
 val isMacOsHost = nativeOsName.lowercase().startsWith("mac")
 val isLinuxHost = nativeOsName.lowercase().startsWith("linux")
 val isWindowsHost = nativeOsName.lowercase().startsWith("windows")
@@ -270,7 +273,7 @@ abstract class VerifyUniFfiBindings : DefaultTask() {
 val verifyUniFfiBindings by tasks.registering(VerifyUniFfiBindings::class) {
     dependsOn(generateUniFfiKotlin)
     generatedDirectory.set(generatedUniFfiKotlin)
-    expectedPackage.set("org.radroots.harvestcircle.ffi")
+    expectedPackage.set(ffiKotlinPackage)
 }
 val cleanReleaseNativeResources by tasks.registering(Delete::class) {
     delete(generatedReleaseNativeResources)
@@ -666,13 +669,16 @@ tasks.named("runKtlintFormatOverMainSourceSet") {
 }
 tasks.withType<Test>().configureEach {
     dependsOn(buildRustCoreDebug)
-    environment(
-        "HARVESTCIRCLE_DEVELOPMENT_DATA_DIR",
+    val nativeTestData =
         layout.buildDirectory
             .dir("native-test-data")
             .get()
-            .asFile.absolutePath,
+            .asFile.absolutePath
+    environment(
+        developmentDataDirectoryEnvironment,
+        nativeTestData,
     )
+    systemProperty("harvestcircle.development.data.dir", nativeTestData)
     systemProperty(
         "jna.library.path",
         rustDebugLibrary.parentFile.absolutePath,
@@ -695,7 +701,7 @@ compose.desktop {
         val desktopJar = tasks.named<Jar>("jar").flatMap { it.archiveFile }
         mainJar.set(desktopJar)
         fromFiles(desktopJar, configurations.runtimeClasspath, releaseNativeRuntimeJar)
-        mainClass = "$applicationNamespace.desktop.MainKt"
+        mainClass = desktopMainClass
 
         if (isMacOsHost) {
             jvmArgs +=
@@ -718,8 +724,8 @@ compose.desktop {
             packageName = applicationName
             packageVersion = installableVersion
             description = "HarvestCircle $appVersion"
-            copyright = "Copyright © 2024 Radroots, Inc."
-            vendor = "Radroots, Inc"
+            copyright = copyrightNotice
+            vendor = vendorName
 
             macOS {
                 bundleID = bundleId

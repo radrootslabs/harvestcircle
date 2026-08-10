@@ -34,6 +34,17 @@ fn main() {
         "pub const PRODUCT_COORDINATE_DIGEST: &str = {digest:?};"
     )
     .expect("write coordinate digest");
+    writeln!(
+        generated,
+        "pub const DEVELOPMENT_DATA_DIR_ENVIRONMENT: &str = {:?};",
+        format!(
+            "{}DEVELOPMENT_DATA_DIR",
+            coordinates
+                .get("environment.prefix")
+                .expect("environment prefix")
+        )
+    )
+    .expect("write derived development environment coordinate");
 
     fs::write(out_file("product_coordinates.rs"), generated)
         .expect("write generated product coordinates");
