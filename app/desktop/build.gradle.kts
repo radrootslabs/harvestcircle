@@ -4,6 +4,7 @@ import org.gradle.api.GradleException
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Delete
 import org.gradle.api.tasks.Exec
@@ -22,6 +23,7 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.File
+import java.security.MessageDigest
 import java.util.jar.JarFile
 
 plugins {
@@ -195,8 +197,50 @@ val rustLibraryName = nativeTarget.libraryName
 val rustDebugLibrary = file(cargoTargetRoot).resolve("debug/$rustLibraryName")
 val rustReleaseLibrary = file(cargoTargetRoot).resolve("release/$rustLibraryName")
 val jnaPlatformPrefix = nativeTarget.jnaPrefix
+val buildSourceCommit = providers.environmentVariable("HARVESTCIRCLE_BUILD_SOURCE_COMMIT").orElse("unknown")
+val buildSourceDirty = providers.environmentVariable("HARVESTCIRCLE_BUILD_SOURCE_DIRTY").orElse("unknown")
+val buildRadrootsRevision = providers.environmentVariable("HARVESTCIRCLE_BUILD_RADROOTS_REVISION").orElse("unknown")
+val buildRustToolchain = providers.environmentVariable("HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN").orElse("1.97.1")
+val buildJavaToolchain = providers.environmentVariable("HARVESTCIRCLE_BUILD_JAVA_TOOLCHAIN").orElse(System.getProperty("java.version"))
+val buildKotlinToolchain = providers.environmentVariable("HARVESTCIRCLE_BUILD_KOTLIN_TOOLCHAIN").orElse(libs.versions.kotlin.get())
+val buildSourceDateEpoch = providers.environmentVariable("SOURCE_DATE_EPOCH").orElse("0")
+val buildProvenanceDigest =
+    providers.provider {
+        listOf(
+            "HARVESTCIRCLE_BUILD_SOURCE_COMMIT=${buildSourceCommit.get()}",
+            "HARVESTCIRCLE_BUILD_SOURCE_DIRTY=${buildSourceDirty.get()}",
+            "HARVESTCIRCLE_BUILD_RADROOTS_REVISION=${buildRadrootsRevision.get()}",
+            "HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN=${buildRustToolchain.get()}",
+            "HARVESTCIRCLE_BUILD_JAVA_TOOLCHAIN=${buildJavaToolchain.get()}",
+            "HARVESTCIRCLE_BUILD_KOTLIN_TOOLCHAIN=${buildKotlinToolchain.get()}",
+            "SOURCE_DATE_EPOCH=${buildSourceDateEpoch.get()}",
+        ).joinToString("\n").let { input ->
+            MessageDigest
+                .getInstance("SHA-256")
+                .digest(input.toByteArray(Charsets.UTF_8))
+                .joinToString("") { byte -> "%02x".format(byte) }
+        }
+    }
+
+fun Exec.injectBuildProvenance() {
+    environment("HARVESTCIRCLE_BUILD_SOURCE_COMMIT", buildSourceCommit.get())
+    environment("HARVESTCIRCLE_BUILD_SOURCE_DIRTY", buildSourceDirty.get())
+    environment("HARVESTCIRCLE_BUILD_RADROOTS_REVISION", buildRadrootsRevision.get())
+    environment("HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN", buildRustToolchain.get())
+    environment("HARVESTCIRCLE_BUILD_JAVA_TOOLCHAIN", buildJavaToolchain.get())
+    environment("HARVESTCIRCLE_BUILD_KOTLIN_TOOLCHAIN", buildKotlinToolchain.get())
+    environment("SOURCE_DATE_EPOCH", buildSourceDateEpoch.get())
+    inputs.property("buildSourceCommit", buildSourceCommit)
+    inputs.property("buildSourceDirty", buildSourceDirty)
+    inputs.property("buildRadrootsRevision", buildRadrootsRevision)
+    inputs.property("buildRustToolchain", buildRustToolchain)
+    inputs.property("buildJavaToolchain", buildJavaToolchain)
+    inputs.property("buildKotlinToolchain", buildKotlinToolchain)
+    inputs.property("buildSourceDateEpoch", buildSourceDateEpoch)
+}
 
 val buildRustCoreDebug by tasks.registering(Exec::class) {
+    injectBuildProvenance()
     workingDir(rustCoreSource)
     commandLine(
         "cargo",
@@ -212,6 +256,7 @@ val buildRustCoreDebug by tasks.registering(Exec::class) {
 }
 
 val buildRustCoreRelease by tasks.registering(Exec::class) {
+    injectBuildProvenance()
     workingDir(rustCoreSource)
     commandLine(
         "cargo",
@@ -308,6 +353,9 @@ abstract class VerifyReleaseNativeLibrary : DefaultTask() {
     @get:Input
     abstract val expectedName: Property<String>
 
+    @get:Input
+    abstract val expectedBuildEvidence: ListProperty<String>
+
     @TaskAction
     fun verify() {
         val files = stagedDirectory.asFileTree.files.filter { it.isFile }
@@ -320,6 +368,15 @@ abstract class VerifyReleaseNativeLibrary : DefaultTask() {
         if (!files.single().readBytes().contentEquals(releaseLibrary.get().asFile.readBytes())) {
             throw GradleException("Staged native library does not match the Cargo release artifact")
         }
+        val binary =
+            releaseLibrary
+                .get()
+                .asFile
+                .readBytes()
+                .toString(Charsets.ISO_8859_1)
+        expectedBuildEvidence.get().forEach { evidence ->
+            require(binary.contains(evidence)) { "Release native library is missing build provenance evidence" }
+        }
     }
 }
 val verifyReleaseNativeLibrary by tasks.registering(VerifyReleaseNativeLibrary::class) {
@@ -327,6 +384,7 @@ val verifyReleaseNativeLibrary by tasks.registering(VerifyReleaseNativeLibrary::
     releaseLibrary.set(rustReleaseLibrary)
     stagedDirectory.set(generatedReleaseNativeResources)
     expectedName.set(rustLibraryName)
+    expectedBuildEvidence.set(listOf(buildProvenanceDigest.get()))
 }
 val releaseNativeResourcesJar by tasks.registering(Jar::class) {
     dependsOn(verifyReleaseNativeLibrary)
@@ -803,8 +861,42 @@ val verifyMacOsNotarization by tasks.registering(VerifyMacOsNotarization::class)
     dependsOn(verifyMacOsPackage)
     diskImage.set(layout.buildDirectory.file("compose/binaries/main/dmg/$applicationName-$installableVersion.dmg"))
 }
+
+abstract class VerifyReleaseBuildProvenance : DefaultTask() {
+    @get:Input
+    abstract val sourceCommit: Property<String>
+
+    @get:Input
+    abstract val sourceDirty: Property<String>
+
+    @get:Input
+    abstract val radrootsRevision: Property<String>
+
+    @get:Input
+    abstract val sourceDateEpoch: Property<String>
+
+    @TaskAction
+    fun verify() {
+        require(Regex("[0-9a-f]{40}").matches(sourceCommit.get())) {
+            "Release source commit provenance is unknown or malformed"
+        }
+        require(sourceDirty.get() == "false") { "Release provenance reports a dirty or unknown source tree" }
+        require(Regex("[0-9a-f]{40}").matches(radrootsRevision.get())) {
+            "Release Radroots revision provenance is unknown or malformed"
+        }
+        require(sourceDateEpoch.get().toULongOrNull()?.let { it > 0UL } == true) {
+            "Release SOURCE_DATE_EPOCH provenance is unknown or malformed"
+        }
+    }
+}
+val verifyReleaseBuildProvenance by tasks.registering(VerifyReleaseBuildProvenance::class) {
+    sourceCommit.set(buildSourceCommit)
+    sourceDirty.set(buildSourceDirty)
+    radrootsRevision.set(buildRadrootsRevision)
+    sourceDateEpoch.set(buildSourceDateEpoch)
+}
 tasks.register("releaseReadiness") {
-    dependsOn("checkLicense", "dependencyCheckAnalyze", verifyHostPackage)
+    dependsOn("checkLicense", "dependencyCheckAnalyze", verifyHostPackage, verifyReleaseBuildProvenance)
     if (isMacOsHost) {
         dependsOn(verifyMacOsDeveloperIdSignature, verifyMacOsNotarization)
     }

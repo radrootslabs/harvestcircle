@@ -3,6 +3,7 @@ package org.harvestcircle.application
 import org.harvestcircle.ffi.ActiveIdentityDto
 import org.harvestcircle.ffi.AppLifecycleDto
 import org.harvestcircle.ffi.AppSnapshotDto
+import org.harvestcircle.ffi.BuildInfoDto
 import org.harvestcircle.ffi.HarvestCircleException
 import org.harvestcircle.ffi.IdentityCommandReceiptDto
 import org.harvestcircle.ffi.IdentityDto
@@ -19,6 +20,28 @@ import org.harvestcircle.ffi.SnapshotChangeDto
 import org.harvestcircle.ffi.WireErrorCategory
 import org.harvestcircle.ffi.WireErrorCode
 import org.harvestcircle.ffi.WireRecoveryAction
+
+internal fun BuildInfoDto.toBuildInfo(): BuildInfo =
+    BuildInfo(
+        sourceCommit = sourceCommit,
+        sourceDirty =
+            when (sourceDirty) {
+                "false" -> BuildDirtyState.Clean
+                "true" -> BuildDirtyState.Dirty
+                else -> BuildDirtyState.Unknown
+            },
+        radrootsRevision = radrootsRevision,
+        rustToolchain = rustToolchain,
+        javaToolchain = javaToolchain,
+        kotlinToolchain = kotlinToolchain,
+        provenanceDigest = provenanceDigest,
+        sourceDateEpoch = sourceDateEpoch,
+        ffiContractId = ffiContractId,
+        ffiContractHash = ffiContractHash,
+        snapshotSchemaVersion = snapshotSchemaVersion,
+        minimumStorageSchemaVersion = minimumStorageSchemaVersion,
+        currentStorageSchemaVersion = currentStorageSchemaVersion,
+    )
 
 internal fun RequestContext.toNative(): RequestContextDto =
     RequestContextDto(

@@ -200,6 +200,8 @@ private class FakePresenterRuntime(
     private val bootstrapGate: CompletableDeferred<Unit>? = null,
     private val executeGate: CompletableDeferred<Unit>? = null,
 ) : HarvestCircleRuntime {
+    override val buildInfo: BuildInfo = BuildInfo.unknown()
+
     private val changes = MutableSharedFlow<ApplicationChange>(extraBufferCapacity = 8)
     private var current = snapshot(0UL)
     var nextFailure: ApplicationProblem? = null

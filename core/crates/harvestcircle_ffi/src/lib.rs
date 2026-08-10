@@ -7,8 +7,9 @@ mod dto;
 mod observer;
 
 pub use commands::{
-    GeneratedRecoveryRequest, HarvestCircleAppCore, HarvestCircleError, IdentityCommandReceiptDto,
-    RelayBootstrapInputDto, RemovalRequest, RequestContextDto,
+    BuildInfoDto, GeneratedRecoveryRequest, HarvestCircleAppCore, HarvestCircleError,
+    IdentityCommandReceiptDto, RelayBootstrapInputDto, RemovalRequest, RequestContextDto,
+    build_info,
 };
 pub use contract::{
     DISTRIBUTION_PACKAGE_VERSION, FFI_CONTRACT_HASH, FFI_CONTRACT_ID, FFI_CONTRACT_MAJOR,
@@ -62,5 +63,23 @@ mod tests {
         assert!(!super::contract::NORMALIZED_CONTRACT_METADATA.is_empty());
         let operation_id = super::generate_operation_id_v7();
         assert!(harvestcircle_application::DurableRequestId::parse(operation_id).is_ok());
+        let build = super::build_info();
+        assert_eq!(build.ffi_contract_id, super::FFI_CONTRACT_ID);
+        assert_eq!(build.ffi_contract_hash, super::FFI_CONTRACT_HASH);
+        assert_eq!(build.provenance_digest.len(), 64);
+        assert_eq!(
+            build.current_storage_schema_version,
+            harvestcircle_storage::CURRENT_SCHEMA_VERSION
+        );
+        for value in [
+            build.source_commit,
+            build.radroots_revision,
+            build.rust_toolchain,
+            build.java_toolchain,
+            build.kotlin_toolchain,
+        ] {
+            assert!(!value.is_empty());
+            assert!(!value.contains(['\n', '\r']));
+        }
     }
 }

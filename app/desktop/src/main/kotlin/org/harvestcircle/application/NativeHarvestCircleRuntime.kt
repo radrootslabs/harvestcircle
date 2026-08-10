@@ -22,11 +22,14 @@ import org.harvestcircle.ffi.ShutdownReceiptDto
 import org.harvestcircle.ffi.SnapshotChangeDto
 import org.harvestcircle.ffi.compatibilityDescriptor
 import org.harvestcircle.ffi.generateOperationIdV7
+import org.harvestcircle.ffi.buildInfo as nativeBuildInfo
 
 class NativeHarvestCircleRuntime internal constructor(
     private val native: NativeCorePort,
     private val handleIds: NativeHandleIdSource = GeneratedNativeHandleIdSource,
 ) : HarvestCircleRuntime {
+    override val buildInfo: BuildInfo = nativeBuildInfo().toBuildInfo()
+
     private val recoveryMutex = Mutex()
     private val recoveryHandles = mutableMapOf<RecoveryRequestId, NativeGeneratedRecoveryHandle>()
     private val removalMutex = Mutex()

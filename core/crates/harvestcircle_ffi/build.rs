@@ -33,6 +33,17 @@ const BASELINE_KEYS: &[&str] = &[
 ];
 
 fn main() {
+    for name in [
+        "HARVESTCIRCLE_BUILD_SOURCE_COMMIT",
+        "HARVESTCIRCLE_BUILD_SOURCE_DIRTY",
+        "HARVESTCIRCLE_BUILD_RADROOTS_REVISION",
+        "HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN",
+        "HARVESTCIRCLE_BUILD_JAVA_TOOLCHAIN",
+        "HARVESTCIRCLE_BUILD_KOTLIN_TOOLCHAIN",
+        "SOURCE_DATE_EPOCH",
+    ] {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
     for source in CONTRACT_SOURCES {
         println!("cargo:rerun-if-changed={source}");
     }
@@ -100,12 +111,78 @@ fn main() {
         required(&baseline, "source.foundation_baseline"),
     );
     emit("HARVESTCIRCLE_FFI_CONTRACT_DIGEST", &contract_digest);
+    let mut build_provenance = Vec::new();
+    for (output, input, default) in [
+        (
+            "HARVESTCIRCLE_BUILD_SOURCE_COMMIT",
+            "HARVESTCIRCLE_BUILD_SOURCE_COMMIT",
+            "unknown",
+        ),
+        (
+            "HARVESTCIRCLE_BUILD_SOURCE_DIRTY",
+            "HARVESTCIRCLE_BUILD_SOURCE_DIRTY",
+            "unknown",
+        ),
+        (
+            "HARVESTCIRCLE_BUILD_RADROOTS_REVISION",
+            "HARVESTCIRCLE_BUILD_RADROOTS_REVISION",
+            "unknown",
+        ),
+        (
+            "HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN",
+            "HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN",
+            "1.97.1",
+        ),
+        (
+            "HARVESTCIRCLE_BUILD_JAVA_TOOLCHAIN",
+            "HARVESTCIRCLE_BUILD_JAVA_TOOLCHAIN",
+            "unknown",
+        ),
+        (
+            "HARVESTCIRCLE_BUILD_KOTLIN_TOOLCHAIN",
+            "HARVESTCIRCLE_BUILD_KOTLIN_TOOLCHAIN",
+            "unknown",
+        ),
+        (
+            "HARVESTCIRCLE_BUILD_SOURCE_DATE_EPOCH",
+            "SOURCE_DATE_EPOCH",
+            "0",
+        ),
+    ] {
+        let value = std::env::var(input).unwrap_or_else(|_| default.to_owned());
+        assert_build_value(input, &value);
+        emit(output, &value);
+        build_provenance.push(format!("{input}={value}"));
+    }
+    emit(
+        "HARVESTCIRCLE_BUILD_PROVENANCE_DIGEST",
+        &hex_digest(build_provenance.join("\n").as_bytes()),
+    );
     fs::write(
         PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"))
             .join("ffi_contract_metadata.txt"),
         normalized,
     )
     .expect("write normalized FFI metadata");
+}
+
+fn assert_build_value(name: &str, value: &str) {
+    assert!(!value.is_empty() && value.len() <= 128, "invalid {name}");
+    assert!(
+        value.bytes().all(|byte| byte.is_ascii_graphic()),
+        "invalid {name}"
+    );
+    if name == "HARVESTCIRCLE_BUILD_SOURCE_DIRTY" {
+        assert!(
+            matches!(value, "true" | "false" | "unknown"),
+            "invalid {name}"
+        );
+    }
+    if name == "SOURCE_DATE_EPOCH" {
+        let _: u64 = value
+            .parse()
+            .expect("SOURCE_DATE_EPOCH must be an unsigned integer");
+    }
 }
 
 fn parse_baseline(source: &str) -> BTreeMap<String, String> {

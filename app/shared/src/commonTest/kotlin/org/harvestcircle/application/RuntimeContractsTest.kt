@@ -8,6 +8,32 @@ import kotlin.test.assertTrue
 
 class RuntimeContractsTest {
     @Test
+    fun buildInfoRejectsUnknownAndDirtyReleaseInputsAndKeepsDiagnosticsSafe() {
+        val clean =
+            BuildInfo(
+                sourceCommit = "a".repeat(40),
+                sourceDirty = BuildDirtyState.Clean,
+                radrootsRevision = "b".repeat(40),
+                rustToolchain = "1.97.1",
+                javaToolchain = "21.0.11",
+                kotlinToolchain = "2.4.10",
+                provenanceDigest = "d".repeat(64),
+                sourceDateEpoch = 1_700_000_000UL,
+                ffiContractId = "harvestcircle-desktop-ffi-v4",
+                ffiContractHash = "c".repeat(64),
+                snapshotSchemaVersion = 1U,
+                minimumStorageSchemaVersion = 5U,
+                currentStorageSchemaVersion = 10U,
+            )
+        assertTrue(clean.releaseReady)
+        assertEquals("1700000000", clean.safeDiagnostics()["sourceDateEpoch"])
+        assertFalse(clean.safeDiagnostics().values.any { it.contains("nsec1") })
+        assertFalse(clean.copy(sourceDirty = BuildDirtyState.Dirty).releaseReady)
+        assertFalse(clean.copy(sourceCommit = UNKNOWN_PROVENANCE).releaseReady)
+        assertFalse(BuildInfo.unknown().releaseReady)
+    }
+
+    @Test
     fun identifiersAndCommandInputsValidateAndRedact() {
         val identityId = IdentityId.fromPublicKeyHex("01".repeat(32))
         assertEquals("01".repeat(32), identityId.value)

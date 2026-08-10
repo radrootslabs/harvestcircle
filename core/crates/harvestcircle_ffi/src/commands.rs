@@ -25,8 +25,11 @@ use harvestcircle_storage::OsKeyringSecretStore;
 use crate::{
     AppSnapshotDto, IdentityDto, WireErrorCategory, WireErrorCode, WireRecoveryAction,
     contract::{
-        DISTRIBUTION_PACKAGE_VERSION, FFI_CONTRACT_HASH, FFI_CONTRACT_ID, FFI_CONTRACT_MAJOR,
-        FFI_CONTRACT_MINOR, MINIMUM_SCHEMA_VERSION, PRODUCT_COORDINATE_DIGEST, PRODUCT_VERSION,
+        BUILD_JAVA_TOOLCHAIN, BUILD_KOTLIN_TOOLCHAIN, BUILD_PROVENANCE_DIGEST,
+        BUILD_RADROOTS_REVISION, BUILD_RUST_TOOLCHAIN, BUILD_SOURCE_COMMIT,
+        BUILD_SOURCE_DATE_EPOCH, BUILD_SOURCE_DIRTY, DISTRIBUTION_PACKAGE_VERSION,
+        FFI_CONTRACT_HASH, FFI_CONTRACT_ID, FFI_CONTRACT_MAJOR, FFI_CONTRACT_MINOR,
+        MINIMUM_SCHEMA_VERSION, PRODUCT_COORDINATE_DIGEST, PRODUCT_VERSION,
         SNAPSHOT_SCHEMA_VERSION, SOURCE_FOUNDATION_BASELINE, SOURCE_PROVENANCE_DIGEST,
     },
     dto::error_policy,
@@ -86,6 +89,46 @@ pub struct CompatibilityExpectation {
     pub snapshot_schema_version: u32,
     pub minimum_schema_version: u32,
     pub maximum_schema_version: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct BuildInfoDto {
+    pub source_commit: String,
+    pub source_dirty: String,
+    pub radroots_revision: String,
+    pub rust_toolchain: String,
+    pub java_toolchain: String,
+    pub kotlin_toolchain: String,
+    pub provenance_digest: String,
+    pub source_date_epoch: u64,
+    pub ffi_contract_id: String,
+    pub ffi_contract_hash: String,
+    pub snapshot_schema_version: u32,
+    pub minimum_storage_schema_version: u32,
+    pub current_storage_schema_version: u32,
+}
+
+#[cfg_attr(not(coverage_nightly), uniffi::export)]
+#[must_use]
+pub fn build_info() -> BuildInfoDto {
+    BuildInfoDto {
+        source_commit: BUILD_SOURCE_COMMIT.to_owned(),
+        source_dirty: BUILD_SOURCE_DIRTY.to_owned(),
+        radroots_revision: BUILD_RADROOTS_REVISION.to_owned(),
+        rust_toolchain: BUILD_RUST_TOOLCHAIN.to_owned(),
+        java_toolchain: BUILD_JAVA_TOOLCHAIN.to_owned(),
+        kotlin_toolchain: BUILD_KOTLIN_TOOLCHAIN.to_owned(),
+        provenance_digest: BUILD_PROVENANCE_DIGEST.to_owned(),
+        source_date_epoch: BUILD_SOURCE_DATE_EPOCH
+            .parse()
+            .expect("validated build epoch"),
+        ffi_contract_id: FFI_CONTRACT_ID.to_owned(),
+        ffi_contract_hash: FFI_CONTRACT_HASH.to_owned(),
+        snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
+        minimum_storage_schema_version: MINIMUM_SCHEMA_VERSION,
+        current_storage_schema_version: harvestcircle_storage::CURRENT_SCHEMA_VERSION,
+    }
 }
 
 #[cfg_attr(not(coverage_nightly), uniffi::export)]

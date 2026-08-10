@@ -134,6 +134,8 @@ private class ApplicationRuntime(
     private val shutdownClosed: Boolean = true,
     private val shutdownGate: CompletableDeferred<Unit>? = null,
 ) : HarvestCircleRuntime {
+    override val buildInfo: BuildInfo = BuildInfo.unknown()
+
     var closed = false
 
     override suspend fun bootstrap(): ApplicationSnapshot = applicationSnapshot(SnapshotRevision(1UL))

@@ -87,6 +87,8 @@ data class ShutdownReceipt(
 )
 
 interface HarvestCircleRuntime {
+    val buildInfo: BuildInfo
+
     suspend fun bootstrap(): ApplicationSnapshot
 
     fun currentSnapshot(): ApplicationSnapshot
