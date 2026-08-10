@@ -1,0 +1,38 @@
+schema = "harvestcircle.source_provenance.v1"
+source_product = "Studio"
+source_repository = "https://github.com/radrootslabs/studio_app"
+foundation_baseline = "a2038b3e25b9e34f0b8fd001f26a8ed10b5772cb"
+canonical_radroots_repository = "https://github.com/radrootslabs/lib"
+canonical_radroots_revision = "09065a610d95e57acdc895a14c07580fa099e7c3"
+
+[[import]]
+component = "domain"
+commit = "a4d7deebec3e2ce2c1daa455de6d79857839aed0"
+
+[[import]]
+component = "application"
+commit = "97bb016bcf29555bb890a2e3f1effb98890f5502"
+
+[[import]]
+component = "storage"
+commit = "249e12d4c6eaaa71e6fd46b0dc330af684af6c40"
+
+[[import]]
+component = "nostr"
+commit = "9e68fb26ba41bb74b1bcb6f6f1aebc1ea6361ee3"
+
+[[import]]
+component = "runtime"
+commit = "1b8acc061ac044c56c03c60dd9ad69e230cba072"
+
+[[import]]
+component = "ffi"
+commit = "d7437d29ed464bbc38d3df300b8b870df0e039ab"
+
+[[import]]
+component = "uniffi_bindgen"
+commit = "b3da37d0881d2c54d1a90811b8c001c455d9f9de"
+
+[[import]]
+component = "complete_local_ownership"
+commit = "66b603cf145bbb4ade64da622e440daedb4776c8"

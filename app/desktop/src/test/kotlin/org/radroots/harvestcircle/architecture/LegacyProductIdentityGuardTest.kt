@@ -22,17 +22,18 @@ class LegacyProductIdentityGuardTest {
 
         val legacyProduct = "stu" + "dio"
         val repositoryUrlException = "https://github.com/radrootslabs/" + legacyProduct + "_app"
+        val provenanceException = "core/provenance/" + legacyProduct + "-import-v1.toml"
         val textExtensions = setOf("kt", "kts", "rs", "toml", "properties", "yml", "yaml", "md")
         val textNames = setOf("Makefile", ".gitignore", "gradlew", "gradlew.bat")
         val findings =
             trackedFiles(root).flatMap { relative ->
                 buildList {
-                    if (relative.lowercase().contains(legacyProduct)) {
+                    if (relative != provenanceException && relative.lowercase().contains(legacyProduct)) {
                         add("$relative: legacy product name in tracked path")
                     }
 
                     val path = root.resolve(relative)
-                    if (path.extension in textExtensions || path.name in textNames) {
+                    if (relative != provenanceException && (path.extension in textExtensions || path.name in textNames)) {
                         val inspected = path.readText().replace(repositoryUrlException, "")
                         if (inspected.lowercase().contains(legacyProduct)) {
                             add("$relative: legacy product name in tracked text")
