@@ -24,22 +24,22 @@ metadata: doctor
 
 format: doctor
 	$(EXTBUILD) $(CARGO) fmt --manifest-path $(CARGO_MANIFEST) --all -- --check
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:ktlintCheck
+	$(EXTBUILD) $(GRADLE) --no-daemon :app:shared:ktlintCheck :app:desktop:ktlintCheck
 
 format-fix: doctor
 	$(EXTBUILD) $(CARGO) fmt --manifest-path $(CARGO_MANIFEST) --all
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:ktlintFormat
+	$(EXTBUILD) $(GRADLE) --no-daemon :app:shared:ktlintFormat :app:desktop:ktlintFormat
 
 lint: doctor
 	$(EXTBUILD) $(CARGO) clippy --manifest-path $(CARGO_MANIFEST) --workspace --all-targets --locked -- -D warnings
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:detekt
+	$(EXTBUILD) $(GRADLE) --no-daemon :app:shared:detektCommonMainSourceSet :app:shared:detektCommonTestSourceSet :app:desktop:detekt
 
 test: doctor
 	$(EXTBUILD) $(CARGO) test --manifest-path $(CARGO_MANIFEST) --workspace --locked
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:test
+	$(EXTBUILD) $(GRADLE) --no-daemon :app:shared:desktopTest :app:desktop:test
 
 check: format lint test
-	$(EXTBUILD) $(GRADLE) --no-daemon :app:desktop:check
+	$(EXTBUILD) $(GRADLE) --no-daemon :app:shared:check :app:desktop:check
 
 build: doctor
 	$(EXTBUILD) $(CARGO) build --manifest-path $(CARGO_MANIFEST) --workspace --locked

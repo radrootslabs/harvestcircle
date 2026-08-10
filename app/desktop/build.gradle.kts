@@ -612,6 +612,7 @@ abstract class VerifyMacOsNotarization : DefaultTask() {
 }
 
 dependencies {
+    implementation(projects.app.shared)
     implementation(compose.desktop.currentOs)
     implementation(libs.compose.foundation)
     implementation(libs.jna)

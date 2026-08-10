@@ -1,17 +1,17 @@
 package org.harvestcircle.application
 
-class GeneratedKeyBackup internal constructor(
+class GeneratedKeyBackup(
     val npub: String,
     nsec: String,
 ) {
     private var recoveryText: String? = nsec
 
-    internal fun revealNsec(): String =
+    fun revealNsec(): String =
         checkNotNull(recoveryText) {
             "Generated recovery material is no longer available"
         }
 
-    internal fun clear() {
+    fun clear() {
         recoveryText = null
     }
 
