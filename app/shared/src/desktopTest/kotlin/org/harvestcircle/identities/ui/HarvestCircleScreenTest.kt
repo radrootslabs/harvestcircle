@@ -130,9 +130,9 @@ class HarvestCircleScreenTest {
                     model = emptyUiModel().copy(generatedKeyBackup = backup),
                     actions =
                         HarvestCircleUiActions(
-                            copyText = { copied = it },
                             acknowledgeGeneratedKeyBackup = { backup = null },
                         ),
+                    platformActions = HarvestCirclePlatformActions(copySecret = { copied = it }),
                 )
             }
 

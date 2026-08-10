@@ -45,7 +45,6 @@ data class HarvestCircleUiActions(
     val editImportDraft: (String) -> Unit = {},
     val generateIdentity: () -> Unit = {},
     val importSecretKey: () -> Unit = {},
-    val copyText: (String) -> Unit = {},
     val acknowledgeGeneratedKeyBackup: () -> Unit = {},
     val cancelGeneratedKeyBackup: () -> Unit = {},
     val selectIdentity: (String) -> Unit = {},
@@ -58,6 +57,10 @@ data class HarvestCircleUiActions(
     val signOut: () -> Unit = {},
     val showIdentityChooser: () -> Unit = {},
     val hideIdentityChooser: () -> Unit = {},
+)
+
+data class HarvestCirclePlatformActions(
+    val copySecret: (String) -> Unit = {},
 )
 
 @Composable
@@ -81,9 +84,10 @@ fun StartupFailureScreen(problem: String) {
 fun HarvestCircleScreen(
     model: HarvestCircleUiModel,
     actions: HarvestCircleUiActions,
+    platformActions: HarvestCirclePlatformActions = HarvestCirclePlatformActions(),
 ) {
     model.generatedKeyBackup?.let { backup ->
-        GeneratedKeyRecoveryScreen(backup, actions)
+        GeneratedKeyRecoveryScreen(backup, actions, platformActions)
         return
     }
     when (model.route) {
@@ -435,6 +439,7 @@ private fun ColumnScope.SavedIdentityList(
 private fun GeneratedKeyRecoveryScreen(
     backup: GeneratedKeyBackupUiModel,
     actions: HarvestCircleUiActions,
+    platformActions: HarvestCirclePlatformActions,
 ) {
     Column(
         modifier =
@@ -454,7 +459,7 @@ private fun GeneratedKeyRecoveryScreen(
             text = "Copy",
             testTag = "copy-generated-key",
             contentDescription = "Copy generated Nostr secret key",
-            onClick = { actions.copyText(backup.nsec) },
+            onClick = { platformActions.copySecret(backup.nsec) },
         )
         TextAction(
             text = "Cancel",

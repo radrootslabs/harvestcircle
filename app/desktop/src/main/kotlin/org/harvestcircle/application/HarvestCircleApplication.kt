@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.identities.ui.HarvestCircleScreen
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 import org.harvestcircle.identities.ui.StartupFailureScreen
@@ -53,7 +54,6 @@ fun HarvestCircleApplication(presenterFactory: HarvestCirclePresenterFactory = :
                 editImportDraft = { presenter.dispatch(HarvestCircleIntent.EditImportDraft(it)) },
                 generateIdentity = { presenter.dispatch(HarvestCircleIntent.GenerateIdentity) },
                 importSecretKey = { presenter.dispatch(HarvestCircleIntent.ImportIdentity) },
-                copyText = clipboard::copy,
                 acknowledgeGeneratedKeyBackup = { presenter.dispatch(HarvestCircleIntent.AcknowledgeGeneratedRecovery) },
                 cancelGeneratedKeyBackup = { presenter.dispatch(HarvestCircleIntent.CancelGeneratedRecovery) },
                 selectIdentity = { presenter.dispatch(HarvestCircleIntent.SelectIdentity(IdentityId.fromPublicKeyHex(it))) },
@@ -69,6 +69,7 @@ fun HarvestCircleApplication(presenterFactory: HarvestCirclePresenterFactory = :
                 showIdentityChooser = { presenter.dispatch(HarvestCircleIntent.ShowIdentityChooser) },
                 hideIdentityChooser = { presenter.dispatch(HarvestCircleIntent.HideIdentityChooser) },
             ),
+        platformActions = HarvestCirclePlatformActions(copySecret = clipboard::copy),
     )
 }
 

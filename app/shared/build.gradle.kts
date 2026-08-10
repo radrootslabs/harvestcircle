@@ -4,8 +4,18 @@ import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.compose.multiplatform)
+    alias(libs.plugins.compose.compiler)
     alias(libs.plugins.detekt)
     alias(libs.plugins.ktlint)
+}
+
+configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
+    additionalEditorconfig.set(
+        mapOf(
+            "ktlint_function_naming_ignore_when_annotated_with" to "Composable",
+        ),
+    )
 }
 
 providers.environmentVariable("EXT_BUILD_GRADLE_BUILD_DIR").orNull?.let { extBuildGradleRoot ->
@@ -21,11 +31,19 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            implementation(libs.compose.foundation)
+            implementation(libs.compose.runtime)
+            implementation(libs.compose.ui)
             implementation(libs.kotlinx.coroutines.core)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
+        }
+        getByName("desktopTest").dependencies {
+            implementation(compose.desktop.currentOs)
+            implementation(kotlin("test-junit"))
+            implementation(libs.compose.ui.test.junit4)
         }
     }
 
