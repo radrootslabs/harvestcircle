@@ -57,9 +57,10 @@ impl ActiveSessionBinding {
         generation: SessionGeneration,
     ) -> Result<Self, SafeError> {
         let signer_binding = signer_binding.into();
-        if identity.public_key() != signer_binding.identity()
-            || signer_binding.availability() != SignerAvailability::Available
-        {
+        let local_keyring = signer_binding
+            .as_local_keyring()
+            .filter(|binding| binding.availability() == SignerAvailability::Available);
+        if local_keyring.map(|binding| binding.identity()) != Some(identity.public_key()) {
             return Err(invalid_foreground_session());
         }
         Ok(Self {
@@ -602,6 +603,7 @@ mod tests {
         .expect("session");
         assert_eq!(session.identity(), &identity);
         assert_eq!(session.signer_binding().identity(), public_key);
+        assert!(session.signer_binding().as_local_keyring().is_some());
         assert_eq!(session.generation(), generation);
 
         let correlation = super::TaskCorrelation::new(

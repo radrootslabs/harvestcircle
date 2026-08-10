@@ -75,9 +75,9 @@ impl SignerBinding {
     }
 
     #[must_use]
-    pub const fn local_keyring(self) -> LocalKeyringBinding {
+    pub const fn as_local_keyring(self) -> Option<LocalKeyringBinding> {
         match self {
-            Self::LocalKeyring(binding) => binding,
+            Self::LocalKeyring(binding) => Some(binding),
         }
     }
 }
@@ -296,8 +296,12 @@ impl NostrIdentity {
     }
 
     #[must_use]
-    pub fn with_binding_availability(&self, availability: SignerAvailability) -> Self {
-        Self {
+    pub fn with_local_keyring_availability(
+        &self,
+        availability: SignerAvailability,
+    ) -> Option<Self> {
+        self.signer_binding.as_local_keyring()?;
+        Some(Self {
             identity: self.identity.clone(),
             signer_binding: SignerBinding::LocalKeyring(LocalKeyringBinding::new(
                 self.public_key(),
@@ -306,7 +310,7 @@ impl NostrIdentity {
             label: self.label.clone(),
             created_at: self.created_at,
             last_used_at: self.last_used_at,
-        }
+        })
     }
 
     #[must_use]
@@ -432,6 +436,14 @@ mod tests {
 
         assert_eq!(binding.identity(), identity.public_key());
         assert!(!format!("{binding:?}").contains("nsec1"));
+    }
+
+    #[test]
+    fn local_keyring_capability_is_explicit_and_preserves_the_binding() {
+        let binding = LocalKeyringBinding::new(public_key(), SignerAvailability::Available);
+        let signer_binding = SignerBinding::LocalKeyring(binding);
+
+        assert_eq!(signer_binding.as_local_keyring(), Some(binding));
     }
 
     #[test]

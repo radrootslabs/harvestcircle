@@ -44,7 +44,7 @@ impl IdentityRepository for Database {
     }
 
     fn insert_identity(&self, identity: &NostrIdentity) -> Result<(), SafeError> {
-        let encoded = EncodedIdentity::from(identity);
+        let encoded = EncodedIdentity::try_from(identity)?;
         let mut connection = self.connection();
         let transaction = connection.transaction().map_err(|_| storage_error())?;
         let result = transaction.execute(
@@ -82,7 +82,7 @@ impl IdentityRepository for Database {
     }
 
     fn update_identity(&self, identity: &NostrIdentity) -> Result<(), SafeError> {
-        let encoded = EncodedIdentity::from(identity);
+        let encoded = EncodedIdentity::try_from(identity)?;
         let mut connection = self.connection();
         let transaction = connection.transaction().map_err(|_| storage_error())?;
         let identity_rows = transaction
@@ -188,17 +188,23 @@ struct EncodedIdentity {
     last_used_at: Option<i64>,
 }
 
-impl From<&NostrIdentity> for EncodedIdentity {
-    fn from(identity: &NostrIdentity) -> Self {
-        Self {
+impl TryFrom<&NostrIdentity> for EncodedIdentity {
+    type Error = SafeError;
+
+    fn try_from(identity: &NostrIdentity) -> Result<Self, Self::Error> {
+        let binding = identity
+            .signer_binding()
+            .as_local_keyring()
+            .ok_or_else(storage_error)?;
+        Ok(Self {
             public_key: identity.public_key().to_hex(),
             npub: identity.npub().as_str().to_owned(),
             signer_kind: "local_secret",
-            key_availability: encode_key_availability(identity.signer_binding().availability()),
+            key_availability: encode_key_availability(binding.availability()),
             label: identity.label().map(|label| label.as_str().to_owned()),
             created_at: identity.created_at().timestamp().as_seconds(),
             last_used_at: identity.last_used_at().map(UnixTimestamp::as_seconds),
-        }
+        })
     }
 }
 

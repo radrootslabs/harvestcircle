@@ -158,7 +158,8 @@ impl AppCore {
         let (public_key, npub, secret) = imported.into_parts();
         let previous = identities.find_identity(public_key)?;
         if let Some(existing) = &previous
-            && (existing.signer_binding().availability() != SignerAvailability::CredentialMissing
+            && (local_keyring_binding(existing)?.availability()
+                != SignerAvailability::CredentialMissing
                 || secrets.contains(public_key)?)
         {
             return Err(identity_exists());
@@ -167,7 +168,9 @@ impl AppCore {
             return Err(identity_exists());
         }
         let identity = if let Some(existing) = &previous {
-            existing.with_binding_availability(SignerAvailability::Available)
+            existing
+                .with_local_keyring_availability(SignerAvailability::Available)
+                .ok_or_else(recovery_required)?
         } else {
             NostrIdentity::new(
                 NostrIdentityReference::verify(public_key, npub.as_str().to_owned())?,
@@ -220,10 +223,12 @@ impl AppCore {
         operations: &(impl DurableOperationRepository + ?Sized),
         clock: &(impl Clock + ?Sized),
     ) -> Result<(), SafeError> {
-        let prior = OperationPriorState::new(
-            app_state.load_selected_identity()?,
-            previous.map(|identity| identity.signer_binding().availability()),
-        );
+        let prior_availability = previous
+            .map(local_keyring_binding)
+            .transpose()?
+            .map(LocalKeyringBinding::availability);
+        let prior =
+            OperationPriorState::new(app_state.load_selected_identity()?, prior_availability);
         match operations.begin_durable_operation(
             request_id,
             kind,
@@ -340,12 +345,12 @@ impl AppCore {
             self.sign_out()?;
         }
         let identity = &registry[index];
+        let local_keyring = local_keyring_binding(identity)?;
         match secrets.delete(public_key) {
             Ok(()) => {}
             Err(error)
                 if error.code() == SafeErrorCode::CredentialMissing
-                    && identity.signer_binding().availability()
-                        == SignerAvailability::CredentialMissing => {}
+                    && local_keyring.availability() == SignerAvailability::CredentialMissing => {}
             Err(error) => return Err(error),
         }
         journal.update_operation(
@@ -402,12 +407,13 @@ impl AppCore {
             self.snapshot().selected_identity()
         };
         let identity = &registry[index];
+        let local_keyring = local_keyring_binding(identity)?;
         match operations.begin_durable_operation(
             request_id,
             DurableOperationKind::Remove,
             public_key,
             Some(expected_revision),
-            OperationPriorState::new(selected, Some(identity.signer_binding().availability())),
+            OperationPriorState::new(selected, Some(local_keyring.availability())),
             clock.now(),
         )? {
             DurableOperationStart::Started(_) => {}
@@ -433,8 +439,7 @@ impl AppCore {
             Ok(()) => {}
             Err(error)
                 if error.code() == SafeErrorCode::CredentialMissing
-                    && identity.signer_binding().availability()
-                        == SignerAvailability::CredentialMissing => {}
+                    && local_keyring.availability() == SignerAvailability::CredentialMissing => {}
             Err(error) => return Err(error),
         }
         operations.advance_durable_operation(
@@ -554,12 +559,15 @@ impl AppCore {
         let imported = self.key_material().import(input)?;
         let (public_key, npub, secret) = imported.into_parts();
         if let Some(existing) = identities.find_identity(public_key)? {
-            if existing.signer_binding().availability() != SignerAvailability::CredentialMissing
+            if local_keyring_binding(&existing)?.availability()
+                != SignerAvailability::CredentialMissing
                 || secrets.contains(public_key)?
             {
                 return Err(identity_exists());
             }
-            let repaired = existing.with_binding_availability(SignerAvailability::Available);
+            let repaired = existing
+                .with_local_keyring_availability(SignerAvailability::Available)
+                .ok_or_else(recovery_required)?;
             Self::persist_identity_transaction(
                 IdentityOperationKind::Import,
                 &repaired,
@@ -903,6 +911,13 @@ const fn identity_not_found() -> SafeError {
         SafeErrorCode::IdentityNotFound,
         SafeMessage::new("The identity was not found."),
     )
+}
+
+fn local_keyring_binding(identity: &NostrIdentity) -> Result<LocalKeyringBinding, SafeError> {
+    identity
+        .signer_binding()
+        .as_local_keyring()
+        .ok_or_else(recovery_required)
 }
 
 const fn recovery_required() -> SafeError {
@@ -1265,7 +1280,12 @@ mod tests {
             )
             .expect("repair");
         assert_eq!(
-            receipt.identity().signer_binding().availability(),
+            receipt
+                .identity()
+                .signer_binding()
+                .as_local_keyring()
+                .expect("local keyring")
+                .availability(),
             SignerAvailability::Available
         );
         assert!(secrets.contains(public_key).expect("credential"));

@@ -171,8 +171,14 @@ impl AppCore {
         else {
             return Err(identity_not_found());
         };
-        let deletes_local_credential = identity.signer_binding().availability()
-            != harvestcircle_domain::SignerAvailability::CredentialMissing;
+        let deletes_local_credential =
+            identity
+                .signer_binding()
+                .as_local_keyring()
+                .is_some_and(|binding| {
+                    binding.availability()
+                        != harvestcircle_domain::SignerAvailability::CredentialMissing
+                });
         let id = state.next_removal_token;
         state.next_removal_token = id.checked_add(1).ok_or_else(invalid_application_state)?;
         let revision = state.state_machine.snapshot().revision();

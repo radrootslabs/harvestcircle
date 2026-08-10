@@ -153,8 +153,13 @@ fn recover_durable_addition(
         DurableOperationPhase::CredentialWritten => {
             let metadata = identities.find_identity(identity)?;
             let committed = metadata.as_ref().is_some_and(|saved| {
-                saved.signer_binding().availability()
-                    == harvestcircle_domain::SignerAvailability::Available
+                saved
+                    .signer_binding()
+                    .as_local_keyring()
+                    .is_some_and(|binding| {
+                        binding.availability()
+                            == harvestcircle_domain::SignerAvailability::Available
+                    })
             });
             if committed {
                 operations.advance_durable_operation(
@@ -246,7 +251,10 @@ fn compensate_durable_addition(
     }
     if let Some(availability) = operation.prior().binding_availability() {
         if let Some(previous) = identities.find_identity(operation.identity())? {
-            identities.update_identity(&previous.with_binding_availability(availability))?;
+            let restored = previous
+                .with_local_keyring_availability(availability)
+                .ok_or_else(recovery_required)?;
+            identities.update_identity(&restored)?;
         }
     } else if identities.find_identity(operation.identity())?.is_some() {
         identities.remove_identity(operation.identity())?;
@@ -267,6 +275,15 @@ fn compensate_durable_addition(
         clock.now(),
     )?;
     Ok(())
+}
+
+const fn recovery_required() -> SafeError {
+    SafeError::new(
+        harvestcircle_domain::SafeErrorCode::PendingOperationRecoveryRequired,
+        harvestcircle_domain::SafeMessage::new(
+            "Identity recovery is required before this operation can continue.",
+        ),
+    )
 }
 
 fn recover_removal(

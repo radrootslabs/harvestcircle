@@ -495,7 +495,9 @@ mod tests {
     fn durable_recovery_preserves_repair_metadata_and_deletes_orphan_credentials() {
         let adapter = PersistentAppCore::in_memory(RelayConfiguration::default()).expect("adapter");
         let secrets = InMemorySecretStore::default();
-        let missing = identity().with_binding_availability(SignerAvailability::CredentialMissing);
+        let missing = identity()
+            .with_local_keyring_availability(SignerAvailability::CredentialMissing)
+            .expect("local keyring");
         adapter
             .database()
             .insert_identity(&missing)
@@ -547,7 +549,11 @@ mod tests {
             .expect("lookup")
             .expect("preserved identity");
         assert_eq!(
-            repaired.signer_binding().availability(),
+            repaired
+                .signer_binding()
+                .as_local_keyring()
+                .expect("local keyring")
+                .availability(),
             SignerAvailability::CredentialMissing
         );
         assert!(!secrets.contains(missing.public_key()).expect("credential"));
