@@ -1,4 +1,5 @@
 import org.harvestcircle.gradle.VerifyFoundationBoundaries
+import org.harvestcircle.gradle.VerifyGitSourcePolicy
 import org.harvestcircle.gradle.VerifyProductCoordinateConsumers
 import org.harvestcircle.gradle.VerifyProductCoordinates
 import org.harvestcircle.gradle.VerifyVerificationLanes
@@ -72,6 +73,17 @@ val verifyFoundationArchive by tasks.registering(VerifyFoundationBoundaries::cla
     repositoryRoot.set(layout.projectDirectory)
     gitAware.set(false)
 }
+
+val verifyGitSourcePolicy by tasks.registering(VerifyGitSourcePolicy::class) {
+    group = "verification"
+    description = "Validates immutable and allowlisted Cargo Git dependency sources."
+    denyConfigFile.set(layout.projectDirectory.file("core/deny.toml"))
+    cargoLockFile.set(layout.projectDirectory.file("core/Cargo.lock"))
+    cargoManifestFiles.from(fileTree("core") { include("Cargo.toml", "crates/*/Cargo.toml") })
+}
+
+verifyFoundationBoundaries.configure { dependsOn(verifyGitSourcePolicy) }
+verifyFoundationArchive.configure { dependsOn(verifyGitSourcePolicy) }
 
 providers.environmentVariable("EXT_BUILD_GRADLE_BUILD_DIR").orNull?.let { extBuildGradleRoot ->
     layout.buildDirectory.set(file(extBuildGradleRoot).resolve("root"))
