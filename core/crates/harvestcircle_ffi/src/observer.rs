@@ -239,6 +239,7 @@ mod tests {
     };
 
     const SECRET_HEX: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
+    const TEST_RELAY_TIMEOUT: Duration = Duration::from_secs(2);
 
     #[derive(Default)]
     struct RecordingObserver {
@@ -274,7 +275,7 @@ mod tests {
             RuntimeDependencies::new(
                 Arc::new(InMemorySecretStore::default()),
                 Arc::new(SystemClock),
-                Arc::new(SdkNostrClient::new(std::time::Duration::from_millis(10))),
+                Arc::new(SdkNostrClient::new(TEST_RELAY_TIMEOUT)),
                 Arc::new(UuidInstallationIdentitySource),
             ),
             NonZeroUsize::new(ACTOR_MAILBOX_CAPACITY).expect("capacity"),
@@ -382,8 +383,7 @@ mod tests {
                 .subscribe_changes_v2(Box::new(PanickingObserver))
                 .await
                 .expect("panic observer registration");
-            tokio::time::sleep(Duration::from_millis(10)).await;
-            assert!(core.inner.observers.lock().expect("observers").is_empty());
+            wait_for_observer_count(&core, 0).await;
             panic_subscription.unsubscribe().await;
 
             let observer = Arc::new(RecordingObserver::default());
@@ -501,6 +501,16 @@ mod tests {
         })
         .await
         .expect("snapshot delivery");
+    }
+
+    async fn wait_for_observer_count(core: &HarvestCircleAppCore, expected: usize) {
+        tokio::time::timeout(OBSERVER_DELIVERY_TIMEOUT, async {
+            while core.inner.observers.lock().expect("observers").len() != expected {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("observer deregistration");
     }
 
     async fn wait_for_fresh_profile(observer: &RecordingObserver) {
