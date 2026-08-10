@@ -1162,6 +1162,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "harvestcircle_test_bridge"
+version = "0.1.0-alpha"
+dependencies = [
+ "harvestcircle_application",
+ "harvestcircle_domain",
+ "harvestcircle_nostr",
+ "harvestcircle_runtime",
+ "nostr",
+ "nostr-relay-builder",
+ "nostr-sdk",
+ "tokio",
+ "uniffi",
+]
+
+[[package]]
 name = "harvestcircle_uniffi_bindgen"
 version = "0.1.0-alpha"
 dependencies = [

@@ -17,6 +17,7 @@ import org.harvestcircle.buildlogic.plugins.tasks.GenerateUniFfiKotlinTask
 import org.harvestcircle.buildlogic.plugins.tasks.StageReleaseNativeLibrary
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyGeneratedCompatibilityExpectations
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyReleaseNativeLibrary
+import org.harvestcircle.buildlogic.plugins.tasks.VerifyTestBridgeIsolation
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyUniFfiBindings
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.security.MessageDigest
@@ -63,6 +64,8 @@ public class HarvestCircleRustFfiPlugin : Plugin<Project> {
         val nativeTarget = resolveNativeTarget(osName, architecture, productCoordinates["ffi.cdylib_name"])
         val debugLibraryFile = target.file(cargoTargetRoot).resolve("debug/${nativeTarget.libraryName}")
         val releaseLibraryFile = target.file(cargoTargetRoot).resolve("release/${nativeTarget.libraryName}")
+        val testBridgeTarget = resolveNativeTarget(osName, architecture, "harvestcircle_test_bridge")
+        val testBridgeLibraryFile = target.file(cargoTargetRoot).resolve("debug/${testBridgeTarget.libraryName}")
         val environmentPrefix = productCoordinates["environment.prefix"]
         fun productEnvironment(suffix: String): String = environmentPrefix + suffix
         val sourceCommit = target.providers.environmentVariable(productEnvironment("BUILD_SOURCE_COMMIT")).orElse("unknown")
@@ -122,6 +125,17 @@ public class HarvestCircleRustFfiPlugin : Plugin<Project> {
                 task.buildEnvironment.set(buildEnvironment)
                 task.libraryFile.set(releaseLibraryFile)
             }
+        val buildTestBridge =
+            target.tasks.register("buildRustTestBridgeDebug", CargoBuildTask::class.java) { task ->
+                task.workingDirectory.set(rustRoot)
+                task.manifestFile.set(rustManifest)
+                task.rustSources.from(rustSources)
+                task.packageName.set("harvestcircle_test_bridge")
+                task.release.set(false)
+                task.immutableArguments.set(immutableArguments)
+                task.buildEnvironment.set(buildEnvironment)
+                task.libraryFile.set(testBridgeLibraryFile)
+            }
         val generatedUniFfi = target.layout.buildDirectory.dir("generated/uniffi/kotlin")
         val generatedCompatibility = target.layout.buildDirectory.dir("generated/compatibility/kotlin")
         val compatibilityFile =
@@ -155,6 +169,23 @@ public class HarvestCircleRustFfiPlugin : Plugin<Project> {
                 task.immutableArguments.set(immutableArguments)
                 task.outputDirectory.set(generatedUniFfi)
             }
+        val generatedTestUniFfi = target.layout.buildDirectory.dir("generated/test-bridge/uniffi/kotlin")
+        val generateTestUniFfi =
+            target.tasks.register("generateTestBridgeUniFfiKotlin", GenerateUniFfiKotlinTask::class.java) { task ->
+                task.dependsOn(buildTestBridge)
+                task.workingDirectory.set(rustRoot)
+                task.manifestFile.set(rustManifest)
+                task.configFile.set(rustRoot.file("crates/harvestcircle_test_bridge/uniffi.toml"))
+                task.nativeLibrary.set(testBridgeLibraryFile)
+                task.immutableArguments.set(immutableArguments)
+                task.outputDirectory.set(generatedTestUniFfi)
+            }
+        val verifyTestBindings =
+            target.tasks.register("verifyTestBridgeUniFfiBindings", VerifyUniFfiBindings::class.java) { task ->
+                task.dependsOn(generateTestUniFfi)
+                task.generatedDirectory.set(generatedTestUniFfi)
+                task.expectedPackage.set("org.harvestcircle.testbridge.ffi")
+            }
         val verifyBindings =
             target.tasks.register("verifyUniFfiBindings", VerifyUniFfiBindings::class.java) { task ->
                 task.dependsOn(generateUniFfi)
@@ -177,6 +208,15 @@ public class HarvestCircleRustFfiPlugin : Plugin<Project> {
                 task.expectedName.set(nativeTarget.libraryName)
                 task.expectedBuildEvidence.set(provenanceDigest.map(::listOf))
             }
+        val verifyTestIsolation =
+            target.tasks.register("verifyTestBridgeIsolation", VerifyTestBridgeIsolation::class.java) { task ->
+                task.dependsOn(verifyBindings, verifyTestBindings, verifyRelease)
+                task.productionBindings.set(generatedUniFfi)
+                task.testBindings.set(generatedTestUniFfi)
+                task.releaseNativeResources.set(stagedRelease)
+                task.productionLibraryName.set(nativeTarget.libraryName)
+                task.testLibraryName.set(testBridgeTarget.libraryName)
+            }
         target.tasks.register("releaseNativeResourcesJar", Jar::class.java) { task ->
             task.dependsOn(verifyRelease)
             task.archiveClassifier.set("release-native-resources")
@@ -187,6 +227,14 @@ public class HarvestCircleRustFfiPlugin : Plugin<Project> {
         desktopExtension.generatedKotlinSources.from(generatedUniFfi, generatedCompatibility)
         target.tasks.named("compileKotlin", KotlinCompile::class.java) { task ->
             task.dependsOn(generateUniFfi, generateCompatibility)
+        }
+        target.tasks.named("compileIntegrationTestKotlin", KotlinCompile::class.java) { task ->
+            task.dependsOn(generateTestUniFfi)
+            task.source(generatedTestUniFfi)
+        }
+        target.tasks.named("integrationTest", Test::class.java) { task ->
+            task.dependsOn(verifyTestIsolation)
+            task.systemProperty("jna.library.path", testBridgeLibraryFile.parentFile.absolutePath)
         }
         target.tasks.withType(Test::class.java).configureEach { task ->
             task.dependsOn(buildDebug)

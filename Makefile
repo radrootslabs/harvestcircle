@@ -118,7 +118,7 @@ package-check: source-check
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:packageReadiness
 
 integration-check: check
-	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:compileIntegrationTestKotlin
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:integrationTest :app:desktop:verifyTestBridgeIsolation
 
 governed-integration-check:
 	$(MAKE) --no-print-directory BUILD_MODE=governed integration-check

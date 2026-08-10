@@ -7,6 +7,7 @@ members = [
   "crates/harvestcircle_product",
   "crates/harvestcircle_runtime",
   "crates/harvestcircle_storage",
+  "crates/harvestcircle_test_bridge",
   "crates/harvestcircle_uniffi_bindgen",
 ]
 resolver = "3"
@@ -40,6 +41,7 @@ harvestcircle_nostr = { path = "crates/harvestcircle_nostr", version = "=0.1.0-a
 harvestcircle_product = { path = "crates/harvestcircle_product", version = "=0.1.0-alpha" }
 harvestcircle_runtime = { path = "crates/harvestcircle_runtime", version = "=0.1.0-alpha" }
 harvestcircle_storage = { path = "crates/harvestcircle_storage", version = "=0.1.0-alpha" }
+harvestcircle_test_bridge = { path = "crates/harvestcircle_test_bridge", version = "=0.1.0-alpha" }
 harvestcircle_uniffi_bindgen = { path = "crates/harvestcircle_uniffi_bindgen", version = "=0.1.0-alpha" }
 radroots_identity = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha", default-features = false }
 getrandom = { version = "0.2", default-features = false }

@@ -257,3 +257,43 @@ public abstract class VerifyReleaseNativeLibrary : DefaultTask() {
         }
     }
 }
+
+@CacheableTask
+public abstract class VerifyTestBridgeIsolation : DefaultTask() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    public abstract val productionBindings: DirectoryProperty
+
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    public abstract val testBindings: DirectoryProperty
+
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    public abstract val releaseNativeResources: DirectoryProperty
+
+    @get:Input
+    public abstract val productionLibraryName: Property<String>
+
+    @get:Input
+    public abstract val testLibraryName: Property<String>
+
+    @TaskAction
+    public fun verify() {
+        val productionSources = productionBindings.asFileTree.files.filter { it.extension == "kt" }
+        val testSources = testBindings.asFileTree.files.filter { it.extension == "kt" }
+        require(productionSources.size == 1) { "Production UniFFI binding inventory is invalid" }
+        require(testSources.size == 1) { "Test bridge UniFFI binding inventory is invalid" }
+        val testStem = "harvestcircle_test_bridge"
+        require(productionSources.none { it.readText().contains(testStem) }) {
+            "Production bindings contain integration-only bridge exports"
+        }
+        require(testSources.single().readText().contains(testStem)) {
+            "Integration bindings do not identify the isolated test bridge"
+        }
+        val releaseFiles = releaseNativeResources.asFileTree.files.filter { it.isFile }
+        require(releaseFiles.map { it.name } == listOf(productionLibraryName.get())) {
+            "Release native resources contain an integration-only bridge artifact"
+        }
+    }
+}

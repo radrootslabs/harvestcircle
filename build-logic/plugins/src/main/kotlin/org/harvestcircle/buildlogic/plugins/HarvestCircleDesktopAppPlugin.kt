@@ -147,12 +147,23 @@ public class HarvestCircleDesktopAppPlugin : Plugin<Project> {
 
     private fun configureIntegrationContract(target: Project) {
         val sourceSets = target.extensions.getByType(SourceSetContainer::class.java)
-        sourceSets.maybeCreate("integrationTest")
+        val integration = sourceSets.maybeCreate("integrationTest")
+        val main = sourceSets.getByName("main")
+        integration.compileClasspath += main.output
+        integration.runtimeClasspath += main.output
         target.configurations.named("integrationTestImplementation") {
             it.extendsFrom(target.configurations.getByName("testImplementation"))
         }
         target.configurations.named("integrationTestRuntimeOnly") {
             it.extendsFrom(target.configurations.getByName("testRuntimeOnly"))
+        }
+        target.tasks.register("integrationTest", Test::class.java) { task ->
+            task.description = "Runs the isolated desktop native integration suite."
+            task.group = "verification"
+            task.testClassesDirs = integration.output.classesDirs
+            task.classpath = integration.runtimeClasspath
+            task.dependsOn("ktlintIntegrationTestSourceSetCheck", "detektIntegrationTest")
+            task.shouldRunAfter(target.tasks.named("test"))
         }
     }
 
