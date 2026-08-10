@@ -131,11 +131,15 @@ check(Regex("""[1-9]\d*(\.\d+){0,2}""").matches(installableVersion)) {
     "Package version must satisfy the macOS jpackage contract"
 }
 val applicationName = productCoordinates["product.name"]
+val productSlug = productCoordinates["product.slug"]
 val bundleId = productCoordinates["desktop.bundle_id"]
 val desktopMainClass = productCoordinates["desktop.main_class"]
 val ffiKotlinPackage = productCoordinates["ffi.kotlin_package"]
+val environmentPrefix = productCoordinates["environment.prefix"]
+
+fun productEnvironment(suffix: String) = environmentPrefix + suffix
 val developmentDataDirectoryEnvironment =
-    productCoordinates["environment.prefix"] + "DEVELOPMENT_DATA_DIR"
+    productEnvironment("DEVELOPMENT_DATA_DIR")
 val copyrightNotice = productCoordinates["copyright.notice"]
 val vendorName = productCoordinates["vendor.name"]
 group = productCoordinates["desktop.application_id"]
@@ -197,22 +201,28 @@ val rustLibraryName = nativeTarget.libraryName
 val rustDebugLibrary = file(cargoTargetRoot).resolve("debug/$rustLibraryName")
 val rustReleaseLibrary = file(cargoTargetRoot).resolve("release/$rustLibraryName")
 val jnaPlatformPrefix = nativeTarget.jnaPrefix
-val buildSourceCommit = providers.environmentVariable("HARVESTCIRCLE_BUILD_SOURCE_COMMIT").orElse("unknown")
-val buildSourceDirty = providers.environmentVariable("HARVESTCIRCLE_BUILD_SOURCE_DIRTY").orElse("unknown")
-val buildRadrootsRevision = providers.environmentVariable("HARVESTCIRCLE_BUILD_RADROOTS_REVISION").orElse("unknown")
-val buildRustToolchain = providers.environmentVariable("HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN").orElse("1.97.1")
-val buildJavaToolchain = providers.environmentVariable("HARVESTCIRCLE_BUILD_JAVA_TOOLCHAIN").orElse(System.getProperty("java.version"))
-val buildKotlinToolchain = providers.environmentVariable("HARVESTCIRCLE_BUILD_KOTLIN_TOOLCHAIN").orElse(libs.versions.kotlin.get())
+val buildSourceCommitEnvironment = productEnvironment("BUILD_SOURCE_COMMIT")
+val buildSourceDirtyEnvironment = productEnvironment("BUILD_SOURCE_DIRTY")
+val buildRadrootsRevisionEnvironment = productEnvironment("BUILD_RADROOTS_REVISION")
+val buildRustToolchainEnvironment = productEnvironment("BUILD_RUST_TOOLCHAIN")
+val buildJavaToolchainEnvironment = productEnvironment("BUILD_JAVA_TOOLCHAIN")
+val buildKotlinToolchainEnvironment = productEnvironment("BUILD_KOTLIN_TOOLCHAIN")
+val buildSourceCommit = providers.environmentVariable(buildSourceCommitEnvironment).orElse("unknown")
+val buildSourceDirty = providers.environmentVariable(buildSourceDirtyEnvironment).orElse("unknown")
+val buildRadrootsRevision = providers.environmentVariable(buildRadrootsRevisionEnvironment).orElse("unknown")
+val buildRustToolchain = providers.environmentVariable(buildRustToolchainEnvironment).orElse("1.97.1")
+val buildJavaToolchain = providers.environmentVariable(buildJavaToolchainEnvironment).orElse(System.getProperty("java.version"))
+val buildKotlinToolchain = providers.environmentVariable(buildKotlinToolchainEnvironment).orElse(libs.versions.kotlin.get())
 val buildSourceDateEpoch = providers.environmentVariable("SOURCE_DATE_EPOCH").orElse("0")
 val buildProvenanceDigest =
     providers.provider {
         listOf(
-            "HARVESTCIRCLE_BUILD_SOURCE_COMMIT=${buildSourceCommit.get()}",
-            "HARVESTCIRCLE_BUILD_SOURCE_DIRTY=${buildSourceDirty.get()}",
-            "HARVESTCIRCLE_BUILD_RADROOTS_REVISION=${buildRadrootsRevision.get()}",
-            "HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN=${buildRustToolchain.get()}",
-            "HARVESTCIRCLE_BUILD_JAVA_TOOLCHAIN=${buildJavaToolchain.get()}",
-            "HARVESTCIRCLE_BUILD_KOTLIN_TOOLCHAIN=${buildKotlinToolchain.get()}",
+            "$buildSourceCommitEnvironment=${buildSourceCommit.get()}",
+            "$buildSourceDirtyEnvironment=${buildSourceDirty.get()}",
+            "$buildRadrootsRevisionEnvironment=${buildRadrootsRevision.get()}",
+            "$buildRustToolchainEnvironment=${buildRustToolchain.get()}",
+            "$buildJavaToolchainEnvironment=${buildJavaToolchain.get()}",
+            "$buildKotlinToolchainEnvironment=${buildKotlinToolchain.get()}",
             "SOURCE_DATE_EPOCH=${buildSourceDateEpoch.get()}",
         ).joinToString("\n").let { input ->
             MessageDigest
@@ -223,12 +233,12 @@ val buildProvenanceDigest =
     }
 
 fun Exec.injectBuildProvenance() {
-    environment("HARVESTCIRCLE_BUILD_SOURCE_COMMIT", buildSourceCommit.get())
-    environment("HARVESTCIRCLE_BUILD_SOURCE_DIRTY", buildSourceDirty.get())
-    environment("HARVESTCIRCLE_BUILD_RADROOTS_REVISION", buildRadrootsRevision.get())
-    environment("HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN", buildRustToolchain.get())
-    environment("HARVESTCIRCLE_BUILD_JAVA_TOOLCHAIN", buildJavaToolchain.get())
-    environment("HARVESTCIRCLE_BUILD_KOTLIN_TOOLCHAIN", buildKotlinToolchain.get())
+    environment(buildSourceCommitEnvironment, buildSourceCommit.get())
+    environment(buildSourceDirtyEnvironment, buildSourceDirty.get())
+    environment(buildRadrootsRevisionEnvironment, buildRadrootsRevision.get())
+    environment(buildRustToolchainEnvironment, buildRustToolchain.get())
+    environment(buildJavaToolchainEnvironment, buildJavaToolchain.get())
+    environment(buildKotlinToolchainEnvironment, buildKotlinToolchain.get())
     environment("SOURCE_DATE_EPOCH", buildSourceDateEpoch.get())
     inputs.property("buildSourceCommit", buildSourceCommit)
     inputs.property("buildSourceDirty", buildSourceDirty)
@@ -718,6 +728,7 @@ tasks.withType<Test>().configureEach {
 
 tasks.named("check") {
     dependsOn(rootProject.tasks.named("verifyProductCoordinates"))
+    dependsOn(rootProject.tasks.named("verifyProductCoordinateConsumers"))
 }
 
 kotlin {
@@ -749,7 +760,7 @@ tasks.withType<Test>().configureEach {
         developmentDataDirectoryEnvironment,
         nativeTestData,
     )
-    systemProperty("harvestcircle.development.data.dir", nativeTestData)
+    systemProperty("$productSlug.development.data.dir", nativeTestData)
     systemProperty(
         "jna.library.path",
         rustDebugLibrary.parentFile.absolutePath,
@@ -757,7 +768,7 @@ tasks.withType<Test>().configureEach {
 }
 tasks.withType<JavaExec>().configureEach {
     dependsOn(buildRustCoreDebug)
-    systemProperty("harvestcircle.development", "true")
+    systemProperty("$productSlug.development", "true")
     systemProperty(
         "jna.library.path",
         rustDebugLibrary.parentFile.absolutePath,
@@ -794,13 +805,13 @@ compose.desktop {
 
             packageName = applicationName
             packageVersion = installableVersion
-            description = "HarvestCircle $appVersion"
+            description = "$applicationName $appVersion"
             copyright = copyrightNotice
             vendor = vendorName
 
             macOS {
                 bundleID = bundleId
-                iconFile.set(project.file("src/main/resources/icons/harvestcircle.icns"))
+                iconFile.set(project.file("src/main/resources/icons/$productSlug.icns"))
                 packageName = applicationName
                 dockName = applicationName
                 packageBuildVersion = macOsBuildVersion
@@ -813,7 +824,7 @@ val verifyMacOsDistribution by tasks.registering(VerifyMacOsDistribution::class)
     dependsOn("createDistributable")
     appDirectory.set(layout.buildDirectory.dir("compose/binaries/main/app/$applicationName.app"))
     releaseLibrary.set(rustReleaseLibrary)
-    iconSource.set(layout.projectDirectory.file("src/main/resources/icons/harvestcircle.icns"))
+    iconSource.set(layout.projectDirectory.file("src/main/resources/icons/$productSlug.icns"))
     expectedBundleId.set(bundleId)
     expectedPackageVersion.set(installableVersion)
     expectedBuildVersion.set(macOsBuildVersion)

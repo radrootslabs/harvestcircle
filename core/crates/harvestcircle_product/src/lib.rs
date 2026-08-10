@@ -7,7 +7,7 @@ include!(concat!(env!("OUT_DIR"), "/product_coordinates.rs"));
 
 #[cfg(test)]
 mod tests {
-    use super::parser::{REQUIRED, canonicalize, digest, parse};
+    use super::parser::{REQUIRED_KEYS, canonicalize, digest, generate_rust_constants, parse};
     use super::provenance;
     use super::{
         DESKTOP_APPLICATION_ID, DEVELOPMENT_DATA_DIR_ENVIRONMENT, FFI_CDYLIB_NAME,
@@ -34,29 +34,67 @@ mod tests {
 
     #[test]
     fn parser_rejects_missing_duplicate_unknown_and_changed_coordinates() {
-        let source = REQUIRED
-            .iter()
-            .map(|(key, value)| format!("{key}={value}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(parse(&source).is_ok());
+        let source = include_str!("../../../../config/product/harvestcircle-v1.properties");
+        assert!(parse(source).is_ok());
         assert!(parse(&source.replacen("schema=harvestcircle.product.v1\n", "", 1)).is_err());
         assert!(parse(&format!("{source}\nschema=harvestcircle.product.v1")).is_err());
         assert!(parse(&format!("{source}\nunknown=value")).is_err());
         assert!(
-            parse(&source.replace("product.slug=harvestcircle", "product.slug=other")).is_err()
+            parse(&source.replace("product.slug=harvestcircle", "product.slug=OTHER")).is_err()
+        );
+        assert!(
+            parse(&source.replace(
+                "database.filename=harvestcircle.sqlite3",
+                "database.filename=../other.sqlite3"
+            ))
+            .is_err()
         );
         assert!(parse(&format!("\u{feff}{source}")).is_err());
     }
 
     #[test]
+    fn every_coordinate_value_is_manifest_owned_and_generated() {
+        let source = include_str!("../../../../config/product/harvestcircle-v1.properties");
+        let mutations = [
+            ("product.name", "Harvest Circle Test"),
+            ("product.slug", "harvestcircle_test"),
+            ("kotlin.root_namespace", "org.example"),
+            ("desktop.application_id", "org.example.desktop"),
+            ("desktop.bundle_id", "org.example.bundle"),
+            ("desktop.main_class", "org.example.MainKt"),
+            ("ffi.kotlin_package", "org.example.ffi"),
+            ("ffi.cdylib_name", "example_ffi"),
+            ("database.qualifier", "com"),
+            ("database.organization", "example"),
+            ("database.application", "test"),
+            ("database.filename", "example.sqlite3"),
+            ("keyring.service", "org.example.desktop.nostr"),
+            ("environment.prefix", "EXAMPLE_"),
+            ("vendor.name", "Example Cooperative"),
+            ("copyright.notice", "Copyright Example contributors"),
+        ];
+        assert_eq!(mutations.len() + 1, REQUIRED_KEYS.len());
+        for (key, replacement) in mutations {
+            let original = parse(source).unwrap().remove(key).unwrap();
+            let mutated = source.replace(
+                &format!("{key}={original}"),
+                &format!("{key}={replacement}"),
+            );
+            let parsed = parse(&mutated).expect("valid manifest-owned coordinate mutation");
+            assert_eq!(parsed.get(key).map(String::as_str), Some(replacement));
+            assert_ne!(digest(&mutated).unwrap(), digest(source).unwrap());
+            assert!(
+                generate_rust_constants(&mutated)
+                    .unwrap()
+                    .contains(&format!("= {replacement:?};"))
+            );
+        }
+    }
+
+    #[test]
     fn product_digest_is_semantic_and_line_ending_independent() {
-        let source = REQUIRED
-            .iter()
-            .map(|(key, value)| format!("{key}={value}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let expected = digest(&source).expect("canonical product digest");
+        let source = include_str!("../../../../config/product/harvestcircle-v1.properties");
+        let expected = digest(source).expect("canonical product digest");
         assert_eq!(
             expected,
             "93bf10e334e989b20ba5fb8ed05e5d55b83f4502efba5f893aef4dc1a66c8223"

@@ -16,25 +16,26 @@ class ProductCoordinates private constructor(
     operator fun get(key: String): String = values.getValue(key)
 
     companion object {
-        val required: Map<String, String> =
-            linkedMapOf(
-                "schema" to "harvestcircle.product.v1",
-                "product.name" to "HarvestCircle",
-                "product.slug" to "harvestcircle",
-                "kotlin.root_namespace" to "org.harvestcircle",
-                "desktop.application_id" to "org.harvestcircle.desktop",
-                "desktop.bundle_id" to "org.harvestcircle.desktop",
-                "desktop.main_class" to "org.harvestcircle.desktop.MainKt",
-                "ffi.kotlin_package" to "org.harvestcircle.ffi",
-                "ffi.cdylib_name" to "harvestcircle_ffi",
-                "database.qualifier" to "org",
-                "database.organization" to "harvestcircle",
-                "database.application" to "desktop",
-                "database.filename" to "harvestcircle.sqlite3",
-                "keyring.service" to "org.harvestcircle.desktop.nostr",
-                "environment.prefix" to "HARVESTCIRCLE_",
-                "vendor.name" to "Radroots Labs",
-                "copyright.notice" to "Copyright © 2026 HarvestCircle contributors",
+        const val schema = "harvestcircle.product.v1"
+        val requiredKeys: List<String> =
+            listOf(
+                "schema",
+                "product.name",
+                "product.slug",
+                "kotlin.root_namespace",
+                "desktop.application_id",
+                "desktop.bundle_id",
+                "desktop.main_class",
+                "ffi.kotlin_package",
+                "ffi.cdylib_name",
+                "database.qualifier",
+                "database.organization",
+                "database.application",
+                "database.filename",
+                "keyring.service",
+                "environment.prefix",
+                "vendor.name",
+                "copyright.notice",
             )
 
         fun load(file: File): ProductCoordinates = parse(file.readText())
@@ -49,23 +50,19 @@ class ProductCoordinates private constructor(
                 require(separator > 0) { "Product coordinate line ${index + 1} is not key=value" }
                 val key = line.substring(0, separator).trim()
                 val value = line.substring(separator + 1).trim()
-                require(key in required) { "Unknown product coordinate $key" }
+                require(key in requiredKeys) { "Unknown product coordinate $key" }
                 require(key.isNotEmpty() && key.none(Char::isISOControl) && value.isNotEmpty() && value.none(Char::isISOControl)) {
                     "Product coordinate $key is empty or contains a control character"
                 }
                 require(parsed.put(key, value) == null) { "Duplicate product coordinate $key" }
             }
-            require(parsed.keys == required.keys) {
+            require(parsed.keys == requiredKeys.toSet()) {
                 "Product coordinate keys do not match the required schema"
             }
-            required.forEach { (key, expected) ->
-                require(parsed.getValue(key) == expected) {
-                    "Product coordinate $key does not match the approved value"
-                }
-            }
+            parsed.forEach(::validateCoordinate)
             val canonical =
                 buildString {
-                    required.keys.forEach { key ->
+                    requiredKeys.forEach { key ->
                         append(key).append('=').append(parsed.getValue(key)).append('\n')
                     }
                 }
@@ -76,6 +73,54 @@ class ProductCoordinates private constructor(
                     .joinToString("") { byte -> "%02x".format(byte) }
             return ProductCoordinates(parsed.toMap(), digest)
         }
+
+        private fun validateCoordinate(
+            key: String,
+            value: String,
+        ) {
+            val valid =
+                when (key) {
+                    "schema" -> value == schema
+                    "product.name", "vendor.name", "copyright.notice" -> value.length <= 160
+                    "product.slug",
+                    "ffi.cdylib_name",
+                    "database.qualifier",
+                    "database.organization",
+                    "database.application",
+                    -> value.isLowerIdentifier()
+                    "kotlin.root_namespace",
+                    "desktop.application_id",
+                    "desktop.bundle_id",
+                    "desktop.main_class",
+                    "ffi.kotlin_package",
+                    "keyring.service",
+                    -> value.isDottedIdentifier()
+                    "database.filename" ->
+                        value.endsWith(".sqlite3") &&
+                            ".." !in value &&
+                            value.all { it.isAsciiLetterOrDigit() || it in "._-" }
+                    "environment.prefix" ->
+                        value.firstOrNull()?.let { it in 'A'..'Z' } == true &&
+                            value.endsWith('_') &&
+                            value.all { it in 'A'..'Z' || it.isDigit() || it == '_' }
+                    else -> false
+                }
+            require(valid) { "Product coordinate $key has an invalid value" }
+        }
+
+        private fun String.isLowerIdentifier(): Boolean =
+            firstOrNull()?.let { it in 'a'..'z' } == true &&
+                all { it in 'a'..'z' || it.isDigit() || it == '_' }
+
+        private fun String.isDottedIdentifier(): Boolean =
+            split('.').all { segment ->
+                segment.firstOrNull()?.let { it.isAsciiLetter() || it == '_' } == true &&
+                    segment.all { it.isAsciiLetterOrDigit() || it == '_' }
+            }
+
+        private fun Char.isAsciiLetter(): Boolean = this in 'a'..'z' || this in 'A'..'Z'
+
+        private fun Char.isAsciiLetterOrDigit(): Boolean = isAsciiLetter() || isDigit()
     }
 }
 
@@ -104,8 +149,6 @@ abstract class VerifyProductCoordinates : DefaultTask() {
     fun verify() {
         val source = manifestFile.get().asFile.readText()
         val coordinates = ProductCoordinates.parse(source)
-        check(coordinates["product.name"] == "HarvestCircle")
-        check(coordinates["desktop.application_id"] == "org.harvestcircle.desktop")
         check(coordinates.digest.matches(Regex("[0-9a-f]{64}")))
         val equivalentSources =
             listOf(
@@ -120,16 +163,20 @@ abstract class VerifyProductCoordinates : DefaultTask() {
             check(ProductCoordinates.parse(equivalent).digest == coordinates.digest)
         }
         check(runCatching { ProductCoordinates.parse("\uFEFF$source") }.isFailure)
-        check(runCatching { ProductCoordinates.parse(source + "\nschema=harvestcircle.product.v1") }.isFailure)
+        check(runCatching { ProductCoordinates.parse(source + "\nschema=${ProductCoordinates.schema}") }.isFailure)
         check(runCatching { ProductCoordinates.parse(source + "\nunknown=value") }.isFailure)
         check(runCatching { ProductCoordinates.parse(source.substringAfter('\n')) }.isFailure)
+        check(runCatching { ProductCoordinates.parse(source.replaceCoordinate("product.slug", "INVALID")) }.isFailure)
         check(
             runCatching {
-                ProductCoordinates.parse(
-                    source.replace("product.slug=harvestcircle", "product.slug=other"),
-                )
+                ProductCoordinates.parse(source.replaceCoordinate("database.filename", "../other.sqlite3"))
             }.isFailure,
         )
+        validCoordinateMutations.forEach { (key, replacement) ->
+            val mutated = ProductCoordinates.parse(source.replaceCoordinate(key, replacement))
+            check(mutated[key] == replacement)
+            check(mutated.digest != coordinates.digest)
+        }
 
         val uniFfiConfig = uniFfiConfigFile.get().asFile.readText()
         check(
@@ -193,4 +240,34 @@ abstract class VerifyProductCoordinates : DefaultTask() {
             check(nativeCompatibility.contains("$constant = \"${baseline[key]}\""))
         }
     }
+
+    private fun String.replaceCoordinate(
+        key: String,
+        replacement: String,
+    ): String =
+        lineSequence().joinToString("\n") { line ->
+            if (line.substringBefore('=', missingDelimiterValue = "") == key) "$key=$replacement" else line
+        }
+
+    private val validCoordinateMutations =
+        linkedMapOf(
+            "product.name" to "Harvest Circle Test",
+            "product.slug" to "harvestcircle_test",
+            "kotlin.root_namespace" to "org.example",
+            "desktop.application_id" to "org.example.desktop",
+            "desktop.bundle_id" to "org.example.bundle",
+            "desktop.main_class" to "org.example.MainKt",
+            "ffi.kotlin_package" to "org.example.ffi",
+            "ffi.cdylib_name" to "example_ffi",
+            "database.qualifier" to "com",
+            "database.organization" to "example",
+            "database.application" to "test",
+            "database.filename" to "example.sqlite3",
+            "keyring.service" to "org.example.desktop.nostr",
+            "environment.prefix" to "EXAMPLE_",
+            "vendor.name" to "Example Cooperative",
+            "copyright.notice" to "Copyright Example contributors",
+        ).also { mutations ->
+            check(mutations.size + 1 == ProductCoordinates.requiredKeys.size)
+        }
 }

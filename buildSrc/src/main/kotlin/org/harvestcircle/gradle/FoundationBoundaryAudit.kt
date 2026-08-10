@@ -270,10 +270,18 @@ private class FoundationBoundaryAudit(
         ) {
             findings += "$provenancePath: exact source provenance changed"
         }
+        val productCoordinates =
+            runCatching {
+                ProductCoordinates.parse(text("config/product/harvestcircle-v1.properties"))
+            }.getOrElse { error ->
+                findings += "config/product/harvestcircle-v1.properties: ${error.message}"
+                null
+            }
         val uniFfi = text("core/crates/harvestcircle_ffi/uniffi.toml")
         if (!uniFfi.contains("[crates.harvestcircle_ffi.bindings.kotlin]") ||
-            !uniFfi.contains("package_name = \"org.harvestcircle.ffi\"") ||
-            !uniFfi.contains("cdylib_name = \"harvestcircle_ffi\"")
+            productCoordinates == null ||
+            !uniFfi.contains("package_name = \"${productCoordinates["ffi.kotlin_package"]}\"") ||
+            !uniFfi.contains("cdylib_name = \"${productCoordinates["ffi.cdylib_name"]}\"")
         ) {
             findings += "core/crates/harvestcircle_ffi/uniffi.toml: final FFI identity changed"
         }

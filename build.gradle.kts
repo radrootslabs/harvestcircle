@@ -1,4 +1,5 @@
 import org.harvestcircle.gradle.VerifyFoundationBoundaries
+import org.harvestcircle.gradle.VerifyProductCoordinateConsumers
 import org.harvestcircle.gradle.VerifyProductCoordinates
 import org.harvestcircle.gradle.VerifyVerificationLanes
 
@@ -39,10 +40,22 @@ val verifyCompatibilityBaseline by tasks.registering {
     dependsOn(verifyProductCoordinates)
 }
 
+val verifyProductCoordinateConsumers by tasks.registering(VerifyProductCoordinateConsumers::class) {
+    group = "verification"
+    description = "Validates that build and runtime identities consume the product manifest."
+    manifestFile.set(productCoordinatesFile)
+    desktopBuildFile.set(layout.projectDirectory.file("app/desktop/build.gradle.kts"))
+    uniFfiConfigFile.set(layout.projectDirectory.file("core/crates/harvestcircle_ffi/uniffi.toml"))
+    productBuildFile.set(layout.projectDirectory.file("core/crates/harvestcircle_product/build.rs"))
+    ffiConsumerFile.set(layout.projectDirectory.file("core/crates/harvestcircle_ffi/src/commands.rs"))
+    keyringConsumerFile.set(layout.projectDirectory.file("core/crates/harvestcircle_storage/src/os_keyring.rs"))
+}
+
 val verifyVerificationLanes by tasks.registering(VerifyVerificationLanes::class) {
     group = "verification"
     description = "Validates forge-agnostic verification lanes and least-privilege policy."
     policyFile.set(verificationLanesFile)
+    productManifestFile.set(productCoordinatesFile)
     repositoryRoot.set(layout.projectDirectory)
 }
 

@@ -10,7 +10,7 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 
 object VerificationLanes {
-    private val expected =
+    private fun expected(environmentPrefix: String) =
         linkedMapOf(
             "schema" to "harvestcircle.verification-lanes.v1",
             "orchestration" to "github-actions",
@@ -24,9 +24,9 @@ object VerificationLanes {
             "package.workflow" to ".github/workflows/package.yml",
             "package.permissions" to "contents:read",
             "package.credentials" to "none",
-            "provenance.commit" to "HARVESTCIRCLE_BUILD_SOURCE_COMMIT",
-            "provenance.dirty" to "HARVESTCIRCLE_BUILD_SOURCE_DIRTY",
-            "provenance.radroots" to "HARVESTCIRCLE_BUILD_RADROOTS_REVISION",
+            "provenance.commit" to environmentPrefix + "BUILD_SOURCE_COMMIT",
+            "provenance.dirty" to environmentPrefix + "BUILD_SOURCE_DIRTY",
+            "provenance.radroots" to environmentPrefix + "BUILD_RADROOTS_REVISION",
             "provenance.epoch" to "SOURCE_DATE_EPOCH",
             "signing.command" to "make signing-check",
             "signing.runner" to "macos",
@@ -38,7 +38,11 @@ object VerificationLanes {
             "notarization.credentials" to "notarization",
         )
 
-    fun parse(source: String): Map<String, String> {
+    fun parse(
+        source: String,
+        environmentPrefix: String,
+    ): Map<String, String> {
+        val expected = expected(environmentPrefix)
         val parsed = linkedMapOf<String, String>()
         source.trimEnd('\n', '\r').lineSequence().forEachIndexed { index, raw ->
             val line = raw.trim()
@@ -64,18 +68,36 @@ abstract class VerifyVerificationLanes : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val policyFile: RegularFileProperty
 
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val productManifestFile: RegularFileProperty
+
     @get:Internal
     abstract val repositoryRoot: DirectoryProperty
 
     @TaskAction
     fun verify() {
         val source = policyFile.get().asFile.readText()
-        val policy = VerificationLanes.parse(source)
+        val environmentPrefix =
+            ProductCoordinates.load(productManifestFile.get().asFile)["environment.prefix"]
+        val policy = VerificationLanes.parse(source, environmentPrefix)
         check(policy.size == 24)
-        check(runCatching { VerificationLanes.parse(source + "source.permissions=write") }.isFailure)
-        check(runCatching { VerificationLanes.parse(source.replace("contents:read", "contents:write")) }.isFailure)
-        check(runCatching { VerificationLanes.parse(source.replace("credentials=none", "credentials=all")) }.isFailure)
-        check(runCatching { VerificationLanes.parse(source.replace("source.runner=linux", "source.runner=macos")) }.isFailure)
+        check(runCatching { VerificationLanes.parse(source + "source.permissions=write", environmentPrefix) }.isFailure)
+        check(
+            runCatching {
+                VerificationLanes.parse(source.replace("contents:read", "contents:write"), environmentPrefix)
+            }.isFailure,
+        )
+        check(
+            runCatching {
+                VerificationLanes.parse(source.replace("credentials=none", "credentials=all"), environmentPrefix)
+            }.isFailure,
+        )
+        check(
+            runCatching {
+                VerificationLanes.parse(source.replace("source.runner=linux", "source.runner=macos"), environmentPrefix)
+            }.isFailure,
+        )
         val root = repositoryRoot.get().asFile.toPath()
         val sourceWorkflow = root.resolve(policy.getValue("source.workflow")).toFile().readText()
         val packageWorkflow = root.resolve(policy.getValue("package.workflow")).toFile().readText()
