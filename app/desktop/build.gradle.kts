@@ -4,51 +4,29 @@ import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
-import org.gradle.api.tasks.Delete
-import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
-import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.tasks.Jar
+import org.harvestcircle.buildlogic.plugins.HarvestCircleRustFfiExtension
 import org.harvestcircle.gradle.FfiCompatibilityBaseline
-import org.harvestcircle.gradle.GenerateCompatibilityExpectations
 import org.harvestcircle.gradle.ProductCoordinates
-import org.harvestcircle.gradle.VerifyGeneratedCompatibilityExpectations
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.File
-import java.security.MessageDigest
 import java.util.jar.JarFile
 
 plugins {
     id("org.harvestcircle.build.desktop-app")
+    id("org.harvestcircle.build.rust-ffi")
 }
 
-val rustCoreSource =
+val rustManifest =
     rootProject.layout.projectDirectory
-        .dir("core")
+        .file("core/Cargo.toml")
         .asFile
-val cargoTargetRoot =
-    providers.environmentVariable("CARGO_TARGET_DIR").orNull?.let(::file)
-        ?: rustCoreSource.resolve("target")
-
-val radrootsOffline =
-    providers
-        .gradleProperty("radrootsOffline")
-        .map(String::toBooleanStrict)
-        .orElse(false)
-val immutableCargoArguments =
-    if (radrootsOffline.get()) {
-        listOf("--frozen", "--offline")
-    } else {
-        listOf("--locked")
-    }
-
-val rustManifest = rustCoreSource.resolve("Cargo.toml")
 
 fun workspacePackageValue(key: String): String {
     val workspacePackage =
@@ -88,284 +66,22 @@ check(Regex("""[1-9]\d*(\.\d+){0,2}""").matches(installableVersion)) {
 val applicationName = productCoordinates["product.name"]
 val productSlug = productCoordinates["product.slug"]
 val bundleId = productCoordinates["desktop.bundle_id"]
-val ffiKotlinPackage = productCoordinates["ffi.kotlin_package"]
-val environmentPrefix = productCoordinates["environment.prefix"]
-
-fun productEnvironment(suffix: String) = environmentPrefix + suffix
-val developmentDataDirectoryEnvironment =
-    productEnvironment("DEVELOPMENT_DATA_DIR")
 val copyrightNotice = productCoordinates["copyright.notice"]
 val vendorName = productCoordinates["vendor.name"]
-val rustSources =
-    fileTree(rustCoreSource) {
-        include(
-            "Cargo.toml",
-            "Cargo.lock",
-            "rust-toolchain.toml",
-            "compatibility/**",
-            "crates/**",
-        )
-        exclude("target/**")
-    }
-
-data class NativeTarget(
-    val libraryName: String,
-    val jnaPrefix: String,
-)
-
-fun resolveNativeTarget(
-    osName: String,
-    architecture: String,
-    cdylibName: String,
-): NativeTarget {
-    val os = osName.lowercase()
-    val arch = architecture.lowercase()
-    return when {
-        os.startsWith("mac") && arch in setOf("aarch64", "arm64") ->
-            NativeTarget("lib$cdylibName.dylib", "darwin-aarch64")
-        os.startsWith("mac") && arch in setOf("x86_64", "amd64") ->
-            NativeTarget("lib$cdylibName.dylib", "darwin-x86-64")
-        os.startsWith("windows") && arch in setOf("aarch64", "arm64") ->
-            NativeTarget("$cdylibName.dll", "win32-aarch64")
-        os.startsWith("windows") && arch in setOf("x86_64", "amd64") ->
-            NativeTarget("$cdylibName.dll", "win32-x86-64")
-        os.startsWith("linux") && arch in setOf("aarch64", "arm64") ->
-            NativeTarget("lib$cdylibName.so", "linux-aarch64")
-        os.startsWith("linux") && arch in setOf("x86_64", "amd64") ->
-            NativeTarget("lib$cdylibName.so", "linux-x86-64")
-        else -> throw GradleException("Unsupported native desktop host: $osName/$architecture")
-    }
-}
-
-val nativeOsName = providers.gradleProperty("nativeOs").getOrElse(System.getProperty("os.name"))
-val nativeArchitecture = providers.gradleProperty("nativeArch").getOrElse(System.getProperty("os.arch"))
-val nativeTarget =
-    resolveNativeTarget(
-        nativeOsName,
-        nativeArchitecture,
-        productCoordinates["ffi.cdylib_name"],
-    )
+val rustFfi = extensions.getByType<HarvestCircleRustFfiExtension>()
+val nativeOsName = rustFfi.nativeOsName.get()
 val isMacOsHost = nativeOsName.lowercase().startsWith("mac")
 val isLinuxHost = nativeOsName.lowercase().startsWith("linux")
 val isWindowsHost = nativeOsName.lowercase().startsWith("windows")
-val rustLibraryName = nativeTarget.libraryName
-val rustDebugLibrary = file(cargoTargetRoot).resolve("debug/$rustLibraryName")
-val rustReleaseLibrary = file(cargoTargetRoot).resolve("release/$rustLibraryName")
-val jnaPlatformPrefix = nativeTarget.jnaPrefix
-val buildSourceCommitEnvironment = productEnvironment("BUILD_SOURCE_COMMIT")
-val buildSourceDirtyEnvironment = productEnvironment("BUILD_SOURCE_DIRTY")
-val buildRadrootsRevisionEnvironment = productEnvironment("BUILD_RADROOTS_REVISION")
-val buildRustToolchainEnvironment = productEnvironment("BUILD_RUST_TOOLCHAIN")
-val buildJavaToolchainEnvironment = productEnvironment("BUILD_JAVA_TOOLCHAIN")
-val buildKotlinToolchainEnvironment = productEnvironment("BUILD_KOTLIN_TOOLCHAIN")
-val buildSourceCommit = providers.environmentVariable(buildSourceCommitEnvironment).orElse("unknown")
-val buildSourceDirty = providers.environmentVariable(buildSourceDirtyEnvironment).orElse("unknown")
-val buildRadrootsRevision = providers.environmentVariable(buildRadrootsRevisionEnvironment).orElse("unknown")
-val buildRustToolchain = providers.environmentVariable(buildRustToolchainEnvironment).orElse("1.97.1")
-val buildJavaToolchain = providers.environmentVariable(buildJavaToolchainEnvironment).orElse(System.getProperty("java.version"))
-val buildKotlinToolchain = providers.environmentVariable(buildKotlinToolchainEnvironment).orElse(libs.versions.kotlin.get())
-val buildSourceDateEpoch = providers.environmentVariable("SOURCE_DATE_EPOCH").orElse("0")
-val buildProvenanceDigest =
-    providers.provider {
-        listOf(
-            "$buildSourceCommitEnvironment=${buildSourceCommit.get()}",
-            "$buildSourceDirtyEnvironment=${buildSourceDirty.get()}",
-            "$buildRadrootsRevisionEnvironment=${buildRadrootsRevision.get()}",
-            "$buildRustToolchainEnvironment=${buildRustToolchain.get()}",
-            "$buildJavaToolchainEnvironment=${buildJavaToolchain.get()}",
-            "$buildKotlinToolchainEnvironment=${buildKotlinToolchain.get()}",
-            "SOURCE_DATE_EPOCH=${buildSourceDateEpoch.get()}",
-        ).joinToString("\n").let { input ->
-            MessageDigest
-                .getInstance("SHA-256")
-                .digest(input.toByteArray(Charsets.UTF_8))
-                .joinToString("") { byte -> "%02x".format(byte) }
-        }
-    }
-
-fun Exec.injectBuildProvenance() {
-    environment(buildSourceCommitEnvironment, buildSourceCommit.get())
-    environment(buildSourceDirtyEnvironment, buildSourceDirty.get())
-    environment(buildRadrootsRevisionEnvironment, buildRadrootsRevision.get())
-    environment(buildRustToolchainEnvironment, buildRustToolchain.get())
-    environment(buildJavaToolchainEnvironment, buildJavaToolchain.get())
-    environment(buildKotlinToolchainEnvironment, buildKotlinToolchain.get())
-    environment("SOURCE_DATE_EPOCH", buildSourceDateEpoch.get())
-    inputs.property("buildSourceCommit", buildSourceCommit)
-    inputs.property("buildSourceDirty", buildSourceDirty)
-    inputs.property("buildRadrootsRevision", buildRadrootsRevision)
-    inputs.property("buildRustToolchain", buildRustToolchain)
-    inputs.property("buildJavaToolchain", buildJavaToolchain)
-    inputs.property("buildKotlinToolchain", buildKotlinToolchain)
-    inputs.property("buildSourceDateEpoch", buildSourceDateEpoch)
-}
-
-val buildRustCoreDebug by tasks.registering(Exec::class) {
-    injectBuildProvenance()
-    workingDir(rustCoreSource)
-    commandLine(
-        "cargo",
-        "build",
-        "--manifest-path",
-        rustManifest.absolutePath,
-        "-p",
-        "harvestcircle_ffi",
-        *immutableCargoArguments.toTypedArray(),
-    )
-    inputs.files(rustSources)
-    outputs.file(rustDebugLibrary)
-}
-
-val buildRustCoreRelease by tasks.registering(Exec::class) {
-    injectBuildProvenance()
-    workingDir(rustCoreSource)
-    commandLine(
-        "cargo",
-        "build",
-        "--release",
-        "--manifest-path",
-        rustManifest.absolutePath,
-        "-p",
-        "harvestcircle_ffi",
-        *immutableCargoArguments.toTypedArray(),
-    )
-    inputs.files(rustSources)
-    outputs.file(rustReleaseLibrary)
-}
-
-val generatedUniFfiKotlin = layout.buildDirectory.dir("generated/uniffi/kotlin")
-val generatedCompatibilityKotlin = layout.buildDirectory.dir("generated/compatibility/kotlin")
-val generatedCompatibilityFile =
-    generatedCompatibilityKotlin.map {
-        it.file("org/harvestcircle/application/generated/NativeCompatibilityExpectations.kt")
-    }
-val generateCompatibilityExpectations by tasks.registering(GenerateCompatibilityExpectations::class) {
-    baselineFile.set(ffiCompatibilityBaselineFile)
-    outputFile.set(generatedCompatibilityFile)
-}
-val verifyGeneratedSources by tasks.registering(VerifyGeneratedCompatibilityExpectations::class) {
-    dependsOn(generateCompatibilityExpectations)
-    baselineFile.set(ffiCompatibilityBaselineFile)
-    generatedFile.set(generatedCompatibilityFile)
-}
-val generatedReleaseNativeResources = layout.buildDirectory.dir("generated/uniffi/release-native-resources")
-val cleanGeneratedUniFfiKotlin by tasks.registering(Delete::class) {
-    delete(generatedUniFfiKotlin)
-}
-val generateUniFfiKotlin by tasks.registering(Exec::class) {
-    dependsOn(buildRustCoreDebug, cleanGeneratedUniFfiKotlin)
-    workingDir(rustCoreSource)
-    commandLine(
-        "cargo",
-        "run",
-        "--manifest-path",
-        rustManifest.absolutePath,
-        "-p",
-        "harvestcircle_uniffi_bindgen",
-        *immutableCargoArguments.toTypedArray(),
-        "--",
-        "generate",
-        "--library",
-        "--language",
-        "kotlin",
-        "--metadata-no-deps",
-        "--no-format",
-        "--config",
-        rustCoreSource.resolve("crates/harvestcircle_ffi/uniffi.toml").absolutePath,
-        "--out-dir",
-        generatedUniFfiKotlin.get().asFile.absolutePath,
-        rustDebugLibrary.absolutePath,
-    )
-    inputs.file(rustDebugLibrary)
-    inputs.file(rustCoreSource.resolve("crates/harvestcircle_ffi/uniffi.toml"))
-    outputs.dir(generatedUniFfiKotlin)
-}
-
-abstract class VerifyUniFfiBindings : DefaultTask() {
-    @get:InputDirectory
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val generatedDirectory: DirectoryProperty
-
-    @get:Input
-    abstract val expectedPackage: Property<String>
-
-    @TaskAction
-    fun verify() {
-        val kotlinFiles =
-            generatedDirectory.asFileTree.files
-                .filter { it.isFile && it.extension == "kt" }
-        if (kotlinFiles.size != 1) {
-            throw GradleException("Expected exactly one generated UniFFI Kotlin source")
-        }
-        if (!kotlinFiles.single().readText().contains("package ${expectedPackage.get()}")) {
-            throw GradleException("Generated UniFFI Kotlin package does not match the runtime contract")
-        }
-    }
-}
-val verifyUniFfiBindings by tasks.registering(VerifyUniFfiBindings::class) {
-    dependsOn(generateUniFfiKotlin)
-    generatedDirectory.set(generatedUniFfiKotlin)
-    expectedPackage.set(ffiKotlinPackage)
-}
-val cleanReleaseNativeResources by tasks.registering(Delete::class) {
-    delete(generatedReleaseNativeResources)
-}
-val stageReleaseNativeLibrary by tasks.registering(Copy::class) {
-    dependsOn(buildRustCoreRelease, cleanReleaseNativeResources)
-    from(rustReleaseLibrary)
-    into(generatedReleaseNativeResources.map { it.dir(jnaPlatformPrefix) })
-}
-
-abstract class VerifyReleaseNativeLibrary : DefaultTask() {
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.NONE)
-    abstract val releaseLibrary: RegularFileProperty
-
-    @get:InputDirectory
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val stagedDirectory: DirectoryProperty
-
-    @get:Input
-    abstract val expectedName: Property<String>
-
-    @get:Input
-    abstract val expectedBuildEvidence: ListProperty<String>
-
-    @TaskAction
-    fun verify() {
-        val files = stagedDirectory.asFileTree.files.filter { it.isFile }
-        if (files.size != 1) {
-            throw GradleException("Release resources must contain exactly one native library")
-        }
-        if (files.single().name != expectedName.get()) {
-            throw GradleException("Unexpected release native library name")
-        }
-        if (!files.single().readBytes().contentEquals(releaseLibrary.get().asFile.readBytes())) {
-            throw GradleException("Staged native library does not match the Cargo release artifact")
-        }
-        val binary =
-            releaseLibrary
-                .get()
-                .asFile
-                .readBytes()
-                .toString(Charsets.ISO_8859_1)
-        expectedBuildEvidence.get().forEach { evidence ->
-            require(binary.contains(evidence)) { "Release native library is missing build provenance evidence" }
-        }
-    }
-}
-val verifyReleaseNativeLibrary by tasks.registering(VerifyReleaseNativeLibrary::class) {
-    dependsOn(stageReleaseNativeLibrary)
-    releaseLibrary.set(rustReleaseLibrary)
-    stagedDirectory.set(generatedReleaseNativeResources)
-    expectedName.set(rustLibraryName)
-    expectedBuildEvidence.set(listOf(buildProvenanceDigest.get()))
-}
-val releaseNativeResourcesJar by tasks.registering(Jar::class) {
-    dependsOn(verifyReleaseNativeLibrary)
-    archiveClassifier.set("release-native-resources")
-    from(generatedReleaseNativeResources)
-}
+val rustLibraryName = rustFfi.libraryName.get()
+val rustDebugLibrary = rustFfi.debugLibrary.get().asFile
+val rustReleaseLibrary = rustFfi.releaseLibrary.get().asFile
+val jnaPlatformPrefix = rustFfi.jnaPlatformPrefix.get()
+val buildSourceCommit = rustFfi.sourceCommit
+val buildSourceDirty = rustFfi.sourceDirty
+val buildRadrootsRevision = rustFfi.radrootsRevision
+val buildSourceDateEpoch = rustFfi.sourceDateEpoch
+val releaseNativeResourcesJar = tasks.named<Jar>("releaseNativeResourcesJar")
 val releaseNativeRuntimeJar =
     releaseNativeResourcesJar
         .get()
@@ -684,38 +400,7 @@ abstract class VerifyMacOsNotarization : DefaultTask() {
 }
 
 tasks.named("check") {
-    dependsOn(verifyGeneratedSources)
     dependsOn(verifyDesktopBuildMetadataArtifact)
-}
-
-tasks.named<KotlinCompile>("compileKotlin") {
-    dependsOn(generateUniFfiKotlin, generateCompatibilityExpectations)
-    source(generatedUniFfiKotlin, generatedCompatibilityKotlin)
-}
-tasks.withType<Test>().configureEach {
-    dependsOn(buildRustCoreDebug)
-    val nativeTestData =
-        layout.buildDirectory
-            .dir("native-test-data")
-            .get()
-            .asFile.absolutePath
-    environment(
-        developmentDataDirectoryEnvironment,
-        nativeTestData,
-    )
-    systemProperty("$productSlug.development.data.dir", nativeTestData)
-    systemProperty(
-        "jna.library.path",
-        rustDebugLibrary.parentFile.absolutePath,
-    )
-}
-tasks.withType<JavaExec>().configureEach {
-    dependsOn(buildRustCoreDebug)
-    systemProperty("$productSlug.development", "true")
-    systemProperty(
-        "jna.library.path",
-        rustDebugLibrary.parentFile.absolutePath,
-    )
 }
 
 compose.desktop {
@@ -780,7 +465,7 @@ val verifyMacOsPackage by tasks.registering(VerifyMacOsPackage::class) {
     expectedFileName.set("$applicationName-$installableVersion.dmg")
 }
 val verifyLinuxPackage by tasks.registering(VerifyNativeInstallPackage::class) {
-    dependsOn("packageDeb", verifyReleaseNativeLibrary)
+    dependsOn("packageDeb", "verifyReleaseNativeLibrary")
     packageDirectory.set(layout.buildDirectory.dir("compose/binaries/main/deb"))
     releaseLibrary.set(rustReleaseLibrary)
     packageExtension.set("deb")
@@ -789,7 +474,7 @@ val verifyLinuxPackage by tasks.registering(VerifyNativeInstallPackage::class) {
     hostFamily.set("linux")
 }
 val verifyWindowsPackage by tasks.registering(VerifyNativeInstallPackage::class) {
-    dependsOn("packageMsi", verifyReleaseNativeLibrary)
+    dependsOn("packageMsi", "verifyReleaseNativeLibrary")
     packageDirectory.set(layout.buildDirectory.dir("compose/binaries/main/msi"))
     releaseLibrary.set(rustReleaseLibrary)
     packageExtension.set("msi")
@@ -855,7 +540,7 @@ val sourceReadiness by tasks.registering {
         ":verifyFoundationArchive",
         ":app:shared:check",
         "check",
-        verifyUniFfiBindings,
+        "verifyUniFfiBindings",
     )
 }
 val packageReadiness by tasks.registering {

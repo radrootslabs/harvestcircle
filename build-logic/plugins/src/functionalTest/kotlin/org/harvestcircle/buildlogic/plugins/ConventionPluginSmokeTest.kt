@@ -23,7 +23,12 @@ class ConventionPluginSmokeTest {
 
         pluginIds.forEach { pluginId ->
             val fixture = temporaryDirectory.resolve(pluginId.substringAfterLast('.')).createDirectories()
-            val desktopFixture = pluginId == "org.harvestcircle.build.desktop-app"
+            val desktopFixture =
+                pluginId in
+                    setOf(
+                        "org.harvestcircle.build.desktop-app",
+                        "org.harvestcircle.build.rust-ffi",
+                    )
             fixture.resolve("settings.gradle.kts").writeText(
                 buildString {
                     append("pluginManagement { repositories { gradlePluginPortal(); mavenCentral() } }\n")
@@ -32,7 +37,7 @@ class ConventionPluginSmokeTest {
                     if (desktopFixture) append("include(\":app:shared\", \":app:desktop\")\n")
                 },
             )
-            if (pluginId in setOf("org.harvestcircle.build.kmp-shared", "org.harvestcircle.build.desktop-app")) {
+            if (pluginId == "org.harvestcircle.build.kmp-shared" || desktopFixture) {
                 fixture.resolve("gradle").createDirectories().resolve("libs.versions.toml").writeText(kmpCatalog)
             }
             val buildFile =
@@ -42,7 +47,13 @@ class ConventionPluginSmokeTest {
                 } else {
                     fixture.resolve("build.gradle.kts")
                 }
-            val pluginBlock = if (pluginId == "org.harvestcircle.build.kmp-shared") kmpPlugins else "id(\"$pluginId\")"
+            val pluginBlock =
+                when (pluginId) {
+                    "org.harvestcircle.build.kmp-shared" -> kmpPlugins
+                    "org.harvestcircle.build.rust-ffi" ->
+                        "id(\"org.harvestcircle.build.desktop-app\")\nid(\"$pluginId\")"
+                    else -> "id(\"$pluginId\")"
+                }
             buildFile.writeText("plugins { $pluginBlock }\n")
 
             val runner =
@@ -55,6 +66,9 @@ class ConventionPluginSmokeTest {
             assertTrue(result.output.contains("BUILD SUCCESSFUL"), pluginId)
             if (pluginId == "org.harvestcircle.build.root") {
                 assertTrue(result.output.contains("verifyProductCoordinates"), result.output)
+                assertTrue(runner.build().output.contains("Reusing configuration cache"))
+            }
+            if (pluginId == "org.harvestcircle.build.rust-ffi") {
                 assertTrue(runner.build().output.contains("Reusing configuration cache"))
             }
         }
@@ -161,6 +175,104 @@ class ConventionPluginSmokeTest {
         assertTrue(result.output.contains("No Kotlin tests found under src/test/kotlin"), result.output)
     }
 
+    @Test
+    fun rustPluginRejectsAnUnsupportedNativeTarget() {
+        val fixture = createTempDirectory("harvestcircle-rust-target-")
+        prepareRustBuild(fixture)
+
+        val result =
+            GradleRunner.create()
+                .withProjectDir(fixture.toFile())
+                .withPluginClasspath()
+                .withArguments(":app:desktop:tasks", "-PnativeOs=plan9", "-PnativeArch=mips", "--stacktrace")
+                .buildAndFail()
+
+        assertTrue(result.output.contains("Unsupported native desktop host: plan9/mips"), result.output)
+    }
+
+    @Test
+    fun rustPluginRejectsStaleGeneratedCompatibilityKotlin() {
+        val fixture = createTempDirectory("harvestcircle-rust-stale-")
+        prepareRustBuild(
+            fixture,
+            """
+            tasks.named<org.harvestcircle.buildlogic.plugins.tasks.VerifyGeneratedCompatibilityExpectations>(
+                "verifyGeneratedSources",
+            ) {
+                generatedFile.set(layout.projectDirectory.file("stale.kt"))
+            }
+            """.trimIndent(),
+        )
+        fixture.resolve("app/desktop/stale.kt").writeText("// stale\n")
+
+        val result =
+            GradleRunner.create()
+                .withProjectDir(fixture.toFile())
+                .withPluginClasspath()
+                .withArguments(
+                    ":app:desktop:verifyGeneratedSources",
+                    "-x",
+                    ":app:desktop:generateCompatibilityExpectations",
+                    "--stacktrace",
+                )
+                .buildAndFail()
+
+        assertTrue(result.output.contains("Generated Kotlin compatibility expectations is stale"), result.output)
+    }
+
+    @Test
+    fun rustPluginRejectsNativeByteAndProvenanceMismatches() {
+        listOf(
+            Triple("bytes", "release", "staged"),
+            Triple("provenance", "same", "same"),
+        ).forEach { (caseName, releaseBytes, stagedBytes) ->
+            val fixture = createTempDirectory("harvestcircle-rust-$caseName-")
+            prepareRustBuild(
+                fixture,
+                """
+                tasks.named<org.harvestcircle.buildlogic.plugins.tasks.VerifyReleaseNativeLibrary>(
+                    "verifyReleaseNativeLibrary",
+                ) {
+                    releaseLibrary.set(layout.projectDirectory.file("native/release/libfixture.dylib"))
+                    stagedDirectory.set(layout.projectDirectory.dir("native/staged"))
+                    expectedName.set("libfixture.dylib")
+                    expectedBuildEvidence.set(listOf("required-proof"))
+                }
+                """.trimIndent(),
+            )
+            fixture
+                .resolve("app/desktop/native/release")
+                .createDirectories()
+                .resolve("libfixture.dylib")
+                .writeText(releaseBytes)
+            fixture
+                .resolve("app/desktop/native/staged/darwin-aarch64")
+                .createDirectories()
+                .resolve("libfixture.dylib")
+                .writeText(stagedBytes)
+
+            val result =
+                GradleRunner.create()
+                    .withProjectDir(fixture.toFile())
+                    .withPluginClasspath()
+                    .withArguments(
+                        ":app:desktop:verifyReleaseNativeLibrary",
+                        "-x",
+                        ":app:desktop:stageReleaseNativeLibrary",
+                        "--stacktrace",
+                    )
+                    .buildAndFail()
+
+            val expected =
+                if (caseName == "bytes") {
+                    "Staged native library does not match the Cargo release artifact"
+                } else {
+                    "Release native library is missing build provenance evidence"
+                }
+            assertTrue(result.output.contains(expected), result.output)
+        }
+    }
+
     private fun prepareDesktopBuild(
         fixture: java.nio.file.Path,
         withUnitTest: Boolean,
@@ -177,6 +289,23 @@ class ConventionPluginSmokeTest {
         prepareDesktopFixture(fixture, withUnitTest)
         fixture.resolve("app/desktop/build.gradle.kts").writeText(
             "plugins { id(\"org.harvestcircle.build.desktop-app\") }\n",
+        )
+    }
+
+    private fun prepareRustBuild(
+        fixture: java.nio.file.Path,
+        extraBuildLogic: String = "",
+    ) {
+        prepareDesktopBuild(fixture, withUnitTest = true)
+        fixture.resolve("app/desktop/build.gradle.kts").writeText(
+            """
+            plugins {
+                id("org.harvestcircle.build.desktop-app")
+                id("org.harvestcircle.build.rust-ffi")
+            }
+
+            $extraBuildLogic
+            """.trimIndent() + "\n",
         )
     }
 

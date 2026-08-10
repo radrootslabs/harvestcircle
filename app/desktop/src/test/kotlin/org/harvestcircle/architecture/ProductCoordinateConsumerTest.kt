@@ -29,11 +29,16 @@ class ProductCoordinateConsumerTest {
         assertEquals("harvestcircle.sqlite3", coordinates.getProperty("database.filename"))
         assertEquals("org.harvestcircle.desktop.nostr", coordinates.getProperty("keyring.service"))
 
-        val build = root.resolve("app/desktop/build.gradle.kts").readText()
+        val build =
+            listOf(
+                "app/desktop/build.gradle.kts",
+                "build-logic/plugins/src/main/kotlin/org/harvestcircle/buildlogic/plugins/HarvestCircleDesktopAppPlugin.kt",
+                "build-logic/plugins/src/main/kotlin/org/harvestcircle/buildlogic/plugins/HarvestCircleRustFfiPlugin.kt",
+            ).joinToString("\n") { relativePath -> root.resolve(relativePath).readText() }
         assertTrue(build.contains("ProductCoordinates.parse"))
-        assertTrue(build.contains("mainClass = desktopMainClass"))
+        assertTrue(build.contains("application.mainClass = mainClass"))
         assertTrue(build.contains("bundleID = bundleId"))
-        assertTrue(build.contains("expectedPackage.set(ffiKotlinPackage)"))
+        assertTrue(build.contains("expectedPackage.set(productCoordinates[\"ffi.kotlin_package\"])"))
         assertFalse(Files.exists(root.resolve("core/compatibility/v5-baseline.properties")))
     }
 }

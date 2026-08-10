@@ -23,6 +23,10 @@ abstract class VerifyProductCoordinateConsumers : DefaultTask() {
 
     @get:InputFile
     @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val rustPluginFile: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val uniFfiConfigFile: RegularFileProperty
 
     @get:InputFile
@@ -43,7 +47,9 @@ abstract class VerifyProductCoordinateConsumers : DefaultTask() {
         val desktopBuild =
             desktopBuildFile.get().asFile.readText() +
                 "\n" +
-                desktopPluginFile.get().asFile.readText()
+                desktopPluginFile.get().asFile.readText() +
+                "\n" +
+                rustPluginFile.get().asFile.readText()
         listOf(
             "product.name",
             "product.slug",
