@@ -61,6 +61,8 @@ data class HarvestCircleUiActions(
 
 data class HarvestCirclePlatformActions(
     val copySecret: (String) -> Unit = {},
+    val openSource: () -> Unit = {},
+    val openLicence: () -> Unit = {},
 )
 
 @Composable

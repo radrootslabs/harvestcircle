@@ -64,7 +64,7 @@ fun HarvestCircleShell(
                         onReadOnly = { dispatch(HarvestCircleShellIntent.EnterReadOnly) },
                     )
             }
-        is ShellRoot.Dashboard -> DashboardRoot(state, root, dispatch)
+        is ShellRoot.Dashboard -> DashboardRoot(state, root, platformActions, dispatch)
     }
     FoundationOverlayHost(state.overlays) { dispatch(HarvestCircleShellIntent.Overlay(it)) }
 }
@@ -121,6 +121,7 @@ private fun BootstrapWelcome(dispatch: (HarvestCircleShellIntent) -> Unit) {
 private fun DashboardRoot(
     state: HarvestCircleShellState,
     root: ShellRoot.Dashboard,
+    platformActions: HarvestCirclePlatformActions,
     dispatch: (HarvestCircleShellIntent) -> Unit,
 ) {
     val route = root.navigation.current
@@ -162,6 +163,26 @@ private fun DashboardRoot(
                         },
                     )
                 AppRoute.Network -> FoundationNetworkScreen(foundationNetworkModel(state))
+                is AppRoute.Settings ->
+                    FoundationSettingsScreen(
+                        section = route.section,
+                        appearance = state.appearance,
+                        buildInfo = state.buildInfo,
+                        actions =
+                            FoundationSettingsActions(
+                                selectSection = {
+                                    dispatch(
+                                        HarvestCircleShellIntent.Navigation(
+                                            NavigationIntent.Navigate(AppRoute.Settings(it)),
+                                        ),
+                                    )
+                                },
+                                setTheme = { dispatch(HarvestCircleShellIntent.SetTheme(it)) },
+                                setTextSize = { dispatch(HarvestCircleShellIntent.SetTextSize(it)) },
+                                setMotion = { dispatch(HarvestCircleShellIntent.SetMotion(it)) },
+                            ),
+                        platformActions = platformActions,
+                    )
                 else -> BasicText(route.title(), Modifier.testTag("foundation-route-body"))
             }
         },

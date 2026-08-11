@@ -126,7 +126,12 @@ internal fun HarvestCircleApplicationWithDependencies(
     HarvestCircleShell(
         state = shellState,
         identityActions = identityActions,
-        platformActions = HarvestCirclePlatformActions(copySecret = clipboard::copy),
+        platformActions =
+            HarvestCirclePlatformActions(
+                copySecret = clipboard::copy,
+                openSource = { openProjectLink(ProjectLink.Source) },
+                openLicence = { openProjectLink(ProjectLink.Licence) },
+            ),
         dispatch = shellPresenter::dispatch,
     )
 }
