@@ -13,6 +13,22 @@ data class ShellSessionState(
     fun enterReadOnly(): ShellSessionState = copy(readOnly = true)
 }
 
+enum class DegradationReason {
+    Network,
+    Credential,
+    NetworkAndCredential,
+}
+
+sealed interface LocalUsability {
+    data object Usable : LocalUsability
+
+    data class UsableDegraded(
+        val reason: DegradationReason,
+    ) : LocalUsability
+
+    data object Unusable : LocalUsability
+}
+
 enum class ShellDestination { Today, Explore, Activity, Network, Settings, AddFarm }
 
 data class ShellNavigationItem(
@@ -61,31 +77,71 @@ fun deriveShellRoot(
     presenterState: HarvestCirclePresenterState,
     session: ShellSessionState,
 ): ShellRoot {
+    if (
+        presenterState.route !in
+        setOf(
+            HarvestCircleRoute.IDENTITIES,
+            HarvestCircleRoute.ACTIVE_IDENTITY,
+            HarvestCircleRoute.DEGRADED,
+        )
+    ) {
+        return ShellRoot.LifecycleCanvas(presenterState.route)
+    }
+    if (deriveLocalUsability(presenterState.snapshot) is LocalUsability.Unusable) {
+        return ShellRoot.LifecycleCanvas(presenterState.route)
+    }
     if (presenterState.generatedKeyBackup != null) {
         return ShellRoot.BootstrapCanvas(BootstrapStep.GeneratedRecovery)
     }
-    return when (presenterState.route) {
-        HarvestCircleRoute.ACTIVE_IDENTITY -> ShellRoot.Dashboard(NavigationState(AppRoute.PersonalToday))
-        HarvestCircleRoute.IDENTITIES ->
-            if (session.readOnly) {
-                ShellRoot.Dashboard(NavigationState(AppRoute.PersonalToday))
-            } else {
-                val step =
-                    when (presenterState.identityEntryMode) {
-                        IdentityEntryMode.CREATE -> BootstrapStep.CreateIdentity
-                        IdentityEntryMode.IMPORT -> BootstrapStep.ImportIdentity
-                        IdentityEntryMode.CHOICE ->
-                            if (presenterState.snapshot.identities.isEmpty()) {
-                                BootstrapStep.Welcome
-                            } else {
-                                BootstrapStep.IdentityChooser
-                            }
-                    }
-                ShellRoot.BootstrapCanvas(step)
-            }
-        else -> ShellRoot.LifecycleCanvas(presenterState.route)
+    if (presenterState.snapshot.activeIdentity != null || session.readOnly) {
+        return ShellRoot.Dashboard(NavigationState(AppRoute.PersonalToday))
     }
+    val step =
+        when (presenterState.identityEntryMode) {
+            IdentityEntryMode.CREATE -> BootstrapStep.CreateIdentity
+            IdentityEntryMode.IMPORT -> BootstrapStep.ImportIdentity
+            IdentityEntryMode.CHOICE ->
+                if (presenterState.snapshot.identities.isEmpty()) {
+                    BootstrapStep.Welcome
+                } else {
+                    BootstrapStep.IdentityChooser
+                }
+        }
+    return ShellRoot.BootstrapCanvas(step)
 }
+
+fun deriveLocalUsability(snapshot: ApplicationSnapshot): LocalUsability =
+    when (snapshot.lifecycle) {
+        ApplicationLifecycle.Ready -> LocalUsability.Usable
+        ApplicationLifecycle.Degraded -> deriveDegradedUsability(snapshot)
+        else -> LocalUsability.Unusable
+    }
+
+private fun deriveDegradedUsability(snapshot: ApplicationSnapshot): LocalUsability {
+    val categories =
+        listOfNotNull(
+            snapshot.lifecycleProblem,
+            snapshot.sessionProblem,
+            snapshot.recoverableProblem,
+        ).map(ApplicationProblem::category)
+            .toSet()
+    if (categories.isEmpty() || categories.any { it !in USABLE_DEGRADATION_CATEGORIES }) {
+        return LocalUsability.Unusable
+    }
+    val reason =
+        when (categories) {
+            setOf(ApplicationErrorCategory.Network) -> DegradationReason.Network
+            setOf(ApplicationErrorCategory.Credential) -> DegradationReason.Credential
+            else -> DegradationReason.NetworkAndCredential
+        }
+    return LocalUsability.UsableDegraded(reason)
+}
+
+private val USABLE_DEGRADATION_CATEGORIES =
+    setOf(
+        ApplicationErrorCategory.Network,
+        ApplicationErrorCategory.Credential,
+    )
 
 fun activateShellDestination(
     state: NavigationState,

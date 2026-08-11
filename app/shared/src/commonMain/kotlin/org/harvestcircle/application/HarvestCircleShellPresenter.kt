@@ -26,6 +26,7 @@ data class HarvestCircleShellState(
     val identity: HarvestCirclePresenterState,
     val buildInfo: BuildInfo,
     val session: ShellSessionState = ShellSessionState(),
+    val localUsability: LocalUsability = deriveLocalUsability(identity.snapshot),
     val root: ShellRoot = deriveShellRoot(identity, session),
     val appearance: AppearanceState = AppearanceState(),
     val overlays: OverlayState = OverlayState(),
@@ -101,7 +102,11 @@ class HarvestCircleShellPresenter(
                         derived.copy(navigation = root.navigation)
                     else -> derived
                 }
-            copy(identity = identity, root = retained)
+            copy(
+                identity = identity,
+                localUsability = deriveLocalUsability(identity.snapshot),
+                root = retained,
+            )
         }
     }
 

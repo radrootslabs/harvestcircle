@@ -47,6 +47,50 @@ class HarvestCircleShellPresenterTest {
             assertTrue(identity.intents.single() === HarvestCircleIntent.ChooseCreateIdentity)
             presenter.close()
         }
+
+    @Test
+    fun usableDegradationPreservesDashboardNavigation() =
+        runTest {
+            val identity = FakeIdentityPresentation(activePresenterState(ApplicationLifecycle.Ready, null, 1UL))
+            val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this)
+            runCurrent()
+            presenter.dispatch(HarvestCircleShellIntent.Navigate(ShellDestination.Network))
+
+            identity.state.value =
+                activePresenterState(
+                    ApplicationLifecycle.Degraded,
+                    problem(ApplicationErrorCategory.Network),
+                    2UL,
+                )
+            runCurrent()
+
+            assertEquals(AppRoute.Network, presenter.state.value.currentRoute)
+            assertEquals(
+                LocalUsability.UsableDegraded(DegradationReason.Network),
+                presenter.state.value.localUsability,
+            )
+            presenter.close()
+        }
+
+    @Test
+    fun storageDegradationLeavesTheDashboardForALifecycleCanvas() =
+        runTest {
+            val identity = FakeIdentityPresentation(activePresenterState(ApplicationLifecycle.Ready, null, 1UL))
+            val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this)
+            runCurrent()
+
+            identity.state.value =
+                activePresenterState(
+                    ApplicationLifecycle.Degraded,
+                    problem(ApplicationErrorCategory.Storage),
+                    2UL,
+                )
+            runCurrent()
+
+            assertEquals(LocalUsability.Unusable, presenter.state.value.localUsability)
+            assertTrue(presenter.state.value.root is ShellRoot.LifecycleCanvas)
+            presenter.close()
+        }
 }
 
 private class FakeIdentityPresentation(
@@ -77,4 +121,56 @@ private fun presenterState(route: HarvestCircleRoute): HarvestCirclePresenterSta
                 recoverableProblem = null,
             ),
         route = route,
+    )
+
+private fun activePresenterState(
+    lifecycle: ApplicationLifecycle,
+    lifecycleProblem: ApplicationProblem?,
+    revision: ULong,
+): HarvestCirclePresenterState {
+    val identity =
+        IdentitySummary(
+            id = IdentityId.fromPublicKeyHex("02".repeat(32)),
+            npub = "npub1active",
+            displayLabel = "Active identity",
+            signer = SignerBindingSummary(SignerBindingKind.LocalKeyring, SignerAvailability.Available),
+            createdAt = UnixSeconds(1),
+            lastUsedAt = null,
+        )
+    return HarvestCirclePresenterState(
+        ApplicationSnapshot(
+            revision = SnapshotRevision(revision),
+            lifecycle = lifecycle,
+            lifecycleProblem = lifecycleProblem,
+            configuredRelays = emptyList(),
+            identities = listOf(identity),
+            selectedIdentityId = identity.id,
+            session = SessionLifecycle.Active,
+            sessionSubjectIdentityId = identity.id,
+            sessionProblem = null,
+            activeIdentity =
+                ActiveIdentity(
+                    identity = identity,
+                    relays = RelaySummary(emptyList(), RelayConnectionState.Degraded),
+                    profileState = ProfileLoadState.Cached,
+                    profile = null,
+                ),
+            recoverableProblem = null,
+        ),
+    )
+}
+
+private fun problem(category: ApplicationErrorCategory): ApplicationProblem =
+    ApplicationProblem(
+        code =
+            if (category == ApplicationErrorCategory.Network) {
+                ApplicationErrorCode.RelayConnectionFailed
+            } else {
+                ApplicationErrorCode.StorageUnavailable
+            },
+        category = category,
+        retryable = true,
+        recoveryAction = RecoveryAction.Retry,
+        operationId = null,
+        safeMessage = "Typed degraded problem.",
     )
