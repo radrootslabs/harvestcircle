@@ -21,14 +21,14 @@ class ShellOverlaysTest {
         val first =
             OverlayReducer.reduce(
                 OverlayState(),
-                OverlayIntent.Open(FoundationOverlay.SignerStatus(org.harvestcircle.ui.shell.SignerStatusLabel.Available)),
+                OverlayIntent.Open(FoundationOverlay.Status(StatusOverlayKey.Signer)),
             )
         val second =
             OverlayReducer.reduce(
                 first,
-                OverlayIntent.Open(FoundationOverlay.SyncStatus(org.harvestcircle.ui.shell.SyncStatusLabel.Degraded)),
+                OverlayIntent.Open(FoundationOverlay.Status(StatusOverlayKey.Sync)),
             )
-        assertTrue(second.current is FoundationOverlay.SyncStatus)
+        assertEquals(FoundationOverlay.Status(StatusOverlayKey.Sync), second.current)
         assertNull(OverlayReducer.reduce(second, OverlayIntent.Escape).current)
     }
 

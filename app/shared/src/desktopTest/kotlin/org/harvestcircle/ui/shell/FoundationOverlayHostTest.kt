@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
@@ -19,6 +20,9 @@ import org.harvestcircle.application.GlobalStatusBanner
 import org.harvestcircle.application.OverlayIntent
 import org.harvestcircle.application.OverlayReducer
 import org.harvestcircle.application.OverlayState
+import org.harvestcircle.application.ShellStatusModel
+import org.harvestcircle.application.SignerStatusLabel
+import org.harvestcircle.application.SyncStatusLabel
 import kotlin.test.Test
 
 @OptIn(ExperimentalTestApi::class)
@@ -29,10 +33,16 @@ class FoundationOverlayHostTest {
             var state by mutableStateOf(
                 OverlayState(
                     current = FoundationOverlay.OpenNostrReference(),
-                    banner = GlobalStatusBanner("Limited connection", BannerSeverity.Caution),
                 ),
             )
-            setContent { FoundationOverlayHost(state) { state = OverlayReducer.reduce(state, it) } }
+            setContent {
+                FoundationOverlayHost(
+                    state,
+                    status(banner = GlobalStatusBanner("Limited connection", "Some services are unavailable.", BannerSeverity.Caution)),
+                ) {
+                    state = OverlayReducer.reduce(state, it)
+                }
+            }
             onAllNodesWithTag("foundation-overlay").assertCountEquals(1)
             onAllNodesWithTag("global-status-banner").assertCountEquals(1)
             onNodeWithTag("nostr-reference-input").assertIsFocused().performTextInput("note1qqqqqq")
@@ -56,7 +66,7 @@ class FoundationOverlayHostTest {
                             ConfirmationAction.RemoveLocalIdentity,
                         ),
                 )
-            setContent { FoundationOverlayHost(state, onIntent = intents::add) }
+            setContent { FoundationOverlayHost(state, status(), onIntent = intents::add) }
 
             onNodeWithTag("overlay-confirm").assertIsFocused().performClick()
             kotlin.test.assertEquals(listOf<OverlayIntent>(OverlayIntent.Confirm), intents)
@@ -76,10 +86,25 @@ class FoundationOverlayHostTest {
                             ConfirmationAction.RemoveLocalIdentity,
                         ),
                 )
-            setContent { FoundationOverlayHost(state, busy = true, onIntent = intents::add) }
+            setContent { FoundationOverlayHost(state, status(), busy = true, onIntent = intents::add) }
 
             onNodeWithTag("overlay-confirm").assertIsNotEnabled().performClick()
             onNodeWithTag("overlay-cancel").assertIsNotEnabled()
             kotlin.test.assertTrue(intents.isEmpty())
         }
+
+    @Test
+    fun openStatusDialogRendersTheLatestStatusModel() =
+        runComposeUiTest {
+            var status by mutableStateOf(status())
+            val overlay = OverlayState(FoundationOverlay.Status(org.harvestcircle.application.StatusOverlayKey.Sync))
+            setContent { FoundationOverlayHost(overlay, status, onIntent = {}) }
+
+            onNodeWithText("Not yet observed").assertExists()
+            status = ShellStatusModel(SyncStatusLabel.Degraded, SignerStatusLabel.SignedOut, null)
+            onNodeWithText("Limited connection").assertExists()
+        }
 }
+
+private fun status(banner: GlobalStatusBanner? = null) =
+    ShellStatusModel(SyncStatusLabel.NotYetObserved, SignerStatusLabel.SignedOut, banner)

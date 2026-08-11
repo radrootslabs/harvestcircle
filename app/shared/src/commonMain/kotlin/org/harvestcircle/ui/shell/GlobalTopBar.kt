@@ -7,24 +7,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-
-enum class SyncStatusLabel(
-    val text: String,
-) {
-    NotYetObserved("Not yet observed"),
-    Available("Available"),
-    Degraded("Degraded"),
-    Unavailable("Unavailable"),
-}
-
-enum class SignerStatusLabel(
-    val text: String,
-) {
-    ReadOnly("Read-only"),
-    SignedOut("No signer"),
-    Available("Signer available"),
-    CredentialMissing("Credential missing"),
-}
+import org.harvestcircle.application.SignerStatusLabel
+import org.harvestcircle.application.SyncStatusLabel
 
 data class GlobalTopBarModel(
     val canGoBack: Boolean,

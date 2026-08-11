@@ -1,8 +1,5 @@
 package org.harvestcircle.application
 
-import org.harvestcircle.ui.shell.SignerStatusLabel
-import org.harvestcircle.ui.shell.SyncStatusLabel
-
 sealed interface FoundationOverlay {
     data class ConfirmAction(
         val title: String,
@@ -11,12 +8,8 @@ sealed interface FoundationOverlay {
         val action: ConfirmationAction,
     ) : FoundationOverlay
 
-    data class SignerStatus(
-        val status: SignerStatusLabel,
-    ) : FoundationOverlay
-
-    data class SyncStatus(
-        val status: SyncStatusLabel,
+    data class Status(
+        val key: StatusOverlayKey,
     ) : FoundationOverlay
 
     data class OpenNostrReference(
@@ -27,16 +20,10 @@ sealed interface FoundationOverlay {
 
 enum class ConfirmationAction { RemoveLocalIdentity }
 
-enum class BannerSeverity { Information, Caution, Critical }
-
-data class GlobalStatusBanner(
-    val message: String,
-    val severity: BannerSeverity,
-)
+enum class StatusOverlayKey { Signer, Sync }
 
 data class OverlayState(
     val current: FoundationOverlay? = null,
-    val banner: GlobalStatusBanner? = null,
 )
 
 sealed interface OverlayIntent {

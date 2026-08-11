@@ -29,13 +29,13 @@ class HarvestCircleShellPresenterTest {
             presenter.dispatch(HarvestCircleShellIntent.SetMotion(MotionPreference.Reduced))
             presenter.dispatch(
                 HarvestCircleShellIntent.Overlay(
-                    OverlayIntent.Open(FoundationOverlay.SyncStatus(org.harvestcircle.ui.shell.SyncStatusLabel.Degraded)),
+                    OverlayIntent.Open(FoundationOverlay.Status(StatusOverlayKey.Sync)),
                 ),
             )
 
             assertEquals(AppRoute.Network, presenter.state.value.currentRoute)
             assertEquals(ThemePreference.Dark, presenter.state.value.appearance.theme)
-            assertTrue(presenter.state.value.overlays.current is FoundationOverlay.SyncStatus)
+            assertEquals(FoundationOverlay.Status(StatusOverlayKey.Sync), presenter.state.value.overlays.current)
             presenter.close()
         }
 

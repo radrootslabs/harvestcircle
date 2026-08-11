@@ -13,7 +13,8 @@ import org.harvestcircle.application.HarvestCircleShellIntent
 import org.harvestcircle.application.HarvestCircleShellState
 import org.harvestcircle.application.OverlayIntent
 import org.harvestcircle.application.ShellRoot
-import org.harvestcircle.application.SignerAvailability
+import org.harvestcircle.application.StatusOverlayKey
+import org.harvestcircle.application.deriveShellStatus
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.identities.ui.HarvestCircleScreen
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
@@ -80,7 +81,9 @@ private fun HarvestCircleShellContent(
             }
         is ShellRoot.Dashboard -> DashboardRoot(state, root, identityActions, platformActions, dispatch)
     }
-    FoundationOverlayHost(state.overlays, state.identity.busy) { dispatch(HarvestCircleShellIntent.Overlay(it)) }
+    FoundationOverlayHost(state.overlays, deriveShellStatus(state), state.identity.busy) {
+        dispatch(HarvestCircleShellIntent.Overlay(it))
+    }
 }
 
 @Composable
@@ -140,6 +143,7 @@ private fun DashboardRoot(
     dispatch: (HarvestCircleShellIntent) -> Unit,
 ) {
     val route = root.navigation.current
+    val status = deriveShellStatus(state)
     DashboardScaffold(
         windowWidthDp = ShellDimensions.PREFERRED_WINDOW_WIDTH_DP,
         inspectorVisible = false,
@@ -149,8 +153,8 @@ private fun DashboardRoot(
                     GlobalTopBarModel(
                         canGoBack = root.navigation.backStack.isNotEmpty(),
                         canGoForward = root.navigation.forwardStack.isNotEmpty(),
-                        syncStatus = syncStatus(state),
-                        signerStatus = signerStatus(state),
+                        syncStatus = status.sync,
+                        signerStatus = status.signer,
                     ),
                 onIntent = { intent -> dispatchTopBar(intent, dispatch) },
             )
@@ -240,35 +244,14 @@ private fun dispatchTopBar(
             GlobalTopBarIntent.OpenNostrReference ->
                 HarvestCircleShellIntent.Overlay(OverlayIntent.Open(FoundationOverlay.OpenNostrReference()))
             GlobalTopBarIntent.ShowSyncStatus ->
-                HarvestCircleShellIntent.Overlay(OverlayIntent.Open(FoundationOverlay.SyncStatus(SyncStatusLabel.NotYetObserved)))
+                HarvestCircleShellIntent.Overlay(OverlayIntent.Open(FoundationOverlay.Status(StatusOverlayKey.Sync)))
             GlobalTopBarIntent.ShowSignerStatus ->
-                HarvestCircleShellIntent.Overlay(OverlayIntent.Open(FoundationOverlay.SignerStatus(SignerStatusLabel.SignedOut)))
+                HarvestCircleShellIntent.Overlay(OverlayIntent.Open(FoundationOverlay.Status(StatusOverlayKey.Signer)))
             GlobalTopBarIntent.OpenApplicationMenu ->
                 HarvestCircleShellIntent.Navigate(ScreenKey.Settings)
         }
     dispatch(shellIntent)
 }
-
-private fun syncStatus(state: HarvestCircleShellState): SyncStatusLabel =
-    when (
-        state.identity.snapshot.activeIdentity
-            ?.relays
-            ?.state
-    ) {
-        org.harvestcircle.application.RelayConnectionState.Connected -> SyncStatusLabel.Available
-        org.harvestcircle.application.RelayConnectionState.Degraded -> SyncStatusLabel.Degraded
-        org.harvestcircle.application.RelayConnectionState.Error -> SyncStatusLabel.Unavailable
-        else -> SyncStatusLabel.NotYetObserved
-    }
-
-private fun signerStatus(state: HarvestCircleShellState): SignerStatusLabel =
-    when {
-        state.session.readOnly -> SignerStatusLabel.ReadOnly
-        state.identity.snapshot.activeIdentity == null -> SignerStatusLabel.SignedOut
-        state.identity.snapshot.activeIdentity.identity.signer.availability == SignerAvailability.Available ->
-            SignerStatusLabel.Available
-        else -> SignerStatusLabel.CredentialMissing
-    }
 
 private fun AppRoute.title(): String =
     when (this) {

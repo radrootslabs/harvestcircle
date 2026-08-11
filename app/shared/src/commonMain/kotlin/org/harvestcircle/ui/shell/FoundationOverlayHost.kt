@@ -19,18 +19,25 @@ import androidx.compose.ui.window.Dialog
 import org.harvestcircle.application.FoundationOverlay
 import org.harvestcircle.application.OverlayIntent
 import org.harvestcircle.application.OverlayState
+import org.harvestcircle.application.ShellStatusModel
+import org.harvestcircle.application.StatusOverlayKey
 
 @Composable
 fun FoundationOverlayHost(
     state: OverlayState,
+    status: ShellStatusModel,
     busy: Boolean = false,
     onIntent: (OverlayIntent) -> Unit,
 ) {
-    state.banner?.let { banner ->
-        ShellBadge(
-            banner.message,
-            Modifier.semantics { contentDescription = "Status: ${banner.message}" }.testTag("global-status-banner"),
-        )
+    status.banner?.let { banner ->
+        ShellCard(
+            Modifier.semantics { contentDescription = "Status: ${banner.title}. ${banner.message}" }.testTag("global-status-banner"),
+        ) {
+            Column {
+                ShellText(banner.title, textRole = ShellTextRole.CardTitle)
+                ShellText(banner.message)
+            }
+        }
     }
     state.current?.let { overlay ->
         Dialog(onDismissRequest = { if (!busy) onIntent(OverlayIntent.Close) }) {
@@ -43,8 +50,11 @@ fun FoundationOverlayHost(
             ) {
                 when (overlay) {
                     is FoundationOverlay.ConfirmAction -> ConfirmOverlay(overlay, busy, onIntent)
-                    is FoundationOverlay.SignerStatus -> StatusOverlay("Signer status", overlay.status.text, onIntent)
-                    is FoundationOverlay.SyncStatus -> StatusOverlay("Sync status", overlay.status.text, onIntent)
+                    is FoundationOverlay.Status ->
+                        when (overlay.key) {
+                            StatusOverlayKey.Signer -> StatusOverlay("Signer status", status.signer.text, onIntent)
+                            StatusOverlayKey.Sync -> StatusOverlay("Sync status", status.sync.text, onIntent)
+                        }
                     is FoundationOverlay.OpenNostrReference -> ReferenceOverlay(overlay, busy, onIntent)
                 }
             }
