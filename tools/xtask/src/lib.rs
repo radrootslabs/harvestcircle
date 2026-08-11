@@ -46,6 +46,7 @@ pub fn run(root: &Path, command: Command) -> Result<String, Vec<String>> {
             repo_audit(root, &inventory, &mut findings);
             namespace_audit(root, &inventory, &mut findings);
             provenance_check(root, &inventory, &mut findings);
+            product_shell_audit(root, &inventory, &mut findings);
         }
     }
     findings.sort();
@@ -283,6 +284,9 @@ fn namespace_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String
                     )
                     .replace(&provenance_path, "");
             }
+            for exact in approved_legacy_product_fragments(path, &legacy, &legacy_repository) {
+                inspected = inspected.replace(&exact, "");
+            }
             if inspected.to_ascii_lowercase().contains(&legacy) {
                 findings.push(format!(
                     "{path}: legacy product name outside the exact provenance allowlist"
@@ -334,8 +338,132 @@ fn namespace_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String
                 findings.push(format!("{path}: inherited non-product preference {token}"));
             }
         }
-        if production_kotlin && lowercase.contains(&["nsec", "1"].concat()) {
+        let secret_marker = ["nsec", "1"].concat();
+        let inspected_secret = lowercase.replace(&format!("{secret_marker}…"), "");
+        if production_kotlin && inspected_secret.contains(&secret_marker) {
             findings.push(format!("{path}: secret key literal in production Kotlin"));
+        }
+    }
+}
+
+fn approved_legacy_product_fragments(
+    path: &str,
+    legacy: &str,
+    legacy_repository: &str,
+) -> Vec<String> {
+    match path {
+        "app/shared/src/commonMain/kotlin/org/harvestcircle/product/SurfaceRegistry.kt" => vec![
+            format!("round_{legacy}_screen"),
+            format!("Round{}", title_case(legacy)),
+        ],
+        "app/shared/src/commonTest/kotlin/org/harvestcircle/product/SurfaceRegistryTest.kt" => {
+            vec![format!("round_{legacy}_screen")]
+        }
+        "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/MainPanelTemplates.kt"
+        | "app/shared/src/desktopTest/kotlin/org/harvestcircle/ui/shell/MainPanelTemplatesTest.kt" =>
+        {
+            vec![format!("{}Template", title_case(legacy))]
+        }
+        "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationSettingsScreen.kt" =>
+        {
+            vec![legacy_repository.to_owned()]
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
+    let required = [
+        "app/shared/src/commonMain/kotlin/org/harvestcircle/product/SurfaceRegistry.kt",
+        "app/shared/src/commonMain/kotlin/org/harvestcircle/navigation/Navigation.kt",
+        "app/shared/src/commonMain/kotlin/org/harvestcircle/design/HarvestCircleDesign.kt",
+        "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/HarvestCircleShell.kt",
+        "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationTodayScreen.kt",
+        "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationNetworkScreen.kt",
+        "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationSettingsScreen.kt",
+        "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/ShellAccessibility.kt",
+    ];
+    for path in required {
+        if !inventory.paths.iter().any(|candidate| candidate == path) {
+            findings.push(format!("{path}: required product-shell source is missing"));
+        }
+    }
+    let locked_copy = [
+        (
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/HarvestCircleShell.kt",
+            &[
+                "Coordinate local food with clear, signed terms.",
+                "You do not need a HarvestCircle account.",
+                "Open source · Nostr-based · No managed service required",
+            ][..],
+        ),
+        (
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationTodayScreen.kt",
+            &[
+                "No active commitments",
+                "Explore nearby buying circles or open a shared Nostr reference.",
+                "Not available in this build.",
+            ][..],
+        ),
+        (
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationNetworkScreen.kt",
+            &[
+                "Overview",
+                "Identity",
+                "Public relays",
+                "Runtime",
+                "No managed HarvestCircle service is configured.",
+            ][..],
+        ),
+        (
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationSettingsScreen.kt",
+            &[
+                "Appearance",
+                "Project",
+                "Theme",
+                "Text size",
+                "Motion",
+                "FFI contract",
+                "Storage schema",
+            ][..],
+        ),
+    ];
+    for (path, expected) in locked_copy {
+        let source = read_text(root, path);
+        for text in expected {
+            if !source.contains(text) {
+                findings.push(format!(
+                    "{path}: locked product-shell copy is missing: {text}"
+                ));
+            }
+        }
+    }
+    for path in &inventory.paths {
+        if !path.starts_with("app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/")
+            || !path.ends_with(".kt")
+        {
+            continue;
+        }
+        let source = read_text(root, path);
+        if path != "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/GlobalTopBar.kt"
+            && source.contains("Color(0x")
+        {
+            findings.push(format!(
+                "{path}: hard-coded shell color outside the token adapter"
+            ));
+        }
+        let lowercase = source.to_ascii_lowercase();
+        for marker in [
+            "sample farm",
+            "sample commitment",
+            "pricecents",
+            "commitmentid",
+        ] {
+            if lowercase.contains(marker) {
+                findings.push(format!(
+                    "{path}: fake commercial product data marker {marker}"
+                ));
+            }
         }
     }
 }
@@ -714,6 +842,53 @@ mod tests {
             findings
                 .iter()
                 .any(|finding| finding.contains("platform dependency"))
+        );
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn namespace_policy_allows_only_exact_locked_legacy_contracts_and_placeholder() {
+        let root = fixture("namespace-allowlist");
+        let legacy = ["stu", "dio"].concat();
+        let repository = format!("https://github.com/radrootslabs/{legacy}_app");
+        let registry =
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/product/SurfaceRegistry.kt";
+        let entry =
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/BootstrapIdentityEntry.kt";
+        write(
+            &root,
+            registry,
+            &format!(
+                "val key = \"round_{legacy}_screen\"\nclass Round{}\n",
+                title_case(&legacy)
+            ),
+        );
+        write(&root, entry, "val placeholder = \"nsec1…\"\n");
+        write(
+            &root,
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationSettingsScreen.kt",
+            &format!(
+                "val source = \"{repository}\"\nval licence = \"{repository}/blob/dev/LICENSE\"\n"
+            ),
+        );
+        let inventory = Inventory::load(&root).expect("allowlist inventory");
+        let mut findings = Vec::new();
+        namespace_audit(&root, &inventory, &mut findings);
+        assert!(findings.is_empty(), "{findings:?}");
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn product_shell_audit_requires_the_complete_source_contract() {
+        let root = fixture("product-shell");
+        write(&root, "README.md", "safe\n");
+        let inventory = Inventory::load(&root).expect("product shell inventory");
+        let mut findings = Vec::new();
+        product_shell_audit(&root, &inventory, &mut findings);
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.contains("required product-shell source is missing"))
         );
         fs::remove_dir_all(root).expect("remove fixture");
     }

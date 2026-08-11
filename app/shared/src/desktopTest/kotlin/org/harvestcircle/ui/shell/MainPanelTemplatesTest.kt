@@ -23,7 +23,7 @@ class MainPanelTemplatesTest {
         }
 
     @Test
-    fun tabbedAndStudioTemplatesExposeOnlyStructuralSlots() =
+    fun tabbedAndWorkbenchTemplatesExposeOnlyStructuralSlots() =
         runComposeUiTest {
             val tab = TemplateTab(TemplateSelectionKey("overview"), "Overview")
             setContent {
