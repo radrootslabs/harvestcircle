@@ -47,6 +47,10 @@ sealed interface OverlayIntent {
 
     data object SubmitReference : OverlayIntent
 
+    data class ApplyReferenceResult(
+        val result: ReferenceResult,
+    ) : OverlayIntent
+
     data object Confirm : OverlayIntent
 
     data object Close : OverlayIntent
@@ -64,12 +68,21 @@ object OverlayReducer {
             is OverlayIntent.EditReference ->
                 state.copy(current = (state.current as? FoundationOverlay.OpenNostrReference)?.copy(input = intent.value))
             OverlayIntent.SubmitReference -> submitReference(state)
+            is OverlayIntent.ApplyReferenceResult -> applyReferenceResult(state, intent.result)
             OverlayIntent.Confirm, OverlayIntent.Close, OverlayIntent.Escape -> state.copy(current = null)
         }
 
     private fun submitReference(state: OverlayState): OverlayState {
         val overlay = state.current as? FoundationOverlay.OpenNostrReference ?: return state
         return state.copy(current = overlay.copy(result = validateNostrReference(overlay.input)))
+    }
+
+    private fun applyReferenceResult(
+        state: OverlayState,
+        result: ReferenceResult,
+    ): OverlayState {
+        val overlay = state.current as? FoundationOverlay.OpenNostrReference ?: return state
+        return state.copy(current = overlay.copy(result = result))
     }
 }
 

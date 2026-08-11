@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.harvestcircle.design.AppearanceState
 import org.harvestcircle.design.MotionPreference
@@ -13,8 +14,6 @@ import org.harvestcircle.design.TextSizePreference
 import org.harvestcircle.design.ThemePreference
 import org.harvestcircle.navigation.AppRoute
 import org.harvestcircle.navigation.NavigationIntent
-import org.harvestcircle.navigation.NavigationReducer
-import org.harvestcircle.navigation.NavigationState
 
 interface IdentityPresentationPort {
     val state: StateFlow<HarvestCirclePresenterState>
@@ -79,13 +78,13 @@ class HarvestCircleShellPresenter(
     fun dispatch(intent: HarvestCircleShellIntent) {
         when (intent) {
             is HarvestCircleShellIntent.Identity -> identityPresenter.dispatch(intent.intent)
-            HarvestCircleShellIntent.EnterReadOnly -> updateSession(mutableState.value.session.enterReadOnly())
-            is HarvestCircleShellIntent.Navigate -> updateNavigation { activateShellDestination(it, intent.destination) }
-            is HarvestCircleShellIntent.Navigation -> updateNavigationIntent(intent.intent)
-            is HarvestCircleShellIntent.Overlay -> mutate { copy(overlays = OverlayReducer.reduce(overlays, intent.intent)) }
-            is HarvestCircleShellIntent.SetTheme -> mutate { copy(appearance = appearance.copy(theme = intent.theme)) }
-            is HarvestCircleShellIntent.SetTextSize -> mutate { copy(appearance = appearance.copy(textSize = intent.textSize)) }
-            is HarvestCircleShellIntent.SetMotion -> mutate { copy(appearance = appearance.copy(motion = intent.motion)) }
+            HarvestCircleShellIntent.EnterReadOnly -> reduce(ShellEvent.EnterReadOnly)
+            is HarvestCircleShellIntent.Navigate -> reduce(ShellEvent.Navigate(intent.destination))
+            is HarvestCircleShellIntent.Navigation -> reduce(ShellEvent.Navigation(intent.intent))
+            is HarvestCircleShellIntent.Overlay -> reduce(ShellEvent.Overlay(intent.intent))
+            is HarvestCircleShellIntent.SetTheme -> reduce(ShellEvent.SetTheme(intent.theme))
+            is HarvestCircleShellIntent.SetTextSize -> reduce(ShellEvent.SetTextSize(intent.textSize))
+            is HarvestCircleShellIntent.SetMotion -> reduce(ShellEvent.SetMotion(intent.motion))
         }
     }
 
@@ -94,53 +93,11 @@ class HarvestCircleShellPresenter(
     }
 
     private fun updateIdentity(identity: HarvestCirclePresenterState) {
-        mutate {
-            val derived = deriveShellRoot(identity, session)
-            val retained =
-                when {
-                    derived is ShellRoot.Dashboard && root is ShellRoot.Dashboard ->
-                        derived.copy(navigation = root.navigation)
-                    else -> derived
-                }
-            copy(
-                identity = identity,
-                localUsability = deriveLocalUsability(identity.snapshot),
-                root = retained,
-            )
-        }
+        reduce(ShellEvent.IdentityObserved(identity))
     }
 
-    private fun updateSession(session: ShellSessionState) {
-        mutate { copy(session = session, root = deriveShellRoot(identity, session)) }
-    }
-
-    private fun updateNavigation(block: (NavigationState) -> NavigationState) {
-        mutate {
-            val dashboard = root as? ShellRoot.Dashboard ?: return@mutate this
-            copy(root = dashboard.copy(navigation = block(dashboard.navigation)))
-        }
-    }
-
-    private fun updateNavigationIntent(intent: NavigationIntent) {
-        mutate {
-            when (val currentRoot = root) {
-                is ShellRoot.Dashboard ->
-                    copy(
-                        root = currentRoot.copy(navigation = NavigationReducer.reduce(currentRoot.navigation, intent)),
-                    )
-                is ShellRoot.BootstrapCanvas ->
-                    if (intent is NavigationIntent.SelectBootstrapStep) {
-                        copy(root = currentRoot.copy(step = intent.step))
-                    } else {
-                        this
-                    }
-                is ShellRoot.LifecycleCanvas -> this
-            }
-        }
-    }
-
-    private fun mutate(block: HarvestCircleShellState.() -> HarvestCircleShellState) {
-        mutableState.value = mutableState.value.block()
+    private fun reduce(event: ShellEvent) {
+        mutableState.update { current -> ShellReducer.reduce(current, event) }
     }
 }
 
