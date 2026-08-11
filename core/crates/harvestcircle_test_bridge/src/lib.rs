@@ -38,13 +38,30 @@ pub struct TestIdentity {
     pub display_label: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
+pub enum TestLifecycle {
+    Booting,
+    Ready,
+    Fatal,
+    Closed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, uniffi::Enum)]
+pub enum TestSession {
+    SignedOut,
+    Activating,
+    Active,
+    SigningOut,
+    Failed,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct TestSnapshot {
     pub revision: u64,
-    pub lifecycle: String,
+    pub lifecycle: TestLifecycle,
     pub identities: Vec<TestIdentity>,
     pub selected_public_key_hex: Option<String>,
-    pub session: String,
+    pub session: TestSession,
     pub profile_display_name: Option<String>,
 }
 
@@ -378,7 +395,7 @@ impl HarvestCircleTestBridge {
         let _ = self.stop_observer();
         self.close_actor()?;
         Ok(TestSnapshot {
-            lifecycle: "closed".to_owned(),
+            lifecycle: TestLifecycle::Closed,
             ..snapshot
         })
     }
@@ -462,16 +479,16 @@ fn to_identity(identity: &harvestcircle_domain::NostrIdentity) -> TestIdentity {
 
 fn to_snapshot(snapshot: AppSnapshot) -> TestSnapshot {
     let lifecycle = match snapshot.lifecycle() {
-        AppLifecycle::Booting => "booting",
-        AppLifecycle::Ready => "ready",
-        AppLifecycle::Fatal(_) => "fatal",
+        AppLifecycle::Booting => TestLifecycle::Booting,
+        AppLifecycle::Ready => TestLifecycle::Ready,
+        AppLifecycle::Fatal(_) => TestLifecycle::Fatal,
     };
     let session = match snapshot.session() {
-        SessionState::SignedOut => "signed_out",
-        SessionState::Activating(_) => "activating",
-        SessionState::Active => "active",
-        SessionState::SigningOut => "signing_out",
-        SessionState::Failed(_) => "failed",
+        SessionState::SignedOut => TestSession::SignedOut,
+        SessionState::Activating(_) => TestSession::Activating,
+        SessionState::Active => TestSession::Active,
+        SessionState::SigningOut => TestSession::SigningOut,
+        SessionState::Failed(_) => TestSession::Failed,
     };
     let profile_display_name = snapshot
         .active_identity()
@@ -480,10 +497,10 @@ fn to_snapshot(snapshot: AppSnapshot) -> TestSnapshot {
         .map(ToOwned::to_owned);
     TestSnapshot {
         revision: snapshot.revision().value(),
-        lifecycle: lifecycle.to_owned(),
+        lifecycle,
         identities: snapshot.identities().iter().map(to_identity).collect(),
         selected_public_key_hex: snapshot.selected_identity().map(PublicKey::to_hex),
-        session: session.to_owned(),
+        session,
         profile_display_name,
     }
 }

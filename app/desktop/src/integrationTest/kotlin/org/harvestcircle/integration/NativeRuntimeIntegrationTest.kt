@@ -7,6 +7,7 @@ import org.harvestcircle.application.RequestContext
 import org.harvestcircle.application.SecretKeyInput
 import org.harvestcircle.application.SessionLifecycle
 import org.harvestcircle.application.SnapshotRevision
+import org.harvestcircle.application.verifyNativeCompatibility
 import org.harvestcircle.ffi.compatibilityDescriptor
 import org.harvestcircle.testbridge.ffi.HarvestCircleTestBridge
 import org.harvestcircle.testbridge.ffi.TestBridgeException
@@ -81,10 +82,7 @@ class NativeRuntimeIntegrationTest {
             val dataRoot = Files.createTempDirectory("harvestcircle-native-integration-")
             try {
                 TestBridgeHarvestCircleRuntime.open(dataRoot.toString()).use { runtime ->
-                    assertEquals(
-                        "c7a84960e53cd9df35d676bab28294eb048a8b86c766d81cded2635b64a7f3d6",
-                        compatibilityDescriptor().contractHash,
-                    )
+                    verifyNativeCompatibility(compatibilityDescriptor())
                     val initial = runtime.bootstrap()
                     assertTrue(initial.revision.value > 0UL)
                     assertTrue(initial.identities.isEmpty())

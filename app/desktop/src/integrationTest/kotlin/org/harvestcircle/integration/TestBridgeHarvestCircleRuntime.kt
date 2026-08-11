@@ -42,6 +42,8 @@ import org.harvestcircle.testbridge.ffi.HarvestCircleTestBridge
 import org.harvestcircle.testbridge.ffi.TestBridgeException
 import org.harvestcircle.testbridge.ffi.TestGeneratedRecoveryRequest
 import org.harvestcircle.testbridge.ffi.TestIdentity
+import org.harvestcircle.testbridge.ffi.TestLifecycle
+import org.harvestcircle.testbridge.ffi.TestSession
 import org.harvestcircle.testbridge.ffi.TestSnapshot
 
 internal class TestBridgeHarvestCircleRuntime private constructor(
@@ -247,11 +249,11 @@ private fun TestSnapshot.toApplicationSnapshot(): ApplicationSnapshot {
     val selected = selectedPublicKeyHex?.let(IdentityId::fromPublicKeyHex)
     val mappedSession =
         when (session) {
-            "signed_out" -> SessionLifecycle.SignedOut
-            "activating" -> SessionLifecycle.Activating
-            "active" -> SessionLifecycle.Active
-            "signing_out" -> SessionLifecycle.SigningOut
-            else -> SessionLifecycle.Failed
+            TestSession.SIGNED_OUT -> SessionLifecycle.SignedOut
+            TestSession.ACTIVATING -> SessionLifecycle.Activating
+            TestSession.ACTIVE -> SessionLifecycle.Active
+            TestSession.SIGNING_OUT -> SessionLifecycle.SigningOut
+            TestSession.FAILED -> SessionLifecycle.Failed
         }
     val activeIdentity =
         if (mappedSession == SessionLifecycle.Active) {
@@ -269,10 +271,10 @@ private fun TestSnapshot.toApplicationSnapshot(): ApplicationSnapshot {
         revision = SnapshotRevision(revision),
         lifecycle =
             when (lifecycle) {
-                "ready" -> ApplicationLifecycle.Ready
-                "closed" -> ApplicationLifecycle.Closed
-                "fatal" -> ApplicationLifecycle.Fatal
-                else -> ApplicationLifecycle.Opening
+                TestLifecycle.BOOTING -> ApplicationLifecycle.Opening
+                TestLifecycle.READY -> ApplicationLifecycle.Ready
+                TestLifecycle.FATAL -> ApplicationLifecycle.Fatal
+                TestLifecycle.CLOSED -> ApplicationLifecycle.Closed
             },
         lifecycleProblem = null,
         configuredRelays = emptyList(),
