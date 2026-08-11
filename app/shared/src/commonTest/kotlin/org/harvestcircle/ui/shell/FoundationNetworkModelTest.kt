@@ -37,11 +37,10 @@ class FoundationNetworkModelTest {
         assertEquals(null, model.profileLabel)
         assertEquals(RelayObservationState.Degraded, model.relayState)
         assertEquals(RelayDestination.Public, model.relays.single().destination)
-        assertEquals(true, model.relays.single().read)
-        assertEquals(false, model.relays.single().write)
+        assertEquals(RelayCapability.Configured, model.relays.single().readCapability)
+        assertEquals(RelayCapability.NotConfigured, model.relays.single().writeCapability)
         assertEquals(ApplicationLifecycle.Degraded, model.runtimeState)
         assertEquals("Runtime degraded.", model.runtimeProblem)
-        assertEquals(1, model.pendingOperations)
     }
 
     @Test
@@ -49,6 +48,27 @@ class FoundationNetworkModelTest {
         val model = foundationNetworkModel(shellState(readOnly = true, active = false))
         assertEquals(NetworkIdentityState.ReadOnly, model.identityState)
         assertEquals(RelayObservationState.NotYetObserved, model.relayState)
+    }
+
+    @Test
+    fun unavailableObservationPreservesConfiguredCapabilities() {
+        val state =
+            shellState().let { shell ->
+                val active = requireNotNull(shell.identity.snapshot.activeIdentity)
+                shell.copy(
+                    identity =
+                        shell.identity.copy(
+                            snapshot =
+                                shell.identity.snapshot.copy(
+                                    activeIdentity = active.copy(relays = active.relays.copy(state = RelayConnectionState.Error)),
+                                ),
+                        ),
+                )
+            }
+        val model = foundationNetworkModel(state)
+        assertEquals(RelayObservationState.Unavailable, model.relayState)
+        assertEquals(RelayCapability.Configured, model.relays.single().readCapability)
+        assertEquals(RelayCapability.NotConfigured, model.relays.single().writeCapability)
     }
 }
 

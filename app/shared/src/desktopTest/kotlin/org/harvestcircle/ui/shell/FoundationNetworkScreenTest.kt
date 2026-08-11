@@ -45,8 +45,8 @@ class FoundationNetworkScreenTest {
             onNodeWithTag("network-tab-public_relays").performClick()
             onNodeWithText("wss://relay.example").assertExists()
             onNodeWithText("Public").assertExists()
-            onNodeWithText("Read available").assertExists()
-            onNodeWithText("Write unavailable").assertExists()
+            onNodeWithText("Read configured").assertExists()
+            onNodeWithText("Write not configured").assertExists()
             onNodeWithText("Degraded").assertExists()
             onNodeWithTag("network-tab-runtime").performClick()
             onNodeWithText("Storage is temporarily unavailable.").assertExists()
@@ -59,6 +59,7 @@ class FoundationNetworkScreenTest {
             onNodeWithText("Read-only").assertExists()
             onNodeWithTag("network-tab-public_relays").performClick()
             onNodeWithText("Not yet observed").assertExists()
+            onNodeWithText("No public relay endpoints are configured.").assertExists()
         }
 }
 
@@ -69,8 +70,8 @@ private fun model(
             NetworkRelayModel(
                 url = "wss://relay.example",
                 destination = RelayDestination.Public,
-                read = true,
-                write = false,
+                readCapability = RelayCapability.Configured,
+                writeCapability = RelayCapability.NotConfigured,
             ),
         ),
 ) = FoundationNetworkModel(
@@ -81,5 +82,4 @@ private fun model(
     relays = relays,
     runtimeState = ApplicationLifecycle.Degraded,
     runtimeProblem = "Storage is temporarily unavailable.",
-    pendingOperations = 1,
 )

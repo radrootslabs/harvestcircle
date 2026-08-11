@@ -22,11 +22,13 @@ enum class NetworkIdentityState { ReadOnly, Active, CredentialUnavailable, Avail
 
 enum class RelayObservationState { NotYetObserved, Available, Degraded, Unavailable }
 
+enum class RelayCapability { Configured, NotConfigured }
+
 data class NetworkRelayModel(
     val url: String,
     val destination: RelayDestination,
-    val read: Boolean,
-    val write: Boolean,
+    val readCapability: RelayCapability,
+    val writeCapability: RelayCapability,
 )
 
 data class FoundationNetworkModel(
@@ -37,7 +39,6 @@ data class FoundationNetworkModel(
     val relays: List<NetworkRelayModel>,
     val runtimeState: ApplicationLifecycle,
     val runtimeProblem: String?,
-    val pendingOperations: Int,
 )
 
 fun foundationNetworkModel(state: HarvestCircleShellState): FoundationNetworkModel {
@@ -61,8 +62,8 @@ fun foundationNetworkModel(state: HarvestCircleShellState): FoundationNetworkMod
                 NetworkRelayModel(
                     url = relay.url,
                     destination = relay.destination,
-                    read = relay.read,
-                    write = relay.write,
+                    readCapability = relay.read.toCapability(),
+                    writeCapability = relay.write.toCapability(),
                 )
             },
         runtimeState = snapshot.lifecycle,
@@ -71,7 +72,6 @@ fun foundationNetworkModel(state: HarvestCircleShellState): FoundationNetworkMod
                 ?: snapshot.sessionProblem?.safeMessage
                 ?: snapshot.recoverableProblem?.safeMessage
                 ?: state.identity.problem,
-        pendingOperations = if (state.identity.busy) 1 else 0,
     )
 }
 
@@ -122,10 +122,15 @@ private fun NetworkDetail(
         when (selection.value) {
             "overview" -> {
                 Fact("Signer", model.identityState.label())
-                Fact("Public relay reads", model.relays.count(NetworkRelayModel::read).toString())
-                Fact("Public relay writes", model.relays.count(NetworkRelayModel::write).toString())
+                Fact(
+                    "Configured read endpoints",
+                    model.relays.count { it.readCapability == RelayCapability.Configured }.toString(),
+                )
+                Fact(
+                    "Configured write endpoints",
+                    model.relays.count { it.writeCapability == RelayCapability.Configured }.toString(),
+                )
                 Fact("Local runtime", model.runtimeState.label())
-                Fact("Pending operations", model.pendingOperations.toString())
                 BasicText("No managed HarvestCircle service is configured.")
             }
             "identity" -> {
@@ -139,18 +144,20 @@ private fun NetworkDetail(
             }
             "public_relays" -> {
                 BasicText(model.relayState.label(), Modifier.testTag("network-relay-state"))
+                if (model.relays.isEmpty()) {
+                    BasicText("No public relay endpoints are configured.", Modifier.testTag("network-relays-empty"))
+                }
                 model.relays.forEach { relay ->
                     Column(Modifier.testTag("network-relay:${relay.url}")) {
                         BasicText(relay.url)
                         BasicText(relay.destination.label())
-                        BasicText(if (relay.read) "Read available" else "Read unavailable")
-                        BasicText(if (relay.write) "Write available" else "Write unavailable")
+                        BasicText(relay.readCapability.label("Read"))
+                        BasicText(relay.writeCapability.label("Write"))
                     }
                 }
             }
             "runtime" -> {
                 Fact("Local runtime", model.runtimeState.label())
-                Fact("Pending operations", model.pendingOperations.toString())
                 model.runtimeProblem?.let { BasicText(it, Modifier.testTag("network-runtime-problem")) }
             }
         }
@@ -194,6 +201,14 @@ private fun RelayObservationState.label(): String =
     }
 
 private fun RelayDestination.label(): String = name
+
+private fun Boolean.toCapability(): RelayCapability = if (this) RelayCapability.Configured else RelayCapability.NotConfigured
+
+private fun RelayCapability.label(direction: String): String =
+    when (this) {
+        RelayCapability.Configured -> "$direction configured"
+        RelayCapability.NotConfigured -> "$direction not configured"
+    }
 
 private fun ApplicationLifecycle.label(): String =
     when (this) {
