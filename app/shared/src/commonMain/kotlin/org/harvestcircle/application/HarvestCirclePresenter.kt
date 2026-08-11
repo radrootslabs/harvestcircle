@@ -21,7 +21,7 @@ class HarvestCirclePresenter(
     private val scope: CoroutineScope,
     private val clock: ApplicationClock,
     private val operationIds: OperationIdSource,
-) {
+) : IdentityPresentationPort {
     private val mutableState = MutableStateFlow(HarvestCirclePresenterState(runtime.currentSnapshot()))
     private val mutableEffects = MutableSharedFlow<HarvestCircleEffect>(extraBufferCapacity = EFFECT_BUFFER_CAPACITY)
     private var subscriptionJob: Job? = null
@@ -33,7 +33,7 @@ class HarvestCirclePresenter(
     private var closeReceipt: ShutdownReceipt? = null
     private var closed = false
 
-    val state: StateFlow<HarvestCirclePresenterState> = mutableState.asStateFlow()
+    override val state: StateFlow<HarvestCirclePresenterState> = mutableState.asStateFlow()
     val effects: SharedFlow<HarvestCircleEffect> = mutableEffects.asSharedFlow()
 
     init {
@@ -52,7 +52,7 @@ class HarvestCirclePresenter(
         }
     }
 
-    fun dispatch(intent: HarvestCircleIntent) {
+    override fun dispatch(intent: HarvestCircleIntent) {
         when (intent) {
             is HarvestCircleIntent.EditImportDraft -> editImportDraft(intent.value)
             HarvestCircleIntent.ChooseCreateIdentity -> updateState { copy(identityEntryMode = IdentityEntryMode.CREATE, problem = null) }

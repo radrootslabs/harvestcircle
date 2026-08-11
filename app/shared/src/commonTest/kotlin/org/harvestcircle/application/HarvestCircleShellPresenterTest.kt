@@ -1,0 +1,80 @@
+package org.harvestcircle.application
+
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import org.harvestcircle.design.MotionPreference
+import org.harvestcircle.design.ThemePreference
+import org.harvestcircle.navigation.AppRoute
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class HarvestCircleShellPresenterTest {
+    @Test
+    fun shellComposesRootNavigationAppearanceAndOverlays() =
+        runTest {
+            val identity = FakeIdentityPresentation(presenterState(HarvestCircleRoute.IDENTITIES))
+            val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this)
+            runCurrent()
+            assertTrue(presenter.state.value.root is ShellRoot.BootstrapCanvas)
+
+            presenter.dispatch(HarvestCircleShellIntent.EnterReadOnly)
+            presenter.dispatch(HarvestCircleShellIntent.Navigate(ShellDestination.Network))
+            presenter.dispatch(HarvestCircleShellIntent.SetTheme(ThemePreference.Dark))
+            presenter.dispatch(HarvestCircleShellIntent.SetMotion(MotionPreference.Reduced))
+            presenter.dispatch(
+                HarvestCircleShellIntent.Overlay(
+                    OverlayIntent.Open(FoundationOverlay.SyncStatus(org.harvestcircle.ui.shell.SyncStatusLabel.Degraded)),
+                ),
+            )
+
+            assertEquals(AppRoute.Network, presenter.state.value.currentRoute)
+            assertEquals(ThemePreference.Dark, presenter.state.value.appearance.theme)
+            assertTrue(presenter.state.value.overlays.current is FoundationOverlay.SyncStatus)
+            presenter.close()
+        }
+
+    @Test
+    fun identityCommandsRemainOwnedByTheExistingPresenter() =
+        runTest {
+            val identity = FakeIdentityPresentation(presenterState(HarvestCircleRoute.IDENTITIES))
+            val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this)
+            presenter.dispatch(HarvestCircleShellIntent.Identity(HarvestCircleIntent.ChooseCreateIdentity))
+            assertEquals(1, identity.intents.size)
+            assertTrue(identity.intents.single() === HarvestCircleIntent.ChooseCreateIdentity)
+            presenter.close()
+        }
+}
+
+private class FakeIdentityPresentation(
+    initial: HarvestCirclePresenterState,
+) : IdentityPresentationPort {
+    override val state = MutableStateFlow(initial)
+    val intents = mutableListOf<HarvestCircleIntent>()
+
+    override fun dispatch(intent: HarvestCircleIntent) {
+        intents += intent
+    }
+}
+
+private fun presenterState(route: HarvestCircleRoute): HarvestCirclePresenterState =
+    HarvestCirclePresenterState(
+        snapshot =
+            ApplicationSnapshot(
+                revision = SnapshotRevision(1UL),
+                lifecycle = ApplicationLifecycle.Ready,
+                lifecycleProblem = null,
+                configuredRelays = emptyList(),
+                identities = emptyList(),
+                selectedIdentityId = null,
+                session = SessionLifecycle.SignedOut,
+                sessionSubjectIdentityId = null,
+                sessionProblem = null,
+                activeIdentity = null,
+                recoverableProblem = null,
+            ),
+        route = route,
+    )
