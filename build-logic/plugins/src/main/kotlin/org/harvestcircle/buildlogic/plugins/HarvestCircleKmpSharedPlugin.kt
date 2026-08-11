@@ -3,9 +3,9 @@ package org.harvestcircle.buildlogic.plugins
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.artifacts.VersionCatalogsExtension
-import org.gradle.api.provider.MapProperty
 import org.harvestcircle.buildlogic.contracts.resolveNativeTarget
 import org.harvestcircle.buildlogic.plugins.tasks.VerifySharedBoundary
+import org.jlleitschuh.gradle.ktlint.KtlintExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
@@ -22,15 +22,11 @@ public class HarvestCircleKmpSharedPlugin : Plugin<Project> {
         val kotlinVersion = catalog.findVersion("kotlin").get().requiredVersion
         val composeVersion = catalog.findVersion("compose").get().requiredVersion
 
-        val ktlintExtension: Any = target.extensions.getByName("ktlint")
-        @Suppress("UNCHECKED_CAST")
-        val additionalEditorconfig =
-            ktlintExtension.javaClass
-                .getMethod("getAdditionalEditorconfig")
-                .invoke(ktlintExtension) as MapProperty<String, String>
-        additionalEditorconfig.set(
-            mapOf("ktlint_function_naming_ignore_when_annotated_with" to "Composable"),
-        )
+        target.extensions.configure(KtlintExtension::class.java) { extension ->
+            extension.additionalEditorconfig.set(
+                mapOf("ktlint_function_naming_ignore_when_annotated_with" to "Composable"),
+            )
+        }
         target.extensions.configure(KotlinMultiplatformExtension::class.java) { kotlin ->
             kotlin.jvm("desktop") { jvm ->
                 jvm.compilerOptions.jvmTarget.set(JvmTarget.JVM_21)

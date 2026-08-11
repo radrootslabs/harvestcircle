@@ -16,6 +16,7 @@ import org.harvestcircle.buildlogic.plugins.tasks.DesktopBuildMetadataTask
 import org.harvestcircle.buildlogic.plugins.tasks.GenerateDesktopBuildMetadata
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyGeneratedDesktopBuildMetadata
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyTestInventory
+import org.jlleitschuh.gradle.ktlint.KtlintExtension
 import org.jetbrains.compose.ComposeExtension
 import org.jetbrains.compose.desktop.DesktopExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -75,13 +76,11 @@ public class HarvestCircleDesktopAppPlugin : Plugin<Project> {
     }
 
     private fun configureKtlint(target: Project) {
-        val ktlintExtension: Any = target.extensions.getByName("ktlint")
-        @Suppress("UNCHECKED_CAST")
-        val property =
-            ktlintExtension.javaClass
-                .getMethod("getAdditionalEditorconfig")
-                .invoke(ktlintExtension) as org.gradle.api.provider.MapProperty<String, String>
-        property.set(mapOf("ktlint_function_naming_ignore_when_annotated_with" to "Composable"))
+        target.extensions.configure(KtlintExtension::class.java) { extension ->
+            extension.additionalEditorconfig.set(
+                mapOf("ktlint_function_naming_ignore_when_annotated_with" to "Composable"),
+            )
+        }
     }
 
     private fun configureQuality(target: Project) {

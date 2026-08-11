@@ -10,12 +10,6 @@ complexity:
   TooManyFunctions:
     allowedFunctionsPerClass: 30
 
-exceptions:
-  TooGenericExceptionCaught:
-    excludes:
-      - '**/HarvestCircleAppStore.kt'
-      - '**/HarvestCircleCoreGateway.kt'
-
 naming:
   FunctionNaming:
     functionPattern: '[a-zA-Z][a-zA-Z0-9]*'
