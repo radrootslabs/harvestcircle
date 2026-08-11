@@ -12,11 +12,15 @@ import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import org.gradle.process.ExecOperations
 import org.gradle.work.DisableCachingByDefault
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.TimeUnit
 import java.util.jar.JarFile
+import javax.inject.Inject
 
+@DisableCachingByDefault(because = "Artifact metadata verification produces no reusable output")
 public abstract class VerifyDesktopBuildMetadataArtifact : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
@@ -38,7 +42,11 @@ public abstract class VerifyDesktopBuildMetadataArtifact : DefaultTask() {
 }
 
 @DisableCachingByDefault(because = "Package inspection invokes host tools")
-public abstract class VerifyMacOsDistribution : DefaultTask() {
+public abstract class VerifyMacOsDistribution
+    @Inject
+    constructor(
+        private val execOperations: ExecOperations,
+    ) : DefaultTask() {
     @get:InputDirectory
     @get:PathSensitive(PathSensitivity.RELATIVE)
     public abstract val appDirectory: DirectoryProperty
@@ -90,7 +98,7 @@ public abstract class VerifyMacOsDistribution : DefaultTask() {
     private fun plistValue(
         plist: File,
         key: String,
-    ): String = commandOutput("/usr/libexec/PlistBuddy", "-c", "Print :$key", plist.absolutePath)
+    ): String = execOperations.commandOutput("/usr/libexec/PlistBuddy", "-c", "Print :$key", plist.absolutePath)
 
     private fun verifyPackagedNativeLibraries(
         app: File,
@@ -107,12 +115,12 @@ public abstract class VerifyMacOsDistribution : DefaultTask() {
             require(machOIdentity(packaged) == machOIdentity(release)) {
                 "Packaged native library identity does not match the Cargo release artifact"
             }
-            commandOutput("/usr/bin/codesign", "--verify", "--strict", packaged.absolutePath)
+            execOperations.commandOutput("/usr/bin/codesign", "--verify", "--strict", packaged.absolutePath)
         }
     }
 
     private fun machOIdentity(binary: File): String {
-        val output = commandOutput("/usr/bin/dwarfdump", "--uuid", binary.absolutePath)
+        val output = execOperations.commandOutput("/usr/bin/dwarfdump", "--uuid", binary.absolutePath)
         return Regex("""UUID: ([0-9A-F-]+) \(([^)]+)\)""")
             .find(output)
             ?.value
@@ -120,6 +128,7 @@ public abstract class VerifyMacOsDistribution : DefaultTask() {
     }
 }
 
+@DisableCachingByDefault(because = "Disk image verification produces no reusable output")
 public abstract class VerifyMacOsPackage : DefaultTask() {
     @get:InputDirectory
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -138,7 +147,11 @@ public abstract class VerifyMacOsPackage : DefaultTask() {
 }
 
 @DisableCachingByDefault(because = "Installation package extraction invokes host tools")
-public abstract class VerifyNativeInstallPackage : DefaultTask() {
+public abstract class VerifyNativeInstallPackage
+    @Inject
+    constructor(
+        private val execOperations: ExecOperations,
+    ) : DefaultTask() {
     @get:InputDirectory
     @get:PathSensitive(PathSensitivity.RELATIVE)
     public abstract val packageDirectory: DirectoryProperty
@@ -172,9 +185,15 @@ public abstract class VerifyNativeInstallPackage : DefaultTask() {
 
         val extracted = temporaryDir.resolve("extracted").apply { mkdirs() }
         when (hostFamily.get()) {
-            "linux" -> commandOutput("dpkg-deb", "--extract", installPackage.absolutePath, extracted.absolutePath)
+            "linux" ->
+                execOperations.commandOutput(
+                    "dpkg-deb",
+                    "--extract",
+                    installPackage.absolutePath,
+                    extracted.absolutePath,
+                )
             "windows" ->
-                commandOutput(
+                execOperations.commandOutput(
                     "msiexec.exe",
                     "/a",
                     installPackage.absolutePath,
@@ -235,7 +254,11 @@ public abstract class VerifyPackagedApplicationHealth : DefaultTask() {
 }
 
 @DisableCachingByDefault(because = "Signing verification invokes the host codesign tool")
-public abstract class VerifyMacOsDeveloperIdSignature : DefaultTask() {
+public abstract class VerifyMacOsDeveloperIdSignature
+    @Inject
+    constructor(
+        private val execOperations: ExecOperations,
+    ) : DefaultTask() {
     @get:InputDirectory
     @get:PathSensitive(PathSensitivity.RELATIVE)
     public abstract val appDirectory: DirectoryProperty
@@ -243,8 +266,8 @@ public abstract class VerifyMacOsDeveloperIdSignature : DefaultTask() {
     @TaskAction
     public fun verify() {
         val app = appDirectory.get().asFile
-        commandOutput("/usr/bin/codesign", "--verify", "--deep", "--strict", "--verbose=2", app.absolutePath)
-        val signature = commandOutput("/usr/bin/codesign", "--display", "--verbose=4", app.absolutePath)
+        execOperations.commandOutput("/usr/bin/codesign", "--verify", "--deep", "--strict", "--verbose=2", app.absolutePath)
+        val signature = execOperations.commandOutput("/usr/bin/codesign", "--display", "--verbose=4", app.absolutePath)
         require(!signature.contains("Signature=adhoc")) {
             "Release application is ad-hoc signed; a Developer ID Application signature is required"
         }
@@ -258,7 +281,11 @@ public abstract class VerifyMacOsDeveloperIdSignature : DefaultTask() {
 }
 
 @DisableCachingByDefault(because = "Notarization verification invokes host Apple tools")
-public abstract class VerifyMacOsNotarization : DefaultTask() {
+public abstract class VerifyMacOsNotarization
+    @Inject
+    constructor(
+        private val execOperations: ExecOperations,
+    ) : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     public abstract val diskImage: RegularFileProperty
@@ -266,8 +293,8 @@ public abstract class VerifyMacOsNotarization : DefaultTask() {
     @TaskAction
     public fun verify() {
         val image = diskImage.get().asFile
-        commandOutput("/usr/bin/xcrun", "stapler", "validate", image.absolutePath)
-        commandOutput(
+        execOperations.commandOutput("/usr/bin/xcrun", "stapler", "validate", image.absolutePath)
+        execOperations.commandOutput(
             "/usr/sbin/spctl",
             "--assess",
             "--type",
@@ -280,6 +307,7 @@ public abstract class VerifyMacOsNotarization : DefaultTask() {
     }
 }
 
+@DisableCachingByDefault(because = "Release provenance verification produces no reusable output")
 public abstract class VerifyReleaseBuildProvenance : DefaultTask() {
     @get:Input
     public abstract val sourceCommit: Property<String>
@@ -354,11 +382,25 @@ internal fun requireSingleCanonicalProductNativeEntry(
     }
 }
 
-private fun commandOutput(vararg command: String): String {
-    val process = ProcessBuilder(*command).redirectErrorStream(true).start()
-    val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
-    require(process.waitFor() == 0) { "External package inspection failed" }
-    return output
+private fun ExecOperations.commandOutput(vararg command: String): String {
+    val outputBytes = ByteArrayOutputStream()
+    val result =
+        exec { spec ->
+            spec.commandLine(*command)
+            spec.standardOutput = outputBytes
+            spec.errorOutput = outputBytes
+            spec.isIgnoreExitValue = true
+        }
+    return requireSuccessfulCommand(result.exitValue, outputBytes.toString(Charsets.UTF_8))
+}
+
+internal fun requireSuccessfulCommand(
+    exitValue: Int,
+    output: String,
+): String {
+    val trimmed = output.trim()
+    require(exitValue == 0) { "External package inspection failed with exit $exitValue: $trimmed" }
+    return trimmed
 }
 
 private fun containsSecretMaterial(output: String): Boolean =

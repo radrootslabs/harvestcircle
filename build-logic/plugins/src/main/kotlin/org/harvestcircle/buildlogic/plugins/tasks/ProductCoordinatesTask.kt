@@ -6,10 +6,12 @@ import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import org.gradle.work.DisableCachingByDefault
 import org.harvestcircle.buildlogic.contracts.FfiCompatibilityBaseline
 import org.harvestcircle.buildlogic.contracts.ProductCoordinates
 import org.harvestcircle.buildlogic.contracts.SourceProvenance
 
+@DisableCachingByDefault(because = "Product coordinate verification produces no reusable output")
 abstract class VerifyProductCoordinates : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.RELATIVE)

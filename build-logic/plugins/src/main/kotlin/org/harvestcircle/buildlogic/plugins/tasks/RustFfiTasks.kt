@@ -161,7 +161,7 @@ public abstract class GenerateCompatibilityExpectations : DefaultTask() {
     }
 }
 
-@CacheableTask
+@DisableCachingByDefault(because = "Generated compatibility freshness verification produces no reusable output")
 public abstract class VerifyGeneratedCompatibilityExpectations : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -182,7 +182,7 @@ public abstract class VerifyGeneratedCompatibilityExpectations : DefaultTask() {
     }
 }
 
-@CacheableTask
+@DisableCachingByDefault(because = "UniFFI binding verification produces no reusable output")
 public abstract class VerifyUniFfiBindings : DefaultTask() {
     @get:InputDirectory
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -227,7 +227,7 @@ public abstract class StageReleaseNativeLibrary
         }
     }
 
-@CacheableTask
+@DisableCachingByDefault(because = "Release native verification produces no reusable output")
 public abstract class VerifyReleaseNativeLibrary : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
@@ -258,7 +258,7 @@ public abstract class VerifyReleaseNativeLibrary : DefaultTask() {
     }
 }
 
-@CacheableTask
+@DisableCachingByDefault(because = "Test bridge isolation verification produces no reusable output")
 public abstract class VerifyTestBridgeIsolation : DefaultTask() {
     @get:InputDirectory
     @get:PathSensitive(PathSensitivity.RELATIVE)

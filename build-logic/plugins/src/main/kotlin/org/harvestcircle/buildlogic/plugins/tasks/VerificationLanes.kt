@@ -7,6 +7,7 @@ import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import org.gradle.work.DisableCachingByDefault
 
 object VerificationLanes {
     private fun expected(environmentPrefix: String) =
@@ -62,6 +63,7 @@ object VerificationLanes {
     }
 }
 
+@DisableCachingByDefault(because = "Verification lane policy checks produce no reusable output")
 abstract class VerifyVerificationLanes : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.RELATIVE)

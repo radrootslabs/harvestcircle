@@ -10,6 +10,7 @@ import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import org.gradle.work.DisableCachingByDefault
 import org.harvestcircle.buildlogic.contracts.DesktopBuildMetadataValues
 import org.harvestcircle.buildlogic.contracts.GeneratedKotlin
 
@@ -56,7 +57,7 @@ public abstract class GenerateDesktopBuildMetadata : DesktopBuildMetadataTask() 
     }
 }
 
-@CacheableTask
+@DisableCachingByDefault(because = "Generated metadata freshness verification produces no reusable output")
 public abstract class VerifyGeneratedDesktopBuildMetadata : DesktopBuildMetadataTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.RELATIVE)

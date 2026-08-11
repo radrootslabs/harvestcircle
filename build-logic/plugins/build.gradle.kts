@@ -31,6 +31,7 @@ configurations[functionalTestSourceSet.runtimeOnlyConfigurationName]
     .extendsFrom(configurations.testRuntimeOnly.get())
 
 dependencies {
+    add(functionalTestSourceSet.implementationConfigurationName, sourceSets.main.get().output)
     add(functionalTestSourceSet.implementationConfigurationName, gradleTestKit())
     add(functionalTestSourceSet.implementationConfigurationName, kotlin("test"))
 }

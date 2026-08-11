@@ -1,6 +1,7 @@
 package org.harvestcircle.buildlogic.plugins.tasks
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 class PackagingTasksTest {
@@ -24,5 +25,12 @@ class PackagingTasksTest {
         assertFailsWith<IllegalArgumentException> {
             requireSingleCanonicalProductNativeEntry(listOf("darwin-aarch64/libharvestcircle_test_ffi.dylib"), expected)
         }
+    }
+
+    @Test
+    fun hostCommandResultsPreserveOutputAndFailureDiagnostics() {
+        assertEquals("value", requireSuccessfulCommand(0, " value\n"))
+        val failure = assertFailsWith<IllegalArgumentException> { requireSuccessfulCommand(17, "tool failed\n") }
+        assertEquals("External package inspection failed with exit 17: tool failed", failure.message)
     }
 }
