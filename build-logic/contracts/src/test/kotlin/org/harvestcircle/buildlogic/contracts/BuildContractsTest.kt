@@ -17,11 +17,49 @@ class BuildContractsTest {
             coordinates.digest,
         )
         assertEquals(coordinates.digest, ProductCoordinates.parse(productCoordinates.replace("\n", "\r\n")).digest)
+        assertEquals(coordinates.digest, ProductCoordinates.parse(productCoordinates.trimEnd()).digest)
         assertEquals(coordinates.digest, ProductCoordinates.parse("# comment\n$productCoordinates").digest)
+        assertEquals(
+            coordinates.digest,
+            ProductCoordinates.parse(
+                productCoordinates.lineSequence().joinToString("\n") { line ->
+                    if (line.isBlank()) line else line.replaceFirst("=", " = ")
+                },
+            ).digest,
+        )
         assertFails { ProductCoordinates.parse("\uFEFF$productCoordinates") }
         assertFails { ProductCoordinates.parse(productCoordinates + "schema=harvestcircle.product.v1\n") }
         assertFails { ProductCoordinates.parse(productCoordinates + "unknown=value\n") }
+        assertFails { ProductCoordinates.parse(productCoordinates.substringAfter('\n')) }
+        assertFails { ProductCoordinates.parse(productCoordinates.replace("product.name=HarvestCircle", "product.name")) }
+        assertFails { ProductCoordinates.parse(productCoordinates.replaceCoordinate("product.slug", "INVALID")) }
         assertFails { ProductCoordinates.parse(productCoordinates.replace("harvestcircle.sqlite3", "../other.sqlite3")) }
+
+        val validMutations =
+            linkedMapOf(
+                "product.name" to "Harvest Circle Test",
+                "product.slug" to "harvestcircle_test",
+                "kotlin.root_namespace" to "org.example",
+                "desktop.application_id" to "org.example.desktop",
+                "desktop.bundle_id" to "org.example.bundle",
+                "desktop.main_class" to "org.example.MainKt",
+                "ffi.kotlin_package" to "org.example.ffi",
+                "ffi.cdylib_name" to "example_ffi",
+                "database.qualifier" to "com",
+                "database.organization" to "example",
+                "database.application" to "test",
+                "database.filename" to "example.sqlite3",
+                "keyring.service" to "org.example.desktop.nostr",
+                "environment.prefix" to "EXAMPLE_",
+                "vendor.name" to "Example Cooperative",
+                "copyright.notice" to "Copyright Example contributors",
+            )
+        assertEquals(ProductCoordinates.requiredKeys.size - 1, validMutations.size)
+        validMutations.forEach { (key, replacement) ->
+            val mutated = ProductCoordinates.parse(productCoordinates.replaceCoordinate(key, replacement))
+            assertEquals(replacement, mutated[key])
+            assertTrue(mutated.digest != coordinates.digest)
+        }
     }
 
     @Test
@@ -31,7 +69,14 @@ class BuildContractsTest {
         assertEquals("harvestcircle-desktop-ffi-v4", baseline["contract.id"])
         assertFails { FfiCompatibilityBaseline.parse("\uFEFF$ffiBaseline") }
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline + "unknown=value\n") }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline + "contract.id=harvestcircle-desktop-ffi-v4\n") }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.substringAfter('\n')) }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.id=", "contract.id")) }
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.hash=${"a".repeat(64)}", "contract.hash=bad")) }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("product.version=0.1.0-alpha", "product.version=invalid")) }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("package.version=1.0.0", "package.version=invalid")) }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("schema=harvestcircle.ffi.v4", "schema=harvestcircle.ffi.v3")) }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.major=4", "contract.major=3")) }
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=1", "contract.minor=2")) }
     }
 
@@ -45,11 +90,23 @@ class BuildContractsTest {
             )
 
         assertEquals(canonical.digest, SourceProvenance.parse(sourceProvenance.replace("\n", "\r\n")).digest)
+        assertEquals(canonical.digest, SourceProvenance.parse("# comment\n$sourceProvenance").digest)
         assertEquals(canonical.digest, SourceProvenance.parse(reordered).digest)
         assertEquals("a".repeat(40), canonical.foundationBaseline)
         assertFails { SourceProvenance.parse("\uFEFF$sourceProvenance") }
         assertFails { SourceProvenance.parse("unknown = \"value\"\n$sourceProvenance") }
+        assertFails { SourceProvenance.parse(sourceProvenance.replace("schema = ", "schema ")) }
+        assertFails { SourceProvenance.parse(sourceProvenance.substringAfter('\n')) }
+        assertFails { SourceProvenance.parse(sourceProvenance.replace("source_product = \"HarvestCircle\"", "source_product = \"HarvestCircle\"\nsource_product = \"HarvestCircle\"")) }
         assertFails { SourceProvenance.parse(sourceProvenance.replace("b".repeat(40), "BAD")) }
+        assertFails {
+            SourceProvenance.parse(
+                sourceProvenance + "\n[[import]]\ncomponent = \"domain\"\ncommit = \"${"d".repeat(40)}\"\n",
+            )
+        }
+        assertTrue(
+            SourceProvenance.parse(sourceProvenance.replace("b".repeat(40), "d".repeat(40))).digest != canonical.digest,
+        )
     }
 
     @Test
@@ -157,4 +214,12 @@ class BuildContractsTest {
         component = "domain"
         commit = "${"b".repeat(40)}"
         """.trimIndent() + "\n"
+
+    private fun String.replaceCoordinate(
+        key: String,
+        replacement: String,
+    ): String =
+        lineSequence().joinToString("\n") { line ->
+            if (line.substringBefore('=', missingDelimiterValue = "") == key) "$key=$replacement" else line
+        }
 }

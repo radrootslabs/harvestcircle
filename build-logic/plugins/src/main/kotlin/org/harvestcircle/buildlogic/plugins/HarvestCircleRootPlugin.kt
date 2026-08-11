@@ -49,7 +49,7 @@ public class HarvestCircleRootPlugin : Plugin<Project> {
             task.description = "Validates forge-agnostic verification lanes and least-privilege policy."
             task.policyFile.set(verificationLanesFile)
             task.productManifestFile.set(productCoordinatesFile)
-            task.repositoryRoot.set(target.layout.projectDirectory)
+            task.makefileFile.set(target.layout.projectDirectory.file("Makefile"))
         }
         target.providers.environmentVariable("EXT_BUILD_GRADLE_BUILD_DIR").orNull?.let { outputRoot ->
             target.layout.buildDirectory.set(target.file(outputRoot).resolve("root"))

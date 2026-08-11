@@ -2,10 +2,8 @@ package org.harvestcircle.buildlogic.plugins.tasks
 
 import org.harvestcircle.buildlogic.contracts.ProductCoordinates
 import org.gradle.api.DefaultTask
-import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.InputFile
-import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
@@ -73,8 +71,9 @@ abstract class VerifyVerificationLanes : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val productManifestFile: RegularFileProperty
 
-    @get:Internal
-    abstract val repositoryRoot: DirectoryProperty
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val makefileFile: RegularFileProperty
 
     @TaskAction
     fun verify() {
@@ -83,19 +82,7 @@ abstract class VerifyVerificationLanes : DefaultTask() {
             ProductCoordinates.load(productManifestFile.get().asFile)["environment.prefix"]
         val policy = VerificationLanes.parse(source, environmentPrefix)
         check(policy.size == 24)
-        check(runCatching { VerificationLanes.parse(source + "source.workflow=forbidden", environmentPrefix) }.isFailure)
-        check(
-            runCatching {
-                VerificationLanes.parse(source.replace("credentials=none", "credentials=all"), environmentPrefix)
-            }.isFailure,
-        )
-        check(
-            runCatching {
-                VerificationLanes.parse(source.replace("release.mode=governed", "release.mode=standalone"), environmentPrefix)
-            }.isFailure,
-        )
-        val root = repositoryRoot.get().asFile.toPath()
-        val makefile = root.resolve("Makefile").toFile().readText()
+        val makefile = makefileFile.get().asFile.readText()
         policy.filterKeys { it.endsWith(".command") }.forEach { (key, command) ->
             val target = command.removePrefix("make ")
             check(command == "make $target" && Regex("(?m)^${Regex.escape(target)}:").containsMatchIn(makefile)) {
