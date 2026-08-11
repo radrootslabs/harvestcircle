@@ -1,5 +1,6 @@
 package org.harvestcircle.ui.shell
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,7 +27,8 @@ fun DashboardScaffold(
     inspector: @Composable () -> Unit = {},
 ) {
     val placement = inspectorPlacement(windowWidthDp, inspectorVisible)
-    Column(Modifier.fillMaxSize().testTag("dashboard-scaffold")) {
+    val palette = LocalHarvestCirclePalette.current
+    Column(Modifier.fillMaxSize().background(palette.background.toComposeColor()).testTag("dashboard-scaffold")) {
         Region("dashboard-top-bar", "Global top bar", Modifier.fillMaxWidth().height(56.dp), topBar)
         Row(Modifier.fillMaxSize()) {
             Region("dashboard-sidebar", "Workspace sidebar", Modifier.width(232.dp).fillMaxHeight(), sidebar)
@@ -56,7 +58,12 @@ private fun Region(
     Box(
         modifier =
             modifier
-                .semantics { contentDescription = label }
+                .background(
+                    when (tag) {
+                        "dashboard-main-body" -> LocalHarvestCirclePalette.current.background.toComposeColor()
+                        else -> LocalHarvestCirclePalette.current.surface.toComposeColor()
+                    },
+                ).semantics { contentDescription = label }
                 .testTag(tag),
     ) {
         content()

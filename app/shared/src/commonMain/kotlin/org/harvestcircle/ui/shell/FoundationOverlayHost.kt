@@ -1,5 +1,6 @@
 package org.harvestcircle.ui.shell
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +34,7 @@ fun FoundationOverlayHost(
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(
                 Modifier
+                    .background(LocalHarvestCirclePalette.current.surface.toComposeColor())
                     .focusGroup()
                     .semantics { contentDescription = "Dialog" }
                     .testTag("foundation-overlay"),

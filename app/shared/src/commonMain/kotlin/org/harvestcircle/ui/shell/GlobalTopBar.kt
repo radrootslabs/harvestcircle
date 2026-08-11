@@ -15,7 +15,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -23,9 +22,7 @@ import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import org.harvestcircle.design.ColorToken
 import org.harvestcircle.design.HarvestCircleDesign
-import org.harvestcircle.design.ThemePreference
 
 enum class SyncStatusLabel(
     val text: String,
@@ -99,11 +96,7 @@ internal fun ShellAction(
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val focusColor =
-        when (LocalShellAppearance.current.theme) {
-            ThemePreference.Dark -> HarvestCircleDesign.dark.focus
-            ThemePreference.System, ThemePreference.Light -> HarvestCircleDesign.light.focus
-        }.composeColor()
+    val focusColor = LocalHarvestCirclePalette.current.focus.toComposeColor()
     BasicText(
         text = label,
         modifier =
@@ -112,7 +105,7 @@ internal fun ShellAction(
                 .onFocusChanged { focused = it.isFocused }
                 .border(
                     width = HarvestCircleDesign.BORDER_DP.dp,
-                    color = if (focused) focusColor else Color.Transparent,
+                    color = if (focused) focusColor else androidx.compose.ui.graphics.Color.Transparent,
                 ).padding(horizontal = HarvestCircleDesign.spacingDp[2].dp)
                 .semantics {
                     contentDescription = description
@@ -121,9 +114,4 @@ internal fun ShellAction(
                 }.then(if (enabled) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
                 .testTag(tag),
     )
-}
-
-private fun ColorToken.composeColor(): Color {
-    val rgb = hex.removePrefix("#").toLong(16)
-    return Color(0xFF000000 or rgb)
 }

@@ -1,5 +1,8 @@
 package org.harvestcircle.design
 
+import org.harvestcircle.ui.shell.ResolvedTheme
+import org.harvestcircle.ui.shell.harvestCircleThemeTokens
+import org.harvestcircle.ui.shell.resolveTheme
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
@@ -37,5 +40,34 @@ class HarvestCircleDesignTest {
         assertEquals(AppearanceState(), defaults)
         assertEquals(1.3f, changed.textSize.scale)
         assertEquals(MotionPreference.Reduced, changed.motion)
+    }
+
+    @Test
+    fun themeResolutionFollowsExplicitAndInjectedSystemPreference() {
+        assertEquals(ResolvedTheme.Light, resolveTheme(ThemePreference.System, systemDark = false))
+        assertEquals(ResolvedTheme.Dark, resolveTheme(ThemePreference.System, systemDark = true))
+        assertEquals(ResolvedTheme.Light, resolveTheme(ThemePreference.Light, systemDark = true))
+        assertEquals(ResolvedTheme.Dark, resolveTheme(ThemePreference.Dark, systemDark = false))
+
+        val light = harvestCircleThemeTokens(AppearanceState(theme = ThemePreference.Light), systemDark = true)
+        val dark = harvestCircleThemeTokens(AppearanceState(theme = ThemePreference.Dark), systemDark = false)
+        assertEquals(HarvestCircleDesign.light.background, light.palette.background)
+        assertEquals(HarvestCircleDesign.dark.background, dark.palette.background)
+    }
+
+    @Test
+    fun themeCentralizesTextScaleShapesTypographyAndMotion() {
+        val tokens =
+            harvestCircleThemeTokens(
+                AppearanceState(
+                    textSize = TextSizePreference.VeryLarge,
+                    motion = MotionPreference.Reduced,
+                ),
+                systemDark = false,
+            )
+        assertEquals(1.3f, tokens.textScale)
+        assertEquals(HarvestCircleDesign.screenTitle, tokens.typography.screenTitle)
+        assertEquals(HarvestCircleDesign.SURFACE_RADIUS_DP, tokens.shapes.surfaceRadiusDp)
+        assertEquals(false, tokens.motion.nonessentialEnabled)
     }
 }

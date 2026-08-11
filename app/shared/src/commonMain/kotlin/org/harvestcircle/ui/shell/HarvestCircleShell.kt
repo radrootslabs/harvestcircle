@@ -5,12 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import org.harvestcircle.application.FoundationOverlay
 import org.harvestcircle.application.HarvestCircleIntent
@@ -35,15 +31,7 @@ fun HarvestCircleShell(
     platformActions: HarvestCirclePlatformActions,
     dispatch: (HarvestCircleShellIntent) -> Unit,
 ) {
-    val baseDensity = LocalDensity.current
-    val scaledDensity =
-        remember(baseDensity, state.appearance.textSize) {
-            Density(baseDensity.density, baseDensity.fontScale * state.appearance.textSize.scale)
-        }
-    CompositionLocalProvider(
-        LocalDensity provides scaledDensity,
-        LocalShellAppearance provides state.appearance,
-    ) {
+    HarvestCircleTheme(state.appearance) {
         ShellKeyboardHost(onShortcut = { dispatchShortcut(it, dispatch) }) {
             HarvestCircleShellContent(state, identityActions, platformActions, dispatch)
         }

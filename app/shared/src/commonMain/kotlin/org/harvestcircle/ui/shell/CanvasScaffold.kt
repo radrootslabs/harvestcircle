@@ -1,5 +1,6 @@
 package org.harvestcircle.ui.shell
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,11 +31,13 @@ fun CanvasScaffold(
     val effectiveTextSize =
         textSize.takeUnless { it == TextSizePreference.Default }
             ?: LocalShellAppearance.current.textSize
-    Column(Modifier.fillMaxSize().testTag("canvas-scaffold")) {
+    val palette = LocalHarvestCirclePalette.current
+    Column(Modifier.fillMaxSize().background(palette.background.toComposeColor()).testTag("canvas-scaffold")) {
         Row(
             Modifier
                 .fillMaxWidth()
                 .height(64.dp)
+                .background(palette.surface.toComposeColor())
                 .semantics { contentDescription = "Canvas header" }
                 .testTag("canvas-header"),
             verticalAlignment = Alignment.CenterVertically,
@@ -62,6 +65,7 @@ fun CanvasScaffold(
             Modifier
                 .fillMaxWidth()
                 .height(72.dp)
+                .background(palette.surface.toComposeColor())
                 .semantics { contentDescription = "Canvas action bar" }
                 .testTag("canvas-action-bar"),
         ) {
