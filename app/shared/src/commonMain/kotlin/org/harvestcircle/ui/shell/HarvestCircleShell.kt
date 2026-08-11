@@ -161,6 +161,7 @@ private fun DashboardRoot(
                             )
                         },
                     )
+                AppRoute.Network -> FoundationNetworkScreen(foundationNetworkModel(state))
                 else -> BasicText(route.title(), Modifier.testTag("foundation-route-body"))
             }
         },
