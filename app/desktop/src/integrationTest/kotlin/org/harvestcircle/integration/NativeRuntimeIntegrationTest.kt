@@ -8,6 +8,8 @@ import org.harvestcircle.application.SecretKeyInput
 import org.harvestcircle.application.SessionLifecycle
 import org.harvestcircle.application.SnapshotRevision
 import org.harvestcircle.application.verifyNativeCompatibility
+import org.harvestcircle.ffi.NostrReferenceKindDto
+import org.harvestcircle.ffi.classifyNostrReference
 import org.harvestcircle.ffi.compatibilityDescriptor
 import org.harvestcircle.testbridge.ffi.HarvestCircleTestBridge
 import org.harvestcircle.testbridge.ffi.TestBridgeException
@@ -23,6 +25,20 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 class NativeRuntimeIntegrationTest {
+    @Test
+    fun generatedFfiClassifiesCanonicalReferencesAndRedactsPrivateKeys() {
+        val eventId = "d94a3f4dd87b9a3b0bed183b32e916fa29c8020107845d1752d72697fe5309a5"
+        val event = classifyNostrReference(eventId)
+        assertEquals(NostrReferenceKindDto.EVENT_ID, event.classification)
+        assertEquals(eventId, event.canonicalReference)
+
+        val nsec = "nsec1j4c6269y9w0q2er2xjw8sv2ehyrtfxq3jwgdlxj6qfn8z4gjsq5qfvfk99"
+        val privateReference = classifyNostrReference(nsec)
+        assertEquals(NostrReferenceKindDto.PRIVATE_KEY_REJECTED, privateReference.classification)
+        assertEquals(null, privateReference.canonicalReference)
+        assertFalse(privateReference.toString().contains(nsec))
+    }
+
     @Test
     fun generatedRecoveryRequestIsOpaqueOneUseAndResolvedByIdentity() {
         val dataRoot = Files.createTempDirectory("harvestcircle-recovery-request-")

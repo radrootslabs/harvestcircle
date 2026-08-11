@@ -57,25 +57,43 @@ class ShellReducerTest {
             val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this)
             runCurrent()
 
-            listOf(
-                HarvestCircleShellIntent.Navigate(ScreenKey.Network),
-                HarvestCircleShellIntent.SetTheme(ThemePreference.Dark),
-                HarvestCircleShellIntent.SetTextSize(TextSizePreference.VeryLarge),
-                HarvestCircleShellIntent.SetMotion(MotionPreference.Reduced),
-                HarvestCircleShellIntent.EnterReadOnly,
-                HarvestCircleShellIntent.Overlay(
-                    OverlayIntent.Open(FoundationOverlay.OpenNostrReference()),
-                ),
-            ).map { intent -> async { presenter.dispatch(intent) } }
-                .awaitAll()
+            buildList {
+                add(async { identity.state.value = activePresenterState(4UL) })
+                add(async { presenter.dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.Network)) })
+                add(async { presenter.dispatch(HarvestCircleShellIntent.SetTheme(ThemePreference.Dark)) })
+                add(async { presenter.dispatch(HarvestCircleShellIntent.SetTextSize(TextSizePreference.VeryLarge)) })
+                add(async { presenter.dispatch(HarvestCircleShellIntent.SetMotion(MotionPreference.Reduced)) })
+                add(
+                    async {
+                        presenter.dispatch(
+                            HarvestCircleShellIntent.Overlay(
+                                OverlayIntent.Open(FoundationOverlay.OpenNostrReference()),
+                            ),
+                        )
+                    },
+                )
+            }.awaitAll()
+            runCurrent()
 
             val state = presenter.state.value
+            assertEquals(4UL, state.identity.snapshot.revision.value)
             assertEquals(AppRoute.Network, state.currentRoute)
             assertEquals(ThemePreference.Dark, state.appearance.theme)
             assertEquals(TextSizePreference.VeryLarge, state.appearance.textSize)
             assertEquals(MotionPreference.Reduced, state.appearance.motion)
-            assertTrue(state.session.readOnly)
             assertTrue(state.overlays.current is FoundationOverlay.OpenNostrReference)
+
+            listOf(
+                async { identity.state.value = signedOutPresenterState(5UL) },
+                async { presenter.dispatch(HarvestCircleShellIntent.EnterReadOnly) },
+            ).awaitAll()
+            runCurrent()
+
+            val signedOut = presenter.state.value
+            assertEquals(5UL, signedOut.identity.snapshot.revision.value)
+            assertTrue(signedOut.session.readOnly)
+            assertEquals(ThemePreference.Dark, signedOut.appearance.theme)
+            assertTrue(signedOut.overlays.current is FoundationOverlay.OpenNostrReference)
             presenter.close()
         }
 
@@ -133,5 +151,17 @@ private fun activePresenterState(revision: ULong): HarvestCirclePresenterState {
                 ),
             recoverableProblem = null,
         ),
+    )
+}
+
+private fun signedOutPresenterState(revision: ULong): HarvestCirclePresenterState {
+    val active = activePresenterState(revision)
+    return active.copy(
+        snapshot =
+            active.snapshot.copy(
+                session = SessionLifecycle.SignedOut,
+                sessionSubjectIdentityId = null,
+                activeIdentity = null,
+            ),
     )
 }

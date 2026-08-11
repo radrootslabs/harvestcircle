@@ -452,6 +452,11 @@ private fun Throwable.toProblem(operationId: OperationId?): ApplicationProblem =
             safeMessage = "The application command failed.",
         )
 
-private val READY_ROUTES = setOf(HarvestCircleRoute.IDENTITIES, HarvestCircleRoute.ACTIVE_IDENTITY)
+private val READY_ROUTES =
+    setOf(
+        HarvestCircleRoute.IDENTITIES,
+        HarvestCircleRoute.ACTIVE_IDENTITY,
+        HarvestCircleRoute.DEGRADED,
+    )
 private const val EFFECT_BUFFER_CAPACITY = 8
 private const val COMMAND_DEADLINE_MILLIS = 5_000UL

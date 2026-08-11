@@ -10,7 +10,8 @@ use std::time::Duration;
 
 use harvestcircle_application::{
     AppLifecycle, AppSnapshot, Clock, DurableRequestId, GeneratedKeyRecoveryHandle,
-    InMemorySecretStore, RelayConfiguration, SecretStore, SessionState, SnapshotRevision,
+    InMemorySecretStore, RelayConfiguration, RemovalConfirmationToken, SecretStore, SessionState,
+    SnapshotRevision,
 };
 use harvestcircle_domain::{
     PublicKey, RelayDestinationPolicy, RelayEndpoint, SafeError, SecretKeyInput, UnixTimestamp,
@@ -42,6 +43,7 @@ pub struct TestIdentity {
 pub enum TestLifecycle {
     Booting,
     Ready,
+    Degraded,
     Fatal,
     Closed,
 }
@@ -69,6 +71,34 @@ pub struct TestSnapshot {
 pub struct TestGeneratedRecoveryRequest {
     handle: GeneratedKeyRecoveryHandle,
     resolved: AtomicBool,
+}
+
+#[derive(uniffi::Object)]
+pub struct TestRemovalRequest {
+    token: Mutex<Option<RemovalConfirmationToken>>,
+    public_key_hex: String,
+    deletes_local_credential: bool,
+    signs_out: bool,
+    expires_at_seconds: i64,
+}
+
+#[uniffi::export]
+impl TestRemovalRequest {
+    pub fn public_key_hex(&self) -> String {
+        self.public_key_hex.clone()
+    }
+
+    pub fn deletes_local_credential(&self) -> bool {
+        self.deletes_local_credential
+    }
+
+    pub fn signs_out(&self) -> bool {
+        self.signs_out
+    }
+
+    pub fn expires_at_seconds(&self) -> i64 {
+        self.expires_at_seconds
+    }
 }
 
 #[uniffi::export]
@@ -147,6 +177,7 @@ pub struct HarvestCircleTestBridge {
     relay: Mutex<Option<MockRelay>>,
     relay_url: String,
     database_path: PathBuf,
+    network_degraded: AtomicBool,
 }
 
 #[uniffi::export]
@@ -185,16 +216,17 @@ impl HarvestCircleTestBridge {
             relay: Mutex::new(Some(relay)),
             relay_url,
             database_path,
+            network_degraded: AtomicBool::new(false),
         }))
     }
 
     pub fn bootstrap(&self) -> Result<TestSnapshot, TestBridgeError> {
         let actor = self.actor()?;
-        Ok(to_snapshot(self.runtime.block_on(actor.bootstrap())?))
+        Ok(self.to_test_snapshot(self.runtime.block_on(actor.bootstrap())?))
     }
 
     pub fn snapshot(&self) -> Result<TestSnapshot, TestBridgeError> {
-        Ok(to_snapshot(self.actor()?.snapshot()))
+        Ok(self.to_test_snapshot(self.actor()?.snapshot()))
     }
 
     pub fn begin_generated_identity(
@@ -227,7 +259,7 @@ impl HarvestCircleTestBridge {
                 SnapshotRevision::from_value(expected_revision),
                 Duration::from_millis(timeout_millis),
             ))?;
-        Ok(to_snapshot(snapshot))
+        Ok(self.to_test_snapshot(snapshot))
     }
 
     pub fn cancel_generated_identity(
@@ -258,14 +290,15 @@ impl HarvestCircleTestBridge {
             Duration::from_millis(timeout_millis),
         ))?;
         let _ = receipt.identity();
-        Ok(to_snapshot(actor.snapshot()))
+        Ok(self.to_test_snapshot(actor.snapshot()))
     }
 
     pub fn select_identity(&self, public_key_hex: String) -> Result<TestSnapshot, TestBridgeError> {
         let actor = self.actor()?;
-        Ok(to_snapshot(self.runtime.block_on(
-            actor.select_identity(PublicKey::from_hex(&public_key_hex)?),
-        )?))
+        Ok(self.to_test_snapshot(
+            self.runtime
+                .block_on(actor.select_identity(PublicKey::from_hex(&public_key_hex)?))?,
+        ))
     }
 
     pub fn activate_identity(
@@ -273,14 +306,15 @@ impl HarvestCircleTestBridge {
         public_key_hex: String,
     ) -> Result<TestSnapshot, TestBridgeError> {
         let actor = self.actor()?;
-        Ok(to_snapshot(self.runtime.block_on(
-            actor.activate_identity(PublicKey::from_hex(&public_key_hex)?),
-        )?))
+        Ok(self.to_test_snapshot(
+            self.runtime
+                .block_on(actor.activate_identity(PublicKey::from_hex(&public_key_hex)?))?,
+        ))
     }
 
     pub fn sign_out(&self) -> Result<TestSnapshot, TestBridgeError> {
         let actor = self.actor()?;
-        Ok(to_snapshot(self.runtime.block_on(actor.sign_out())?))
+        Ok(self.to_test_snapshot(self.runtime.block_on(actor.sign_out())?))
     }
 
     pub fn seed_selected_profile(&self, display_name: String) -> Result<(), TestBridgeError> {
@@ -316,9 +350,63 @@ impl HarvestCircleTestBridge {
 
     pub fn refresh_active_profile(&self) -> Result<TestSnapshot, TestBridgeError> {
         let actor = self.actor()?;
-        Ok(to_snapshot(
-            self.runtime.block_on(actor.refresh_active_profile())?,
-        ))
+        Ok(self.to_test_snapshot(self.runtime.block_on(actor.refresh_active_profile())?))
+    }
+
+    pub fn request_identity_removal(
+        &self,
+        public_key_hex: String,
+    ) -> Result<Arc<TestRemovalRequest>, TestBridgeError> {
+        let token = self.runtime.block_on(
+            self.actor()?
+                .request_identity_removal(PublicKey::from_hex(&public_key_hex)?),
+        )?;
+        let impact = token.impact();
+        let expires_at_seconds = token.expires_at().as_seconds();
+        Ok(Arc::new(TestRemovalRequest {
+            token: Mutex::new(Some(token)),
+            public_key_hex,
+            deletes_local_credential: impact.deletes_local_credential(),
+            signs_out: impact.signs_out(),
+            expires_at_seconds,
+        }))
+    }
+
+    pub fn cancel_identity_removal(&self, request: Arc<TestRemovalRequest>) -> bool {
+        request
+            .token
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            .is_some()
+    }
+
+    pub fn confirm_identity_removal(
+        &self,
+        request_id: String,
+        expected_revision: u64,
+        timeout_millis: u64,
+        request: Arc<TestRemovalRequest>,
+    ) -> Result<TestSnapshot, TestBridgeError> {
+        let token = request
+            .token
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+            .ok_or_else(request_unavailable)?;
+        let snapshot = self
+            .runtime
+            .block_on(self.actor()?.confirm_identity_removal(
+                token,
+                DurableRequestId::parse(request_id)?,
+                SnapshotRevision::from_value(expected_revision),
+                Duration::from_millis(timeout_millis),
+            ))?;
+        Ok(self.to_test_snapshot(snapshot))
+    }
+
+    pub fn set_network_degraded(&self, degraded: bool) {
+        self.network_degraded.store(degraded, Ordering::Release);
     }
 
     pub fn start_observer(&self) -> Result<(), TestBridgeError> {
@@ -351,7 +439,7 @@ impl HarvestCircleTestBridge {
             .await
         });
         match change {
-            Ok(Some(change)) => Ok(Some(to_snapshot(change.snapshot().clone()))),
+            Ok(Some(change)) => Ok(Some(self.to_test_snapshot(change.snapshot().clone()))),
             Ok(None) => Ok(None),
             Err(_) => Ok(None),
         }
@@ -387,7 +475,7 @@ impl HarvestCircleTestBridge {
             .actor
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(actor);
-        Ok(to_snapshot(snapshot))
+        Ok(self.to_test_snapshot(snapshot))
     }
 
     pub fn shutdown(&self) -> Result<TestSnapshot, TestBridgeError> {
@@ -415,6 +503,19 @@ impl Drop for HarvestCircleTestBridge {
 }
 
 impl HarvestCircleTestBridge {
+    fn to_test_snapshot(&self, snapshot: AppSnapshot) -> TestSnapshot {
+        let mut snapshot = to_snapshot(snapshot);
+        if self.network_degraded.load(Ordering::Acquire)
+            && !matches!(
+                snapshot.lifecycle,
+                TestLifecycle::Closed | TestLifecycle::Fatal
+            )
+        {
+            snapshot.lifecycle = TestLifecycle::Degraded;
+        }
+        snapshot
+    }
+
     fn actor(&self) -> Result<RuntimeActorHandle, TestBridgeError> {
         self.actor
             .lock()

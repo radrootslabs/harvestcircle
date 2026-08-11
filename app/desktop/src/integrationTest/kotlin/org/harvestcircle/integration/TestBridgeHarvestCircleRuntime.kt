@@ -23,7 +23,6 @@ import org.harvestcircle.application.HarvestCircleRuntime
 import org.harvestcircle.application.IdentityId
 import org.harvestcircle.application.IdentityRemovalRequest
 import org.harvestcircle.application.IdentitySummary
-import org.harvestcircle.application.OperationId
 import org.harvestcircle.application.ProfileLoadState
 import org.harvestcircle.application.ProfileSummary
 import org.harvestcircle.application.RecoveryAction
@@ -43,6 +42,7 @@ import org.harvestcircle.testbridge.ffi.TestBridgeException
 import org.harvestcircle.testbridge.ffi.TestGeneratedRecoveryRequest
 import org.harvestcircle.testbridge.ffi.TestIdentity
 import org.harvestcircle.testbridge.ffi.TestLifecycle
+import org.harvestcircle.testbridge.ffi.TestRemovalRequest
 import org.harvestcircle.testbridge.ffi.TestSession
 import org.harvestcircle.testbridge.ffi.TestSnapshot
 
@@ -53,6 +53,7 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     override val buildInfo: BuildInfo = BuildInfo.unknown()
 
     private var generatedRequest: PendingGeneratedRequest? = null
+    private var removalRequest: PendingRemovalRequest? = null
     private var closed = false
     private var shutdownReceipt: ShutdownReceipt? = null
 
@@ -137,7 +138,24 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
             ApplicationCommand.RefreshActiveProfile ->
                 ApplicationCommandResult.Updated(callBridge { bridge.refreshActiveProfile().toApplicationSnapshot() })
 
-            is ApplicationCommand.ConfirmIdentityRemoval -> throw unsupportedRemoval(command.context.operationId)
+            is ApplicationCommand.ConfirmIdentityRemoval -> {
+                val pending = takeRemovalRequest(command.requestId)
+                try {
+                    val snapshot =
+                        callBridge {
+                            bridge
+                                .confirmIdentityRemoval(
+                                    command.context.operationId.value,
+                                    command.context.expectedRevision.value,
+                                    command.context.deadlineMillis,
+                                    pending.native,
+                                ).toApplicationSnapshot()
+                        }
+                    ApplicationCommandResult.Committed(command.context.operationId, snapshot.revision, snapshot)
+                } finally {
+                    pending.close()
+                }
+            }
         }
 
     override suspend fun prepareLocalIdentity(): GeneratedIdentityRecovery {
@@ -162,14 +180,32 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
         }
     }
 
-    override suspend fun requestIdentityRemoval(identityId: IdentityId): IdentityRemovalRequest = throw unsupportedRemoval()
+    override suspend fun requestIdentityRemoval(identityId: IdentityId): IdentityRemovalRequest {
+        removalRequest?.cancel(bridge)
+        val native = callBridge { bridge.requestIdentityRemoval(identityId.value) }
+        val requestId = RemovalRequestId.from("bridge-removal:${native.publicKeyHex()}:${native.expiresAtSeconds()}")
+        removalRequest = PendingRemovalRequest(requestId, native)
+        return IdentityRemovalRequest(
+            requestId = requestId,
+            identityId = IdentityId.fromPublicKeyHex(native.publicKeyHex()),
+            deletesLocalCredential = native.deletesLocalCredential(),
+            signsOut = native.signsOut(),
+            expiresAt = UnixSeconds(native.expiresAtSeconds()),
+        )
+    }
 
-    override suspend fun cancelIdentityRemoval(requestId: RemovalRequestId): Boolean = false
+    override suspend fun cancelIdentityRemoval(requestId: RemovalRequestId): Boolean {
+        val pending = removalRequest?.takeIf { it.requestId == requestId } ?: return false
+        removalRequest = null
+        return pending.cancel(bridge)
+    }
 
     override suspend fun shutdown(): ShutdownReceipt {
         shutdownReceipt?.let { return it }
         generatedRequest?.close()
         generatedRequest = null
+        removalRequest?.cancel(bridge)
+        removalRequest = null
         val snapshot = callBridge { bridge.shutdown().toApplicationSnapshot() }
         closed = true
         return ShutdownReceipt(snapshot.revision, snapshot.lifecycle == ApplicationLifecycle.Closed).also {
@@ -179,9 +215,13 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
 
     fun seedSelectedProfile(displayName: String) = callBridge { bridge.seedSelectedProfile(displayName) }
 
+    fun setNetworkDegraded(degraded: Boolean) = bridge.setNetworkDegraded(degraded)
+
     fun restart(): ApplicationSnapshot {
         generatedRequest?.close()
         generatedRequest = null
+        removalRequest?.cancel(bridge)
+        removalRequest = null
         val snapshot = callBridge { bridge.restart().toApplicationSnapshot() }
         closed = false
         shutdownReceipt = null
@@ -193,22 +233,12 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     override fun close() {
         generatedRequest?.close()
         generatedRequest = null
+        removalRequest?.cancel(bridge)
+        removalRequest = null
         if (!closed) runCatching { bridge.shutdown() }
         closed = true
         bridge.close()
     }
-
-    private fun unsupportedRemoval(operationId: OperationId? = null): ApplicationFailure =
-        ApplicationFailure(
-            ApplicationProblem(
-                code = ApplicationErrorCode.InvalidApplicationState,
-                category = ApplicationErrorCategory.Lifecycle,
-                retryable = false,
-                recoveryAction = RecoveryAction.None,
-                operationId = operationId,
-                safeMessage = "Identity removal is outside the integration bridge contract.",
-            ),
-        )
 
     private fun takeGeneratedRequest(requestId: RecoveryRequestId): PendingGeneratedRequest {
         val pending = generatedRequest
@@ -217,10 +247,31 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
         return pending
     }
 
+    private fun takeRemovalRequest(requestId: RemovalRequestId): PendingRemovalRequest {
+        val pending = removalRequest
+        require(pending?.requestId == requestId) { "Identity removal request does not match" }
+        removalRequest = null
+        return pending
+    }
+
     companion object {
         fun open(dataDirectory: String): TestBridgeHarvestCircleRuntime =
             TestBridgeHarvestCircleRuntime(HarvestCircleTestBridge.open(dataDirectory))
     }
+}
+
+private class PendingRemovalRequest(
+    val requestId: RemovalRequestId,
+    val native: TestRemovalRequest,
+) {
+    fun cancel(bridge: HarvestCircleTestBridge): Boolean =
+        try {
+            callBridge { bridge.cancelIdentityRemoval(native) }
+        } finally {
+            close()
+        }
+
+    fun close() = native.close()
 }
 
 private class PendingGeneratedRequest(
@@ -260,7 +311,15 @@ private fun TestSnapshot.toApplicationSnapshot(): ApplicationSnapshot {
             val identity = mappedIdentities.single { it.id == selected }
             ActiveIdentity(
                 identity = identity,
-                relays = RelaySummary(emptyList(), RelayConnectionState.Connected),
+                relays =
+                    RelaySummary(
+                        emptyList(),
+                        if (lifecycle == TestLifecycle.DEGRADED) {
+                            RelayConnectionState.Degraded
+                        } else {
+                            RelayConnectionState.Connected
+                        },
+                    ),
                 profileState = if (profileDisplayName == null) ProfileLoadState.Empty else ProfileLoadState.Fresh,
                 profile = profileDisplayName?.let { ProfileSummary(null, it, null, null, null) },
             )
@@ -273,10 +332,23 @@ private fun TestSnapshot.toApplicationSnapshot(): ApplicationSnapshot {
             when (lifecycle) {
                 TestLifecycle.BOOTING -> ApplicationLifecycle.Opening
                 TestLifecycle.READY -> ApplicationLifecycle.Ready
+                TestLifecycle.DEGRADED -> ApplicationLifecycle.Degraded
                 TestLifecycle.FATAL -> ApplicationLifecycle.Fatal
                 TestLifecycle.CLOSED -> ApplicationLifecycle.Closed
             },
-        lifecycleProblem = null,
+        lifecycleProblem =
+            if (lifecycle == TestLifecycle.DEGRADED) {
+                ApplicationProblem(
+                    code = ApplicationErrorCode.RelayConnectionFailed,
+                    category = ApplicationErrorCategory.Network,
+                    retryable = true,
+                    recoveryAction = RecoveryAction.Retry,
+                    operationId = null,
+                    safeMessage = "The local integration relay is unavailable.",
+                )
+            } else {
+                null
+            },
         configuredRelays = emptyList(),
         identities = mappedIdentities,
         selectedIdentityId = selected,

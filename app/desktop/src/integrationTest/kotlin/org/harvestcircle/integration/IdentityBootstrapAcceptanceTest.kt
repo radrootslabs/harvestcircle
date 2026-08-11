@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -15,11 +16,14 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.v2.runComposeUiTest
+import kotlinx.coroutines.runBlocking
 import org.harvestcircle.application.ApplicationClock
+import org.harvestcircle.application.ApplicationCommand
 import org.harvestcircle.application.HarvestCircleApplicationWithDependencies
 import org.harvestcircle.application.HarvestCirclePresenter
 import org.harvestcircle.application.OperationId
 import org.harvestcircle.application.OperationIdSource
+import org.harvestcircle.application.RequestContext
 import org.harvestcircle.application.SecretClipboardController
 import org.harvestcircle.application.TextClipboard
 import org.harvestcircle.application.UnixSeconds
@@ -204,6 +208,78 @@ class IdentityBootstrapAcceptanceTest {
             }
         }
 
+    @Test
+    fun nativeDegradationStaysInTheShellAndIdentityRemovalUsesTheModal() =
+        runComposeUiTest {
+            val dataRoot = Files.createTempDirectory("harvestcircle-degraded-removal-")
+            val runtime = TestBridgeHarvestCircleRuntime.open(dataRoot.toString())
+            val operationIds = SequentialOperationIds()
+            try {
+                val identityId =
+                    runBlocking {
+                        val initial = runtime.bootstrap()
+                        val recovery = runtime.prepareLocalIdentity()
+                        val created =
+                            runtime
+                                .execute(
+                                    ApplicationCommand.AcknowledgeGeneratedIdentity(
+                                        recovery.requestId,
+                                        RequestContext(operationIds.next(), initial.revision, 2_000UL),
+                                    ),
+                                ).snapshot
+                        recovery.backup.clear()
+                        val identityId = assertNotNull(created.selectedIdentityId)
+                        runtime.execute(ApplicationCommand.ActivateIdentity(identityId))
+                        identityId
+                    }
+                runtime.setNetworkDegraded(true)
+
+                setContent {
+                    HarvestCircleApplicationWithDependencies(
+                        closeRequested = false,
+                        onExitApproved = {},
+                        clipboardFactory = { scope ->
+                            SecretClipboardController(scope, RecordingClipboard(), clearDelayMillis = 60_000)
+                        },
+                    ) { scope ->
+                        HarvestCirclePresenter(
+                            runtime = runtime,
+                            scope = scope,
+                            clock = ApplicationClock { UnixSeconds(FIXED_TIME_SECONDS) },
+                            operationIds = operationIds,
+                        )
+                    }
+                }
+
+                waitForTag("foundation-today")
+                onNodeWithTag("global-status-banner").assertIsDisplayed()
+                onNodeWithTag("sidebar-Network").performClick()
+                waitForTag("network-overview")
+                onNodeWithTag("network-tab-identity").performClick()
+                onNodeWithTag("sign-out").performClick()
+                waitForTag("saved-identity-list")
+                onNodeWithTag("global-status-banner").assertIsDisplayed()
+
+                onNodeWithTag("remove-identity:${identityId.value}").performClick()
+                waitForEnabled("overlay-confirm")
+                onNodeWithText("Remove this saved identity?").assertIsDisplayed()
+                onNodeWithTag("overlay-cancel").performClick()
+                waitUntil(timeoutMillis = UI_TIMEOUT_MILLIS) {
+                    onAllNodesWithTag("foundation-overlay").fetchSemanticsNodes().isEmpty()
+                }
+                assertTrue(runtime.currentSnapshot().identities.any { it.id == identityId })
+
+                onNodeWithTag("remove-identity:${identityId.value}").performClick()
+                waitForEnabled("overlay-confirm")
+                onNodeWithTag("overlay-confirm").performClick()
+                waitForTag("bootstrap-welcome")
+                assertTrue(runtime.currentSnapshot().identities.isEmpty())
+            } finally {
+                runtime.close()
+                deleteAcceptanceTree(dataRoot)
+            }
+        }
+
     private fun androidx.compose.ui.test.ComposeUiTest.waitForTag(tag: String) {
         try {
             waitUntil(timeoutMillis = UI_TIMEOUT_MILLIS) {
@@ -211,6 +287,12 @@ class IdentityBootstrapAcceptanceTest {
             }
         } catch (error: androidx.compose.ui.test.ComposeTimeoutException) {
             throw AssertionError("Timed out waiting for semantic tag: $tag\n${onRoot().printToString()}", error)
+        }
+    }
+
+    private fun androidx.compose.ui.test.ComposeUiTest.waitForEnabled(tag: String) {
+        waitUntil(timeoutMillis = UI_TIMEOUT_MILLIS) {
+            runCatching { onNodeWithTag(tag).assertIsEnabled() }.isSuccess
         }
     }
 }
