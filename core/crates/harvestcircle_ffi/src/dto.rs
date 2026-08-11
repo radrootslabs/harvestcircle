@@ -6,6 +6,51 @@ use harvestcircle_domain::{
     NostrIdentity, ProfileMetadata, RelayDestinationPolicy, RelayEndpoint, SafeError,
     SafeErrorCode, SignerAvailability,
 };
+use harvestcircle_nostr::{NostrReferenceKind, NostrReferenceParse};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
+pub enum NostrReferenceKindDto {
+    EventId,
+    PublicKey,
+    Profile,
+    Note,
+    Event,
+    Address,
+    PrivateKeyRejected,
+    Invalid,
+}
+
+impl From<NostrReferenceKind> for NostrReferenceKindDto {
+    fn from(value: NostrReferenceKind) -> Self {
+        match value {
+            NostrReferenceKind::EventId => Self::EventId,
+            NostrReferenceKind::PublicKey => Self::PublicKey,
+            NostrReferenceKind::Profile => Self::Profile,
+            NostrReferenceKind::Note => Self::Note,
+            NostrReferenceKind::NostrEvent => Self::Event,
+            NostrReferenceKind::Address => Self::Address,
+            NostrReferenceKind::PrivateKeyRejected => Self::PrivateKeyRejected,
+            NostrReferenceKind::Invalid => Self::Invalid,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct NostrReferenceParseDto {
+    pub classification: NostrReferenceKindDto,
+    pub canonical_reference: Option<String>,
+}
+
+impl From<NostrReferenceParse> for NostrReferenceParseDto {
+    fn from(value: NostrReferenceParse) -> Self {
+        Self {
+            classification: value.classification.into(),
+            canonical_reference: value.canonical_reference,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]

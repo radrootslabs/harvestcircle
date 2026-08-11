@@ -20,6 +20,7 @@ import org.harvestcircle.application.GlobalStatusBanner
 import org.harvestcircle.application.OverlayIntent
 import org.harvestcircle.application.OverlayReducer
 import org.harvestcircle.application.OverlayState
+import org.harvestcircle.application.ReferenceResult
 import org.harvestcircle.application.ShellStatusModel
 import org.harvestcircle.application.SignerStatusLabel
 import org.harvestcircle.application.SyncStatusLabel
@@ -40,7 +41,15 @@ class FoundationOverlayHostTest {
                     state,
                     status(banner = GlobalStatusBanner("Limited connection", "Some services are unavailable.", BannerSeverity.Caution)),
                 ) {
-                    state = OverlayReducer.reduce(state, it)
+                    state =
+                        OverlayReducer.reduce(
+                            state,
+                            if (it == OverlayIntent.SubmitReference) {
+                                OverlayIntent.ApplyReferenceResult(ReferenceResult.Invalid)
+                            } else {
+                                it
+                            },
+                        )
                 }
             }
             onAllNodesWithTag("foundation-overlay").assertCountEquals(1)

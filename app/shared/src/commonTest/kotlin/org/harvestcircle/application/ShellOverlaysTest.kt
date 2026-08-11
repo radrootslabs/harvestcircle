@@ -9,11 +9,22 @@ import kotlin.test.assertTrue
 
 class ShellOverlaysTest {
     @Test
-    fun acceptedReferencesRemainSyntaxOnlyAndMalformedInputFails() {
-        assertEquals(ReferenceResult.Unsupported, validateNostrReference("ab".repeat(32)))
-        assertEquals(ReferenceResult.Unsupported, validateNostrReference("nostr:note1qqqqqq"))
-        assertEquals(ReferenceResult.Invalid, validateNostrReference("nostr:bad reference"))
-        assertEquals(ReferenceResult.Invalid, validateNostrReference("note1abc\u0000"))
+    fun typedReferenceResultsAreAppliedWithoutParsingInTheReducer() {
+        val open =
+            OverlayState(
+                FoundationOverlay.OpenNostrReference(input = "public-reference"),
+            )
+        val unchanged = OverlayReducer.reduce(open, OverlayIntent.SubmitReference)
+        assertEquals(open, unchanged)
+        val rejected =
+            OverlayReducer.reduce(
+                open,
+                OverlayIntent.ApplyReferenceResult(ReferenceResult.PrivateKeyRejected, clearInput = true),
+            )
+        assertEquals(
+            FoundationOverlay.OpenNostrReference(input = "", result = ReferenceResult.PrivateKeyRejected),
+            rejected.current,
+        )
     }
 
     @Test

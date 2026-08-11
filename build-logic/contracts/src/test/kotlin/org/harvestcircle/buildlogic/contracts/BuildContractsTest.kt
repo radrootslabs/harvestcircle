@@ -77,7 +77,7 @@ class BuildContractsTest {
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("package.version=1.0.0", "package.version=invalid")) }
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("schema=harvestcircle.ffi.v4", "schema=harvestcircle.ffi.v3")) }
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.major=4", "contract.major=3")) }
-        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=2", "contract.minor=1")) }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=3", "contract.minor=2")) }
     }
 
     @Test
@@ -189,7 +189,7 @@ class BuildContractsTest {
         schema=harvestcircle.ffi.v4
         contract.id=harvestcircle-desktop-ffi-v4
         contract.major=4
-        contract.minor=2
+        contract.minor=3
         contract.hash=${"a".repeat(64)}
         product.coordinate_digest=${"b".repeat(64)}
         snapshot.schema=1

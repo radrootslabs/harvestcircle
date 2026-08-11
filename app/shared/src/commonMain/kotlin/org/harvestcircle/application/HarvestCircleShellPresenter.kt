@@ -68,6 +68,7 @@ class HarvestCircleShellPresenter(
     private val identityPresenter: IdentityPresentationPort,
     buildInfo: BuildInfo,
     scope: CoroutineScope,
+    private val referenceParser: NostrReferenceParser = RejectingNostrReferenceParser,
 ) {
     private val mutableState = MutableStateFlow(HarvestCircleShellState(identityPresenter.state.value, buildInfo))
     val state: StateFlow<HarvestCircleShellState> = mutableState.asStateFlow()
@@ -100,6 +101,29 @@ class HarvestCircleShellPresenter(
     private fun dispatchOverlay(intent: OverlayIntent) {
         val confirmation = mutableState.value.overlays.current as? FoundationOverlay.ConfirmAction
         when (intent) {
+            is OverlayIntent.EditReference -> {
+                if (referenceParser.parse(intent.value).classification == NostrReferenceClassification.PrivateKeyRejected) {
+                    applyReferenceResult(ReferenceResult.PrivateKeyRejected, clearInput = true)
+                    return
+                }
+            }
+            OverlayIntent.SubmitReference -> {
+                val overlay = mutableState.value.overlays.current as? FoundationOverlay.OpenNostrReference ?: return
+                val parsed = referenceParser.parse(overlay.input)
+                when (parsed.classification) {
+                    NostrReferenceClassification.Invalid -> applyReferenceResult(ReferenceResult.Invalid)
+                    NostrReferenceClassification.PrivateKeyRejected ->
+                        applyReferenceResult(ReferenceResult.PrivateKeyRejected, clearInput = true)
+                    NostrReferenceClassification.EventId,
+                    NostrReferenceClassification.PublicKey,
+                    NostrReferenceClassification.Profile,
+                    NostrReferenceClassification.Note,
+                    NostrReferenceClassification.Event,
+                    NostrReferenceClassification.Address,
+                    -> applyReferenceResult(ReferenceResult.Unsupported)
+                }
+                return
+            }
             OverlayIntent.Confirm -> {
                 if (mutableState.value.identity.busy) return
                 when (confirmation?.action) {
@@ -115,6 +139,13 @@ class HarvestCircleShellPresenter(
             else -> Unit
         }
         reduce(ShellEvent.Overlay(intent))
+    }
+
+    private fun applyReferenceResult(
+        result: ReferenceResult,
+        clearInput: Boolean = false,
+    ) {
+        reduce(ShellEvent.Overlay(OverlayIntent.ApplyReferenceResult(result, clearInput)))
     }
 
     private fun reduce(event: ShellEvent) {

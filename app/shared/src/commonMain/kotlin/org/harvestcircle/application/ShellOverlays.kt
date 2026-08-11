@@ -39,6 +39,7 @@ sealed interface OverlayIntent {
 
     data class ApplyReferenceResult(
         val result: ReferenceResult,
+        val clearInput: Boolean = false,
     ) : OverlayIntent
 
     data object Confirm : OverlayIntent
@@ -57,22 +58,18 @@ object OverlayReducer {
             is OverlayIntent.Open -> state.copy(current = intent.overlay)
             is OverlayIntent.EditReference ->
                 state.copy(current = (state.current as? FoundationOverlay.OpenNostrReference)?.copy(input = intent.value))
-            OverlayIntent.SubmitReference -> submitReference(state)
-            is OverlayIntent.ApplyReferenceResult -> applyReferenceResult(state, intent.result)
+            OverlayIntent.SubmitReference -> state
+            is OverlayIntent.ApplyReferenceResult -> applyReferenceResult(state, intent.result, intent.clearInput)
             OverlayIntent.Confirm, OverlayIntent.Close, OverlayIntent.Escape -> state.copy(current = null)
         }
-
-    private fun submitReference(state: OverlayState): OverlayState {
-        val overlay = state.current as? FoundationOverlay.OpenNostrReference ?: return state
-        return state.copy(current = overlay.copy(result = validateNostrReference(overlay.input)))
-    }
 
     private fun applyReferenceResult(
         state: OverlayState,
         result: ReferenceResult,
+        clearInput: Boolean,
     ): OverlayState {
         val overlay = state.current as? FoundationOverlay.OpenNostrReference ?: return state
-        return state.copy(current = overlay.copy(result = result))
+        return state.copy(current = overlay.copy(input = if (clearInput) "" else overlay.input, result = result))
     }
 }
 
@@ -80,21 +77,6 @@ enum class ReferenceResult(
     val message: String,
 ) {
     Invalid("This reference is not valid."),
+    PrivateKeyRejected("Private-key references cannot be opened."),
     Unsupported("This Nostr reference is not supported by this build."),
 }
-
-fun validateNostrReference(raw: String): ReferenceResult {
-    if (raw.isBlank() || raw.length > MAX_REFERENCE_CHARS || raw.any(Char::isISOControl)) return ReferenceResult.Invalid
-    val value = raw.trim()
-    val payload = value.removePrefix("nostr:")
-    val accepted =
-        payload.matches(Regex("[0-9a-fA-F]{64}")) ||
-            payload.matches(Regex("(?:npub|nprofile|note|nevent|naddr)1[023456789acdefghjklmnpqrstuvwxyz]{6,}"))
-    return if (accepted && (value == payload || value.startsWith("nostr:"))) {
-        ReferenceResult.Unsupported
-    } else {
-        ReferenceResult.Invalid
-    }
-}
-
-private const val MAX_REFERENCE_CHARS = 2048

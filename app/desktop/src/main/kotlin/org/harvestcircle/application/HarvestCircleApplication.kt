@@ -75,7 +75,10 @@ internal fun HarvestCircleApplicationWithDependencies(
         return
     }
     checkNotNull(clipboard)
-    val shellPresenter = remember(presenter, scope) { HarvestCircleShellPresenter(presenter, presenter.buildInfo, scope) }
+    val shellPresenter =
+        remember(presenter, scope) {
+            HarvestCircleShellPresenter(presenter, presenter.buildInfo, scope, NativeNostrReferenceParser)
+        }
     DisposableEffect(shellPresenter) {
         onDispose { shellPresenter.close() }
     }

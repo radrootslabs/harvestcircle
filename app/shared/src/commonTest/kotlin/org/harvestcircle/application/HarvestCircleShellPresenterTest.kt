@@ -118,6 +118,60 @@ class HarvestCircleShellPresenterTest {
             assertTrue(presenter.state.value.root is ShellRoot.LifecycleCanvas)
             presenter.close()
         }
+
+    @Test
+    fun nativeReferenceClassificationControlsTheSyntaxOnlyResult() =
+        runTest {
+            val identity = FakeIdentityPresentation(presenterState(HarvestCircleRoute.IDENTITIES))
+            val parser = RecordingReferenceParser(NostrReferenceClassification.Note, "note1canonical")
+            val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this, parser)
+            presenter.dispatch(
+                HarvestCircleShellIntent.Overlay(
+                    OverlayIntent.Open(FoundationOverlay.OpenNostrReference("note1candidate")),
+                ),
+            )
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.SubmitReference))
+
+            assertEquals(listOf("note1candidate"), parser.inputs)
+            assertEquals(
+                FoundationOverlay.OpenNostrReference("note1candidate", ReferenceResult.Unsupported),
+                presenter.state.value.overlays.current,
+            )
+            presenter.close()
+        }
+
+    @Test
+    fun privateKeyReferencesAreRejectedAndRemovedFromShellState() =
+        runTest {
+            val privateReference = "nsec1private"
+            val identity = FakeIdentityPresentation(presenterState(HarvestCircleRoute.IDENTITIES))
+            val parser = RecordingReferenceParser(NostrReferenceClassification.PrivateKeyRejected, null)
+            val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this, parser)
+            presenter.dispatch(
+                HarvestCircleShellIntent.Overlay(OverlayIntent.Open(FoundationOverlay.OpenNostrReference())),
+            )
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.EditReference(privateReference)))
+
+            assertEquals(listOf(privateReference), parser.inputs)
+            assertEquals(
+                FoundationOverlay.OpenNostrReference("", ReferenceResult.PrivateKeyRejected),
+                presenter.state.value.overlays.current,
+            )
+            assertTrue(privateReference !in presenter.state.value.toString())
+            presenter.close()
+        }
+}
+
+private class RecordingReferenceParser(
+    private val classification: NostrReferenceClassification,
+    private val canonicalReference: String?,
+) : NostrReferenceParser {
+    val inputs = mutableListOf<String>()
+
+    override fun parse(raw: String): NostrReferenceParseResult {
+        inputs += raw
+        return NostrReferenceParseResult(classification, canonicalReference)
+    }
 }
 
 private class FakeIdentityPresentation(

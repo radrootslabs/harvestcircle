@@ -535,7 +535,7 @@ class ConventionPluginSmokeTest {
         schema=harvestcircle.ffi.v4
         contract.id=harvestcircle-desktop-ffi-v4
         contract.major=4
-        contract.minor=2
+        contract.minor=3
         contract.hash=b32b9a47d12e445e93866ae0ab668b18de503ba6c999e3a053f26dc9509ddaf9
         product.coordinate_digest=93bf10e334e989b20ba5fb8ed05e5d55b83f4502efba5f893aef4dc1a66c8223
         snapshot.schema=1
