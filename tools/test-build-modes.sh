@@ -18,6 +18,17 @@ if printf '%s\n' "$standalone_output" | grep -q 'cargo extbuild'; then
     exit 1
 fi
 
+for lane in source-check integration-check; do
+    for mode in standalone governed; do
+        lane_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$repository_root" "$lane")
+        build_logic_count=$(printf '%s\n' "$lane_output" | grep -c -- '-p build-logic')
+        if [ "$build_logic_count" -ne 1 ]; then
+            printf '%s\n' "$lane in $mode mode must invoke build-logic verification exactly once" >&2
+            exit 1
+        fi
+    done
+done
+
 if "$make_command" --no-print-directory -C "$repository_root" BUILD_MODE=unsupported help > "$fixture/unknown.log" 2>&1; then
     printf '%s\n' 'unknown build mode was accepted' >&2
     exit 1

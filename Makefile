@@ -108,7 +108,7 @@ host-package-check: doctor
 governed-package-check:
 	$(MAKE) --no-print-directory BUILD_MODE=governed host-package-check
 
-source-check: check bindings licenses
+source-check: build-logic-check check bindings licenses
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:sourceReadiness
 
 governed-source-check:
@@ -117,7 +117,7 @@ governed-source-check:
 package-check: source-check
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:packageReadiness
 
-integration-check: check
+integration-check: build-logic-check check
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:integrationTest :app:desktop:verifyTestBridgeIsolation
 
 governed-integration-check:
