@@ -20,10 +20,13 @@ import androidx.compose.ui.test.v2.runComposeUiTest
 import org.harvestcircle.application.HarvestCircleRoute
 import org.harvestcircle.application.IdentityEntryMode
 import org.harvestcircle.application.IdentityId
+import org.harvestcircle.application.ProfileLoadState
 import org.harvestcircle.application.RecoveryAction
+import org.harvestcircle.application.RelayConnectionState
 import org.harvestcircle.application.RemovalImpactState
 import org.harvestcircle.application.RemovalStatus
 import org.harvestcircle.application.SessionLifecycle
+import org.harvestcircle.application.SignerAvailability
 import org.harvestcircle.application.UnixSeconds
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -255,8 +258,8 @@ class HarvestCircleScreenTest {
                 ActiveIdentityUiModel(
                     identity = identity,
                     heading = "Alice",
-                    relayState = "connected",
-                    profileState = "fresh",
+                    relayState = RelayConnectionState.Connected,
+                    profileState = ProfileLoadState.Fresh,
                     profile =
                         ProfileUiModel(
                             name = "alice",
@@ -307,8 +310,8 @@ class HarvestCircleScreenTest {
                 ActiveIdentityUiModel(
                     identity = first,
                     heading = first.label,
-                    relayState = "connected",
-                    profileState = "cached",
+                    relayState = RelayConnectionState.Connected,
+                    profileState = ProfileLoadState.Cached,
                     profile = ProfileUiModel("", "", "", "", ""),
                 )
             var chooserVisible by mutableStateOf(false)
@@ -385,7 +388,7 @@ private fun identityUi(
     npub = "npub1${publicKeyHex.take(12)}",
     shortNpub = "npub1${publicKeyHex.take(12)}",
     label = "Identity ${publicKeyHex.take(2)}",
-    signerAvailability = "available",
+    signerAvailability = SignerAvailability.Available,
     selected = selected,
     active = active,
 )

@@ -32,14 +32,14 @@ class FoundationNetworkModelTest {
     @Test
     fun mapsActiveRelayRuntimeAndOperationTruth() {
         val model = foundationNetworkModel(shellState())
-        assertEquals("Local identity active", model.identityState)
+        assertEquals(NetworkIdentityState.Active, model.identityState)
         assertEquals("Grower identity", model.identityLabel)
         assertEquals(null, model.profileLabel)
-        assertEquals("Degraded", model.relayState)
-        assertEquals("Public", model.relays.single().destination)
-        assertEquals("Read available", model.relays.single().readState)
-        assertEquals("Write unavailable", model.relays.single().writeState)
-        assertEquals("Degraded", model.runtimeState)
+        assertEquals(RelayObservationState.Degraded, model.relayState)
+        assertEquals(RelayDestination.Public, model.relays.single().destination)
+        assertEquals(true, model.relays.single().read)
+        assertEquals(false, model.relays.single().write)
+        assertEquals(ApplicationLifecycle.Degraded, model.runtimeState)
         assertEquals("Runtime degraded.", model.runtimeProblem)
         assertEquals(1, model.pendingOperations)
     }
@@ -47,8 +47,8 @@ class FoundationNetworkModelTest {
     @Test
     fun readOnlyOverridesSignerAuthorityWithoutInventingNetworkState() {
         val model = foundationNetworkModel(shellState(readOnly = true, active = false))
-        assertEquals("Read-only", model.identityState)
-        assertEquals("Not yet observed", model.relayState)
+        assertEquals(NetworkIdentityState.ReadOnly, model.identityState)
+        assertEquals(RelayObservationState.NotYetObserved, model.relayState)
     }
 }
 

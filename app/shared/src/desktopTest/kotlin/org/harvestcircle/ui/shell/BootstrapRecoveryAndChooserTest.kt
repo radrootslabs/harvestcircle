@@ -93,7 +93,7 @@ private fun identity(
     npub = "npub1$id",
     shortNpub = "npub1$id",
     label = id.replaceFirstChar(Char::uppercaseChar),
-    signerAvailability = "available",
+    signerAvailability = org.harvestcircle.application.SignerAvailability.Available,
     selected = selected,
     active = false,
 )

@@ -7,6 +7,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runComposeUiTest
+import org.harvestcircle.application.ApplicationLifecycle
+import org.harvestcircle.application.RelayDestination
 import kotlin.test.Test
 
 @OptIn(ExperimentalTestApi::class)
@@ -53,7 +55,7 @@ class FoundationNetworkScreenTest {
     @Test
     fun signedOutAndReadOnlyStatesRemainExplicit() =
         runComposeUiTest {
-            setContent { FoundationNetworkScreen(model(identityState = "Read-only", relays = emptyList())) }
+            setContent { FoundationNetworkScreen(model(identityState = NetworkIdentityState.ReadOnly, relays = emptyList())) }
             onNodeWithText("Read-only").assertExists()
             onNodeWithTag("network-tab-public_relays").performClick()
             onNodeWithText("Not yet observed").assertExists()
@@ -61,23 +63,23 @@ class FoundationNetworkScreenTest {
 }
 
 private fun model(
-    identityState: String = "Local identity active",
+    identityState: NetworkIdentityState = NetworkIdentityState.Active,
     relays: List<NetworkRelayModel> =
         listOf(
             NetworkRelayModel(
                 url = "wss://relay.example",
-                destination = "Public",
-                readState = "Read available",
-                writeState = "Write unavailable",
+                destination = RelayDestination.Public,
+                read = true,
+                write = false,
             ),
         ),
 ) = FoundationNetworkModel(
     identityState = identityState,
     identityLabel = "Grower identity",
     profileLabel = "Farm Identity",
-    relayState = if (relays.isEmpty()) "Not yet observed" else "Degraded",
+    relayState = if (relays.isEmpty()) RelayObservationState.NotYetObserved else RelayObservationState.Degraded,
     relays = relays,
-    runtimeState = "Degraded",
+    runtimeState = ApplicationLifecycle.Degraded,
     runtimeProblem = "Storage is temporarily unavailable.",
     pendingOperations = 1,
 )

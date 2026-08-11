@@ -48,8 +48,9 @@ class IdentityUiModelTest {
         val model = HarvestCirclePresenterState(snapshot).toUiModel()
 
         assertEquals("Alice", model.activeIdentity?.heading)
-        assertEquals("connected", model.activeIdentity?.relayState)
-        assertEquals("fresh", model.activeIdentity?.profileState)
+        assertEquals(RelayConnectionState.Connected, model.activeIdentity?.relayState)
+        assertEquals(ProfileLoadState.Fresh, model.activeIdentity?.profileState)
+        assertEquals(SignerAvailability.Available, model.identities.single().signerAvailability)
         assertEquals("alice@example.com", model.activeIdentity?.profile?.nip05)
         assertEquals(listOf("ws://localhost:8080"), model.configuredRelays)
         assertFalse(model.identityChooserVisible)

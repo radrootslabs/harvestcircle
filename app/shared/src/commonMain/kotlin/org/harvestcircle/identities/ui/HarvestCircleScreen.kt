@@ -208,8 +208,8 @@ private fun ActiveIdentityHome(
         BasicText("NIP-05 (unverified): ${active.profile.nip05}")
         BasicText("About: ${active.profile.about}", Modifier.testTag("active-profile-about"))
         BasicText("Picture: ${active.profile.picture}")
-        BasicText("Relay: ${active.relayState}", Modifier.testTag("relay-state"))
-        BasicText("Profile: ${active.profileState}", Modifier.testTag("profile-state"))
+        BasicText("Relay: ${active.relayState.displayText()}", Modifier.testTag("relay-state"))
+        BasicText("Profile: ${active.profileState.displayText()}", Modifier.testTag("profile-state"))
         BasicText("Configured relays")
         if (model.configuredRelays.isEmpty()) {
             BasicText("None")
@@ -412,7 +412,7 @@ private fun ColumnScope.SavedIdentityList(
             ) {
                 BasicText(identity.label)
                 BasicText(identity.npub)
-                BasicText("Key: ${identity.signerAvailability}")
+                BasicText("Key: ${identity.signerAvailability.displayText()}")
                 if (identity.selected) BasicText("Selected")
                 if (identity.active) BasicText("Active")
                 TextAction(

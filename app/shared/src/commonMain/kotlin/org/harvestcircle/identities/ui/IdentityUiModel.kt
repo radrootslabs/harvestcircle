@@ -12,13 +12,14 @@ import org.harvestcircle.application.RelayConnectionState
 import org.harvestcircle.application.RemovalImpactState
 import org.harvestcircle.application.RemovalStatus
 import org.harvestcircle.application.SessionLifecycle
+import org.harvestcircle.application.SignerAvailability
 
 data class IdentityUiModel(
     val publicKeyHex: String,
     val npub: String,
     val shortNpub: String,
     val label: String,
-    val signerAvailability: String,
+    val signerAvailability: SignerAvailability,
     val selected: Boolean,
     val active: Boolean,
 )
@@ -34,8 +35,8 @@ data class ProfileUiModel(
 data class ActiveIdentityUiModel(
     val identity: IdentityUiModel,
     val heading: String,
-    val relayState: String,
-    val profileState: String,
+    val relayState: RelayConnectionState,
+    val profileState: ProfileLoadState,
     val profile: ProfileUiModel,
 )
 
@@ -141,10 +142,7 @@ private fun IdentitySummary.toUiModel(
     npub = npub,
     shortNpub = shortenNpub(npub),
     label = displayLabel.ifBlank { shortenNpub(npub) },
-    signerAvailability =
-        signer.availability.name
-            .lowercase()
-            .replace('_', ' '),
+    signerAvailability = signer.availability,
     selected = selected,
     active = active,
 )
@@ -160,8 +158,8 @@ private fun ActiveIdentity.toUiModel(selectedPublicKeyHex: String?) =
             profile?.displayName?.takeIf(String::isNotBlank)
                 ?: profile?.name?.takeIf(String::isNotBlank)
                 ?: identity.displayLabel.ifBlank { shortenNpub(identity.npub) },
-        relayState = relays.state.toDisplayText(),
-        profileState = profileState.toDisplayText(),
+        relayState = relays.state,
+        profileState = profileState,
         profile =
             ProfileUiModel(
                 name = profile?.name.orEmpty(),
@@ -172,6 +170,8 @@ private fun ActiveIdentity.toUiModel(selectedPublicKeyHex: String?) =
             ),
     )
 
-private fun RelayConnectionState.toDisplayText(): String = name.lowercase().replace('_', ' ')
+fun SignerAvailability.displayText(): String = name.lowercase().replace('_', ' ')
 
-private fun ProfileLoadState.toDisplayText(): String = name.lowercase().replace('_', ' ')
+fun RelayConnectionState.displayText(): String = name.lowercase().replace('_', ' ')
+
+fun ProfileLoadState.displayText(): String = name.lowercase().replace('_', ' ')

@@ -99,7 +99,7 @@ private fun IdentityRow(
         BasicText(identity.label)
         BasicText(identity.shortNpub)
         BasicText(
-            if (identity.signerAvailability == "available") {
+            if (identity.signerAvailability == org.harvestcircle.application.SignerAvailability.Available) {
                 "Local credential available"
             } else {
                 "Local credential unavailable"

@@ -15,22 +15,27 @@ import androidx.compose.ui.unit.dp
 import org.harvestcircle.application.ApplicationLifecycle
 import org.harvestcircle.application.HarvestCircleShellState
 import org.harvestcircle.application.RelayConnectionState
+import org.harvestcircle.application.RelayDestination
 import org.harvestcircle.application.SignerAvailability
+
+enum class NetworkIdentityState { ReadOnly, Active, CredentialUnavailable, Available, SignedOut }
+
+enum class RelayObservationState { NotYetObserved, Available, Degraded, Unavailable }
 
 data class NetworkRelayModel(
     val url: String,
-    val destination: String,
-    val readState: String,
-    val writeState: String,
+    val destination: RelayDestination,
+    val read: Boolean,
+    val write: Boolean,
 )
 
 data class FoundationNetworkModel(
-    val identityState: String,
+    val identityState: NetworkIdentityState,
     val identityLabel: String?,
     val profileLabel: String?,
-    val relayState: String,
+    val relayState: RelayObservationState,
     val relays: List<NetworkRelayModel>,
-    val runtimeState: String,
+    val runtimeState: ApplicationLifecycle,
     val runtimeProblem: String?,
     val pendingOperations: Int,
 )
@@ -40,27 +45,27 @@ fun foundationNetworkModel(state: HarvestCircleShellState): FoundationNetworkMod
     val active = snapshot.activeIdentity
     val identityState =
         when {
-            state.session.readOnly -> "Read-only"
-            active?.identity?.signer?.availability == SignerAvailability.Available -> "Local identity active"
-            active != null -> "Credential unavailable"
-            snapshot.identities.isNotEmpty() -> "Local identity available"
-            else -> "Signed out"
+            state.session.readOnly -> NetworkIdentityState.ReadOnly
+            active?.identity?.signer?.availability == SignerAvailability.Available -> NetworkIdentityState.Active
+            active != null -> NetworkIdentityState.CredentialUnavailable
+            snapshot.identities.isNotEmpty() -> NetworkIdentityState.Available
+            else -> NetworkIdentityState.SignedOut
         }
     return FoundationNetworkModel(
         identityState = identityState,
         identityLabel = active?.identity?.displayLabel ?: snapshot.identities.firstOrNull()?.displayLabel,
         profileLabel = active?.profile?.displayName ?: active?.profile?.name,
-        relayState = active?.relays?.state?.label() ?: "Not yet observed",
+        relayState = active?.relays?.state?.toObservation() ?: RelayObservationState.NotYetObserved,
         relays =
             snapshot.configuredRelays.map { relay ->
                 NetworkRelayModel(
                     url = relay.url,
-                    destination = relay.destination.name,
-                    readState = if (relay.read) "Read available" else "Read unavailable",
-                    writeState = if (relay.write) "Write available" else "Write unavailable",
+                    destination = relay.destination,
+                    read = relay.read,
+                    write = relay.write,
                 )
             },
-        runtimeState = snapshot.lifecycle.label(),
+        runtimeState = snapshot.lifecycle,
         runtimeProblem =
             snapshot.lifecycleProblem?.safeMessage
                 ?: snapshot.sessionProblem?.safeMessage
@@ -116,35 +121,35 @@ private fun NetworkDetail(
     ) {
         when (selection.value) {
             "overview" -> {
-                Fact("Signer", model.identityState)
-                Fact("Public relay reads", model.relays.count { it.readState == "Read available" }.toString())
-                Fact("Public relay writes", model.relays.count { it.writeState == "Write available" }.toString())
-                Fact("Local runtime", model.runtimeState)
+                Fact("Signer", model.identityState.label())
+                Fact("Public relay reads", model.relays.count(NetworkRelayModel::read).toString())
+                Fact("Public relay writes", model.relays.count(NetworkRelayModel::write).toString())
+                Fact("Local runtime", model.runtimeState.label())
                 Fact("Pending operations", model.pendingOperations.toString())
                 BasicText("No managed HarvestCircle service is configured.")
             }
             "identity" -> {
-                BasicText(model.identityState, Modifier.testTag("network-identity-state"))
+                BasicText(model.identityState.label(), Modifier.testTag("network-identity-state"))
                 model.identityLabel?.let { BasicText(it, Modifier.testTag("network-identity-label")) }
                 model.profileLabel?.let { BasicText("Display name: $it", Modifier.testTag("network-profile-label")) }
-                if (model.identityState == "Local identity active") {
+                if (model.identityState == NetworkIdentityState.Active) {
                     ShellAction("Refresh profile", "Refresh active profile", "refresh-profile", onClick = refreshProfile)
                     ShellAction("Sign out", "Sign out", "sign-out", onClick = signOut)
                 }
             }
             "public_relays" -> {
-                BasicText(model.relayState, Modifier.testTag("network-relay-state"))
+                BasicText(model.relayState.label(), Modifier.testTag("network-relay-state"))
                 model.relays.forEach { relay ->
                     Column(Modifier.testTag("network-relay:${relay.url}")) {
                         BasicText(relay.url)
-                        BasicText(relay.destination)
-                        BasicText(relay.readState)
-                        BasicText(relay.writeState)
+                        BasicText(relay.destination.label())
+                        BasicText(if (relay.read) "Read available" else "Read unavailable")
+                        BasicText(if (relay.write) "Write available" else "Write unavailable")
                     }
                 }
             }
             "runtime" -> {
-                Fact("Local runtime", model.runtimeState)
+                Fact("Local runtime", model.runtimeState.label())
                 Fact("Pending operations", model.pendingOperations.toString())
                 model.runtimeProblem?.let { BasicText(it, Modifier.testTag("network-runtime-problem")) }
             }
@@ -163,14 +168,32 @@ private fun Fact(
     }
 }
 
-private fun RelayConnectionState.label(): String =
+private fun RelayConnectionState.toObservation(): RelayObservationState =
     when (this) {
-        RelayConnectionState.Disconnected -> "Unavailable"
-        RelayConnectionState.Connecting -> "Not yet observed"
-        RelayConnectionState.Connected -> "Available"
-        RelayConnectionState.Degraded -> "Degraded"
-        RelayConnectionState.Error -> "Unavailable"
+        RelayConnectionState.Disconnected, RelayConnectionState.Error -> RelayObservationState.Unavailable
+        RelayConnectionState.Connecting -> RelayObservationState.NotYetObserved
+        RelayConnectionState.Connected -> RelayObservationState.Available
+        RelayConnectionState.Degraded -> RelayObservationState.Degraded
     }
+
+private fun NetworkIdentityState.label(): String =
+    when (this) {
+        NetworkIdentityState.ReadOnly -> "Read-only"
+        NetworkIdentityState.Active -> "Local identity active"
+        NetworkIdentityState.CredentialUnavailable -> "Credential unavailable"
+        NetworkIdentityState.Available -> "Local identity available"
+        NetworkIdentityState.SignedOut -> "Signed out"
+    }
+
+private fun RelayObservationState.label(): String =
+    when (this) {
+        RelayObservationState.NotYetObserved -> "Not yet observed"
+        RelayObservationState.Available -> "Available"
+        RelayObservationState.Degraded -> "Degraded"
+        RelayObservationState.Unavailable -> "Unavailable"
+    }
+
+private fun RelayDestination.label(): String = name
 
 private fun ApplicationLifecycle.label(): String =
     when (this) {
