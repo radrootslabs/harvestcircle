@@ -131,6 +131,7 @@ class ProductNamespaceGuardTest {
                             inspected
                                 .replace("round_${legacyProduct}_screen", "")
                                 .replace("Round${legacyProduct.replaceFirstChar { it.uppercase() }}", "")
+                                .replace("${legacyProduct.replaceFirstChar { it.uppercase() }}Template", "")
                         if (relative == "NOTICE") {
                             val legacyDisplayName = legacyProduct.replaceFirstChar { it.uppercase() }
                             inspected =
