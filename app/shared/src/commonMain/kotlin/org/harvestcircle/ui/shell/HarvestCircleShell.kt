@@ -37,6 +37,22 @@ fun HarvestCircleShell(
         is ShellRoot.BootstrapCanvas ->
             when (root.step) {
                 BootstrapStep.Welcome -> BootstrapWelcome(dispatch)
+                BootstrapStep.CreateIdentity,
+                BootstrapStep.ImportIdentity,
+                ->
+                    BootstrapIdentityEntry(
+                        step = root.step,
+                        model = state.identity.toUiModel(),
+                        actions = identityActions,
+                        onBack = {
+                            identityActions.cancelIdentityEntry()
+                            dispatch(
+                                HarvestCircleShellIntent.Navigation(
+                                    NavigationIntent.SelectBootstrapStep(BootstrapStep.Welcome),
+                                ),
+                            )
+                        },
+                    )
                 else -> HarvestCircleScreen(state.identity.toUiModel(), identityActions, platformActions)
             }
         is ShellRoot.Dashboard -> DashboardRoot(state, root, dispatch)
