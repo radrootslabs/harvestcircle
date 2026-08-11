@@ -7,7 +7,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runComposeUiTest
-import org.harvestcircle.application.ShellDestination
+import org.harvestcircle.product.ScreenKey
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -16,15 +16,15 @@ class WorkspaceSidebarTest {
     @Test
     fun sidebarSelectsFoundationRoutesAndDisablesDeferredEntries() =
         runComposeUiTest {
-            val selected = mutableListOf<ShellDestination>()
-            setContent { WorkspaceSidebar(ShellDestination.Today, selected::add) }
-            onNodeWithTag("sidebar-Today").assertIsSelected()
+            val selected = mutableListOf<ScreenKey>()
+            setContent { WorkspaceSidebar(ScreenKey.PersonalToday, selected::add) }
+            onNodeWithTag("sidebar-PersonalToday").assertIsSelected()
             onNodeWithText("Explore").assertIsNotEnabled()
             onNodeWithText("Activity").assertIsNotEnabled()
             onNodeWithText("Add a farm workspace").assertIsNotEnabled()
             onNodeWithText("Explore").performClick()
             onNodeWithText("Network").performClick()
             onNodeWithText("Settings").performClick()
-            assertEquals(listOf(ShellDestination.Network, ShellDestination.Settings), selected)
+            assertEquals(listOf(ScreenKey.Network, ScreenKey.Settings), selected)
         }
 }

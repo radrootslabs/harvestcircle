@@ -14,6 +14,7 @@ import org.harvestcircle.design.TextSizePreference
 import org.harvestcircle.design.ThemePreference
 import org.harvestcircle.navigation.AppRoute
 import org.harvestcircle.navigation.NavigationIntent
+import org.harvestcircle.product.ScreenKey
 
 interface IdentityPresentationPort {
     val state: StateFlow<HarvestCirclePresenterState>
@@ -39,7 +40,7 @@ sealed interface HarvestCircleShellIntent {
     data object EnterReadOnly : HarvestCircleShellIntent
 
     data class Navigate(
-        val destination: ShellDestination,
+        val screenKey: ScreenKey,
     ) : HarvestCircleShellIntent
 
     data class Navigation(
@@ -79,7 +80,7 @@ class HarvestCircleShellPresenter(
         when (intent) {
             is HarvestCircleShellIntent.Identity -> identityPresenter.dispatch(intent.intent)
             HarvestCircleShellIntent.EnterReadOnly -> reduce(ShellEvent.EnterReadOnly)
-            is HarvestCircleShellIntent.Navigate -> reduce(ShellEvent.Navigate(intent.destination))
+            is HarvestCircleShellIntent.Navigate -> reduce(ShellEvent.Navigate(intent.screenKey))
             is HarvestCircleShellIntent.Navigation -> reduce(ShellEvent.Navigation(intent.intent))
             is HarvestCircleShellIntent.Overlay -> reduce(ShellEvent.Overlay(intent.intent))
             is HarvestCircleShellIntent.SetTheme -> reduce(ShellEvent.SetTheme(intent.theme))

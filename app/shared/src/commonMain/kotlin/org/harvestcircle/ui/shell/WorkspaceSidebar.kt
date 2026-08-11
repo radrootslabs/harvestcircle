@@ -16,21 +16,25 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import org.harvestcircle.application.ShellDestination
 import org.harvestcircle.application.ShellNavigationItem
+import org.harvestcircle.application.addFarmWorkspaceAction
 import org.harvestcircle.application.shellNavigationItems
+import org.harvestcircle.application.shellSettingsItem
+import org.harvestcircle.product.ScreenKey
 
 @Composable
 fun WorkspaceSidebar(
-    selected: ShellDestination,
-    onDestination: (ShellDestination) -> Unit,
+    selected: ScreenKey,
+    onScreen: (ScreenKey) -> Unit,
 ) {
     Column(Modifier.testTag("workspace-sidebar")) {
         BasicText("Workspace", Modifier.testTag("workspace-label"))
         BasicText("Personal", Modifier.testTag("workspace-personal"))
         shellNavigationItems.forEach { item ->
-            SidebarItem(item, selected == item.destination, onDestination)
+            SidebarItem(item, selected == item.screenKey, onScreen)
         }
+        DisabledWorkspaceAction()
+        SidebarItem(shellSettingsItem, selected == shellSettingsItem.screenKey, onScreen)
     }
 }
 
@@ -38,7 +42,7 @@ fun WorkspaceSidebar(
 private fun SidebarItem(
     item: ShellNavigationItem,
     selected: Boolean,
-    onDestination: (ShellDestination) -> Unit,
+    onScreen: (ScreenKey) -> Unit,
 ) {
     val description =
         if (item.enabled) {
@@ -59,11 +63,29 @@ private fun SidebarItem(
                     if (!item.enabled) disabled()
                 }.then(
                     if (item.enabled) {
-                        Modifier.clickable(role = Role.Tab) { onDestination(item.destination) }
+                        Modifier.clickable(role = Role.Tab) { onScreen(item.screenKey) }
                     } else {
                         Modifier
                     },
                 ).padding(horizontal = 16.dp, vertical = 12.dp)
-                .testTag("sidebar-${item.destination.name}"),
+                .testTag("sidebar-${item.screenKey.name}"),
+    )
+}
+
+@Composable
+private fun DisabledWorkspaceAction() {
+    val action = addFarmWorkspaceAction
+    BasicText(
+        text = action.label,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 44.dp)
+                .semantics {
+                    contentDescription = "${action.label}. ${action.unavailableExplanation}"
+                    role = Role.Button
+                    disabled()
+                }.padding(horizontal = 16.dp, vertical = 12.dp)
+                .testTag("sidebar-add-farm"),
     )
 }

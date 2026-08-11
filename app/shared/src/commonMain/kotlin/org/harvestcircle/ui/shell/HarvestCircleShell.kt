@@ -17,7 +17,6 @@ import org.harvestcircle.application.HarvestCircleIntent
 import org.harvestcircle.application.HarvestCircleShellIntent
 import org.harvestcircle.application.HarvestCircleShellState
 import org.harvestcircle.application.OverlayIntent
-import org.harvestcircle.application.ShellDestination
 import org.harvestcircle.application.ShellRoot
 import org.harvestcircle.application.SignerAvailability
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
@@ -27,6 +26,7 @@ import org.harvestcircle.identities.ui.toUiModel
 import org.harvestcircle.navigation.AppRoute
 import org.harvestcircle.navigation.BootstrapStep
 import org.harvestcircle.navigation.NavigationIntent
+import org.harvestcircle.product.ScreenKey
 
 @Composable
 fun HarvestCircleShell(
@@ -152,13 +152,6 @@ private fun DashboardRoot(
     dispatch: (HarvestCircleShellIntent) -> Unit,
 ) {
     val route = root.navigation.current
-    val destination =
-        when (route) {
-            AppRoute.PersonalToday -> ShellDestination.Today
-            AppRoute.Network -> ShellDestination.Network
-            is AppRoute.Settings -> ShellDestination.Settings
-            is AppRoute.Bootstrap -> ShellDestination.Today
-        }
     DashboardScaffold(
         windowWidthDp = ShellDimensions.PREFERRED_WINDOW_WIDTH_DP,
         inspectorVisible = false,
@@ -174,7 +167,7 @@ private fun DashboardRoot(
                 onIntent = { intent -> dispatchTopBar(intent, dispatch) },
             )
         },
-        sidebar = { WorkspaceSidebar(destination) { dispatch(HarvestCircleShellIntent.Navigate(it)) } },
+        sidebar = { WorkspaceSidebar(route.screenKey) { dispatch(HarvestCircleShellIntent.Navigate(it)) } },
         mainHeader = { MainPanelHeader(MainPanelHeaderModel(title = route.title())) },
         mainBody = {
             RouteFocusTarget(route.toString(), "${route.title()} main content") {
@@ -196,9 +189,9 @@ private fun DashboardRoot(
                             refreshProfile = identityActions.refreshActiveProfile,
                             signOut = identityActions.signOut,
                         )
-                    is AppRoute.Settings ->
+                    AppRoute.Settings ->
                         FoundationSettingsScreen(
-                            section = route.section,
+                            section = root.navigation.settings.section,
                             appearance = state.appearance,
                             buildInfo = state.buildInfo,
                             actions =
@@ -206,7 +199,7 @@ private fun DashboardRoot(
                                     selectSection = {
                                         dispatch(
                                             HarvestCircleShellIntent.Navigation(
-                                                NavigationIntent.Navigate(AppRoute.Settings(it)),
+                                                NavigationIntent.SelectSettingsSection(it),
                                             ),
                                         )
                                     },
@@ -233,8 +226,8 @@ private fun dispatchShortcut(
             ShellShortcut.Forward -> HarvestCircleShellIntent.Navigation(NavigationIntent.Forward)
             ShellShortcut.OpenNostrReference ->
                 HarvestCircleShellIntent.Overlay(OverlayIntent.Open(FoundationOverlay.OpenNostrReference()))
-            ShellShortcut.Today -> HarvestCircleShellIntent.Navigate(ShellDestination.Today)
-            ShellShortcut.Settings -> HarvestCircleShellIntent.Navigate(ShellDestination.Settings)
+            ShellShortcut.Today -> HarvestCircleShellIntent.Navigate(ScreenKey.PersonalToday)
+            ShellShortcut.Settings -> HarvestCircleShellIntent.Navigate(ScreenKey.Settings)
             ShellShortcut.CloseOverlay -> HarvestCircleShellIntent.Overlay(OverlayIntent.Escape)
         }
     dispatch(intent)
@@ -263,7 +256,7 @@ private fun dispatchTopBar(
             GlobalTopBarIntent.ShowSignerStatus ->
                 HarvestCircleShellIntent.Overlay(OverlayIntent.Open(FoundationOverlay.SignerStatus(SignerStatusLabel.SignedOut)))
             GlobalTopBarIntent.OpenApplicationMenu ->
-                HarvestCircleShellIntent.Navigate(ShellDestination.Settings)
+                HarvestCircleShellIntent.Navigate(ScreenKey.Settings)
         }
     dispatch(shellIntent)
 }
@@ -293,6 +286,6 @@ private fun AppRoute.title(): String =
     when (this) {
         AppRoute.PersonalToday -> "Today"
         AppRoute.Network -> "Network"
-        is AppRoute.Settings -> "Settings"
+        AppRoute.Settings -> "Settings"
         is AppRoute.Bootstrap -> "HarvestCircle"
     }

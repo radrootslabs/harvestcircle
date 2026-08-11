@@ -5,7 +5,10 @@ import org.harvestcircle.navigation.BootstrapStep
 import org.harvestcircle.navigation.NavigationIntent
 import org.harvestcircle.navigation.NavigationReducer
 import org.harvestcircle.navigation.NavigationState
-import org.harvestcircle.navigation.SettingsSection
+import org.harvestcircle.navigation.toExecutableRoute
+import org.harvestcircle.product.FeatureAvailability
+import org.harvestcircle.product.NavigationKind
+import org.harvestcircle.product.ScreenKey
 
 data class ShellSessionState(
     val readOnly: Boolean = false,
@@ -29,10 +32,8 @@ sealed interface LocalUsability {
     data object Unusable : LocalUsability
 }
 
-enum class ShellDestination { Today, Explore, Activity, Network, Settings, AddFarm }
-
 data class ShellNavigationItem(
-    val destination: ShellDestination,
+    val screenKey: ScreenKey,
     val label: String,
     val enabled: Boolean,
     val unavailableExplanation: String? = null,
@@ -44,19 +45,30 @@ data class ShellNavigationItem(
     }
 }
 
-val shellNavigationItems: List<ShellNavigationItem> =
+private val PERMANENT_SHELL_SCREEN_ORDER =
     listOf(
-        ShellNavigationItem(ShellDestination.Today, "Today", true, route = AppRoute.PersonalToday),
-        unavailable(ShellDestination.Explore, "Explore"),
-        unavailable(ShellDestination.Activity, "Activity"),
-        ShellNavigationItem(ShellDestination.Network, "Network", true, route = AppRoute.Network),
-        ShellNavigationItem(
-            ShellDestination.Settings,
-            "Settings",
-            true,
-            route = AppRoute.Settings(SettingsSection.Appearance),
-        ),
-        unavailable(ShellDestination.AddFarm, "Add a farm workspace"),
+        ScreenKey.PersonalToday,
+        ScreenKey.Explore,
+        ScreenKey.Activity,
+        ScreenKey.Network,
+    ).also { keys -> require(keys.all { it.descriptor.navigation == NavigationKind.Permanent }) }
+
+val shellNavigationItems: List<ShellNavigationItem> =
+    PERMANENT_SHELL_SCREEN_ORDER.map(::navigationItem)
+
+val shellSettingsItem: ShellNavigationItem = navigationItem(ScreenKey.Settings)
+
+data class ShellWorkspaceAction(
+    val label: String,
+    val enabled: Boolean,
+    val unavailableExplanation: String,
+)
+
+val addFarmWorkspaceAction =
+    ShellWorkspaceAction(
+        label = "Add a farm workspace",
+        enabled = false,
+        unavailableExplanation = "Available after collective contracts are implemented.",
     )
 
 sealed interface ShellRoot {
@@ -143,21 +155,32 @@ private val USABLE_DEGRADATION_CATEGORIES =
         ApplicationErrorCategory.Credential,
     )
 
-fun activateShellDestination(
+fun activateShellScreen(
     state: NavigationState,
-    destination: ShellDestination,
+    screenKey: ScreenKey,
 ): NavigationState {
-    val item = shellNavigationItems.single { it.destination == destination }
+    val item = (shellNavigationItems + shellSettingsItem).singleOrNull { it.screenKey == screenKey } ?: return state
     return item.route?.let { NavigationReducer.reduce(state, NavigationIntent.Navigate(it)) } ?: state
 }
 
-private fun unavailable(
-    destination: ShellDestination,
-    label: String,
-): ShellNavigationItem =
-    ShellNavigationItem(
-        destination = destination,
-        label = label,
-        enabled = false,
-        unavailableExplanation = "Available after collective contracts are implemented.",
+private fun navigationItem(screenKey: ScreenKey): ShellNavigationItem {
+    val route = screenKey.toExecutableRoute()
+    val enabled = screenKey.descriptor.availability == FeatureAvailability.Foundation && route != null
+    return ShellNavigationItem(
+        screenKey = screenKey,
+        label = screenKey.label(),
+        enabled = enabled,
+        unavailableExplanation = if (enabled) null else "Available after collective contracts are implemented.",
+        route = route.takeIf { enabled },
     )
+}
+
+private fun ScreenKey.label(): String =
+    when (this) {
+        ScreenKey.PersonalToday -> "Today"
+        ScreenKey.Explore -> "Explore"
+        ScreenKey.Activity -> "Activity"
+        ScreenKey.Network -> "Network"
+        ScreenKey.Settings -> "Settings"
+        else -> error("Screen is not presented in shell navigation: ${descriptor.externalKey}")
+    }

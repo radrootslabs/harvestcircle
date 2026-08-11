@@ -1,5 +1,6 @@
 package org.harvestcircle.navigation
 
+import org.harvestcircle.product.ScreenKey
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
@@ -12,7 +13,7 @@ class NavigationTest {
         val back = NavigationReducer.reduce(network, NavigationIntent.Back)
         assertEquals(AppRoute.PersonalToday, back.current)
         assertEquals(AppRoute.Network, NavigationReducer.reduce(back, NavigationIntent.Forward).current)
-        val replaced = NavigationReducer.reduce(back, NavigationIntent.Navigate(AppRoute.Settings(SettingsSection.Project)))
+        val replaced = NavigationReducer.reduce(back, NavigationIntent.Navigate(AppRoute.Settings))
         assertEquals(emptyList(), replaced.forwardStack)
     }
 
@@ -43,7 +44,47 @@ class NavigationTest {
             state = NavigationReducer.reduce(state, NavigationIntent.Navigate(route))
         }
         assertEquals(32, state.backStack.size)
-        state = NavigationReducer.reduce(state, NavigationIntent.Navigate(AppRoute.Settings(SettingsSection.Appearance)))
+        state = NavigationReducer.reduce(state, NavigationIntent.Navigate(AppRoute.Settings))
         assertEquals(AppRoute.PersonalToday, NavigationReducer.reduce(state, NavigationIntent.ReturnFromSettings).current)
+    }
+
+    @Test
+    fun settingsSectionsAreHistoryNeutralAndLeavingRemovesSettings() {
+        val network = NavigationReducer.reduce(NavigationState(AppRoute.PersonalToday), NavigationIntent.Navigate(AppRoute.Network))
+        val settings = NavigationReducer.reduce(network, NavigationIntent.Navigate(AppRoute.Settings))
+        val project =
+            NavigationReducer.reduce(
+                settings,
+                NavigationIntent.SelectSettingsSection(SettingsSection.Project),
+            )
+        assertEquals(SettingsSection.Project, project.settings.section)
+        assertEquals(settings.backStack, project.backStack)
+
+        val returned = NavigationReducer.reduce(project, NavigationIntent.Back)
+        assertEquals(AppRoute.Network, returned.current)
+        assertEquals(listOf(AppRoute.PersonalToday), returned.backStack)
+        assertEquals(emptyList(), returned.forwardStack)
+    }
+
+    @Test
+    fun routesExposeRegistryIdentityAndDeferredKeysCannotConstructRoutes() {
+        assertEquals(ScreenKey.Bootstrap, AppRoute.Bootstrap(BootstrapStep.Welcome).screenKey)
+        assertEquals(ScreenKey.PersonalToday, AppRoute.PersonalToday.screenKey)
+        assertEquals(ScreenKey.Network, AppRoute.Network.screenKey)
+        assertEquals(ScreenKey.Settings, AppRoute.Settings.screenKey)
+        assertEquals(
+            setOf(ScreenKey.PersonalToday, ScreenKey.Network, ScreenKey.Settings),
+            ScreenKey.entries.filter { it.toExecutableRoute() != null }.toSet(),
+        )
+    }
+
+    @Test
+    fun directNavigationAwayFromSettingsNeverAddsSettingsToHistory() {
+        val network = NavigationReducer.reduce(NavigationState(AppRoute.PersonalToday), NavigationIntent.Navigate(AppRoute.Network))
+        val settings = NavigationReducer.reduce(network, NavigationIntent.Navigate(AppRoute.Settings))
+        val today = NavigationReducer.reduce(settings, NavigationIntent.Navigate(AppRoute.PersonalToday))
+        assertEquals(AppRoute.PersonalToday, today.current)
+        assertEquals(emptyList(), today.backStack)
+        assertEquals(emptyList(), today.forwardStack)
     }
 }

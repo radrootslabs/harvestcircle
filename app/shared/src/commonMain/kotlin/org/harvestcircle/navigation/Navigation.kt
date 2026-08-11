@@ -1,5 +1,6 @@
 package org.harvestcircle.navigation
 
+import org.harvestcircle.product.ScreenKey
 import org.harvestcircle.product.WorkspaceKind
 
 enum class BootstrapStep {
@@ -14,18 +15,30 @@ enum class BootstrapStep {
 enum class SettingsSection { Appearance, Project }
 
 sealed interface AppRoute {
+    val screenKey: ScreenKey
+
     data class Bootstrap(
         val step: BootstrapStep,
-    ) : AppRoute
+    ) : AppRoute {
+        override val screenKey: ScreenKey = ScreenKey.Bootstrap
+    }
 
-    data object PersonalToday : AppRoute
+    data object PersonalToday : AppRoute {
+        override val screenKey: ScreenKey = ScreenKey.PersonalToday
+    }
 
-    data object Network : AppRoute
+    data object Network : AppRoute {
+        override val screenKey: ScreenKey = ScreenKey.Network
+    }
 
-    data class Settings(
-        val section: SettingsSection,
-    ) : AppRoute
+    data object Settings : AppRoute {
+        override val screenKey: ScreenKey = ScreenKey.Settings
+    }
 }
+
+data class SettingsUiState(
+    val section: SettingsSection = SettingsSection.Appearance,
+)
 
 data class NavigationState(
     val current: AppRoute,
@@ -33,11 +46,13 @@ data class NavigationState(
     val forwardStack: List<AppRoute> = emptyList(),
     val workspace: WorkspaceKind = current.workspace(),
     val settingsReturnRoute: AppRoute? = null,
+    val settings: SettingsUiState = SettingsUiState(),
 ) {
     init {
         require(backStack.size <= HISTORY_LIMIT && forwardStack.size <= HISTORY_LIMIT)
-        require(backStack.none { it is AppRoute.Bootstrap })
-        require(forwardStack.none { it is AppRoute.Bootstrap })
+        require(backStack.none(AppRoute::isTransient))
+        require(forwardStack.none(AppRoute::isTransient))
+        require(settingsReturnRoute !is AppRoute.Bootstrap && settingsReturnRoute != AppRoute.Settings)
     }
 }
 
@@ -48,6 +63,10 @@ sealed interface NavigationIntent {
 
     data class SelectBootstrapStep(
         val step: BootstrapStep,
+    ) : NavigationIntent
+
+    data class SelectSettingsSection(
+        val section: SettingsSection,
     ) : NavigationIntent
 
     data object Back : NavigationIntent
@@ -65,9 +84,10 @@ object NavigationReducer {
         when (intent) {
             is NavigationIntent.Navigate -> navigate(state, intent.route)
             is NavigationIntent.SelectBootstrapStep -> selectBootstrapStep(state, intent.step)
+            is NavigationIntent.SelectSettingsSection -> selectSettingsSection(state, intent.section)
             NavigationIntent.Back -> moveBack(state)
             NavigationIntent.Forward -> moveForward(state)
-            NavigationIntent.ReturnFromSettings -> state.settingsReturnRoute?.let { navigate(state, it) } ?: state
+            NavigationIntent.ReturnFromSettings -> returnFromSettings(state)
         }
 
     private fun navigate(
@@ -75,19 +95,22 @@ object NavigationReducer {
         route: AppRoute,
     ): NavigationState {
         if (route is AppRoute.Bootstrap || route == state.current) return state
-        val returnRoute =
+        val enteringSettings = route == AppRoute.Settings
+        val leavingSettings = state.current == AppRoute.Settings
+        val prior = state.current.takeUnless(AppRoute::isTransient)
+        val existingRouteIndex = state.backStack.indexOfLast { it == route }
+        val history =
             when {
-                route is AppRoute.Settings && state.current !is AppRoute.Settings -> state.current
-                route !is AppRoute.Settings -> null
-                else -> state.settingsReturnRoute
+                leavingSettings && existingRouteIndex >= 0 -> state.backStack.take(existingRouteIndex)
+                leavingSettings -> state.backStack
+                else -> prior?.let { (state.backStack + it).takeLast(HISTORY_LIMIT) }.orEmpty()
             }
-        val prior = state.current.takeUnless { it is AppRoute.Bootstrap }
         return state.copy(
             current = route,
-            backStack = prior?.let { (state.backStack + it).takeLast(HISTORY_LIMIT) }.orEmpty(),
+            backStack = history,
             forwardStack = emptyList(),
             workspace = route.workspace(),
-            settingsReturnRoute = returnRoute,
+            settingsReturnRoute = if (enteringSettings) state.current else null,
         )
     }
 
@@ -101,14 +124,25 @@ object NavigationReducer {
             state
         }
 
+    private fun selectSettingsSection(
+        state: NavigationState,
+        section: SettingsSection,
+    ): NavigationState =
+        if (state.current == AppRoute.Settings) {
+            state.copy(settings = state.settings.copy(section = section))
+        } else {
+            state
+        }
+
     private fun moveBack(state: NavigationState): NavigationState {
+        if (state.current == AppRoute.Settings) return returnFromSettings(state)
         val destination = state.backStack.lastOrNull() ?: return state
         return state.copy(
             current = destination,
             backStack = state.backStack.dropLast(1),
             forwardStack = (listOf(state.current) + state.forwardStack).take(HISTORY_LIMIT),
             workspace = destination.workspace(),
-            settingsReturnRoute = if (destination is AppRoute.Settings) state.settingsReturnRoute else null,
+            settingsReturnRoute = null,
         )
     }
 
@@ -119,16 +153,39 @@ object NavigationReducer {
             backStack = (state.backStack + state.current).takeLast(HISTORY_LIMIT),
             forwardStack = state.forwardStack.drop(1),
             workspace = destination.workspace(),
-            settingsReturnRoute = if (destination is AppRoute.Settings) state.current else null,
+            settingsReturnRoute = if (destination == AppRoute.Settings) state.current else null,
+        )
+    }
+
+    private fun returnFromSettings(state: NavigationState): NavigationState {
+        if (state.current != AppRoute.Settings) return state
+        val destination = state.settingsReturnRoute ?: state.backStack.lastOrNull() ?: return state
+        val backStack =
+            if (state.backStack.lastOrNull() == destination) {
+                state.backStack.dropLast(1)
+            } else {
+                state.backStack
+            }
+        return state.copy(
+            current = destination,
+            backStack = backStack,
+            forwardStack = state.forwardStack,
+            workspace = destination.workspace(),
+            settingsReturnRoute = null,
         )
     }
 }
 
-private fun AppRoute.workspace(): WorkspaceKind =
+fun ScreenKey.toExecutableRoute(): AppRoute? =
     when (this) {
-        is AppRoute.Bootstrap -> WorkspaceKind.System
-        AppRoute.PersonalToday -> WorkspaceKind.Personal
-        AppRoute.Network, is AppRoute.Settings -> WorkspaceKind.Shared
+        ScreenKey.PersonalToday -> AppRoute.PersonalToday
+        ScreenKey.Network -> AppRoute.Network
+        ScreenKey.Settings -> AppRoute.Settings
+        else -> null
     }
+
+private fun AppRoute.workspace(): WorkspaceKind = screenKey.descriptor.workspace
+
+private fun AppRoute.isTransient(): Boolean = this is AppRoute.Bootstrap || this == AppRoute.Settings
 
 private const val HISTORY_LIMIT = 32

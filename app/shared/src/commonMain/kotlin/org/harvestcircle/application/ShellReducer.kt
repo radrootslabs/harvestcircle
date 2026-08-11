@@ -5,6 +5,7 @@ import org.harvestcircle.design.TextSizePreference
 import org.harvestcircle.design.ThemePreference
 import org.harvestcircle.navigation.NavigationIntent
 import org.harvestcircle.navigation.NavigationReducer
+import org.harvestcircle.product.ScreenKey
 
 sealed interface ShellEvent {
     data class IdentityObserved(
@@ -14,7 +15,7 @@ sealed interface ShellEvent {
     data object EnterReadOnly : ShellEvent
 
     data class Navigate(
-        val destination: ShellDestination,
+        val screenKey: ScreenKey,
     ) : ShellEvent
 
     data class Navigation(
@@ -46,7 +47,7 @@ object ShellReducer {
         when (event) {
             is ShellEvent.IdentityObserved -> observeIdentity(state, event.identity)
             ShellEvent.EnterReadOnly -> updateSession(state, state.session.enterReadOnly())
-            is ShellEvent.Navigate -> updateNavigation(state) { activateShellDestination(it, event.destination) }
+            is ShellEvent.Navigate -> updateNavigation(state) { activateShellScreen(it, event.screenKey) }
             is ShellEvent.Navigation -> updateNavigation(state, event.intent)
             is ShellEvent.Overlay -> state.copy(overlays = OverlayReducer.reduce(state.overlays, event.intent))
             is ShellEvent.SetTheme -> state.copy(appearance = state.appearance.copy(theme = event.theme))

@@ -10,6 +10,7 @@ import org.harvestcircle.design.MotionPreference
 import org.harvestcircle.design.TextSizePreference
 import org.harvestcircle.design.ThemePreference
 import org.harvestcircle.navigation.AppRoute
+import org.harvestcircle.product.ScreenKey
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -22,7 +23,7 @@ class ShellReducerTest {
         val events =
             listOf(
                 ShellEvent.IdentityObserved(activePresenterState(3UL)),
-                ShellEvent.Navigate(ShellDestination.Network),
+                ShellEvent.Navigate(ScreenKey.Network),
                 ShellEvent.SetTheme(ThemePreference.Dark),
                 ShellEvent.SetTextSize(TextSizePreference.VeryLarge),
                 ShellEvent.SetMotion(MotionPreference.Reduced),
@@ -57,7 +58,7 @@ class ShellReducerTest {
             runCurrent()
 
             listOf(
-                HarvestCircleShellIntent.Navigate(ShellDestination.Network),
+                HarvestCircleShellIntent.Navigate(ScreenKey.Network),
                 HarvestCircleShellIntent.SetTheme(ThemePreference.Dark),
                 HarvestCircleShellIntent.SetTextSize(TextSizePreference.VeryLarge),
                 HarvestCircleShellIntent.SetMotion(MotionPreference.Reduced),

@@ -3,6 +3,7 @@ package org.harvestcircle.application
 import org.harvestcircle.navigation.AppRoute
 import org.harvestcircle.navigation.BootstrapStep
 import org.harvestcircle.navigation.NavigationState
+import org.harvestcircle.product.ScreenKey
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -98,11 +99,12 @@ class ShellAvailabilityTest {
     @Test
     fun disabledFeaturesCannotDispatch() {
         val state = NavigationState(AppRoute.PersonalToday)
-        assertSame(state, activateShellDestination(state, ShellDestination.Explore))
-        assertSame(state, activateShellDestination(state, ShellDestination.Activity))
-        assertSame(state, activateShellDestination(state, ShellDestination.AddFarm))
-        assertEquals(AppRoute.Network, activateShellDestination(state, ShellDestination.Network).current)
+        assertSame(state, activateShellScreen(state, ScreenKey.Explore))
+        assertSame(state, activateShellScreen(state, ScreenKey.Activity))
+        assertSame(state, activateShellScreen(state, ScreenKey.FarmOverview))
+        assertEquals(AppRoute.Network, activateShellScreen(state, ScreenKey.Network).current)
         assertTrue(shellNavigationItems.filterNot(ShellNavigationItem::enabled).all { it.route == null })
+        assertFalse(addFarmWorkspaceAction.enabled)
     }
 }
 

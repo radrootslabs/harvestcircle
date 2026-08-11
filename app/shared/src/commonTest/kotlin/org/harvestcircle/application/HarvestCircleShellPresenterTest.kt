@@ -7,6 +7,7 @@ import kotlinx.coroutines.test.runTest
 import org.harvestcircle.design.MotionPreference
 import org.harvestcircle.design.ThemePreference
 import org.harvestcircle.navigation.AppRoute
+import org.harvestcircle.product.ScreenKey
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -22,7 +23,7 @@ class HarvestCircleShellPresenterTest {
             assertTrue(presenter.state.value.root is ShellRoot.BootstrapCanvas)
 
             presenter.dispatch(HarvestCircleShellIntent.EnterReadOnly)
-            presenter.dispatch(HarvestCircleShellIntent.Navigate(ShellDestination.Network))
+            presenter.dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.Network))
             presenter.dispatch(HarvestCircleShellIntent.SetTheme(ThemePreference.Dark))
             presenter.dispatch(HarvestCircleShellIntent.SetMotion(MotionPreference.Reduced))
             presenter.dispatch(
@@ -54,7 +55,7 @@ class HarvestCircleShellPresenterTest {
             val identity = FakeIdentityPresentation(activePresenterState(ApplicationLifecycle.Ready, null, 1UL))
             val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this)
             runCurrent()
-            presenter.dispatch(HarvestCircleShellIntent.Navigate(ShellDestination.Network))
+            presenter.dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.Network))
 
             identity.state.value =
                 activePresenterState(
