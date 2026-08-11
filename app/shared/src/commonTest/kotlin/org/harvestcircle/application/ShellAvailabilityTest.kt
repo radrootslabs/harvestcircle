@@ -30,6 +30,26 @@ class ShellAvailabilityTest {
     }
 
     @Test
+    fun bootstrapEntryAndRecoveryFollowPresenterTruth() {
+        val signedOut = presenterState(HarvestCircleRoute.IDENTITIES)
+        assertEquals(
+            ShellRoot.BootstrapCanvas(BootstrapStep.CreateIdentity),
+            deriveShellRoot(signedOut.copy(identityEntryMode = IdentityEntryMode.CREATE), ShellSessionState()),
+        )
+        assertEquals(
+            ShellRoot.BootstrapCanvas(BootstrapStep.ImportIdentity),
+            deriveShellRoot(signedOut.copy(identityEntryMode = IdentityEntryMode.IMPORT), ShellSessionState()),
+        )
+        assertEquals(
+            ShellRoot.BootstrapCanvas(BootstrapStep.GeneratedRecovery),
+            deriveShellRoot(
+                signedOut.copy(generatedKeyBackup = GeneratedKeyBackup("npub1generated", "nsec1generated")),
+                ShellSessionState(),
+            ),
+        )
+    }
+
+    @Test
     fun disabledFeaturesCannotDispatch() {
         val state = NavigationState(AppRoute.PersonalToday)
         assertSame(state, activateShellDestination(state, ShellDestination.Explore))

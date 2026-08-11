@@ -60,23 +60,32 @@ sealed interface ShellRoot {
 fun deriveShellRoot(
     presenterState: HarvestCirclePresenterState,
     session: ShellSessionState,
-): ShellRoot =
-    when (presenterState.route) {
+): ShellRoot {
+    if (presenterState.generatedKeyBackup != null) {
+        return ShellRoot.BootstrapCanvas(BootstrapStep.GeneratedRecovery)
+    }
+    return when (presenterState.route) {
         HarvestCircleRoute.ACTIVE_IDENTITY -> ShellRoot.Dashboard(NavigationState(AppRoute.PersonalToday))
         HarvestCircleRoute.IDENTITIES ->
             if (session.readOnly) {
                 ShellRoot.Dashboard(NavigationState(AppRoute.PersonalToday))
             } else {
                 val step =
-                    if (presenterState.snapshot.identities.isEmpty()) {
-                        BootstrapStep.Welcome
-                    } else {
-                        BootstrapStep.IdentityChooser
+                    when (presenterState.identityEntryMode) {
+                        IdentityEntryMode.CREATE -> BootstrapStep.CreateIdentity
+                        IdentityEntryMode.IMPORT -> BootstrapStep.ImportIdentity
+                        IdentityEntryMode.CHOICE ->
+                            if (presenterState.snapshot.identities.isEmpty()) {
+                                BootstrapStep.Welcome
+                            } else {
+                                BootstrapStep.IdentityChooser
+                            }
                     }
                 ShellRoot.BootstrapCanvas(step)
             }
         else -> ShellRoot.LifecycleCanvas(presenterState.route)
     }
+}
 
 fun activateShellDestination(
     state: NavigationState,

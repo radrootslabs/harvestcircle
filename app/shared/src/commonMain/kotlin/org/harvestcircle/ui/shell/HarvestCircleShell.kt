@@ -53,7 +53,16 @@ fun HarvestCircleShell(
                             )
                         },
                     )
-                else -> HarvestCircleScreen(state.identity.toUiModel(), identityActions, platformActions)
+                BootstrapStep.GeneratedRecovery ->
+                    GeneratedRecoveryCanvas(state.identity.toUiModel(), identityActions, platformActions)
+                BootstrapStep.IdentityChooser,
+                BootstrapStep.ActivationProgress,
+                ->
+                    IdentityChooserCanvas(
+                        model = state.identity.toUiModel(),
+                        actions = identityActions,
+                        onReadOnly = { dispatch(HarvestCircleShellIntent.EnterReadOnly) },
+                    )
             }
         is ShellRoot.Dashboard -> DashboardRoot(state, root, dispatch)
     }

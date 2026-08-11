@@ -99,8 +99,6 @@ class HarvestCircleShellPresenter(
                 when {
                     derived is ShellRoot.Dashboard && root is ShellRoot.Dashboard ->
                         derived.copy(navigation = root.navigation)
-                    derived is ShellRoot.BootstrapCanvas && root is ShellRoot.BootstrapCanvas ->
-                        derived.copy(step = root.step)
                     else -> derived
                 }
             copy(identity = identity, root = retained)
