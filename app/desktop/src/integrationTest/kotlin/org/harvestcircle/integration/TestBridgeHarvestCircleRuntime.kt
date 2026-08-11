@@ -40,6 +40,7 @@ import org.harvestcircle.application.SnapshotRevision
 import org.harvestcircle.application.UnixSeconds
 import org.harvestcircle.testbridge.ffi.HarvestCircleTestBridge
 import org.harvestcircle.testbridge.ffi.TestBridgeException
+import org.harvestcircle.testbridge.ffi.TestGeneratedRecoveryRequest
 import org.harvestcircle.testbridge.ffi.TestIdentity
 import org.harvestcircle.testbridge.ffi.TestSnapshot
 
@@ -49,7 +50,7 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     AutoCloseable {
     override val buildInfo: BuildInfo = BuildInfo.unknown()
 
-    private var generatedRequest: RecoveryRequestId? = null
+    private var generatedRequest: PendingGeneratedRequest? = null
     private var closed = false
     private var shutdownReceipt: ShutdownReceipt? = null
 
@@ -76,25 +77,32 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     override suspend fun execute(command: ApplicationCommand): ApplicationCommandResult =
         when (command) {
             is ApplicationCommand.AcknowledgeGeneratedIdentity -> {
-                require(command.requestId == generatedRequest) { "Generated recovery request does not match" }
-                generatedRequest = null
-                val snapshot =
-                    callBridge {
-                        bridge
-                            .acknowledgeGeneratedIdentity(
-                                command.context.operationId.value,
-                                command.context.expectedRevision.value,
-                                command.context.deadlineMillis,
-                            ).toApplicationSnapshot()
-                    }
-                ApplicationCommandResult.Committed(command.context.operationId, snapshot.revision, snapshot)
+                val pending = takeGeneratedRequest(command.requestId)
+                try {
+                    val snapshot =
+                        callBridge {
+                            bridge
+                                .acknowledgeGeneratedIdentity(
+                                    command.context.operationId.value,
+                                    command.context.expectedRevision.value,
+                                    command.context.deadlineMillis,
+                                    pending.native,
+                                ).toApplicationSnapshot()
+                        }
+                    ApplicationCommandResult.Committed(command.context.operationId, snapshot.revision, snapshot)
+                } finally {
+                    pending.close()
+                }
             }
 
             is ApplicationCommand.CancelGeneratedIdentity -> {
-                require(command.requestId == generatedRequest) { "Generated recovery request does not match" }
-                generatedRequest = null
-                callBridge { bridge.cancelGeneratedIdentity() }
-                ApplicationCommandResult.Updated(currentSnapshot())
+                val pending = takeGeneratedRequest(command.requestId)
+                try {
+                    callBridge { check(bridge.cancelGeneratedIdentity(pending.native)) }
+                    ApplicationCommandResult.Updated(currentSnapshot())
+                } finally {
+                    pending.close()
+                }
             }
 
             is ApplicationCommand.ImportLocalIdentity -> {
@@ -131,15 +139,25 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
         }
 
     override suspend fun prepareLocalIdentity(): GeneratedIdentityRecovery {
-        val generated = callBridge { bridge.beginGeneratedIdentity() }
-        val requestId = RecoveryRequestId.from("bridge:${generated.stageId}")
-        generatedRequest = requestId
-        return GeneratedIdentityRecovery(
-            requestId = requestId,
-            identity = generated.identity.toIdentitySummary(),
-            expiresAt = UnixSeconds(generated.expiresAtSeconds),
-            backup = GeneratedKeyBackup(generated.identity.npub, generated.recoveryNsec),
-        )
+        val native = callBridge { bridge.beginGeneratedIdentity() }
+        var backup: GeneratedKeyBackup? = null
+        return try {
+            val identity = callBridge { native.identity() }.toIdentitySummary()
+            val createdBackup = GeneratedKeyBackup(identity.npub, callBridge { native.takeRecoveryNsec() })
+            backup = createdBackup
+            val requestId = RecoveryRequestId.from("bridge:${identity.id.value}")
+            generatedRequest = PendingGeneratedRequest(requestId, native, createdBackup)
+            GeneratedIdentityRecovery(
+                requestId = requestId,
+                identity = identity,
+                expiresAt = UnixSeconds(callBridge { native.expiresAtSeconds() }),
+                backup = createdBackup,
+            )
+        } catch (error: Exception) {
+            backup?.clear()
+            native.close()
+            throw error
+        }
     }
 
     override suspend fun requestIdentityRemoval(identityId: IdentityId): IdentityRemovalRequest = throw unsupportedRemoval()
@@ -148,6 +166,8 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
 
     override suspend fun shutdown(): ShutdownReceipt {
         shutdownReceipt?.let { return it }
+        generatedRequest?.close()
+        generatedRequest = null
         val snapshot = callBridge { bridge.shutdown().toApplicationSnapshot() }
         closed = true
         return ShutdownReceipt(snapshot.revision, snapshot.lifecycle == ApplicationLifecycle.Closed).also {
@@ -158,6 +178,8 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     fun seedSelectedProfile(displayName: String) = callBridge { bridge.seedSelectedProfile(displayName) }
 
     fun restart(): ApplicationSnapshot {
+        generatedRequest?.close()
+        generatedRequest = null
         val snapshot = callBridge { bridge.restart().toApplicationSnapshot() }
         closed = false
         shutdownReceipt = null
@@ -167,6 +189,8 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     fun nativeBridge(): HarvestCircleTestBridge = bridge
 
     override fun close() {
+        generatedRequest?.close()
+        generatedRequest = null
         if (!closed) runCatching { bridge.shutdown() }
         closed = true
         bridge.close()
@@ -184,9 +208,27 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
             ),
         )
 
+    private fun takeGeneratedRequest(requestId: RecoveryRequestId): PendingGeneratedRequest {
+        val pending = generatedRequest
+        require(pending?.requestId == requestId) { "Generated recovery request does not match" }
+        generatedRequest = null
+        return pending
+    }
+
     companion object {
         fun open(dataDirectory: String): TestBridgeHarvestCircleRuntime =
             TestBridgeHarvestCircleRuntime(HarvestCircleTestBridge.open(dataDirectory))
+    }
+}
+
+private class PendingGeneratedRequest(
+    val requestId: RecoveryRequestId,
+    val native: TestGeneratedRecoveryRequest,
+    private val backup: GeneratedKeyBackup,
+) {
+    fun close() {
+        backup.clear()
+        native.close()
     }
 }
 

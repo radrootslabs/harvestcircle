@@ -8,18 +8,73 @@ import org.harvestcircle.application.SecretKeyInput
 import org.harvestcircle.application.SessionLifecycle
 import org.harvestcircle.application.SnapshotRevision
 import org.harvestcircle.ffi.compatibilityDescriptor
+import org.harvestcircle.testbridge.ffi.HarvestCircleTestBridge
 import org.harvestcircle.testbridge.ffi.TestBridgeException
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.readBytes
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
 class NativeRuntimeIntegrationTest {
+    @Test
+    fun generatedRecoveryRequestIsOpaqueOneUseAndResolvedByIdentity() {
+        val dataRoot = Files.createTempDirectory("harvestcircle-recovery-request-")
+        val bridge = HarvestCircleTestBridge.open(dataRoot.toString())
+        try {
+            val initial = bridge.bootstrap()
+            val request = bridge.beginGeneratedIdentity()
+            val secret = request.takeRecoveryNsec()
+            assertTrue(secret.startsWith("nsec1"))
+            val secondRead = assertFailsWith<TestBridgeException.Failure> { request.takeRecoveryNsec() }
+            assertFalse(secondRead.safeMessage.contains(secret))
+            assertFalse(request.toString().contains(secret))
+
+            val committed =
+                bridge.acknowledgeGeneratedIdentity(
+                    "00000000-0000-7000-8000-000000000011",
+                    initial.revision,
+                    2_000UL,
+                    request,
+                )
+            assertEquals(request.identity().publicKeyHex, committed.selectedPublicKeyHex)
+            val duplicateAcknowledge =
+                assertFailsWith<TestBridgeException.Failure> {
+                    bridge.acknowledgeGeneratedIdentity(
+                        "00000000-0000-7000-8000-000000000012",
+                        committed.revision,
+                        2_000UL,
+                        request,
+                    )
+                }
+            assertFalse(duplicateAcknowledge.safeMessage.contains(secret))
+            request.close()
+
+            val cancelled = bridge.beginGeneratedIdentity()
+            val cancelledSecret = cancelled.takeRecoveryNsec()
+            assertTrue(bridge.cancelGeneratedIdentity(cancelled))
+            assertFalse(bridge.cancelGeneratedIdentity(cancelled))
+            assertFalse(cancelled.toString().contains(cancelledSecret))
+            cancelled.close()
+
+            val publicEvidence = bridge.snapshot().toString() + secondRead.safeMessage + duplicateAcknowledge.safeMessage
+            assertFalse(publicEvidence.contains(secret))
+            assertFalse(publicEvidence.contains(cancelledSecret))
+            val databaseBytes = dataRoot.resolve("harvestcircle-integration.sqlite3").readBytes()
+            assertFalse(databaseBytes.containsBytes(secret.encodeToByteArray()))
+            assertFalse(databaseBytes.containsBytes(cancelledSecret.encodeToByteArray()))
+            bridge.shutdown()
+        } finally {
+            bridge.close()
+            deleteTree(dataRoot)
+        }
+    }
+
     @Test
     fun nativeBridgeCoversIdentityRelayRestartObserverTimeoutAndRedaction() =
         runBlocking {

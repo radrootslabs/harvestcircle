@@ -4,6 +4,7 @@ use std::fmt::{self, Display, Formatter};
 use std::fs;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -47,12 +48,28 @@ pub struct TestSnapshot {
     pub profile_display_name: Option<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
-pub struct TestGeneratedRecovery {
-    pub stage_id: u64,
-    pub identity: TestIdentity,
-    pub recovery_nsec: String,
-    pub expires_at_seconds: i64,
+#[derive(uniffi::Object)]
+pub struct TestGeneratedRecoveryRequest {
+    handle: GeneratedKeyRecoveryHandle,
+    resolved: AtomicBool,
+}
+
+#[uniffi::export]
+impl TestGeneratedRecoveryRequest {
+    pub fn identity(&self) -> TestIdentity {
+        to_identity(self.handle.view().identity())
+    }
+
+    pub fn expires_at_seconds(&self) -> i64 {
+        self.handle.view().expires_at().as_seconds()
+    }
+
+    pub fn take_recovery_nsec(&self) -> Result<String, TestBridgeError> {
+        self.handle
+            .take_recovery_nsec()
+            .map(|nsec| nsec.with_exposed_secret(ToOwned::to_owned))
+            .map_err(TestBridgeError::from)
+    }
 }
 
 #[derive(Debug, uniffi::Error)]
@@ -108,7 +125,6 @@ pub struct HarvestCircleTestBridge {
     runtime: Runtime,
     actor: Mutex<Option<RuntimeActorHandle>>,
     observer: Mutex<Option<RuntimeChangeSubscription>>,
-    pending_generation: Mutex<Option<GeneratedKeyRecoveryHandle>>,
     secrets: Arc<InMemorySecretStore>,
     clock: Arc<FixedClock>,
     relay: Mutex<Option<MockRelay>>,
@@ -147,7 +163,6 @@ impl HarvestCircleTestBridge {
             runtime,
             actor: Mutex::new(Some(actor)),
             observer: Mutex::new(None),
-            pending_generation: Mutex::new(None),
             secrets,
             clock,
             relay: Mutex::new(Some(relay)),
@@ -165,23 +180,15 @@ impl HarvestCircleTestBridge {
         Ok(to_snapshot(self.actor()?.snapshot()))
     }
 
-    pub fn begin_generated_identity(&self) -> Result<TestGeneratedRecovery, TestBridgeError> {
+    pub fn begin_generated_identity(
+        &self,
+    ) -> Result<Arc<TestGeneratedRecoveryRequest>, TestBridgeError> {
         let actor = self.actor()?;
         let handle = self.runtime.block_on(actor.begin_generated_key_stage())?;
-        let recovery_nsec = handle
-            .take_recovery_nsec()?
-            .with_exposed_secret(ToOwned::to_owned);
-        let recovery = TestGeneratedRecovery {
-            stage_id: handle.id().value(),
-            identity: to_identity(handle.view().identity()),
-            recovery_nsec,
-            expires_at_seconds: handle.view().expires_at().as_seconds(),
-        };
-        *self
-            .pending_generation
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(handle);
-        Ok(recovery)
+        Ok(Arc::new(TestGeneratedRecoveryRequest {
+            handle,
+            resolved: AtomicBool::new(false),
+        }))
     }
 
     pub fn acknowledge_generated_identity(
@@ -189,18 +196,16 @@ impl HarvestCircleTestBridge {
         request_id: String,
         expected_revision: u64,
         timeout_millis: u64,
+        request: Arc<TestGeneratedRecoveryRequest>,
     ) -> Result<TestSnapshot, TestBridgeError> {
-        let handle = self
-            .pending_generation
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take()
-            .ok_or_else(request_unavailable)?;
+        if request.resolved.swap(true, Ordering::AcqRel) {
+            return Err(request_unavailable());
+        }
         let actor = self.actor()?;
         let snapshot = self
             .runtime
             .block_on(actor.acknowledge_generated_key_stage(
-                handle.id(),
+                request.handle.id(),
                 DurableRequestId::parse(request_id)?,
                 SnapshotRevision::from_value(expected_revision),
                 Duration::from_millis(timeout_millis),
@@ -208,11 +213,13 @@ impl HarvestCircleTestBridge {
         Ok(to_snapshot(snapshot))
     }
 
-    pub fn cancel_generated_identity(&self) -> Result<bool, TestBridgeError> {
-        self.pending_generation
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
+    pub fn cancel_generated_identity(
+        &self,
+        request: Arc<TestGeneratedRecoveryRequest>,
+    ) -> Result<bool, TestBridgeError> {
+        if request.resolved.swap(true, Ordering::AcqRel) {
+            return Ok(false);
+        }
         let actor = self.actor()?;
         Ok(self.runtime.block_on(actor.cancel_generated_key_stage())?)
     }
