@@ -10,7 +10,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -81,8 +80,9 @@ class HarvestCircleApplicationTest {
             onNodeWithText("Coordinate local food with clear, signed terms.").assertIsDisplayed()
             onAllNodesWithText("Connect a remote signer").assertCountEquals(0)
             onNodeWithTag("bootstrap-read-only").performClick()
-            waitUntil { onAllNodesWithTag("foundation-route-body").fetchSemanticsNodes().isNotEmpty() }
-            onNodeWithTag("foundation-route-body").assertIsDisplayed().assertTextEquals("Today")
+            waitUntil { onAllNodesWithTag("foundation-today").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag("foundation-today").assertIsDisplayed()
+            onNodeWithText("Read-only session").assertIsDisplayed()
         }
 
     @OptIn(ExperimentalTestApi::class)

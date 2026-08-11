@@ -148,9 +148,32 @@ private fun DashboardRoot(
         },
         sidebar = { WorkspaceSidebar(destination) { dispatch(HarvestCircleShellIntent.Navigate(it)) } },
         mainHeader = { MainPanelHeader(MainPanelHeaderModel(title = route.title())) },
-        mainBody = { BasicText(route.title(), Modifier.testTag("foundation-route-body")) },
+        mainBody = {
+            when (route) {
+                AppRoute.PersonalToday ->
+                    FoundationTodayScreen(
+                        model = FoundationTodayModel(todayContext(state)),
+                        openNostrReference = {
+                            dispatch(
+                                HarvestCircleShellIntent.Overlay(
+                                    OverlayIntent.Open(FoundationOverlay.OpenNostrReference()),
+                                ),
+                            )
+                        },
+                    )
+                else -> BasicText(route.title(), Modifier.testTag("foundation-route-body"))
+            }
+        },
     )
 }
+
+private fun todayContext(state: HarvestCircleShellState): String =
+    when {
+        state.session.readOnly -> "Read-only session"
+        state.identity.snapshot.activeIdentity != null ->
+            state.identity.snapshot.activeIdentity.identity.displayLabel
+        else -> "Signed out"
+    }
 
 private fun dispatchTopBar(
     intent: GlobalTopBarIntent,
