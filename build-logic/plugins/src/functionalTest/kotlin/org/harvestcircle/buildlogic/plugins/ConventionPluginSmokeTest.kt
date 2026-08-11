@@ -320,39 +320,68 @@ class ConventionPluginSmokeTest {
     }
 
     @Test
-    fun packagingPluginRejectsMissingCloseTimeoutAndSecretOutput() {
-        listOf(
-            Triple("close", "printf 'HARVESTCIRCLE_HEALTH_READY\\n'", "did not report closed health evidence"),
-            Triple("timeout", "sleep 5", "health-check timed out"),
-            Triple(
-                "redaction",
-                "printf 'nsec1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HARVESTCIRCLE_HEALTH_READY HARVESTCIRCLE_HEALTH_CLOSED\\n'",
-                "emitted secret material",
-            ),
-            Triple(
-                "residue",
+    fun packagingPluginRejectsMissingCloseEvidence() {
+        assertPackagingHealthFailure(
+            caseName = "close",
+            scriptBody = "printf 'HARVESTCIRCLE_HEALTH_READY\\n'",
+            expected = "did not report closed health evidence",
+        )
+    }
+
+    @Test
+    fun packagingPluginRejectsHealthTimeout() {
+        assertPackagingHealthFailure(
+            caseName = "timeout",
+            scriptBody = "sleep 5",
+            expected = "health-check timed out",
+            timeoutSeconds = 1L,
+        )
+    }
+
+    @Test
+    fun packagingPluginRejectsSecretHealthOutput() {
+        assertPackagingHealthFailure(
+            caseName = "redaction",
+            scriptBody =
+                "printf 'nsec1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa " +
+                    "HARVESTCIRCLE_HEALTH_READY HARVESTCIRCLE_HEALTH_CLOSED\\n'",
+            expected = "emitted secret material",
+        )
+    }
+
+    @Test
+    fun packagingPluginRejectsResidualHealthData() {
+        assertPackagingHealthFailure(
+            caseName = "residue",
+            scriptBody =
                 "touch \"\$HARVESTCIRCLE_DEVELOPMENT_DATA_DIR/leftover\"; " +
                     "printf 'HARVESTCIRCLE_HEALTH_READY\\nHARVESTCIRCLE_HEALTH_CLOSED\\n'",
-                "did not clean its isolated health data root",
-            ),
-        ).forEach { (caseName, scriptBody, expected) ->
-            val fixture = createTempDirectory("harvestcircle-package-$caseName-")
-            preparePackagingBuild(fixture, scriptBody, timeoutSeconds = if (caseName == "timeout") 1L else 10L)
+            expected = "did not clean its isolated health data root",
+        )
+    }
 
-            val result =
-                GradleRunner.create()
-                    .withProjectDir(fixture.toFile())
-                    .withPluginClasspath()
-                    .withArguments(
-                        ":app:desktop:verifyPackagedApplicationHealth",
-                        "-x",
-                        ":app:desktop:createDistributable",
-                        "--stacktrace",
-                    )
-                    .buildAndFail()
+    private fun assertPackagingHealthFailure(
+        caseName: String,
+        scriptBody: String,
+        expected: String,
+        timeoutSeconds: Long = 30L,
+    ) {
+        val fixture = createTempDirectory("harvestcircle-package-$caseName-")
+        preparePackagingBuild(fixture, scriptBody, timeoutSeconds = timeoutSeconds)
 
-            assertTrue(result.output.contains(expected), result.output)
-        }
+        val result =
+            GradleRunner.create()
+                .withProjectDir(fixture.toFile())
+                .withPluginClasspath()
+                .withArguments(
+                    ":app:desktop:verifyPackagedApplicationHealth",
+                    "-x",
+                    ":app:desktop:createDistributable",
+                    "--stacktrace",
+                )
+                .buildAndFail()
+
+        assertTrue(result.output.contains(expected), result.output)
     }
 
     @Test

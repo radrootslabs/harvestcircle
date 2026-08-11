@@ -3,7 +3,7 @@ set -eu
 
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 gradle="$repository_root/gradlew"
-test_name='org.harvestcircle.buildlogic.plugins.ConventionPluginSmokeTest.packagingPluginRejectsMissingCloseTimeoutAndSecretOutput'
+test_name='org.harvestcircle.buildlogic.plugins.ConventionPluginSmokeTest.packagingPluginRejectsMissingCloseEvidence'
 runs=25
 run=1
 
