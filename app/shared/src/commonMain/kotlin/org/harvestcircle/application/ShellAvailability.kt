@@ -40,7 +40,7 @@ val shellNavigationItems: List<ShellNavigationItem> =
             true,
             route = AppRoute.Settings(SettingsSection.Appearance),
         ),
-        unavailable(ShellDestination.AddFarm, "Add farm"),
+        unavailable(ShellDestination.AddFarm, "Add a farm workspace"),
     )
 
 sealed interface ShellRoot {
