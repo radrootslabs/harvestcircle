@@ -10,6 +10,7 @@ import androidx.compose.ui.test.v2.runComposeUiTest
 import org.harvestcircle.product.ScreenKey
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class WorkspaceSidebarTest {
@@ -25,6 +26,10 @@ class WorkspaceSidebarTest {
             onNodeWithText("Explore").performClick()
             onNodeWithText("Network").performClick()
             onNodeWithText("Settings").performClick()
+            assertTrue(
+                onNodeWithTag("sidebar-Settings").fetchSemanticsNode().boundsInRoot.top >
+                    onNodeWithTag("sidebar-add-farm").fetchSemanticsNode().boundsInRoot.bottom,
+            )
             assertEquals(listOf(ScreenKey.Network, ScreenKey.Settings), selected)
         }
 }

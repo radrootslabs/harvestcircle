@@ -103,6 +103,7 @@ fun FoundationNetworkScreen(
                 }
             }
         },
+        detailPane = DetailPaneKind.Network,
         detail = { selection -> NetworkDetail(selection, model, refreshProfile, signOut) },
     )
 }

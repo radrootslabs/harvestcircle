@@ -31,6 +31,8 @@ data class TemplateTab(
     }
 }
 
+enum class DetailPaneKind { Network, Settings }
+
 @Composable
 fun SingleFocusTemplate(content: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize().testTag("template-single-focus")) { content() }
@@ -61,13 +63,24 @@ fun TabbedDetailTemplate(
     tabs: List<TemplateTab>,
     selected: TemplateSelectionKey,
     tabRail: @Composable (List<TemplateTab>, TemplateSelectionKey) -> Unit,
+    detailPane: DetailPaneKind? = null,
     detail: @Composable (TemplateSelectionKey) -> Unit,
 ) {
     require(tabs.map(TemplateTab::key).distinct().size == tabs.size)
     require(tabs.any { it.key == selected })
     Column(Modifier.fillMaxSize().testTag("template-tabbed-detail")) {
         Box(Modifier.testTag("template-tabs")) { tabRail(tabs, selected) }
-        Box(Modifier.weight(1f).testTag("template-tab-detail")) { detail(selected) }
+        val detailModifier =
+            Modifier
+                .weight(1f)
+                .then(
+                    if (detailPane != null) {
+                        Modifier.verticalScroll(rememberScrollState()).testTag("bounded-detail-${detailPane.name.lowercase()}")
+                    } else {
+                        Modifier
+                    },
+                ).testTag("template-tab-detail")
+        Box(detailModifier) { detail(selected) }
     }
 }
 

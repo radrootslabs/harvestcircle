@@ -17,6 +17,7 @@ class FoundationNetworkScreenTest {
     fun overviewIsTruthfulAndClaimsNoManagedService() =
         runComposeUiTest {
             setContent { FoundationNetworkScreen(model()) }
+            onNodeWithTag("bounded-detail-network").assertExists()
             onNodeWithText("Signer").assertExists()
             onNodeWithText("Local identity active").assertExists()
             onNodeWithText("No managed HarvestCircle service is configured.").assertExists()

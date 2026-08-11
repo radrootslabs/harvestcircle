@@ -61,6 +61,7 @@ fun FoundationSettingsScreen(
                 }
             }
         },
+        detailPane = DetailPaneKind.Settings,
         detail = {
             when (section) {
                 SettingsSection.Appearance -> AppearanceSettings(appearance, actions)

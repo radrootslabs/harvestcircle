@@ -145,7 +145,6 @@ private fun DashboardRoot(
     val route = root.navigation.current
     val status = deriveShellStatus(state)
     DashboardScaffold(
-        windowWidthDp = ShellDimensions.PREFERRED_WINDOW_WIDTH_DP,
         inspectorVisible = false,
         topBar = {
             GlobalTopBar(

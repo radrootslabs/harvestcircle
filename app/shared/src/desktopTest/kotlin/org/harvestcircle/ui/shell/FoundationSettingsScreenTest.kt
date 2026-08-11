@@ -37,6 +37,7 @@ class FoundationSettingsScreenTest {
                 )
             }
 
+            onNodeWithTag("bounded-detail-settings").assertExists()
             onNodeWithTag("theme-dark").performClick()
             onNodeWithTag("text-size-verylarge").performClick()
             onNodeWithTag("motion-reduced").performClick()
