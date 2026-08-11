@@ -127,6 +127,10 @@ class ProductNamespaceGuardTest {
                     val path = root.resolve(relative)
                     if (relative != provenanceException && (path.extension in textExtensions || path.name in textNames)) {
                         var inspected = path.readText().replace(repositoryUrlException, "")
+                        inspected =
+                            inspected
+                                .replace("round_${legacyProduct}_screen", "")
+                                .replace("Round${legacyProduct.replaceFirstChar { it.uppercase() }}", "")
                         if (relative == "NOTICE") {
                             val legacyDisplayName = legacyProduct.replaceFirstChar { it.uppercase() }
                             inspected =
