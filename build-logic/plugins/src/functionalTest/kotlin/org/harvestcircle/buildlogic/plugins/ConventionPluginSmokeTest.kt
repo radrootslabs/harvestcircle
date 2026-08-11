@@ -296,7 +296,13 @@ class ConventionPluginSmokeTest {
     @Test
     fun packagingPluginLaunchesAndClosesThePackagedHealthEntry() {
         val fixture = createTempDirectory("harvestcircle-package-health-")
-        preparePackagingBuild(fixture, "printf 'HARVESTCIRCLE_HEALTH_READY\\nHARVESTCIRCLE_HEALTH_CLOSED\\n'")
+        preparePackagingBuild(
+            fixture,
+            "test -n \"\${HARVESTCIRCLE_DEVELOPMENT_DATA_DIR:-}\" && " +
+                "test -d \"\$HARVESTCIRCLE_DEVELOPMENT_DATA_DIR\" && " +
+                "test -z \"\$(find \"\$HARVESTCIRCLE_DEVELOPMENT_DATA_DIR\" -mindepth 1 -print -quit)\" && " +
+                "printf 'HARVESTCIRCLE_HEALTH_READY\\nHARVESTCIRCLE_HEALTH_CLOSED\\n'",
+        )
 
         val result =
             GradleRunner.create()
@@ -322,6 +328,12 @@ class ConventionPluginSmokeTest {
                 "redaction",
                 "printf 'nsec1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HARVESTCIRCLE_HEALTH_READY HARVESTCIRCLE_HEALTH_CLOSED\\n'",
                 "emitted secret material",
+            ),
+            Triple(
+                "residue",
+                "touch \"\$HARVESTCIRCLE_DEVELOPMENT_DATA_DIR/leftover\"; " +
+                    "printf 'HARVESTCIRCLE_HEALTH_READY\\nHARVESTCIRCLE_HEALTH_CLOSED\\n'",
+                "did not clean its isolated health data root",
             ),
         ).forEach { (caseName, scriptBody, expected) ->
             val fixture = createTempDirectory("harvestcircle-package-$caseName-")

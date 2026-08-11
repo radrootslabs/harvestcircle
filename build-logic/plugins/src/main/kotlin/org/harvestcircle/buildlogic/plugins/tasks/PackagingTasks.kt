@@ -16,6 +16,7 @@ import org.gradle.process.ExecOperations
 import org.gradle.work.DisableCachingByDefault
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.nio.file.Files
 import java.util.concurrent.TimeUnit
 import java.util.jar.JarFile
 import javax.inject.Inject
@@ -233,7 +234,7 @@ public abstract class VerifyPackagedApplicationHealth : DefaultTask() {
 
     @TaskAction
     public fun verify() {
-        val dataRoot = temporaryDir.resolve("isolated-data").apply { mkdirs() }
+        val dataRoot = Files.createTempDirectory(temporaryDir.toPath(), "isolated-data-").toFile()
         val process =
             ProcessBuilder(executable.get().asFile.absolutePath, "--health-check")
                 .redirectErrorStream(true)
@@ -250,6 +251,10 @@ public abstract class VerifyPackagedApplicationHealth : DefaultTask() {
         require(process.exitValue() == 0) { "Packaged application health-check failed" }
         require(output.contains(readyEvidence.get())) { "Packaged application did not report ready health evidence" }
         require(output.contains(closedEvidence.get())) { "Packaged application did not report closed health evidence" }
+        require(!dataRoot.exists() || dataRoot.list()?.isEmpty() == true) {
+            "Packaged application did not clean its isolated health data root"
+        }
+        if (dataRoot.exists()) require(dataRoot.delete()) { "Isolated health data root could not be removed" }
     }
 }
 
