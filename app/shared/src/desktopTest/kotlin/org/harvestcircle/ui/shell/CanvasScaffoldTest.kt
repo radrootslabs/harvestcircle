@@ -1,5 +1,6 @@
 package org.harvestcircle.ui.shell
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
@@ -7,6 +8,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.v2.runComposeUiTest
+import org.harvestcircle.design.AppearanceState
 import org.harvestcircle.design.TextSizePreference
 import kotlin.test.Test
 import kotlin.test.assertFalse
@@ -31,6 +33,19 @@ class CanvasScaffoldTest {
             setContent { canvas(TextSizePreference.VeryLarge) }
             assertTrue(onNodeWithTag("canvas-body").fetchSemanticsNode().config.contains(SemanticsActions.ScrollBy))
             onNodeWithTag("canvas-action-bar").assertIsDisplayed()
+        }
+
+    @Test
+    fun shellAppearanceEnablesLargeTextFallbackForDefaultCanvases() =
+        runComposeUiTest {
+            setContent {
+                CompositionLocalProvider(
+                    LocalShellAppearance provides AppearanceState(textSize = TextSizePreference.VeryLarge),
+                ) {
+                    canvas(TextSizePreference.Default)
+                }
+            }
+            assertTrue(onNodeWithTag("canvas-body").fetchSemanticsNode().config.contains(SemanticsActions.ScrollBy))
         }
 }
 

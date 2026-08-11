@@ -27,6 +27,9 @@ fun CanvasScaffold(
     body: @Composable () -> Unit,
     actionBar: @Composable () -> Unit,
 ) {
+    val effectiveTextSize =
+        textSize.takeUnless { it == TextSizePreference.Default }
+            ?: LocalShellAppearance.current.textSize
     Column(Modifier.fillMaxSize().testTag("canvas-scaffold")) {
         Row(
             Modifier
@@ -45,7 +48,7 @@ fun CanvasScaffold(
                 .weight(1f)
                 .fillMaxWidth()
                 .let { modifier ->
-                    if (canvasBodyScroll(textSize) == ScrollOwnership.CanvasBodyAccessibility) {
+                    if (canvasBodyScroll(effectiveTextSize) == ScrollOwnership.CanvasBodyAccessibility) {
                         modifier.verticalScroll(rememberScrollState())
                     } else {
                         modifier

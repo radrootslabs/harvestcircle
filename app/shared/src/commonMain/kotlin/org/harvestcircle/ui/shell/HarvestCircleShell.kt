@@ -5,8 +5,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import org.harvestcircle.application.FoundationOverlay
 import org.harvestcircle.application.HarvestCircleIntent
@@ -26,6 +30,28 @@ import org.harvestcircle.navigation.NavigationIntent
 
 @Composable
 fun HarvestCircleShell(
+    state: HarvestCircleShellState,
+    identityActions: HarvestCircleUiActions,
+    platformActions: HarvestCirclePlatformActions,
+    dispatch: (HarvestCircleShellIntent) -> Unit,
+) {
+    val baseDensity = LocalDensity.current
+    val scaledDensity =
+        remember(baseDensity, state.appearance.textSize) {
+            Density(baseDensity.density, baseDensity.fontScale * state.appearance.textSize.scale)
+        }
+    CompositionLocalProvider(
+        LocalDensity provides scaledDensity,
+        LocalShellAppearance provides state.appearance,
+    ) {
+        ShellKeyboardHost(onShortcut = { dispatchShortcut(it, dispatch) }) {
+            HarvestCircleShellContent(state, identityActions, platformActions, dispatch)
+        }
+    }
+}
+
+@Composable
+private fun HarvestCircleShellContent(
     state: HarvestCircleShellState,
     identityActions: HarvestCircleUiActions,
     platformActions: HarvestCirclePlatformActions,
@@ -150,43 +176,62 @@ private fun DashboardRoot(
         sidebar = { WorkspaceSidebar(destination) { dispatch(HarvestCircleShellIntent.Navigate(it)) } },
         mainHeader = { MainPanelHeader(MainPanelHeaderModel(title = route.title())) },
         mainBody = {
-            when (route) {
-                AppRoute.PersonalToday ->
-                    FoundationTodayScreen(
-                        model = FoundationTodayModel(todayContext(state)),
-                        openNostrReference = {
-                            dispatch(
-                                HarvestCircleShellIntent.Overlay(
-                                    OverlayIntent.Open(FoundationOverlay.OpenNostrReference()),
+            RouteFocusTarget(route.toString(), "${route.title()} main content") {
+                when (route) {
+                    AppRoute.PersonalToday ->
+                        FoundationTodayScreen(
+                            model = FoundationTodayModel(todayContext(state)),
+                            openNostrReference = {
+                                dispatch(
+                                    HarvestCircleShellIntent.Overlay(
+                                        OverlayIntent.Open(FoundationOverlay.OpenNostrReference()),
+                                    ),
+                                )
+                            },
+                        )
+                    AppRoute.Network -> FoundationNetworkScreen(foundationNetworkModel(state))
+                    is AppRoute.Settings ->
+                        FoundationSettingsScreen(
+                            section = route.section,
+                            appearance = state.appearance,
+                            buildInfo = state.buildInfo,
+                            actions =
+                                FoundationSettingsActions(
+                                    selectSection = {
+                                        dispatch(
+                                            HarvestCircleShellIntent.Navigation(
+                                                NavigationIntent.Navigate(AppRoute.Settings(it)),
+                                            ),
+                                        )
+                                    },
+                                    setTheme = { dispatch(HarvestCircleShellIntent.SetTheme(it)) },
+                                    setTextSize = { dispatch(HarvestCircleShellIntent.SetTextSize(it)) },
+                                    setMotion = { dispatch(HarvestCircleShellIntent.SetMotion(it)) },
                                 ),
-                            )
-                        },
-                    )
-                AppRoute.Network -> FoundationNetworkScreen(foundationNetworkModel(state))
-                is AppRoute.Settings ->
-                    FoundationSettingsScreen(
-                        section = route.section,
-                        appearance = state.appearance,
-                        buildInfo = state.buildInfo,
-                        actions =
-                            FoundationSettingsActions(
-                                selectSection = {
-                                    dispatch(
-                                        HarvestCircleShellIntent.Navigation(
-                                            NavigationIntent.Navigate(AppRoute.Settings(it)),
-                                        ),
-                                    )
-                                },
-                                setTheme = { dispatch(HarvestCircleShellIntent.SetTheme(it)) },
-                                setTextSize = { dispatch(HarvestCircleShellIntent.SetTextSize(it)) },
-                                setMotion = { dispatch(HarvestCircleShellIntent.SetMotion(it)) },
-                            ),
-                        platformActions = platformActions,
-                    )
-                else -> BasicText(route.title(), Modifier.testTag("foundation-route-body"))
+                            platformActions = platformActions,
+                        )
+                    else -> BasicText(route.title(), Modifier.testTag("foundation-route-body"))
+                }
             }
         },
     )
+}
+
+private fun dispatchShortcut(
+    shortcut: ShellShortcut,
+    dispatch: (HarvestCircleShellIntent) -> Unit,
+) {
+    val intent =
+        when (shortcut) {
+            ShellShortcut.Back -> HarvestCircleShellIntent.Navigation(NavigationIntent.Back)
+            ShellShortcut.Forward -> HarvestCircleShellIntent.Navigation(NavigationIntent.Forward)
+            ShellShortcut.OpenNostrReference ->
+                HarvestCircleShellIntent.Overlay(OverlayIntent.Open(FoundationOverlay.OpenNostrReference()))
+            ShellShortcut.Today -> HarvestCircleShellIntent.Navigate(ShellDestination.Today)
+            ShellShortcut.Settings -> HarvestCircleShellIntent.Navigate(ShellDestination.Settings)
+            ShellShortcut.CloseOverlay -> HarvestCircleShellIntent.Overlay(OverlayIntent.Escape)
+        }
+    dispatch(intent)
 }
 
 private fun todayContext(state: HarvestCircleShellState): String =
