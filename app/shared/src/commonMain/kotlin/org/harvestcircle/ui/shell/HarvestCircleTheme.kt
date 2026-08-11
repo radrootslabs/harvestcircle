@@ -109,5 +109,5 @@ fun HarvestCircleTheme(
 
 fun ColorToken.toComposeColor(): Color {
     val rgb = hex.removePrefix("#").toLong(16)
-    return Color(0xFF000000 or rgb)
+    return Color(rgb.toInt()).copy(alpha = 1f)
 }

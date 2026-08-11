@@ -18,7 +18,7 @@ import org.harvestcircle.application.desktopRuntimeOpenConfiguration
 import org.harvestcircle.application.verifyNativeCompatibility
 import org.harvestcircle.ffi.HarvestCircleException
 import org.harvestcircle.ffi.compatibilityDescriptor
-import org.harvestcircle.identities.ui.StartupFailureScreen
+import org.harvestcircle.ui.shell.StartupFailureScreen
 import java.awt.Dimension
 import java.awt.Taskbar
 import java.nio.file.FileVisitResult

@@ -18,9 +18,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.harvestcircle.ffi.generateOperationIdV7
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
-import org.harvestcircle.identities.ui.ShutdownFailureScreen
-import org.harvestcircle.identities.ui.StartupFailureScreen
 import org.harvestcircle.ui.shell.HarvestCircleShell
+import org.harvestcircle.ui.shell.ShutdownFailureScreen
+import org.harvestcircle.ui.shell.StartupFailureScreen
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal typealias HarvestCirclePresenterFactory = (CoroutineScope) -> HarvestCirclePresenter
@@ -119,6 +119,7 @@ internal fun HarvestCircleApplicationWithDependencies(
             confirmIdentityRemoval = { presenter.dispatch(HarvestCircleIntent.ConfirmIdentityRemoval) },
             refreshActiveProfile = { presenter.dispatch(HarvestCircleIntent.RefreshActiveProfile) },
             retryLastCommand = { presenter.dispatch(HarvestCircleIntent.RetryLastCommand) },
+            dismissProblem = { presenter.dispatch(HarvestCircleIntent.DismissProblem) },
             signOut = { presenter.dispatch(HarvestCircleIntent.SignOut) },
             showIdentityChooser = { presenter.dispatch(HarvestCircleIntent.ShowIdentityChooser) },
             hideIdentityChooser = { presenter.dispatch(HarvestCircleIntent.HideIdentityChooser) },

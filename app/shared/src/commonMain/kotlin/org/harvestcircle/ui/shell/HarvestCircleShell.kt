@@ -16,7 +16,6 @@ import org.harvestcircle.application.ShellRoot
 import org.harvestcircle.application.StatusOverlayKey
 import org.harvestcircle.application.deriveShellStatus
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
-import org.harvestcircle.identities.ui.HarvestCircleScreen
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 import org.harvestcircle.identities.ui.toUiModel
 import org.harvestcircle.navigation.AppRoute
@@ -47,7 +46,7 @@ private fun HarvestCircleShellContent(
 ) {
     when (val root = state.root) {
         is ShellRoot.LifecycleCanvas ->
-            HarvestCircleScreen(state.identity.toUiModel(), identityActions, platformActions)
+            ShellLifecycleCanvas(state.identity, identityActions)
         is ShellRoot.BootstrapCanvas ->
             when (root.step) {
                 BootstrapStep.Welcome -> BootstrapWelcome(dispatch)
