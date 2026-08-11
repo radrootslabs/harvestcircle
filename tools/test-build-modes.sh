@@ -30,6 +30,21 @@ for lane in source-check integration-check; do
 done
 
 for mode in standalone governed; do
+    stability_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$repository_root" build-logic-stability-check)
+    stability_count=$(printf '%s\n' "$stability_output" | grep -c 'test-build-logic-stability.sh')
+    if [ "$stability_count" -ne 1 ]; then
+        printf '%s\n' "build-logic stability in $mode mode must invoke its qualification tool exactly once" >&2
+        exit 1
+    fi
+
+    source_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$repository_root" source-check)
+    if printf '%s\n' "$source_output" | grep -q 'test-build-logic-stability.sh'; then
+        printf '%s\n' "ordinary source-check in $mode mode invoked the nondefault stability lane" >&2
+        exit 1
+    fi
+done
+
+for mode in standalone governed; do
     clean_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$repository_root" clean)
     root_clean_count=$(printf '%s\n' "$clean_output" | grep -Ec '(^| -- )\./gradlew --no-daemon clean$')
     included_clean_count=$(printf '%s\n' "$clean_output" | grep -Ec '(^| -- )\./gradlew --no-daemon -p build-logic clean$')

@@ -17,10 +17,10 @@ else
 override BUILD_RUNNER :=
 endif
 
-.PHONY: help doctor governed-doctor lock metadata build-logic-check mode-check format format-fix lint test check governed-check build bindings dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check acceptance-check signing-check _signing-check notarization-check _notarization-check release-check _release-check clean
+.PHONY: help doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check format format-fix lint test check governed-check build bindings dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check acceptance-check signing-check _signing-check notarization-check _notarization-check release-check _release-check clean
 
 help:
-	@printf '%s\n' doctor governed-doctor lock metadata build-logic-check mode-check format format-fix lint test check governed-check build bindings dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check acceptance-check signing-check notarization-check release-check clean
+	@printf '%s\n' doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check format format-fix lint test check governed-check build bindings dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check acceptance-check signing-check notarization-check release-check clean
 
 doctor:
 	@printf '%s\n' "harvestcircle.build.mode=$(BUILD_MODE)"
@@ -44,6 +44,9 @@ metadata: doctor
 
 build-logic-check: doctor
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon -p build-logic :contracts:check :plugins:check :plugins:functionalTest
+
+build-logic-stability-check: doctor
+	$(BUILD_RUNNER) tools/test-build-logic-stability.sh
 
 mode-check:
 	tools/test-build-modes.sh
