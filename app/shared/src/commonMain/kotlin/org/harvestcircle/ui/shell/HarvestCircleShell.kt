@@ -90,7 +90,7 @@ private fun HarvestCircleShellContent(
                         onReadOnly = { dispatch(HarvestCircleShellIntent.EnterReadOnly) },
                     )
             }
-        is ShellRoot.Dashboard -> DashboardRoot(state, root, platformActions, dispatch)
+        is ShellRoot.Dashboard -> DashboardRoot(state, root, identityActions, platformActions, dispatch)
     }
     FoundationOverlayHost(state.overlays) { dispatch(HarvestCircleShellIntent.Overlay(it)) }
 }
@@ -147,6 +147,7 @@ private fun BootstrapWelcome(dispatch: (HarvestCircleShellIntent) -> Unit) {
 private fun DashboardRoot(
     state: HarvestCircleShellState,
     root: ShellRoot.Dashboard,
+    identityActions: HarvestCircleUiActions,
     platformActions: HarvestCirclePlatformActions,
     dispatch: (HarvestCircleShellIntent) -> Unit,
 ) {
@@ -189,7 +190,12 @@ private fun DashboardRoot(
                                 )
                             },
                         )
-                    AppRoute.Network -> FoundationNetworkScreen(foundationNetworkModel(state))
+                    AppRoute.Network ->
+                        FoundationNetworkScreen(
+                            foundationNetworkModel(state),
+                            refreshProfile = identityActions.refreshActiveProfile,
+                            signOut = identityActions.signOut,
+                        )
                     is AppRoute.Settings ->
                         FoundationSettingsScreen(
                             section = route.section,

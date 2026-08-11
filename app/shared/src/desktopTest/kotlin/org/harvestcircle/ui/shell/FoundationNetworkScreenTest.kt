@@ -25,9 +25,21 @@ class FoundationNetworkScreenTest {
     @Test
     fun identityRelaysAndRuntimeUseOnlyTheSuppliedFoundationState() =
         runComposeUiTest {
-            setContent { FoundationNetworkScreen(model()) }
+            var refreshed = 0
+            var signedOut = 0
+            setContent {
+                FoundationNetworkScreen(
+                    model(),
+                    refreshProfile = { refreshed += 1 },
+                    signOut = { signedOut += 1 },
+                )
+            }
             onNodeWithTag("network-tab-identity").performClick()
             onNodeWithText("Grower identity").assertExists()
+            onNodeWithTag("refresh-profile").performClick()
+            onNodeWithTag("sign-out").performClick()
+            kotlin.test.assertEquals(1, refreshed)
+            kotlin.test.assertEquals(1, signedOut)
             onNodeWithTag("network-tab-public_relays").performClick()
             onNodeWithText("wss://relay.example").assertExists()
             onNodeWithText("Public").assertExists()
@@ -62,6 +74,7 @@ private fun model(
 ) = FoundationNetworkModel(
     identityState = identityState,
     identityLabel = "Grower identity",
+    profileLabel = "Farm Identity",
     relayState = if (relays.isEmpty()) "Not yet observed" else "Degraded",
     relays = relays,
     runtimeState = "Degraded",

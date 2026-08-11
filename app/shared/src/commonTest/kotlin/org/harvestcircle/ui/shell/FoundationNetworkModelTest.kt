@@ -34,6 +34,7 @@ class FoundationNetworkModelTest {
         val model = foundationNetworkModel(shellState())
         assertEquals("Local identity active", model.identityState)
         assertEquals("Grower identity", model.identityLabel)
+        assertEquals(null, model.profileLabel)
         assertEquals("Degraded", model.relayState)
         assertEquals("Public", model.relays.single().destination)
         assertEquals("Read available", model.relays.single().readState)

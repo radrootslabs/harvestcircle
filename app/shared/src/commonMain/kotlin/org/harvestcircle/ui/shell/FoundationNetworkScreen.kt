@@ -27,6 +27,7 @@ data class NetworkRelayModel(
 data class FoundationNetworkModel(
     val identityState: String,
     val identityLabel: String?,
+    val profileLabel: String?,
     val relayState: String,
     val relays: List<NetworkRelayModel>,
     val runtimeState: String,
@@ -48,6 +49,7 @@ fun foundationNetworkModel(state: HarvestCircleShellState): FoundationNetworkMod
     return FoundationNetworkModel(
         identityState = identityState,
         identityLabel = active?.identity?.displayLabel ?: snapshot.identities.firstOrNull()?.displayLabel,
+        profileLabel = active?.profile?.displayName ?: active?.profile?.name,
         relayState = active?.relays?.state?.label() ?: "Not yet observed",
         relays =
             snapshot.configuredRelays.map { relay ->
@@ -69,7 +71,11 @@ fun foundationNetworkModel(state: HarvestCircleShellState): FoundationNetworkMod
 }
 
 @Composable
-fun FoundationNetworkScreen(model: FoundationNetworkModel) {
+fun FoundationNetworkScreen(
+    model: FoundationNetworkModel,
+    refreshProfile: () -> Unit = {},
+    signOut: () -> Unit = {},
+) {
     val tabs =
         listOf(
             TemplateTab(TemplateSelectionKey("overview"), "Overview"),
@@ -93,7 +99,7 @@ fun FoundationNetworkScreen(model: FoundationNetworkModel) {
                 }
             }
         },
-        detail = { selection -> NetworkDetail(selection, model) },
+        detail = { selection -> NetworkDetail(selection, model, refreshProfile, signOut) },
     )
 }
 
@@ -101,6 +107,8 @@ fun FoundationNetworkScreen(model: FoundationNetworkModel) {
 private fun NetworkDetail(
     selection: TemplateSelectionKey,
     model: FoundationNetworkModel,
+    refreshProfile: () -> Unit,
+    signOut: () -> Unit,
 ) {
     Column(
         Modifier.testTag("network-${selection.value}"),
@@ -118,6 +126,11 @@ private fun NetworkDetail(
             "identity" -> {
                 BasicText(model.identityState, Modifier.testTag("network-identity-state"))
                 model.identityLabel?.let { BasicText(it, Modifier.testTag("network-identity-label")) }
+                model.profileLabel?.let { BasicText("Display name: $it", Modifier.testTag("network-profile-label")) }
+                if (model.identityState == "Local identity active") {
+                    ShellAction("Refresh profile", "Refresh active profile", "refresh-profile", onClick = refreshProfile)
+                    ShellAction("Sign out", "Sign out", "sign-out", onClick = signOut)
+                }
             }
             "public_relays" -> {
                 BasicText(model.relayState, Modifier.testTag("network-relay-state"))

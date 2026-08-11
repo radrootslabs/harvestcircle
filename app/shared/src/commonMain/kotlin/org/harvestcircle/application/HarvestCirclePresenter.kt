@@ -146,6 +146,7 @@ class HarvestCirclePresenter(
                         ),
                     )
                 acceptResult(result, operationId)
+                updateState { copy(identityEntryMode = IdentityEntryMode.CHOICE) }
             } finally {
                 releaseRecovery()
             }
@@ -174,6 +175,7 @@ class HarvestCirclePresenter(
             val command = ApplicationCommand.ImportLocalIdentity(input, requestContext(operationId))
             try {
                 acceptResult(runtime.execute(command), operationId)
+                updateState { copy(identityEntryMode = IdentityEntryMode.CHOICE) }
             } finally {
                 input.clear()
             }
@@ -413,8 +415,8 @@ class HarvestCirclePresenter(
     private fun releaseRecovery() {
         val recovery = pendingRecovery
         pendingRecovery = null
-        updateState { copy(generatedKeyBackup = null) }
         recovery?.backup?.clear()
+        updateState { copy(generatedKeyBackup = null) }
     }
 
     private fun requestContext(operationId: OperationId): RequestContext =

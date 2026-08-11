@@ -13,7 +13,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.v2.runComposeUiTest
 import org.harvestcircle.application.ApplicationClock
@@ -72,8 +71,8 @@ class IdentityBootstrapAcceptanceTest {
                     }
                 }
 
-                waitForTag("identities-screen")
-                onNodeWithTag("choose-create-identity").performClick()
+                waitForTag("bootstrap-welcome")
+                onNodeWithTag("bootstrap-create").performClick()
                 onNodeWithTag("generate-key").performClick()
                 waitForTag("generated-key-backup")
                 onNodeWithTag("generated-nsec").assertIsDisplayed()
@@ -87,8 +86,11 @@ class IdentityBootstrapAcceptanceTest {
                 onAllNodesWithText(copiedSecret).assertCountEquals(0)
 
                 runtime.seedSelectedProfile("Farm Identity")
-                onNodeWithText("Activate").performClick()
-                waitForTag("home-screen")
+                onNodeWithText("Activate identity").performClick()
+                waitForTag("foundation-today")
+                onNodeWithTag("sidebar-Network").performClick()
+                waitForTag("network-overview")
+                onNodeWithTag("network-tab-identity").performClick()
                 onNodeWithTag("refresh-profile").performClick()
                 waitUntil(timeoutMillis = UI_TIMEOUT_MILLIS) {
                     onAllNodesWithText("Display name: Farm Identity").fetchSemanticsNodes().size == 1
@@ -96,13 +98,9 @@ class IdentityBootstrapAcceptanceTest {
                 onNodeWithText("Display name: Farm Identity").assertIsDisplayed()
 
                 onNodeWithTag("sign-out").performClick()
-                waitForTag("identities-screen")
-                onNodeWithTag("cancel-identity-entry").performClick()
-                onNodeWithTag("choose-import-identity").performClick()
-                onNodeWithTag("import-nsec-input").performTextInput(copiedSecret)
-                onNodeWithTag("import-key").performClick()
-                waitForTag("identities-problem")
-                onNodeWithTag("identities-problem").assertIsDisplayed()
+                waitForTag("saved-identity-list")
+                onNodeWithText("Activate identity").performClick()
+                waitForTag("foundation-today")
                 assertFalse(onRoot(useUnmergedTree = true).printToString().contains(copiedSecret))
                 closeRequested = true
                 waitUntil(timeoutMillis = UI_TIMEOUT_MILLIS) { approvedExits == 1 }
@@ -116,9 +114,9 @@ class IdentityBootstrapAcceptanceTest {
                 showApplication = true
 
                 waitForTag("saved-identity-list")
-                onNodeWithText("Activate").performClick()
-                waitForTag("home-screen")
-                onNodeWithText("Display name: Farm Identity").assertIsDisplayed()
+                onNodeWithText("Activate identity").performClick()
+                waitForTag("foundation-today")
+                onNodeWithText("No active commitments").assertIsDisplayed()
                 onAllNodesWithText(copiedSecret).assertCountEquals(0)
 
                 assertFalse(runtime.currentSnapshot().toString().contains(copiedSecret))
@@ -143,9 +141,76 @@ class IdentityBootstrapAcceptanceTest {
             }
         }
 
+    @Test
+    fun readOnlySessionRestartsAtBootstrapWithoutPersistingAuthority() =
+        runComposeUiTest {
+            val dataRoot = Files.createTempDirectory("harvestcircle-read-only-")
+            val runtime = TestBridgeHarvestCircleRuntime.open(dataRoot.toString())
+            var showApplication by mutableStateOf(true)
+            var closeRequested by mutableStateOf(false)
+            var applicationSession by mutableStateOf(0)
+            var approvedExits = 0
+            try {
+                setContent {
+                    if (showApplication) {
+                        key(applicationSession) {
+                            HarvestCircleApplicationWithDependencies(
+                                closeRequested = closeRequested,
+                                onExitApproved = { approvedExits += 1 },
+                                clipboardFactory = { scope ->
+                                    SecretClipboardController(
+                                        scope = scope,
+                                        clipboard = RecordingClipboard(),
+                                        clearDelayMillis = 60_000,
+                                    )
+                                },
+                            ) { scope ->
+                                HarvestCirclePresenter(
+                                    runtime = runtime,
+                                    scope = scope,
+                                    clock = ApplicationClock { UnixSeconds(FIXED_TIME_SECONDS) },
+                                    operationIds = SequentialOperationIds(),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                waitForTag("bootstrap-welcome")
+                onNodeWithTag("bootstrap-read-only").performClick()
+                waitForTag("foundation-today")
+                onNodeWithText("Read-only session").assertIsDisplayed()
+                assertTrue(runtime.currentSnapshot().identities.isEmpty())
+
+                closeRequested = true
+                waitUntil(timeoutMillis = UI_TIMEOUT_MILLIS) { approvedExits == 1 }
+                showApplication = false
+                waitForIdle()
+                runtime.restart()
+                applicationSession += 1
+                closeRequested = false
+                showApplication = true
+
+                waitForTag("bootstrap-welcome")
+                onAllNodesWithTag("foundation-today").assertCountEquals(0)
+                assertTrue(runtime.currentSnapshot().identities.isEmpty())
+                closeRequested = true
+                waitUntil(timeoutMillis = UI_TIMEOUT_MILLIS) { approvedExits == 2 }
+                showApplication = false
+                waitForIdle()
+            } finally {
+                runtime.close()
+                deleteAcceptanceTree(dataRoot)
+            }
+        }
+
     private fun androidx.compose.ui.test.ComposeUiTest.waitForTag(tag: String) {
-        waitUntil(timeoutMillis = UI_TIMEOUT_MILLIS) {
-            onAllNodesWithTag(tag).fetchSemanticsNodes().size == 1
+        try {
+            waitUntil(timeoutMillis = UI_TIMEOUT_MILLIS) {
+                onAllNodesWithTag(tag).fetchSemanticsNodes().size == 1
+            }
+        } catch (error: androidx.compose.ui.test.ComposeTimeoutException) {
+            throw AssertionError("Timed out waiting for semantic tag: $tag\n${onRoot().printToString()}", error)
         }
     }
 }

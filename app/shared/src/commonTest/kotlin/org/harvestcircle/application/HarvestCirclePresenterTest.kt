@@ -222,11 +222,14 @@ class HarvestCirclePresenterTest {
             val presenter = presenter(runtime)
             runCurrent()
 
+            presenter.dispatch(HarvestCircleIntent.ChooseImportIdentity)
+            assertEquals(IdentityEntryMode.IMPORT, presenter.state.value.identityEntryMode)
             presenter.dispatch(HarvestCircleIntent.EditImportDraft("nsec1" + "x".repeat(200)))
             assertEquals(MAX_IMPORT_SECRET_CHARS, presenter.state.value.importDraft.length)
             presenter.dispatch(HarvestCircleIntent.ImportIdentity)
             assertEquals("", presenter.state.value.importDraft)
             advanceUntilIdle()
+            assertEquals(IdentityEntryMode.CHOICE, presenter.state.value.identityEntryMode)
 
             assertEquals(1, runtime.importedSecrets.size)
             assertEquals(MAX_IMPORT_SECRET_CHARS, runtime.importedSecrets.single().length)

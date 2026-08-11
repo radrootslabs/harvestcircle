@@ -25,7 +25,7 @@ fun GeneratedRecoveryCanvas(
     actions: HarvestCircleUiActions,
     platformActions: HarvestCirclePlatformActions,
 ) {
-    val backup = requireNotNull(model.generatedKeyBackup)
+    val backup = model.generatedKeyBackup ?: return
     CanvasScaffold(
         textSize = TextSizePreference.Default,
         header = { BasicText("Save your recovery key") },
