@@ -14,6 +14,7 @@ import kotlinx.coroutines.withTimeout
 import org.harvestcircle.application.ApplicationLifecycle
 import org.harvestcircle.application.HarvestCircleApplication
 import org.harvestcircle.application.NativeHarvestCircleRuntime
+import org.harvestcircle.application.desktopRuntimeOpenConfiguration
 import org.harvestcircle.application.verifyNativeCompatibility
 import org.harvestcircle.ffi.HarvestCircleException
 import org.harvestcircle.ffi.compatibilityDescriptor
@@ -142,7 +143,14 @@ internal suspend fun executeHealthCheck(
     timeoutMillis: Long = HEALTH_TIMEOUT_MILLIS,
     runtimeOpener: PackagedHealthRuntimeOpener =
         PackagedHealthRuntimeOpener {
-            NativePackagedHealthRuntime(NativeHarvestCircleRuntime.open(developmentMode = true))
+            NativePackagedHealthRuntime(
+                NativeHarvestCircleRuntime.open(
+                    desktopRuntimeOpenConfiguration(
+                        developmentMode = true,
+                        explicitDataDirectory = it.toString(),
+                    ),
+                ),
+            )
         },
     standardOutput: (String) -> Unit = ::println,
     errorOutput: (String) -> Unit = System.err::println,

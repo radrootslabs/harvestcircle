@@ -22,6 +22,7 @@ import org.harvestcircle.ffi.RelayDestinationDto
 import org.harvestcircle.ffi.RelayEndpointDto
 import org.harvestcircle.ffi.RemovalRequest
 import org.harvestcircle.ffi.RequestContextDto
+import org.harvestcircle.ffi.RuntimeOpenInputDto
 import org.harvestcircle.ffi.ShutdownReceiptDto
 import org.harvestcircle.ffi.SnapshotChangeDto
 import org.harvestcircle.ffi.compatibilityDescriptor
@@ -281,20 +282,49 @@ class NativeHarvestCircleRuntime internal constructor(
         }
 
     companion object {
-        fun open(
-            developmentMode: Boolean,
-            relayInput: RelayBootstrapInputDto = desktopRelayBootstrapInput(developmentMode),
-        ): NativeHarvestCircleRuntime {
+        internal fun open(configuration: DesktopRuntimeOpenConfiguration): NativeHarvestCircleRuntime {
             val expectation = verifyNativeCompatibility(compatibilityDescriptor())
             return NativeHarvestCircleRuntime(
-                UniFfiNativeCorePort(HarvestCircleAppCore.openCompatible(expectation, developmentMode, relayInput)),
+                UniFfiNativeCorePort(HarvestCircleAppCore.openCompatible(expectation, configuration.toNative())),
             )
         }
     }
 }
 
+internal const val HARVESTCIRCLE_DEVELOPMENT_DATA_DIR_ENVIRONMENT = "HARVESTCIRCLE_DEVELOPMENT_DATA_DIR"
 internal const val HARVESTCIRCLE_NOSTR_RELAYS_ENVIRONMENT = "HARVESTCIRCLE_NOSTR_RELAYS"
 internal const val HARVESTCIRCLE_LOCAL_DEVELOPMENT_RELAY = "local|ws://localhost:8080"
+
+internal data class DesktopRuntimeOpenConfiguration(
+    val developmentMode: Boolean,
+    val explicitDataDirectory: String?,
+    val relayInput: RelayBootstrapInputDto,
+) {
+    init {
+        require(developmentMode || explicitDataDirectory == null) {
+            "An explicit data directory is available only in development mode"
+        }
+    }
+
+    fun toNative(): RuntimeOpenInputDto =
+        RuntimeOpenInputDto(
+            developmentMode = developmentMode,
+            explicitDataDirectory = explicitDataDirectory,
+            relayInput = relayInput,
+        )
+}
+
+internal fun desktopRuntimeOpenConfiguration(
+    developmentMode: Boolean,
+    explicitDataDirectory: String? =
+        if (developmentMode) System.getenv(HARVESTCIRCLE_DEVELOPMENT_DATA_DIR_ENVIRONMENT) else null,
+    configuredRelays: String? = System.getenv(HARVESTCIRCLE_NOSTR_RELAYS_ENVIRONMENT),
+): DesktopRuntimeOpenConfiguration =
+    DesktopRuntimeOpenConfiguration(
+        developmentMode = developmentMode,
+        explicitDataDirectory = explicitDataDirectory,
+        relayInput = desktopRelayBootstrapInput(developmentMode, configuredRelays),
+    )
 
 internal fun desktopRelayBootstrapInput(
     developmentMode: Boolean,

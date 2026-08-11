@@ -28,7 +28,14 @@ class NativeGeneratedRecoveryTest {
     @Test
     fun generatedRecoveryCrossesTheNativeBoundaryAndCancelsWithoutPersistence() =
         runTest {
-            val runtime = NativeHarvestCircleRuntime.open(developmentMode = true)
+            val runtime =
+                NativeHarvestCircleRuntime.open(
+                    desktopRuntimeOpenConfiguration(
+                        developmentMode = true,
+                        explicitDataDirectory = dataDirectory.toRealPath().toString(),
+                        configuredRelays = "",
+                    ),
+                )
             try {
                 runtime.bootstrap()
                 val recovery = runtime.prepareLocalIdentity()

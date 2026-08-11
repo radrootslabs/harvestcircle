@@ -174,7 +174,7 @@ internal class ApplicationLifecycleResources(
 internal fun createHarvestCirclePresenter(scope: CoroutineScope): HarvestCirclePresenter {
     val developmentMode = java.lang.Boolean.getBoolean("harvestcircle.development")
     return HarvestCirclePresenter(
-        runtime = NativeHarvestCircleRuntime.open(developmentMode),
+        runtime = NativeHarvestCircleRuntime.open(desktopRuntimeOpenConfiguration(developmentMode)),
         scope = scope,
         clock = DesktopApplicationClock,
         operationIds = DesktopOperationIdSource,

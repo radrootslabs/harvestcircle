@@ -17,7 +17,6 @@ use harvestcircle_domain::{
 use harvestcircle_nostr::SdkNostrClient;
 use harvestcircle_product::{
     DATABASE_APPLICATION, DATABASE_FILENAME, DATABASE_ORGANIZATION, DATABASE_QUALIFIER,
-    DEVELOPMENT_DATA_DIR_ENVIRONMENT,
 };
 use harvestcircle_runtime::{
     RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,
@@ -53,6 +52,14 @@ pub struct RequestContextDto {
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct RelayBootstrapInputDto {
     pub endpoints: Vec<RelayEndpointDto>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct RuntimeOpenInputDto {
+    pub development_mode: bool,
+    pub explicit_data_directory: Option<String>,
+    pub relay_input: RelayBootstrapInputDto,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -312,11 +319,10 @@ impl HarvestCircleAppCore {
     #[allow(clippy::needless_pass_by_value)]
     pub fn open_compatible(
         expectation: CompatibilityExpectation,
-        development_mode: bool,
-        relay_input: RelayBootstrapInputDto,
+        input: RuntimeOpenInputDto,
     ) -> Result<Arc<Self>, HarvestCircleError> {
-        let path = application_database_path(development_mode)?;
-        Self::open_path_compatible(&path, &expectation, relay_input)
+        let path = application_database_path(&input)?;
+        Self::open_path_compatible(&path, &expectation, input.relay_input)
     }
 
     /// Restores durable public application state.
@@ -670,12 +676,28 @@ impl Clock for SystemClock {
     }
 }
 
-// ProjectDirs and the process environment are host integration boundaries.
+// ProjectDirs is the production host integration boundary. Development paths
+// are supplied explicitly by the desktop host and never inferred from Rust
+// process environment.
 #[cfg_attr(coverage_nightly, coverage(off))]
-fn application_database_path(development_mode: bool) -> Result<PathBuf, HarvestCircleError> {
-    if development_mode && let Some(directory) = std::env::var_os(DEVELOPMENT_DATA_DIR_ENVIRONMENT)
-    {
-        return Ok(PathBuf::from(directory).join(DATABASE_FILENAME));
+fn application_database_path(input: &RuntimeOpenInputDto) -> Result<PathBuf, HarvestCircleError> {
+    if let Some(raw_directory) = input.explicit_data_directory.as_deref() {
+        if !input.development_mode || raw_directory.is_empty() {
+            return Err(path_unavailable());
+        }
+        let directory = PathBuf::from(raw_directory);
+        if !directory.is_absolute() {
+            return Err(path_unavailable());
+        }
+        let metadata = std::fs::symlink_metadata(&directory).map_err(|_| path_unavailable())?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(path_unavailable());
+        }
+        let canonical = std::fs::canonicalize(&directory).map_err(|_| path_unavailable())?;
+        if canonical != directory {
+            return Err(path_unavailable());
+        }
+        return Ok(canonical.join(DATABASE_FILENAME));
     }
     ProjectDirs::from(
         DATABASE_QUALIFIER,
@@ -814,10 +836,11 @@ mod tests {
         DATABASE_ORGANIZATION, DATABASE_QUALIFIER, FFI_CONTRACT_HASH, FFI_CONTRACT_ID,
         FFI_CONTRACT_MAJOR, FFI_CONTRACT_MINOR, HarvestCircleAppCore, HarvestCircleError,
         PRODUCT_COORDINATE_DIGEST, ProjectDirs, RelayBootstrapInputDto, RequestContextDto,
-        RuntimeCore, SNAPSHOT_SCHEMA_VERSION, SystemClock, WireErrorCategory, WireErrorCode,
-        WireRecoveryAction, actor_mailbox_capacity, compatibility_descriptor, confirmation_expired,
-        generated_commit_failed, local_first_relay_configuration, path_unavailable, runtime,
-        runtime_unavailable, verify_compatibility,
+        RuntimeCore, RuntimeOpenInputDto, SNAPSHOT_SCHEMA_VERSION, SystemClock, WireErrorCategory,
+        WireErrorCode, WireRecoveryAction, actor_mailbox_capacity, application_database_path,
+        compatibility_descriptor, confirmation_expired, generated_commit_failed,
+        local_first_relay_configuration, path_unavailable, runtime, runtime_unavailable,
+        verify_compatibility,
     };
 
     async fn in_memory_core() -> Arc<HarvestCircleAppCore> {
@@ -1190,6 +1213,70 @@ mod tests {
             ProjectDirs::from("org", "radroots", "harvestcircle").expect("temporary coordinates");
         assert_ne!(current.data_dir(), temporary.data_dir());
         assert_eq!(CURRENT_SCHEMA_VERSION, 10);
+    }
+
+    #[test]
+    fn explicit_development_data_directory_is_exact_and_fail_closed() {
+        let temporary = tempfile::tempdir().expect("directory");
+        let canonical = temporary
+            .path()
+            .canonicalize()
+            .expect("canonical directory");
+        let relay_input = RelayBootstrapInputDto {
+            endpoints: Vec::new(),
+        };
+        let explicit = RuntimeOpenInputDto {
+            development_mode: true,
+            explicit_data_directory: Some(canonical.to_string_lossy().into_owned()),
+            relay_input: relay_input.clone(),
+        };
+        assert_eq!(
+            application_database_path(&explicit).expect("explicit path"),
+            canonical.join(DATABASE_FILENAME),
+        );
+
+        for rejected in [
+            RuntimeOpenInputDto {
+                development_mode: false,
+                explicit_data_directory: explicit.explicit_data_directory.clone(),
+                relay_input: relay_input.clone(),
+            },
+            RuntimeOpenInputDto {
+                development_mode: true,
+                explicit_data_directory: Some("relative/data".to_owned()),
+                relay_input: relay_input.clone(),
+            },
+            RuntimeOpenInputDto {
+                development_mode: true,
+                explicit_data_directory: Some(
+                    canonical.join("missing").to_string_lossy().into_owned(),
+                ),
+                relay_input,
+            },
+        ] {
+            assert!(application_database_path(&rejected).is_err());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn explicit_development_data_directory_rejects_symbolic_links() {
+        use std::os::unix::fs::symlink;
+
+        let temporary = tempfile::tempdir().expect("directory");
+        let target = temporary.path().join("target");
+        std::fs::create_dir(&target).expect("target");
+        let link = temporary.path().join("link");
+        symlink(&target, &link).expect("link");
+        let input = RuntimeOpenInputDto {
+            development_mode: true,
+            explicit_data_directory: Some(link.to_string_lossy().into_owned()),
+            relay_input: RelayBootstrapInputDto {
+                endpoints: Vec::new(),
+            },
+        };
+
+        assert!(application_database_path(&input).is_err());
     }
 
     #[test]

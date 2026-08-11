@@ -76,6 +76,8 @@ class MainTest {
             val providedRoot = Files.createDirectory(parent.resolve("provided"))
             val output = mutableListOf<String>()
             var openCalls = 0
+            val openedRoots = mutableListOf<java.nio.file.Path>()
+            val expectedRoots = listOf(createdRoot.toAbsolutePath().normalize(), providedRoot.toRealPath())
 
             for (root in listOf(createdRoot, providedRoot)) {
                 val result =
@@ -84,6 +86,7 @@ class MainTest {
                         runtimeOpener =
                             PackagedHealthRuntimeOpener { ownedRoot ->
                                 openCalls += 1
+                                openedRoots.add(ownedRoot)
                                 Files.writeString(ownedRoot.resolve("runtime.sqlite3"), "runtime data")
                                 successfulRuntime()
                             },
@@ -94,6 +97,7 @@ class MainTest {
             }
 
             assertEquals(2, openCalls)
+            assertEquals(expectedRoots, openedRoots)
             assertFalse(Files.exists(createdRoot))
             assertTrue(Files.isDirectory(providedRoot))
             Files.list(providedRoot).use { entries -> assertTrue(entries.findAny().isEmpty) }
