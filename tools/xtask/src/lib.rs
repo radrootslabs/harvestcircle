@@ -179,10 +179,7 @@ fn repo_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
     }
     for path in &inventory.paths {
         let normalized = path.to_ascii_lowercase();
-        if ["docs/", "spec/", ".github/", ".act/"]
-            .iter()
-            .any(|prefix| normalized.starts_with(prefix))
-        {
+        if is_forbidden_documentation_or_workflow_path(&normalized) {
             findings.push(format!("{path}: forbidden repository root"));
         }
         if fs::symlink_metadata(root.join(path))
@@ -439,25 +436,65 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         }
     }
     for path in &inventory.paths {
-        if !path.starts_with("app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/")
-            || !path.ends_with(".kt")
-        {
+        if !is_production_kotlin(path) {
             continue;
         }
         let source = read_text(root, path);
-        if path != "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/GlobalTopBar.kt"
-            && source.contains("Color(0x")
+        let normalized_path = path.to_ascii_lowercase();
+        let compact = source
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect::<String>();
+        if normalized_path.ends_with("/harvestcirclescreen.kt") {
+            findings.push(format!("{path}: superseded product-shell screen path"));
+        }
+        for marker in [
+            "home-screen",
+            "inactive-identities",
+            "WindowBackgroundColor",
+            "ButtonBackgroundColor",
+            "InputBackgroundColor",
+        ] {
+            if source.contains(marker) {
+                findings.push(format!("{path}: superseded product-shell marker {marker}"));
+            }
+        }
+        if is_production_compose(path, &source)
+            && path
+                != "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/HarvestCircleTheme.kt"
+            && contains_direct_call(&compact, "Color(")
         {
             findings.push(format!(
-                "{path}: hard-coded shell color outside the token adapter"
+                "{path}: hard-coded Compose color outside the theme adapter"
             ));
+        }
+        if is_production_compose(path, &source)
+            && path
+                != "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/ShellControls.kt"
+        {
+            if contains_direct_call(&compact, "BasicText(") {
+                findings.push(format!(
+                    "{path}: BasicText bypasses the shell primitive adapter"
+                ));
+            }
+            if contains_direct_call(&compact, "BasicTextField(") {
+                findings.push(format!(
+                    "{path}: BasicTextField bypasses the shell primitive adapter"
+                ));
+            }
         }
         let lowercase = source.to_ascii_lowercase();
         for marker in [
             "sample farm",
             "sample commitment",
+            "sample price",
+            "sample event",
+            "fake farm",
+            "fake commitment",
             "pricecents",
             "commitmentid",
+            "allocationid",
+            "fulfillmentid",
         ] {
             if lowercase.contains(marker) {
                 findings.push(format!(
@@ -466,6 +503,37 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             }
         }
     }
+}
+
+fn is_forbidden_documentation_or_workflow_path(path: &str) -> bool {
+    path.split('/').any(|part| {
+        matches!(
+            part,
+            "doc" | "docs" | "spec" | "specs" | ".github" | ".act" | "workflow" | "workflows"
+        )
+    })
+}
+
+fn is_production_kotlin(path: &str) -> bool {
+    path.starts_with("app/")
+        && path.ends_with(".kt")
+        && ["/src/main/", "/src/commonMain/", "/src/desktopMain/"]
+            .iter()
+            .any(|segment| path.contains(segment))
+}
+
+fn is_production_compose(path: &str, source: &str) -> bool {
+    is_production_kotlin(path)
+        && (source.contains("@Composable") || source.contains("androidx.compose."))
+}
+
+fn contains_direct_call(source: &str, call: &str) -> bool {
+    source.match_indices(call).any(|(index, _)| {
+        source[..index]
+            .chars()
+            .next_back()
+            .is_none_or(|character| !character.is_ascii_alphanumeric() && character != '_')
+    })
 }
 
 fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
@@ -889,6 +957,117 @@ mod tests {
             findings
                 .iter()
                 .any(|finding| finding.contains("required product-shell source is missing"))
+        );
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn current_product_shell_sources_pass_the_expanded_policy() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .expect("repository root");
+        let inventory = Inventory::load(&root).expect("current source inventory");
+        let mut findings = Vec::new();
+        product_shell_audit(&root, &inventory, &mut findings);
+        assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    #[test]
+    fn product_shell_audit_rejects_legacy_screen_paths_tags_and_colors() {
+        let root = fixture("legacy-shell");
+        let path = "app/shared/src/commonMain/kotlin/org/harvestcircle/identities/ui/HarvestCircleScreen.kt";
+        write(
+            &root,
+            path,
+            "@Composable fun Legacy() { val tag = \"home-screen\"; val color = WindowBackgroundColor }\n",
+        );
+        let inventory = Inventory::load(&root).expect("legacy inventory");
+        let mut findings = Vec::new();
+        product_shell_audit(&root, &inventory, &mut findings);
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.contains("superseded product-shell screen path"))
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.contains("superseded product-shell marker home-screen"))
+        );
+        assert!(findings.iter().any(|finding| {
+            finding.contains("superseded product-shell marker WindowBackgroundColor")
+        }));
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn product_shell_audit_rejects_color_and_primitive_bypasses_after_a_move() {
+        let root = fixture("moved-compose");
+        let path = "app/desktop/src/main/kotlin/org/harvestcircle/desktop/MovedScreen.kt";
+        write(
+            &root,
+            path,
+            "import androidx.compose.runtime.Composable\n@Composable fun Moved() { Color(0xFF000000); BasicText(\"bypass\"); BasicTextField(\"\", {}) }\n",
+        );
+        let inventory = Inventory::load(&root).expect("moved UI inventory");
+        let mut findings = Vec::new();
+        product_shell_audit(&root, &inventory, &mut findings);
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding
+                    .contains("hard-coded Compose color outside the theme adapter"))
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.contains("BasicText bypasses the shell primitive adapter"))
+        );
+        assert!(findings.iter().any(|finding| {
+            finding.contains("BasicTextField bypasses the shell primitive adapter")
+        }));
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn product_shell_audit_rejects_fake_commercial_data_outside_the_shell_package() {
+        let root = fixture("commercial-data");
+        write(
+            &root,
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/product/FakeData.kt",
+            "data class FakeData(val commitmentId: String, val priceCents: Long)\n",
+        );
+        let inventory = Inventory::load(&root).expect("commercial inventory");
+        let mut findings = Vec::new();
+        product_shell_audit(&root, &inventory, &mut findings);
+        assert!(findings.iter().any(|finding| finding
+            .contains("fake commercial product data marker commitmentid")));
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.contains("fake commercial product data marker pricecents"))
+        );
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn repository_policy_rejects_nested_documentation_and_workflow_roots() {
+        let root = fixture("nested-docs");
+        write(&root, "app/docs/notes.md", "fixture\n");
+        write(&root, "app/.github/workflows/remote.yml", "fixture\n");
+        let inventory = Inventory::load(&root).expect("nested docs inventory");
+        let mut findings = Vec::new();
+        repo_audit(&root, &inventory, &mut findings);
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.starts_with("app/docs/"))
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.starts_with("app/.github/workflows/"))
         );
         fs::remove_dir_all(root).expect("remove fixture");
     }
