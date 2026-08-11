@@ -29,6 +29,16 @@ for lane in source-check integration-check; do
     done
 done
 
+for mode in standalone governed; do
+    clean_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$repository_root" clean)
+    root_clean_count=$(printf '%s\n' "$clean_output" | grep -Ec '(^| -- )\./gradlew --no-daemon clean$')
+    included_clean_count=$(printf '%s\n' "$clean_output" | grep -Ec '(^| -- )\./gradlew --no-daemon -p build-logic clean$')
+    if [ "$root_clean_count" -ne 1 ] || [ "$included_clean_count" -ne 1 ]; then
+        printf '%s\n' "clean in $mode mode must clean the root and included builds exactly once" >&2
+        exit 1
+    fi
+done
+
 if "$make_command" --no-print-directory -C "$repository_root" BUILD_MODE=unsupported help > "$fixture/unknown.log" 2>&1; then
     printf '%s\n' 'unknown build mode was accepted' >&2
     exit 1

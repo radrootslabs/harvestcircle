@@ -150,3 +150,4 @@ clean: doctor
 	$(BUILD_RUNNER) $(CARGO) clean --manifest-path $(CARGO_MANIFEST)
 	$(BUILD_RUNNER) $(CARGO) clean --manifest-path $(XTASK_MANIFEST)
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon clean
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon -p build-logic clean
