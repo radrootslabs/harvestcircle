@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -28,13 +27,13 @@ fun GeneratedRecoveryCanvas(
     val backup = model.generatedKeyBackup ?: return
     CanvasScaffold(
         textSize = TextSizePreference.Default,
-        header = { BasicText("Save your recovery key") },
+        header = { ShellText("Save your recovery key", textRole = ShellTextRole.ScreenTitle) },
         body = {
             Column(Modifier.testTag("generated-key-backup"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                BasicText("This key is shown once.")
-                BasicText("Store it somewhere private before continuing.")
-                BasicText("Recovery key")
-                BasicText(backup.nsec, Modifier.testTag("generated-nsec"))
+                ShellText("This key is shown once.")
+                ShellText("Store it somewhere private before continuing.")
+                ShellText("Recovery key", textRole = ShellTextRole.CardTitle)
+                ShellText(backup.nsec, Modifier.testTag("generated-nsec"), ShellTextRole.Protocol)
             }
         },
         actionBar = {
@@ -61,7 +60,7 @@ fun IdentityChooserCanvas(
 ) {
     CanvasScaffold(
         textSize = TextSizePreference.Default,
-        header = { BasicText("Choose a Nostr identity") },
+        header = { ShellText("Choose a Nostr identity", textRole = ShellTextRole.ScreenTitle) },
         body = {
             LazyColumn(Modifier.fillMaxWidth().testTag("saved-identity-list")) {
                 items(model.identities, key = IdentityUiModel::publicKeyHex) { identity ->
@@ -96,16 +95,16 @@ private fun IdentityRow(
             .testTag("identity-row:${identity.publicKeyHex}"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        BasicText(identity.label)
-        BasicText(identity.shortNpub)
-        BasicText(
+        ShellText(identity.label, textRole = ShellTextRole.CardTitle)
+        ShellText(identity.shortNpub, textRole = ShellTextRole.Protocol)
+        ShellText(
             if (identity.signerAvailability == org.harvestcircle.application.SignerAvailability.Available) {
                 "Local credential available"
             } else {
                 "Local credential unavailable"
             },
         )
-        if (identity.selected) BasicText("Selected")
+        if (identity.selected) ShellBadge("Selected")
         ShellAction(
             label = if (identity.selected) "Selected identity" else "Select identity",
             description = "Select ${identity.label}",
@@ -131,12 +130,12 @@ private fun IdentityRow(
             actions.requestIdentityRemoval(identity.publicKeyHex)
         }
         if (model.pendingRemovalPublicKeyHex == identity.publicKeyHex) {
-            BasicText("Remove this saved identity?")
+            ShellText("Remove this saved identity?", textRole = ShellTextRole.CardTitle)
             model.removalImpact?.takeIf { it.deletesLocalCredential }?.let {
-                BasicText("Its local credential will be deleted from the operating-system keyring.")
+                ShellText("Its local credential will be deleted from the operating-system keyring.")
             }
             model.removalImpact?.takeIf { it.signsOut }?.let {
-                BasicText("The active session will be signed out before removal.")
+                ShellText("The active session will be signed out before removal.")
             }
             ShellAction("Keep identity", "Keep identity", "remove-cancel") { actions.cancelIdentityRemoval() }
             ShellAction(

@@ -3,8 +3,6 @@ package org.harvestcircle.ui.shell
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -34,12 +32,13 @@ fun BootstrapIdentityEntry(
         textSize = TextSizePreference.Default,
         navigation = { ShellAction("Back", "Back", "identity-entry-back", onClick = onBack) },
         header = {
-            BasicText(
+            ShellText(
                 if (step == BootstrapStep.CreateIdentity) {
                     "Create a local Nostr identity"
                 } else {
                     "Import an existing identity"
                 },
+                textRole = ShellTextRole.ScreenTitle,
             )
         },
         body = {
@@ -69,9 +68,9 @@ fun BootstrapIdentityEntry(
 @Composable
 private fun CreateIdentityBody(model: HarvestCircleUiModel) {
     Column(Modifier.testTag("create-identity-entry"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        BasicText("HarvestCircle will generate a new Nostr identity.")
-        BasicText("Save the recovery key before the identity is stored in the operating-system keyring.")
-        model.problem?.let { BasicText(it, Modifier.testTag("identity-entry-problem")) }
+        ShellText("HarvestCircle will generate a new Nostr identity.")
+        ShellText("Save the recovery key before the identity is stored in the operating-system keyring.")
+        model.problem?.let { ShellText(it, Modifier.testTag("identity-entry-problem")) }
     }
 }
 
@@ -82,10 +81,11 @@ private fun ImportIdentityBody(
 ) {
     val requester = remember { FocusRequester() }
     Column(Modifier.testTag("import-identity-entry"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        BasicText("Nostr secret key")
-        BasicTextField(
+        ShellTextField(
             value = model.importDraft,
             onValueChange = actions.editImportDraft,
+            label = "Nostr secret key",
+            placeholder = "nsec1…",
             modifier =
                 Modifier
                     .focusRequester(requester)
@@ -95,10 +95,9 @@ private fun ImportIdentityBody(
                     }.testTag("import-nsec-input"),
             visualTransformation = PasswordVisualTransformation(),
         )
-        BasicText("nsec1…")
-        BasicText("The secret is sent directly to the local native runtime and is not retained in the interface.")
-        model.importGuidance?.let { BasicText(it, Modifier.testTag("identity-entry-guidance")) }
-        model.problem?.let { BasicText(it, Modifier.testTag("identity-entry-problem")) }
+        ShellText("The secret is sent directly to the local native runtime and is not retained in the interface.")
+        model.importGuidance?.let { ShellText(it, Modifier.testTag("identity-entry-guidance")) }
+        model.problem?.let { ShellText(it, Modifier.testTag("identity-entry-problem")) }
     }
     LaunchedEffect(Unit) { requester.requestFocus() }
 }

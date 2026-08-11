@@ -5,8 +5,6 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,7 +23,7 @@ fun FoundationOverlayHost(
     onIntent: (OverlayIntent) -> Unit,
 ) {
     state.banner?.let { banner ->
-        BasicText(
+        ShellBadge(
             banner.message,
             Modifier.semantics { contentDescription = "Status: ${banner.message}" }.testTag("global-status-banner"),
         )
@@ -55,8 +53,8 @@ private fun ConfirmOverlay(
     overlay: FoundationOverlay.ConfirmAction,
     onIntent: (OverlayIntent) -> Unit,
 ) {
-    BasicText(overlay.title)
-    BasicText(overlay.explanation)
+    ShellText(overlay.title, textRole = ShellTextRole.SectionTitle)
+    ShellText(overlay.explanation)
     ShellAction(overlay.actionLabel, overlay.actionLabel, "overlay-confirm") { onIntent(OverlayIntent.Confirm) }
     ShellAction("Cancel", "Cancel", "overlay-cancel") { onIntent(OverlayIntent.Close) }
 }
@@ -67,8 +65,8 @@ private fun StatusOverlay(
     status: String,
     onIntent: (OverlayIntent) -> Unit,
 ) {
-    BasicText(title)
-    BasicText(status, Modifier.testTag("overlay-status"))
+    ShellText(title, textRole = ShellTextRole.SectionTitle)
+    ShellText(status, Modifier.testTag("overlay-status"))
     ShellAction("Close", "Close", "overlay-close") { onIntent(OverlayIntent.Close) }
 }
 
@@ -78,14 +76,16 @@ private fun ReferenceOverlay(
     onIntent: (OverlayIntent) -> Unit,
 ) {
     val requester = androidx.compose.runtime.remember { FocusRequester() }
-    BasicText("Open a Nostr reference")
-    BasicTextField(
+    ShellText("Open a Nostr reference", textRole = ShellTextRole.SectionTitle)
+    ShellTextField(
         value = overlay.input,
         onValueChange = { onIntent(OverlayIntent.EditReference(it)) },
+        label = "Nostr reference",
+        placeholder = "npub1…, note1…, or nevent1…",
         modifier = Modifier.focusRequester(requester).testTag("nostr-reference-input"),
     )
     androidx.compose.runtime.LaunchedEffect(Unit) { requester.requestFocus() }
-    overlay.result?.let { BasicText(it.message, Modifier.testTag("nostr-reference-result")) }
+    overlay.result?.let { ShellText(it.message, Modifier.testTag("nostr-reference-result")) }
     ShellAction("Open reference", "Open Nostr reference", "nostr-reference-submit") {
         onIntent(OverlayIntent.SubmitReference)
     }

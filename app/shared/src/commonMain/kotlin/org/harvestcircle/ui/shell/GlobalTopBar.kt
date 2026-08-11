@@ -1,28 +1,12 @@
 package org.harvestcircle.ui.shell
 
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.disabled
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import org.harvestcircle.design.HarvestCircleDesign
 
 enum class SyncStatusLabel(
     val text: String,
@@ -95,23 +79,5 @@ internal fun ShellAction(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    var focused by remember { mutableStateOf(false) }
-    val focusColor = LocalHarvestCirclePalette.current.focus.toComposeColor()
-    BasicText(
-        text = label,
-        modifier =
-            Modifier
-                .heightIn(min = HarvestCircleDesign.MINIMUM_TARGET_DP.dp)
-                .onFocusChanged { focused = it.isFocused }
-                .border(
-                    width = HarvestCircleDesign.BORDER_DP.dp,
-                    color = if (focused) focusColor else androidx.compose.ui.graphics.Color.Transparent,
-                ).padding(horizontal = HarvestCircleDesign.spacingDp[2].dp)
-                .semantics {
-                    contentDescription = description
-                    role = Role.Button
-                    if (!enabled) disabled()
-                }.then(if (enabled) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
-                .testTag(tag),
-    )
+    ShellButton(label, description, onClick, Modifier.testTag(tag), enabled)
 }

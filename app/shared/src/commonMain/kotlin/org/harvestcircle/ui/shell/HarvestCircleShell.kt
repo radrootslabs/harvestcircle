@@ -3,7 +3,6 @@ package org.harvestcircle.ui.shell
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -87,22 +86,22 @@ private fun HarvestCircleShellContent(
 private fun BootstrapWelcome(dispatch: (HarvestCircleShellIntent) -> Unit) {
     CanvasScaffold(
         textSize = org.harvestcircle.design.TextSizePreference.Default,
-        header = { BasicText("HarvestCircle") },
+        header = { ShellText("HarvestCircle", textRole = ShellTextRole.ScreenTitle) },
         body = {
             Column(
                 Modifier.testTag("bootstrap-welcome"),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                BasicText("Coordinate local food with clear, signed terms.")
-                BasicText("HarvestCircle helps farms and nearby buyers form one shared order.")
-                BasicText("You do not need a HarvestCircle account.")
-                BasicText("A farm opens a round")
-                BasicText("The farm publishes the available boxes, pickup terms, and price levels.")
-                BasicText("Buyers make private commitments")
-                BasicText("Each buyer signs a maximum amount without publishing their identity.")
-                BasicText("The authority clears the round")
-                BasicText("The selected authority applies the farm’s signed terms and issues allocations.")
-                BasicText("Open source · Nostr-based · No managed service required")
+                ShellText("Coordinate local food with clear, signed terms.", textRole = ShellTextRole.SectionTitle)
+                ShellText("HarvestCircle helps farms and nearby buyers form one shared order.")
+                ShellText("You do not need a HarvestCircle account.")
+                ShellText("A farm opens a round", textRole = ShellTextRole.CardTitle)
+                ShellText("The farm publishes the available boxes, pickup terms, and price levels.")
+                ShellText("Buyers make private commitments", textRole = ShellTextRole.CardTitle)
+                ShellText("Each buyer signs a maximum amount without publishing their identity.")
+                ShellText("The authority clears the round", textRole = ShellTextRole.CardTitle)
+                ShellText("The selected authority applies the farm’s signed terms and issues allocations.")
+                ShellText("Open source · Nostr-based · No managed service required", textRole = ShellTextRole.Secondary)
             }
         },
         actionBar = {
@@ -197,7 +196,7 @@ private fun DashboardRoot(
                                 ),
                             platformActions = platformActions,
                         )
-                    else -> BasicText(route.title(), Modifier.testTag("foundation-route-body"))
+                    else -> ShellText(route.title(), Modifier.testTag("foundation-route-body"))
                 }
             }
         },

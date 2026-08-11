@@ -3,7 +3,6 @@ package org.harvestcircle.ui.shell
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -131,34 +130,36 @@ private fun NetworkDetail(
                     model.relays.count { it.writeCapability == RelayCapability.Configured }.toString(),
                 )
                 Fact("Local runtime", model.runtimeState.label())
-                BasicText("No managed HarvestCircle service is configured.")
+                ShellText("No managed HarvestCircle service is configured.")
             }
             "identity" -> {
-                BasicText(model.identityState.label(), Modifier.testTag("network-identity-state"))
-                model.identityLabel?.let { BasicText(it, Modifier.testTag("network-identity-label")) }
-                model.profileLabel?.let { BasicText("Display name: $it", Modifier.testTag("network-profile-label")) }
+                ShellBadge(model.identityState.label(), Modifier.testTag("network-identity-state"))
+                model.identityLabel?.let { ShellText(it, Modifier.testTag("network-identity-label"), ShellTextRole.CardTitle) }
+                model.profileLabel?.let { ShellText("Display name: $it", Modifier.testTag("network-profile-label")) }
                 if (model.identityState == NetworkIdentityState.Active) {
                     ShellAction("Refresh profile", "Refresh active profile", "refresh-profile", onClick = refreshProfile)
                     ShellAction("Sign out", "Sign out", "sign-out", onClick = signOut)
                 }
             }
             "public_relays" -> {
-                BasicText(model.relayState.label(), Modifier.testTag("network-relay-state"))
+                ShellBadge(model.relayState.label(), Modifier.testTag("network-relay-state"))
                 if (model.relays.isEmpty()) {
-                    BasicText("No public relay endpoints are configured.", Modifier.testTag("network-relays-empty"))
+                    ShellText("No public relay endpoints are configured.", Modifier.testTag("network-relays-empty"))
                 }
                 model.relays.forEach { relay ->
-                    Column(Modifier.testTag("network-relay:${relay.url}")) {
-                        BasicText(relay.url)
-                        BasicText(relay.destination.label())
-                        BasicText(relay.readCapability.label("Read"))
-                        BasicText(relay.writeCapability.label("Write"))
+                    ShellCard(Modifier.testTag("network-relay:${relay.url}")) {
+                        Column {
+                            ShellText(relay.url, textRole = ShellTextRole.Protocol)
+                            ShellText(relay.destination.label())
+                            ShellText(relay.readCapability.label("Read"))
+                            ShellText(relay.writeCapability.label("Write"))
+                        }
                     }
                 }
             }
             "runtime" -> {
                 Fact("Local runtime", model.runtimeState.label())
-                model.runtimeProblem?.let { BasicText(it, Modifier.testTag("network-runtime-problem")) }
+                model.runtimeProblem?.let { ShellText(it, Modifier.testTag("network-runtime-problem")) }
             }
         }
     }
@@ -170,8 +171,8 @@ private fun Fact(
     value: String,
 ) {
     Column {
-        BasicText(label)
-        BasicText(value, Modifier.testTag("network-fact-${label.lowercase().replace(' ', '-') }"))
+        ShellText(label, textRole = ShellTextRole.Secondary)
+        ShellText(value, Modifier.testTag("network-fact-${label.lowercase().replace(' ', '-') }"))
     }
 }
 

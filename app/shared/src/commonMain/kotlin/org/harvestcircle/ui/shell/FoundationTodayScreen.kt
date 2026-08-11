@@ -3,7 +3,6 @@ package org.harvestcircle.ui.shell
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -23,9 +22,9 @@ fun FoundationTodayScreen(
             Modifier.testTag("foundation-today"),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            BasicText(model.context, Modifier.testTag("today-context"))
-            BasicText("No active commitments")
-            BasicText("Explore nearby buying circles or open a shared Nostr reference.")
+            ShellBadge(model.context, Modifier.testTag("today-context"))
+            ShellText("No active commitments", textRole = ShellTextRole.SectionTitle)
+            ShellText("Explore nearby buying circles or open a shared Nostr reference.")
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 ShellAction(
                     "Explore circles",
@@ -41,7 +40,7 @@ fun FoundationTodayScreen(
                     onClick = openNostrReference,
                 )
             }
-            BasicText("Not available in this build.", Modifier.testTag("today-deferred-helper"))
+            ShellText("Not available in this build.", Modifier.testTag("today-deferred-helper"), ShellTextRole.Secondary)
         }
     }
 }

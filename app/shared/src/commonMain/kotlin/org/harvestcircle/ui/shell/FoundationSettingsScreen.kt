@@ -3,7 +3,6 @@ package org.harvestcircle.ui.shell
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -80,21 +79,21 @@ private fun AppearanceSettings(
         Modifier.testTag("settings-appearance-panel"),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        BasicText("Theme")
+        ShellText("Theme", textRole = ShellTextRole.SectionTitle)
         OptionRow(
             listOf(ThemePreference.System, ThemePreference.Light, ThemePreference.Dark),
             appearance.theme,
             "theme",
             actions.setTheme,
         )
-        BasicText("Text size")
+        ShellText("Text size", textRole = ShellTextRole.SectionTitle)
         OptionRow(
             listOf(TextSizePreference.Default, TextSizePreference.Large, TextSizePreference.VeryLarge),
             appearance.textSize,
             "text-size",
             actions.setTextSize,
         )
-        BasicText("Motion")
+        ShellText("Motion", textRole = ShellTextRole.SectionTitle)
         OptionRow(
             listOf(MotionPreference.Standard, MotionPreference.Reduced),
             appearance.motion,
@@ -166,8 +165,8 @@ private fun ProjectFact(
     value: String,
 ) {
     Column {
-        BasicText(label)
-        BasicText(value, Modifier.testTag("project-${label.lowercase().replace(' ', '-')}"))
+        ShellText(label, textRole = ShellTextRole.Secondary)
+        ShellText(value, Modifier.testTag("project-${label.lowercase().replace(' ', '-')}"))
     }
 }
 
