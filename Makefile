@@ -17,10 +17,10 @@ else
 override BUILD_RUNNER :=
 endif
 
-.PHONY: help doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check format format-fix lint test check governed-check build bindings dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check acceptance-check signing-check _signing-check notarization-check _notarization-check release-check _release-check clean
+.PHONY: help doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check format format-fix lint test check governed-check build bindings dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check acceptance-check signing-check _signing-check notarization-check _notarization-check release-check _release-check clean
 
 help:
-	@printf '%s\n' doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check format format-fix lint test check governed-check build bindings dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check acceptance-check signing-check notarization-check release-check clean
+	@printf '%s\n' doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check format format-fix lint test check governed-check build bindings dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check acceptance-check signing-check notarization-check release-check clean
 
 doctor:
 	@printf '%s\n' "harvestcircle.build.mode=$(BUILD_MODE)"
@@ -84,6 +84,9 @@ build: doctor
 bindings: doctor
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:verifyUniFfiBindings :app:desktop:verifyReleaseNativeLibrary
 
+dev-check: doctor
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon --configuration-cache --configuration-cache-problems=fail :app:desktop:hotRunArgfile
+
 dev: doctor
 	$(BUILD_RUNNER) $(GRADLE) :app:desktop:hotRun
 
@@ -111,7 +114,7 @@ host-package-check: doctor
 governed-package-check:
 	$(MAKE) --no-print-directory BUILD_MODE=governed host-package-check
 
-source-check: build-logic-check check bindings licenses
+source-check: build-logic-check check bindings licenses dev-check
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:sourceReadiness
 
 governed-source-check:

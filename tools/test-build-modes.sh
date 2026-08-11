@@ -42,7 +42,30 @@ for mode in standalone governed; do
         printf '%s\n' "ordinary source-check in $mode mode invoked the nondefault stability lane" >&2
         exit 1
     fi
+
+    dev_check_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$repository_root" dev-check)
+    dev_check_count=$(printf '%s\n' "$dev_check_output" | grep -c -- '--configuration-cache --configuration-cache-problems=fail :app:desktop:hotRunArgfile')
+    if [ "$dev_check_count" -ne 1 ]; then
+        printf '%s\n' "development readiness in $mode mode must verify the finite hot-reload argfile exactly once" >&2
+        exit 1
+    fi
+
+    source_dev_check_count=$(printf '%s\n' "$source_output" | grep -c -- '--configuration-cache --configuration-cache-problems=fail :app:desktop:hotRunArgfile')
+    if [ "$source_dev_check_count" -ne 1 ]; then
+        printf '%s\n' "ordinary source-check in $mode mode must include development readiness exactly once" >&2
+        exit 1
+    fi
 done
+
+dev_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE=standalone -C "$repository_root" dev)
+if ! printf '%s\n' "$dev_output" | grep -q ':app:desktop:hotRun'; then
+    printf '%s\n' 'development command must invoke Compose hot reload' >&2
+    exit 1
+fi
+if printf '%s\n' "$dev_output" | grep -q -- '--no-configuration-cache'; then
+    printf '%s\n' 'development command disabled the qualified configuration cache' >&2
+    exit 1
+fi
 
 for mode in standalone governed; do
     clean_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$repository_root" clean)
