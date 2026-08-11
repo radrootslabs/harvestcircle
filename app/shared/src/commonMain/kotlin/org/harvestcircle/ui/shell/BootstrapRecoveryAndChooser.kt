@@ -12,6 +12,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import org.harvestcircle.application.ConfirmationAction
+import org.harvestcircle.application.FoundationOverlay
+import org.harvestcircle.application.HarvestCircleShellIntent
+import org.harvestcircle.application.OverlayIntent
 import org.harvestcircle.design.TextSizePreference
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
@@ -57,6 +61,7 @@ fun IdentityChooserCanvas(
     model: HarvestCircleUiModel,
     actions: HarvestCircleUiActions,
     onReadOnly: () -> Unit,
+    dispatch: (HarvestCircleShellIntent) -> Unit = {},
 ) {
     CanvasScaffold(
         textSize = TextSizePreference.Default,
@@ -64,7 +69,7 @@ fun IdentityChooserCanvas(
         body = {
             LazyColumn(Modifier.fillMaxWidth().testTag("saved-identity-list")) {
                 items(model.identities, key = IdentityUiModel::publicKeyHex) { identity ->
-                    IdentityRow(identity, model, actions)
+                    IdentityRow(identity, model, actions, dispatch)
                 }
             }
         },
@@ -87,6 +92,7 @@ private fun IdentityRow(
     identity: IdentityUiModel,
     model: HarvestCircleUiModel,
     actions: HarvestCircleUiActions,
+    dispatch: (HarvestCircleShellIntent) -> Unit,
 ) {
     Column(
         Modifier
@@ -128,24 +134,23 @@ private fun IdentityRow(
             enabled = !model.busy,
         ) {
             actions.requestIdentityRemoval(identity.publicKeyHex)
-        }
-        if (model.pendingRemovalPublicKeyHex == identity.publicKeyHex) {
-            ShellText("Remove this saved identity?", textRole = ShellTextRole.CardTitle)
-            model.removalImpact?.takeIf { it.deletesLocalCredential }?.let {
-                ShellText("Its local credential will be deleted from the operating-system keyring.")
-            }
-            model.removalImpact?.takeIf { it.signsOut }?.let {
-                ShellText("The active session will be signed out before removal.")
-            }
-            ShellAction("Keep identity", "Keep identity", "remove-cancel") { actions.cancelIdentityRemoval() }
-            ShellAction(
-                "Remove local identity",
-                "Remove local identity",
-                "remove-confirm",
-                enabled = !model.busy,
-            ) {
-                actions.confirmIdentityRemoval()
-            }
+            dispatch(
+                HarvestCircleShellIntent.Overlay(
+                    OverlayIntent.Open(
+                        FoundationOverlay.ConfirmAction(
+                            title = "Remove this saved identity?",
+                            explanation =
+                                if (identity.active) {
+                                    "Its local credential will be deleted and the active session will be signed out."
+                                } else {
+                                    "Its local credential will be deleted from the operating-system keyring."
+                                },
+                            actionLabel = "Remove local identity",
+                            action = ConfirmationAction.RemoveLocalIdentity,
+                        ),
+                    ),
+                ),
+            )
         }
     }
 }

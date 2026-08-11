@@ -8,6 +8,7 @@ sealed interface FoundationOverlay {
         val title: String,
         val explanation: String,
         val actionLabel: String,
+        val action: ConfirmationAction,
     ) : FoundationOverlay
 
     data class SignerStatus(
@@ -23,6 +24,8 @@ sealed interface FoundationOverlay {
         val result: ReferenceResult? = null,
     ) : FoundationOverlay
 }
+
+enum class ConfirmationAction { RemoveLocalIdentity }
 
 enum class BannerSeverity { Information, Caution, Critical }
 

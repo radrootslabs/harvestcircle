@@ -10,6 +10,7 @@ import org.harvestcircle.navigation.AppRoute
 import org.harvestcircle.product.ScreenKey
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -46,6 +47,31 @@ class HarvestCircleShellPresenterTest {
             presenter.dispatch(HarvestCircleShellIntent.Identity(HarvestCircleIntent.ChooseCreateIdentity))
             assertEquals(1, identity.intents.size)
             assertTrue(identity.intents.single() === HarvestCircleIntent.ChooseCreateIdentity)
+            presenter.close()
+        }
+
+    @Test
+    fun confirmationDispatchesTypedIdentityEffectsAndClosesExactlyOnce() =
+        runTest {
+            val identity = FakeIdentityPresentation(presenterState(HarvestCircleRoute.IDENTITIES))
+            val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this)
+            val confirmation =
+                FoundationOverlay.ConfirmAction(
+                    "Remove identity?",
+                    "The local credential will be deleted.",
+                    "Remove local identity",
+                    ConfirmationAction.RemoveLocalIdentity,
+                )
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.Open(confirmation)))
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.Confirm))
+
+            assertTrue(identity.intents.single() === HarvestCircleIntent.ConfirmIdentityRemoval)
+            assertNull(presenter.state.value.overlays.current)
+
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.Open(confirmation)))
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.Close))
+            assertTrue(identity.intents.last() === HarvestCircleIntent.CancelIdentityRemoval)
+            assertNull(presenter.state.value.overlays.current)
             presenter.close()
         }
 

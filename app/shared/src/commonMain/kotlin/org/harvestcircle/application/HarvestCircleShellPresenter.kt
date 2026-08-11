@@ -82,7 +82,7 @@ class HarvestCircleShellPresenter(
             HarvestCircleShellIntent.EnterReadOnly -> reduce(ShellEvent.EnterReadOnly)
             is HarvestCircleShellIntent.Navigate -> reduce(ShellEvent.Navigate(intent.screenKey))
             is HarvestCircleShellIntent.Navigation -> reduce(ShellEvent.Navigation(intent.intent))
-            is HarvestCircleShellIntent.Overlay -> reduce(ShellEvent.Overlay(intent.intent))
+            is HarvestCircleShellIntent.Overlay -> dispatchOverlay(intent.intent)
             is HarvestCircleShellIntent.SetTheme -> reduce(ShellEvent.SetTheme(intent.theme))
             is HarvestCircleShellIntent.SetTextSize -> reduce(ShellEvent.SetTextSize(intent.textSize))
             is HarvestCircleShellIntent.SetMotion -> reduce(ShellEvent.SetMotion(intent.motion))
@@ -95,6 +95,26 @@ class HarvestCircleShellPresenter(
 
     private fun updateIdentity(identity: HarvestCirclePresenterState) {
         reduce(ShellEvent.IdentityObserved(identity))
+    }
+
+    private fun dispatchOverlay(intent: OverlayIntent) {
+        val confirmation = mutableState.value.overlays.current as? FoundationOverlay.ConfirmAction
+        when (intent) {
+            OverlayIntent.Confirm -> {
+                if (mutableState.value.identity.busy) return
+                when (confirmation?.action) {
+                    ConfirmationAction.RemoveLocalIdentity ->
+                        identityPresenter.dispatch(HarvestCircleIntent.ConfirmIdentityRemoval)
+                    null -> Unit
+                }
+            }
+            OverlayIntent.Close, OverlayIntent.Escape ->
+                if (confirmation?.action == ConfirmationAction.RemoveLocalIdentity) {
+                    identityPresenter.dispatch(HarvestCircleIntent.CancelIdentityRemoval)
+                }
+            else -> Unit
+        }
+        reduce(ShellEvent.Overlay(intent))
     }
 
     private fun reduce(event: ShellEvent) {

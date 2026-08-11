@@ -75,11 +75,12 @@ private fun HarvestCircleShellContent(
                         model = state.identity.toUiModel(),
                         actions = identityActions,
                         onReadOnly = { dispatch(HarvestCircleShellIntent.EnterReadOnly) },
+                        dispatch = dispatch,
                     )
             }
         is ShellRoot.Dashboard -> DashboardRoot(state, root, identityActions, platformActions, dispatch)
     }
-    FoundationOverlayHost(state.overlays) { dispatch(HarvestCircleShellIntent.Overlay(it)) }
+    FoundationOverlayHost(state.overlays, state.identity.busy) { dispatch(HarvestCircleShellIntent.Overlay(it)) }
 }
 
 @Composable
