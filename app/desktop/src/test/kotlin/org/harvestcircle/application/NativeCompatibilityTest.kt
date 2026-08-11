@@ -26,6 +26,7 @@ class NativeCompatibilityTest {
             descriptor.copy(cargoPackageVersion = "wrong"),
             descriptor.copy(distributionPackageVersion = "wrong"),
             descriptor.copy(contractMajor = 5.toUShort()),
+            descriptor.copy(contractMinor = (Expected.minimumFfiContractMinor.toUInt() - 1U).toUShort()),
             descriptor.copy(contractHash = "wrong"),
             descriptor.copy(productCoordinateDigest = "wrong"),
             descriptor.copy(snapshotSchemaVersion = 2U),

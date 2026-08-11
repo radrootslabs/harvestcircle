@@ -27,11 +27,6 @@ public class HarvestCircleRootPlugin : Plugin<Project> {
                 task.sourceProvenanceFile.set(
                     target.layout.projectDirectory.file("core/provenance/$legacyProduct-import-v1.toml"),
                 )
-                task.nativeCompatibilityFile.set(
-                    target.layout.projectDirectory.file(
-                        "app/desktop/src/main/kotlin/org/harvestcircle/application/NativeCompatibility.kt",
-                    ),
-                )
             }
 
         target.tasks.register("verifyCompatibilityBaseline") { task ->

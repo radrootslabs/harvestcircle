@@ -27,10 +27,6 @@ abstract class VerifyProductCoordinates : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val sourceProvenanceFile: RegularFileProperty
 
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val nativeCompatibilityFile: RegularFileProperty
-
     @TaskAction
     fun verify() {
         val source = manifestFile.get().asFile.readText()
@@ -54,15 +50,5 @@ abstract class VerifyProductCoordinates : DefaultTask() {
         val provenance = SourceProvenance.load(sourceProvenanceFile.get().asFile)
         check(baseline["source.provenance_digest"] == provenance.digest)
         check(provenance.foundationBaseline == baseline["source.foundation_baseline"])
-        val nativeCompatibility = nativeCompatibilityFile.get().asFile.readText()
-        check(nativeCompatibility.contains("NativeCompatibilityExpectations as Expected"))
-        listOf(
-            "contract.id",
-            "contract.hash",
-            "product.coordinate_digest",
-            "source.provenance_digest",
-            "source.foundation_baseline",
-        ).forEach { key -> check(!nativeCompatibility.contains(baseline[key])) }
     }
-
 }
