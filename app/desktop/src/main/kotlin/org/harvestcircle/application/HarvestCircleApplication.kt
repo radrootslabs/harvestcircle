@@ -17,11 +17,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.harvestcircle.ffi.generateOperationIdV7
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
-import org.harvestcircle.identities.ui.HarvestCircleScreen
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 import org.harvestcircle.identities.ui.ShutdownFailureScreen
 import org.harvestcircle.identities.ui.StartupFailureScreen
-import org.harvestcircle.identities.ui.toUiModel
+import org.harvestcircle.ui.shell.HarvestCircleShell
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal typealias HarvestCirclePresenterFactory = (CoroutineScope) -> HarvestCirclePresenter
@@ -76,7 +75,11 @@ internal fun HarvestCircleApplicationWithDependencies(
         return
     }
     checkNotNull(clipboard)
-    val state by presenter.state.collectAsState()
+    val shellPresenter = remember(presenter, scope) { HarvestCircleShellPresenter(presenter, presenter.buildInfo, scope) }
+    DisposableEffect(shellPresenter) {
+        onDispose { shellPresenter.close() }
+    }
+    val shellState by shellPresenter.state.collectAsState()
     var shutdownProblem by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(closeRequested, presenter) {
@@ -97,32 +100,34 @@ internal fun HarvestCircleApplicationWithDependencies(
         return
     }
 
-    HarvestCircleScreen(
-        model = state.toUiModel(),
-        actions =
-            HarvestCircleUiActions(
-                chooseCreateIdentity = { presenter.dispatch(HarvestCircleIntent.ChooseCreateIdentity) },
-                chooseImportIdentity = { presenter.dispatch(HarvestCircleIntent.ChooseImportIdentity) },
-                cancelIdentityEntry = { presenter.dispatch(HarvestCircleIntent.CancelIdentityEntry) },
-                editImportDraft = { presenter.dispatch(HarvestCircleIntent.EditImportDraft(it)) },
-                generateIdentity = { presenter.dispatch(HarvestCircleIntent.GenerateIdentity) },
-                importSecretKey = { presenter.dispatch(HarvestCircleIntent.ImportIdentity) },
-                acknowledgeGeneratedKeyBackup = { presenter.dispatch(HarvestCircleIntent.AcknowledgeGeneratedRecovery) },
-                cancelGeneratedKeyBackup = { presenter.dispatch(HarvestCircleIntent.CancelGeneratedRecovery) },
-                selectIdentity = { presenter.dispatch(HarvestCircleIntent.SelectIdentity(IdentityId.fromPublicKeyHex(it))) },
-                activateIdentity = { presenter.dispatch(HarvestCircleIntent.ActivateIdentity(IdentityId.fromPublicKeyHex(it))) },
-                requestIdentityRemoval = {
-                    presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(IdentityId.fromPublicKeyHex(it)))
-                },
-                cancelIdentityRemoval = { presenter.dispatch(HarvestCircleIntent.CancelIdentityRemoval) },
-                confirmIdentityRemoval = { presenter.dispatch(HarvestCircleIntent.ConfirmIdentityRemoval) },
-                refreshActiveProfile = { presenter.dispatch(HarvestCircleIntent.RefreshActiveProfile) },
-                retryLastCommand = { presenter.dispatch(HarvestCircleIntent.RetryLastCommand) },
-                signOut = { presenter.dispatch(HarvestCircleIntent.SignOut) },
-                showIdentityChooser = { presenter.dispatch(HarvestCircleIntent.ShowIdentityChooser) },
-                hideIdentityChooser = { presenter.dispatch(HarvestCircleIntent.HideIdentityChooser) },
-            ),
+    val identityActions =
+        HarvestCircleUiActions(
+            chooseCreateIdentity = { presenter.dispatch(HarvestCircleIntent.ChooseCreateIdentity) },
+            chooseImportIdentity = { presenter.dispatch(HarvestCircleIntent.ChooseImportIdentity) },
+            cancelIdentityEntry = { presenter.dispatch(HarvestCircleIntent.CancelIdentityEntry) },
+            editImportDraft = { presenter.dispatch(HarvestCircleIntent.EditImportDraft(it)) },
+            generateIdentity = { presenter.dispatch(HarvestCircleIntent.GenerateIdentity) },
+            importSecretKey = { presenter.dispatch(HarvestCircleIntent.ImportIdentity) },
+            acknowledgeGeneratedKeyBackup = { presenter.dispatch(HarvestCircleIntent.AcknowledgeGeneratedRecovery) },
+            cancelGeneratedKeyBackup = { presenter.dispatch(HarvestCircleIntent.CancelGeneratedRecovery) },
+            selectIdentity = { presenter.dispatch(HarvestCircleIntent.SelectIdentity(IdentityId.fromPublicKeyHex(it))) },
+            activateIdentity = { presenter.dispatch(HarvestCircleIntent.ActivateIdentity(IdentityId.fromPublicKeyHex(it))) },
+            requestIdentityRemoval = {
+                presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(IdentityId.fromPublicKeyHex(it)))
+            },
+            cancelIdentityRemoval = { presenter.dispatch(HarvestCircleIntent.CancelIdentityRemoval) },
+            confirmIdentityRemoval = { presenter.dispatch(HarvestCircleIntent.ConfirmIdentityRemoval) },
+            refreshActiveProfile = { presenter.dispatch(HarvestCircleIntent.RefreshActiveProfile) },
+            retryLastCommand = { presenter.dispatch(HarvestCircleIntent.RetryLastCommand) },
+            signOut = { presenter.dispatch(HarvestCircleIntent.SignOut) },
+            showIdentityChooser = { presenter.dispatch(HarvestCircleIntent.ShowIdentityChooser) },
+            hideIdentityChooser = { presenter.dispatch(HarvestCircleIntent.HideIdentityChooser) },
+        )
+    HarvestCircleShell(
+        state = shellState,
+        identityActions = identityActions,
         platformActions = HarvestCirclePlatformActions(copySecret = clipboard::copy),
+        dispatch = shellPresenter::dispatch,
     )
 }
 

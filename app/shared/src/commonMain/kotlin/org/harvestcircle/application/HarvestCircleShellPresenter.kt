@@ -80,7 +80,7 @@ class HarvestCircleShellPresenter(
             is HarvestCircleShellIntent.Identity -> identityPresenter.dispatch(intent.intent)
             HarvestCircleShellIntent.EnterReadOnly -> updateSession(mutableState.value.session.enterReadOnly())
             is HarvestCircleShellIntent.Navigate -> updateNavigation { activateShellDestination(it, intent.destination) }
-            is HarvestCircleShellIntent.Navigation -> updateNavigation { state -> NavigationReducer.reduce(state, intent.intent) }
+            is HarvestCircleShellIntent.Navigation -> updateNavigationIntent(intent.intent)
             is HarvestCircleShellIntent.Overlay -> mutate { copy(overlays = OverlayReducer.reduce(overlays, intent.intent)) }
             is HarvestCircleShellIntent.SetTheme -> mutate { copy(appearance = appearance.copy(theme = intent.theme)) }
             is HarvestCircleShellIntent.SetTextSize -> mutate { copy(appearance = appearance.copy(textSize = intent.textSize)) }
@@ -96,10 +96,12 @@ class HarvestCircleShellPresenter(
         mutate {
             val derived = deriveShellRoot(identity, session)
             val retained =
-                if (derived is ShellRoot.Dashboard && root is ShellRoot.Dashboard) {
-                    derived.copy(navigation = root.navigation)
-                } else {
-                    derived
+                when {
+                    derived is ShellRoot.Dashboard && root is ShellRoot.Dashboard ->
+                        derived.copy(navigation = root.navigation)
+                    derived is ShellRoot.BootstrapCanvas && root is ShellRoot.BootstrapCanvas ->
+                        derived.copy(step = root.step)
+                    else -> derived
                 }
             copy(identity = identity, root = retained)
         }
@@ -113,6 +115,24 @@ class HarvestCircleShellPresenter(
         mutate {
             val dashboard = root as? ShellRoot.Dashboard ?: return@mutate this
             copy(root = dashboard.copy(navigation = block(dashboard.navigation)))
+        }
+    }
+
+    private fun updateNavigationIntent(intent: NavigationIntent) {
+        mutate {
+            when (val currentRoot = root) {
+                is ShellRoot.Dashboard ->
+                    copy(
+                        root = currentRoot.copy(navigation = NavigationReducer.reduce(currentRoot.navigation, intent)),
+                    )
+                is ShellRoot.BootstrapCanvas ->
+                    if (intent is NavigationIntent.SelectBootstrapStep) {
+                        copy(root = currentRoot.copy(step = intent.step))
+                    } else {
+                        this
+                    }
+                is ShellRoot.LifecycleCanvas -> this
+            }
         }
     }
 

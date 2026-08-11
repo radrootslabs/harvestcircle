@@ -10,6 +10,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -69,6 +71,38 @@ class HarvestCircleApplicationTest {
             assertEquals(true, runtime?.closed)
             assertEquals(1, runtime?.shutdownCalls)
             assertTrue(applicationJob?.isCancelled == true)
+        }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun welcomeEntersOneReadOnlyDashboardSession() =
+        runComposeUiTest {
+            setContent { HarvestCircleApplication(presenterFactory = ::testPresenter) }
+            onNodeWithText("Coordinate local food with clear, signed terms.").assertIsDisplayed()
+            onAllNodesWithText("Connect a remote signer").assertCountEquals(0)
+            onNodeWithTag("bootstrap-read-only").performClick()
+            waitUntil { onAllNodesWithTag("foundation-route-body").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag("foundation-route-body").assertIsDisplayed().assertTextEquals("Today")
+        }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun welcomeRoutesToLocalCreateAndImportEntry() =
+        runComposeUiTest {
+            setContent { HarvestCircleApplication(presenterFactory = ::testPresenter) }
+            onNodeWithTag("bootstrap-create").performClick()
+            waitUntil { onAllNodesWithTag("generate-key").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag("generate-key").assertIsDisplayed()
+        }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun welcomeRoutesDirectlyToMaskedImportEntry() =
+        runComposeUiTest {
+            setContent { HarvestCircleApplication(presenterFactory = ::testPresenter) }
+            onNodeWithTag("bootstrap-import").performClick()
+            waitUntil { onAllNodesWithTag("import-nsec-input").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag("import-nsec-input").assertIsDisplayed()
         }
 
     @OptIn(ExperimentalTestApi::class)
@@ -200,6 +234,14 @@ class HarvestCircleApplicationTest {
             onAllNodesWithText("sensitive internal startup detail").assertCountEquals(0)
         }
 }
+
+private fun testPresenter(scope: kotlinx.coroutines.CoroutineScope): HarvestCirclePresenter =
+    HarvestCirclePresenter(
+        runtime = ApplicationRuntime(),
+        scope = scope,
+        clock = ApplicationClock { UnixSeconds(0) },
+        operationIds = OperationIdSource { OperationId.from(TEST_OPERATION_ID) },
+    )
 
 private class ApplicationRuntime(
     private val shutdownClosed: Boolean = true,
