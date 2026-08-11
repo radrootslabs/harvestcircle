@@ -44,7 +44,7 @@ fun GlobalTopBar(
         ShellAction("Forward", "Go forward", "top-bar-forward", model.canGoForward) {
             onIntent(GlobalTopBarIntent.Forward)
         }
-        ShellAction("Open reference", "Open Nostr reference", "top-bar-open-reference") {
+        ShellAction("Open a Nostr reference", "Open a Nostr reference", "top-bar-open-reference") {
             onIntent(GlobalTopBarIntent.OpenNostrReference)
         }
         ShellAction(model.syncStatus.text, "Sync status", "top-bar-sync") { onIntent(GlobalTopBarIntent.ShowSyncStatus) }

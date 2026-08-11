@@ -56,6 +56,7 @@ fun shellControlVisualState(
     hovered: Boolean,
 ): ShellControlVisualState =
     when {
+        !enabled && selected -> ShellControlVisualState.Selected
         !enabled -> ShellControlVisualState.Disabled
         focused -> ShellControlVisualState.Focused
         pressed -> ShellControlVisualState.Pressed

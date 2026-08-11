@@ -13,6 +13,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -44,8 +46,10 @@ fun FoundationOverlayHost(
             ShellSurface(
                 Modifier
                     .focusGroup()
-                    .semantics { contentDescription = "Dialog" }
-                    .testTag("foundation-overlay")
+                    .semantics {
+                        contentDescription = "Dialog: ${overlay.title()}"
+                        paneTitle = overlay.title()
+                    }.testTag("foundation-overlay")
                     .padding(24.dp),
             ) {
                 when (overlay) {
@@ -70,7 +74,7 @@ private fun ConfirmOverlay(
 ) {
     val requester = remember { FocusRequester() }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        ShellText(overlay.title, textRole = ShellTextRole.SectionTitle)
+        ShellText(overlay.title, Modifier.semantics { heading() }, ShellTextRole.SectionTitle)
         ShellText(overlay.explanation)
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             ShellButton(
@@ -95,7 +99,7 @@ private fun StatusOverlay(
 ) {
     val requester = remember { FocusRequester() }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        ShellText(title, textRole = ShellTextRole.SectionTitle)
+        ShellText(title, Modifier.semantics { heading() }, ShellTextRole.SectionTitle)
         ShellText(status, Modifier.testTag("overlay-status"))
         ShellButton(
             "Close",
@@ -115,20 +119,20 @@ private fun ReferenceOverlay(
 ) {
     val requester = remember { FocusRequester() }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        ShellText("Open a Nostr reference", textRole = ShellTextRole.SectionTitle)
+        ShellText("Open a Nostr reference", Modifier.semantics { heading() }, ShellTextRole.SectionTitle)
         ShellTextField(
             value = overlay.input,
             onValueChange = { onIntent(OverlayIntent.EditReference(it)) },
-            label = "Nostr reference",
-            placeholder = "npub1…, note1…, or nevent1…",
+            label = "Nostr link, event ID, or address",
+            placeholder = "nostr:…",
             modifier = Modifier.focusRequester(requester).testTag("nostr-reference-input"),
             enabled = !busy,
         )
         overlay.result?.let { ShellText(it.message, Modifier.testTag("nostr-reference-result")) }
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             ShellButton(
-                "Open reference",
-                "Open Nostr reference",
+                "Open a Nostr reference",
+                "Open a Nostr reference",
                 { onIntent(OverlayIntent.SubmitReference) },
                 Modifier.testTag("nostr-reference-submit"),
                 enabled = !busy,
@@ -139,3 +143,10 @@ private fun ReferenceOverlay(
     }
     LaunchedEffect(Unit) { requester.requestFocus() }
 }
+
+private fun FoundationOverlay.title(): String =
+    when (this) {
+        is FoundationOverlay.ConfirmAction -> title
+        is FoundationOverlay.Status -> if (key == StatusOverlayKey.Signer) "Signer status" else "Sync status"
+        is FoundationOverlay.OpenNostrReference -> "Open a Nostr reference"
+    }

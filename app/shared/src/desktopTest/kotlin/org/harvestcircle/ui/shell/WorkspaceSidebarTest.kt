@@ -3,6 +3,7 @@ package org.harvestcircle.ui.shell
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -20,9 +21,11 @@ class WorkspaceSidebarTest {
             val selected = mutableListOf<ScreenKey>()
             setContent { WorkspaceSidebar(ScreenKey.PersonalToday, selected::add) }
             onNodeWithTag("sidebar-PersonalToday").assertIsSelected()
+            onNodeWithTag("sidebar-PersonalToday").assertIsNotEnabled()
             onNodeWithText("Explore").assertIsNotEnabled()
             onNodeWithText("Activity").assertIsNotEnabled()
             onNodeWithText("Add a farm workspace").assertIsNotEnabled()
+            onNodeWithContentDescription("Explore. Not available in this build.").assertExists()
             onNodeWithText("Explore").performClick()
             onNodeWithText("Network").performClick()
             onNodeWithText("Settings").performClick()

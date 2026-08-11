@@ -94,12 +94,14 @@ fun FoundationNetworkScreen(
         tabRail = { available, current ->
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 available.forEach { tab ->
-                    ShellAction(
+                    ShellTab(
                         label = tab.label,
                         description = "Show ${tab.label}",
-                        tag = "network-tab-${tab.key.value}",
+                        selected = tab.key == current,
+                        onClick = { selected = tab.key },
+                        modifier = Modifier.testTag("network-tab-${tab.key.value}"),
                         enabled = tab.key != current,
-                    ) { selected = tab.key }
+                    )
                 }
             }
         },

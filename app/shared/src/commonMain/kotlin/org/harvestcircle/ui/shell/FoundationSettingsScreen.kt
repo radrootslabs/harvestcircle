@@ -48,16 +48,18 @@ fun FoundationSettingsScreen(
         tabRail = { available, current ->
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 available.forEach { tab ->
-                    ShellAction(
-                        tab.label,
-                        "Show ${tab.label} settings",
-                        "settings-${tab.key.value}",
+                    ShellTab(
+                        label = tab.label,
+                        description = "Show ${tab.label} settings",
+                        selected = tab.key == current,
+                        onClick = {
+                            actions.selectSection(
+                                if (tab.key.value == "appearance") SettingsSection.Appearance else SettingsSection.Project,
+                            )
+                        },
+                        modifier = Modifier.testTag("settings-${tab.key.value}"),
                         enabled = tab.key != current,
-                    ) {
-                        actions.selectSection(
-                            if (tab.key.value == "appearance") SettingsSection.Appearance else SettingsSection.Project,
-                        )
-                    }
+                    )
                 }
             }
         },
@@ -114,12 +116,14 @@ private fun <T : Enum<T>> OptionRow(
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         values.forEach { value ->
             val label = value.label()
-            ShellAction(
-                label,
-                "Select $label",
-                "$tagPrefix-${value.name.lowercase()}",
+            ShellTab(
+                label = label,
+                description = "Select $label",
+                selected = value == selected,
+                onClick = { select(value) },
+                modifier = Modifier.testTag("$tagPrefix-${value.name.lowercase()}"),
                 enabled = value != selected,
-            ) { select(value) }
+            )
         }
     }
 }

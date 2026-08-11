@@ -68,7 +68,7 @@ val addFarmWorkspaceAction =
     ShellWorkspaceAction(
         label = "Add a farm workspace",
         enabled = false,
-        unavailableExplanation = "Available after collective contracts are implemented.",
+        unavailableExplanation = "Not available in this build.",
     )
 
 sealed interface ShellRoot {
@@ -170,7 +170,7 @@ private fun navigationItem(screenKey: ScreenKey): ShellNavigationItem {
         screenKey = screenKey,
         label = screenKey.label(),
         enabled = enabled,
-        unavailableExplanation = if (enabled) null else "Available after collective contracts are implemented.",
+        unavailableExplanation = if (enabled) null else "Not available in this build.",
         route = route.takeIf { enabled },
     )
 }

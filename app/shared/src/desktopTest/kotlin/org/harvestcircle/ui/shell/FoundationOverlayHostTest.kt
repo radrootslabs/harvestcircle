@@ -7,7 +7,9 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -53,6 +55,10 @@ class FoundationOverlayHostTest {
                 }
             }
             onAllNodesWithTag("foundation-overlay").assertCountEquals(1)
+            onNode(isDialog()).assertExists()
+            onAllNodesWithText("Open a Nostr reference").assertCountEquals(2)
+            onNodeWithText("Nostr link, event ID, or address").assertExists()
+            onNodeWithText("nostr:…").assertExists()
             onAllNodesWithTag("global-status-banner").assertCountEquals(1)
             onNodeWithTag("nostr-reference-input").assertIsFocused().performTextInput("note1qqqqqq")
             onNodeWithTag("nostr-reference-submit").performClick()

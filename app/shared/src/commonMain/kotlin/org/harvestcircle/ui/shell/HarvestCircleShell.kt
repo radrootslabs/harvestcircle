@@ -160,7 +160,11 @@ private fun DashboardRoot(
         sidebar = { WorkspaceSidebar(route.screenKey) { dispatch(HarvestCircleShellIntent.Navigate(it)) } },
         mainHeader = { MainPanelHeader(MainPanelHeaderModel(title = route.title())) },
         mainBody = {
-            RouteFocusTarget(route.toString(), "${route.title()} main content") {
+            RouteFocusTarget(
+                route.toString(),
+                "${route.title()} main content",
+                restoreFocus = state.overlays.current == null,
+            ) {
                 when (route) {
                     AppRoute.PersonalToday ->
                         FoundationTodayScreen(

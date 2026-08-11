@@ -30,6 +30,7 @@ class GlobalTopBarTest {
             }
             onNodeWithText("Limited connection").performClick()
             onNodeWithText("Read-only").performClick()
+            onNodeWithText("Open a Nostr reference").assertExists()
             onNodeWithTag("top-bar-open-reference").performClick()
             onNodeWithTag("top-bar-forward").assertIsNotEnabled()
             assertEquals(

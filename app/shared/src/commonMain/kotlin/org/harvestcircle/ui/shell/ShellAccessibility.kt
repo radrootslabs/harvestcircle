@@ -6,7 +6,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -71,9 +74,11 @@ fun ShellKeyboardHost(
 fun RouteFocusTarget(
     routeKey: String,
     label: String,
+    restoreFocus: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     val requester = remember(routeKey) { FocusRequester() }
+    var modalWasOpen by remember(routeKey) { mutableStateOf(false) }
     Box(
         Modifier
             .fillMaxSize()
@@ -85,6 +90,14 @@ fun RouteFocusTarget(
         content()
     }
     LaunchedEffect(routeKey) { requester.requestFocus() }
+    LaunchedEffect(restoreFocus) {
+        if (!restoreFocus) {
+            modalWasOpen = true
+        } else if (modalWasOpen) {
+            requester.requestFocus()
+            modalWasOpen = false
+        }
+    }
 }
 
 private fun KeyEvent.toShellShortcut(): ShellShortcut? {

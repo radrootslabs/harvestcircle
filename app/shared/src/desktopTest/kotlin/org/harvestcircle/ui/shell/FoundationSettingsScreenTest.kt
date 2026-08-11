@@ -1,13 +1,21 @@
 package org.harvestcircle.ui.shell
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.v2.runComposeUiTest
+import androidx.compose.ui.unit.dp
 import org.harvestcircle.application.BuildInfo
 import org.harvestcircle.design.AppearanceState
 import org.harvestcircle.design.MotionPreference
@@ -38,6 +46,10 @@ class FoundationSettingsScreenTest {
             }
 
             onNodeWithTag("bounded-detail-settings").assertExists()
+            onNodeWithTag("settings-appearance").assertIsSelected().assertIsNotEnabled()
+            onNodeWithTag("theme-system").assertIsSelected().assertIsNotEnabled()
+            onNodeWithTag("text-size-default").assertIsSelected().assertIsNotEnabled()
+            onNodeWithTag("motion-standard").assertIsSelected().assertIsNotEnabled()
             onNodeWithTag("theme-dark").performClick()
             onNodeWithTag("text-size-verylarge").performClick()
             onNodeWithTag("motion-reduced").performClick()
@@ -77,5 +89,25 @@ class FoundationSettingsScreenTest {
             assertEquals(1, licence)
             onAllNodesWithText("Locality").assertCountEquals(0)
             onAllNodesWithText("Delete data").assertCountEquals(0)
+        }
+
+    @Test
+    fun veryLargeProjectFactsRemainReachableInTheBoundedPane() =
+        runComposeUiTest {
+            setContent {
+                Box(Modifier.size(640.dp, 360.dp)) {
+                    HarvestCircleTheme(AppearanceState(textSize = TextSizePreference.VeryLarge)) {
+                        FoundationSettingsScreen(
+                            SettingsSection.Project,
+                            AppearanceState(textSize = TextSizePreference.VeryLarge),
+                            BuildInfo.unknown(),
+                            FoundationSettingsActions({}, {}, {}, {}),
+                            HarvestCirclePlatformActions(),
+                        )
+                    }
+                }
+            }
+
+            onNodeWithTag("project-storage-schema").performScrollTo().assertIsDisplayed()
         }
 }

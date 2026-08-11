@@ -1,14 +1,24 @@
 package org.harvestcircle.ui.shell
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.v2.runComposeUiTest
+import androidx.compose.ui.unit.dp
 import org.harvestcircle.application.ApplicationLifecycle
 import org.harvestcircle.application.RelayDestination
+import org.harvestcircle.design.AppearanceState
+import org.harvestcircle.design.TextSizePreference
 import kotlin.test.Test
 
 @OptIn(ExperimentalTestApi::class)
@@ -18,6 +28,7 @@ class FoundationNetworkScreenTest {
         runComposeUiTest {
             setContent { FoundationNetworkScreen(model()) }
             onNodeWithTag("bounded-detail-network").assertExists()
+            onNodeWithTag("network-tab-overview").assertIsSelected().assertIsNotEnabled()
             onNodeWithText("Signer").assertExists()
             onNodeWithText("Local identity active").assertExists()
             onNodeWithText("No managed HarvestCircle service is configured.").assertExists()
@@ -61,6 +72,21 @@ class FoundationNetworkScreenTest {
             onNodeWithTag("network-tab-public_relays").performClick()
             onNodeWithText("Not yet observed").assertExists()
             onNodeWithText("No public relay endpoints are configured.").assertExists()
+        }
+
+    @Test
+    fun veryLargeRuntimeDetailsRemainReachableInTheBoundedPane() =
+        runComposeUiTest {
+            setContent {
+                Box(Modifier.size(640.dp, 360.dp)) {
+                    HarvestCircleTheme(AppearanceState(textSize = TextSizePreference.VeryLarge)) {
+                        FoundationNetworkScreen(model())
+                    }
+                }
+            }
+
+            onNodeWithTag("network-tab-runtime").performClick()
+            onNodeWithTag("network-runtime-problem").performScrollTo().assertIsDisplayed()
         }
 }
 

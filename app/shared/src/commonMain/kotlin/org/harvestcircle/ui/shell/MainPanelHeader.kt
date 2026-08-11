@@ -55,6 +55,7 @@ fun MainPanelHeader(
                 selected = tab.key == model.selectedTab,
                 onClick = { onTabSelected(tab.key) },
                 modifier = Modifier.testTag("main-tab-${tab.key.value}"),
+                enabled = tab.key != model.selectedTab,
             )
         }
         Row(Modifier.testTag("main-secondary-action")) { secondaryAction() }

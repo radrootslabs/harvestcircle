@@ -6,7 +6,7 @@ import kotlin.test.assertEquals
 class ShellControlsTest {
     @Test
     fun visualStateUsesAccessibilityAndInteractionPriority() {
-        assertEquals(ShellControlVisualState.Disabled, shellControlVisualState(false, true, true, true, true))
+        assertEquals(ShellControlVisualState.Selected, shellControlVisualState(false, true, true, true, true))
         assertEquals(ShellControlVisualState.Focused, shellControlVisualState(true, true, true, true, true))
         assertEquals(ShellControlVisualState.Pressed, shellControlVisualState(true, true, false, true, true))
         assertEquals(ShellControlVisualState.Selected, shellControlVisualState(true, true, false, false, true))
