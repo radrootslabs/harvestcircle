@@ -50,7 +50,7 @@ data class IdentityRemovalConfirmation(
 data class HarvestCirclePresenterState(
     val snapshot: ApplicationSnapshot,
     val route: HarvestCircleRoute = snapshot.toHarvestCircleRoute(),
-    val importDraft: String = "",
+    val importDraft: ImportSecretDraft = ImportSecretDraft.empty(),
     val generatedKeyBackup: GeneratedKeyBackup? = null,
     val removalConfirmation: IdentityRemovalConfirmation? = null,
     val removalStatus: RemovalStatus = RemovalStatus.NONE,
@@ -65,9 +65,17 @@ data class HarvestCirclePresenterState(
 )
 
 sealed interface HarvestCircleIntent {
-    data class EditImportDraft(
-        val value: String,
-    ) : HarvestCircleIntent
+    class EditImportDraft private constructor(
+        private var draft: ImportSecretDraft?,
+    ) : HarvestCircleIntent {
+        internal fun takeDraft(): ImportSecretDraft? = draft.also { draft = null }
+
+        override fun toString(): String = "EditImportDraft(draft=[REDACTED])"
+
+        companion object {
+            fun from(value: String): EditImportDraft = EditImportDraft(ImportSecretDraft.from(value))
+        }
+    }
 
     data object ChooseCreateIdentity : HarvestCircleIntent
 

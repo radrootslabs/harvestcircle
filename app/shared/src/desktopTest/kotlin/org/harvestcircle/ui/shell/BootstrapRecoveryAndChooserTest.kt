@@ -106,7 +106,9 @@ private fun model(
     identities = identities,
     activeIdentity = null,
     configuredRelays = emptyList(),
-    importDraft = "",
+    importDraft =
+        org.harvestcircle.application.ImportSecretDraft
+            .empty(),
     generatedKeyBackup = generatedKeyBackup,
     removalConfirmation = null,
     removalStatus = RemovalStatus.NONE,

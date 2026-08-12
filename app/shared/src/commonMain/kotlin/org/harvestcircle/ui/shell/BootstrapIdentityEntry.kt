@@ -82,7 +82,7 @@ private fun ImportIdentityBody(
     val requester = remember { FocusRequester() }
     Column(Modifier.testTag("import-identity-entry"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ShellTextField(
-            value = model.importDraft,
+            value = model.importDraft.revealForDisplay(),
             onValueChange = actions.editImportDraft,
             label = "Nostr secret key",
             placeholder = "nsec1…",

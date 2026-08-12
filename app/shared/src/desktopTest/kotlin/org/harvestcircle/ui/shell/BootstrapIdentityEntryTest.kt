@@ -11,6 +11,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import org.harvestcircle.application.HarvestCircleRoute
 import org.harvestcircle.application.IdentityEntryMode
+import org.harvestcircle.application.ImportSecretDraft
 import org.harvestcircle.application.RecoveryAction
 import org.harvestcircle.application.RemovalStatus
 import org.harvestcircle.application.SessionLifecycle
@@ -64,7 +65,7 @@ private fun model(importDraft: String = "") =
         identities = emptyList(),
         activeIdentity = null,
         configuredRelays = emptyList(),
-        importDraft = importDraft,
+        importDraft = ImportSecretDraft.from(importDraft),
         generatedKeyBackup = null,
         removalConfirmation = null,
         removalStatus = RemovalStatus.NONE,

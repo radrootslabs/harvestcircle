@@ -108,7 +108,7 @@ internal fun HarvestCircleApplicationWithDependencies(
             chooseCreateIdentity = { presenter.dispatch(HarvestCircleIntent.ChooseCreateIdentity) },
             chooseImportIdentity = { presenter.dispatch(HarvestCircleIntent.ChooseImportIdentity) },
             cancelIdentityEntry = { presenter.dispatch(HarvestCircleIntent.CancelIdentityEntry) },
-            editImportDraft = { presenter.dispatch(HarvestCircleIntent.EditImportDraft(it)) },
+            editImportDraft = { presenter.dispatch(HarvestCircleIntent.EditImportDraft.from(it)) },
             generateIdentity = { presenter.dispatch(HarvestCircleIntent.GenerateIdentity) },
             importSecretKey = { presenter.dispatch(HarvestCircleIntent.ImportIdentity) },
             acknowledgeGeneratedKeyBackup = { presenter.dispatch(HarvestCircleIntent.AcknowledgeGeneratedRecovery) },

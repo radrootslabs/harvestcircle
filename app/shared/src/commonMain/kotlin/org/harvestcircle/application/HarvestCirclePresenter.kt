@@ -57,12 +57,15 @@ class HarvestCirclePresenter(
 
     override fun dispatch(intent: HarvestCircleIntent) {
         when (intent) {
-            is HarvestCircleIntent.EditImportDraft -> editImportDraft(intent.value)
+            is HarvestCircleIntent.EditImportDraft -> editImportDraft(intent)
             HarvestCircleIntent.ChooseCreateIdentity -> updateState { copy(identityEntryMode = IdentityEntryMode.CREATE, problem = null) }
             HarvestCircleIntent.ChooseImportIdentity -> updateState { copy(identityEntryMode = IdentityEntryMode.IMPORT, problem = null) }
             HarvestCircleIntent.CancelIdentityEntry ->
-                updateState {
-                    copy(identityEntryMode = IdentityEntryMode.CHOICE, importDraft = "", problem = null)
+                clearImportDraft {
+                    copy(
+                        identityEntryMode = IdentityEntryMode.CHOICE,
+                        problem = null,
+                    )
                 }
             HarvestCircleIntent.GenerateIdentity -> prepareIdentity()
             HarvestCircleIntent.AcknowledgeGeneratedRecovery -> acknowledgeRecovery()
@@ -91,6 +94,7 @@ class HarvestCirclePresenter(
             commandJob?.cancelAndJoin()
             subscriptionJob?.cancelAndJoin()
             releaseRecovery()
+            clearImportDraft()
             pendingRemoval = null
             return try {
                 runtime.shutdown().also { receipt ->
@@ -113,13 +117,19 @@ class HarvestCirclePresenter(
             }
         }
 
-    private fun editImportDraft(value: String) {
-        updateState {
-            copy(
-                importDraft = value.take(MAX_IMPORT_SECRET_CHARS),
-                lastProblem = null,
-                problem = null,
-            )
+    private fun editImportDraft(intent: HarvestCircleIntent.EditImportDraft) {
+        val incoming = intent.takeDraft() ?: return
+        if (closed) {
+            incoming.clear()
+            rejectUnavailable("The application runtime is closed.")
+            return
+        }
+        while (true) {
+            val current = mutableState.value
+            val updated = current.copy(importDraft = incoming, lastProblem = null, problem = null)
+            if (!mutableState.compareAndSet(current, updated)) continue
+            if (current.importDraft !== incoming) current.importDraft.clear()
+            return
         }
     }
 
@@ -171,15 +181,17 @@ class HarvestCirclePresenter(
         val operationId = operationIds.next()
         launchOperation(
             operationId = operationId,
-            onAccepted = { updateState { copy(importDraft = "") } },
+            onAccepted = { detachImportDraft(draft) },
         ) {
-            val input = SecretKeyInput.from(draft)
-            val command = ApplicationCommand.ImportLocalIdentity(input, requestContext(operationId))
+            var input: SecretKeyInput? = null
             try {
+                input = SecretKeyInput.from(draft.take())
+                val command = ApplicationCommand.ImportLocalIdentity(input, requestContext(operationId))
                 acceptResult(runtime.execute(command), operationId)
                 updateState { copy(identityEntryMode = IdentityEntryMode.CHOICE) }
             } finally {
-                input.clear()
+                input?.clear()
+                draft.clear()
             }
         }
     }
@@ -501,6 +513,28 @@ class HarvestCirclePresenter(
         pendingRecovery = null
         recovery?.backup?.clear()
         updateState { copy(generatedKeyBackup = null) }
+    }
+
+    private fun detachImportDraft(draft: ImportSecretDraft) {
+        while (true) {
+            val current = mutableState.value
+            if (current.importDraft !== draft) return
+            if (mutableState.compareAndSet(current, current.copy(importDraft = ImportSecretDraft.empty()))) return
+        }
+    }
+
+    private fun clearImportDraft(transform: HarvestCirclePresenterState.() -> HarvestCirclePresenterState = { this }) {
+        while (true) {
+            val current = mutableState.value
+            val replacement = ImportSecretDraft.empty()
+            val updated = current.copy(importDraft = replacement).transform()
+            if (!mutableState.compareAndSet(current, updated)) {
+                replacement.clear()
+                continue
+            }
+            current.importDraft.clear()
+            return
+        }
     }
 
     private fun requestContext(operationId: OperationId): RequestContext =

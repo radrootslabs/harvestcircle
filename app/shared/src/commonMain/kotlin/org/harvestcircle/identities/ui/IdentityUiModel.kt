@@ -7,6 +7,7 @@ import org.harvestcircle.application.HarvestCircleRoute
 import org.harvestcircle.application.IdentityEntryMode
 import org.harvestcircle.application.IdentityRemovalConfirmation
 import org.harvestcircle.application.IdentitySummary
+import org.harvestcircle.application.ImportSecretDraft
 import org.harvestcircle.application.ProfileLoadState
 import org.harvestcircle.application.RecoveryAction
 import org.harvestcircle.application.RelayConnectionState
@@ -52,7 +53,7 @@ data class HarvestCircleUiModel(
     val identities: List<IdentityUiModel>,
     val activeIdentity: ActiveIdentityUiModel?,
     val configuredRelays: List<String>,
-    val importDraft: String,
+    val importDraft: ImportSecretDraft,
     val generatedKeyBackup: GeneratedKeyBackupUiModel?,
     val removalConfirmation: IdentityRemovalConfirmation?,
     val removalStatus: RemovalStatus,

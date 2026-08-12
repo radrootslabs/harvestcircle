@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import org.harvestcircle.identities.ui.toUiModel
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -224,16 +225,114 @@ class HarvestCirclePresenterTest {
 
             presenter.dispatch(HarvestCircleIntent.ChooseImportIdentity)
             assertEquals(IdentityEntryMode.IMPORT, presenter.state.value.identityEntryMode)
-            presenter.dispatch(HarvestCircleIntent.EditImportDraft("nsec1" + "x".repeat(200)))
+            presenter.dispatch(HarvestCircleIntent.EditImportDraft.from("nsec1" + "x".repeat(200)))
             assertEquals(MAX_IMPORT_SECRET_CHARS, presenter.state.value.importDraft.length)
+            val adoptedDraft = presenter.state.value.importDraft
             presenter.dispatch(HarvestCircleIntent.ImportIdentity)
-            assertEquals("", presenter.state.value.importDraft)
+            assertEquals(
+                "",
+                presenter.state.value.importDraft
+                    .revealForDisplay(),
+            )
             advanceUntilIdle()
             assertEquals(IdentityEntryMode.CHOICE, presenter.state.value.identityEntryMode)
 
             assertEquals(1, runtime.importedSecrets.size)
             assertEquals(MAX_IMPORT_SECRET_CHARS, runtime.importedSecrets.single().length)
+            assertFailsWith<IllegalStateException> { adoptedDraft.take() }
             presenter.close()
+        }
+
+    @Test
+    fun hcSl005ImportDraftIntentStateAndUiDiagnosticsAreRedacted() =
+        runTest {
+            val secret = "nsec1distinctive-secret"
+            val runtime = FakePresenterRuntime()
+            val presenter = presenter(runtime)
+            runCurrent()
+            val intent = HarvestCircleIntent.EditImportDraft.from(secret)
+
+            assertEquals("EditImportDraft(draft=[REDACTED])", intent.toString())
+            presenter.dispatch(intent)
+
+            assertEquals(
+                "ImportSecretDraft([REDACTED])",
+                presenter.state.value.importDraft
+                    .toString(),
+            )
+            assertTrue(secret !in presenter.state.value.toString())
+            assertTrue(
+                secret !in
+                    presenter.state.value
+                        .toUiModel()
+                        .toString(),
+            )
+            presenter.close()
+        }
+
+    @Test
+    fun hcSl005ReplacementAndCancelClearDisplacedDrafts() =
+        runTest {
+            val runtime = FakePresenterRuntime()
+            val presenter = presenter(runtime)
+            runCurrent()
+            presenter.dispatch(HarvestCircleIntent.EditImportDraft.from("first-secret"))
+            val first = presenter.state.value.importDraft
+
+            presenter.dispatch(HarvestCircleIntent.EditImportDraft.from("second-secret"))
+            val second = presenter.state.value.importDraft
+            assertFailsWith<IllegalStateException> { first.take() }
+            assertEquals("second-secret", second.revealForDisplay())
+
+            presenter.dispatch(HarvestCircleIntent.CancelIdentityEntry)
+            assertFailsWith<IllegalStateException> { second.take() }
+            assertEquals(
+                "",
+                presenter.state.value.importDraft
+                    .revealForDisplay(),
+            )
+            presenter.close()
+        }
+
+    @Test
+    fun hcSl005BusyRejectedImportRetainsTheAdoptedDraft() =
+        runTest {
+            val gate = CompletableDeferred<Unit>()
+            val runtime = FakePresenterRuntime(executeGate = gate)
+            val presenter = presenter(runtime)
+            runCurrent()
+            presenter.dispatch(HarvestCircleIntent.EditImportDraft.from("retained-secret"))
+            val draft = presenter.state.value.importDraft
+            presenter.dispatch(HarvestCircleIntent.SignOut)
+            runCurrent()
+
+            presenter.dispatch(HarvestCircleIntent.ImportIdentity)
+
+            assertEquals(CommandStatus.REJECTED_BUSY, presenter.state.value.commandStatus)
+            assertTrue(presenter.state.value.importDraft === draft)
+            assertEquals("retained-secret", draft.revealForDisplay())
+            gate.complete(Unit)
+            advanceUntilIdle()
+            presenter.close()
+        }
+
+    @Test
+    fun hcSl005PresenterCloseClearsTheCurrentDraft() =
+        runTest {
+            val runtime = FakePresenterRuntime()
+            val presenter = presenter(runtime)
+            runCurrent()
+            presenter.dispatch(HarvestCircleIntent.EditImportDraft.from("close-secret"))
+            val draft = presenter.state.value.importDraft
+
+            presenter.close()
+
+            assertFailsWith<IllegalStateException> { draft.take() }
+            assertEquals(
+                "",
+                presenter.state.value.importDraft
+                    .revealForDisplay(),
+            )
         }
 
     @Test
