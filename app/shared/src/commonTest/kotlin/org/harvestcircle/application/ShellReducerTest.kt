@@ -27,7 +27,7 @@ class ShellReducerTest {
                 ShellEvent.SetTheme(ThemePreference.Dark),
                 ShellEvent.SetTextSize(TextSizePreference.VeryLarge),
                 ShellEvent.SetMotion(MotionPreference.Reduced),
-                ShellEvent.Overlay(OverlayIntent.Open(FoundationOverlay.OpenNostrReference())),
+                ShellEvent.Overlay(OverlayIntent.OpenReference),
             )
 
         val forward = events.fold(initial, ShellReducer::reduce)
@@ -67,7 +67,7 @@ class ShellReducerTest {
                     async {
                         presenter.dispatch(
                             HarvestCircleShellIntent.Overlay(
-                                OverlayIntent.Open(FoundationOverlay.OpenNostrReference()),
+                                OverlayIntent.OpenReference,
                             ),
                         )
                     },

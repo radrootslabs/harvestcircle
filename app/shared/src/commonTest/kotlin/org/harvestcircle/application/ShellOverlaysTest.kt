@@ -26,6 +26,21 @@ class ShellOverlaysTest {
     }
 
     @Test
+    fun referenceOpeningIsInputFreeAndGenericPrefilledIngressIsRejected() {
+        val initial = shellState()
+        val rejected =
+            OverlayReducer
+                .transition(
+                    initial,
+                    OverlayIntent.Open(FoundationOverlay.OpenNostrReference("nsec1prefilled")),
+                ).state
+        assertEquals(initial, rejected)
+
+        val opened = OverlayReducer.transition(initial, OverlayIntent.OpenReference).state
+        assertEquals(FoundationOverlay.OpenNostrReference(), opened.overlays.current)
+    }
+
+    @Test
     fun oneTopOverlayReplacesPriorAndEscapeDoesNotTouchNavigation() {
         val first =
             OverlayReducer

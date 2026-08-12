@@ -171,7 +171,7 @@ private fun DashboardRoot(
                             openNostrReference = {
                                 dispatch(
                                     HarvestCircleShellIntent.Overlay(
-                                        OverlayIntent.Open(FoundationOverlay.OpenNostrReference()),
+                                        OverlayIntent.OpenReference,
                                     ),
                                 )
                             },
@@ -218,7 +218,7 @@ private fun dispatchShortcut(
             ShellShortcut.Back -> HarvestCircleShellIntent.Navigation(NavigationIntent.Back)
             ShellShortcut.Forward -> HarvestCircleShellIntent.Navigation(NavigationIntent.Forward)
             ShellShortcut.OpenNostrReference ->
-                HarvestCircleShellIntent.Overlay(OverlayIntent.Open(FoundationOverlay.OpenNostrReference()))
+                HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference)
             ShellShortcut.Today -> HarvestCircleShellIntent.Navigate(ScreenKey.PersonalToday)
             ShellShortcut.Settings -> HarvestCircleShellIntent.Navigate(ScreenKey.Settings)
             ShellShortcut.CloseOverlay -> HarvestCircleShellIntent.Overlay(OverlayIntent.Escape())
@@ -243,7 +243,7 @@ private fun dispatchTopBar(
             GlobalTopBarIntent.Back -> HarvestCircleShellIntent.Navigation(NavigationIntent.Back)
             GlobalTopBarIntent.Forward -> HarvestCircleShellIntent.Navigation(NavigationIntent.Forward)
             GlobalTopBarIntent.OpenNostrReference ->
-                HarvestCircleShellIntent.Overlay(OverlayIntent.Open(FoundationOverlay.OpenNostrReference()))
+                HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference)
             GlobalTopBarIntent.ShowSyncStatus ->
                 HarvestCircleShellIntent.Overlay(OverlayIntent.Open(FoundationOverlay.Status(StatusOverlayKey.Sync)))
             GlobalTopBarIntent.ShowSignerStatus ->

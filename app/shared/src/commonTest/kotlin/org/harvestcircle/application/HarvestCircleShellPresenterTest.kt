@@ -169,11 +169,9 @@ class HarvestCircleShellPresenterTest {
             val identity = FakeIdentityPresentation(presenterState(HarvestCircleRoute.IDENTITIES))
             val parser = RecordingReferenceParser(NostrReferenceClassification.Note, "note1canonical")
             val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this, parser)
-            presenter.dispatch(
-                HarvestCircleShellIntent.Overlay(
-                    OverlayIntent.Open(FoundationOverlay.OpenNostrReference("note1candidate")),
-                ),
-            )
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference))
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.EditReference("note1candidate")))
+            assertTrue(parser.inputs.isEmpty())
             presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.SubmitReference))
 
             assertEquals(listOf("note1candidate"), parser.inputs)
@@ -191,17 +189,55 @@ class HarvestCircleShellPresenterTest {
             val identity = FakeIdentityPresentation(presenterState(HarvestCircleRoute.IDENTITIES))
             val parser = RecordingReferenceParser(NostrReferenceClassification.PrivateKeyRejected, null)
             val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this, parser)
-            presenter.dispatch(
-                HarvestCircleShellIntent.Overlay(OverlayIntent.Open(FoundationOverlay.OpenNostrReference())),
-            )
-            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.EditReference(privateReference)))
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference))
+            val edit = OverlayIntent.EditReference(privateReference)
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(edit))
 
-            assertEquals(listOf(privateReference), parser.inputs)
+            assertTrue(parser.inputs.isEmpty())
+            assertEquals("EditReference(value=[REDACTED])", edit.toString())
             assertEquals(
                 FoundationOverlay.OpenNostrReference("", ReferenceResult.PrivateKeyRejected),
                 presenter.state.value.overlays.current,
             )
             assertTrue(privateReference !in presenter.state.value.toString())
+            presenter.close()
+        }
+
+    @Test
+    fun oversizedReferenceNeverEntersStateOrParser() =
+        runTest {
+            val identity = FakeIdentityPresentation(presenterState(HarvestCircleRoute.IDENTITIES))
+            val parser = RecordingReferenceParser(NostrReferenceClassification.Invalid, null)
+            val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this, parser)
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference))
+            val oversized = "x".repeat(2 * 1024 * 1024)
+            presenter.dispatch(
+                HarvestCircleShellIntent.Overlay(
+                    OverlayIntent.EditReference(oversized),
+                ),
+            )
+
+            assertTrue(parser.inputs.isEmpty())
+            assertTrue(oversized !in presenter.state.value.toString())
+            assertEquals(
+                FoundationOverlay.OpenNostrReference("", ReferenceResult.Invalid),
+                presenter.state.value.overlays.current,
+            )
+            presenter.close()
+        }
+
+    @Test
+    fun genericPrefilledReferenceOpenIsRejected() =
+        runTest {
+            val identity = FakeIdentityPresentation(presenterState(HarvestCircleRoute.IDENTITIES))
+            val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this)
+            presenter.dispatch(
+                HarvestCircleShellIntent.Overlay(
+                    OverlayIntent.Open(FoundationOverlay.OpenNostrReference("nsec1prefilled")),
+                ),
+            )
+
+            assertNull(presenter.state.value.overlays.current)
             presenter.close()
         }
 }

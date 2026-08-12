@@ -42,9 +42,13 @@ sealed interface OverlayIntent {
         val overlay: FoundationOverlay,
     ) : OverlayIntent
 
-    data class EditReference(
+    data object OpenReference : OverlayIntent
+
+    class EditReference(
         val value: String,
-    ) : OverlayIntent
+    ) : OverlayIntent {
+        override fun toString(): String = "EditReference(value=[REDACTED])"
+    }
 
     data object SubmitReference : OverlayIntent
 
@@ -85,11 +89,14 @@ object OverlayReducer {
         intent: OverlayIntent,
     ): OverlayTransition =
         when (intent) {
-            is OverlayIntent.Open -> state.withOverlay(intent.overlay)
-            is OverlayIntent.EditReference ->
-                state.withOverlay(
-                    (state.overlays.current as? FoundationOverlay.OpenNostrReference)?.copy(input = intent.value),
-                )
+            is OverlayIntent.Open ->
+                if (intent.overlay is FoundationOverlay.OpenNostrReference) {
+                    OverlayTransition(state)
+                } else {
+                    state.withOverlay(intent.overlay)
+                }
+            OverlayIntent.OpenReference -> state.withOverlay(FoundationOverlay.OpenNostrReference())
+            is OverlayIntent.EditReference -> applyReferenceEdit(state, intent.value)
             OverlayIntent.SubmitReference -> OverlayTransition(state)
             is OverlayIntent.ApplyReferenceResult -> applyReferenceResult(state, intent.result, intent.clearInput)
             is OverlayIntent.Confirm -> admitConfirmation(state, intent.action, submitting = true)
@@ -110,6 +117,20 @@ object OverlayReducer {
                     else -> state.withOverlay(null)
                 }
         }
+
+    private fun applyReferenceEdit(
+        state: HarvestCircleShellState,
+        raw: String,
+    ): OverlayTransition {
+        val overlay = state.overlays.current as? FoundationOverlay.OpenNostrReference ?: return OverlayTransition(state)
+        val updated =
+            when (val admission = ReferenceInputPolicy.admit(raw)) {
+                is ReferenceInputAdmission.Accepted -> overlay.copy(input = admission.value, result = null)
+                ReferenceInputAdmission.PrivateKeyShaped -> overlay.copy(input = "", result = ReferenceResult.PrivateKeyRejected)
+                ReferenceInputAdmission.TooLarge -> overlay.copy(input = "", result = ReferenceResult.Invalid)
+            }
+        return state.withOverlay(updated)
+    }
 
     private fun admitConfirmation(
         state: HarvestCircleShellState,

@@ -100,15 +100,18 @@ class HarvestCircleShellPresenter(
 
     private fun dispatchOverlay(intent: OverlayIntent) {
         when (intent) {
-            is OverlayIntent.EditReference -> {
-                if (referenceParser.parse(intent.value).classification == NostrReferenceClassification.PrivateKeyRejected) {
+            OverlayIntent.SubmitReference -> {
+                val overlay = mutableState.value.overlays.current as? FoundationOverlay.OpenNostrReference ?: return
+                val admitted = ReferenceInputPolicy.admit(overlay.input)
+                if (admitted == ReferenceInputAdmission.PrivateKeyShaped) {
                     applyReferenceResult(ReferenceResult.PrivateKeyRejected, clearInput = true)
                     return
                 }
-            }
-            OverlayIntent.SubmitReference -> {
-                val overlay = mutableState.value.overlays.current as? FoundationOverlay.OpenNostrReference ?: return
-                val parsed = referenceParser.parse(overlay.input)
+                if (admitted == ReferenceInputAdmission.TooLarge) {
+                    applyReferenceResult(ReferenceResult.Invalid, clearInput = true)
+                    return
+                }
+                val parsed = referenceParser.parse((admitted as ReferenceInputAdmission.Accepted).value)
                 when (parsed.classification) {
                     NostrReferenceClassification.Invalid -> applyReferenceResult(ReferenceResult.Invalid)
                     NostrReferenceClassification.PrivateKeyRejected ->
