@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.role
@@ -38,32 +39,75 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.harvestcircle.design.ColorToken
 import org.harvestcircle.design.FontWeightToken
 import org.harvestcircle.design.HarvestCircleDesign
+import org.harvestcircle.design.HarvestCirclePalette
 import org.harvestcircle.design.TypographyToken
 
 enum class ShellTextRole { ScreenTitle, SectionTitle, CardTitle, Body, Secondary, Protocol, Button }
 
 enum class ShellButtonKind { Primary, Secondary, Quiet, Destructive }
 
-enum class ShellControlVisualState { Normal, Hovered, Pressed, Focused, Selected, Disabled }
+sealed interface ShellControlBackground {
+    data class Solid(
+        val color: ColorToken,
+    ) : ShellControlBackground
 
-fun shellControlVisualState(
+    data object Transparent : ShellControlBackground
+}
+
+data class ShellControlVisuals(
+    val background: ShellControlBackground,
+    val foreground: ColorToken,
+    val border: ColorToken,
+    val focusRing: ColorToken?,
+)
+
+internal val ShellControlBackgroundKey = SemanticsPropertyKey<String>("ShellControlBackground")
+internal val ShellControlForegroundKey = SemanticsPropertyKey<String>("ShellControlForeground")
+internal val ShellControlBorderKey = SemanticsPropertyKey<String>("ShellControlBorder")
+
+fun resolveShellControlVisuals(
+    kind: ShellButtonKind,
     enabled: Boolean,
     selected: Boolean,
     focused: Boolean,
     pressed: Boolean,
     hovered: Boolean,
-): ShellControlVisualState =
-    when {
-        !enabled && selected -> ShellControlVisualState.Selected
-        !enabled -> ShellControlVisualState.Disabled
-        focused -> ShellControlVisualState.Focused
-        pressed -> ShellControlVisualState.Pressed
-        selected -> ShellControlVisualState.Selected
-        hovered -> ShellControlVisualState.Hovered
-        else -> ShellControlVisualState.Normal
+    palette: HarvestCirclePalette,
+): ShellControlVisuals {
+    if (!enabled) {
+        return ShellControlVisuals(
+            background = ShellControlBackground.Solid(palette.surfaceSecondary),
+            foreground = palette.textSecondary,
+            border = palette.border,
+            focusRing = null,
+        )
     }
+    val background =
+        when {
+            selected -> ShellControlBackground.Solid(if (hovered && !pressed) palette.primaryHover else palette.primary)
+            kind == ShellButtonKind.Primary ->
+                ShellControlBackground.Solid(if (hovered && !pressed) palette.primaryHover else palette.primary)
+            kind == ShellButtonKind.Destructive -> ShellControlBackground.Solid(palette.critical)
+            kind == ShellButtonKind.Secondary -> ShellControlBackground.Solid(palette.surfaceSecondary)
+            pressed || hovered -> ShellControlBackground.Solid(palette.surfaceSecondary)
+            else -> ShellControlBackground.Transparent
+        }
+    val foreground =
+        if (selected || kind == ShellButtonKind.Primary || kind == ShellButtonKind.Destructive) {
+            palette.surface
+        } else {
+            palette.textPrimary
+        }
+    return ShellControlVisuals(
+        background = background,
+        foreground = foreground,
+        border = if (focused) palette.focus else palette.border,
+        focusRing = if (focused) palette.focus else null,
+    )
+}
 
 @Composable
 fun ShellSurface(
@@ -132,41 +176,15 @@ fun ShellButton(
     val hovered by interactionSource.collectIsHoveredAsState()
     val pressed by interactionSource.collectIsPressedAsState()
     var focused by remember { mutableStateOf(false) }
-    val state = shellControlVisualState(enabled, selected, focused, pressed, hovered)
     val palette = LocalHarvestCirclePalette.current
-    val background =
-        when (state) {
-            ShellControlVisualState.Disabled -> palette.surfaceSecondary.toComposeColor()
-            ShellControlVisualState.Hovered -> palette.primaryHover.toComposeColor()
-            ShellControlVisualState.Pressed -> palette.primary.toComposeColor()
-            ShellControlVisualState.Focused -> palette.surface.toComposeColor()
-            ShellControlVisualState.Selected -> palette.primary.toComposeColor()
-            ShellControlVisualState.Normal ->
-                when (kind) {
-                    ShellButtonKind.Primary -> palette.primary.toComposeColor()
-                    ShellButtonKind.Destructive -> palette.critical.toComposeColor()
-                    ShellButtonKind.Secondary -> palette.surfaceSecondary.toComposeColor()
-                    ShellButtonKind.Quiet -> Color.Transparent
-                }
-        }
-    val foreground =
-        if (state == ShellControlVisualState.Disabled) {
-            palette.textSecondary.toComposeColor()
-        } else if (state in setOf(ShellControlVisualState.Hovered, ShellControlVisualState.Pressed, ShellControlVisualState.Selected) ||
-            kind == ShellButtonKind.Primary ||
-            kind == ShellButtonKind.Destructive
-        ) {
-            palette.surface.toComposeColor()
-        } else {
-            palette.textPrimary.toComposeColor()
-        }
+    val visuals = resolveShellControlVisuals(kind, enabled, selected, focused, pressed, hovered, palette)
     Box(
         modifier
             .heightIn(min = HarvestCircleDesign.MINIMUM_TARGET_DP.dp)
-            .background(background, RoundedCornerShape(LocalHarvestCircleShapes.current.controlRadiusDp.dp))
+            .background(visuals.background.toComposeColor(), RoundedCornerShape(LocalHarvestCircleShapes.current.controlRadiusDp.dp))
             .border(
                 HarvestCircleDesign.BORDER_DP.dp,
-                if (focused) palette.focus.toComposeColor() else palette.border.toComposeColor(),
+                visuals.border.toComposeColor(),
                 RoundedCornerShape(LocalHarvestCircleShapes.current.controlRadiusDp.dp),
             ).onFocusChanged { focused = it.isFocused }
             .hoverable(interactionSource, enabled)
@@ -176,12 +194,27 @@ fun ShellButton(
                 contentDescription = description
                 role = Role.Button
                 this.selected = selected
+                this[ShellControlBackgroundKey] = visuals.background.semanticValue()
+                this[ShellControlForegroundKey] = visuals.foreground.hex
+                this[ShellControlBorderKey] = visuals.border.hex
                 if (!enabled) disabled()
             }.padding(horizontal = HarvestCircleDesign.spacingDp[3].dp, vertical = HarvestCircleDesign.spacingDp[2].dp),
     ) {
-        ShellText(label, textRole = ShellTextRole.Button, color = foreground)
+        ShellText(label, textRole = ShellTextRole.Button, color = visuals.foreground.toComposeColor())
     }
 }
+
+private fun ShellControlBackground.toComposeColor(): Color =
+    when (this) {
+        is ShellControlBackground.Solid -> color.toComposeColor()
+        ShellControlBackground.Transparent -> Color.Transparent
+    }
+
+private fun ShellControlBackground.semanticValue(): String =
+    when (this) {
+        is ShellControlBackground.Solid -> color.hex
+        ShellControlBackground.Transparent -> "transparent"
+    }
 
 @Composable
 fun ShellIconButton(
