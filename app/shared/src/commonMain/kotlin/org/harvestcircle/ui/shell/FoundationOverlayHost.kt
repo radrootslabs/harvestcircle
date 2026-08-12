@@ -175,7 +175,7 @@ private fun ReferenceOverlay(
         ShellTextField(
             value = overlay.input,
             onValueChange = { onIntent(OverlayIntent.EditReference(it)) },
-            label = "Nostr link, event ID, or address",
+            label = "Nostr link, note1, nevent1, or address",
             placeholder = "nostr:…",
             modifier =
                 Modifier

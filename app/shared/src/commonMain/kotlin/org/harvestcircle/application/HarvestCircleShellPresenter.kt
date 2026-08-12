@@ -111,6 +111,10 @@ class HarvestCircleShellPresenter(
                     applyReferenceResult(ReferenceResult.Invalid, clearInput = true)
                     return
                 }
+                if (admitted == ReferenceInputAdmission.AmbiguousHex) {
+                    applyReferenceResult(ReferenceResult.AmbiguousHex, clearInput = true)
+                    return
+                }
                 val parsed = referenceParser.parse((admitted as ReferenceInputAdmission.Accepted).value)
                 when (parsed.classification) {
                     NostrReferenceClassification.Invalid -> applyReferenceResult(ReferenceResult.Invalid)

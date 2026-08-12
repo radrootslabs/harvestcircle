@@ -244,6 +244,28 @@ class HarvestCircleShellPresenterTest {
         }
 
     @Test
+    fun hcSl001AmbiguousHexNeverEntersStateOrParserOnEdit() =
+        runTest {
+            val hex = "0123456789abcdef".repeat(4)
+            val identity = FakeIdentityPresentation(presenterState(HarvestCircleRoute.IDENTITIES))
+            val parser = RecordingReferenceParser(NostrReferenceClassification.EventId, hex)
+            val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this, parser)
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference()))
+
+            listOf(hex, hex.uppercase(), "NoStR:$hex", " \t$hex\r\n").forEach { raw ->
+                presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.EditReference(raw)))
+                assertTrue(parser.inputs.isEmpty())
+                assertEquals(
+                    FoundationOverlay.OpenNostrReference("", ReferenceResult.AmbiguousHex),
+                    presenter.state.value.overlays.current,
+                )
+                assertTrue(raw !in presenter.state.value.toString())
+            }
+
+            presenter.close()
+        }
+
+    @Test
     fun oversizedReferenceNeverEntersStateOrParser() =
         runTest {
             val identity = FakeIdentityPresentation(presenterState(HarvestCircleRoute.IDENTITIES))

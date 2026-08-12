@@ -59,7 +59,7 @@ class FoundationOverlayHostTest {
             onAllNodesWithTag("foundation-overlay").assertCountEquals(1)
             onNode(isDialog()).assertExists()
             onAllNodesWithText("Open a Nostr reference").assertCountEquals(2)
-            onNodeWithText("Nostr link, event ID, or address").assertExists()
+            onNodeWithText("Nostr link, note1, nevent1, or address").assertExists()
             onNodeWithText("nostr:…").assertExists()
             onAllNodesWithTag("global-status-banner").assertCountEquals(1)
             onNodeWithTag("nostr-reference-input").assertIsFocused().performTextInput("note1qqqqqq")

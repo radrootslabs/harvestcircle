@@ -152,6 +152,7 @@ object OverlayReducer {
                 is ReferenceInputAdmission.Accepted -> overlay.copy(input = admission.value, result = null)
                 ReferenceInputAdmission.PrivateKeyShaped -> overlay.copy(input = "", result = ReferenceResult.PrivateKeyRejected)
                 ReferenceInputAdmission.TooLarge -> overlay.copy(input = "", result = ReferenceResult.Invalid)
+                ReferenceInputAdmission.AmbiguousHex -> overlay.copy(input = "", result = ReferenceResult.AmbiguousHex)
             }
         return state.updateOverlay(updated)
     }
@@ -218,5 +219,9 @@ enum class ReferenceResult(
 ) {
     Invalid("This reference is not valid."),
     PrivateKeyRejected("Private-key references cannot be opened."),
+    AmbiguousHex(
+        "Bare hexadecimal references are not accepted because they can also be private keys.\n\n" +
+            "Use a note1 or nevent1 reference.",
+    ),
     Unsupported("This Nostr reference is not supported by this build."),
 }

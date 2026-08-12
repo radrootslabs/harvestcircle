@@ -26,6 +26,19 @@ class ShellOverlaysTest {
     }
 
     @Test
+    fun hcSl001AmbiguousHexEditClearsInputWithTypedResult() {
+        val hex = "01".repeat(32)
+        val open = shellState(FoundationOverlay.OpenNostrReference())
+        val edited = OverlayReducer.transition(open, OverlayIntent.EditReference(" nostr:$hex\n")).state
+
+        assertEquals(
+            FoundationOverlay.OpenNostrReference(input = "", result = ReferenceResult.AmbiguousHex),
+            edited.overlays.current,
+        )
+        assertTrue(hex !in edited.toString())
+    }
+
+    @Test
     fun hcSc012ReferenceOpeningIsInputFreeAndGenericPrefilledIngressIsRejected() {
         val initial = shellState()
         val rejected =
