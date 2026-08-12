@@ -49,7 +49,7 @@ object ShellReducer {
             ShellEvent.EnterReadOnly -> updateSession(state, state.session.enterReadOnly())
             is ShellEvent.Navigate -> updateNavigation(state) { activateShellScreen(it, event.screenKey) }
             is ShellEvent.Navigation -> updateNavigation(state, event.intent)
-            is ShellEvent.Overlay -> state.copy(overlays = OverlayReducer.reduce(state.overlays, event.intent))
+            is ShellEvent.Overlay -> OverlayReducer.transition(state, event.intent).state
             is ShellEvent.SetTheme -> state.copy(appearance = state.appearance.copy(theme = event.theme))
             is ShellEvent.SetTextSize -> state.copy(appearance = state.appearance.copy(textSize = event.textSize))
             is ShellEvent.SetMotion -> state.copy(appearance = state.appearance.copy(motion = event.motion))
@@ -65,6 +65,52 @@ object ShellReducer {
             identity = identity,
             localUsability = deriveLocalUsability(identity.snapshot),
             root = retainDashboardNavigation(state.root, derived),
+            overlays = reconcileRemovalOverlay(state, identity),
+        )
+    }
+
+    private fun reconcileRemovalOverlay(
+        state: HarvestCircleShellState,
+        identity: HarvestCirclePresenterState,
+    ): OverlayState {
+        val admitted = identity.removalConfirmation
+        val current = state.overlays.current as? FoundationOverlay.ConfirmAction
+        if (admitted == null) {
+            return if (current?.action is ConfirmationAction.RemoveLocalIdentity) {
+                state.overlays.copy(current = null)
+            } else {
+                state.overlays
+            }
+        }
+        val action = ConfirmationAction.RemoveLocalIdentity(admitted.identityId, admitted.requestId)
+        if (current?.action == action) {
+            val admissionRejected =
+                current.busy &&
+                    !identity.busy &&
+                    identity.removalStatus == RemovalStatus.AWAITING_CONFIRMATION &&
+                    identity.commandStatus in REMOVAL_ADMISSION_FAILURES
+            return if (admissionRejected) {
+                state.overlays.copy(current = current.copy(phase = ConfirmationPhase.Ready))
+            } else {
+                state.overlays
+            }
+        }
+        val impact =
+            when {
+                admitted.deletesLocalCredential && admitted.signsOut ->
+                    "Its local credential will be deleted and the active session will be signed out."
+                admitted.deletesLocalCredential ->
+                    "Its local credential will be deleted from the operating-system keyring."
+                admitted.signsOut -> "The active session will be signed out."
+                else -> "This saved local identity will be removed."
+            }
+        return OverlayState(
+            FoundationOverlay.ConfirmAction(
+                title = "Remove this saved identity?",
+                explanation = impact,
+                actionLabel = "Remove local identity",
+                action = action,
+            ),
         )
     }
 
@@ -113,3 +159,11 @@ object ShellReducer {
             derived
         }
 }
+
+private val REMOVAL_ADMISSION_FAILURES =
+    setOf(
+        CommandStatus.REJECTED_BUSY,
+        CommandStatus.REJECTED_CLOSED,
+        CommandStatus.FAILED_RETRYABLE,
+        CommandStatus.FAILED_TERMINAL,
+    )

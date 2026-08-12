@@ -42,7 +42,18 @@ fun FoundationOverlayHost(
         }
     }
     state.current?.let { overlay ->
-        Dialog(onDismissRequest = { if (!busy) onIntent(OverlayIntent.Close) }) {
+        val overlayBusy = busy || (overlay as? FoundationOverlay.ConfirmAction)?.busy == true
+        Dialog(
+            onDismissRequest = {
+                if (!overlayBusy) {
+                    if (overlay is FoundationOverlay.ConfirmAction) {
+                        onIntent(OverlayIntent.DismissConfirmation(overlay.action))
+                    } else {
+                        onIntent(OverlayIntent.Close)
+                    }
+                }
+            },
+        ) {
             ShellSurface(
                 Modifier
                     .focusGroup()
@@ -53,7 +64,7 @@ fun FoundationOverlayHost(
                     .padding(24.dp),
             ) {
                 when (overlay) {
-                    is FoundationOverlay.ConfirmAction -> ConfirmOverlay(overlay, busy, onIntent)
+                    is FoundationOverlay.ConfirmAction -> ConfirmOverlay(overlay, overlayBusy, onIntent)
                     is FoundationOverlay.Status ->
                         when (overlay.key) {
                             StatusOverlayKey.Signer -> StatusOverlay("Signer status", status.signer.text, onIntent)
@@ -80,12 +91,18 @@ private fun ConfirmOverlay(
             ShellButton(
                 overlay.actionLabel,
                 overlay.actionLabel,
-                { onIntent(OverlayIntent.Confirm) },
+                { onIntent(OverlayIntent.Confirm(overlay.action)) },
                 Modifier.focusRequester(requester).testTag("overlay-confirm"),
                 enabled = !busy,
                 kind = ShellButtonKind.Destructive,
             )
-            ShellButton("Cancel", "Cancel", { onIntent(OverlayIntent.Close) }, Modifier.testTag("overlay-cancel"), !busy)
+            ShellButton(
+                "Cancel",
+                "Cancel",
+                { onIntent(OverlayIntent.DismissConfirmation(overlay.action)) },
+                Modifier.testTag("overlay-cancel"),
+                !busy,
+            )
         }
     }
     LaunchedEffect(Unit) { requester.requestFocus() }

@@ -75,7 +75,6 @@ private fun HarvestCircleShellContent(
                         model = state.identity.toUiModel(),
                         actions = identityActions,
                         onReadOnly = { dispatch(HarvestCircleShellIntent.EnterReadOnly) },
-                        dispatch = dispatch,
                     )
             }
         is ShellRoot.Dashboard -> DashboardRoot(state, root, identityActions, platformActions, dispatch)
@@ -222,7 +221,7 @@ private fun dispatchShortcut(
                 HarvestCircleShellIntent.Overlay(OverlayIntent.Open(FoundationOverlay.OpenNostrReference()))
             ShellShortcut.Today -> HarvestCircleShellIntent.Navigate(ScreenKey.PersonalToday)
             ShellShortcut.Settings -> HarvestCircleShellIntent.Navigate(ScreenKey.Settings)
-            ShellShortcut.CloseOverlay -> HarvestCircleShellIntent.Overlay(OverlayIntent.Escape)
+            ShellShortcut.CloseOverlay -> HarvestCircleShellIntent.Overlay(OverlayIntent.Escape())
         }
     dispatch(intent)
 }

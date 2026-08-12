@@ -10,7 +10,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runComposeUiTest
 import org.harvestcircle.application.HarvestCircleRoute
-import org.harvestcircle.application.HarvestCircleShellIntent
 import org.harvestcircle.application.IdentityEntryMode
 import org.harvestcircle.application.RecoveryAction
 import org.harvestcircle.application.RemovalStatus
@@ -64,7 +63,6 @@ class BootstrapRecoveryAndChooserTest {
             var selected = ""
             var activated = ""
             var removal = ""
-            val shellIntents = mutableListOf<HarvestCircleShellIntent>()
             setContent {
                 IdentityChooserCanvas(
                     model = model(identities = listOf(first, second)),
@@ -75,7 +73,6 @@ class BootstrapRecoveryAndChooserTest {
                             requestIdentityRemoval = { removal = it },
                         ),
                     onReadOnly = {},
-                    dispatch = shellIntents::add,
                 )
             }
 
@@ -85,7 +82,6 @@ class BootstrapRecoveryAndChooserTest {
             assertEquals("second", selected)
             assertEquals("second", activated)
             assertEquals("second", removal)
-            kotlin.test.assertTrue(shellIntents.single() is HarvestCircleShellIntent.Overlay)
         }
 }
 
@@ -112,8 +108,7 @@ private fun model(
     configuredRelays = emptyList(),
     importDraft = "",
     generatedKeyBackup = generatedKeyBackup,
-    pendingRemovalPublicKeyHex = null,
-    removalImpact = null,
+    removalConfirmation = null,
     removalStatus = RemovalStatus.NONE,
     lastRemovedPublicKeyHex = null,
     identityChooserVisible = false,

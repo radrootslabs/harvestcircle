@@ -12,8 +12,6 @@ data class HarvestCircleUiActions(
     val selectIdentity: (String) -> Unit = {},
     val activateIdentity: (String) -> Unit = {},
     val requestIdentityRemoval: (String) -> Unit = {},
-    val cancelIdentityRemoval: () -> Unit = {},
-    val confirmIdentityRemoval: () -> Unit = {},
     val refreshActiveProfile: () -> Unit = {},
     val retryLastCommand: () -> Unit = {},
     val dismissProblem: () -> Unit = {},

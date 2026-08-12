@@ -74,8 +74,8 @@ class HarvestCirclePresenter(
             HarvestCircleIntent.RefreshActiveProfile -> executeIntent(intent)
             HarvestCircleIntent.RetryLastCommand -> retryLastCommand()
             is HarvestCircleIntent.RequestIdentityRemoval -> requestIdentityRemoval(intent)
-            HarvestCircleIntent.CancelIdentityRemoval -> cancelIdentityRemoval()
-            HarvestCircleIntent.ConfirmIdentityRemoval -> confirmIdentityRemoval()
+            is HarvestCircleIntent.CancelIdentityRemoval -> cancelIdentityRemoval(intent)
+            is HarvestCircleIntent.ConfirmIdentityRemoval -> confirmIdentityRemoval(intent)
             HarvestCircleIntent.DismissProblem -> updateState { copy(problem = null) }
         }
     }
@@ -209,49 +209,55 @@ class HarvestCirclePresenter(
 
     private fun requestIdentityRemoval(intent: HarvestCircleIntent.RequestIdentityRemoval) {
         launchOperation {
-            pendingRemoval?.let { runtime.cancelIdentityRemoval(it.requestId) }
+            pendingRemoval?.let { previous -> runtime.cancelIdentityRemoval(previous.requestId) }
+            pendingRemoval = null
+            updateState {
+                copy(
+                    removalConfirmation = null,
+                    removalStatus = RemovalStatus.NONE,
+                )
+            }
             val request = runtime.requestIdentityRemoval(intent.identityId)
             check(request.expiresAt.value > clock.now().value) { "Identity removal request is already expired" }
             pendingRemoval = request
             updateState {
                 copy(
-                    pendingRemovalIdentityId = request.identityId,
-                    removalImpact =
-                        RemovalImpactState(
-                            request.identityId,
-                            request.deletesLocalCredential,
-                            request.signsOut,
-                            request.expiresAt,
-                        ),
+                    removalConfirmation = request.toConfirmation(),
                     removalStatus = RemovalStatus.AWAITING_CONFIRMATION,
                 )
             }
         }
     }
 
-    private fun cancelIdentityRemoval() {
-        val request = pendingRemoval ?: return rejectUnavailable("Identity removal confirmation is not available.")
+    private fun cancelIdentityRemoval(intent: HarvestCircleIntent.CancelIdentityRemoval) {
+        val request = matchingRemoval(intent.identityId, intent.requestId) ?: return
         launchOperation {
             runtime.cancelIdentityRemoval(request.requestId)
-            pendingRemoval = null
-            updateState {
-                copy(
-                    pendingRemovalIdentityId = null,
-                    removalImpact = null,
-                    removalStatus = RemovalStatus.NONE,
-                )
+            if (pendingRemoval == request) {
+                pendingRemoval = null
+                updateState {
+                    copy(
+                        removalConfirmation = null,
+                        removalStatus = RemovalStatus.NONE,
+                    )
+                }
             }
         }
     }
 
-    private fun confirmIdentityRemoval() {
-        val request = pendingRemoval ?: return rejectUnavailable("Identity removal confirmation is not available.")
+    private fun confirmIdentityRemoval(intent: HarvestCircleIntent.ConfirmIdentityRemoval) {
+        val request = matchingRemoval(intent.identityId, intent.requestId) ?: return
         val operationId = operationIds.next()
         launchOperation(
             operationId = operationId,
             onAccepted = {
                 pendingRemoval = null
-                updateState { copy(removalStatus = RemovalStatus.CONFIRMING) }
+                updateState {
+                    copy(
+                        removalConfirmation = null,
+                        removalStatus = RemovalStatus.CONFIRMING,
+                    )
+                }
             },
         ) {
             try {
@@ -265,8 +271,7 @@ class HarvestCirclePresenter(
                 acceptResult(result, operationId)
                 updateState {
                     copy(
-                        pendingRemovalIdentityId = null,
-                        removalImpact = null,
+                        removalConfirmation = null,
                         removalStatus = RemovalStatus.COMPLETED,
                         lastRemovedIdentityId = request.identityId,
                     )
@@ -277,14 +282,46 @@ class HarvestCirclePresenter(
                     runtime.cancelIdentityRemoval(request.requestId)
                     updateState {
                         copy(
-                            pendingRemovalIdentityId = null,
-                            removalImpact = null,
+                            removalConfirmation = null,
                             removalStatus = RemovalStatus.FAILED,
                         )
                     }
                 }
             }
         }
+    }
+
+    private fun matchingRemoval(
+        identityId: IdentityId,
+        requestId: RemovalRequestId,
+    ): IdentityRemovalRequest? {
+        val request = pendingRemoval
+        val confirmation = state.value.removalConfirmation
+        if (request == null || confirmation == null || state.value.removalStatus != RemovalStatus.AWAITING_CONFIRMATION) {
+            rejectUnavailable("Identity removal confirmation is not available.")
+            return null
+        }
+        if (request.identityId != identityId ||
+            request.requestId != requestId ||
+            confirmation.identityId != identityId ||
+            confirmation.requestId != requestId
+        ) {
+            rejectUnavailable("Identity removal confirmation does not match the current request.")
+            return null
+        }
+        if (request.expiresAt.value <= clock.now().value) {
+            pendingRemoval = null
+            updateState {
+                copy(
+                    removalConfirmation = null,
+                    removalStatus = RemovalStatus.FAILED,
+                    commandStatus = CommandStatus.FAILED_TERMINAL,
+                    problem = "Identity removal confirmation has expired.",
+                )
+            }
+            return null
+        }
+        return request
     }
 
     private fun launchOperation(
@@ -431,6 +468,15 @@ private data class PendingRetry(
     val intent: HarvestCircleIntent,
     val operationId: OperationId,
 )
+
+private fun IdentityRemovalRequest.toConfirmation(): IdentityRemovalConfirmation =
+    IdentityRemovalConfirmation(
+        identityId = identityId,
+        requestId = requestId,
+        deletesLocalCredential = deletesLocalCredential,
+        signsOut = signsOut,
+        expiresAt = expiresAt,
+    )
 
 private fun HarvestCircleIntent.toApplicationCommand(): ApplicationCommand =
     when (this) {

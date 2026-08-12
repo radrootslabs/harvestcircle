@@ -44,7 +44,7 @@ class FoundationOverlayHostTest {
                     status(banner = GlobalStatusBanner("Limited connection", "Some services are unavailable.", BannerSeverity.Caution)),
                 ) {
                     state =
-                        OverlayReducer.reduce(
+                        reduceOverlay(
                             state,
                             if (it == OverlayIntent.SubmitReference) {
                                 OverlayIntent.ApplyReferenceResult(ReferenceResult.Invalid)
@@ -63,7 +63,7 @@ class FoundationOverlayHostTest {
             onNodeWithTag("nostr-reference-input").assertIsFocused().performTextInput("note1qqqqqq")
             onNodeWithTag("nostr-reference-submit").performClick()
             onAllNodesWithTag("nostr-reference-result").assertCountEquals(1)
-            state = OverlayReducer.reduce(state, OverlayIntent.Escape)
+            state = reduceOverlay(state, OverlayIntent.Escape())
             onAllNodesWithTag("foundation-overlay").assertCountEquals(0)
         }
 
@@ -71,6 +71,7 @@ class FoundationOverlayHostTest {
     fun destructiveConfirmationOwnsFocusAndDispatchesTypedSubmission() =
         runComposeUiTest {
             val intents = mutableListOf<OverlayIntent>()
+            val action = removalAction()
             val state =
                 OverlayState(
                     current =
@@ -78,13 +79,13 @@ class FoundationOverlayHostTest {
                             "Remove identity?",
                             "The local credential will be deleted.",
                             "Remove local identity",
-                            ConfirmationAction.RemoveLocalIdentity,
+                            action,
                         ),
                 )
             setContent { FoundationOverlayHost(state, status(), onIntent = intents::add) }
 
             onNodeWithTag("overlay-confirm").assertIsFocused().performClick()
-            kotlin.test.assertEquals(listOf<OverlayIntent>(OverlayIntent.Confirm), intents)
+            kotlin.test.assertEquals(listOf<OverlayIntent>(OverlayIntent.Confirm(action)), intents)
         }
 
     @Test
@@ -98,7 +99,7 @@ class FoundationOverlayHostTest {
                             "Remove identity?",
                             "The local credential will be deleted.",
                             "Remove local identity",
-                            ConfirmationAction.RemoveLocalIdentity,
+                            removalAction(),
                         ),
                 )
             setContent { FoundationOverlayHost(state, status(), busy = true, onIntent = intents::add) }
@@ -123,3 +124,41 @@ class FoundationOverlayHostTest {
 
 private fun status(banner: GlobalStatusBanner? = null) =
     ShellStatusModel(SyncStatusLabel.NotYetObserved, SignerStatusLabel.SignedOut, banner)
+
+private fun removalAction() =
+    ConfirmationAction.RemoveLocalIdentity(
+        org.harvestcircle.application.IdentityId
+            .fromPublicKeyHex("05".repeat(32)),
+        org.harvestcircle.application.RemovalRequestId
+            .from("overlay-removal"),
+    )
+
+private fun reduceOverlay(
+    overlays: OverlayState,
+    intent: OverlayIntent,
+): OverlayState {
+    val identity =
+        org.harvestcircle.application.HarvestCirclePresenterState(
+            org.harvestcircle.application.ApplicationSnapshot(
+                revision = org.harvestcircle.application.SnapshotRevision(1UL),
+                lifecycle = org.harvestcircle.application.ApplicationLifecycle.Ready,
+                lifecycleProblem = null,
+                configuredRelays = emptyList(),
+                identities = emptyList(),
+                selectedIdentityId = null,
+                session = org.harvestcircle.application.SessionLifecycle.SignedOut,
+                sessionSubjectIdentityId = null,
+                sessionProblem = null,
+                activeIdentity = null,
+                recoverableProblem = null,
+            ),
+        )
+    val shell =
+        org.harvestcircle.application.HarvestCircleShellState(
+            identity,
+            org.harvestcircle.application.BuildInfo
+                .unknown(),
+            overlays = overlays,
+        )
+    return OverlayReducer.transition(shell, intent).state.overlays
+}

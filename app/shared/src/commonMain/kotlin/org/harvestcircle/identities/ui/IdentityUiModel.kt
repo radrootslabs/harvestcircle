@@ -5,11 +5,11 @@ import org.harvestcircle.application.ApplicationErrorCode
 import org.harvestcircle.application.HarvestCirclePresenterState
 import org.harvestcircle.application.HarvestCircleRoute
 import org.harvestcircle.application.IdentityEntryMode
+import org.harvestcircle.application.IdentityRemovalConfirmation
 import org.harvestcircle.application.IdentitySummary
 import org.harvestcircle.application.ProfileLoadState
 import org.harvestcircle.application.RecoveryAction
 import org.harvestcircle.application.RelayConnectionState
-import org.harvestcircle.application.RemovalImpactState
 import org.harvestcircle.application.RemovalStatus
 import org.harvestcircle.application.SessionLifecycle
 import org.harvestcircle.application.SignerAvailability
@@ -54,8 +54,7 @@ data class HarvestCircleUiModel(
     val configuredRelays: List<String>,
     val importDraft: String,
     val generatedKeyBackup: GeneratedKeyBackupUiModel?,
-    val pendingRemovalPublicKeyHex: String?,
-    val removalImpact: RemovalImpactState?,
+    val removalConfirmation: IdentityRemovalConfirmation?,
     val removalStatus: RemovalStatus,
     val lastRemovedPublicKeyHex: String?,
     val identityChooserVisible: Boolean,
@@ -93,8 +92,7 @@ fun HarvestCirclePresenterState.toUiModel(): HarvestCircleUiModel {
                     GeneratedKeyBackupUiModel(npub = backup.npub, nsec = nsec)
                 }
             },
-        pendingRemovalPublicKeyHex = pendingRemovalIdentityId?.value,
-        removalImpact = removalImpact,
+        removalConfirmation = removalConfirmation,
         removalStatus = removalStatus,
         lastRemovedPublicKeyHex = lastRemovedIdentityId?.value,
         identityChooserVisible = identityChooserVisible,

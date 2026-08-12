@@ -118,8 +118,6 @@ internal fun HarvestCircleApplicationWithDependencies(
             requestIdentityRemoval = {
                 presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(IdentityId.fromPublicKeyHex(it)))
             },
-            cancelIdentityRemoval = { presenter.dispatch(HarvestCircleIntent.CancelIdentityRemoval) },
-            confirmIdentityRemoval = { presenter.dispatch(HarvestCircleIntent.ConfirmIdentityRemoval) },
             refreshActiveProfile = { presenter.dispatch(HarvestCircleIntent.RefreshActiveProfile) },
             retryLastCommand = { presenter.dispatch(HarvestCircleIntent.RetryLastCommand) },
             dismissProblem = { presenter.dispatch(HarvestCircleIntent.DismissProblem) },

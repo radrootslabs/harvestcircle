@@ -51,27 +51,71 @@ class HarvestCircleShellPresenterTest {
         }
 
     @Test
-    fun confirmationDispatchesTypedIdentityEffectsAndClosesExactlyOnce() =
+    fun admittedConfirmationDispatchesExactIdentityEffectOnceAndClosesFromIdentityState() =
         runTest {
-            val identity = FakeIdentityPresentation(presenterState(HarvestCircleRoute.IDENTITIES))
-            val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this)
-            val confirmation =
-                FoundationOverlay.ConfirmAction(
-                    "Remove identity?",
-                    "The local credential will be deleted.",
-                    "Remove local identity",
-                    ConfirmationAction.RemoveLocalIdentity,
+            val identityId = IdentityId.fromPublicKeyHex("03".repeat(32))
+            val requestId = RemovalRequestId.from("removal-shell-1")
+            val identity =
+                FakeIdentityPresentation(
+                    presenterState(HarvestCircleRoute.IDENTITIES).withRemovalConfirmation(identityId, requestId),
                 )
-            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.Open(confirmation)))
-            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.Confirm))
+            val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this)
+            runCurrent()
+            val confirmation = presenter.state.value.overlays.current as FoundationOverlay.ConfirmAction
+            val action = ConfirmationAction.RemoveLocalIdentity(identityId, requestId)
+            assertEquals(action, confirmation.action)
 
-            assertTrue(identity.intents.single() === HarvestCircleIntent.ConfirmIdentityRemoval)
-            assertNull(presenter.state.value.overlays.current)
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.Confirm(action)))
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.Confirm(action)))
 
-            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.Open(confirmation)))
-            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.Close))
-            assertTrue(identity.intents.last() === HarvestCircleIntent.CancelIdentityRemoval)
+            assertEquals(
+                listOf<HarvestCircleIntent>(HarvestCircleIntent.ConfirmIdentityRemoval(identityId, requestId)),
+                identity.intents,
+            )
+            assertEquals(
+                ConfirmationPhase.Submitting,
+                (presenter.state.value.overlays.current as FoundationOverlay.ConfirmAction).phase,
+            )
+
+            identity.state.value =
+                identity.state.value.copy(
+                    removalConfirmation = null,
+                    removalStatus = RemovalStatus.CONFIRMING,
+                    busy = true,
+                    commandStatus = CommandStatus.RUNNING,
+                )
+            runCurrent()
             assertNull(presenter.state.value.overlays.current)
+            presenter.close()
+        }
+
+    @Test
+    fun dismissalIsRequestBoundAndStaleActionsEmitNothing() =
+        runTest {
+            val identityId = IdentityId.fromPublicKeyHex("04".repeat(32))
+            val requestId = RemovalRequestId.from("removal-shell-2")
+            val identity =
+                FakeIdentityPresentation(
+                    presenterState(HarvestCircleRoute.IDENTITIES).withRemovalConfirmation(identityId, requestId),
+                )
+            val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this)
+            runCurrent()
+            val stale = ConfirmationAction.RemoveLocalIdentity(identityId, RemovalRequestId.from("stale-shell"))
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.DismissConfirmation(stale)))
+            assertTrue(identity.intents.isEmpty())
+
+            val exact = ConfirmationAction.RemoveLocalIdentity(identityId, requestId)
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.DismissConfirmation(exact)))
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.DismissConfirmation(exact)))
+
+            assertEquals(
+                listOf<HarvestCircleIntent>(HarvestCircleIntent.CancelIdentityRemoval(identityId, requestId)),
+                identity.intents,
+            )
+            assertEquals(
+                ConfirmationPhase.Dismissing,
+                (presenter.state.value.overlays.current as FoundationOverlay.ConfirmAction).phase,
+            )
             presenter.close()
         }
 
@@ -202,6 +246,22 @@ private fun presenterState(route: HarvestCircleRoute): HarvestCirclePresenterSta
                 recoverableProblem = null,
             ),
         route = route,
+    )
+
+private fun HarvestCirclePresenterState.withRemovalConfirmation(
+    identityId: IdentityId,
+    requestId: RemovalRequestId,
+): HarvestCirclePresenterState =
+    copy(
+        removalConfirmation =
+            IdentityRemovalConfirmation(
+                identityId = identityId,
+                requestId = requestId,
+                deletesLocalCredential = true,
+                signsOut = false,
+                expiresAt = UnixSeconds(60),
+            ),
+        removalStatus = RemovalStatus.AWAITING_CONFIRMATION,
     )
 
 private fun activePresenterState(

@@ -39,8 +39,9 @@ enum class RemovalStatus {
     FAILED,
 }
 
-data class RemovalImpactState(
+data class IdentityRemovalConfirmation(
     val identityId: IdentityId,
+    val requestId: RemovalRequestId,
     val deletesLocalCredential: Boolean,
     val signsOut: Boolean,
     val expiresAt: UnixSeconds,
@@ -51,8 +52,7 @@ data class HarvestCirclePresenterState(
     val route: HarvestCircleRoute = snapshot.toHarvestCircleRoute(),
     val importDraft: String = "",
     val generatedKeyBackup: GeneratedKeyBackup? = null,
-    val pendingRemovalIdentityId: IdentityId? = null,
-    val removalImpact: RemovalImpactState? = null,
+    val removalConfirmation: IdentityRemovalConfirmation? = null,
     val removalStatus: RemovalStatus = RemovalStatus.NONE,
     val lastRemovedIdentityId: IdentityId? = null,
     val identityChooserVisible: Boolean = false,
@@ -105,9 +105,15 @@ sealed interface HarvestCircleIntent {
         val identityId: IdentityId,
     ) : HarvestCircleIntent
 
-    data object CancelIdentityRemoval : HarvestCircleIntent
+    data class CancelIdentityRemoval(
+        val identityId: IdentityId,
+        val requestId: RemovalRequestId,
+    ) : HarvestCircleIntent
 
-    data object ConfirmIdentityRemoval : HarvestCircleIntent
+    data class ConfirmIdentityRemoval(
+        val identityId: IdentityId,
+        val requestId: RemovalRequestId,
+    ) : HarvestCircleIntent
 
     data object DismissProblem : HarvestCircleIntent
 }

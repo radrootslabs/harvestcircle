@@ -6,7 +6,11 @@ sealed interface FoundationOverlay {
         val explanation: String,
         val actionLabel: String,
         val action: ConfirmationAction,
-    ) : FoundationOverlay
+        val phase: ConfirmationPhase = ConfirmationPhase.Ready,
+    ) : FoundationOverlay {
+        val busy: Boolean
+            get() = phase != ConfirmationPhase.Ready
+    }
 
     data class Status(
         val key: StatusOverlayKey,
@@ -18,7 +22,14 @@ sealed interface FoundationOverlay {
     ) : FoundationOverlay
 }
 
-enum class ConfirmationAction { RemoveLocalIdentity }
+sealed interface ConfirmationAction {
+    data class RemoveLocalIdentity(
+        val identityId: IdentityId,
+        val requestId: RemovalRequestId,
+    ) : ConfirmationAction
+}
+
+enum class ConfirmationPhase { Ready, Submitting, Dismissing }
 
 enum class StatusOverlayKey { Signer, Sync }
 
@@ -42,35 +53,105 @@ sealed interface OverlayIntent {
         val clearInput: Boolean = false,
     ) : OverlayIntent
 
-    data object Confirm : OverlayIntent
+    data class Confirm(
+        val action: ConfirmationAction,
+    ) : OverlayIntent
+
+    data class DismissConfirmation(
+        val action: ConfirmationAction,
+    ) : OverlayIntent
 
     data object Close : OverlayIntent
 
-    data object Escape : OverlayIntent
+    data class Escape(
+        val confirmation: ConfirmationAction? = null,
+    ) : OverlayIntent
 }
 
+sealed interface ShellEffect {
+    data class DispatchIdentity(
+        val intent: HarvestCircleIntent,
+    ) : ShellEffect
+}
+
+data class OverlayTransition(
+    val state: HarvestCircleShellState,
+    val effects: List<ShellEffect> = emptyList(),
+)
+
 object OverlayReducer {
-    fun reduce(
-        state: OverlayState,
+    fun transition(
+        state: HarvestCircleShellState,
         intent: OverlayIntent,
-    ): OverlayState =
+    ): OverlayTransition =
         when (intent) {
-            is OverlayIntent.Open -> state.copy(current = intent.overlay)
+            is OverlayIntent.Open -> state.withOverlay(intent.overlay)
             is OverlayIntent.EditReference ->
-                state.copy(current = (state.current as? FoundationOverlay.OpenNostrReference)?.copy(input = intent.value))
-            OverlayIntent.SubmitReference -> state
+                state.withOverlay(
+                    (state.overlays.current as? FoundationOverlay.OpenNostrReference)?.copy(input = intent.value),
+                )
+            OverlayIntent.SubmitReference -> OverlayTransition(state)
             is OverlayIntent.ApplyReferenceResult -> applyReferenceResult(state, intent.result, intent.clearInput)
-            OverlayIntent.Confirm, OverlayIntent.Close, OverlayIntent.Escape -> state.copy(current = null)
+            is OverlayIntent.Confirm -> admitConfirmation(state, intent.action, submitting = true)
+            is OverlayIntent.DismissConfirmation -> admitConfirmation(state, intent.action, submitting = false)
+            OverlayIntent.Close ->
+                if (state.overlays.current is FoundationOverlay.ConfirmAction) {
+                    OverlayTransition(state)
+                } else {
+                    state.withOverlay(null)
+                }
+            is OverlayIntent.Escape ->
+                when (val current = state.overlays.current) {
+                    is FoundationOverlay.ConfirmAction -> {
+                        val expected = intent.confirmation
+                        if (expected == null) OverlayTransition(state) else admitConfirmation(state, expected, submitting = false)
+                    }
+                    null -> OverlayTransition(state)
+                    else -> state.withOverlay(null)
+                }
         }
 
+    private fun admitConfirmation(
+        state: HarvestCircleShellState,
+        expected: ConfirmationAction,
+        submitting: Boolean,
+    ): OverlayTransition {
+        val current = state.overlays.current as? FoundationOverlay.ConfirmAction ?: return OverlayTransition(state)
+        val removal = expected as? ConfirmationAction.RemoveLocalIdentity ?: return OverlayTransition(state)
+        val admitted = state.identity.removalConfirmation ?: return OverlayTransition(state)
+        if (current.action != expected ||
+            current.phase != ConfirmationPhase.Ready ||
+            state.identity.busy ||
+            state.identity.removalStatus != RemovalStatus.AWAITING_CONFIRMATION ||
+            admitted.identityId != removal.identityId ||
+            admitted.requestId != removal.requestId
+        ) {
+            return OverlayTransition(state)
+        }
+        val phase = if (submitting) ConfirmationPhase.Submitting else ConfirmationPhase.Dismissing
+        val identityIntent =
+            if (submitting) {
+                HarvestCircleIntent.ConfirmIdentityRemoval(removal.identityId, removal.requestId)
+            } else {
+                HarvestCircleIntent.CancelIdentityRemoval(removal.identityId, removal.requestId)
+            }
+        return OverlayTransition(
+            state.copy(overlays = state.overlays.copy(current = current.copy(phase = phase))),
+            listOf(ShellEffect.DispatchIdentity(identityIntent)),
+        )
+    }
+
     private fun applyReferenceResult(
-        state: OverlayState,
+        state: HarvestCircleShellState,
         result: ReferenceResult,
         clearInput: Boolean,
-    ): OverlayState {
-        val overlay = state.current as? FoundationOverlay.OpenNostrReference ?: return state
-        return state.copy(current = overlay.copy(input = if (clearInput) "" else overlay.input, result = result))
+    ): OverlayTransition {
+        val overlay = state.overlays.current as? FoundationOverlay.OpenNostrReference ?: return OverlayTransition(state)
+        return state.withOverlay(overlay.copy(input = if (clearInput) "" else overlay.input, result = result))
     }
+
+    private fun HarvestCircleShellState.withOverlay(overlay: FoundationOverlay?): OverlayTransition =
+        OverlayTransition(copy(overlays = overlays.copy(current = overlay)))
 }
 
 enum class ReferenceResult(

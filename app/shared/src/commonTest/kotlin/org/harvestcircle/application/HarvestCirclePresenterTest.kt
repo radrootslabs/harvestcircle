@@ -246,12 +246,79 @@ class HarvestCirclePresenterTest {
 
             presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(identityId))
             advanceUntilIdle()
-            assertEquals(identityId, presenter.state.value.pendingRemovalIdentityId)
-            presenter.dispatch(HarvestCircleIntent.CancelIdentityRemoval)
+            val confirmation = presenter.state.value.removalConfirmation ?: error("removal confirmation")
+            assertEquals(identityId, confirmation.identityId)
+            assertEquals(RemovalRequestId.from("removal-1"), confirmation.requestId)
+            presenter.dispatch(HarvestCircleIntent.CancelIdentityRemoval(identityId, confirmation.requestId))
             advanceUntilIdle()
 
-            assertNull(presenter.state.value.pendingRemovalIdentityId)
+            assertNull(presenter.state.value.removalConfirmation)
             assertEquals(1, runtime.removalCancellationCalls)
+            presenter.close()
+        }
+
+    @Test
+    fun staleRemovalTokenCannotCancelTheAdmittedRequest() =
+        runTest {
+            val runtime = FakePresenterRuntime()
+            val presenter = presenter(runtime)
+            runCurrent()
+            val identityId = IdentityId.fromPublicKeyHex("01".repeat(32))
+
+            presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(identityId))
+            advanceUntilIdle()
+            presenter.dispatch(
+                HarvestCircleIntent.CancelIdentityRemoval(
+                    identityId,
+                    RemovalRequestId.from("stale-removal"),
+                ),
+            )
+            advanceUntilIdle()
+
+            assertEquals(
+                RemovalRequestId.from("removal-1"),
+                presenter.state.value.removalConfirmation
+                    ?.requestId,
+            )
+            assertEquals(0, runtime.removalCancellationCalls)
+            assertEquals(CommandStatus.FAILED_TERMINAL, presenter.state.value.commandStatus)
+            presenter.close()
+        }
+
+    @Test
+    fun failedRemovalRequestExposesNoConfirmation() =
+        runTest {
+            val runtime = FakePresenterRuntime().also { it.removalFailure = problem(retryable = false) }
+            val presenter = presenter(runtime)
+            runCurrent()
+
+            presenter.dispatch(
+                HarvestCircleIntent.RequestIdentityRemoval(IdentityId.fromPublicKeyHex("01".repeat(32))),
+            )
+            advanceUntilIdle()
+
+            assertNull(presenter.state.value.removalConfirmation)
+            assertEquals(RemovalStatus.NONE, presenter.state.value.removalStatus)
+            presenter.close()
+        }
+
+    @Test
+    fun exactRemovalConfirmationDispatchesTheAdmittedRequest() =
+        runTest {
+            val runtime = FakePresenterRuntime()
+            val presenter = presenter(runtime)
+            runCurrent()
+            val identityId = IdentityId.fromPublicKeyHex("01".repeat(32))
+
+            presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(identityId))
+            advanceUntilIdle()
+            val confirmation = presenter.state.value.removalConfirmation ?: error("removal confirmation")
+            presenter.dispatch(HarvestCircleIntent.ConfirmIdentityRemoval(identityId, confirmation.requestId))
+            advanceUntilIdle()
+
+            assertEquals(listOf(confirmation.requestId), runtime.confirmedRemovalRequests)
+            assertEquals(RemovalStatus.COMPLETED, presenter.state.value.removalStatus)
+            assertNull(presenter.state.value.removalConfirmation)
             presenter.close()
         }
 
@@ -293,6 +360,8 @@ private class FakePresenterRuntime(
     var shutdownCalls = 0
     var generatedCancellationCalls = 0
     var removalCancellationCalls = 0
+    var removalFailure: ApplicationProblem? = null
+    val confirmedRemovalRequests = mutableListOf<RemovalRequestId>()
     val importedSecrets = mutableListOf<String>()
 
     override suspend fun bootstrap(): ApplicationSnapshot {
@@ -322,6 +391,7 @@ private class FakePresenterRuntime(
         when (command) {
             is ApplicationCommand.ImportLocalIdentity -> importedSecrets += command.secretKey.take()
             is ApplicationCommand.CancelGeneratedIdentity -> generatedCancellationCalls += 1
+            is ApplicationCommand.ConfirmIdentityRemoval -> confirmedRemovalRequests += command.requestId
             else -> Unit
         }
         return ApplicationCommandResult.Updated(current)
@@ -335,14 +405,16 @@ private class FakePresenterRuntime(
             backup = GeneratedKeyBackup("npub1presenter", "nsec1presenter-secret"),
         )
 
-    override suspend fun requestIdentityRemoval(identityId: IdentityId): IdentityRemovalRequest =
-        IdentityRemovalRequest(
+    override suspend fun requestIdentityRemoval(identityId: IdentityId): IdentityRemovalRequest {
+        removalFailure?.let { throw ApplicationFailure(it) }
+        return IdentityRemovalRequest(
             requestId = RemovalRequestId.from("removal-1"),
             identityId = identityId,
             deletesLocalCredential = true,
             signsOut = false,
             expiresAt = UnixSeconds(60),
         )
+    }
 
     override suspend fun cancelIdentityRemoval(requestId: RemovalRequestId): Boolean {
         removalCancellationCalls += 1

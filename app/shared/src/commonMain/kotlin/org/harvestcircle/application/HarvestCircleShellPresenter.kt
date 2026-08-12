@@ -99,7 +99,6 @@ class HarvestCircleShellPresenter(
     }
 
     private fun dispatchOverlay(intent: OverlayIntent) {
-        val confirmation = mutableState.value.overlays.current as? FoundationOverlay.ConfirmAction
         when (intent) {
             is OverlayIntent.EditReference -> {
                 if (referenceParser.parse(intent.value).classification == NostrReferenceClassification.PrivateKeyRejected) {
@@ -124,28 +123,33 @@ class HarvestCircleShellPresenter(
                 }
                 return
             }
-            OverlayIntent.Confirm -> {
-                if (mutableState.value.identity.busy) return
-                when (confirmation?.action) {
-                    ConfirmationAction.RemoveLocalIdentity ->
-                        identityPresenter.dispatch(HarvestCircleIntent.ConfirmIdentityRemoval)
-                    null -> Unit
-                }
-            }
-            OverlayIntent.Close, OverlayIntent.Escape ->
-                if (confirmation?.action == ConfirmationAction.RemoveLocalIdentity) {
-                    identityPresenter.dispatch(HarvestCircleIntent.CancelIdentityRemoval)
-                }
             else -> Unit
         }
-        reduce(ShellEvent.Overlay(intent))
+        admitOverlay(intent)
+    }
+
+    private fun admitOverlay(intent: OverlayIntent) {
+        while (true) {
+            val current = mutableState.value
+            val transition = OverlayReducer.transition(current, intent)
+            if (transition.state == current && transition.effects.isEmpty()) return
+            if (!mutableState.compareAndSet(current, transition.state)) continue
+            transition.effects.forEach(::execute)
+            return
+        }
+    }
+
+    private fun execute(effect: ShellEffect) {
+        when (effect) {
+            is ShellEffect.DispatchIdentity -> identityPresenter.dispatch(effect.intent)
+        }
     }
 
     private fun applyReferenceResult(
         result: ReferenceResult,
         clearInput: Boolean = false,
     ) {
-        reduce(ShellEvent.Overlay(OverlayIntent.ApplyReferenceResult(result, clearInput)))
+        admitOverlay(OverlayIntent.ApplyReferenceResult(result, clearInput))
     }
 
     private fun reduce(event: ShellEvent) {
