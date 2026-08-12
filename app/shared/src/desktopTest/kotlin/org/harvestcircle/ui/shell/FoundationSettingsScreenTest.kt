@@ -6,7 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithText
@@ -46,10 +46,10 @@ class FoundationSettingsScreenTest {
             }
 
             onNodeWithTag("bounded-detail-settings").assertExists()
-            onNodeWithTag("settings-appearance").assertIsSelected().assertIsNotEnabled()
-            onNodeWithTag("theme-system").assertIsSelected().assertIsNotEnabled()
-            onNodeWithTag("text-size-default").assertIsSelected().assertIsNotEnabled()
-            onNodeWithTag("motion-standard").assertIsSelected().assertIsNotEnabled()
+            onNodeWithTag("settings-appearance").assertIsSelected().assertIsEnabled().performClick()
+            onNodeWithTag("theme-system").assertIsSelected().assertIsEnabled().performClick()
+            onNodeWithTag("text-size-default").assertIsSelected().assertIsEnabled().performClick()
+            onNodeWithTag("motion-standard").assertIsSelected().assertIsEnabled().performClick()
             onNodeWithTag("theme-dark").performClick()
             onNodeWithTag("text-size-verylarge").performClick()
             onNodeWithTag("motion-reduced").performClick()

@@ -100,7 +100,6 @@ fun FoundationNetworkScreen(
                         selected = tab.key == current,
                         onClick = { selected = tab.key },
                         modifier = Modifier.testTag("network-tab-${tab.key.value}"),
-                        enabled = tab.key != current,
                     )
                 }
             }

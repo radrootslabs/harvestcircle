@@ -50,7 +50,7 @@ private fun SidebarItem(
         selected = selected,
         onClick = { onScreen(item.screenKey) },
         modifier = Modifier.fillMaxWidth().testTag("sidebar-${item.screenKey.name}"),
-        enabled = item.enabled && !selected,
+        enabled = item.enabled,
     )
 }
 

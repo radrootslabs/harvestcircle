@@ -58,7 +58,6 @@ fun FoundationSettingsScreen(
                             )
                         },
                         modifier = Modifier.testTag("settings-${tab.key.value}"),
-                        enabled = tab.key != current,
                     )
                 }
             }
@@ -122,7 +121,6 @@ private fun <T : Enum<T>> OptionRow(
                 selected = value == selected,
                 onClick = { select(value) },
                 modifier = Modifier.testTag("$tagPrefix-${value.name.lowercase()}"),
-                enabled = value != selected,
             )
         }
     }

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
@@ -169,15 +170,68 @@ fun ShellButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    selected: Boolean = false,
     kind: ShellButtonKind = ShellButtonKind.Secondary,
+) {
+    ShellControl(
+        label = label,
+        description = description,
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        selected = null,
+        kind = kind,
+    )
+}
+
+@Composable
+fun ShellTab(
+    label: String,
+    description: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    ShellControl(
+        label = label,
+        description = description,
+        onClick = { if (!selected) onClick() },
+        modifier = modifier,
+        enabled = enabled,
+        selected = selected,
+        kind = ShellButtonKind.Quiet,
+    )
+}
+
+@Composable
+private fun ShellControl(
+    label: String,
+    description: String,
+    onClick: () -> Unit,
+    modifier: Modifier,
+    enabled: Boolean,
+    selected: Boolean?,
+    kind: ShellButtonKind,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val hovered by interactionSource.collectIsHoveredAsState()
     val pressed by interactionSource.collectIsPressedAsState()
     var focused by remember { mutableStateOf(false) }
     val palette = LocalHarvestCirclePalette.current
-    val visuals = resolveShellControlVisuals(kind, enabled, selected, focused, pressed, hovered, palette)
+    val visuals = resolveShellControlVisuals(kind, enabled, selected == true, focused, pressed, hovered, palette)
+    val actionModifier =
+        if (selected == null) {
+            Modifier.clickable(interactionSource, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
+        } else {
+            Modifier.selectable(
+                selected = selected,
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = enabled,
+                role = Role.Tab,
+                onClick = onClick,
+            )
+        }
     Box(
         modifier
             .heightIn(min = HarvestCircleDesign.MINIMUM_TARGET_DP.dp)
@@ -188,12 +242,12 @@ fun ShellButton(
                 RoundedCornerShape(LocalHarvestCircleShapes.current.controlRadiusDp.dp),
             ).onFocusChanged { focused = it.isFocused }
             .hoverable(interactionSource, enabled)
-            .clickable(interactionSource, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
+            .then(actionModifier)
             .focusable(enabled, interactionSource)
             .semantics {
                 contentDescription = description
-                role = Role.Button
-                this.selected = selected
+                role = if (selected == null) Role.Button else Role.Tab
+                selected?.let { this.selected = it }
                 this[ShellControlBackgroundKey] = visuals.background.semanticValue()
                 this[ShellControlForegroundKey] = visuals.foreground.hex
                 this[ShellControlBorderKey] = visuals.border.hex
@@ -232,18 +286,6 @@ fun ShellIconButton(
         enabled,
         kind = ShellButtonKind.Quiet,
     )
-}
-
-@Composable
-fun ShellTab(
-    label: String,
-    description: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-) {
-    ShellButton(label, description, onClick, modifier, enabled, selected, ShellButtonKind.Quiet)
 }
 
 @Composable

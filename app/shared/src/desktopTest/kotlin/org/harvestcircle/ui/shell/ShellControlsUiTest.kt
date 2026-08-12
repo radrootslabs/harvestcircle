@@ -3,10 +3,13 @@ package org.harvestcircle.ui.shell
 import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
@@ -17,6 +20,7 @@ import org.harvestcircle.design.AppearanceState
 import org.harvestcircle.design.HarvestCircleDesign
 import org.harvestcircle.design.ThemePreference
 import kotlin.test.Test
+import kotlin.test.assertFalse
 
 @OptIn(ExperimentalTestApi::class)
 class ShellControlsUiTest {
@@ -38,8 +42,13 @@ class ShellControlsUiTest {
                 }
             }
 
-            onNodeWithTag("control-tab").assertIsSelected().assertHeightIsAtLeast(44.dp)
+            onNodeWithTag("control-tab")
+                .assertIsSelected()
+                .assertIsEnabled()
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab))
+                .assertHeightIsAtLeast(44.dp)
             onNodeWithTag("control-disabled").assertIsNotEnabled()
+            assertFalse(onNodeWithTag("control-disabled").fetchSemanticsNode().config.contains(SemanticsProperties.Selected))
             onNodeWithTag("control-field").assertTextContains("npub1…")
             onNodeWithTag("control-icon").assertHeightIsAtLeast(44.dp)
         }

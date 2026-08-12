@@ -6,7 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -28,7 +28,8 @@ class FoundationNetworkScreenTest {
         runComposeUiTest {
             setContent { FoundationNetworkScreen(model()) }
             onNodeWithTag("bounded-detail-network").assertExists()
-            onNodeWithTag("network-tab-overview").assertIsSelected().assertIsNotEnabled()
+            onNodeWithTag("network-tab-overview").assertIsSelected().assertIsEnabled().performClick()
+            onNodeWithTag("network-tab-overview").assertIsSelected()
             onNodeWithText("Signer").assertExists()
             onNodeWithText("Local identity active").assertExists()
             onNodeWithText("No managed HarvestCircle service is configured.").assertExists()
