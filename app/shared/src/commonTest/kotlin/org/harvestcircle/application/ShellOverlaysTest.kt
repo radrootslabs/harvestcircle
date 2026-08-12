@@ -84,6 +84,50 @@ class ShellOverlaysTest {
     }
 
     @Test
+    fun hcSl006UnrelatedIdentityBusyDoesNotBlockReadyConfirmationAdmission() {
+        val identityId = IdentityId.fromPublicKeyHex("02".repeat(32))
+        val requestId = RemovalRequestId.from("overlay-local-busy")
+        val action = ConfirmationAction.RemoveLocalIdentity(identityId, requestId)
+        val confirmation =
+            IdentityRemovalConfirmation(
+                identityId = identityId,
+                requestId = requestId,
+                deletesLocalCredential = true,
+                signsOut = false,
+                expiresAt = UnixSeconds(60),
+            )
+        val initial =
+            shellState(
+                FoundationOverlay.ConfirmAction(
+                    title = "Remove this saved identity?",
+                    explanation = "Its local credential will be deleted.",
+                    actionLabel = "Remove local identity",
+                    action = action,
+                ),
+            )
+        val busy =
+            initial.copy(
+                identity =
+                    initial.identity.copy(
+                        busy = true,
+                        removalConfirmation = confirmation,
+                        removalStatus = RemovalStatus.AWAITING_CONFIRMATION,
+                    ),
+            )
+
+        val transition = OverlayReducer.transition(busy, OverlayIntent.Confirm(action))
+
+        assertEquals(
+            ConfirmationPhase.Submitting,
+            (transition.state.overlays.current as FoundationOverlay.ConfirmAction).phase,
+        )
+        assertEquals(
+            listOf(ShellEffect.DispatchIdentity(HarvestCircleIntent.ConfirmIdentityRemoval(identityId, requestId))),
+            transition.effects,
+        )
+    }
+
+    @Test
     fun deferredOverlaysHaveNoFoundationStateConstructor() {
         val deferred = HarvestCircleSurfaceRegistry.overlays.filter { it.availability.name.startsWith("Deferred") }
         assertEquals(5, deferred.size)

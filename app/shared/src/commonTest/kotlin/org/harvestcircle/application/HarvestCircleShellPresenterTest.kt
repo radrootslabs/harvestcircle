@@ -120,6 +120,41 @@ class HarvestCircleShellPresenterTest {
         }
 
     @Test
+    fun hcSl006BusyRejectedConfirmationReturnsToReady() =
+        runTest {
+            val identityId = IdentityId.fromPublicKeyHex("04".repeat(32))
+            val requestId = RemovalRequestId.from("removal-shell-busy")
+            val identity =
+                FakeIdentityPresentation(
+                    presenterState(HarvestCircleRoute.IDENTITIES)
+                        .withRemovalConfirmation(identityId, requestId)
+                        .copy(busy = true, commandStatus = CommandStatus.RUNNING),
+                )
+            val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this)
+            runCurrent()
+            val action = ConfirmationAction.RemoveLocalIdentity(identityId, requestId)
+
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.Confirm(action)))
+            assertEquals(
+                ConfirmationPhase.Submitting,
+                (presenter.state.value.overlays.current as FoundationOverlay.ConfirmAction).phase,
+            )
+
+            identity.state.value =
+                identity.state.value.copy(
+                    busy = true,
+                    commandStatus = CommandStatus.REJECTED_BUSY,
+                )
+            runCurrent()
+
+            assertEquals(
+                ConfirmationPhase.Ready,
+                (presenter.state.value.overlays.current as FoundationOverlay.ConfirmAction).phase,
+            )
+            presenter.close()
+        }
+
+    @Test
     fun replacedConfirmationRejectsThePriorTokenAndAdmitsOnlyTheCurrentToken() =
         runTest {
             val identityId = IdentityId.fromPublicKeyHex("04".repeat(32))

@@ -105,7 +105,7 @@ private fun HarvestCircleShellContent(
         }
     }
     ShellFocusRestorer(state.overlays.restoreFocus, fallback)
-    FoundationOverlayHost(state.overlays, deriveShellStatus(state), state.identity.busy) {
+    FoundationOverlayHost(state.overlays, deriveShellStatus(state)) {
         dispatch(HarvestCircleShellIntent.Overlay(it))
     }
 }

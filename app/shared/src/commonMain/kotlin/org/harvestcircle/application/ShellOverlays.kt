@@ -167,7 +167,6 @@ object OverlayReducer {
         val admitted = state.identity.removalConfirmation ?: return OverlayTransition(state)
         if (current.action != expected ||
             current.phase != ConfirmationPhase.Ready ||
-            state.identity.busy ||
             state.identity.removalStatus != RemovalStatus.AWAITING_CONFIRMATION ||
             admitted.identityId != removal.identityId ||
             admitted.requestId != removal.requestId

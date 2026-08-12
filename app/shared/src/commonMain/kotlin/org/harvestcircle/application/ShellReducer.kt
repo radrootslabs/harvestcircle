@@ -86,7 +86,6 @@ object ShellReducer {
         if (current?.action == action) {
             val admissionRejected =
                 current.busy &&
-                    !identity.busy &&
                     identity.removalStatus == RemovalStatus.AWAITING_CONFIRMATION &&
                     identity.commandStatus in REMOVAL_ADMISSION_FAILURES
             return if (admissionRejected) {

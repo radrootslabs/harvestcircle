@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.isDialog
@@ -19,6 +20,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import org.harvestcircle.application.BannerSeverity
 import org.harvestcircle.application.ConfirmationAction
+import org.harvestcircle.application.ConfirmationPhase
 import org.harvestcircle.application.FoundationOverlay
 import org.harvestcircle.application.GlobalStatusBanner
 import org.harvestcircle.application.OverlayIntent
@@ -123,9 +125,10 @@ class FoundationOverlayHostTest {
                             "The local credential will be deleted.",
                             "Remove local identity",
                             removalAction(),
+                            phase = ConfirmationPhase.Submitting,
                         ),
                 )
-            setContent { FoundationOverlayHost(state, status(), busy = true, onIntent = intents::add) }
+            setContent { FoundationOverlayHost(state, status(), onIntent = intents::add) }
 
             onNodeWithTag("foundation-overlay").assertIsFocused()
             onNodeWithTag("foundation-overlay").performKeyInput {
@@ -136,6 +139,26 @@ class FoundationOverlayHostTest {
             onNodeWithTag("overlay-cancel").assertIsNotEnabled()
             onNodeWithTag("foundation-overlay").assertExists()
             kotlin.test.assertTrue(intents.isEmpty())
+        }
+
+    @Test
+    fun hcSl006ReferenceAndStatusControlsRemainLocallyInteractive() =
+        runComposeUiTest {
+            var state by mutableStateOf(OverlayState(current = FoundationOverlay.OpenNostrReference()))
+            setContent {
+                FoundationOverlayHost(state, status()) { intent ->
+                    state = reduceOverlay(state, intent)
+                }
+            }
+
+            onNodeWithTag("nostr-reference-input").assertIsEnabled().performTextInput("note1candidate")
+            onNodeWithTag("nostr-reference-submit").assertIsEnabled()
+            onNodeWithTag("overlay-cancel").assertIsEnabled().performClick()
+            onAllNodesWithTag("foundation-overlay").assertCountEquals(0)
+
+            state = OverlayState(FoundationOverlay.Status(org.harvestcircle.application.StatusOverlayKey.Sync))
+            onNodeWithTag("overlay-close").assertIsEnabled().performClick()
+            onAllNodesWithTag("foundation-overlay").assertCountEquals(0)
         }
 
     @Test

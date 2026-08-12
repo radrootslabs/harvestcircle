@@ -36,7 +36,6 @@ import org.harvestcircle.application.StatusOverlayKey
 fun FoundationOverlayHost(
     state: OverlayState,
     status: ShellStatusModel,
-    busy: Boolean = false,
     onIntent: (OverlayIntent) -> Unit,
 ) {
     status.banner?.let { banner ->
@@ -50,7 +49,7 @@ fun FoundationOverlayHost(
         }
     }
     state.current?.let { overlay ->
-        val overlayBusy = busy || (overlay as? FoundationOverlay.ConfirmAction)?.busy == true
+        val overlayBusy = (overlay as? FoundationOverlay.ConfirmAction)?.busy == true
         val rootRequester = remember { FocusRequester() }
         Dialog(
             onDismissRequest = {
@@ -67,7 +66,7 @@ fun FoundationOverlayHost(
                 Modifier
                     .focusGroup()
                     .focusRequester(rootRequester)
-                    .focusable(overlayBusy && overlay is FoundationOverlay.ConfirmAction)
+                    .focusable(overlayBusy)
                     .semantics {
                         contentDescription = "Dialog: ${overlay.title()}"
                         paneTitle = overlay.title()
@@ -81,7 +80,7 @@ fun FoundationOverlayHost(
                             StatusOverlayKey.Signer -> StatusOverlay("Signer status", status.signer.text, onIntent)
                             StatusOverlayKey.Sync -> StatusOverlay("Sync status", status.sync.text, onIntent)
                         }
-                    is FoundationOverlay.OpenNostrReference -> ReferenceOverlay(overlay, busy, onIntent)
+                    is FoundationOverlay.OpenNostrReference -> ReferenceOverlay(overlay, onIntent)
                 }
             }
         }
@@ -164,7 +163,6 @@ private fun StatusOverlay(
 @Composable
 private fun ReferenceOverlay(
     overlay: FoundationOverlay.OpenNostrReference,
-    busy: Boolean,
     onIntent: (OverlayIntent) -> Unit,
 ) {
     val inputRequester = remember { FocusRequester() }
@@ -185,7 +183,6 @@ private fun ReferenceOverlay(
                         previous = cancelRequester
                     }.modalFocusCycle(submitRequester, cancelRequester)
                     .testTag("nostr-reference-input"),
-            enabled = !busy,
         )
         overlay.result?.let { ShellText(it.message, Modifier.testTag("nostr-reference-result")) }
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -200,7 +197,6 @@ private fun ReferenceOverlay(
                         previous = inputRequester
                     }.modalFocusCycle(cancelRequester, inputRequester)
                     .testTag("nostr-reference-submit"),
-                enabled = !busy,
                 kind = ShellButtonKind.Primary,
             )
             ShellButton(
@@ -214,7 +210,6 @@ private fun ReferenceOverlay(
                         previous = submitRequester
                     }.modalFocusCycle(inputRequester, submitRequester)
                     .testTag("overlay-cancel"),
-                !busy,
             )
         }
     }
