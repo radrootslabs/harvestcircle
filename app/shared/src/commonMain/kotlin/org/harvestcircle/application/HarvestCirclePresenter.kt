@@ -3,6 +3,7 @@ package org.harvestcircle.application
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 class HarvestCirclePresenter(
     private val runtime: HarvestCircleRuntime,
@@ -27,7 +29,7 @@ class HarvestCirclePresenter(
     private var subscriptionJob: Job? = null
     private var commandJob: Job? = null
     private var pendingRecovery: GeneratedIdentityRecovery? = null
-    private var pendingRemoval: IdentityRemovalRequest? = null
+    private var pendingRemoval: PendingRemovalLease? = null
     private var pendingRetry: PendingRetry? = null
     private val closeMutex = Mutex()
     private var closeReceipt: ShutdownReceipt? = null
@@ -209,8 +211,7 @@ class HarvestCirclePresenter(
 
     private fun requestIdentityRemoval(intent: HarvestCircleIntent.RequestIdentityRemoval) {
         launchOperation {
-            pendingRemoval?.let { previous -> runtime.cancelIdentityRemoval(previous.requestId) }
-            pendingRemoval = null
+            pendingRemoval?.let { previous -> releaseRemovalRequest(previous, RemovalStatus.NONE) }
             updateState {
                 copy(
                     removalConfirmation = null,
@@ -218,8 +219,12 @@ class HarvestCirclePresenter(
                 )
             }
             val request = runtime.requestIdentityRemoval(intent.identityId)
-            check(request.expiresAt.value > clock.now().value) { "Identity removal request is already expired" }
-            pendingRemoval = request
+            val lease = PendingRemovalLease(request)
+            pendingRemoval = lease
+            if (request.isExpired()) {
+                releaseRemovalRequest(lease, RemovalStatus.FAILED)
+                throw ApplicationFailure(removalExpiredProblem())
+            }
             updateState {
                 copy(
                     removalConfirmation = request.toConfirmation(),
@@ -230,28 +235,24 @@ class HarvestCirclePresenter(
     }
 
     private fun cancelIdentityRemoval(intent: HarvestCircleIntent.CancelIdentityRemoval) {
-        val request = matchingRemoval(intent.identityId, intent.requestId) ?: return
+        val lease = matchingRemoval(intent.identityId, intent.requestId) ?: return
         launchOperation {
-            runtime.cancelIdentityRemoval(request.requestId)
-            if (pendingRemoval == request) {
-                pendingRemoval = null
-                updateState {
-                    copy(
-                        removalConfirmation = null,
-                        removalStatus = RemovalStatus.NONE,
-                    )
-                }
+            val expired = lease.request.isExpired()
+            releaseRemovalRequest(lease, if (expired) RemovalStatus.FAILED else RemovalStatus.NONE)
+            if (expired) {
+                throw ApplicationFailure(removalExpiredProblem())
             }
         }
     }
 
     private fun confirmIdentityRemoval(intent: HarvestCircleIntent.ConfirmIdentityRemoval) {
-        val request = matchingRemoval(intent.identityId, intent.requestId) ?: return
+        val lease = matchingRemoval(intent.identityId, intent.requestId) ?: return
+        val request = lease.request
         val operationId = operationIds.next()
         launchOperation(
             operationId = operationId,
             onAccepted = {
-                pendingRemoval = null
+                lease.phase = RemovalLeasePhase.Confirming
                 updateState {
                     copy(
                         removalConfirmation = null,
@@ -260,6 +261,10 @@ class HarvestCirclePresenter(
                 }
             },
         ) {
+            if (request.isExpired()) {
+                releaseRemovalRequest(lease, RemovalStatus.FAILED)
+                throw ApplicationFailure(removalExpiredProblem(operationId))
+            }
             try {
                 val result =
                     runtime.execute(
@@ -269,6 +274,8 @@ class HarvestCirclePresenter(
                         ),
                     )
                 acceptResult(result, operationId)
+                lease.phase = RemovalLeasePhase.Confirmed
+                if (pendingRemoval === lease) pendingRemoval = null
                 updateState {
                     copy(
                         removalConfirmation = null,
@@ -277,16 +284,14 @@ class HarvestCirclePresenter(
                     )
                 }
                 mutableEffects.tryEmit(HarvestCircleEffect.IdentityRemoved(request.identityId))
-            } finally {
-                if (state.value.removalStatus != RemovalStatus.COMPLETED) {
-                    runtime.cancelIdentityRemoval(request.requestId)
-                    updateState {
-                        copy(
-                            removalConfirmation = null,
-                            removalStatus = RemovalStatus.FAILED,
-                        )
-                    }
+            } catch (error: CancellationException) {
+                withContext(NonCancellable) {
+                    releaseRemovalRequest(lease, RemovalStatus.FAILED)
                 }
+                throw error
+            } catch (error: Exception) {
+                releaseRemovalRequest(lease, RemovalStatus.FAILED)
+                throw error
             }
         }
     }
@@ -294,13 +299,22 @@ class HarvestCirclePresenter(
     private fun matchingRemoval(
         identityId: IdentityId,
         requestId: RemovalRequestId,
-    ): IdentityRemovalRequest? {
-        val request = pendingRemoval
+    ): PendingRemovalLease? {
+        val lease = pendingRemoval
         val confirmation = state.value.removalConfirmation
-        if (request == null || confirmation == null || state.value.removalStatus != RemovalStatus.AWAITING_CONFIRMATION) {
+        if (lease?.phase == RemovalLeasePhase.ReleaseFailed) {
+            acceptFailure(ApplicationFailure(removalReleaseFailedProblem()), null)
+            return null
+        }
+        if (lease == null ||
+            lease.phase != RemovalLeasePhase.Open ||
+            confirmation == null ||
+            state.value.removalStatus != RemovalStatus.AWAITING_CONFIRMATION
+        ) {
             rejectUnavailable("Identity removal confirmation is not available.")
             return null
         }
+        val request = lease.request
         if (request.identityId != identityId ||
             request.requestId != requestId ||
             confirmation.identityId != identityId ||
@@ -309,20 +323,53 @@ class HarvestCirclePresenter(
             rejectUnavailable("Identity removal confirmation does not match the current request.")
             return null
         }
-        if (request.expiresAt.value <= clock.now().value) {
-            pendingRemoval = null
-            updateState {
-                copy(
-                    removalConfirmation = null,
-                    removalStatus = RemovalStatus.FAILED,
-                    commandStatus = CommandStatus.FAILED_TERMINAL,
-                    problem = "Identity removal confirmation has expired.",
-                )
-            }
-            return null
-        }
-        return request
+        return lease
     }
+
+    private suspend fun releaseRemovalRequest(
+        lease: PendingRemovalLease,
+        resultingStatus: RemovalStatus,
+    ) {
+        if (pendingRemoval !== lease || lease.phase !in RELEASABLE_REMOVAL_PHASES) {
+            throw ApplicationFailure(removalReleaseFailedProblem())
+        }
+        lease.phase = RemovalLeasePhase.Releasing
+        val released =
+            try {
+                runtime.cancelIdentityRemoval(lease.request.requestId)
+            } catch (error: CancellationException) {
+                quarantineRemovalLease(lease)
+                acceptFailure(ApplicationFailure(removalReleaseFailedProblem()), null)
+                throw error
+            } catch (_: Exception) {
+                quarantineRemovalLease(lease)
+                throw ApplicationFailure(removalReleaseFailedProblem())
+            }
+        if (!released) {
+            quarantineRemovalLease(lease)
+            throw ApplicationFailure(removalReleaseFailedProblem())
+        }
+        lease.phase = RemovalLeasePhase.Released
+        if (pendingRemoval === lease) pendingRemoval = null
+        updateState {
+            copy(
+                removalConfirmation = null,
+                removalStatus = resultingStatus,
+            )
+        }
+    }
+
+    private fun quarantineRemovalLease(lease: PendingRemovalLease) {
+        lease.phase = RemovalLeasePhase.ReleaseFailed
+        updateState {
+            copy(
+                removalConfirmation = null,
+                removalStatus = RemovalStatus.FAILED,
+            )
+        }
+    }
+
+    private fun IdentityRemovalRequest.isExpired(): Boolean = expiresAt.value <= clock.now().value
 
     private fun launchOperation(
         requireReady: Boolean = true,
@@ -469,6 +516,20 @@ private data class PendingRetry(
     val operationId: OperationId,
 )
 
+private class PendingRemovalLease(
+    val request: IdentityRemovalRequest,
+    var phase: RemovalLeasePhase = RemovalLeasePhase.Open,
+)
+
+private enum class RemovalLeasePhase {
+    Open,
+    Releasing,
+    ReleaseFailed,
+    Confirming,
+    Confirmed,
+    Released,
+}
+
 private fun IdentityRemovalRequest.toConfirmation(): IdentityRemovalConfirmation =
     IdentityRemovalConfirmation(
         identityId = identityId,
@@ -498,6 +559,26 @@ private fun Throwable.toProblem(operationId: OperationId?): ApplicationProblem =
             safeMessage = "The application command failed.",
         )
 
+private fun removalReleaseFailedProblem(): ApplicationProblem =
+    ApplicationProblem(
+        code = ApplicationErrorCode.InvalidApplicationState,
+        category = ApplicationErrorCategory.Lifecycle,
+        retryable = false,
+        recoveryAction = RecoveryAction.RestartApplication,
+        operationId = null,
+        safeMessage = "The identity removal request could not be released safely.",
+    )
+
+private fun removalExpiredProblem(operationId: OperationId? = null): ApplicationProblem =
+    ApplicationProblem(
+        code = ApplicationErrorCode.InvalidApplicationState,
+        category = ApplicationErrorCategory.Lifecycle,
+        retryable = false,
+        recoveryAction = RecoveryAction.None,
+        operationId = operationId,
+        safeMessage = "Identity removal confirmation has expired.",
+    )
+
 private val READY_ROUTES =
     setOf(
         HarvestCircleRoute.IDENTITIES,
@@ -506,3 +587,4 @@ private val READY_ROUTES =
     )
 private const val EFFECT_BUFFER_CAPACITY = 8
 private const val COMMAND_DEADLINE_MILLIS = 5_000UL
+private val RELEASABLE_REMOVAL_PHASES = setOf(RemovalLeasePhase.Open, RemovalLeasePhase.Confirming)
