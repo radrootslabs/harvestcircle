@@ -1,6 +1,7 @@
 package org.harvestcircle.ui.shell
 
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,7 +11,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -43,6 +51,7 @@ fun FoundationOverlayHost(
     }
     state.current?.let { overlay ->
         val overlayBusy = busy || (overlay as? FoundationOverlay.ConfirmAction)?.busy == true
+        val rootRequester = remember { FocusRequester() }
         Dialog(
             onDismissRequest = {
                 if (!overlayBusy) {
@@ -57,6 +66,8 @@ fun FoundationOverlayHost(
             ShellSurface(
                 Modifier
                     .focusGroup()
+                    .focusRequester(rootRequester)
+                    .focusable(overlayBusy && overlay is FoundationOverlay.ConfirmAction)
                     .semantics {
                         contentDescription = "Dialog: ${overlay.title()}"
                         paneTitle = overlay.title()
@@ -64,7 +75,7 @@ fun FoundationOverlayHost(
                     .padding(24.dp),
             ) {
                 when (overlay) {
-                    is FoundationOverlay.ConfirmAction -> ConfirmOverlay(overlay, overlayBusy, onIntent)
+                    is FoundationOverlay.ConfirmAction -> ConfirmOverlay(overlay, overlayBusy, rootRequester, onIntent)
                     is FoundationOverlay.Status ->
                         when (overlay.key) {
                             StatusOverlayKey.Signer -> StatusOverlay("Signer status", status.signer.text, onIntent)
@@ -81,9 +92,11 @@ fun FoundationOverlayHost(
 private fun ConfirmOverlay(
     overlay: FoundationOverlay.ConfirmAction,
     busy: Boolean,
+    rootRequester: FocusRequester,
     onIntent: (OverlayIntent) -> Unit,
 ) {
-    val requester = remember { FocusRequester() }
+    val confirmRequester = remember { FocusRequester() }
+    val cancelRequester = remember { FocusRequester() }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ShellText(overlay.title, Modifier.semantics { heading() }, ShellTextRole.SectionTitle)
         ShellText(overlay.explanation)
@@ -92,7 +105,13 @@ private fun ConfirmOverlay(
                 overlay.actionLabel,
                 overlay.actionLabel,
                 { onIntent(OverlayIntent.Confirm(overlay.action)) },
-                Modifier.focusRequester(requester).testTag("overlay-confirm"),
+                Modifier
+                    .focusRequester(confirmRequester)
+                    .focusProperties {
+                        next = cancelRequester
+                        previous = cancelRequester
+                    }.modalFocusCycle(cancelRequester, cancelRequester)
+                    .testTag("overlay-confirm"),
                 enabled = !busy,
                 kind = ShellButtonKind.Destructive,
             )
@@ -100,12 +119,20 @@ private fun ConfirmOverlay(
                 "Cancel",
                 "Cancel",
                 { onIntent(OverlayIntent.DismissConfirmation(overlay.action)) },
-                Modifier.testTag("overlay-cancel"),
+                Modifier
+                    .focusRequester(cancelRequester)
+                    .focusProperties {
+                        next = confirmRequester
+                        previous = confirmRequester
+                    }.modalFocusCycle(confirmRequester, confirmRequester)
+                    .testTag("overlay-cancel"),
                 !busy,
             )
         }
     }
-    LaunchedEffect(Unit) { requester.requestFocus() }
+    LaunchedEffect(busy) {
+        if (busy) rootRequester.requestFocus() else confirmRequester.requestFocus()
+    }
 }
 
 @Composable
@@ -122,7 +149,13 @@ private fun StatusOverlay(
             "Close",
             "Close",
             { onIntent(OverlayIntent.Close) },
-            Modifier.focusRequester(requester).testTag("overlay-close"),
+            Modifier
+                .focusRequester(requester)
+                .focusProperties {
+                    next = requester
+                    previous = requester
+                }.modalFocusCycle(requester, requester)
+                .testTag("overlay-close"),
         )
     }
     LaunchedEffect(Unit) { requester.requestFocus() }
@@ -134,7 +167,9 @@ private fun ReferenceOverlay(
     busy: Boolean,
     onIntent: (OverlayIntent) -> Unit,
 ) {
-    val requester = remember { FocusRequester() }
+    val inputRequester = remember { FocusRequester() }
+    val submitRequester = remember { FocusRequester() }
+    val cancelRequester = remember { FocusRequester() }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         ShellText("Open a Nostr reference", Modifier.semantics { heading() }, ShellTextRole.SectionTitle)
         ShellTextField(
@@ -142,7 +177,14 @@ private fun ReferenceOverlay(
             onValueChange = { onIntent(OverlayIntent.EditReference(it)) },
             label = "Nostr link, event ID, or address",
             placeholder = "nostr:…",
-            modifier = Modifier.focusRequester(requester).testTag("nostr-reference-input"),
+            modifier =
+                Modifier
+                    .focusRequester(inputRequester)
+                    .focusProperties {
+                        next = submitRequester
+                        previous = cancelRequester
+                    }.modalFocusCycle(submitRequester, cancelRequester)
+                    .testTag("nostr-reference-input"),
             enabled = !busy,
         )
         overlay.result?.let { ShellText(it.message, Modifier.testTag("nostr-reference-result")) }
@@ -151,15 +193,46 @@ private fun ReferenceOverlay(
                 "Open a Nostr reference",
                 "Open a Nostr reference",
                 { onIntent(OverlayIntent.SubmitReference) },
-                Modifier.testTag("nostr-reference-submit"),
+                Modifier
+                    .focusRequester(submitRequester)
+                    .focusProperties {
+                        next = cancelRequester
+                        previous = inputRequester
+                    }.modalFocusCycle(cancelRequester, inputRequester)
+                    .testTag("nostr-reference-submit"),
                 enabled = !busy,
                 kind = ShellButtonKind.Primary,
             )
-            ShellButton("Cancel", "Cancel", { onIntent(OverlayIntent.Close) }, Modifier.testTag("overlay-cancel"), !busy)
+            ShellButton(
+                "Cancel",
+                "Cancel",
+                { onIntent(OverlayIntent.Close) },
+                Modifier
+                    .focusRequester(cancelRequester)
+                    .focusProperties {
+                        next = inputRequester
+                        previous = submitRequester
+                    }.modalFocusCycle(inputRequester, submitRequester)
+                    .testTag("overlay-cancel"),
+                !busy,
+            )
         }
     }
-    LaunchedEffect(Unit) { requester.requestFocus() }
+    LaunchedEffect(Unit) { inputRequester.requestFocus() }
 }
+
+private fun Modifier.modalFocusCycle(
+    next: FocusRequester,
+    previous: FocusRequester,
+): Modifier =
+    onPreviewKeyEvent { event ->
+        if (event.type == KeyEventType.KeyDown && event.key == Key.Tab) {
+            (if (event.isShiftPressed) previous else next).requestFocus()
+            true
+        } else {
+            false
+        }
+    }
 
 private fun FoundationOverlay.title(): String =
     when (this) {

@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import org.harvestcircle.application.ShellFocusTarget
 import org.harvestcircle.application.SignerStatusLabel
 import org.harvestcircle.application.SyncStatusLabel
 
@@ -44,11 +45,26 @@ fun GlobalTopBar(
         ShellAction("Forward", "Go forward", "top-bar-forward", model.canGoForward) {
             onIntent(GlobalTopBarIntent.Forward)
         }
-        ShellAction("Open a Nostr reference", "Open a Nostr reference", "top-bar-open-reference") {
+        ShellAction(
+            "Open a Nostr reference",
+            "Open a Nostr reference",
+            "top-bar-open-reference",
+            modifier = Modifier.shellFocusTarget(ShellFocusTarget.TopBarReference),
+        ) {
             onIntent(GlobalTopBarIntent.OpenNostrReference)
         }
-        ShellAction(model.syncStatus.text, "Sync status", "top-bar-sync") { onIntent(GlobalTopBarIntent.ShowSyncStatus) }
-        ShellAction(model.signerStatus.text, "Signer status", "top-bar-signer") {
+        ShellAction(
+            model.syncStatus.text,
+            "Sync status",
+            "top-bar-sync",
+            modifier = Modifier.shellFocusTarget(ShellFocusTarget.TopBarSync),
+        ) { onIntent(GlobalTopBarIntent.ShowSyncStatus) }
+        ShellAction(
+            model.signerStatus.text,
+            "Signer status",
+            "top-bar-signer",
+            modifier = Modifier.shellFocusTarget(ShellFocusTarget.TopBarSigner),
+        ) {
             onIntent(GlobalTopBarIntent.ShowSignerStatus)
         }
         ShellAction("Menu", "Application menu", "top-bar-menu") { onIntent(GlobalTopBarIntent.OpenApplicationMenu) }
@@ -61,7 +77,8 @@ internal fun ShellAction(
     description: String,
     tag: String,
     enabled: Boolean = true,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    ShellButton(label, description, onClick, Modifier.testTag(tag), enabled)
+    ShellButton(label, description, onClick, modifier.testTag(tag), enabled)
 }

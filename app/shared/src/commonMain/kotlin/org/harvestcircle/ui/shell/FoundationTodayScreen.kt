@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import org.harvestcircle.application.ShellFocusTarget
 
 data class FoundationTodayModel(
     val context: String,
@@ -37,6 +38,7 @@ fun FoundationTodayScreen(
                     "Open a Nostr reference",
                     "Open a Nostr reference",
                     "today-open-reference",
+                    modifier = Modifier.shellFocusTarget(ShellFocusTarget.TodayReference),
                     onClick = openNostrReference,
                 )
             }

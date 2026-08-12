@@ -77,7 +77,7 @@ object ShellReducer {
         val current = state.overlays.current as? FoundationOverlay.ConfirmAction
         if (admitted == null) {
             return if (current?.action is ConfirmationAction.RemoveLocalIdentity) {
-                state.overlays.copy(current = null)
+                state.overlays.closed()
             } else {
                 state.overlays
             }
@@ -104,13 +104,14 @@ object ShellReducer {
                 admitted.signsOut -> "The active session will be signed out."
                 else -> "This saved local identity will be removed."
             }
-        return OverlayState(
+        return state.overlays.opened(
             FoundationOverlay.ConfirmAction(
                 title = "Remove this saved identity?",
                 explanation = impact,
                 actionLabel = "Remove local identity",
                 action = action,
             ),
+            ShellFocusTarget.IdentityRow(admitted.identityId.value),
         )
     }
 

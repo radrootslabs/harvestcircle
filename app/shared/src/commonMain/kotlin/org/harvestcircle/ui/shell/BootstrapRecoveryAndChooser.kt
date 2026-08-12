@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import org.harvestcircle.application.ShellFocusTarget
 import org.harvestcircle.design.TextSizePreference
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
@@ -126,6 +127,7 @@ private fun IdentityRow(
             "Remove ${identity.label}",
             "remove-identity:${identity.publicKeyHex}",
             enabled = !model.busy,
+            modifier = Modifier.shellFocusTarget(ShellFocusTarget.IdentityRow(identity.publicKeyHex)),
         ) {
             actions.requestIdentityRemoval(identity.publicKeyHex)
         }

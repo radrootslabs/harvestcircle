@@ -1,17 +1,24 @@
 package org.harvestcircle.ui.shell
 
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import org.harvestcircle.application.FoundationOverlay
 import org.harvestcircle.application.HarvestCircleIntent
 import org.harvestcircle.application.HarvestCircleShellIntent
 import org.harvestcircle.application.HarvestCircleShellState
 import org.harvestcircle.application.OverlayIntent
+import org.harvestcircle.application.ShellFocusTarget
 import org.harvestcircle.application.ShellRoot
 import org.harvestcircle.application.StatusOverlayKey
 import org.harvestcircle.application.deriveShellStatus
@@ -31,8 +38,14 @@ fun HarvestCircleShell(
     dispatch: (HarvestCircleShellIntent) -> Unit,
 ) {
     HarvestCircleTheme(state.appearance) {
-        ShellKeyboardHost(onShortcut = { dispatchShortcut(it, dispatch) }) {
-            HarvestCircleShellContent(state, identityActions, platformActions, dispatch)
+        val focusRegistry = remember { ShellFocusRegistry() }
+        CompositionLocalProvider(LocalShellFocusRegistry provides focusRegistry) {
+            ShellKeyboardHost(
+                modal = state.overlays.current,
+                onShortcut = { dispatchShortcut(it, state.overlays.current, dispatch) },
+            ) {
+                HarvestCircleShellContent(state, identityActions, platformActions, dispatch)
+            }
         }
     }
 }
@@ -44,41 +57,54 @@ private fun HarvestCircleShellContent(
     platformActions: HarvestCirclePlatformActions,
     dispatch: (HarvestCircleShellIntent) -> Unit,
 ) {
-    when (val root = state.root) {
-        is ShellRoot.LifecycleCanvas ->
-            ShellLifecycleCanvas(state.identity, identityActions)
-        is ShellRoot.BootstrapCanvas ->
-            when (root.step) {
-                BootstrapStep.Welcome -> BootstrapWelcome(dispatch)
-                BootstrapStep.CreateIdentity,
-                BootstrapStep.ImportIdentity,
-                ->
-                    BootstrapIdentityEntry(
-                        step = root.step,
-                        model = state.identity.toUiModel(),
-                        actions = identityActions,
-                        onBack = {
-                            identityActions.cancelIdentityEntry()
-                            dispatch(
-                                HarvestCircleShellIntent.Navigation(
-                                    NavigationIntent.SelectBootstrapStep(BootstrapStep.Welcome),
-                                ),
-                            )
-                        },
-                    )
-                BootstrapStep.GeneratedRecovery ->
-                    GeneratedRecoveryCanvas(state.identity.toUiModel(), identityActions, platformActions)
-                BootstrapStep.IdentityChooser,
-                BootstrapStep.ActivationProgress,
-                ->
-                    IdentityChooserCanvas(
-                        model = state.identity.toUiModel(),
-                        actions = identityActions,
-                        onReadOnly = { dispatch(HarvestCircleShellIntent.EnterReadOnly) },
-                    )
-            }
-        is ShellRoot.Dashboard -> DashboardRoot(state, root, identityActions, platformActions, dispatch)
+    val modalOpen = state.overlays.current != null
+    val fallback =
+        if (state.root is ShellRoot.Dashboard) ShellFocusTarget.RouteFallback else ShellFocusTarget.BootstrapFallback
+    Box(
+        Modifier
+            .fillMaxSize()
+            .shellFocusTarget(ShellFocusTarget.BootstrapFallback)
+            .focusable(state.root !is ShellRoot.Dashboard)
+            .then(if (modalOpen) Modifier.clearAndSetSemantics {} else Modifier)
+            .testTag("shell-background"),
+    ) {
+        when (val root = state.root) {
+            is ShellRoot.LifecycleCanvas ->
+                ShellLifecycleCanvas(state.identity, identityActions)
+            is ShellRoot.BootstrapCanvas ->
+                when (root.step) {
+                    BootstrapStep.Welcome -> BootstrapWelcome(dispatch)
+                    BootstrapStep.CreateIdentity,
+                    BootstrapStep.ImportIdentity,
+                    ->
+                        BootstrapIdentityEntry(
+                            step = root.step,
+                            model = state.identity.toUiModel(),
+                            actions = identityActions,
+                            onBack = {
+                                identityActions.cancelIdentityEntry()
+                                dispatch(
+                                    HarvestCircleShellIntent.Navigation(
+                                        NavigationIntent.SelectBootstrapStep(BootstrapStep.Welcome),
+                                    ),
+                                )
+                            },
+                        )
+                    BootstrapStep.GeneratedRecovery ->
+                        GeneratedRecoveryCanvas(state.identity.toUiModel(), identityActions, platformActions)
+                    BootstrapStep.IdentityChooser,
+                    BootstrapStep.ActivationProgress,
+                    ->
+                        IdentityChooserCanvas(
+                            model = state.identity.toUiModel(),
+                            actions = identityActions,
+                            onReadOnly = { dispatch(HarvestCircleShellIntent.EnterReadOnly) },
+                        )
+                }
+            is ShellRoot.Dashboard -> DashboardRoot(state, root, identityActions, platformActions, dispatch)
+        }
     }
+    ShellFocusRestorer(state.overlays.restoreFocus, fallback)
     FoundationOverlayHost(state.overlays, deriveShellStatus(state), state.identity.busy) {
         dispatch(HarvestCircleShellIntent.Overlay(it))
     }
@@ -162,7 +188,6 @@ private fun DashboardRoot(
             RouteFocusTarget(
                 route.toString(),
                 "${route.title()} main content",
-                restoreFocus = state.overlays.current == null,
             ) {
                 when (route) {
                     AppRoute.PersonalToday ->
@@ -171,7 +196,7 @@ private fun DashboardRoot(
                             openNostrReference = {
                                 dispatch(
                                     HarvestCircleShellIntent.Overlay(
-                                        OverlayIntent.OpenReference,
+                                        OverlayIntent.OpenReference(ShellFocusTarget.TodayReference),
                                     ),
                                 )
                             },
@@ -211,6 +236,7 @@ private fun DashboardRoot(
 
 private fun dispatchShortcut(
     shortcut: ShellShortcut,
+    overlay: FoundationOverlay?,
     dispatch: (HarvestCircleShellIntent) -> Unit,
 ) {
     val intent =
@@ -218,10 +244,13 @@ private fun dispatchShortcut(
             ShellShortcut.Back -> HarvestCircleShellIntent.Navigation(NavigationIntent.Back)
             ShellShortcut.Forward -> HarvestCircleShellIntent.Navigation(NavigationIntent.Forward)
             ShellShortcut.OpenNostrReference ->
-                HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference)
+                HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference())
             ShellShortcut.Today -> HarvestCircleShellIntent.Navigate(ScreenKey.PersonalToday)
             ShellShortcut.Settings -> HarvestCircleShellIntent.Navigate(ScreenKey.Settings)
-            ShellShortcut.CloseOverlay -> HarvestCircleShellIntent.Overlay(OverlayIntent.Escape())
+            ShellShortcut.CloseOverlay ->
+                HarvestCircleShellIntent.Overlay(
+                    OverlayIntent.Escape((overlay as? FoundationOverlay.ConfirmAction)?.action),
+                )
         }
     dispatch(intent)
 }
@@ -243,11 +272,15 @@ private fun dispatchTopBar(
             GlobalTopBarIntent.Back -> HarvestCircleShellIntent.Navigation(NavigationIntent.Back)
             GlobalTopBarIntent.Forward -> HarvestCircleShellIntent.Navigation(NavigationIntent.Forward)
             GlobalTopBarIntent.OpenNostrReference ->
-                HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference)
+                HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference(ShellFocusTarget.TopBarReference))
             GlobalTopBarIntent.ShowSyncStatus ->
-                HarvestCircleShellIntent.Overlay(OverlayIntent.Open(FoundationOverlay.Status(StatusOverlayKey.Sync)))
+                HarvestCircleShellIntent.Overlay(
+                    OverlayIntent.Open(FoundationOverlay.Status(StatusOverlayKey.Sync), ShellFocusTarget.TopBarSync),
+                )
             GlobalTopBarIntent.ShowSignerStatus ->
-                HarvestCircleShellIntent.Overlay(OverlayIntent.Open(FoundationOverlay.Status(StatusOverlayKey.Signer)))
+                HarvestCircleShellIntent.Overlay(
+                    OverlayIntent.Open(FoundationOverlay.Status(StatusOverlayKey.Signer), ShellFocusTarget.TopBarSigner),
+                )
             GlobalTopBarIntent.OpenApplicationMenu ->
                 HarvestCircleShellIntent.Navigate(ScreenKey.Settings)
         }

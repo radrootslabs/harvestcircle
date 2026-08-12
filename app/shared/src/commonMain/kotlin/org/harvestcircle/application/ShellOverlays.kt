@@ -35,14 +35,37 @@ enum class StatusOverlayKey { Signer, Sync }
 
 data class OverlayState(
     val current: FoundationOverlay? = null,
+    val returnFocus: ShellFocusTarget? = null,
+    val restoreFocus: ShellFocusTarget? = null,
 )
+
+sealed interface ShellFocusTarget {
+    data object RouteFallback : ShellFocusTarget
+
+    data object BootstrapFallback : ShellFocusTarget
+
+    data object TodayReference : ShellFocusTarget
+
+    data object TopBarReference : ShellFocusTarget
+
+    data object TopBarSync : ShellFocusTarget
+
+    data object TopBarSigner : ShellFocusTarget
+
+    data class IdentityRow(
+        val publicKeyHex: String,
+    ) : ShellFocusTarget
+}
 
 sealed interface OverlayIntent {
     data class Open(
         val overlay: FoundationOverlay,
+        val returnFocus: ShellFocusTarget = ShellFocusTarget.RouteFallback,
     ) : OverlayIntent
 
-    data object OpenReference : OverlayIntent
+    data class OpenReference(
+        val returnFocus: ShellFocusTarget = ShellFocusTarget.RouteFallback,
+    ) : OverlayIntent
 
     class EditReference(
         val value: String,
@@ -93,9 +116,10 @@ object OverlayReducer {
                 if (intent.overlay is FoundationOverlay.OpenNostrReference) {
                     OverlayTransition(state)
                 } else {
-                    state.withOverlay(intent.overlay)
+                    state.openOverlay(intent.overlay, intent.returnFocus)
                 }
-            OverlayIntent.OpenReference -> state.withOverlay(FoundationOverlay.OpenNostrReference())
+            is OverlayIntent.OpenReference ->
+                state.openOverlay(FoundationOverlay.OpenNostrReference(), intent.returnFocus)
             is OverlayIntent.EditReference -> applyReferenceEdit(state, intent.value)
             OverlayIntent.SubmitReference -> OverlayTransition(state)
             is OverlayIntent.ApplyReferenceResult -> applyReferenceResult(state, intent.result, intent.clearInput)
@@ -105,7 +129,7 @@ object OverlayReducer {
                 if (state.overlays.current is FoundationOverlay.ConfirmAction) {
                     OverlayTransition(state)
                 } else {
-                    state.withOverlay(null)
+                    state.closeOverlay()
                 }
             is OverlayIntent.Escape ->
                 when (val current = state.overlays.current) {
@@ -114,7 +138,7 @@ object OverlayReducer {
                         if (expected == null) OverlayTransition(state) else admitConfirmation(state, expected, submitting = false)
                     }
                     null -> OverlayTransition(state)
-                    else -> state.withOverlay(null)
+                    else -> state.closeOverlay()
                 }
         }
 
@@ -129,7 +153,7 @@ object OverlayReducer {
                 ReferenceInputAdmission.PrivateKeyShaped -> overlay.copy(input = "", result = ReferenceResult.PrivateKeyRejected)
                 ReferenceInputAdmission.TooLarge -> overlay.copy(input = "", result = ReferenceResult.Invalid)
             }
-        return state.withOverlay(updated)
+        return state.updateOverlay(updated)
     }
 
     private fun admitConfirmation(
@@ -168,12 +192,26 @@ object OverlayReducer {
         clearInput: Boolean,
     ): OverlayTransition {
         val overlay = state.overlays.current as? FoundationOverlay.OpenNostrReference ?: return OverlayTransition(state)
-        return state.withOverlay(overlay.copy(input = if (clearInput) "" else overlay.input, result = result))
+        return state.updateOverlay(overlay.copy(input = if (clearInput) "" else overlay.input, result = result))
     }
 
-    private fun HarvestCircleShellState.withOverlay(overlay: FoundationOverlay?): OverlayTransition =
+    private fun HarvestCircleShellState.openOverlay(
+        overlay: FoundationOverlay,
+        returnFocus: ShellFocusTarget,
+    ): OverlayTransition = OverlayTransition(copy(overlays = overlays.opened(overlay, returnFocus)))
+
+    private fun HarvestCircleShellState.updateOverlay(overlay: FoundationOverlay): OverlayTransition =
         OverlayTransition(copy(overlays = overlays.copy(current = overlay)))
+
+    private fun HarvestCircleShellState.closeOverlay(): OverlayTransition = OverlayTransition(copy(overlays = overlays.closed()))
 }
+
+internal fun OverlayState.opened(
+    overlay: FoundationOverlay,
+    returnFocus: ShellFocusTarget,
+): OverlayState = copy(current = overlay, returnFocus = returnFocus, restoreFocus = null)
+
+internal fun OverlayState.closed(): OverlayState = copy(current = null, returnFocus = null, restoreFocus = returnFocus)
 
 enum class ReferenceResult(
     val message: String,

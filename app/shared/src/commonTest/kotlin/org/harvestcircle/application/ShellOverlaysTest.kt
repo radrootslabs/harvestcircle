@@ -36,8 +36,16 @@ class ShellOverlaysTest {
                 ).state
         assertEquals(initial, rejected)
 
-        val opened = OverlayReducer.transition(initial, OverlayIntent.OpenReference).state
+        val opened =
+            OverlayReducer
+                .transition(initial, OverlayIntent.OpenReference(ShellFocusTarget.TodayReference))
+                .state
         assertEquals(FoundationOverlay.OpenNostrReference(), opened.overlays.current)
+        assertEquals(ShellFocusTarget.TodayReference, opened.overlays.returnFocus)
+
+        val closed = OverlayReducer.transition(opened, OverlayIntent.Close).state
+        assertNull(closed.overlays.current)
+        assertEquals(ShellFocusTarget.TodayReference, closed.overlays.restoreFocus)
     }
 
     @Test

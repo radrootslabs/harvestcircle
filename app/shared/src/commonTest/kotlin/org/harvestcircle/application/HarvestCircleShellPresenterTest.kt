@@ -169,7 +169,7 @@ class HarvestCircleShellPresenterTest {
             val identity = FakeIdentityPresentation(presenterState(HarvestCircleRoute.IDENTITIES))
             val parser = RecordingReferenceParser(NostrReferenceClassification.Note, "note1canonical")
             val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this, parser)
-            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference))
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference()))
             presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.EditReference("note1candidate")))
             assertTrue(parser.inputs.isEmpty())
             presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.SubmitReference))
@@ -189,7 +189,7 @@ class HarvestCircleShellPresenterTest {
             val identity = FakeIdentityPresentation(presenterState(HarvestCircleRoute.IDENTITIES))
             val parser = RecordingReferenceParser(NostrReferenceClassification.PrivateKeyRejected, null)
             val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this, parser)
-            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference))
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference()))
             val edit = OverlayIntent.EditReference(privateReference)
             presenter.dispatch(HarvestCircleShellIntent.Overlay(edit))
 
@@ -209,7 +209,7 @@ class HarvestCircleShellPresenterTest {
             val identity = FakeIdentityPresentation(presenterState(HarvestCircleRoute.IDENTITIES))
             val parser = RecordingReferenceParser(NostrReferenceClassification.Invalid, null)
             val presenter = HarvestCircleShellPresenter(identity, BuildInfo.unknown(), this, parser)
-            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference))
+            presenter.dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference()))
             val oversized = "x".repeat(2 * 1024 * 1024)
             presenter.dispatch(
                 HarvestCircleShellIntent.Overlay(

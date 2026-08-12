@@ -3,6 +3,7 @@ package org.harvestcircle.ui.shell
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsFocused
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import org.harvestcircle.application.BannerSeverity
@@ -89,6 +91,27 @@ class FoundationOverlayHostTest {
         }
 
     @Test
+    fun confirmationFocusWrapsInBothDirections() =
+        runComposeUiTest {
+            val state =
+                OverlayState(
+                    current =
+                        FoundationOverlay.ConfirmAction(
+                            "Remove identity?",
+                            "The local credential will be deleted.",
+                            "Remove local identity",
+                            removalAction(),
+                        ),
+                )
+            setContent { FoundationOverlayHost(state, status(), onIntent = {}) }
+
+            onNodeWithTag("overlay-confirm").assertIsFocused().pressTab()
+            onNodeWithTag("overlay-cancel").assertIsFocused().pressTab()
+            onNodeWithTag("overlay-confirm").assertIsFocused().pressShiftTab()
+            onNodeWithTag("overlay-cancel").assertIsFocused()
+        }
+
+    @Test
     fun busyConfirmationBlocksDuplicateSubmissionAndDismissal() =
         runComposeUiTest {
             val intents = mutableListOf<OverlayIntent>()
@@ -104,9 +127,39 @@ class FoundationOverlayHostTest {
                 )
             setContent { FoundationOverlayHost(state, status(), busy = true, onIntent = intents::add) }
 
+            onNodeWithTag("foundation-overlay").assertIsFocused()
+            onNodeWithTag("foundation-overlay").performKeyInput {
+                keyDown(Key.Escape)
+                keyUp(Key.Escape)
+            }
             onNodeWithTag("overlay-confirm").assertIsNotEnabled().performClick()
             onNodeWithTag("overlay-cancel").assertIsNotEnabled()
+            onNodeWithTag("foundation-overlay").assertExists()
             kotlin.test.assertTrue(intents.isEmpty())
+        }
+
+    @Test
+    fun referenceFocusWrapsAcrossInputAndActions() =
+        runComposeUiTest {
+            val state = OverlayState(current = FoundationOverlay.OpenNostrReference())
+            setContent { FoundationOverlayHost(state, status(), onIntent = {}) }
+
+            onNodeWithTag("nostr-reference-input").assertIsFocused().pressTab()
+            onNodeWithTag("nostr-reference-submit").assertIsFocused().pressTab()
+            onNodeWithTag("overlay-cancel").assertIsFocused().pressTab()
+            onNodeWithTag("nostr-reference-input").assertIsFocused().pressShiftTab()
+            onNodeWithTag("overlay-cancel").assertIsFocused()
+        }
+
+    @Test
+    fun statusFocusRemainsContainedOnTab() =
+        runComposeUiTest {
+            val state = OverlayState(FoundationOverlay.Status(org.harvestcircle.application.StatusOverlayKey.Sync))
+            setContent { FoundationOverlayHost(state, status(), onIntent = {}) }
+
+            onNodeWithTag("overlay-close").assertIsFocused().pressTab()
+            onNodeWithTag("overlay-close").assertIsFocused().pressShiftTab()
+            onNodeWithTag("overlay-close").assertIsFocused()
         }
 
     @Test
@@ -120,6 +173,22 @@ class FoundationOverlayHostTest {
             status = ShellStatusModel(SyncStatusLabel.Degraded, SignerStatusLabel.SignedOut, null)
             onNodeWithText("Limited connection").assertExists()
         }
+}
+
+private fun androidx.compose.ui.test.SemanticsNodeInteraction.pressTab() {
+    performKeyInput {
+        keyDown(Key.Tab)
+        keyUp(Key.Tab)
+    }
+}
+
+private fun androidx.compose.ui.test.SemanticsNodeInteraction.pressShiftTab() {
+    performKeyInput {
+        keyDown(Key.ShiftLeft)
+        keyDown(Key.Tab)
+        keyUp(Key.Tab)
+        keyUp(Key.ShiftLeft)
+    }
 }
 
 private fun status(banner: GlobalStatusBanner? = null) =
