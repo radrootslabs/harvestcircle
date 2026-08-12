@@ -8,7 +8,7 @@ import kotlin.test.assertNull
 
 class ShellControlsTest {
     @Test
-    fun focusChangesOnlyBorderAndRingAcrossEveryEnabledControlFamily() {
+    fun hcSc008FocusChangesOnlyBorderAndRingAcrossEveryEnabledControlFamily() {
         listOf(HarvestCircleDesign.light, HarvestCircleDesign.dark).forEach { palette ->
             ShellButtonKind.entries.forEach { kind ->
                 listOf(false, true).forEach { selected ->
@@ -30,7 +30,7 @@ class ShellControlsTest {
     }
 
     @Test
-    fun interactionPreservesPrimaryAndDestructiveSemanticFamilies() {
+    fun hcSc009InteractionPreservesPrimaryAndDestructiveSemanticFamilies() {
         listOf(HarvestCircleDesign.light, HarvestCircleDesign.dark).forEach { palette ->
             listOf(false, true).forEach { hovered ->
                 listOf(false, true).forEach { pressed ->

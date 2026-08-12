@@ -96,7 +96,7 @@ class ShellAccessibilityUiTest {
         }
 
     @Test
-    fun modalRemovesTheBackgroundSemanticsSubtree() =
+    fun hcSc011ModalRemovesTheBackgroundSemanticsSubtree() =
         runComposeUiTest {
             setContent {
                 HarvestCircleShell(

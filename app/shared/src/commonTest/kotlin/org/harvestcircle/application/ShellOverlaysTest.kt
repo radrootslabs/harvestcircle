@@ -26,7 +26,7 @@ class ShellOverlaysTest {
     }
 
     @Test
-    fun referenceOpeningIsInputFreeAndGenericPrefilledIngressIsRejected() {
+    fun hcSc012ReferenceOpeningIsInputFreeAndGenericPrefilledIngressIsRejected() {
         val initial = shellState()
         val rejected =
             OverlayReducer

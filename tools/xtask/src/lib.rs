@@ -385,6 +385,46 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             findings.push(format!("{path}: required product-shell source is missing"));
         }
     }
+    let regression_matrix: &[(&str, &[&str])] = &[
+        (
+            "app/shared/src/commonTest/kotlin/org/harvestcircle/application/HarvestCirclePresenterTest.kt",
+            &["hcSc001", "hcSc002"],
+        ),
+        (
+            "app/shared/src/commonTest/kotlin/org/harvestcircle/application/HarvestCircleShellPresenterTest.kt",
+            &["hcSc003", "HcSc004"],
+        ),
+        (
+            "app/shared/src/commonTest/kotlin/org/harvestcircle/application/ReferenceInputPolicyTest.kt",
+            &["hcSc005", "hcSc006", "hcSc007"],
+        ),
+        (
+            "app/shared/src/commonTest/kotlin/org/harvestcircle/ui/shell/ShellControlsTest.kt",
+            &["hcSc008", "hcSc009"],
+        ),
+        (
+            "app/shared/src/desktopTest/kotlin/org/harvestcircle/ui/shell/ShellControlsUiTest.kt",
+            &["hcSc010"],
+        ),
+        (
+            "app/shared/src/desktopTest/kotlin/org/harvestcircle/ui/shell/ShellAccessibilityUiTest.kt",
+            &["hcSc011"],
+        ),
+        (
+            "app/shared/src/commonTest/kotlin/org/harvestcircle/application/ShellOverlaysTest.kt",
+            &["hcSc012"],
+        ),
+    ];
+    for (path, markers) in regression_matrix {
+        let source = read_text(root, path);
+        for marker in *markers {
+            if !source.contains(marker) {
+                findings.push(format!(
+                    "{path}: required shell-security regression marker is missing: {marker}"
+                ));
+            }
+        }
+    }
     let locked_copy = [
         (
             "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/HarvestCircleShell.kt",
@@ -445,6 +485,32 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             .chars()
             .filter(|character| !character.is_whitespace())
             .collect::<String>();
+        for (shape, diagnostic) in [
+            (
+                "dataobjectConfirmIdentityRemoval",
+                "retired parameterless confirmation source shape",
+            ),
+            (
+                "dataobjectCancelIdentityRemoval",
+                "retired parameterless confirmation source shape",
+            ),
+            (
+                "isOverlayIntent.EditReference->classifyNostrReference(",
+                "parser-on-edit source shape",
+            ),
+            (
+                "OverlayIntent.Open(FoundationOverlay.OpenNostrReference(",
+                "prefilled reference ingress source shape",
+            ),
+            (
+                "selected=true,enabled=false",
+                "selected-as-disabled source shape",
+            ),
+        ] {
+            if compact.contains(shape) {
+                findings.push(format!("{path}: {diagnostic}"));
+            }
+        }
         if normalized_path.ends_with("/harvestcirclescreen.kt") {
             findings.push(format!("{path}: superseded product-shell screen path"));
         }
@@ -1048,6 +1114,46 @@ mod tests {
                 .iter()
                 .any(|finding| finding.contains("fake commercial product data marker pricecents"))
         );
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn product_shell_audit_rejects_retired_security_and_selection_shapes() {
+        let root = fixture("shell-security-shapes");
+        write(
+            &root,
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/application/LegacyConfirmation.kt",
+            "data object ConfirmIdentityRemoval\ndata object CancelIdentityRemoval\n",
+        );
+        write(
+            &root,
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/application/UnsafeReference.kt",
+            "fun reduce(intent: OverlayIntent) = when (intent) { is OverlayIntent.EditReference -> classifyNostrReference(intent.value) }\n",
+        );
+        write(
+            &root,
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/UnsafeIngress.kt",
+            "val overlay = OverlayIntent.Open(FoundationOverlay.OpenNostrReference(\"prefilled\"))\n",
+        );
+        write(
+            &root,
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/UnsafeSelection.kt",
+            "ShellTab(selected = true, enabled = false)\n",
+        );
+        let inventory = Inventory::load(&root).expect("security shape inventory");
+        let mut findings = Vec::new();
+        product_shell_audit(&root, &inventory, &mut findings);
+        for expected in [
+            "retired parameterless confirmation source shape",
+            "parser-on-edit source shape",
+            "prefilled reference ingress source shape",
+            "selected-as-disabled source shape",
+        ] {
+            assert!(
+                findings.iter().any(|finding| finding.contains(expected)),
+                "missing {expected}: {findings:?}"
+            );
+        }
         fs::remove_dir_all(root).expect("remove fixture");
     }
 

@@ -25,7 +25,7 @@ import kotlin.test.assertFalse
 @OptIn(ExperimentalTestApi::class)
 class ShellControlsUiTest {
     @Test
-    fun controlsExposeTargetsSelectionDisabledStateAndFieldCopy() =
+    fun hcSc010ControlsExposeTargetsSelectionDisabledStateAndFieldCopy() =
         runComposeUiTest {
             setContent {
                 Column {

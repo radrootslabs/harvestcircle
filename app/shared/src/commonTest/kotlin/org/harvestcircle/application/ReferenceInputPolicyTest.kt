@@ -7,7 +7,7 @@ import kotlin.test.assertSame
 
 class ReferenceInputPolicyTest {
     @Test
-    fun privateKeyShapesAreRejectedCaseInsensitivelyAfterAsciiWhitespace() {
+    fun hcSc005PrivateKeyShapesAreRejectedCaseInsensitivelyAfterAsciiWhitespace() {
         listOf(
             "nsec1",
             "nsec1partial",
@@ -27,7 +27,7 @@ class ReferenceInputPolicyTest {
     }
 
     @Test
-    fun characterAndUtf8ByteLimitsAreEnforcedBeforeAdmission() {
+    fun hcSc006CharacterAndUtf8ByteLimitsAreEnforcedBeforeAdmission() {
         val asciiLimit = "a".repeat(ReferenceInputPolicy.MAX_REFERENCE_CHARS)
         val multibyteOverflow = "é".repeat((ReferenceInputPolicy.MAX_REFERENCE_UTF8_BYTES / 2) + 1)
 
@@ -40,7 +40,7 @@ class ReferenceInputPolicyTest {
     }
 
     @Test
-    fun acceptedAdmissionAndEditIntentDoNotStringifyRawInput() {
+    fun hcSc007AcceptedAdmissionAndEditIntentDoNotStringifyRawInput() {
         val distinctive = "distinctive-public-reference"
         val admission = assertIs<ReferenceInputAdmission.Accepted>(ReferenceInputPolicy.admit(distinctive))
         val intent = OverlayIntent.EditReference(distinctive)

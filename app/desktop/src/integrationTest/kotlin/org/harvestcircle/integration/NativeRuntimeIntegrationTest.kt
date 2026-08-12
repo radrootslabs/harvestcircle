@@ -93,6 +93,73 @@ class NativeRuntimeIntegrationTest {
     }
 
     @Test
+    fun nativeRemovalRequestsRejectMissingStaleAndRapidDuplicateAuthority() {
+        val dataRoot = Files.createTempDirectory("harvestcircle-removal-authority-")
+        val bridge = HarvestCircleTestBridge.open(dataRoot.toString())
+        try {
+            val initial = bridge.bootstrap()
+            val generated = bridge.beginGeneratedIdentity()
+            val secret = generated.takeRecoveryNsec()
+            val created =
+                bridge.acknowledgeGeneratedIdentity(
+                    "00000000-0000-7000-8000-000000000021",
+                    initial.revision,
+                    2_000UL,
+                    generated,
+                )
+            val identityId = assertNotNull(created.selectedPublicKeyHex)
+            generated.close()
+
+            val missing =
+                assertFailsWith<TestBridgeException.Failure> {
+                    bridge.requestIdentityRemoval("04".repeat(32))
+                }
+            assertFalse(missing.safeMessage.contains(secret))
+
+            val cancelled = bridge.requestIdentityRemoval(identityId)
+            assertTrue(bridge.cancelIdentityRemoval(cancelled))
+            assertFalse(bridge.cancelIdentityRemoval(cancelled))
+            val stale =
+                assertFailsWith<TestBridgeException.Failure> {
+                    bridge.confirmIdentityRemoval(
+                        "00000000-0000-7000-8000-000000000022",
+                        created.revision,
+                        2_000UL,
+                        cancelled,
+                    )
+                }
+            assertFalse(stale.safeMessage.contains(secret))
+            cancelled.close()
+
+            val admitted = bridge.requestIdentityRemoval(identityId)
+            val removed =
+                bridge.confirmIdentityRemoval(
+                    "00000000-0000-7000-8000-000000000023",
+                    created.revision,
+                    2_000UL,
+                    admitted,
+                )
+            assertTrue(removed.identities.isEmpty())
+            val duplicate =
+                assertFailsWith<TestBridgeException.Failure> {
+                    bridge.confirmIdentityRemoval(
+                        "00000000-0000-7000-8000-000000000024",
+                        removed.revision,
+                        2_000UL,
+                        admitted,
+                    )
+                }
+            assertFalse(duplicate.safeMessage.contains(secret))
+            admitted.close()
+            assertFalse(bridge.snapshot().toString().contains(secret))
+            bridge.shutdown()
+        } finally {
+            bridge.close()
+            deleteTree(dataRoot)
+        }
+    }
+
+    @Test
     fun nativeBridgeCoversIdentityRelayRestartObserverTimeoutAndRedaction() =
         runBlocking {
             val dataRoot = Files.createTempDirectory("harvestcircle-native-integration-")

@@ -258,7 +258,7 @@ class HarvestCirclePresenterTest {
         }
 
     @Test
-    fun staleRemovalTokenCannotCancelTheAdmittedRequest() =
+    fun hcSc002StaleRemovalTokenCannotCancelTheAdmittedRequest() =
         runTest {
             val runtime = FakePresenterRuntime()
             val presenter = presenter(runtime)
@@ -286,7 +286,7 @@ class HarvestCirclePresenterTest {
         }
 
     @Test
-    fun failedRemovalRequestExposesNoConfirmation() =
+    fun hcSc001FailedRemovalRequestExposesNoConfirmation() =
         runTest {
             val runtime = FakePresenterRuntime().also { it.removalFailure = problem(retryable = false) }
             val presenter = presenter(runtime)

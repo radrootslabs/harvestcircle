@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.v2.runComposeUiTest
 import kotlinx.coroutines.runBlocking
@@ -185,6 +186,22 @@ class IdentityBootstrapAcceptanceTest {
                 waitForTag("foundation-today")
                 onNodeWithText("Read-only session").assertIsDisplayed()
                 assertTrue(runtime.currentSnapshot().identities.isEmpty())
+
+                onNodeWithTag("today-open-reference").performClick()
+                onNodeWithTag("nostr-reference-input").performTextInput(" \tNoStR:NS" + "EC1partial")
+                onNodeWithText("Private-key references cannot be opened.").assertIsDisplayed()
+                onNodeWithTag("overlay-cancel").performClick()
+                waitUntil(timeoutMillis = UI_TIMEOUT_MILLIS) {
+                    onAllNodesWithTag("foundation-overlay").fetchSemanticsNodes().isEmpty()
+                }
+
+                onNodeWithTag("today-open-reference").performClick()
+                onNodeWithTag("nostr-reference-input").performTextInput("é".repeat(1_025))
+                onNodeWithText("This reference is not valid.").assertIsDisplayed()
+                onNodeWithTag("overlay-cancel").performClick()
+                waitUntil(timeoutMillis = UI_TIMEOUT_MILLIS) {
+                    onAllNodesWithTag("foundation-overlay").fetchSemanticsNodes().isEmpty()
+                }
 
                 closeRequested = true
                 waitUntil(timeoutMillis = UI_TIMEOUT_MILLIS) { approvedExits == 1 }
