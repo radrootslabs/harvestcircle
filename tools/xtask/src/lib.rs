@@ -412,7 +412,27 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         ),
         (
             "app/shared/src/commonTest/kotlin/org/harvestcircle/application/ShellOverlaysTest.kt",
-            &["hcSc012"],
+            &["hcSc012", "hcSl001", "hcSl006"],
+        ),
+        (
+            "app/shared/src/commonTest/kotlin/org/harvestcircle/application/ReferenceInputPolicyTest.kt",
+            &["hcSl001"],
+        ),
+        (
+            "app/shared/src/commonTest/kotlin/org/harvestcircle/application/HarvestCirclePresenterTest.kt",
+            &["hcSl002", "hcSl003", "hcSl004", "hcSl005"],
+        ),
+        (
+            "app/shared/src/commonTest/kotlin/org/harvestcircle/application/HarvestCircleShellPresenterTest.kt",
+            &["hcSl001", "hcSl006"],
+        ),
+        (
+            "app/shared/src/commonTest/kotlin/org/harvestcircle/application/ImportSecretDraftTest.kt",
+            &["hcSl005"],
+        ),
+        (
+            "app/shared/src/desktopTest/kotlin/org/harvestcircle/ui/shell/FoundationOverlayHostTest.kt",
+            &["hcSl006"],
         ),
     ];
     for (path, markers) in regression_matrix {
@@ -421,6 +441,52 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             if !source.contains(marker) {
                 findings.push(format!(
                     "{path}: required shell-security regression marker is missing: {marker}"
+                ));
+            }
+        }
+    }
+    let closure_source_contract: &[(&str, &[&str])] = &[
+        (
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/application/ReferenceInputPolicy.kt",
+            &["data object AmbiguousHex", "hasAmbiguousHexShape"],
+        ),
+        (
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/application/ImportSecretDraft.kt",
+            &[
+                "class ImportSecretDraft private constructor",
+                "private var characters: CharArray?",
+            ],
+        ),
+        (
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/application/PresentationModels.kt",
+            &[
+                "val importDraft: ImportSecretDraft",
+                "class EditImportDraft private constructor",
+            ],
+        ),
+        (
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/application/HarvestCirclePresenter.kt",
+            &[
+                "PendingRemovalLease",
+                "releaseRemovalRequest",
+                "ImportSecretDraft",
+            ],
+        ),
+        (
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/application/ShellOverlays.kt",
+            &["ReferenceInputAdmission.AmbiguousHex"],
+        ),
+        (
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationOverlayHost.kt",
+            &["val overlayBusy = (overlay as? FoundationOverlay.ConfirmAction)?.busy == true"],
+        ),
+    ];
+    for (path, markers) in closure_source_contract {
+        let source = read_text(root, path);
+        for marker in *markers {
+            if !source.contains(marker) {
+                findings.push(format!(
+                    "{path}: required secret-lifecycle closure source marker is missing: {marker}"
                 ));
             }
         }
@@ -506,10 +572,35 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
                 "selected=true,enabled=false",
                 "selected-as-disabled source shape",
             ),
+            (
+                "valimportDraft:String",
+                "raw String import-draft custody source shape",
+            ),
+            (
+                "dataclassEditImportDraft",
+                "copyable import-draft intent source shape",
+            ),
         ] {
             if compact.contains(shape) {
                 findings.push(format!("{path}: {diagnostic}"));
             }
+        }
+        if path
+            == "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationOverlayHost.kt"
+            && compact.contains(
+                "funFoundationOverlayHost(state:OverlayState,status:ShellStatusModel,busy:Boolean",
+            )
+        {
+            findings.push(format!(
+                "{path}: global busy state must not enter the overlay host"
+            ));
+        }
+        if path == "app/shared/src/commonMain/kotlin/org/harvestcircle/application/ShellOverlays.kt"
+            && compact.contains("state.identity.busy")
+        {
+            findings.push(format!(
+                "{path}: unrelated identity busy state must not gate overlay admission"
+            ));
         }
         if normalized_path.ends_with("/harvestcirclescreen.kt") {
             findings.push(format!("{path}: superseded product-shell screen path"));
@@ -1148,6 +1239,41 @@ mod tests {
             "parser-on-edit source shape",
             "prefilled reference ingress source shape",
             "selected-as-disabled source shape",
+        ] {
+            assert!(
+                findings.iter().any(|finding| finding.contains(expected)),
+                "missing {expected}: {findings:?}"
+            );
+        }
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn product_shell_audit_rejects_secret_custody_and_global_overlay_busy_shapes() {
+        let root = fixture("secret-lifecycle-shapes");
+        write(
+            &root,
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/application/UnsafeDraft.kt",
+            "data class EditImportDraft(val value: String)\ndata class State(val importDraft: String)\n",
+        );
+        write(
+            &root,
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/application/ShellOverlays.kt",
+            "fun admit(state: State) = state.identity.busy\n",
+        );
+        write(
+            &root,
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationOverlayHost.kt",
+            "fun FoundationOverlayHost(state: OverlayState, status: ShellStatusModel, busy: Boolean) = Unit\n",
+        );
+        let inventory = Inventory::load(&root).expect("closure shape inventory");
+        let mut findings = Vec::new();
+        product_shell_audit(&root, &inventory, &mut findings);
+        for expected in [
+            "raw String import-draft custody source shape",
+            "copyable import-draft intent source shape",
+            "unrelated identity busy state must not gate overlay admission",
+            "global busy state must not enter the overlay host",
         ] {
             assert!(
                 findings.iter().any(|finding| finding.contains(expected)),
