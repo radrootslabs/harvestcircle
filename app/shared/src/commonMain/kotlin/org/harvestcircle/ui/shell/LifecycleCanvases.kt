@@ -2,21 +2,20 @@ package org.harvestcircle.ui.shell
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import org.harvestcircle.appearance.AppearanceState
 import org.harvestcircle.appearance.TextSizePreference
 import org.harvestcircle.application.HarvestCirclePresenterState
 import org.harvestcircle.application.HarvestCircleRoute
-import org.harvestcircle.designsystem.component.HarvestCircleButtonVariant
-import org.harvestcircle.designsystem.component.HarvestCircleTextRole
-import org.harvestcircle.designsystem.component.action.HarvestCircleLabeledButton
-import org.harvestcircle.designsystem.primitive.HarvestCircleText
-import org.harvestcircle.designsystem.theme.HarvestCircleTheme
+import org.harvestcircle.designsystem.shell.HarvestCircleShellButton
+import org.harvestcircle.designsystem.shell.HarvestCircleShellPanel
+import org.harvestcircle.designsystem.shell.HarvestCircleShellText
+import org.harvestcircle.designsystem.shell.HarvestCircleShellTextRole
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 
 @Composable
@@ -27,29 +26,19 @@ fun ShellLifecycleCanvas(
     val presentation = state.route.lifecyclePresentation()
     CanvasScaffold(
         textSize = TextSizePreference.Default,
-        header = { HarvestCircleText(presentation.title, role = HarvestCircleTextRole.PageTitle) },
+        header = { HarvestCircleShellText(presentation.title, role = HarvestCircleShellTextRole.PaneTitle) },
         body = {
-            Column(
-                Modifier.testTag("lifecycle-${state.route.name.lowercase()}"),
-                verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap),
-            ) {
-                HarvestCircleText(presentation.detail)
-                state.problem?.let { HarvestCircleText(it, Modifier.testTag("lifecycle-problem")) }
+            HarvestCircleShellPanel(Modifier.testTag("lifecycle-${state.route.name.lowercase()}")) {
+                HarvestCircleShellText(presentation.detail, role = HarvestCircleShellTextRole.SectionTitle)
+                state.problem?.let { HarvestCircleShellText(it, Modifier.testTag("lifecycle-problem")) }
             }
         },
         actionBar = {
-            Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (state.lastProblem?.retryable == true) {
-                    HarvestCircleLabeledButton("Retry", "Retry the last local operation", actions.retryLastCommand)
+                    HarvestCircleShellButton("Retry", actions.retryLastCommand, primary = true)
                 }
-                if (state.problem != null) {
-                    HarvestCircleLabeledButton(
-                        "Dismiss",
-                        "Dismiss this problem",
-                        actions.dismissProblem,
-                        variant = HarvestCircleButtonVariant.Ghost,
-                    )
-                }
+                if (state.problem != null) HarvestCircleShellButton("Dismiss", actions.dismissProblem)
             }
         },
     )
@@ -58,11 +47,7 @@ fun ShellLifecycleCanvas(
 @Composable
 fun StartupFailureScreen(problem: String) {
     HarvestCircleTheme(AppearanceState()) {
-        FailureCanvas(
-            title = "HarvestCircle could not start",
-            problem = problem,
-            tag = "startup-failure",
-        )
+        FailureCanvas("HarvestCircle could not start", problem, "startup-failure")
     }
 }
 
@@ -75,15 +60,16 @@ fun ShutdownFailureScreen(
         Box(Modifier.fillMaxSize().testTag("shutdown-failure")) {
             CanvasScaffold(
                 textSize = TextSizePreference.Default,
-                header = { HarvestCircleText("HarvestCircle could not close safely", role = HarvestCircleTextRole.PageTitle) },
-                body = { HarvestCircleText(problem, Modifier.testTag("shutdown-problem")) },
+                header = { HarvestCircleShellText("HarvestCircle could not close safely", role = HarvestCircleShellTextRole.PaneTitle) },
+                body = {
+                    HarvestCircleShellPanel { HarvestCircleShellText(problem, Modifier.testTag("shutdown-problem")) }
+                },
                 actionBar = {
-                    HarvestCircleLabeledButton(
+                    HarvestCircleShellButton(
                         "Force exit",
-                        "Force HarvestCircle to exit",
                         forceExit,
                         Modifier.testTag("force-exit"),
-                        variant = HarvestCircleButtonVariant.Destructive,
+                        destructive = true,
                     )
                 },
             )
@@ -99,10 +85,10 @@ private fun FailureCanvas(
 ) {
     CanvasScaffold(
         textSize = TextSizePreference.Default,
-        header = { HarvestCircleText(title, role = HarvestCircleTextRole.PageTitle) },
+        header = { HarvestCircleShellText(title, role = HarvestCircleShellTextRole.PaneTitle) },
         body = {
-            Column(Modifier.testTag(tag)) {
-                HarvestCircleText(problem, Modifier.testTag("startup-problem"))
+            HarvestCircleShellPanel(Modifier.testTag(tag)) {
+                HarvestCircleShellText(problem, Modifier.testTag("startup-problem"))
             }
         },
         actionBar = {},

@@ -1,7 +1,6 @@
 package org.harvestcircle.ui.shell
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,13 +10,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import org.harvestcircle.appearance.TextSizePreference
 import org.harvestcircle.application.ShellFocusTarget
-import org.harvestcircle.designsystem.component.HarvestCircleTextRole
-import org.harvestcircle.designsystem.component.action.HarvestCircleLabeledButton
-import org.harvestcircle.designsystem.component.feedback.HarvestCircleBadge
-import org.harvestcircle.designsystem.primitive.HarvestCircleText
-import org.harvestcircle.designsystem.theme.HarvestCircleTheme
+import org.harvestcircle.designsystem.shell.HarvestCircleShellButton
+import org.harvestcircle.designsystem.shell.HarvestCircleShellPalette
+import org.harvestcircle.designsystem.shell.HarvestCircleShellPanel
+import org.harvestcircle.designsystem.shell.HarvestCircleShellText
+import org.harvestcircle.designsystem.shell.HarvestCircleShellTextRole
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 import org.harvestcircle.identities.ui.HarvestCircleUiModel
@@ -32,37 +32,33 @@ fun GeneratedRecoveryCanvas(
     val backup = model.generatedKeyBackup ?: return
     CanvasScaffold(
         textSize = TextSizePreference.Default,
-        header = { HarvestCircleText("Save your recovery key", role = HarvestCircleTextRole.PageTitle) },
+        header = { HarvestCircleShellText("Save your recovery key", role = HarvestCircleShellTextRole.PaneTitle) },
         body = {
-            Column(
-                Modifier.testTag("generated-key-backup"),
-                verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap),
-            ) {
-                HarvestCircleText("This key is shown once.")
-                HarvestCircleText("Store it somewhere private before continuing.")
-                HarvestCircleText("Recovery key", role = HarvestCircleTextRole.SubsectionTitle)
-                HarvestCircleText(backup.nsec, Modifier.testTag("generated-nsec"), HarvestCircleTextRole.Code)
+            HarvestCircleShellPanel(Modifier.testTag("generated-key-backup")) {
+                HarvestCircleShellText("This key is shown once.", role = HarvestCircleShellTextRole.SectionTitle)
+                HarvestCircleShellText("Store it somewhere private before continuing.")
+                HarvestCircleShellText("Recovery key", role = HarvestCircleShellTextRole.Label)
+                HarvestCircleShellText(backup.nsec, Modifier.testTag("generated-nsec"), HarvestCircleShellTextRole.Code)
             }
         },
         actionBar = {
-            Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
-                HarvestCircleLabeledButton(
-                    "Copy recovery key",
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                HarvestCircleShellButton(
                     "Copy recovery key",
                     { platformActions.copySecret(backup.nsec) },
                     Modifier.testTag("copy-generated-key"),
                 )
-                HarvestCircleLabeledButton(
+                HarvestCircleShellButton(
                     "I have saved the recovery key",
-                    "I have saved the recovery key",
-                    { actions.acknowledgeGeneratedKeyBackup() },
+                    actions.acknowledgeGeneratedKeyBackup,
                     Modifier.testTag("acknowledge-key-backup"),
+                    primary = true,
                 )
-                HarvestCircleLabeledButton(
+                HarvestCircleShellButton(
                     "Cancel identity creation",
-                    "Cancel identity creation",
-                    { actions.cancelGeneratedKeyBackup() },
+                    actions.cancelGeneratedKeyBackup,
                     Modifier.testTag("cancel-generated-key"),
+                    destructive = true,
                 )
             }
         },
@@ -77,29 +73,24 @@ fun IdentityChooserCanvas(
 ) {
     CanvasScaffold(
         textSize = TextSizePreference.Default,
-        header = { HarvestCircleText("Choose a Nostr identity", role = HarvestCircleTextRole.PageTitle) },
+        header = { HarvestCircleShellText("Choose a Nostr identity", role = HarvestCircleShellTextRole.PaneTitle) },
         body = {
-            LazyColumn(Modifier.fillMaxWidth().testTag("saved-identity-list")) {
-                items(model.identities, key = IdentityUiModel::publicKeyHex) { identity ->
-                    IdentityRow(identity, model, actions)
-                }
+            LazyColumn(
+                Modifier.fillMaxWidth().testTag("saved-identity-list"),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(model.identities, key = IdentityUiModel::publicKeyHex) { identity -> IdentityRow(identity, model, actions) }
             }
         },
         actionBar = {
-            Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
-                HarvestCircleLabeledButton(
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                HarvestCircleShellButton(
                     "Create another identity",
-                    "Create another identity",
-                    { actions.chooseCreateIdentity() },
+                    actions.chooseCreateIdentity,
                     Modifier.testTag("choose-create-identity"),
                 )
-                HarvestCircleLabeledButton(
-                    "Import identity",
-                    "Import identity",
-                    { actions.chooseImportIdentity() },
-                    Modifier.testTag("choose-import-identity"),
-                )
-                HarvestCircleLabeledButton("Explore read-only", "Explore read-only", onReadOnly, Modifier.testTag("chooser-read-only"))
+                HarvestCircleShellButton("Import identity", actions.chooseImportIdentity, Modifier.testTag("choose-import-identity"))
+                HarvestCircleShellButton("Explore read-only", onReadOnly, Modifier.testTag("chooser-read-only"), primary = true)
             }
         },
     )
@@ -111,46 +102,45 @@ private fun IdentityRow(
     model: HarvestCircleUiModel,
     actions: HarvestCircleUiActions,
 ) {
-    Column(
+    HarvestCircleShellPanel(
         Modifier
-            .fillMaxWidth()
             .semantics { selected = identity.selected }
             .testTag("identity-row:${identity.publicKeyHex}"),
-        verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap),
     ) {
-        HarvestCircleText(identity.label, role = HarvestCircleTextRole.SubsectionTitle)
-        HarvestCircleText(identity.shortNpub, role = HarvestCircleTextRole.Code)
-        HarvestCircleText(
+        HarvestCircleShellText(identity.label, role = HarvestCircleShellTextRole.SectionTitle)
+        HarvestCircleShellText(identity.shortNpub, role = HarvestCircleShellTextRole.Code)
+        HarvestCircleShellText(
             if (identity.signerAvailability == org.harvestcircle.application.SignerAvailability.Available) {
                 "Local credential available"
             } else {
                 "Local credential unavailable"
             },
+            color = HarvestCircleShellPalette.contentSecondary,
         )
-        if (identity.selected) HarvestCircleBadge("Selected")
-        HarvestCircleLabeledButton(
-            label = if (identity.selected) "Selected identity" else "Select identity",
-            accessibilityLabel = "Select ${identity.label}",
-            modifier = Modifier.testTag("select-identity:${identity.publicKeyHex}"),
-            enabled = !model.busy && !identity.selected,
-            onClick = { actions.selectIdentity(identity.publicKeyHex) },
-        )
-        HarvestCircleLabeledButton(
-            label = if (identity.active) "Active identity" else "Activate identity",
-            accessibilityLabel = "Activate ${identity.label}",
-            modifier = Modifier.testTag("activate-identity:${identity.publicKeyHex}"),
-            enabled = !model.busy && !identity.active,
-            onClick = { actions.activateIdentity(identity.publicKeyHex) },
-        )
-        HarvestCircleLabeledButton(
-            label = "Remove local identity",
-            accessibilityLabel = "Remove ${identity.label}",
-            enabled = !model.busy,
-            modifier =
+        if (identity.selected) HarvestCircleShellText("Selected", role = HarvestCircleShellTextRole.Small)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            HarvestCircleShellButton(
+                if (identity.selected) "Selected identity" else "Select identity",
+                { actions.selectIdentity(identity.publicKeyHex) },
+                Modifier.testTag("select-identity:${identity.publicKeyHex}"),
+                primary = !identity.selected,
+                enabled = !model.busy && !identity.selected,
+            )
+            HarvestCircleShellButton(
+                if (identity.active) "Active identity" else "Activate identity",
+                { actions.activateIdentity(identity.publicKeyHex) },
+                Modifier.testTag("activate-identity:${identity.publicKeyHex}"),
+                enabled = !model.busy && !identity.active,
+            )
+            HarvestCircleShellButton(
+                "Remove local identity",
+                { actions.requestIdentityRemoval(identity.publicKeyHex) },
                 Modifier
                     .shellFocusTarget(ShellFocusTarget.IdentityRow(identity.publicKeyHex))
                     .testTag("remove-identity:${identity.publicKeyHex}"),
-            onClick = { actions.requestIdentityRemoval(identity.publicKeyHex) },
-        )
+                destructive = true,
+                enabled = !model.busy,
+            )
+        }
     }
 }

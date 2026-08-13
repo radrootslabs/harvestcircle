@@ -155,6 +155,8 @@ public object HarvestCircleShellMetrics {
     public val emptyStateVerticalOffset: Dp = 8.dp
     public val contentPanelRadius: Dp = 12.dp
     public val contentPanelInset: Dp = 16.dp
+    public val canvasActionBarHeight: Dp = 64.dp
+    public val canvasContentMaxWidth: Dp = 760.dp
     public val compactBreakpoint: Dp = 976.dp
     public val expandedBreakpoint: Dp = 1272.dp
 }

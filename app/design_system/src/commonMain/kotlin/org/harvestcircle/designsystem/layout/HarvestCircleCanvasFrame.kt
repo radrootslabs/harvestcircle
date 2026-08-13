@@ -1,5 +1,6 @@
 package org.harvestcircle.designsystem.layout
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,12 +14,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import org.harvestcircle.designsystem.component.utility.HarvestCircleHorizontalDivider
-import org.harvestcircle.designsystem.primitive.HarvestCircleSurface
-import org.harvestcircle.designsystem.primitive.HarvestCircleSurfaceRole
-import org.harvestcircle.designsystem.theme.HarvestCircleTheme
+import org.harvestcircle.designsystem.shell.HarvestCircleShellMetrics
+import org.harvestcircle.designsystem.shell.HarvestCircleShellPalette
 
-/** Centered bootstrap and lifecycle frame with fixed chrome and one explicit scroll owner. */
+/** Centered bootstrap and lifecycle frame using the approved Studio-derived shell chrome. */
 @Composable
 public fun HarvestCircleCanvasFrame(
     header: @Composable () -> Unit,
@@ -30,53 +29,53 @@ public fun HarvestCircleCanvasFrame(
     step: @Composable () -> Unit = {},
     bodyScrollable: Boolean = false,
 ) {
-    val frame = HarvestCircleTheme.shell.frame
-    HarvestCircleSurface(modifier = modifier.fillMaxSize(), role = HarvestCircleSurfaceRole.Canvas) {
-        Column(Modifier.fillMaxSize()) {
-            HarvestCircleSurface(
-                modifier = Modifier.fillMaxWidth().height(frame.canvasHeaderHeight),
-                role = HarvestCircleSurfaceRole.Raised,
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = HarvestCircleTheme.shell.layout.pageInset),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box { navigation() }
-                    Box(Modifier.weight(1f)) { header() }
-                    Box { step() }
-                }
-            }
-            HarvestCircleHorizontalDivider()
-            val scrollModifier =
-                if (bodyScrollable) {
-                    Modifier.verticalScroll(rememberScrollState())
-                } else {
+    val colors = HarvestCircleShellPalette
+    Box(modifier.fillMaxSize().background(colors.viewportCanvas), contentAlignment = Alignment.Center) {
+        Column(Modifier.fillMaxSize().background(colors.pane)) {
+            Row(
+                modifier =
                     Modifier
-                }
+                        .fillMaxWidth()
+                        .height(HarvestCircleShellMetrics.topBarHeight)
+                        .background(colors.applicationFrame)
+                        .padding(horizontal = HarvestCircleShellMetrics.contentPageHorizontalInset),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box { navigation() }
+                Box(Modifier.weight(1f)) { header() }
+                Box { step() }
+            }
+            HarvestCircleStructuralDivider(vertical = false)
+            val scrollModifier = if (bodyScrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier
             Box(
-                modifier = bodyModifier.weight(1f).fillMaxWidth().then(scrollModifier),
+                modifier =
+                    bodyModifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .background(colors.pane)
+                        .then(scrollModifier),
                 contentAlignment = Alignment.TopCenter,
             ) {
                 Box(
                     Modifier
+                        .widthIn(max = HarvestCircleShellMetrics.canvasContentMaxWidth)
                         .fillMaxWidth()
-                        .widthIn(max = frame.canvasContentMaxWidth)
-                        .padding(HarvestCircleTheme.shell.layout.pageInset),
+                        .padding(HarvestCircleShellMetrics.contentPageHorizontalInset),
                 ) {
                     body()
                 }
             }
-            HarvestCircleHorizontalDivider()
-            HarvestCircleSurface(
-                modifier = Modifier.fillMaxWidth().height(frame.canvasActionBarHeight),
-                role = HarvestCircleSurfaceRole.Raised,
+            HarvestCircleStructuralDivider(vertical = false)
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(HarvestCircleShellMetrics.canvasActionBarHeight)
+                        .background(colors.applicationFrame)
+                        .padding(horizontal = HarvestCircleShellMetrics.contentPageHorizontalInset),
+                contentAlignment = Alignment.CenterEnd,
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = HarvestCircleTheme.shell.layout.pageInset),
-                    contentAlignment = Alignment.CenterEnd,
-                ) {
-                    actionBar()
-                }
+                actionBar()
             }
         }
     }

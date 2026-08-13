@@ -319,3 +319,54 @@ public fun HarvestCircleShellSearchField(
         )
     }
 }
+
+@Composable
+public fun HarvestCircleShellTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    inputModifier: Modifier = Modifier,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+) {
+    val colors = HarvestCircleShellPalette
+    val sources = rememberHarvestCircleShellInteractionSources("shell-field:$label")
+    val interaction = sources.collectHarvestCircleShellInteractions()
+    val shape =
+        androidx.compose.foundation.shape
+            .RoundedCornerShape(HarvestCircleShellMetrics.controlRadius)
+    androidx.compose.foundation.layout.Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        HarvestCircleShellText(label, role = HarvestCircleShellTextRole.Label)
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .clip(shape)
+                    .background(colors.input)
+                    .border(BorderStroke(1.dp, if (interaction.focused) colors.accent else colors.border), shape)
+                    .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = inputModifier.weight(1f),
+                textStyle =
+                    HarvestCircleTheme.foundation.typography.body
+                        .copy(color = colors.contentPrimary),
+                interactionSource = sources.activation,
+                cursorBrush = SolidColor(colors.accent),
+                visualTransformation = visualTransformation,
+                singleLine = true,
+                decorationBox = { inner ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (value.isEmpty()) HarvestCircleShellText(placeholder, color = colors.contentMuted, maxLines = 1)
+                        inner()
+                    }
+                },
+            )
+        }
+    }
+}

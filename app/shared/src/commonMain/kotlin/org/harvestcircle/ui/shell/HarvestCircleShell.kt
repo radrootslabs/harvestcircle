@@ -26,11 +26,12 @@ import org.harvestcircle.application.ShellFocusTarget
 import org.harvestcircle.application.ShellRoot
 import org.harvestcircle.application.StatusOverlayKey
 import org.harvestcircle.application.deriveShellStatus
-import org.harvestcircle.designsystem.component.HarvestCircleContentTone
-import org.harvestcircle.designsystem.component.HarvestCircleTextRole
-import org.harvestcircle.designsystem.component.action.HarvestCircleLabeledButton
 import org.harvestcircle.designsystem.layout.HarvestCircleFrameLayoutClass
-import org.harvestcircle.designsystem.primitive.HarvestCircleText
+import org.harvestcircle.designsystem.shell.HarvestCircleShellButton
+import org.harvestcircle.designsystem.shell.HarvestCircleShellPalette
+import org.harvestcircle.designsystem.shell.HarvestCircleShellPanel
+import org.harvestcircle.designsystem.shell.HarvestCircleShellText
+import org.harvestcircle.designsystem.shell.HarvestCircleShellTextRole
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 import org.harvestcircle.identities.ui.toUiModel
@@ -125,38 +126,44 @@ private fun HarvestCircleShellContent(
 private fun BootstrapWelcome(dispatch: (HarvestCircleShellIntent) -> Unit) {
     CanvasScaffold(
         textSize = TextSizePreference.Default,
-        header = { HarvestCircleText("HarvestCircle", role = HarvestCircleTextRole.PageTitle) },
+        header = { HarvestCircleShellText("HarvestCircle", role = HarvestCircleShellTextRole.PaneTitle) },
         body = {
             Column(
                 Modifier.testTag("bootstrap-welcome"),
                 verticalArrangement = Arrangement.spacedBy(HarvestCircleDesignTokens.shell.layout.contentGap),
             ) {
-                HarvestCircleText("Coordinate local food with clear, signed terms.", role = HarvestCircleTextRole.SectionTitle)
-                HarvestCircleText("HarvestCircle helps farms and nearby buyers form one shared order.")
-                HarvestCircleText("You do not need a HarvestCircle account.")
-                HarvestCircleText("A farm opens a round", role = HarvestCircleTextRole.SubsectionTitle)
-                HarvestCircleText("The farm publishes the available boxes, pickup terms, and price levels.")
-                HarvestCircleText("Buyers make private commitments", role = HarvestCircleTextRole.SubsectionTitle)
-                HarvestCircleText("Each buyer signs a maximum amount without publishing their identity.")
-                HarvestCircleText("The authority clears the round", role = HarvestCircleTextRole.SubsectionTitle)
-                HarvestCircleText("The selected authority applies the farm’s signed terms and issues allocations.")
-                HarvestCircleText(
+                HarvestCircleShellPanel {
+                    HarvestCircleShellText(
+                        "Coordinate local food with clear, signed terms.",
+                        role = HarvestCircleShellTextRole.SectionTitle,
+                    )
+                    HarvestCircleShellText("HarvestCircle helps farms and nearby buyers form one shared order.")
+                    HarvestCircleShellText("You do not need a HarvestCircle account.")
+                }
+                HarvestCircleShellPanel {
+                    HarvestCircleShellText("A farm opens a round", role = HarvestCircleShellTextRole.BodyStrong)
+                    HarvestCircleShellText("The farm publishes the available boxes, pickup terms, and price levels.")
+                    HarvestCircleShellText("Buyers make private commitments", role = HarvestCircleShellTextRole.BodyStrong)
+                    HarvestCircleShellText("Each buyer signs a maximum amount without publishing their identity.")
+                    HarvestCircleShellText("The authority clears the round", role = HarvestCircleShellTextRole.BodyStrong)
+                    HarvestCircleShellText("The selected authority applies the farm’s signed terms and issues allocations.")
+                }
+                HarvestCircleShellText(
                     "Open source · Nostr-based · No managed service required",
-                    role = HarvestCircleTextRole.BodySmall,
-                    tone = HarvestCircleContentTone.Secondary,
+                    role = HarvestCircleShellTextRole.Small,
+                    color = HarvestCircleShellPalette.contentSecondary,
                 )
             }
         },
         actionBar = {
             Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleDesignTokens.shell.layout.inlineGap)) {
-                HarvestCircleLabeledButton(
-                    "Explore read-only",
+                HarvestCircleShellButton(
                     "Explore read-only",
                     { dispatch(HarvestCircleShellIntent.EnterReadOnly) },
                     Modifier.testTag("bootstrap-read-only"),
+                    primary = true,
                 )
-                HarvestCircleLabeledButton(
-                    "Create a local Nostr identity",
+                HarvestCircleShellButton(
                     "Create a local Nostr identity",
                     {
                         dispatch(HarvestCircleShellIntent.Identity(HarvestCircleIntent.ChooseCreateIdentity))
@@ -168,8 +175,7 @@ private fun BootstrapWelcome(dispatch: (HarvestCircleShellIntent) -> Unit) {
                     },
                     Modifier.testTag("bootstrap-create"),
                 )
-                HarvestCircleLabeledButton(
-                    "Import an existing identity",
+                HarvestCircleShellButton(
                     "Import an existing identity",
                     {
                         dispatch(HarvestCircleShellIntent.Identity(HarvestCircleIntent.ChooseImportIdentity))
@@ -311,7 +317,7 @@ private fun DashboardRoot(
                             platformActions = platformActions,
                             showSectionTabs = false,
                         )
-                    else -> HarvestCircleText(route.title(), Modifier.testTag("foundation-route-body"))
+                    else -> HarvestCircleShellText(route.title(), Modifier.testTag("foundation-route-body"))
                 }
             }
         },
