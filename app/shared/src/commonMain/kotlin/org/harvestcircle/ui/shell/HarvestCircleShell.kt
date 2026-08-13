@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -117,7 +118,11 @@ private fun HarvestCircleShellContent(
         }
     }
     ShellFocusRestorer(state.overlays.restoreFocus, fallback)
-    FoundationOverlayHost(state.overlays, deriveShellStatus(state)) {
+    FoundationOverlayHost(
+        state = state.overlays,
+        status = deriveShellStatus(state),
+        showBanner = state.root !is ShellRoot.Dashboard,
+    ) {
         dispatch(HarvestCircleShellIntent.Overlay(it))
     }
 }
@@ -271,53 +276,58 @@ private fun DashboardRoot(
             }
         },
         mainBody = {
-            RouteFocusTarget(
-                route.toString(),
-                "${route.title()} main content",
-            ) {
-                when (route) {
-                    AppRoute.PersonalToday ->
-                        FoundationTodayScreen(
-                            model = FoundationTodayModel(todayContext(state)),
-                            openNostrReference = {
-                                dispatch(
-                                    HarvestCircleShellIntent.Overlay(
-                                        OverlayIntent.OpenReference(ShellFocusTarget.TodayReference),
-                                    ),
-                                )
-                            },
-                        )
-                    AppRoute.Network ->
-                        FoundationNetworkScreen(
-                            foundationNetworkModel(state),
-                            refreshProfile = identityActions.refreshActiveProfile,
-                            signOut = identityActions.signOut,
-                            section = networkSection,
-                            onSectionSelected = { networkSection = it },
-                            showSectionTabs = false,
-                        )
-                    AppRoute.Settings ->
-                        FoundationSettingsScreen(
-                            section = root.navigation.settings.section,
-                            appearance = state.appearance,
-                            buildInfo = state.buildInfo,
-                            actions =
-                                FoundationSettingsActions(
-                                    selectSection = {
+            Column(Modifier.fillMaxSize()) {
+                FoundationStatusBanner(status, Modifier.fillMaxWidth())
+                Box(Modifier.weight(1f).fillMaxSize()) {
+                    RouteFocusTarget(
+                        route.toString(),
+                        "${route.title()} main content",
+                    ) {
+                        when (route) {
+                            AppRoute.PersonalToday ->
+                                FoundationTodayScreen(
+                                    model = FoundationTodayModel(todayContext(state)),
+                                    openNostrReference = {
                                         dispatch(
-                                            HarvestCircleShellIntent.Navigation(
-                                                NavigationIntent.SelectSettingsSection(it),
+                                            HarvestCircleShellIntent.Overlay(
+                                                OverlayIntent.OpenReference(ShellFocusTarget.TodayReference),
                                             ),
                                         )
                                     },
-                                    setTheme = { dispatch(HarvestCircleShellIntent.SetTheme(it)) },
-                                    setTextSize = { dispatch(HarvestCircleShellIntent.SetTextSize(it)) },
-                                    setMotion = { dispatch(HarvestCircleShellIntent.SetMotion(it)) },
-                                ),
-                            platformActions = platformActions,
-                            showSectionTabs = false,
-                        )
-                    else -> HarvestCircleShellText(route.title(), Modifier.testTag("foundation-route-body"))
+                                )
+                            AppRoute.Network ->
+                                FoundationNetworkScreen(
+                                    foundationNetworkModel(state),
+                                    refreshProfile = identityActions.refreshActiveProfile,
+                                    signOut = identityActions.signOut,
+                                    section = networkSection,
+                                    onSectionSelected = { networkSection = it },
+                                    showSectionTabs = false,
+                                )
+                            AppRoute.Settings ->
+                                FoundationSettingsScreen(
+                                    section = root.navigation.settings.section,
+                                    appearance = state.appearance,
+                                    buildInfo = state.buildInfo,
+                                    actions =
+                                        FoundationSettingsActions(
+                                            selectSection = {
+                                                dispatch(
+                                                    HarvestCircleShellIntent.Navigation(
+                                                        NavigationIntent.SelectSettingsSection(it),
+                                                    ),
+                                                )
+                                            },
+                                            setTheme = { dispatch(HarvestCircleShellIntent.SetTheme(it)) },
+                                            setTextSize = { dispatch(HarvestCircleShellIntent.SetTextSize(it)) },
+                                            setMotion = { dispatch(HarvestCircleShellIntent.SetMotion(it)) },
+                                        ),
+                                    platformActions = platformActions,
+                                    showSectionTabs = false,
+                                )
+                            else -> HarvestCircleShellText(route.title(), Modifier.testTag("foundation-route-body"))
+                        }
+                    }
                 }
             }
         },

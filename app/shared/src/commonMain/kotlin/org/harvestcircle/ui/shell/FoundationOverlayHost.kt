@@ -42,19 +42,11 @@ import org.harvestcircle.designsystem.shell.HarvestCircleShellTextRole
 fun FoundationOverlayHost(
     state: OverlayState,
     status: ShellStatusModel,
+    showBanner: Boolean = true,
     onIntent: (OverlayIntent) -> Unit,
 ) {
-    status.banner?.let { banner ->
-        HarvestCircleShellBanner(
-            message = banner.message,
-            modifier =
-                Modifier
-                    .padding(16.dp)
-                    .semantics { contentDescription = "Status: ${banner.title}. ${banner.message}" }
-                    .testTag("global-status-banner"),
-            tone = banner.severity.toShellBannerTone(),
-            title = banner.title,
-        )
+    if (showBanner) {
+        FoundationStatusBanner(status)
     }
     state.current?.let { overlay ->
         val overlayBusy = (overlay as? FoundationOverlay.ConfirmAction)?.busy == true
@@ -88,6 +80,25 @@ fun FoundationOverlayHost(
                 is FoundationOverlay.OpenNostrReference -> ReferenceOverlay(overlay, onIntent)
             }
         }
+    }
+}
+
+@Composable
+fun FoundationStatusBanner(
+    status: ShellStatusModel,
+    modifier: Modifier = Modifier,
+) {
+    status.banner?.let { banner ->
+        HarvestCircleShellBanner(
+            message = banner.message,
+            modifier =
+                modifier
+                    .padding(16.dp)
+                    .semantics { contentDescription = "Status: ${banner.title}. ${banner.message}" }
+                    .testTag("global-status-banner"),
+            tone = banner.severity.toShellBannerTone(),
+            title = banner.title,
+        )
     }
 }
 

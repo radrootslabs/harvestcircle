@@ -908,8 +908,6 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
     }
     let source = read_text(root, PATH);
     let expected_snapshot = "c2fe49f3c3ea43105cb2fff4a67c7cd9c21561c71825440a91654a0c1b12e3b8";
-    let pending_golden_snapshot =
-        "914c5d3b81c95bded19e36044cece8cff93e74cce0d4089324bb2effa4eebb93";
     let required_scalars = [
         "schema = \"harvestcircle.design_source_baseline.v1\"",
         "source_product = \"Studio\"",
@@ -919,7 +917,7 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         "snapshot_file_count = 102",
         "source_license = \"GPL-3.0-only\"",
         "golden_host = \"macos-aarch64\"",
-        "golden_status = \"corrective-pending\"",
+        "golden_status = \"verified\"",
     ];
     for scalar in required_scalars {
         if source.lines().filter(|line| line.trim() == scalar).count() != 1 {
@@ -928,7 +926,7 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
     }
     for (key, digest) in [
         ("snapshot_sha256", expected_snapshot),
-        ("golden_source_snapshot_sha256", pending_golden_snapshot),
+        ("golden_source_snapshot_sha256", expected_snapshot),
     ] {
         let expected = format!("{key} = \"{digest}\"");
         if source
@@ -944,12 +942,12 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         (
             "app/shared/src/desktopTest/resources/goldens/macos-aarch64/design-surface-light.png",
             "golden_light_sha256",
-            "844a42a37d05671a9665a75214ee40f9c23dafd90c8a5e199d831daede3faf20",
+            "7df7cbd0a69b62deba5f924586f19537f09d03afbb2176d9aa081acf5b88ea94",
         ),
         (
             "app/shared/src/desktopTest/resources/goldens/macos-aarch64/design-surface-dark.png",
             "golden_dark_sha256",
-            "ce06a1ae820005adddebd8f627b5402279d3365762305f8dd64004612322eae7",
+            "f1e88380060c099ee3a2ba8e90f3a24bd1d4b0e2ce90614456fbd7f379c77ca8",
         ),
     ] {
         let authority = format!("{key} = \"{sha256}\"");
@@ -966,6 +964,19 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         {
             findings.push(format!("{path}: macOS golden is missing or changed"));
         }
+    }
+    let golden_test = read_text(
+        root,
+        "app/shared/src/desktopTest/kotlin/org/harvestcircle/ui/shell/HarvestCircleMacGoldenTest.kt",
+    );
+    if !golden_test.contains("HarvestCircleShell(")
+        || !golden_test.contains("liveTodayState(")
+        || golden_test.contains("captureReferenceSurface(")
+    {
+        findings.push(
+            "HarvestCircleMacGoldenTest.kt: golden must render a live application shell state"
+                .to_owned(),
+        );
     }
     let mappings = design_source_mappings(&source, PATH, findings);
     let required = [
