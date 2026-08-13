@@ -46,6 +46,14 @@ gradlePlugin {
             id = "org.harvestcircle.build.kmp-shared"
             implementationClass = "org.harvestcircle.buildlogic.plugins.HarvestCircleKmpSharedPlugin"
         }
+        create("harvestCircleDesignSystem") {
+            id = "org.harvestcircle.build.design-system"
+            implementationClass = "org.harvestcircle.buildlogic.plugins.HarvestCircleDesignSystemPlugin"
+        }
+        create("harvestCircleDesignCatalog") {
+            id = "org.harvestcircle.build.design-catalog"
+            implementationClass = "org.harvestcircle.buildlogic.plugins.HarvestCircleDesignCatalogPlugin"
+        }
         create("harvestCircleDesktopApp") {
             id = "org.harvestcircle.build.desktop-app"
             implementationClass = "org.harvestcircle.buildlogic.plugins.HarvestCircleDesktopAppPlugin"

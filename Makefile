@@ -54,7 +54,7 @@ mode-check:
 format: doctor
 	$(BUILD_RUNNER) $(CARGO) fmt --manifest-path $(CARGO_MANIFEST) --all -- --check
 	$(BUILD_RUNNER) $(CARGO) fmt --manifest-path $(XTASK_MANIFEST) --all -- --check
-	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:shared:ktlintCheck :app:desktop:ktlintCheck
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:shared:ktlintCheck :app:desktop:ktlintCheck designFormatCheck
 
 format-fix: doctor
 	$(BUILD_RUNNER) $(CARGO) fmt --manifest-path $(CARGO_MANIFEST) --all
@@ -64,15 +64,15 @@ format-fix: doctor
 lint: doctor
 	$(BUILD_RUNNER) $(CARGO) clippy --manifest-path $(CARGO_MANIFEST) --workspace --all-targets --locked -- -D warnings
 	$(BUILD_RUNNER) $(CARGO) clippy --manifest-path $(XTASK_MANIFEST) --all-targets --locked -- -D warnings
-	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:shared:detektCommonMainSourceSet :app:shared:detektCommonTestSourceSet :app:desktop:detekt
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:shared:detektCommonMainSourceSet :app:shared:detektCommonTestSourceSet :app:desktop:detekt designLint
 
 test: doctor
 	$(BUILD_RUNNER) $(CARGO) test --manifest-path $(CARGO_MANIFEST) --workspace --locked
 	$(BUILD_RUNNER) $(CARGO) test --manifest-path $(XTASK_MANIFEST) --locked
-	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:shared:desktopTest :app:desktop:test
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:shared:desktopTest :app:desktop:test designTest
 
 check: format lint test foundation-check mode-check
-	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:shared:check :app:desktop:check
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:shared:check :app:desktop:check designCheck
 
 governed-check:
 	$(MAKE) --no-print-directory BUILD_MODE=governed check

@@ -16,6 +16,8 @@ class ConventionPluginSmokeTest {
             listOf(
                 "org.harvestcircle.build.root",
                 "org.harvestcircle.build.kmp-shared",
+                "org.harvestcircle.build.design-system",
+                "org.harvestcircle.build.design-catalog",
                 "org.harvestcircle.build.desktop-app",
                 "org.harvestcircle.build.rust-ffi",
                 "org.harvestcircle.build.packaging",
@@ -35,16 +37,35 @@ class ConventionPluginSmokeTest {
                     append("pluginManagement { repositories { gradlePluginPortal(); mavenCentral() } }\n")
                     append("dependencyResolutionManagement { repositories { mavenCentral() } }\n")
                     append("rootProject.name = \"fixture\"\n")
+                    if (pluginId == "org.harvestcircle.build.design-system") {
+                        append("include(\":app:design_system\")\n")
+                    }
+                    if (pluginId == "org.harvestcircle.build.design-catalog") {
+                        append("include(\":app:design_system\", \":tools:design_catalog\")\n")
+                    }
                     if (desktopFixture) append("include(\":app:shared\", \":app:desktop\")\n")
                 },
             )
-            if (pluginId == "org.harvestcircle.build.kmp-shared" || desktopFixture) {
+            if (
+                pluginId == "org.harvestcircle.build.kmp-shared" ||
+                pluginId.startsWith("org.harvestcircle.build.design-") ||
+                desktopFixture
+            ) {
                 fixture.resolve("gradle").createDirectories().resolve("libs.versions.toml").writeText(kmpCatalog)
             }
             val buildFile =
                 if (desktopFixture) {
                     prepareDesktopFixture(fixture)
                     fixture.resolve("app/desktop/build.gradle.kts")
+                } else if (pluginId == "org.harvestcircle.build.design-system") {
+                    fixture.resolve("app/design_system").createDirectories()
+                        .resolve("build.gradle.kts")
+                } else if (pluginId == "org.harvestcircle.build.design-catalog") {
+                    fixture.resolve("app/design_system").createDirectories()
+                        .resolve("build.gradle.kts")
+                        .writeText("plugins { `java-library` }\n")
+                    fixture.resolve("tools/design_catalog").createDirectories()
+                        .resolve("build.gradle.kts")
                 } else {
                     fixture.resolve("build.gradle.kts")
                 }

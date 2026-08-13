@@ -43,4 +43,9 @@ rootProject.name = "harvestcircle"
 
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
-include(":app:desktop", ":app:shared")
+include(
+    ":app:design_system",
+    ":app:desktop",
+    ":app:shared",
+    ":tools:design_catalog",
+)
