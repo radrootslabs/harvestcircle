@@ -3,6 +3,16 @@ package org.harvestcircle.designsystem.theme.color
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 
+/** Canonical pre-Liquid-Glass macOS default-action colors. */
+internal object HarvestCircleMacPrimarySubmitColors {
+    val Rest = Color(0xFF3478F6)
+    val Hover = Color(0xFF3B80F7)
+    val Pressed = Color(0xFF2B69DA)
+    val ActiveRing = Color(0xFF3A658D)
+    val InnerEdge = Color(0xFF4290F8)
+    val Content = Color.White
+}
+
 /**
  * Background and container colors. Names express hierarchy rather than a physical palette.
  */

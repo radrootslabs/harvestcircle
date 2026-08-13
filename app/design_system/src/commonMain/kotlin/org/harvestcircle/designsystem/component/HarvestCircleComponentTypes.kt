@@ -16,11 +16,10 @@ public enum class HarvestCircleControlSize {
 }
 
 /**
- * Controls whether a component renders the optional macOS-style keyboard focus ring.
+ * Controls whether a component renders the macOS-style keyboard focus ring.
  *
- * HarvestCircle deliberately defaults to [None]. Components remain focusable and keyboard-operable when
- * the ring is disabled; this enum controls only the visible ring. Use [WhenFocused] where a product
- * surface requires an explicit focus indicator.
+ * HarvestCircle controls default to [WhenFocused] so keyboard focus is always visible. [None] is
+ * reserved for a parent control that renders an equivalent focus indicator around the same target.
  */
 public enum class HarvestCircleFocusRing {
     None,

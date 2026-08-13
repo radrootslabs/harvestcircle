@@ -706,6 +706,13 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             }
         }
         if is_production_compose(path, &source)
+            && source.contains("focusRing: HarvestCircleFocusRing = HarvestCircleFocusRing.None")
+        {
+            findings.push(format!(
+                "{path}: interactive control defaults to a hidden keyboard focus ring"
+            ));
+        }
+        if is_production_compose(path, &source)
             && path
                 != "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/HarvestCircleTheme.kt"
             && !path.starts_with(
