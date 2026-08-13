@@ -144,6 +144,17 @@ public object HarvestCircleShellMetrics {
     public val contentPageHorizontalInset: Dp = 24.dp
     public val contentPageVerticalInset: Dp = 24.dp
     public val emptyStateWidth: Dp = 344.dp
+    public val emptyStateIllustrationWidth: Dp = 56.dp
+    public val emptyStateIllustrationHeight: Dp = 64.dp
+    public val emptyStateIllustrationStrokeWidth: Dp = 1.1.dp
+    public val emptyStateIllustrationToTitleGap: Dp = 24.dp
+    public val emptyStateTitleToBodyGap: Dp = 12.dp
+    public val emptyStateParagraphGap: Dp = 12.dp
+    public val emptyStateBodyToActionsGap: Dp = 20.dp
+    public val emptyStateActionGap: Dp = 12.dp
+    public val emptyStateVerticalOffset: Dp = 8.dp
+    public val contentPanelRadius: Dp = 12.dp
+    public val contentPanelInset: Dp = 16.dp
     public val compactBreakpoint: Dp = 976.dp
     public val expandedBreakpoint: Dp = 1272.dp
 }

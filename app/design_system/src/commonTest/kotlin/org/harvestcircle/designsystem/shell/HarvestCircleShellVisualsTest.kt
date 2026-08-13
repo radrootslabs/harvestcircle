@@ -25,6 +25,9 @@ class HarvestCircleShellVisualsTest {
         assertEquals(40.dp, HarvestCircleShellMetrics.localHeaderHeight)
         assertEquals(232.dp, HarvestCircleShellMetrics.sidebarWidth)
         assertEquals(72.dp, HarvestCircleShellMetrics.collapsedSidebarWidth)
+        assertEquals(344.dp, HarvestCircleShellMetrics.emptyStateWidth)
+        assertEquals(56.dp, HarvestCircleShellMetrics.emptyStateIllustrationWidth)
+        assertEquals(64.dp, HarvestCircleShellMetrics.emptyStateIllustrationHeight)
         assertEquals(976.dp, HarvestCircleShellMetrics.compactBreakpoint)
         assertEquals(1272.dp, HarvestCircleShellMetrics.expandedBreakpoint)
     }
