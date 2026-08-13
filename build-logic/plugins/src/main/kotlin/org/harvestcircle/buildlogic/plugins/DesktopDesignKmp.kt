@@ -1,5 +1,7 @@
 package org.harvestcircle.buildlogic.plugins
 
+import com.github.jk1.license.LicenseReportExtension
+import com.github.jk1.license.filter.SpdxLicenseBundleNormalizer
 import org.gradle.api.Project
 import org.gradle.api.artifacts.VersionCatalog
 import org.gradle.api.artifacts.VersionCatalogsExtension
@@ -8,6 +10,7 @@ import org.jlleitschuh.gradle.ktlint.KtlintExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
+import org.owasp.dependencycheck.gradle.extension.DependencyCheckExtension
 
 internal fun Project.applyDesktopDesignKmp() {
     pluginManager.apply("org.jetbrains.kotlin.multiplatform")
@@ -15,11 +18,18 @@ internal fun Project.applyDesktopDesignKmp() {
     pluginManager.apply("org.jetbrains.kotlin.plugin.compose")
     pluginManager.apply("dev.detekt")
     pluginManager.apply("org.jlleitschuh.gradle.ktlint")
+    pluginManager.apply("com.github.jk1.dependency-license-report")
+    pluginManager.apply("org.owasp.dependencycheck")
 
     extensions.configure(KtlintExtension::class.java) { extension ->
         extension.additionalEditorconfig.set(
             mapOf("ktlint_function_naming_ignore_when_annotated_with" to "Composable"),
         )
+        extension.filter { filter ->
+            filter.exclude { element ->
+                element.file.invariantSeparatorsPath.contains("/build/generated/")
+            }
+        }
     }
     extensions.configure(KotlinMultiplatformExtension::class.java) { kotlin ->
         kotlin.jvm("desktop") { jvm ->
@@ -33,6 +43,29 @@ internal fun Project.applyDesktopDesignKmp() {
         ) {
             "$path must declare exactly one KMP platform target named desktop"
         }
+    }
+    extensions.configure(LicenseReportExtension::class.java) { extension ->
+        extension.projects = arrayOf(this@applyDesktopDesignKmp)
+        extension.configurations = arrayOf("desktopRuntimeClasspath")
+        extension.excludeGroups = arrayOf("harvestcircle.app")
+        extension.filters = arrayOf(SpdxLicenseBundleNormalizer())
+        extension.allowedLicensesFile =
+            rootProject.layout.projectDirectory.file("config/licenses/allowed-licenses.json")
+    }
+    extensions.configure(DependencyCheckExtension::class.java) { extension ->
+        extension.failBuildOnCVSS.set(0.0F)
+        extension.failOnError.set(true)
+        extension.formats.set(listOf("HTML", "JSON"))
+        extension.scanConfigurations.set(listOf("desktopRuntimeClasspath"))
+        extension.skipTestGroups.set(true)
+        providers.environmentVariable("NVD_API_KEY").orNull?.takeIf(String::isNotBlank)?.let {
+            extension.nvd.apiKey.set(it)
+        }
+    }
+    tasks.matching { it.name.startsWith("dependencyCheck") }.configureEach {
+        it.notCompatibleWithConfigurationCache(
+            "Advisory data and environment-only credentials must not be cached",
+        )
     }
 }
 

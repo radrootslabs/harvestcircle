@@ -1,3 +1,4 @@
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -174,6 +175,7 @@ fn repo_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
         "SECURITY.md",
         "LICENSE",
         "LICENSES/GPL-3.0-only.txt",
+        "LICENSES/OFL-1.1.txt",
     ];
     for required_path in required {
         if !inventory.paths.iter().any(|path| path == required_path) {
@@ -957,6 +959,56 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             "{PATH}: source-to-owned mapping differs from the approved migration"
         ));
     }
+    let catalog = read_text(root, "gradle/libs.versions.toml");
+    for required in [
+        "compose-animation = { module = \"org.jetbrains.compose.animation:animation\", version.ref = \"compose\" }",
+        "compose-components-resources = { module = \"org.jetbrains.compose.components:components-resources\", version.ref = \"compose\" }",
+    ] {
+        if !catalog.contains(required) {
+            findings.push(format!(
+                "gradle/libs.versions.toml: missing approved design dependency: {required}"
+            ));
+        }
+    }
+    for forbidden in ["compose-material3", "platformtools", "js(", "wasm"] {
+        if catalog.to_ascii_lowercase().contains(forbidden) {
+            findings.push(format!(
+                "gradle/libs.versions.toml: forbidden design dependency or target: {forbidden}"
+            ));
+        }
+    }
+    for (path, sha256) in [
+        (
+            "app/design_system/src/commonMain/composeResources/font/inter_bold.ttf",
+            "288316099b1e0a47a4716d159098005eef7c0066921f34e3200393dbdb01947f",
+        ),
+        (
+            "app/design_system/src/commonMain/composeResources/font/inter_medium.ttf",
+            "97ad806f526e41546d46365bb3a393145f75b7b1568913db74549ad8b8dba872",
+        ),
+        (
+            "app/design_system/src/commonMain/composeResources/font/inter_regular.ttf",
+            "40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82",
+        ),
+        (
+            "app/design_system/src/commonMain/composeResources/font/inter_semibold.ttf",
+            "78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3",
+        ),
+    ] {
+        if sha256_file(&root.join(path)).as_deref() != Some(sha256) {
+            findings.push(format!(
+                "{path}: Inter font digest differs from the baseline"
+            ));
+        }
+    }
+    let font_license = read_text(root, "LICENSES/OFL-1.1.txt");
+    let packaged_font_license = read_text(
+        root,
+        "app/design_system/src/commonMain/composeResources/files/licenses/inter-OFL-1.1.txt",
+    );
+    if font_license.is_empty() || packaged_font_license != font_license {
+        findings.push("Inter font licence is missing or differs in packaged resources".to_owned());
+    }
 }
 
 fn design_source_mappings(
@@ -1195,6 +1247,11 @@ fn is_text(relative: &str) -> bool {
 
 fn read_text(root: &Path, relative: &str) -> String {
     fs::read_to_string(root.join(relative)).unwrap_or_default()
+}
+
+fn sha256_file(path: &Path) -> Option<String> {
+    let bytes = fs::read(path).ok()?;
+    Some(format!("{:x}", Sha256::digest(bytes)))
 }
 
 fn relative(root: &Path, path: &Path) -> Result<String, String> {

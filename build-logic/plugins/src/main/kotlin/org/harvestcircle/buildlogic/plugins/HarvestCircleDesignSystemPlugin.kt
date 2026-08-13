@@ -25,6 +25,14 @@ public class HarvestCircleDesignSystemPlugin : Plugin<Project> {
         )
         target.dependencies.add("commonMainApi", catalog.findLibrary("compose-ui").get())
         target.dependencies.add(
+            "commonMainApi",
+            catalog.findLibrary("compose-components-resources").get(),
+        )
+        target.dependencies.add(
+            "commonMainImplementation",
+            catalog.findLibrary("compose-animation").get(),
+        )
+        target.dependencies.add(
             "commonTestImplementation",
             "org.jetbrains.kotlin:kotlin-test:$kotlinVersion",
         )

@@ -99,11 +99,11 @@ run: doctor
 audit: doctor
 	$(BUILD_RUNNER) $(CARGO) audit --file core/Cargo.lock
 	$(BUILD_RUNNER) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml advisories
-	$(BUILD_RUNNER) $(GRADLE) --no-daemon --no-configuration-cache :app:desktop:dependencyCheckAnalyze
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon --no-configuration-cache :app:desktop:dependencyCheckAnalyze :app:design_system:dependencyCheckAnalyze :tools:design_catalog:dependencyCheckAnalyze
 
 licenses: doctor
 	$(BUILD_RUNNER) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml licenses sources
-	$(BUILD_RUNNER) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:checkLicense
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:checkLicense :app:design_system:checkLicense :tools:design_catalog:checkLicense
 
 foundation-check: design-source-check
 	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- qualification-report

@@ -14,3 +14,8 @@ Canonical reusable Radroots dependencies remain sourced from the public
 
 Third-party licence notices are governed by the checked-in dependency and
 licence verification configuration.
+
+Inter font software
+Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
+Licensed under the SIL Open Font License, Version 1.1. The complete licence is
+available at `LICENSES/OFL-1.1.txt` and is packaged with the font resources.

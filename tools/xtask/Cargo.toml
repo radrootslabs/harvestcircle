@@ -8,6 +8,9 @@ publish = false
 
 [workspace]
 
+[dependencies]
+sha2 = "0.10.9"
+
 [lints.rust]
 unsafe_code = "forbid"
 
