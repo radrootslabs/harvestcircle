@@ -8,7 +8,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 
-/** Approved Studio-derived semantic palette for HarvestCircle application chrome. */
+/** Approved source-derived semantic palette for HarvestCircle application chrome. */
 @Immutable
 public data class HarvestCircleShellColors(
     public val isDark: Boolean,
@@ -107,7 +107,7 @@ public val HarvestCircleShellPalette: HarvestCircleShellColors
     @ReadOnlyComposable
     get() = harvestCircleShellColors(HarvestCircleTheme.foundation.colors.isDark)
 
-/** Fixed application-shell geometry derived from the approved Studio frames. */
+/** Fixed application-shell geometry derived from the approved source frames. */
 public object HarvestCircleShellMetrics {
     public val topBarHeight: Dp = 48.dp
     public val localHeaderHeight: Dp = 40.dp

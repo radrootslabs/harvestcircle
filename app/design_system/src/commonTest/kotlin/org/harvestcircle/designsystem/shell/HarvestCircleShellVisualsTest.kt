@@ -8,7 +8,7 @@ import kotlin.test.assertNotEquals
 
 class HarvestCircleShellVisualsTest {
     @Test
-    fun palettePinsApprovedStudioValues() {
+    fun palettePinsApprovedSourceValues() {
         val light = harvestCircleShellColors(false)
         val dark = harvestCircleShellColors(true)
         assertEquals(Color(0xFF155239), light.accent)
@@ -20,7 +20,7 @@ class HarvestCircleShellVisualsTest {
     }
 
     @Test
-    fun geometryPinsApprovedStudioGrid() {
+    fun geometryPinsApprovedSourceGrid() {
         assertEquals(48.dp, HarvestCircleShellMetrics.topBarHeight)
         assertEquals(40.dp, HarvestCircleShellMetrics.localHeaderHeight)
         assertEquals(232.dp, HarvestCircleShellMetrics.sidebarWidth)

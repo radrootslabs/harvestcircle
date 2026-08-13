@@ -17,7 +17,7 @@ import androidx.compose.ui.Modifier
 import org.harvestcircle.designsystem.shell.HarvestCircleShellMetrics
 import org.harvestcircle.designsystem.shell.HarvestCircleShellPalette
 
-/** Centered bootstrap and lifecycle frame using the approved Studio-derived shell chrome. */
+/** Centered bootstrap and lifecycle frame using the approved source-derived shell chrome. */
 @Composable
 public fun HarvestCircleCanvasFrame(
     header: @Composable () -> Unit,

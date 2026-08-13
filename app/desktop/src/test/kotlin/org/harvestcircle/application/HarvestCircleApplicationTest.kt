@@ -10,6 +10,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -82,7 +83,7 @@ class HarvestCircleApplicationTest {
             onNodeWithTag("bootstrap-read-only").performClick()
             waitUntil { onAllNodesWithTag("foundation-today").fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag("foundation-today").assertIsDisplayed()
-            onNodeWithText("Read-only session").assertIsDisplayed()
+            onNodeWithTag("today-context").assertTextEquals("Read-only session").assertIsDisplayed()
         }
 
     @OptIn(ExperimentalTestApi::class)
