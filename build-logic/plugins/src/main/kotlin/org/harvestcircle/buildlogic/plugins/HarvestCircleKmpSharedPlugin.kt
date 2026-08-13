@@ -12,6 +12,7 @@ public class HarvestCircleKmpSharedPlugin : Plugin<Project> {
         val kotlinVersion = catalog.findVersion("kotlin").get().requiredVersion
         val composeVersion = catalog.findVersion("compose").get().requiredVersion
 
+        target.dependencies.add("commonMainImplementation", target.project(":app:design_system"))
         target.dependencies.add("commonMainImplementation", catalog.findLibrary("compose-foundation").get())
         target.dependencies.add("commonMainImplementation", catalog.findLibrary("compose-runtime").get())
         target.dependencies.add("commonMainImplementation", catalog.findLibrary("compose-ui").get())

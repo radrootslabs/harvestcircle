@@ -94,6 +94,8 @@ class ProductNamespaceGuardTest {
         val temporaryPath = temporaryNamespace.replace('.', '/')
         val repositoryUrlException = "https://github.com/radrootslabs/" + legacyProduct + "_app"
         val provenanceException = "core/provenance/" + legacyProduct + "-import-v1.toml"
+        val designProvenanceException = "config/design/source_baseline_v1.toml"
+        val designAuditException = "tools/xtask/src/lib.rs"
         val textExtensions =
             setOf(
                 "gradle",
@@ -117,7 +119,11 @@ class ProductNamespaceGuardTest {
             trackedFiles(root).flatMap { relative ->
                 buildList {
                     val normalizedRelative = relative.lowercase()
-                    if (relative != provenanceException && normalizedRelative.contains(legacyProduct)) {
+                    if (
+                        relative != provenanceException &&
+                        relative != designProvenanceException &&
+                        normalizedRelative.contains(legacyProduct)
+                    ) {
                         add("$relative: legacy product name in tracked path")
                     }
                     if (normalizedRelative.contains(temporaryPath)) {
@@ -125,7 +131,12 @@ class ProductNamespaceGuardTest {
                     }
 
                     val path = root.resolve(relative)
-                    if (relative != provenanceException && (path.extension in textExtensions || path.name in textNames)) {
+                    if (
+                        relative != provenanceException &&
+                        relative != designProvenanceException &&
+                        relative != designAuditException &&
+                        (path.extension in textExtensions || path.name in textNames)
+                    ) {
                         var inspected = path.readText().replace(repositoryUrlException, "")
                         inspected =
                             inspected

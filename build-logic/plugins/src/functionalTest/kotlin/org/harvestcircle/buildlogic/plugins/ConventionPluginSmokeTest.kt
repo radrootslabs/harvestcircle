@@ -40,6 +40,9 @@ class ConventionPluginSmokeTest {
                     if (pluginId == "org.harvestcircle.build.design-system") {
                         append("include(\":app:design_system\")\n")
                     }
+                    if (pluginId == "org.harvestcircle.build.kmp-shared") {
+                        append("include(\":app:design_system\", \":app:shared\")\n")
+                    }
                     if (pluginId == "org.harvestcircle.build.design-catalog") {
                         append("include(\":app:design_system\", \":tools:design_catalog\")\n")
                     }
@@ -59,6 +62,12 @@ class ConventionPluginSmokeTest {
                     fixture.resolve("app/desktop/build.gradle.kts")
                 } else if (pluginId == "org.harvestcircle.build.design-system") {
                     fixture.resolve("app/design_system").createDirectories()
+                        .resolve("build.gradle.kts")
+                } else if (pluginId == "org.harvestcircle.build.kmp-shared") {
+                    fixture.resolve("app/design_system").createDirectories()
+                        .resolve("build.gradle.kts")
+                        .writeText("plugins { `java-library` }\n")
+                    fixture.resolve("app/shared").createDirectories()
                         .resolve("build.gradle.kts")
                 } else if (pluginId == "org.harvestcircle.build.design-catalog") {
                     fixture.resolve("app/design_system").createDirectories()
@@ -160,11 +169,16 @@ class ConventionPluginSmokeTest {
     fun sharedPluginRejectsPlatformDependenciesFromCommonSources() {
         val fixture = createTempDirectory("harvestcircle-shared-plugin-")
         fixture.resolve("settings.gradle.kts").writeText(
-            "pluginManagement { repositories { gradlePluginPortal(); mavenCentral() } }\nrootProject.name = \"fixture\"\n",
+            "pluginManagement { repositories { gradlePluginPortal(); mavenCentral() } }\n" +
+                "rootProject.name = \"fixture\"\n" +
+                "include(\":app:design_system\", \":app:shared\")\n",
         )
         fixture.resolve("gradle").createDirectories().resolve("libs.versions.toml").writeText(kmpCatalog)
-        fixture.resolve("build.gradle.kts").writeText("plugins { id(\"org.harvestcircle.build.kmp-shared\") }\n")
-        fixture.resolve("src/commonMain/kotlin").createDirectories().resolve("Leak.kt").writeText(
+        fixture.resolve("app/design_system").createDirectories().resolve("build.gradle.kts")
+            .writeText("plugins { `java-library` }\n")
+        fixture.resolve("app/shared").createDirectories().resolve("build.gradle.kts")
+            .writeText("plugins { id(\"org.harvestcircle.build.kmp-shared\") }\n")
+        fixture.resolve("app/shared/src/commonMain/kotlin").createDirectories().resolve("Leak.kt").writeText(
             "package fixture\nimport org.harvestcircle.ffi.BuildInfoDto\n",
         )
 
@@ -516,6 +530,8 @@ class ConventionPluginSmokeTest {
         coroutines = "1.9.0"
 
         [libraries]
+        compose-animation = { module = "org.jetbrains.compose.animation:animation", version.ref = "compose" }
+        compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "compose" }
         compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose" }
         compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose" }
         compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose" }

@@ -1,23 +1,26 @@
 package org.harvestcircle.ui.shell
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Density
 import org.harvestcircle.design.AppearanceState
 import org.harvestcircle.design.ColorToken
 import org.harvestcircle.design.HarvestCircleDesign
 import org.harvestcircle.design.HarvestCirclePalette
 import org.harvestcircle.design.MotionPreference
+import org.harvestcircle.design.TextSizePreference
 import org.harvestcircle.design.ThemePreference
 import org.harvestcircle.design.TypographyToken
+import org.harvestcircle.designsystem.theme.HarvestCircleContrast
+import org.harvestcircle.designsystem.theme.HarvestCircleDensity
+import org.harvestcircle.designsystem.theme.HarvestCircleDesignTheme
+import org.harvestcircle.designsystem.theme.HarvestCircleInputMode
+import org.harvestcircle.designsystem.theme.HarvestCircleMotionMode
+import org.harvestcircle.designsystem.theme.HarvestCircleTextScale
+import org.harvestcircle.designsystem.theme.HarvestCircleThemeConfig
+import org.harvestcircle.designsystem.theme.HarvestCircleThemeMode
 
 enum class ResolvedTheme { Light, Dark }
 
@@ -80,6 +83,32 @@ fun harvestCircleThemeTokens(
     )
 }
 
+fun harvestCircleDesignThemeConfig(
+    appearance: AppearanceState,
+    systemDark: Boolean,
+): HarvestCircleThemeConfig =
+    HarvestCircleThemeConfig(
+        mode =
+            when (resolveTheme(appearance.theme, systemDark)) {
+                ResolvedTheme.Light -> HarvestCircleThemeMode.Light
+                ResolvedTheme.Dark -> HarvestCircleThemeMode.Dark
+            },
+        contrast = HarvestCircleContrast.Standard,
+        density = HarvestCircleDensity.Comfortable,
+        motion =
+            when (appearance.motion) {
+                MotionPreference.Standard -> HarvestCircleMotionMode.Full
+                MotionPreference.Reduced -> HarvestCircleMotionMode.Reduced
+            },
+        inputMode = HarvestCircleInputMode.Pointer,
+        textScale =
+            when (appearance.textSize) {
+                TextSizePreference.Default -> HarvestCircleTextScale.Standard
+                TextSizePreference.Large -> HarvestCircleTextScale.Large
+                TextSizePreference.VeryLarge -> HarvestCircleTextScale.ExtraLarge
+            },
+    )
+
 @Composable
 fun HarvestCircleTheme(
     appearance: AppearanceState,
@@ -87,20 +116,13 @@ fun HarvestCircleTheme(
     content: @Composable () -> Unit,
 ) {
     val tokens = harvestCircleThemeTokens(appearance, systemDark)
-    val baseDensity = LocalDensity.current
-    val scaledDensity = Density(baseDensity.density, baseDensity.fontScale * tokens.textScale)
-    CompositionLocalProvider(
-        LocalShellAppearance provides appearance,
-        LocalHarvestCirclePalette provides tokens.palette,
-        LocalHarvestCircleTypography provides tokens.typography,
-        LocalHarvestCircleShapes provides tokens.shapes,
-        LocalHarvestCircleMotion provides tokens.motion,
-        LocalDensity provides scaledDensity,
-    ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(tokens.palette.background.toComposeColor()),
+    HarvestCircleDesignTheme(config = harvestCircleDesignThemeConfig(appearance, systemDark)) {
+        CompositionLocalProvider(
+            LocalShellAppearance provides appearance,
+            LocalHarvestCirclePalette provides tokens.palette,
+            LocalHarvestCircleTypography provides tokens.typography,
+            LocalHarvestCircleShapes provides tokens.shapes,
+            LocalHarvestCircleMotion provides tokens.motion,
         ) {
             content()
         }
