@@ -15,6 +15,10 @@ import androidx.compose.ui.semantics.password
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import org.harvestcircle.appearance.TextSizePreference
+import org.harvestcircle.designsystem.component.HarvestCircleTextRole
+import org.harvestcircle.designsystem.component.action.HarvestCircleLabeledButton
+import org.harvestcircle.designsystem.component.input.HarvestCircleTextField
+import org.harvestcircle.designsystem.primitive.HarvestCircleText
 import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 import org.harvestcircle.identities.ui.HarvestCircleUiModel
@@ -30,15 +34,17 @@ fun BootstrapIdentityEntry(
     require(step == BootstrapStep.CreateIdentity || step == BootstrapStep.ImportIdentity)
     CanvasScaffold(
         textSize = TextSizePreference.Default,
-        navigation = { ShellAction("Back", "Back", "identity-entry-back", onClick = onBack) },
+        navigation = {
+            HarvestCircleLabeledButton("Back", "Back", onBack, Modifier.testTag("identity-entry-back"))
+        },
         header = {
-            ShellText(
+            HarvestCircleText(
                 if (step == BootstrapStep.CreateIdentity) {
                     "Create a local Nostr identity"
                 } else {
                     "Import an existing identity"
                 },
-                textRole = ShellTextRole.ScreenTitle,
+                role = HarvestCircleTextRole.PageTitle,
             )
         },
         body = {
@@ -51,15 +57,23 @@ fun BootstrapIdentityEntry(
         actionBar = {
             Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
                 if (step == BootstrapStep.CreateIdentity) {
-                    ShellAction("Generate identity", "Generate identity", "generate-key", enabled = !model.busy) {
-                        actions.generateIdentity()
-                    }
+                    HarvestCircleLabeledButton(
+                        "Generate identity",
+                        "Generate identity",
+                        { actions.generateIdentity() },
+                        Modifier.testTag("generate-key"),
+                        enabled = !model.busy,
+                    )
                 } else {
-                    ShellAction("Import identity", "Import identity", "import-key", enabled = !model.busy) {
-                        actions.importSecretKey()
-                    }
+                    HarvestCircleLabeledButton(
+                        "Import identity",
+                        "Import identity",
+                        { actions.importSecretKey() },
+                        Modifier.testTag("import-key"),
+                        enabled = !model.busy,
+                    )
                 }
-                ShellAction("Back", "Back", "identity-entry-cancel", onClick = onBack)
+                HarvestCircleLabeledButton("Back", "Back", onBack, Modifier.testTag("identity-entry-cancel"))
             }
         },
     )
@@ -71,9 +85,9 @@ private fun CreateIdentityBody(model: HarvestCircleUiModel) {
         Modifier.testTag("create-identity-entry"),
         verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap),
     ) {
-        ShellText("HarvestCircle will generate a new Nostr identity.")
-        ShellText("Save the recovery key before the identity is stored in the operating-system keyring.")
-        model.problem?.let { ShellText(it, Modifier.testTag("identity-entry-problem")) }
+        HarvestCircleText("HarvestCircle will generate a new Nostr identity.")
+        HarvestCircleText("Save the recovery key before the identity is stored in the operating-system keyring.")
+        model.problem?.let { HarvestCircleText(it, Modifier.testTag("identity-entry-problem")) }
     }
 }
 
@@ -87,12 +101,12 @@ private fun ImportIdentityBody(
         Modifier.testTag("import-identity-entry"),
         verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap),
     ) {
-        ShellTextField(
+        HarvestCircleTextField(
             value = model.importDraft.revealForDisplay(),
             onValueChange = actions.editImportDraft,
             label = "Nostr secret key",
             placeholder = "nsec1…",
-            modifier =
+            inputModifier =
                 Modifier
                     .focusRequester(requester)
                     .semantics {
@@ -101,12 +115,12 @@ private fun ImportIdentityBody(
                     }.testTag("import-nsec-input"),
             visualTransformation = PasswordVisualTransformation(),
         )
-        ShellText(
+        HarvestCircleText(
             "The secret is held only for this import.\n\n" +
                 "It is cleared after it is sent to the local native runtime.",
         )
-        model.importGuidance?.let { ShellText(it, Modifier.testTag("identity-entry-guidance")) }
-        model.problem?.let { ShellText(it, Modifier.testTag("identity-entry-problem")) }
+        model.importGuidance?.let { HarvestCircleText(it, Modifier.testTag("identity-entry-guidance")) }
+        model.problem?.let { HarvestCircleText(it, Modifier.testTag("identity-entry-problem")) }
     }
     LaunchedEffect(Unit) { requester.requestFocus() }
 }

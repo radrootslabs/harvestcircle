@@ -12,6 +12,10 @@ import org.harvestcircle.appearance.AppearanceState
 import org.harvestcircle.appearance.TextSizePreference
 import org.harvestcircle.application.HarvestCirclePresenterState
 import org.harvestcircle.application.HarvestCircleRoute
+import org.harvestcircle.designsystem.component.HarvestCircleButtonVariant
+import org.harvestcircle.designsystem.component.HarvestCircleTextRole
+import org.harvestcircle.designsystem.component.action.HarvestCircleLabeledButton
+import org.harvestcircle.designsystem.primitive.HarvestCircleText
 import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 
@@ -23,23 +27,28 @@ fun ShellLifecycleCanvas(
     val presentation = state.route.lifecyclePresentation()
     CanvasScaffold(
         textSize = TextSizePreference.Default,
-        header = { ShellText(presentation.title, textRole = ShellTextRole.ScreenTitle) },
+        header = { HarvestCircleText(presentation.title, role = HarvestCircleTextRole.PageTitle) },
         body = {
             Column(
                 Modifier.testTag("lifecycle-${state.route.name.lowercase()}"),
                 verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap),
             ) {
-                ShellText(presentation.detail)
-                state.problem?.let { ShellText(it, Modifier.testTag("lifecycle-problem")) }
+                HarvestCircleText(presentation.detail)
+                state.problem?.let { HarvestCircleText(it, Modifier.testTag("lifecycle-problem")) }
             }
         },
         actionBar = {
             Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
                 if (state.lastProblem?.retryable == true) {
-                    ShellButton("Retry", "Retry the last local operation", actions.retryLastCommand)
+                    HarvestCircleLabeledButton("Retry", "Retry the last local operation", actions.retryLastCommand)
                 }
                 if (state.problem != null) {
-                    ShellButton("Dismiss", "Dismiss this problem", actions.dismissProblem, kind = ShellButtonKind.Quiet)
+                    HarvestCircleLabeledButton(
+                        "Dismiss",
+                        "Dismiss this problem",
+                        actions.dismissProblem,
+                        variant = HarvestCircleButtonVariant.Ghost,
+                    )
                 }
             }
         },
@@ -66,15 +75,15 @@ fun ShutdownFailureScreen(
         Box(Modifier.fillMaxSize().testTag("shutdown-failure")) {
             CanvasScaffold(
                 textSize = TextSizePreference.Default,
-                header = { ShellText("HarvestCircle could not close safely", textRole = ShellTextRole.ScreenTitle) },
-                body = { ShellText(problem, Modifier.testTag("shutdown-problem")) },
+                header = { HarvestCircleText("HarvestCircle could not close safely", role = HarvestCircleTextRole.PageTitle) },
+                body = { HarvestCircleText(problem, Modifier.testTag("shutdown-problem")) },
                 actionBar = {
-                    ShellButton(
+                    HarvestCircleLabeledButton(
                         "Force exit",
                         "Force HarvestCircle to exit",
                         forceExit,
                         Modifier.testTag("force-exit"),
-                        kind = ShellButtonKind.Destructive,
+                        variant = HarvestCircleButtonVariant.Destructive,
                     )
                 },
             )
@@ -90,10 +99,10 @@ private fun FailureCanvas(
 ) {
     CanvasScaffold(
         textSize = TextSizePreference.Default,
-        header = { ShellText(title, textRole = ShellTextRole.ScreenTitle) },
+        header = { HarvestCircleText(title, role = HarvestCircleTextRole.PageTitle) },
         body = {
             Column(Modifier.testTag(tag)) {
-                ShellText(problem, Modifier.testTag("startup-problem"))
+                HarvestCircleText(problem, Modifier.testTag("startup-problem"))
             }
         },
         actionBar = {},

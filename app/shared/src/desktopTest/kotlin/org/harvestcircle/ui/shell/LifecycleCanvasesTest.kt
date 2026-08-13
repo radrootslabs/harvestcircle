@@ -45,7 +45,7 @@ class LifecycleCanvasesTest {
         }
 
     @Test
-    fun standaloneFailuresUseTheActiveShellControls() =
+    fun standaloneFailuresUseTheActiveDesignSystem() =
         runComposeUiTest {
             var forced = 0
             setHarvestCircleContent { ShutdownFailureScreen("Shutdown timed out.") { forced += 1 } }

@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import org.harvestcircle.designsystem.component.HarvestCircleButtonVariant
 import org.harvestcircle.designsystem.component.HarvestCircleControlSize
 import org.harvestcircle.designsystem.component.HarvestCircleFocusRing
+import org.harvestcircle.designsystem.component.HarvestCircleTextRole
 import org.harvestcircle.designsystem.generated.resources.Res
 import org.harvestcircle.designsystem.generated.resources.harvestcircle_loading
 import org.harvestcircle.designsystem.internal.chrome.HarvestCircleMacBezel
@@ -36,6 +38,7 @@ import org.harvestcircle.designsystem.internal.interaction.harvestCircleHoverabl
 import org.harvestcircle.designsystem.internal.interaction.harvestCircleInteractions
 import org.harvestcircle.designsystem.internal.interaction.rememberHarvestCircleInteractionSources
 import org.harvestcircle.designsystem.internal.progress.HarvestCircleMacSpinner
+import org.harvestcircle.designsystem.primitive.HarvestCircleText
 import org.harvestcircle.designsystem.primitive.ProvideHarvestCircleContentColor
 import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 import org.harvestcircle.designsystem.theme.color.HarvestCircleActionStateColors
@@ -258,5 +261,33 @@ public fun HarvestCircleButton(
                 bezel()
             }
         }
+    }
+}
+
+/** Canonical text-labeled button with an explicit accessibility label. */
+@Composable
+public fun HarvestCircleLabeledButton(
+    label: String,
+    accessibilityLabel: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    variant: HarvestCircleButtonVariant = HarvestCircleButtonVariant.Secondary,
+    size: HarvestCircleControlSize = HarvestCircleControlSize.Medium,
+    loading: Boolean = false,
+    leadingIcon: (@Composable () -> Unit)? = null,
+    focusRing: HarvestCircleFocusRing = HarvestCircleFocusRing.WhenFocused,
+) {
+    HarvestCircleButton(
+        onClick = onClick,
+        modifier = modifier.semantics { contentDescription = accessibilityLabel },
+        variant = variant,
+        size = size,
+        enabled = enabled,
+        loading = loading,
+        leadingIcon = leadingIcon,
+        focusRing = focusRing,
+    ) {
+        HarvestCircleText(text = label, role = HarvestCircleTextRole.Label)
     }
 }

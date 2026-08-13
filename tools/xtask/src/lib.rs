@@ -406,11 +406,6 @@ fn approved_legacy_product_fragments(
         "app/shared/src/commonTest/kotlin/org/harvestcircle/product/SurfaceRegistryTest.kt" => {
             vec![format!("round_{legacy}_screen")]
         }
-        "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/MainPanelTemplates.kt"
-        | "app/shared/src/desktopTest/kotlin/org/harvestcircle/ui/shell/MainPanelTemplatesTest.kt" =>
-        {
-            vec![format!("{}Template", title_case(legacy))]
-        }
         "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationSettingsScreen.kt" =>
         {
             vec![legacy_repository.to_owned()]
@@ -453,7 +448,7 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             &["hcSc008", "hcSc009"],
         ),
         (
-            "app/shared/src/desktopTest/kotlin/org/harvestcircle/ui/shell/ShellControlsUiTest.kt",
+            "app/shared/src/desktopTest/kotlin/org/harvestcircle/ui/shell/OwnedControlsUiTest.kt",
             &["hcSc010"],
         ),
         (
@@ -728,10 +723,7 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             == "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/primitive/HarvestCircleText.kt";
         let approved_input_primitive = path
             == "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/component/input/HarvestCircleTextField.kt";
-        if is_production_compose(path, &source)
-            && path
-                != "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/ShellControls.kt"
-        {
+        if is_production_compose(path, &source) {
             if !approved_text_primitive && contains_direct_call(&compact, "BasicText(") {
                 findings.push(format!(
                     "{path}: BasicText bypasses the shell primitive adapter"

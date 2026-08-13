@@ -5,6 +5,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
@@ -18,26 +20,54 @@ import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
 import org.harvestcircle.appearance.AppearanceState
 import org.harvestcircle.appearance.ThemePreference
+import org.harvestcircle.designsystem.component.HarvestCircleButtonVariant
+import org.harvestcircle.designsystem.component.action.HarvestCircleIconButton
+import org.harvestcircle.designsystem.component.action.HarvestCircleLabeledButton
+import org.harvestcircle.designsystem.component.input.HarvestCircleTextField
+import org.harvestcircle.designsystem.component.navigation.HarvestCircleTab
+import org.harvestcircle.designsystem.component.navigation.HarvestCircleTabRow
+import org.harvestcircle.designsystem.icon.HarvestCircleIcons
 import kotlin.test.Test
 import kotlin.test.assertFalse
 
 @OptIn(ExperimentalTestApi::class)
-class ShellControlsUiTest {
+class OwnedControlsUiTest {
     @Test
     fun hcSc010ControlsExposeTargetsSelectionDisabledStateAndFieldCopy() =
         runComposeUiTest {
             setHarvestCircleContent {
                 Column {
-                    ShellTab(
-                        "Today",
-                        "Show Today",
-                        selected = true,
-                        onClick = {},
-                        modifier = Modifier.testTag("control-tab"),
+                    HarvestCircleTabRow {
+                        HarvestCircleTab(
+                            label = "Today",
+                            selected = true,
+                            onClick = {},
+                            modifier =
+                                Modifier
+                                    .semantics { contentDescription = "Show Today" }
+                                    .testTag("control-tab"),
+                        )
+                    }
+                    HarvestCircleLabeledButton(
+                        "Unavailable",
+                        "Unavailable action",
+                        {},
+                        Modifier.testTag("control-disabled"),
+                        enabled = false,
                     )
-                    ShellButton("Unavailable", "Unavailable action", {}, Modifier.testTag("control-disabled"), enabled = false)
-                    ShellTextField("", {}, "Nostr reference", "npub1…", Modifier.testTag("control-field"))
-                    ShellIconButton("?", "Help", {}, Modifier.testTag("control-icon"))
+                    HarvestCircleTextField(
+                        "",
+                        {},
+                        label = "Nostr reference",
+                        placeholder = "npub1…",
+                        inputModifier = Modifier.testTag("control-field"),
+                    )
+                    HarvestCircleIconButton(
+                        onClick = {},
+                        icon = HarvestCircleIcons.Info,
+                        label = "Help",
+                        modifier = Modifier.testTag("control-icon"),
+                    )
                 }
             }
 
@@ -59,19 +89,19 @@ class ShellControlsUiTest {
                 setHarvestCircleContent {
                     HarvestCircleTheme(AppearanceState(theme = ThemePreference.System), systemDark = systemDark) {
                         Column {
-                            ShellButton(
+                            HarvestCircleLabeledButton(
                                 "Primary",
                                 "Primary action",
                                 {},
                                 Modifier.testTag("control-primary"),
-                                kind = ShellButtonKind.Primary,
+                                variant = HarvestCircleButtonVariant.Primary,
                             )
-                            ShellButton(
+                            HarvestCircleLabeledButton(
                                 "Destructive",
                                 "Destructive action",
                                 {},
                                 Modifier.testTag("control-destructive"),
-                                kind = ShellButtonKind.Destructive,
+                                variant = HarvestCircleButtonVariant.Destructive,
                             )
                         }
                     }

@@ -14,8 +14,14 @@ import org.harvestcircle.application.HarvestCircleShellState
 import org.harvestcircle.application.RelayConnectionState
 import org.harvestcircle.application.RelayDestination
 import org.harvestcircle.application.SignerAvailability
+import org.harvestcircle.designsystem.component.HarvestCircleContentTone
+import org.harvestcircle.designsystem.component.HarvestCircleTextRole
+import org.harvestcircle.designsystem.component.action.HarvestCircleLabeledButton
+import org.harvestcircle.designsystem.component.container.HarvestCircleCard
+import org.harvestcircle.designsystem.component.feedback.HarvestCircleBadge
 import org.harvestcircle.designsystem.component.navigation.HarvestCircleTab
 import org.harvestcircle.designsystem.component.navigation.HarvestCircleTabRow
+import org.harvestcircle.designsystem.primitive.HarvestCircleText
 import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 
 enum class NetworkIdentityState { ReadOnly, Active, CredentialUnavailable, Available, SignedOut }
@@ -132,36 +138,43 @@ private fun NetworkDetail(
                     model.relays.count { it.writeCapability == RelayCapability.Configured }.toString(),
                 )
                 Fact("Local runtime", model.runtimeState.label())
-                ShellText("No managed HarvestCircle service is configured.")
+                HarvestCircleText("No managed HarvestCircle service is configured.")
             }
             "identity" -> {
-                ShellBadge(model.identityState.label(), Modifier.testTag("network-identity-state"))
-                model.identityLabel?.let { ShellText(it, Modifier.testTag("network-identity-label"), ShellTextRole.CardTitle) }
-                model.profileLabel?.let { ShellText("Display name: $it", Modifier.testTag("network-profile-label")) }
+                HarvestCircleBadge(model.identityState.label(), Modifier.testTag("network-identity-state"))
+                model.identityLabel?.let {
+                    HarvestCircleText(it, Modifier.testTag("network-identity-label"), HarvestCircleTextRole.SubsectionTitle)
+                }
+                model.profileLabel?.let { HarvestCircleText("Display name: $it", Modifier.testTag("network-profile-label")) }
                 if (model.identityState == NetworkIdentityState.Active) {
-                    ShellAction("Refresh profile", "Refresh active profile", "refresh-profile", onClick = refreshProfile)
-                    ShellAction("Sign out", "Sign out", "sign-out", onClick = signOut)
+                    HarvestCircleLabeledButton(
+                        "Refresh profile",
+                        "Refresh active profile",
+                        refreshProfile,
+                        Modifier.testTag("refresh-profile"),
+                    )
+                    HarvestCircleLabeledButton("Sign out", "Sign out", signOut, Modifier.testTag("sign-out"))
                 }
             }
             "public_relays" -> {
-                ShellBadge(model.relayState.label(), Modifier.testTag("network-relay-state"))
+                HarvestCircleBadge(model.relayState.label(), Modifier.testTag("network-relay-state"))
                 if (model.relays.isEmpty()) {
-                    ShellText("No public relay endpoints are configured.", Modifier.testTag("network-relays-empty"))
+                    HarvestCircleText("No public relay endpoints are configured.", Modifier.testTag("network-relays-empty"))
                 }
                 model.relays.forEach { relay ->
-                    ShellCard(Modifier.testTag("network-relay:${relay.url}")) {
+                    HarvestCircleCard(Modifier.testTag("network-relay:${relay.url}")) {
                         Column {
-                            ShellText(relay.url, textRole = ShellTextRole.Protocol)
-                            ShellText(relay.destination.label())
-                            ShellText(relay.readCapability.label("Read"))
-                            ShellText(relay.writeCapability.label("Write"))
+                            HarvestCircleText(relay.url, role = HarvestCircleTextRole.Code)
+                            HarvestCircleText(relay.destination.label())
+                            HarvestCircleText(relay.readCapability.label("Read"))
+                            HarvestCircleText(relay.writeCapability.label("Write"))
                         }
                     }
                 }
             }
             "runtime" -> {
                 Fact("Local runtime", model.runtimeState.label())
-                model.runtimeProblem?.let { ShellText(it, Modifier.testTag("network-runtime-problem")) }
+                model.runtimeProblem?.let { HarvestCircleText(it, Modifier.testTag("network-runtime-problem")) }
             }
         }
     }
@@ -173,8 +186,12 @@ private fun Fact(
     value: String,
 ) {
     Column {
-        ShellText(label, textRole = ShellTextRole.Secondary)
-        ShellText(value, Modifier.testTag("network-fact-${label.lowercase().replace(' ', '-') }"))
+        HarvestCircleText(
+            label,
+            role = HarvestCircleTextRole.BodySmall,
+            tone = HarvestCircleContentTone.Secondary,
+        )
+        HarvestCircleText(value, Modifier.testTag("network-fact-${label.lowercase().replace(' ', '-') }"))
     }
 }
 

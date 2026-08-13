@@ -134,15 +134,3 @@ private fun StatusAction(
         HarvestCircleText(label, role = HarvestCircleTextRole.Label)
     }
 }
-
-@Composable
-internal fun ShellAction(
-    label: String,
-    description: String,
-    tag: String,
-    enabled: Boolean = true,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    ShellButton(label, description, onClick, modifier.testTag(tag), enabled)
-}

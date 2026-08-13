@@ -7,6 +7,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import org.harvestcircle.application.ShellFocusTarget
+import org.harvestcircle.designsystem.component.HarvestCircleContentTone
+import org.harvestcircle.designsystem.component.HarvestCircleTextRole
+import org.harvestcircle.designsystem.component.action.HarvestCircleLabeledButton
+import org.harvestcircle.designsystem.component.feedback.HarvestCircleBadge
+import org.harvestcircle.designsystem.primitive.HarvestCircleText
 import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 
 data class FoundationTodayModel(
@@ -23,26 +28,33 @@ fun FoundationTodayScreen(
             Modifier.testTag("foundation-today"),
             verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap),
         ) {
-            ShellBadge(model.context, Modifier.testTag("today-context"))
-            ShellText("No active commitments", textRole = ShellTextRole.SectionTitle)
-            ShellText("Explore nearby buying circles or open a shared Nostr reference.")
+            HarvestCircleBadge(model.context, Modifier.testTag("today-context"))
+            HarvestCircleText("No active commitments", role = HarvestCircleTextRole.SectionTitle)
+            HarvestCircleText("Explore nearby buying circles or open a shared Nostr reference.")
             Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
-                ShellAction(
-                    "Explore circles",
-                    "Explore circles",
-                    "today-explore-circles",
+                HarvestCircleLabeledButton(
+                    label = "Explore circles",
+                    accessibilityLabel = "Explore circles",
+                    modifier = Modifier.testTag("today-explore-circles"),
                     enabled = false,
                     onClick = {},
                 )
-                ShellAction(
-                    "Open a Nostr reference",
-                    "Open a Nostr reference",
-                    "today-open-reference",
-                    modifier = Modifier.shellFocusTarget(ShellFocusTarget.TodayReference),
+                HarvestCircleLabeledButton(
+                    label = "Open a Nostr reference",
+                    accessibilityLabel = "Open a Nostr reference",
+                    modifier =
+                        Modifier
+                            .shellFocusTarget(ShellFocusTarget.TodayReference)
+                            .testTag("today-open-reference"),
                     onClick = openNostrReference,
                 )
             }
-            ShellText("Not available in this build.", Modifier.testTag("today-deferred-helper"), ShellTextRole.Secondary)
+            HarvestCircleText(
+                "Not available in this build.",
+                Modifier.testTag("today-deferred-helper"),
+                HarvestCircleTextRole.BodySmall,
+                HarvestCircleContentTone.Secondary,
+            )
         }
     }
 }

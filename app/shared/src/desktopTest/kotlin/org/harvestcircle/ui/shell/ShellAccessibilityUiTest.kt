@@ -7,6 +7,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
@@ -28,6 +29,7 @@ import org.harvestcircle.application.SessionLifecycle
 import org.harvestcircle.application.ShellFocusTarget
 import org.harvestcircle.application.SnapshotRevision
 import org.harvestcircle.application.StatusOverlayKey
+import org.harvestcircle.designsystem.component.action.HarvestCircleLabeledButton
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 import kotlin.test.Test
@@ -39,7 +41,12 @@ class ShellAccessibilityUiTest {
         runComposeUiTest {
             setHarvestCircleContent {
                 RouteFocusTarget("today", "Today main content") {
-                    ShellAction("Action", "Accessible action", "accessible-action", onClick = {})
+                    HarvestCircleLabeledButton(
+                        "Action",
+                        "Accessible action",
+                        {},
+                        Modifier.testTag("accessible-action"),
+                    )
                 }
             }
 
@@ -120,15 +127,18 @@ class ShellAccessibilityUiTest {
                 val registry = remember { ShellFocusRegistry() }
                 CompositionLocalProvider(LocalShellFocusRegistry provides registry) {
                     RouteFocusTarget("today", "Today main content") {
-                        ShellAction(
-                            "Open",
-                            "Open dialog",
-                            "restore-trigger",
-                            modifier = Modifier.shellFocusTarget(ShellFocusTarget.TodayReference),
-                        ) {
-                            restoreTarget = null
-                            modalOpen = true
-                        }
+                        HarvestCircleLabeledButton(
+                            label = "Open",
+                            accessibilityLabel = "Open dialog",
+                            modifier =
+                                Modifier
+                                    .shellFocusTarget(ShellFocusTarget.TodayReference)
+                                    .testTag("restore-trigger"),
+                            onClick = {
+                                restoreTarget = null
+                                modalOpen = true
+                            },
+                        )
                         if (modalOpen) {
                             FoundationOverlayHost(
                                 org.harvestcircle.application.OverlayState(

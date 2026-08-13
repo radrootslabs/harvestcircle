@@ -13,6 +13,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import org.harvestcircle.designsystem.component.HarvestCircleContentTone
 import org.harvestcircle.designsystem.component.HarvestCircleTextRole
+import org.harvestcircle.designsystem.component.feedback.HarvestCircleBadge
 import org.harvestcircle.designsystem.component.navigation.HarvestCircleTab
 import org.harvestcircle.designsystem.component.navigation.HarvestCircleTabRow
 import org.harvestcircle.designsystem.primitive.HarvestCircleText
@@ -67,7 +68,7 @@ fun MainPanelHeader(
                 )
             }
         }
-        model.localStatus?.let { ShellBadge(it, Modifier.testTag("main-local-status")) }
+        model.localStatus?.let { HarvestCircleBadge(it, Modifier.testTag("main-local-status")) }
         if (model.tabs.isNotEmpty()) {
             HarvestCircleTabRow {
                 model.tabs.forEach { tab ->

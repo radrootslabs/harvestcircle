@@ -12,8 +12,12 @@ import org.harvestcircle.appearance.TextSizePreference
 import org.harvestcircle.appearance.ThemePreference
 import org.harvestcircle.application.BuildDirtyState
 import org.harvestcircle.application.BuildInfo
+import org.harvestcircle.designsystem.component.HarvestCircleContentTone
+import org.harvestcircle.designsystem.component.HarvestCircleTextRole
+import org.harvestcircle.designsystem.component.action.HarvestCircleLabeledButton
 import org.harvestcircle.designsystem.component.navigation.HarvestCircleTab
 import org.harvestcircle.designsystem.component.navigation.HarvestCircleTabRow
+import org.harvestcircle.designsystem.primitive.HarvestCircleText
 import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.navigation.SettingsSection
@@ -84,21 +88,21 @@ private fun AppearanceSettings(
         Modifier.testTag("settings-appearance-panel"),
         verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.sectionGap),
     ) {
-        ShellText("Theme", textRole = ShellTextRole.SectionTitle)
+        HarvestCircleText("Theme", role = HarvestCircleTextRole.SectionTitle)
         OptionRow(
             listOf(ThemePreference.System, ThemePreference.Light, ThemePreference.Dark),
             appearance.theme,
             "theme",
             actions.setTheme,
         )
-        ShellText("Text size", textRole = ShellTextRole.SectionTitle)
+        HarvestCircleText("Text size", role = HarvestCircleTextRole.SectionTitle)
         OptionRow(
             listOf(TextSizePreference.Default, TextSizePreference.Large, TextSizePreference.VeryLarge),
             appearance.textSize,
             "text-size",
             actions.setTextSize,
         )
-        ShellText("Motion", textRole = ShellTextRole.SectionTitle)
+        HarvestCircleText("Motion", role = HarvestCircleTextRole.SectionTitle)
         OptionRow(
             listOf(MotionPreference.Standard, MotionPreference.Reduced),
             appearance.motion,
@@ -153,11 +157,16 @@ private fun ProjectSettings(
         )
         ProjectFact("Licence", "GPL-3.0-only")
         Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
-            ShellAction("Source", "Open HarvestCircle source", "project-open-source", onClick = platformActions.openSource)
-            ShellAction(
-                "Licence",
-                "Open HarvestCircle licence",
-                "project-open-licence",
+            HarvestCircleLabeledButton(
+                "Source",
+                "Open HarvestCircle source",
+                platformActions.openSource,
+                Modifier.testTag("project-open-source"),
+            )
+            HarvestCircleLabeledButton(
+                label = "Licence",
+                accessibilityLabel = "Open HarvestCircle licence",
+                modifier = Modifier.testTag("project-open-licence"),
                 onClick = platformActions.openLicence,
             )
         }
@@ -170,8 +179,12 @@ private fun ProjectFact(
     value: String,
 ) {
     Column {
-        ShellText(label, textRole = ShellTextRole.Secondary)
-        ShellText(value, Modifier.testTag("project-${label.lowercase().replace(' ', '-')}"))
+        HarvestCircleText(
+            label,
+            role = HarvestCircleTextRole.BodySmall,
+            tone = HarvestCircleContentTone.Secondary,
+        )
+        HarvestCircleText(value, Modifier.testTag("project-${label.lowercase().replace(' ', '-')}"))
     }
 }
 
