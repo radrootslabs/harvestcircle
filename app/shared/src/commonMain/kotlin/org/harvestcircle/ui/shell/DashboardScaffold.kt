@@ -13,6 +13,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import org.harvestcircle.designsystem.layout.HarvestCircleAppFrame
+import org.harvestcircle.designsystem.layout.HarvestCircleFrameGeometry
 import org.harvestcircle.designsystem.layout.HarvestCirclePaneSlot
 import org.harvestcircle.designsystem.layout.HarvestCirclePaneWidth
 import org.harvestcircle.designsystem.primitive.HarvestCircleSurface
@@ -22,8 +23,9 @@ import kotlin.math.roundToInt
 @Composable
 fun DashboardScaffold(
     inspectorVisible: Boolean,
-    topBar: @Composable () -> Unit,
-    sidebar: @Composable () -> Unit,
+    sidebarCollapsed: Boolean = false,
+    topBar: @Composable (HarvestCircleFrameGeometry) -> Unit,
+    sidebar: @Composable (HarvestCircleFrameGeometry) -> Unit,
     mainHeader: @Composable () -> Unit,
     mainBody: @Composable () -> Unit,
     inspector: @Composable () -> Unit = {},
@@ -44,12 +46,16 @@ fun DashboardScaffold(
             }
 
         HarvestCircleAppFrame(
-            sidebarCollapsed = false,
-            sidebar = {
-                DashboardRegion("dashboard-sidebar", "Workspace sidebar", Modifier.fillMaxSize(), sidebar)
+            sidebarCollapsed = sidebarCollapsed,
+            sidebar = { geometry ->
+                DashboardRegion("dashboard-sidebar", "Workspace sidebar", Modifier.fillMaxSize()) {
+                    sidebar(geometry)
+                }
             },
-            topBar = {
-                DashboardRegion("dashboard-top-bar", "Global top bar", Modifier.fillMaxSize(), topBar)
+            topBar = { geometry ->
+                DashboardRegion("dashboard-top-bar", "Global top bar", Modifier.fillMaxSize()) {
+                    topBar(geometry)
+                }
             },
             mainHeader = {
                 DashboardRegion("dashboard-main-header", "Main panel header", Modifier.fillMaxSize(), mainHeader)

@@ -55,8 +55,8 @@ private fun dashboard(width: Int) {
     Box(Modifier.requiredSize(width.dp, 720.dp)) {
         DashboardScaffold(
             inspectorVisible = true,
-            topBar = {},
-            sidebar = {},
+            topBar = { _ -> },
+            sidebar = { _ -> },
             mainHeader = {},
             mainBody = {},
             inspector = {},

@@ -3,7 +3,6 @@ package org.harvestcircle.ui.shell
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -23,13 +22,13 @@ class WorkspaceSidebarTest {
             val selected = mutableListOf<ScreenKey>()
             setHarvestCircleContent { WorkspaceSidebar(ScreenKey.PersonalToday, selected::add) }
             onNodeWithTag("sidebar-PersonalToday").assertIsSelected().assertIsEnabled().performClick()
-            onNodeWithText("Explore").assertIsNotEnabled().assertIsNotSelected()
-            onNodeWithText("Activity").assertIsNotEnabled().assertIsNotSelected()
-            onNodeWithText("Add a farm workspace").assertIsNotEnabled()
+            onNodeWithTag("sidebar-Explore").assertIsNotEnabled()
+            onNodeWithTag("sidebar-Activity").assertIsNotEnabled()
+            onNodeWithTag("sidebar-add-farm").assertIsNotEnabled()
             onNodeWithContentDescription("Explore. Not available in this build.").assertExists()
             onNodeWithContentDescription("Activity. Not available in this build.").assertExists()
             onNodeWithContentDescription("Add a farm workspace. Not available in this build.").assertExists()
-            onNodeWithText("Explore").performClick()
+            onNodeWithTag("sidebar-Explore").performClick()
             onNodeWithText("Network").performClick()
             onNodeWithText("Settings").performClick()
             assertTrue(

@@ -8,7 +8,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -25,6 +29,7 @@ import org.harvestcircle.application.deriveShellStatus
 import org.harvestcircle.designsystem.component.HarvestCircleContentTone
 import org.harvestcircle.designsystem.component.HarvestCircleTextRole
 import org.harvestcircle.designsystem.component.action.HarvestCircleLabeledButton
+import org.harvestcircle.designsystem.layout.HarvestCircleFrameLayoutClass
 import org.harvestcircle.designsystem.primitive.HarvestCircleText
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
@@ -191,9 +196,11 @@ private fun DashboardRoot(
 ) {
     val route = root.navigation.current
     val status = deriveShellStatus(state)
+    var sidebarCollapsed by rememberSaveable { mutableStateOf(false) }
     DashboardScaffold(
         inspectorVisible = false,
-        topBar = {
+        sidebarCollapsed = sidebarCollapsed,
+        topBar = { geometry ->
             GlobalTopBar(
                 model =
                     GlobalTopBarModel(
@@ -201,11 +208,21 @@ private fun DashboardRoot(
                         canGoForward = root.navigation.forwardStack.isNotEmpty(),
                         syncStatus = status.sync,
                         signerStatus = status.signer,
+                        selectedScreen = route.screenKey,
                     ),
                 onIntent = { intent -> dispatchTopBar(intent, platformActions, dispatch) },
+                compact = geometry.layoutClass != HarvestCircleFrameLayoutClass.Expanded,
             )
         },
-        sidebar = { WorkspaceSidebar(route.screenKey) { dispatch(HarvestCircleShellIntent.Navigate(it)) } },
+        sidebar = { geometry ->
+            WorkspaceSidebar(
+                selected = route.screenKey,
+                onScreen = { dispatch(HarvestCircleShellIntent.Navigate(it)) },
+                compact = geometry.sidebarWidth == HarvestCircleDesignTokens.shell.frame.collapsedSidebarWidth,
+                onToggleCollapsed = { sidebarCollapsed = !sidebarCollapsed },
+                sessionLabel = todayContext(state),
+            )
+        },
         mainHeader = { MainPanelHeader(MainPanelHeaderModel(title = route.title())) },
         mainBody = {
             RouteFocusTarget(
@@ -294,6 +311,8 @@ private fun dispatchTopBar(
     when (intent) {
         GlobalTopBarIntent.Back -> dispatch(HarvestCircleShellIntent.Navigation(NavigationIntent.Back))
         GlobalTopBarIntent.Forward -> dispatch(HarvestCircleShellIntent.Navigation(NavigationIntent.Forward))
+        GlobalTopBarIntent.OpenToday -> dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.PersonalToday))
+        GlobalTopBarIntent.OpenNetwork -> dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.Network))
         GlobalTopBarIntent.OpenNostrReference ->
             dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference(ShellFocusTarget.TopBarReference)))
         GlobalTopBarIntent.ShowSyncStatus ->

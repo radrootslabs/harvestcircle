@@ -1,45 +1,144 @@
 package org.harvestcircle.ui.shell
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import org.harvestcircle.application.ShellNavigationItem
 import org.harvestcircle.application.addFarmWorkspaceAction
 import org.harvestcircle.application.shellNavigationItems
 import org.harvestcircle.application.shellSettingsItem
-import org.harvestcircle.designsystem.component.HarvestCircleContentTone
-import org.harvestcircle.designsystem.component.HarvestCircleTextRole
-import org.harvestcircle.designsystem.component.navigation.HarvestCircleNavigationItem
-import org.harvestcircle.designsystem.component.utility.HarvestCircleHorizontalDivider
-import org.harvestcircle.designsystem.layout.HarvestCircleSidebar
-import org.harvestcircle.designsystem.layout.HarvestCircleSidebarSectionHeader
-import org.harvestcircle.designsystem.primitive.HarvestCircleText
-import org.harvestcircle.designsystem.theme.HarvestCircleTheme
+import org.harvestcircle.designsystem.icon.HarvestCircleIcons
+import org.harvestcircle.designsystem.primitive.HarvestCircleIcon
+import org.harvestcircle.designsystem.shell.HarvestCircleShellButton
+import org.harvestcircle.designsystem.shell.HarvestCircleShellIconButton
+import org.harvestcircle.designsystem.shell.HarvestCircleShellMetrics
+import org.harvestcircle.designsystem.shell.HarvestCircleShellNavigationItem
+import org.harvestcircle.designsystem.shell.HarvestCircleShellPalette
+import org.harvestcircle.designsystem.shell.HarvestCircleShellText
+import org.harvestcircle.designsystem.shell.HarvestCircleShellTextRole
 import org.harvestcircle.product.ScreenKey
+import org.jetbrains.compose.resources.DrawableResource
 
 @Composable
 fun WorkspaceSidebar(
     selected: ScreenKey,
     onScreen: (ScreenKey) -> Unit,
+    compact: Boolean = false,
+    onToggleCollapsed: () -> Unit = {},
+    sessionLabel: String = "Read-only",
 ) {
-    HarvestCircleSidebar(Modifier.fillMaxHeight().testTag("workspace-sidebar")) {
-        HarvestCircleSidebarSectionHeader("Navigation", Modifier.testTag("workspace-label"))
-        shellNavigationItems.forEach { item ->
-            SidebarItem(item, selected == item.screenKey, onScreen)
+    val colors = HarvestCircleShellPalette
+    Column(
+        Modifier
+            .fillMaxHeight()
+            .fillMaxWidth()
+            .background(colors.sidebar)
+            .testTag("workspace-sidebar"),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(HarvestCircleShellMetrics.sidebarHeaderHeight)
+                .padding(start = if (compact) HarvestCircleShellMetrics.sidebarHorizontalInset else 74.dp, end = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (!compact) {
+                HarvestCircleShellText("HarvestCircle", Modifier.weight(1f), HarvestCircleShellTextRole.PaneTitle)
+            } else {
+                Spacer(Modifier.weight(1f))
+            }
+            HarvestCircleShellIconButton(
+                onClick = onToggleCollapsed,
+                icon = HarvestCircleIcons.ChevronLeft,
+                label = if (compact) "Expand sidebar" else "Collapse sidebar",
+                controlSize = HarvestCircleShellMetrics.sidebarHeaderIconTarget,
+                iconSize = HarvestCircleShellMetrics.sidebarHeaderIconSize,
+            )
         }
 
-        HarvestCircleSidebarSectionHeader("Workspaces")
-        DisabledWorkspaceAction()
-        Spacer(Modifier.weight(1f))
-        HarvestCircleHorizontalDivider()
-        SidebarItem(shellSettingsItem, selected == shellSettingsItem.screenKey, onScreen)
+        Box(Modifier.fillMaxWidth().padding(horizontal = HarvestCircleShellMetrics.sidebarHorizontalInset)) {
+            HarvestCircleShellButton(
+                text = if (compact) "+" else addFarmWorkspaceAction.label,
+                onClick = {},
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .testTag("sidebar-add-farm")
+                        .semantics {
+                            contentDescription =
+                                "${addFarmWorkspaceAction.label}. ${addFarmWorkspaceAction.unavailableExplanation}"
+                        },
+                enabled = false,
+            )
+        }
+        Spacer(Modifier.height(HarvestCircleShellMetrics.sidebarQuickActionBottomGap))
+
+        Column(
+            Modifier.weight(1f).fillMaxWidth().padding(horizontal = HarvestCircleShellMetrics.sidebarHorizontalInset),
+        ) {
+            if (!compact) SidebarSection("Personal")
+            shellNavigationItems.forEach { item ->
+                SidebarItem(item, selected == item.screenKey, compact, onScreen)
+                Spacer(Modifier.height(HarvestCircleShellMetrics.sidebarNavigationGap))
+            }
+            Spacer(Modifier.weight(1f))
+            SidebarItem(shellSettingsItem, selected == shellSettingsItem.screenKey, compact, onScreen)
+            Spacer(Modifier.height(8.dp))
+        }
+
+        Box(Modifier.fillMaxWidth().height(HarvestCircleShellMetrics.structuralDividerWidth).background(colors.divider))
+        Box(Modifier.fillMaxWidth().padding(HarvestCircleShellMetrics.sidebarFooterOuterInset)) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .height(HarvestCircleShellMetrics.sidebarFooterHeight)
+                    .background(
+                        colors.raised,
+                        androidx.compose.foundation.shape
+                            .RoundedCornerShape(HarvestCircleShellMetrics.controlRadius),
+                    ).padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                HarvestCircleIcon(
+                    HarvestCircleIcons.Network,
+                    null,
+                    Modifier.size(HarvestCircleShellMetrics.sidebarFooterIconSize),
+                    tint = colors.contentMuted,
+                )
+                if (!compact) {
+                    Spacer(Modifier.width(8.dp))
+                    HarvestCircleShellText(sessionLabel, Modifier.weight(1f), HarvestCircleShellTextRole.Label, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SidebarSection(label: String) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(HarvestCircleShellMetrics.sidebarSectionHeaderHeight)
+            .padding(horizontal = HarvestCircleShellMetrics.sidebarNavigationHorizontalPadding),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        HarvestCircleShellText(label, role = HarvestCircleShellTextRole.Body, color = HarvestCircleShellPalette.contentSecondary)
     }
 }
 
@@ -47,57 +146,29 @@ fun WorkspaceSidebar(
 private fun SidebarItem(
     item: ShellNavigationItem,
     selected: Boolean,
+    compact: Boolean,
     onScreen: (ScreenKey) -> Unit,
 ) {
-    val description =
-        if (item.enabled) {
-            item.label
-        } else {
-            "${item.label}. ${item.unavailableExplanation}"
-        }
-    Column {
-        HarvestCircleNavigationItem(
-            selected = selected,
-            onClick = { if (item.enabled && !selected) onScreen(item.screenKey) },
-            label = item.label,
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .semantics { contentDescription = description }
-                    .testTag("sidebar-${item.screenKey.name}"),
-            enabled = item.enabled,
-        )
-        if (!item.enabled) {
-            HarvestCircleText(
-                text = requireNotNull(item.unavailableExplanation),
-                modifier = Modifier.padding(horizontal = HarvestCircleTheme.foundation.spacing.md),
-                role = HarvestCircleTextRole.LabelSmall,
-                tone = HarvestCircleContentTone.Muted,
-            )
-        }
-    }
+    HarvestCircleShellNavigationItem(
+        label = item.label,
+        icon = item.screenKey.icon(),
+        selected = selected,
+        onClick = { if (item.enabled && !selected) onScreen(item.screenKey) },
+        modifier =
+            Modifier
+                .semantics {
+                    contentDescription =
+                        if (item.enabled) item.label else "${item.label}. ${item.unavailableExplanation}"
+                }.testTag("sidebar-${item.screenKey.name}"),
+        enabled = item.enabled,
+        compact = compact,
+    )
 }
 
-@Composable
-private fun DisabledWorkspaceAction() {
-    val action = addFarmWorkspaceAction
-    Column {
-        HarvestCircleNavigationItem(
-            selected = false,
-            onClick = {},
-            label = action.label,
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "${action.label}. ${action.unavailableExplanation}" }
-                    .testTag("sidebar-add-farm"),
-            enabled = false,
-        )
-        HarvestCircleText(
-            text = requireNotNull(action.unavailableExplanation),
-            modifier = Modifier.padding(horizontal = HarvestCircleTheme.foundation.spacing.md),
-            role = HarvestCircleTextRole.LabelSmall,
-            tone = HarvestCircleContentTone.Muted,
-        )
+private fun ScreenKey.icon(): DrawableResource =
+    when (this) {
+        ScreenKey.PersonalToday -> HarvestCircleIcons.Today
+        ScreenKey.Network -> HarvestCircleIcons.Network
+        ScreenKey.Settings -> HarvestCircleIcons.Settings
+        else -> HarvestCircleIcons.Activity
     }
-}
