@@ -6,8 +6,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import org.harvestcircle.application.ShellFocusTarget
+import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 
 data class FoundationTodayModel(
     val context: String,
@@ -21,12 +21,12 @@ fun FoundationTodayScreen(
     SingleFocusTemplate {
         Column(
             Modifier.testTag("foundation-today"),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap),
         ) {
             ShellBadge(model.context, Modifier.testTag("today-context"))
             ShellText("No active commitments", textRole = ShellTextRole.SectionTitle)
             ShellText("Explore nearby buying circles or open a shared Nostr reference.")
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
                 ShellAction(
                     "Explore circles",
                     "Explore circles",

@@ -2,7 +2,6 @@ package org.harvestcircle.ui.shell
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -10,12 +9,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import org.harvestcircle.application.ApplicationLifecycle
 import org.harvestcircle.application.HarvestCircleShellState
 import org.harvestcircle.application.RelayConnectionState
 import org.harvestcircle.application.RelayDestination
 import org.harvestcircle.application.SignerAvailability
+import org.harvestcircle.designsystem.component.navigation.HarvestCircleTab
+import org.harvestcircle.designsystem.component.navigation.HarvestCircleTabRow
+import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 
 enum class NetworkIdentityState { ReadOnly, Active, CredentialUnavailable, Available, SignedOut }
 
@@ -92,13 +93,12 @@ fun FoundationNetworkScreen(
         tabs = tabs,
         selected = selected,
         tabRail = { available, current ->
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            HarvestCircleTabRow {
                 available.forEach { tab ->
-                    ShellTab(
+                    HarvestCircleTab(
                         label = tab.label,
-                        description = "Show ${tab.label}",
                         selected = tab.key == current,
-                        onClick = { selected = tab.key },
+                        onClick = { if (tab.key != current) selected = tab.key },
                         modifier = Modifier.testTag("network-tab-${tab.key.value}"),
                     )
                 }
@@ -118,7 +118,7 @@ private fun NetworkDetail(
 ) {
     Column(
         Modifier.testTag("network-${selection.value}"),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap),
     ) {
         when (selection.value) {
             "overview" -> {

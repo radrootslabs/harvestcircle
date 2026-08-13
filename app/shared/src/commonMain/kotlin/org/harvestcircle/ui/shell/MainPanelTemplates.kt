@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -12,6 +13,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import org.harvestcircle.designsystem.layout.HarvestCirclePane
+import org.harvestcircle.designsystem.primitive.HarvestCircleSurfaceRole
+import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 
 @JvmInline
 value class TemplateSelectionKey(
@@ -35,7 +39,12 @@ enum class DetailPaneKind { Network, Settings }
 
 @Composable
 fun SingleFocusTemplate(content: @Composable () -> Unit) {
-    Box(Modifier.fillMaxSize().testTag("template-single-focus")) { content() }
+    HarvestCirclePane(
+        modifier = Modifier.fillMaxSize().testTag("template-single-focus"),
+        role = HarvestCircleSurfaceRole.Canvas,
+    ) {
+        content()
+    }
 }
 
 @Composable
@@ -68,8 +77,19 @@ fun TabbedDetailTemplate(
 ) {
     require(tabs.map(TemplateTab::key).distinct().size == tabs.size)
     require(tabs.any { it.key == selected })
-    Column(Modifier.fillMaxSize().testTag("template-tabbed-detail")) {
-        Box(Modifier.testTag("template-tabs")) { tabRail(tabs, selected) }
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(HarvestCircleTheme.shell.layout.paneInset)
+            .testTag("template-tabbed-detail"),
+    ) {
+        Box(
+            Modifier
+                .padding(bottom = HarvestCircleTheme.shell.layout.contentGap)
+                .testTag("template-tabs"),
+        ) {
+            tabRail(tabs, selected)
+        }
         val detailModifier =
             Modifier
                 .weight(1f)

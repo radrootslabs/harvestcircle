@@ -6,13 +6,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import org.harvestcircle.application.BuildDirtyState
 import org.harvestcircle.application.BuildInfo
 import org.harvestcircle.design.AppearanceState
 import org.harvestcircle.design.MotionPreference
 import org.harvestcircle.design.TextSizePreference
 import org.harvestcircle.design.ThemePreference
+import org.harvestcircle.designsystem.component.navigation.HarvestCircleTab
+import org.harvestcircle.designsystem.component.navigation.HarvestCircleTabRow
+import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.navigation.SettingsSection
 
@@ -46,16 +48,17 @@ fun FoundationSettingsScreen(
         tabs = tabs,
         selected = selected,
         tabRail = { available, current ->
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            HarvestCircleTabRow {
                 available.forEach { tab ->
-                    ShellTab(
+                    HarvestCircleTab(
                         label = tab.label,
-                        description = "Show ${tab.label} settings",
                         selected = tab.key == current,
                         onClick = {
-                            actions.selectSection(
-                                if (tab.key.value == "appearance") SettingsSection.Appearance else SettingsSection.Project,
-                            )
+                            if (tab.key != current) {
+                                actions.selectSection(
+                                    if (tab.key.value == "appearance") SettingsSection.Appearance else SettingsSection.Project,
+                                )
+                            }
                         },
                         modifier = Modifier.testTag("settings-${tab.key.value}"),
                     )
@@ -79,7 +82,7 @@ private fun AppearanceSettings(
 ) {
     Column(
         Modifier.testTag("settings-appearance-panel"),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.sectionGap),
     ) {
         ShellText("Theme", textRole = ShellTextRole.SectionTitle)
         OptionRow(
@@ -112,14 +115,13 @@ private fun <T : Enum<T>> OptionRow(
     tagPrefix: String,
     select: (T) -> Unit,
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+    HarvestCircleTabRow {
         values.forEach { value ->
             val label = value.label()
-            ShellTab(
+            HarvestCircleTab(
                 label = label,
-                description = "Select $label",
                 selected = value == selected,
-                onClick = { select(value) },
+                onClick = { if (value != selected) select(value) },
                 modifier = Modifier.testTag("$tagPrefix-${value.name.lowercase()}"),
             )
         }
@@ -133,7 +135,7 @@ private fun ProjectSettings(
 ) {
     Column(
         Modifier.testTag("settings-project-panel"),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap),
     ) {
         ProjectFact("HarvestCircle version", build.productVersion)
         ProjectFact("Source commit", build.sourceCommit)
@@ -150,7 +152,7 @@ private fun ProjectSettings(
             "${build.minimumStorageSchemaVersion}..${build.currentStorageSchemaVersion}",
         )
         ProjectFact("Licence", "GPL-3.0-only")
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
             ShellAction("Source", "Open HarvestCircle source", "project-open-source", onClick = platformActions.openSource)
             ShellAction(
                 "Licence",
