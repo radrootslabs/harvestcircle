@@ -40,11 +40,12 @@ public fun HarvestCircleIcon(
     modifier: Modifier = Modifier,
     size: HarvestCircleIconSize = HarvestCircleIconSize.Medium,
     tone: HarvestCircleContentTone = HarvestCircleContentTone.Inherit,
+    tint: Color? = null,
 ) {
     Image(
         painter = painterResource(resource),
         contentDescription = contentDescription,
         modifier = modifier.size(iconSize(size)),
-        colorFilter = ColorFilter.tint(iconColor(tone)),
+        colorFilter = ColorFilter.tint(tint ?: iconColor(tone)),
     )
 }

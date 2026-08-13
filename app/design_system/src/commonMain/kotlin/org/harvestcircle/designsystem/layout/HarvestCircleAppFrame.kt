@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.harvestcircle.designsystem.primitive.HarvestCircleSurface
 import org.harvestcircle.designsystem.primitive.HarvestCircleSurfaceRole
+import org.harvestcircle.designsystem.shell.HarvestCircleShellPalette
 import org.harvestcircle.designsystem.theme.HarvestCircleFrameMetrics
 import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 
@@ -129,9 +130,11 @@ public fun HarvestCircleAppFrame(
 ) {
     val frameMetrics = HarvestCircleTheme.shell.frame
 
+    val shellColors = HarvestCircleShellPalette
     HarvestCircleSurface(
         modifier = modifier.fillMaxSize(),
         role = HarvestCircleSurfaceRole.Canvas,
+        color = shellColors.viewportCanvas,
     ) {
         BoxWithConstraints(
             modifier =
@@ -154,6 +157,7 @@ public fun HarvestCircleAppFrame(
                         Modifier
                             .width(geometry.sidebarWidth)
                             .fillMaxHeight()
+                            .background(shellColors.sidebar)
                             .testTag("harvestcircle-sidebar"),
                 ) {
                     sidebar(geometry)
@@ -237,7 +241,7 @@ private fun HarvestCircleFramePane(
     content: @Composable BoxScope.() -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.background(HarvestCircleTheme.foundation.colors.surface.base)) {
+    Column(modifier = modifier.background(HarvestCircleShellPalette.pane)) {
         Box(
             modifier =
                 Modifier
@@ -272,5 +276,5 @@ public fun HarvestCircleStructuralDivider(
                 .fillMaxWidth()
                 .height(HarvestCircleTheme.shell.frame.structuralDividerWidth)
         }
-    Box(dividerModifier.background(HarvestCircleTheme.foundation.colors.border.subtle))
+    Box(dividerModifier.background(HarvestCircleShellPalette.divider))
 }
