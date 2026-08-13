@@ -78,6 +78,7 @@ public fun HarvestCircleShellEmptyState(
     body: List<String>,
     modifier: Modifier = Modifier,
     context: String? = null,
+    contextModifier: Modifier = Modifier,
     showIllustration: Boolean = true,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
@@ -101,6 +102,7 @@ public fun HarvestCircleShellEmptyState(
             context?.let {
                 HarvestCircleShellText(
                     it,
+                    modifier = contextModifier,
                     role = HarvestCircleShellTextRole.Small,
                     color = HarvestCircleShellPalette.contentSecondary,
                     maxLines = 1,

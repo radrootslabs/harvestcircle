@@ -197,6 +197,7 @@ private fun DashboardRoot(
     val route = root.navigation.current
     val status = deriveShellStatus(state)
     var sidebarCollapsed by rememberSaveable { mutableStateOf(false) }
+    var networkSection by remember { mutableStateOf(NetworkSection.Overview) }
     DashboardScaffold(
         inspectorVisible = false,
         sidebarCollapsed = sidebarCollapsed,
@@ -223,7 +224,46 @@ private fun DashboardRoot(
                 sessionLabel = todayContext(state),
             )
         },
-        mainHeader = { MainPanelHeader(MainPanelHeaderModel(title = route.title())) },
+        mainHeader = {
+            when (route) {
+                AppRoute.Network ->
+                    MainPanelHeader(
+                        MainPanelHeaderModel(
+                            title = route.title(),
+                            tabs = NetworkSection.entries.map { TemplateTab(TemplateSelectionKey(it.key), it.label) },
+                            selectedTab = TemplateSelectionKey(networkSection.key),
+                        ),
+                        onTabSelected = { selected ->
+                            networkSection = NetworkSection.entries.single { it.key == selected.value }
+                        },
+                    )
+                AppRoute.Settings ->
+                    MainPanelHeader(
+                        MainPanelHeaderModel(
+                            title = route.title(),
+                            tabs =
+                                SettingsSection.entries.map {
+                                    TemplateTab(TemplateSelectionKey(it.name.lowercase()), it.name)
+                                },
+                            selectedTab =
+                                TemplateSelectionKey(
+                                    root.navigation.settings.section.name
+                                        .lowercase(),
+                                ),
+                        ),
+                        onTabSelected = { selected ->
+                            dispatch(
+                                HarvestCircleShellIntent.Navigation(
+                                    NavigationIntent.SelectSettingsSection(
+                                        SettingsSection.entries.single { it.name.equals(selected.value, ignoreCase = true) },
+                                    ),
+                                ),
+                            )
+                        },
+                    )
+                else -> MainPanelHeader(MainPanelHeaderModel(title = route.title()))
+            }
+        },
         mainBody = {
             RouteFocusTarget(
                 route.toString(),
@@ -246,6 +286,9 @@ private fun DashboardRoot(
                             foundationNetworkModel(state),
                             refreshProfile = identityActions.refreshActiveProfile,
                             signOut = identityActions.signOut,
+                            section = networkSection,
+                            onSectionSelected = { networkSection = it },
+                            showSectionTabs = false,
                         )
                     AppRoute.Settings ->
                         FoundationSettingsScreen(
@@ -266,6 +309,7 @@ private fun DashboardRoot(
                                     setMotion = { dispatch(HarvestCircleShellIntent.SetMotion(it)) },
                                 ),
                             platformActions = platformActions,
+                            showSectionTabs = false,
                         )
                     else -> HarvestCircleText(route.title(), Modifier.testTag("foundation-route-body"))
                 }

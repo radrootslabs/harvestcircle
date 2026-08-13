@@ -1,8 +1,9 @@
 package org.harvestcircle.ui.shell
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
@@ -11,13 +12,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import org.harvestcircle.designsystem.component.HarvestCircleContentTone
-import org.harvestcircle.designsystem.component.HarvestCircleTextRole
-import org.harvestcircle.designsystem.component.feedback.HarvestCircleBadge
-import org.harvestcircle.designsystem.component.navigation.HarvestCircleTab
-import org.harvestcircle.designsystem.component.navigation.HarvestCircleTabRow
-import org.harvestcircle.designsystem.primitive.HarvestCircleText
-import org.harvestcircle.designsystem.theme.HarvestCircleTheme
+import org.harvestcircle.designsystem.shell.HarvestCircleShellMetrics
+import org.harvestcircle.designsystem.shell.HarvestCircleShellPalette
+import org.harvestcircle.designsystem.shell.HarvestCircleShellTab
+import org.harvestcircle.designsystem.shell.HarvestCircleShellText
+import org.harvestcircle.designsystem.shell.HarvestCircleShellTextRole
 
 data class MainPanelHeaderModel(
     val title: String,
@@ -41,48 +40,55 @@ fun MainPanelHeader(
     secondaryAction: @Composable () -> Unit = {},
     primaryAction: @Composable () -> Unit = {},
 ) {
+    val colors = HarvestCircleShellPalette
     Row(
         modifier =
             Modifier
                 .fillMaxSize()
-                .padding(horizontal = HarvestCircleTheme.shell.layout.paneInset)
+                .background(colors.pane)
+                .padding(horizontal = HarvestCircleShellMetrics.localHeaderHorizontalInset)
                 .testTag("main-panel-header"),
-        horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.foundation.spacing.lg),
+        horizontalArrangement = Arrangement.spacedBy(HarvestCircleShellMetrics.localHeaderGap),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
-            HarvestCircleText(
-                text = model.title,
+        HarvestCircleShellText(
+            text = model.title,
+            modifier =
+                Modifier
+                    .semantics { contentDescription = "Screen title: ${model.title}" }
+                    .testTag("main-title"),
+            role = HarvestCircleShellTextRole.PaneTitle,
+            maxLines = 1,
+        )
+        if (model.breadcrumb.isNotEmpty()) {
+            HarvestCircleShellText(
+                text = model.breadcrumb.joinToString(" / "),
+                modifier = Modifier.testTag("main-breadcrumb"),
+                role = HarvestCircleShellTextRole.Small,
+                color = colors.contentSecondary,
+                maxLines = 1,
+            )
+        }
+        model.tabs.forEach { tab ->
+            HarvestCircleShellTab(
+                label = tab.label,
+                selected = tab.key == model.selectedTab,
+                onClick = { if (tab.key != model.selectedTab) onTabSelected(tab.key) },
                 modifier =
                     Modifier
-                        .semantics { contentDescription = "Screen title: ${model.title}" }
-                        .testTag("main-title"),
-                role = HarvestCircleTextRole.PageTitle,
+                        .semantics { contentDescription = "Show ${tab.label}" }
+                        .testTag("main-tab-${tab.key.value}"),
             )
-            if (model.breadcrumb.isNotEmpty()) {
-                HarvestCircleText(
-                    text = model.breadcrumb.joinToString(" / "),
-                    modifier = Modifier.testTag("main-breadcrumb"),
-                    role = HarvestCircleTextRole.LabelSmall,
-                    tone = HarvestCircleContentTone.Secondary,
-                )
-            }
         }
-        model.localStatus?.let { HarvestCircleBadge(it, Modifier.testTag("main-local-status")) }
-        if (model.tabs.isNotEmpty()) {
-            HarvestCircleTabRow {
-                model.tabs.forEach { tab ->
-                    HarvestCircleTab(
-                        selected = tab.key == model.selectedTab,
-                        onClick = { if (tab.key != model.selectedTab) onTabSelected(tab.key) },
-                        label = tab.label,
-                        modifier =
-                            Modifier
-                                .semantics { contentDescription = "Show ${tab.label}" }
-                                .testTag("main-tab-${tab.key.value}"),
-                    )
-                }
-            }
+        Spacer(Modifier.weight(1f))
+        model.localStatus?.let {
+            HarvestCircleShellText(
+                it,
+                Modifier.testTag("main-local-status"),
+                HarvestCircleShellTextRole.Small,
+                colors.contentSecondary,
+                maxLines = 1,
+            )
         }
         Row(Modifier.testTag("main-secondary-action")) { secondaryAction() }
         Row(Modifier.testTag("main-primary-action")) { primaryAction() }

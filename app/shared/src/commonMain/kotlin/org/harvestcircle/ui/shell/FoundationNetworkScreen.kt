@@ -1,7 +1,11 @@
 package org.harvestcircle.ui.shell
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -9,26 +13,34 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import org.harvestcircle.application.ApplicationLifecycle
 import org.harvestcircle.application.HarvestCircleShellState
 import org.harvestcircle.application.RelayConnectionState
 import org.harvestcircle.application.RelayDestination
 import org.harvestcircle.application.SignerAvailability
-import org.harvestcircle.designsystem.component.HarvestCircleContentTone
-import org.harvestcircle.designsystem.component.HarvestCircleTextRole
-import org.harvestcircle.designsystem.component.action.HarvestCircleLabeledButton
-import org.harvestcircle.designsystem.component.container.HarvestCircleCard
-import org.harvestcircle.designsystem.component.feedback.HarvestCircleBadge
-import org.harvestcircle.designsystem.component.navigation.HarvestCircleTab
-import org.harvestcircle.designsystem.component.navigation.HarvestCircleTabRow
-import org.harvestcircle.designsystem.primitive.HarvestCircleText
-import org.harvestcircle.designsystem.theme.HarvestCircleTheme
+import org.harvestcircle.designsystem.shell.HarvestCircleShellButton
+import org.harvestcircle.designsystem.shell.HarvestCircleShellPage
+import org.harvestcircle.designsystem.shell.HarvestCircleShellPanel
+import org.harvestcircle.designsystem.shell.HarvestCircleShellTab
+import org.harvestcircle.designsystem.shell.HarvestCircleShellText
+import org.harvestcircle.designsystem.shell.HarvestCircleShellTextRole
 
 enum class NetworkIdentityState { ReadOnly, Active, CredentialUnavailable, Available, SignedOut }
 
 enum class RelayObservationState { NotYetObserved, Available, Degraded, Unavailable }
 
 enum class RelayCapability { Configured, NotConfigured }
+
+enum class NetworkSection(
+    val key: String,
+    val label: String,
+) {
+    Overview("overview", "Overview"),
+    Identity("identity", "Identity"),
+    PublicRelays("public_relays", "Public relays"),
+    Runtime("runtime", "Runtime"),
+}
 
 data class NetworkRelayModel(
     val url: String,
@@ -86,48 +98,51 @@ fun FoundationNetworkScreen(
     model: FoundationNetworkModel,
     refreshProfile: () -> Unit = {},
     signOut: () -> Unit = {},
+    section: NetworkSection = NetworkSection.Overview,
+    onSectionSelected: (NetworkSection) -> Unit = {},
+    showSectionTabs: Boolean = true,
 ) {
-    val tabs =
-        listOf(
-            TemplateTab(TemplateSelectionKey("overview"), "Overview"),
-            TemplateTab(TemplateSelectionKey("identity"), "Identity"),
-            TemplateTab(TemplateSelectionKey("public_relays"), "Public relays"),
-            TemplateTab(TemplateSelectionKey("runtime"), "Runtime"),
-        )
-    var selected by remember { mutableStateOf(tabs.first().key) }
-    TabbedDetailTemplate(
-        tabs = tabs,
-        selected = selected,
-        tabRail = { available, current ->
-            HarvestCircleTabRow {
-                available.forEach { tab ->
-                    HarvestCircleTab(
-                        label = tab.label,
-                        selected = tab.key == current,
-                        onClick = { if (tab.key != current) selected = tab.key },
-                        modifier = Modifier.testTag("network-tab-${tab.key.value}"),
+    var localSection by remember { mutableStateOf(section) }
+    val selected = if (showSectionTabs) localSection else section
+    HarvestCircleShellPage(Modifier.testTag("template-tabbed-detail")) {
+        if (showSectionTabs) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                NetworkSection.entries.forEach { candidate ->
+                    HarvestCircleShellTab(
+                        label = candidate.label,
+                        selected = candidate == selected,
+                        onClick = {
+                            if (candidate != selected) {
+                                localSection = candidate
+                                onSectionSelected(candidate)
+                            }
+                        },
+                        modifier = Modifier.testTag("network-tab-${candidate.key}"),
                     )
                 }
             }
-        },
-        detailPane = DetailPaneKind.Network,
-        detail = { selection -> NetworkDetail(selection, model, refreshProfile, signOut) },
-    )
+        }
+        Box(
+            Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .testTag("bounded-detail-network"),
+        ) {
+            NetworkDetail(selected, model, refreshProfile, signOut)
+        }
+    }
 }
 
 @Composable
 private fun NetworkDetail(
-    selection: TemplateSelectionKey,
+    selection: NetworkSection,
     model: FoundationNetworkModel,
     refreshProfile: () -> Unit,
     signOut: () -> Unit,
 ) {
-    Column(
-        Modifier.testTag("network-${selection.value}"),
-        verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap),
-    ) {
-        when (selection.value) {
-            "overview" -> {
+    Column(Modifier.testTag("network-${selection.key}"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        when (selection) {
+            NetworkSection.Overview -> {
                 Fact("Signer", model.identityState.label())
                 Fact(
                     "Configured read endpoints",
@@ -138,43 +153,46 @@ private fun NetworkDetail(
                     model.relays.count { it.writeCapability == RelayCapability.Configured }.toString(),
                 )
                 Fact("Local runtime", model.runtimeState.label())
-                HarvestCircleText("No managed HarvestCircle service is configured.")
+                HarvestCircleShellText("No managed HarvestCircle service is configured.")
             }
-            "identity" -> {
-                HarvestCircleBadge(model.identityState.label(), Modifier.testTag("network-identity-state"))
+            NetworkSection.Identity -> {
+                HarvestCircleShellText(
+                    model.identityState.label(),
+                    Modifier.testTag("network-identity-state"),
+                    HarvestCircleShellTextRole.Small,
+                )
                 model.identityLabel?.let {
-                    HarvestCircleText(it, Modifier.testTag("network-identity-label"), HarvestCircleTextRole.SubsectionTitle)
+                    HarvestCircleShellText(it, Modifier.testTag("network-identity-label"), HarvestCircleShellTextRole.SectionTitle)
                 }
-                model.profileLabel?.let { HarvestCircleText("Display name: $it", Modifier.testTag("network-profile-label")) }
+                model.profileLabel?.let { HarvestCircleShellText("Display name: $it", Modifier.testTag("network-profile-label")) }
                 if (model.identityState == NetworkIdentityState.Active) {
-                    HarvestCircleLabeledButton(
-                        "Refresh profile",
-                        "Refresh active profile",
-                        refreshProfile,
-                        Modifier.testTag("refresh-profile"),
-                    )
-                    HarvestCircleLabeledButton("Sign out", "Sign out", signOut, Modifier.testTag("sign-out"))
-                }
-            }
-            "public_relays" -> {
-                HarvestCircleBadge(model.relayState.label(), Modifier.testTag("network-relay-state"))
-                if (model.relays.isEmpty()) {
-                    HarvestCircleText("No public relay endpoints are configured.", Modifier.testTag("network-relays-empty"))
-                }
-                model.relays.forEach { relay ->
-                    HarvestCircleCard(Modifier.testTag("network-relay:${relay.url}")) {
-                        Column {
-                            HarvestCircleText(relay.url, role = HarvestCircleTextRole.Code)
-                            HarvestCircleText(relay.destination.label())
-                            HarvestCircleText(relay.readCapability.label("Read"))
-                            HarvestCircleText(relay.writeCapability.label("Write"))
-                        }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        HarvestCircleShellButton("Refresh profile", refreshProfile, Modifier.testTag("refresh-profile"), primary = true)
+                        HarvestCircleShellButton("Sign out", signOut, Modifier.testTag("sign-out"))
                     }
                 }
             }
-            "runtime" -> {
+            NetworkSection.PublicRelays -> {
+                HarvestCircleShellText(
+                    model.relayState.label(),
+                    Modifier.testTag("network-relay-state"),
+                    HarvestCircleShellTextRole.Small,
+                )
+                if (model.relays.isEmpty()) {
+                    HarvestCircleShellText("No public relay endpoints are configured.", Modifier.testTag("network-relays-empty"))
+                }
+                model.relays.forEach { relay ->
+                    HarvestCircleShellPanel(Modifier.testTag("network-relay:${relay.url}")) {
+                        HarvestCircleShellText(relay.url, role = HarvestCircleShellTextRole.Code)
+                        HarvestCircleShellText(relay.destination.label())
+                        HarvestCircleShellText(relay.readCapability.label("Read"))
+                        HarvestCircleShellText(relay.writeCapability.label("Write"))
+                    }
+                }
+            }
+            NetworkSection.Runtime -> {
                 Fact("Local runtime", model.runtimeState.label())
-                model.runtimeProblem?.let { HarvestCircleText(it, Modifier.testTag("network-runtime-problem")) }
+                model.runtimeProblem?.let { HarvestCircleShellText(it, Modifier.testTag("network-runtime-problem")) }
             }
         }
     }
@@ -186,12 +204,12 @@ private fun Fact(
     value: String,
 ) {
     Column {
-        HarvestCircleText(
+        HarvestCircleShellText(
             label,
-            role = HarvestCircleTextRole.BodySmall,
-            tone = HarvestCircleContentTone.Secondary,
+            role = HarvestCircleShellTextRole.Small,
+            color = org.harvestcircle.designsystem.shell.HarvestCircleShellPalette.contentSecondary,
         )
-        HarvestCircleText(value, Modifier.testTag("network-fact-${label.lowercase().replace(' ', '-') }"))
+        HarvestCircleShellText(value, Modifier.testTag("network-fact-${label.lowercase().replace(' ', '-')}"))
     }
 }
 

@@ -1,24 +1,28 @@
 package org.harvestcircle.ui.shell
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import org.harvestcircle.appearance.AppearanceState
 import org.harvestcircle.appearance.MotionPreference
 import org.harvestcircle.appearance.TextSizePreference
 import org.harvestcircle.appearance.ThemePreference
 import org.harvestcircle.application.BuildDirtyState
 import org.harvestcircle.application.BuildInfo
-import org.harvestcircle.designsystem.component.HarvestCircleContentTone
-import org.harvestcircle.designsystem.component.HarvestCircleTextRole
-import org.harvestcircle.designsystem.component.action.HarvestCircleLabeledButton
-import org.harvestcircle.designsystem.component.navigation.HarvestCircleTab
-import org.harvestcircle.designsystem.component.navigation.HarvestCircleTabRow
-import org.harvestcircle.designsystem.primitive.HarvestCircleText
-import org.harvestcircle.designsystem.theme.HarvestCircleTheme
+import org.harvestcircle.designsystem.shell.HarvestCircleShellButton
+import org.harvestcircle.designsystem.shell.HarvestCircleShellPage
+import org.harvestcircle.designsystem.shell.HarvestCircleShellPalette
+import org.harvestcircle.designsystem.shell.HarvestCircleShellPanel
+import org.harvestcircle.designsystem.shell.HarvestCircleShellTab
+import org.harvestcircle.designsystem.shell.HarvestCircleShellText
+import org.harvestcircle.designsystem.shell.HarvestCircleShellTextRole
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.navigation.SettingsSection
 
@@ -41,42 +45,33 @@ fun FoundationSettingsScreen(
     buildInfo: BuildInfo,
     actions: FoundationSettingsActions,
     platformActions: HarvestCirclePlatformActions,
+    showSectionTabs: Boolean = true,
 ) {
-    val tabs =
-        listOf(
-            TemplateTab(TemplateSelectionKey("appearance"), "Appearance"),
-            TemplateTab(TemplateSelectionKey("project"), "Project"),
-        )
-    val selected = if (section == SettingsSection.Appearance) tabs[0].key else tabs[1].key
-    TabbedDetailTemplate(
-        tabs = tabs,
-        selected = selected,
-        tabRail = { available, current ->
-            HarvestCircleTabRow {
-                available.forEach { tab ->
-                    HarvestCircleTab(
-                        label = tab.label,
-                        selected = tab.key == current,
-                        onClick = {
-                            if (tab.key != current) {
-                                actions.selectSection(
-                                    if (tab.key.value == "appearance") SettingsSection.Appearance else SettingsSection.Project,
-                                )
-                            }
-                        },
-                        modifier = Modifier.testTag("settings-${tab.key.value}"),
+    HarvestCircleShellPage(Modifier.testTag("template-tabbed-detail")) {
+        if (showSectionTabs) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                SettingsSection.entries.forEach { candidate ->
+                    HarvestCircleShellTab(
+                        label = candidate.label(),
+                        selected = candidate == section,
+                        onClick = { if (candidate != section) actions.selectSection(candidate) },
+                        modifier = Modifier.testTag("settings-${candidate.name.lowercase()}"),
                     )
                 }
             }
-        },
-        detailPane = DetailPaneKind.Settings,
-        detail = {
+        }
+        Box(
+            Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .testTag("bounded-detail-settings"),
+        ) {
             when (section) {
                 SettingsSection.Appearance -> AppearanceSettings(appearance, actions)
                 SettingsSection.Project -> ProjectSettings(buildInfo, platformActions)
             }
-        },
-    )
+        }
+    }
 }
 
 @Composable
@@ -84,31 +79,42 @@ private fun AppearanceSettings(
     appearance: AppearanceState,
     actions: FoundationSettingsActions,
 ) {
-    Column(
-        Modifier.testTag("settings-appearance-panel"),
-        verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.sectionGap),
-    ) {
-        HarvestCircleText("Theme", role = HarvestCircleTextRole.SectionTitle)
-        OptionRow(
-            listOf(ThemePreference.System, ThemePreference.Light, ThemePreference.Dark),
-            appearance.theme,
-            "theme",
-            actions.setTheme,
-        )
-        HarvestCircleText("Text size", role = HarvestCircleTextRole.SectionTitle)
-        OptionRow(
-            listOf(TextSizePreference.Default, TextSizePreference.Large, TextSizePreference.VeryLarge),
-            appearance.textSize,
-            "text-size",
-            actions.setTextSize,
-        )
-        HarvestCircleText("Motion", role = HarvestCircleTextRole.SectionTitle)
-        OptionRow(
-            listOf(MotionPreference.Standard, MotionPreference.Reduced),
-            appearance.motion,
-            "motion",
-            actions.setMotion,
-        )
+    Column(Modifier.testTag("settings-appearance-panel"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        SettingsChoicePanel("Theme") {
+            OptionRow(
+                listOf(ThemePreference.System, ThemePreference.Light, ThemePreference.Dark),
+                appearance.theme,
+                "theme",
+                actions.setTheme,
+            )
+        }
+        SettingsChoicePanel("Text size") {
+            OptionRow(
+                listOf(TextSizePreference.Default, TextSizePreference.Large, TextSizePreference.VeryLarge),
+                appearance.textSize,
+                "text-size",
+                actions.setTextSize,
+            )
+        }
+        SettingsChoicePanel("Motion") {
+            OptionRow(
+                listOf(MotionPreference.Standard, MotionPreference.Reduced),
+                appearance.motion,
+                "motion",
+                actions.setMotion,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsChoicePanel(
+    title: String,
+    content: @Composable () -> Unit,
+) {
+    HarvestCircleShellPanel {
+        HarvestCircleShellText(title, role = HarvestCircleShellTextRole.SectionTitle)
+        content()
     }
 }
 
@@ -119,11 +125,10 @@ private fun <T : Enum<T>> OptionRow(
     tagPrefix: String,
     select: (T) -> Unit,
 ) {
-    HarvestCircleTabRow {
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         values.forEach { value ->
-            val label = value.label()
-            HarvestCircleTab(
-                label = label,
+            HarvestCircleShellTab(
+                label = value.label(),
                 selected = value == selected,
                 onClick = { if (value != selected) select(value) },
                 modifier = Modifier.testTag("$tagPrefix-${value.name.lowercase()}"),
@@ -137,38 +142,29 @@ private fun ProjectSettings(
     build: BuildInfo,
     platformActions: HarvestCirclePlatformActions,
 ) {
-    Column(
-        Modifier.testTag("settings-project-panel"),
-        verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap),
-    ) {
-        ProjectFact("HarvestCircle version", build.productVersion)
-        ProjectFact("Source commit", build.sourceCommit)
-        ProjectFact("Source state", build.sourceDirty.label())
-        ProjectFact("Radroots revision", build.radrootsRevision)
-        ProjectFact("Kotlin", build.kotlinToolchain)
-        ProjectFact("Compose Multiplatform", build.composeMultiplatformVersion)
-        ProjectFact("Rust", build.rustToolchain)
-        ProjectFact("Java", build.javaToolchain)
-        ProjectFact("FFI contract", "${build.ffiContractId} ${build.ffiContractMajor}.${build.ffiContractMinor}")
-        ProjectFact("FFI hash", build.ffiContractHash)
-        ProjectFact(
-            "Storage schema",
-            "${build.minimumStorageSchemaVersion}..${build.currentStorageSchemaVersion}",
-        )
-        ProjectFact("Licence", "GPL-3.0-only")
-        Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
-            HarvestCircleLabeledButton(
+    Column(Modifier.testTag("settings-project-panel"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        HarvestCircleShellPanel {
+            ProjectFact("HarvestCircle version", build.productVersion)
+            ProjectFact("Source commit", build.sourceCommit)
+            ProjectFact("Source state", build.sourceDirty.label())
+            ProjectFact("Radroots revision", build.radrootsRevision)
+            ProjectFact("Kotlin", build.kotlinToolchain)
+            ProjectFact("Compose Multiplatform", build.composeMultiplatformVersion)
+            ProjectFact("Rust", build.rustToolchain)
+            ProjectFact("Java", build.javaToolchain)
+            ProjectFact("FFI contract", "${build.ffiContractId} ${build.ffiContractMajor}.${build.ffiContractMinor}")
+            ProjectFact("FFI hash", build.ffiContractHash)
+            ProjectFact("Storage schema", "${build.minimumStorageSchemaVersion}..${build.currentStorageSchemaVersion}")
+            ProjectFact("Licence", "GPL-3.0-only")
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            HarvestCircleShellButton(
                 "Source",
-                "Open HarvestCircle source",
                 platformActions.openSource,
                 Modifier.testTag("project-open-source"),
+                primary = true,
             )
-            HarvestCircleLabeledButton(
-                label = "Licence",
-                accessibilityLabel = "Open HarvestCircle licence",
-                modifier = Modifier.testTag("project-open-licence"),
-                onClick = platformActions.openLicence,
-            )
+            HarvestCircleShellButton("Licence", platformActions.openLicence, Modifier.testTag("project-open-licence"))
         }
     }
 }
@@ -179,14 +175,16 @@ private fun ProjectFact(
     value: String,
 ) {
     Column {
-        HarvestCircleText(
+        HarvestCircleShellText(
             label,
-            role = HarvestCircleTextRole.BodySmall,
-            tone = HarvestCircleContentTone.Secondary,
+            role = HarvestCircleShellTextRole.Small,
+            color = HarvestCircleShellPalette.contentSecondary,
         )
-        HarvestCircleText(value, Modifier.testTag("project-${label.lowercase().replace(' ', '-')}"))
+        HarvestCircleShellText(value, Modifier.testTag("project-${label.lowercase().replace(' ', '-')}"))
     }
 }
+
+private fun SettingsSection.label(): String = name.lowercase().replaceFirstChar(Char::uppercaseChar)
 
 private fun Enum<*>.label(): String =
     when (this) {

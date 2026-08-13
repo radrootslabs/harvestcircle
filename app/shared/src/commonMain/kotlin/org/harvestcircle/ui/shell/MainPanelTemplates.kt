@@ -1,7 +1,6 @@
 package org.harvestcircle.ui.shell
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -9,8 +8,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import org.harvestcircle.designsystem.layout.HarvestCirclePane
-import org.harvestcircle.designsystem.primitive.HarvestCircleSurfaceRole
+import org.harvestcircle.designsystem.shell.HarvestCircleShellPage
 import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 
 @JvmInline
@@ -35,10 +33,7 @@ enum class DetailPaneKind { Network, Settings }
 
 @Composable
 fun SingleFocusTemplate(content: @Composable () -> Unit) {
-    HarvestCirclePane(
-        modifier = Modifier.fillMaxSize().testTag("template-single-focus"),
-        role = HarvestCircleSurfaceRole.Canvas,
-    ) {
+    Box(Modifier.fillMaxSize().testTag("template-single-focus")) {
         content()
     }
 }
@@ -53,12 +48,7 @@ fun TabbedDetailTemplate(
 ) {
     require(tabs.map(TemplateTab::key).distinct().size == tabs.size)
     require(tabs.any { it.key == selected })
-    Column(
-        Modifier
-            .fillMaxSize()
-            .padding(HarvestCircleTheme.shell.layout.paneInset)
-            .testTag("template-tabbed-detail"),
-    ) {
+    HarvestCircleShellPage(Modifier.testTag("template-tabbed-detail")) {
         Box(
             Modifier
                 .padding(bottom = HarvestCircleTheme.shell.layout.contentGap)
