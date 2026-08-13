@@ -63,6 +63,7 @@ public fun HarvestCircleTextField(
     value: String,
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
+    inputModifier: Modifier = Modifier,
     label: String? = null,
     placeholder: String? = null,
     supportingText: String? = null,
@@ -143,7 +144,7 @@ public fun HarvestCircleTextField(
             value = value,
             onValueChange = onValueChange,
             modifier =
-                Modifier
+                inputModifier
                     .fillMaxWidth()
                     .heightIn(min = HarvestCircleTheme.shell.dimensions.minimumInteractive)
                     .harvestCircleHoverable(sources = sources, enabled = enabled)

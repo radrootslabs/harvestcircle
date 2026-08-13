@@ -42,7 +42,7 @@ class FoundationOverlayHostTest {
                     current = FoundationOverlay.OpenNostrReference(),
                 ),
             )
-            setContent {
+            setHarvestCircleContent {
                 FoundationOverlayHost(
                     state,
                     status(banner = GlobalStatusBanner("Limited connection", "Some services are unavailable.", BannerSeverity.Caution)),
@@ -86,7 +86,7 @@ class FoundationOverlayHostTest {
                             action,
                         ),
                 )
-            setContent { FoundationOverlayHost(state, status(), onIntent = intents::add) }
+            setHarvestCircleContent { FoundationOverlayHost(state, status(), onIntent = intents::add) }
 
             onNodeWithTag("overlay-confirm").assertIsFocused().performClick()
             kotlin.test.assertEquals(listOf<OverlayIntent>(OverlayIntent.Confirm(action)), intents)
@@ -105,7 +105,7 @@ class FoundationOverlayHostTest {
                             removalAction(),
                         ),
                 )
-            setContent { FoundationOverlayHost(state, status(), onIntent = {}) }
+            setHarvestCircleContent { FoundationOverlayHost(state, status(), onIntent = {}) }
 
             onNodeWithTag("overlay-confirm").assertIsFocused().pressTab()
             onNodeWithTag("overlay-cancel").assertIsFocused().pressTab()
@@ -128,7 +128,7 @@ class FoundationOverlayHostTest {
                             phase = ConfirmationPhase.Submitting,
                         ),
                 )
-            setContent { FoundationOverlayHost(state, status(), onIntent = intents::add) }
+            setHarvestCircleContent { FoundationOverlayHost(state, status(), onIntent = intents::add) }
 
             onNodeWithTag("foundation-overlay").assertIsFocused()
             onNodeWithTag("foundation-overlay").performKeyInput {
@@ -145,7 +145,7 @@ class FoundationOverlayHostTest {
     fun hcSl006ReferenceAndStatusControlsRemainLocallyInteractive() =
         runComposeUiTest {
             var state by mutableStateOf(OverlayState(current = FoundationOverlay.OpenNostrReference()))
-            setContent {
+            setHarvestCircleContent {
                 FoundationOverlayHost(state, status()) { intent ->
                     state = reduceOverlay(state, intent)
                 }
@@ -165,7 +165,7 @@ class FoundationOverlayHostTest {
     fun referenceFocusWrapsAcrossInputAndActions() =
         runComposeUiTest {
             val state = OverlayState(current = FoundationOverlay.OpenNostrReference())
-            setContent { FoundationOverlayHost(state, status(), onIntent = {}) }
+            setHarvestCircleContent { FoundationOverlayHost(state, status(), onIntent = {}) }
 
             onNodeWithTag("nostr-reference-input").assertIsFocused().pressTab()
             onNodeWithTag("nostr-reference-submit").assertIsFocused().pressTab()
@@ -178,7 +178,7 @@ class FoundationOverlayHostTest {
     fun statusFocusRemainsContainedOnTab() =
         runComposeUiTest {
             val state = OverlayState(FoundationOverlay.Status(org.harvestcircle.application.StatusOverlayKey.Sync))
-            setContent { FoundationOverlayHost(state, status(), onIntent = {}) }
+            setHarvestCircleContent { FoundationOverlayHost(state, status(), onIntent = {}) }
 
             onNodeWithTag("overlay-close").assertIsFocused().pressTab()
             onNodeWithTag("overlay-close").assertIsFocused().pressShiftTab()
@@ -190,7 +190,7 @@ class FoundationOverlayHostTest {
         runComposeUiTest {
             var status by mutableStateOf(status())
             val overlay = OverlayState(FoundationOverlay.Status(org.harvestcircle.application.StatusOverlayKey.Sync))
-            setContent { FoundationOverlayHost(overlay, status, onIntent = {}) }
+            setHarvestCircleContent { FoundationOverlayHost(overlay, status, onIntent = {}) }
 
             onNodeWithText("Not yet observed").assertExists()
             status = ShellStatusModel(SyncStatusLabel.Degraded, SignerStatusLabel.SignedOut, null)

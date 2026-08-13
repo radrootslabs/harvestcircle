@@ -26,7 +26,7 @@ class FoundationNetworkScreenTest {
     @Test
     fun overviewIsTruthfulAndClaimsNoManagedService() =
         runComposeUiTest {
-            setContent { FoundationNetworkScreen(model()) }
+            setHarvestCircleContent { FoundationNetworkScreen(model()) }
             onNodeWithTag("bounded-detail-network").assertExists()
             onNodeWithTag("network-tab-overview").assertIsSelected().assertIsEnabled().performClick()
             onNodeWithTag("network-tab-overview").assertIsSelected()
@@ -42,7 +42,7 @@ class FoundationNetworkScreenTest {
         runComposeUiTest {
             var refreshed = 0
             var signedOut = 0
-            setContent {
+            setHarvestCircleContent {
                 FoundationNetworkScreen(
                     model(),
                     refreshProfile = { refreshed += 1 },
@@ -68,7 +68,7 @@ class FoundationNetworkScreenTest {
     @Test
     fun signedOutAndReadOnlyStatesRemainExplicit() =
         runComposeUiTest {
-            setContent { FoundationNetworkScreen(model(identityState = NetworkIdentityState.ReadOnly, relays = emptyList())) }
+            setHarvestCircleContent { FoundationNetworkScreen(model(identityState = NetworkIdentityState.ReadOnly, relays = emptyList())) }
             onNodeWithText("Read-only").assertExists()
             onNodeWithTag("network-tab-public_relays").performClick()
             onNodeWithText("Not yet observed").assertExists()
@@ -78,7 +78,7 @@ class FoundationNetworkScreenTest {
     @Test
     fun veryLargeRuntimeDetailsRemainReachableInTheBoundedPane() =
         runComposeUiTest {
-            setContent {
+            setHarvestCircleContent {
                 Box(Modifier.size(640.dp, 360.dp)) {
                     HarvestCircleTheme(AppearanceState(textSize = TextSizePreference.VeryLarge)) {
                         FoundationNetworkScreen(model())

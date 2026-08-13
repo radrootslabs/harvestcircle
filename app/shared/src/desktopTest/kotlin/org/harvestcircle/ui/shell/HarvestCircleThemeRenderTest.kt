@@ -28,7 +28,7 @@ class HarvestCircleThemeRenderTest {
         runComposeUiTest {
             var preference by mutableStateOf(ThemePreference.Light)
             var systemDark by mutableStateOf(false)
-            setContent {
+            setHarvestCircleContent {
                 HarvestCircleTheme(AppearanceState(theme = preference), systemDark = systemDark) {
                     Box(
                         Modifier

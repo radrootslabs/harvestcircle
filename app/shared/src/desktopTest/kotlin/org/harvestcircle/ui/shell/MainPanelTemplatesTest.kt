@@ -17,7 +17,7 @@ class MainPanelTemplatesTest {
         runComposeUiTest {
             val selection = TemplateSelectionKey("selected")
             var observed: TemplateSelectionKey? = null
-            setContent { MasterDetailTemplate(selection, master = {}, detail = { observed = it }) }
+            setHarvestCircleContent { MasterDetailTemplate(selection, master = {}, detail = { observed = it }) }
             assertEquals(selection, observed)
             assertTrue(onNodeWithTag("template-master-list").fetchSemanticsNode().config.contains(SemanticsActions.ScrollBy))
         }
@@ -26,7 +26,7 @@ class MainPanelTemplatesTest {
     fun tabbedAndWorkbenchTemplatesExposeOnlyStructuralSlots() =
         runComposeUiTest {
             val tab = TemplateTab(TemplateSelectionKey("overview"), "Overview")
-            setContent {
+            setHarvestCircleContent {
                 TabbedDetailTemplate(listOf(tab), tab.key, tabRail = { _, _ -> }, detail = {})
                 StudioTemplate(rail = {}, body = {}, action = {})
             }

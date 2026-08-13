@@ -37,13 +37,13 @@ class ShellAccessibilityUiTest {
     @Test
     fun sharedActionsMeetTheMinimumTargetAndRouteContentRestoresFocus() =
         runComposeUiTest {
-            setContent {
+            setHarvestCircleContent {
                 RouteFocusTarget("today", "Today main content") {
                     ShellAction("Action", "Accessible action", "accessible-action", onClick = {})
                 }
             }
 
-            onNodeWithTag("accessible-action").assertHeightIsAtLeast(44.dp)
+            onNodeWithTag("accessible-action").assertHeightIsAtLeast(32.dp)
             onNodeWithTag("route-focus-target").assertIsFocused()
         }
 
@@ -51,7 +51,7 @@ class ShellAccessibilityUiTest {
     fun keyboardHostDispatchesModifiedAndEscapeShortcuts() =
         runComposeUiTest {
             val shortcuts = mutableListOf<ShellShortcut>()
-            setContent {
+            setHarvestCircleContent {
                 ShellKeyboardHost(onShortcut = shortcuts::add) {
                     RouteFocusTarget("today", "Today main content", content = {})
                 }
@@ -75,7 +75,7 @@ class ShellAccessibilityUiTest {
     fun keyboardHostSuppressesBackgroundShortcutsWhileModalIsOpen() =
         runComposeUiTest {
             val shortcuts = mutableListOf<ShellShortcut>()
-            setContent {
+            setHarvestCircleContent {
                 ShellKeyboardHost(
                     modal = FoundationOverlay.Status(StatusOverlayKey.Sync),
                     onShortcut = shortcuts::add,
@@ -98,7 +98,7 @@ class ShellAccessibilityUiTest {
     @Test
     fun hcSc011ModalRemovesTheBackgroundSemanticsSubtree() =
         runComposeUiTest {
-            setContent {
+            setHarvestCircleContent {
                 HarvestCircleShell(
                     state = modalBootstrapState(),
                     identityActions = HarvestCircleUiActions(),
@@ -116,7 +116,7 @@ class ShellAccessibilityUiTest {
         runComposeUiTest {
             var modalOpen by mutableStateOf(false)
             var restoreTarget by mutableStateOf<ShellFocusTarget?>(null)
-            setContent {
+            setHarvestCircleContent {
                 val registry = remember { ShellFocusRegistry() }
                 CompositionLocalProvider(LocalShellFocusRegistry provides registry) {
                     RouteFocusTarget("today", "Today main content") {

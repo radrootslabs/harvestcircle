@@ -19,7 +19,7 @@ class CanvasScaffoldTest {
     @Test
     fun baselineCanvasKeepsHeaderBodyAndActionRegionsFixed() =
         runComposeUiTest {
-            setContent { canvas(TextSizePreference.Default) }
+            setHarvestCircleContent { canvas(TextSizePreference.Default) }
             onNodeWithTag("canvas-header").assertIsDisplayed()
             onNodeWithTag("canvas-body").assertIsDisplayed()
             onNodeWithTag("canvas-action-bar").assertIsDisplayed()
@@ -30,7 +30,7 @@ class CanvasScaffoldTest {
     @Test
     fun veryLargeTextEnablesOnlyBoundedBodyScrolling() =
         runComposeUiTest {
-            setContent { canvas(TextSizePreference.VeryLarge) }
+            setHarvestCircleContent { canvas(TextSizePreference.VeryLarge) }
             assertTrue(onNodeWithTag("canvas-body").fetchSemanticsNode().config.contains(SemanticsActions.ScrollBy))
             onNodeWithTag("canvas-action-bar").assertIsDisplayed()
         }
@@ -38,7 +38,7 @@ class CanvasScaffoldTest {
     @Test
     fun shellAppearanceEnablesLargeTextFallbackForDefaultCanvases() =
         runComposeUiTest {
-            setContent {
+            setHarvestCircleContent {
                 CompositionLocalProvider(
                     LocalShellAppearance provides AppearanceState(textSize = TextSizePreference.VeryLarge),
                 ) {

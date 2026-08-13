@@ -23,7 +23,7 @@ class WorkspaceSidebarTest {
     fun sidebarSelectsFoundationRoutesAndDisablesDeferredEntries() =
         runComposeUiTest {
             val selected = mutableListOf<ScreenKey>()
-            setContent { WorkspaceSidebar(ScreenKey.PersonalToday, selected::add) }
+            setHarvestCircleContent { WorkspaceSidebar(ScreenKey.PersonalToday, selected::add) }
             onNodeWithTag("sidebar-PersonalToday").assertIsSelected().assertIsEnabled().performClick()
             onNodeWithText("Explore").assertIsNotEnabled().assertIsNotSelected()
             onNodeWithText("Activity").assertIsNotEnabled().assertIsNotSelected()

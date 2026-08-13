@@ -35,7 +35,7 @@ class FoundationSettingsScreenTest {
             val themes = mutableListOf<ThemePreference>()
             val textSizes = mutableListOf<TextSizePreference>()
             val motions = mutableListOf<MotionPreference>()
-            setContent {
+            setHarvestCircleContent {
                 FoundationSettingsScreen(
                     SettingsSection.Appearance,
                     AppearanceState(),
@@ -65,7 +65,7 @@ class FoundationSettingsScreenTest {
         runComposeUiTest {
             var source = 0
             var licence = 0
-            setContent {
+            setHarvestCircleContent {
                 FoundationSettingsScreen(
                     SettingsSection.Project,
                     AppearanceState(),
@@ -94,7 +94,7 @@ class FoundationSettingsScreenTest {
     @Test
     fun veryLargeProjectFactsRemainReachableInTheBoundedPane() =
         runComposeUiTest {
-            setContent {
+            setHarvestCircleContent {
                 Box(Modifier.size(640.dp, 360.dp)) {
                     HarvestCircleTheme(AppearanceState(textSize = TextSizePreference.VeryLarge)) {
                         FoundationSettingsScreen(

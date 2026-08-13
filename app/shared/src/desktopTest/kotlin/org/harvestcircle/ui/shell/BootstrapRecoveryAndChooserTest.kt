@@ -31,7 +31,7 @@ class BootstrapRecoveryAndChooserTest {
                 mutableStateOf(GeneratedKeyBackupUiModel("npub1generated", "nsec1generated"))
             var copied = ""
             var cancelled = 0
-            setContent {
+            setHarvestCircleContent {
                 backup?.let {
                     GeneratedRecoveryCanvas(
                         model = model(generatedKeyBackup = it),
@@ -63,7 +63,7 @@ class BootstrapRecoveryAndChooserTest {
             var selected = ""
             var activated = ""
             var removal = ""
-            setContent {
+            setHarvestCircleContent {
                 IdentityChooserCanvas(
                     model = model(identities = listOf(first, second)),
                     actions =

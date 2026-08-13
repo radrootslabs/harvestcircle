@@ -16,7 +16,7 @@ class FoundationTodayScreenTest {
     fun readOnlyEmptyStateIsTruthfulAndReferenceActionIsTyped() =
         runComposeUiTest {
             var opened = 0
-            setContent {
+            setHarvestCircleContent {
                 FoundationTodayScreen(FoundationTodayModel("Read-only session")) { opened += 1 }
             }
 
@@ -32,7 +32,7 @@ class FoundationTodayScreenTest {
     @Test
     fun activeContextUsesTheActualIdentityLabel() =
         runComposeUiTest {
-            setContent { FoundationTodayScreen(FoundationTodayModel("Local grower"), openNostrReference = {}) }
+            setHarvestCircleContent { FoundationTodayScreen(FoundationTodayModel("Local grower"), openNostrReference = {}) }
             onNodeWithTag("today-context").assertTextEquals("Local grower")
         }
 }

@@ -17,7 +17,7 @@ class GlobalTopBarTest {
     fun topBarUsesActualStatusAndTypedIntents() =
         runComposeUiTest {
             val intents = mutableListOf<GlobalTopBarIntent>()
-            setContent {
+            setHarvestCircleContent {
                 GlobalTopBar(
                     GlobalTopBarModel(
                         canGoBack = true,

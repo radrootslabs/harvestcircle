@@ -20,7 +20,7 @@ class DashboardScaffoldTest {
     @Test
     fun preferredWindowKeepsFixedRegionsAndInspectorBeside() =
         runComposeUiTest {
-            setContent { dashboard(width = 1280) }
+            setHarvestCircleContent { dashboard(width = 1280) }
             onNodeWithTag("dashboard-top-bar").assertIsDisplayed()
             onNodeWithTag("dashboard-sidebar").assertIsDisplayed()
             onNodeWithTag("dashboard-main-header").assertIsDisplayed()
@@ -31,7 +31,7 @@ class DashboardScaffoldTest {
     @Test
     fun minimumWindowMovesInspectorToOverlay() =
         runComposeUiTest {
-            setContent { dashboard(width = 1100) }
+            setHarvestCircleContent { dashboard(width = 1100) }
             onNodeWithTag("dashboard-inspector-overlay").assertIsDisplayed()
             onNodeWithTag("dashboard-main-body").assertIsDisplayed()
         }
@@ -40,7 +40,7 @@ class DashboardScaffoldTest {
     fun liveConstraintChangesMoveTheInspectorWithoutRecreatingTheShell() =
         runComposeUiTest {
             var width by mutableStateOf(1280)
-            setContent { dashboard(width) }
+            setHarvestCircleContent { dashboard(width) }
             onAllNodesWithTag("dashboard-inspector-beside").assertCountEquals(1)
 
             width = 1100

@@ -29,7 +29,7 @@ class BootstrapIdentityEntryTest {
         runComposeUiTest {
             var draft by mutableStateOf("")
             var back = 0
-            setContent {
+            setHarvestCircleContent {
                 BootstrapIdentityEntry(
                     BootstrapStep.ImportIdentity,
                     model = model(draft),
@@ -47,7 +47,7 @@ class BootstrapIdentityEntryTest {
     fun createDispatchesOnlyTheExistingGenerateAction() =
         runComposeUiTest {
             var generate = 0
-            setContent {
+            setHarvestCircleContent {
                 BootstrapIdentityEntry(
                     BootstrapStep.CreateIdentity,
                     model = model(),
@@ -62,7 +62,7 @@ class BootstrapIdentityEntryTest {
     @Test
     fun hcEx004ImportScreenExplainsTemporaryCustodyTruthfully() =
         runComposeUiTest {
-            setContent {
+            setHarvestCircleContent {
                 BootstrapIdentityEntry(
                     BootstrapStep.ImportIdentity,
                     model = model(),

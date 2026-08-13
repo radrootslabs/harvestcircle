@@ -25,7 +25,7 @@ class LifecycleCanvasesTest {
         runComposeUiTest {
             var retries = 0
             var dismissals = 0
-            setContent {
+            setHarvestCircleContent {
                 HarvestCircleTheme(org.harvestcircle.design.AppearanceState()) {
                     ShellLifecycleCanvas(
                         presenterState(),
@@ -48,7 +48,7 @@ class LifecycleCanvasesTest {
     fun standaloneFailuresUseTheActiveShellControls() =
         runComposeUiTest {
             var forced = 0
-            setContent { ShutdownFailureScreen("Shutdown timed out.") { forced += 1 } }
+            setHarvestCircleContent { ShutdownFailureScreen("Shutdown timed out.") { forced += 1 } }
             onNodeWithTag("shutdown-problem").assertExists()
             onNodeWithTag("force-exit").performClick()
             assertEquals(1, forced)

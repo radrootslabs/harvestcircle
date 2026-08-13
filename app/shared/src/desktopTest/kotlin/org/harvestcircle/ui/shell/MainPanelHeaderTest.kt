@@ -21,7 +21,7 @@ class MainPanelHeaderTest {
             val overview = TemplateTab(TemplateSelectionKey("overview"), "Overview")
             val identity = TemplateTab(TemplateSelectionKey("identity"), "Identity")
             val selections = mutableListOf<TemplateSelectionKey>()
-            setContent {
+            setHarvestCircleContent {
                 MainPanelHeader(
                     MainPanelHeaderModel(
                         title = "Network",

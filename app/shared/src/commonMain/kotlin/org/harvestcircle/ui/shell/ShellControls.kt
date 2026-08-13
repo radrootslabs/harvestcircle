@@ -1,50 +1,31 @@
 package org.harvestcircle.ui.shell
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
-import androidx.compose.foundation.hoverable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.disabled
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import org.harvestcircle.design.ColorToken
-import org.harvestcircle.design.FontWeightToken
 import org.harvestcircle.design.HarvestCircleDesign
 import org.harvestcircle.design.HarvestCirclePalette
-import org.harvestcircle.design.TypographyToken
+import org.harvestcircle.designsystem.component.HarvestCircleButtonVariant
+import org.harvestcircle.designsystem.component.HarvestCircleContentTone
+import org.harvestcircle.designsystem.component.action.HarvestCircleButton
+import org.harvestcircle.designsystem.component.container.HarvestCircleCard
+import org.harvestcircle.designsystem.component.container.HarvestCircleCardPadding
+import org.harvestcircle.designsystem.component.container.HarvestCircleCardVariant
+import org.harvestcircle.designsystem.component.input.HarvestCircleTextField
+import org.harvestcircle.designsystem.component.navigation.HarvestCircleTab
+import org.harvestcircle.designsystem.component.navigation.HarvestCircleTabRow
+import org.harvestcircle.designsystem.component.utility.HarvestCircleHorizontalDivider
+import org.harvestcircle.designsystem.primitive.HarvestCircleSurface
+import org.harvestcircle.designsystem.primitive.HarvestCircleSurfaceRole
+import org.harvestcircle.designsystem.primitive.HarvestCircleText
+import org.harvestcircle.designsystem.component.HarvestCircleTextRole as DesignTextRole
 
 enum class ShellTextRole { ScreenTitle, SectionTitle, CardTitle, Body, Secondary, Protocol, Button }
 
@@ -116,15 +97,10 @@ fun ShellSurface(
     secondary: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val palette = LocalHarvestCirclePalette.current
-    Box(
-        modifier.background(
-            if (secondary) palette.surfaceSecondary.toComposeColor() else palette.surface.toComposeColor(),
-            RoundedCornerShape(LocalHarvestCircleShapes.current.surfaceRadiusDp.dp),
-        ),
-    ) {
-        content()
-    }
+    HarvestCircleSurface(
+        modifier = modifier,
+        role = if (secondary) HarvestCircleSurfaceRole.Sunken else HarvestCircleSurfaceRole.Base,
+    ) { content() }
 }
 
 @Composable
@@ -132,34 +108,22 @@ fun ShellText(
     text: String,
     modifier: Modifier = Modifier,
     textRole: ShellTextRole = ShellTextRole.Body,
-    color: Color? = null,
 ) {
-    val typography = LocalHarvestCircleTypography.current
-    val token =
+    val role =
         when (textRole) {
-            ShellTextRole.ScreenTitle -> typography.screenTitle
-            ShellTextRole.SectionTitle -> typography.sectionTitle
-            ShellTextRole.CardTitle -> typography.cardTitle
-            ShellTextRole.Body -> typography.body
-            ShellTextRole.Secondary -> typography.secondary
-            ShellTextRole.Protocol -> typography.protocol
-            ShellTextRole.Button -> typography.button
+            ShellTextRole.ScreenTitle -> DesignTextRole.PageTitle
+            ShellTextRole.SectionTitle -> DesignTextRole.SectionTitle
+            ShellTextRole.CardTitle -> DesignTextRole.SubsectionTitle
+            ShellTextRole.Body -> DesignTextRole.Body
+            ShellTextRole.Secondary -> DesignTextRole.BodySmall
+            ShellTextRole.Protocol -> DesignTextRole.Code
+            ShellTextRole.Button -> DesignTextRole.Label
         }
-    val palette = LocalHarvestCirclePalette.current
-    BasicText(
-        text,
-        modifier,
-        style =
-            token.toTextStyle(
-                color
-                    ?: if (textRole ==
-                        ShellTextRole.Secondary
-                    ) {
-                        palette.textSecondary.toComposeColor()
-                    } else {
-                        palette.textPrimary.toComposeColor()
-                    },
-            ),
+    HarvestCircleText(
+        text = text,
+        modifier = modifier,
+        role = role,
+        tone = if (textRole == ShellTextRole.Secondary) HarvestCircleContentTone.Secondary else HarvestCircleContentTone.Inherit,
     )
 }
 
@@ -172,15 +136,14 @@ fun ShellButton(
     enabled: Boolean = true,
     kind: ShellButtonKind = ShellButtonKind.Secondary,
 ) {
-    ShellControl(
-        label = label,
-        description = description,
+    HarvestCircleButton(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.semantics { contentDescription = description },
         enabled = enabled,
-        selected = null,
-        kind = kind,
-    )
+        variant = kind.toDesignVariant(),
+    ) {
+        HarvestCircleText(text = label, role = DesignTextRole.Label)
+    }
 }
 
 @Composable
@@ -192,83 +155,16 @@ fun ShellTab(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    ShellControl(
-        label = label,
-        description = description,
-        onClick = { if (!selected) onClick() },
-        modifier = modifier,
-        enabled = enabled,
-        selected = selected,
-        kind = ShellButtonKind.Quiet,
-    )
-}
-
-@Composable
-private fun ShellControl(
-    label: String,
-    description: String,
-    onClick: () -> Unit,
-    modifier: Modifier,
-    enabled: Boolean,
-    selected: Boolean?,
-    kind: ShellButtonKind,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val hovered by interactionSource.collectIsHoveredAsState()
-    val pressed by interactionSource.collectIsPressedAsState()
-    var focused by remember { mutableStateOf(false) }
-    val palette = LocalHarvestCirclePalette.current
-    val visuals = resolveShellControlVisuals(kind, enabled, selected == true, focused, pressed, hovered, palette)
-    val actionModifier =
-        if (selected == null) {
-            Modifier.clickable(interactionSource, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
-        } else {
-            Modifier.selectable(
-                selected = selected,
-                interactionSource = interactionSource,
-                indication = null,
-                enabled = enabled,
-                role = Role.Tab,
-                onClick = onClick,
-            )
-        }
-    Box(
-        modifier
-            .heightIn(min = HarvestCircleDesign.MINIMUM_TARGET_DP.dp)
-            .background(visuals.background.toComposeColor(), RoundedCornerShape(LocalHarvestCircleShapes.current.controlRadiusDp.dp))
-            .border(
-                HarvestCircleDesign.BORDER_DP.dp,
-                visuals.border.toComposeColor(),
-                RoundedCornerShape(LocalHarvestCircleShapes.current.controlRadiusDp.dp),
-            ).onFocusChanged { focused = it.isFocused }
-            .hoverable(interactionSource, enabled)
-            .then(actionModifier)
-            .focusable(enabled, interactionSource)
-            .semantics {
-                contentDescription = description
-                role = if (selected == null) Role.Button else Role.Tab
-                selected?.let { this.selected = it }
-                this[ShellControlBackgroundKey] = visuals.background.semanticValue()
-                this[ShellControlForegroundKey] = visuals.foreground.hex
-                this[ShellControlBorderKey] = visuals.border.hex
-                if (!enabled) disabled()
-            }.padding(horizontal = HarvestCircleDesign.spacingDp[3].dp, vertical = HarvestCircleDesign.spacingDp[2].dp),
-    ) {
-        ShellText(label, textRole = ShellTextRole.Button, color = visuals.foreground.toComposeColor())
+    HarvestCircleTabRow {
+        HarvestCircleTab(
+            selected = selected,
+            onClick = { if (!selected) onClick() },
+            label = label,
+            modifier = modifier.semantics { contentDescription = description },
+            enabled = enabled,
+        )
     }
 }
-
-private fun ShellControlBackground.toComposeColor(): Color =
-    when (this) {
-        is ShellControlBackground.Solid -> color.toComposeColor()
-        ShellControlBackground.Transparent -> Color.Transparent
-    }
-
-private fun ShellControlBackground.semanticValue(): String =
-    when (this) {
-        is ShellControlBackground.Solid -> color.hex
-        ShellControlBackground.Transparent -> "transparent"
-    }
 
 @Composable
 fun ShellIconButton(
@@ -298,38 +194,17 @@ fun ShellTextField(
     enabled: Boolean = true,
     visualTransformation: VisualTransformation = VisualTransformation.None,
 ) {
-    var focused by remember { mutableStateOf(false) }
-    val palette = LocalHarvestCirclePalette.current
-    Column {
-        ShellText(label, textRole = ShellTextRole.Secondary)
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            enabled = enabled,
-            visualTransformation = visualTransformation,
-            textStyle = LocalHarvestCircleTypography.current.body.toTextStyle(palette.textPrimary.toComposeColor()),
-            modifier =
-                modifier
-                    .fillMaxWidth()
-                    .heightIn(min = HarvestCircleDesign.PRIMARY_CONTROL_DP.dp)
-                    .background(palette.surface.toComposeColor(), RoundedCornerShape(LocalHarvestCircleShapes.current.controlRadiusDp.dp))
-                    .border(
-                        HarvestCircleDesign.BORDER_DP.dp,
-                        if (focused) palette.focus.toComposeColor() else palette.border.toComposeColor(),
-                        RoundedCornerShape(LocalHarvestCircleShapes.current.controlRadiusDp.dp),
-                    ).onFocusChanged { focused = it.isFocused }
-                    .semantics {
-                        contentDescription = label
-                        if (!enabled) disabled()
-                    }.padding(PaddingValues(HarvestCircleDesign.spacingDp[3].dp)),
-            decorationBox = { innerTextField ->
-                Box {
-                    if (value.isEmpty()) ShellText(placeholder, textRole = ShellTextRole.Secondary)
-                    innerTextField()
-                }
-            },
-        )
-    }
+    HarvestCircleTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = Modifier.fillMaxWidth(),
+        inputModifier = modifier,
+        label = label,
+        placeholder = placeholder,
+        enabled = enabled,
+        visualTransformation = visualTransformation,
+        accessibilityLabel = label,
+    )
 }
 
 @Composable
@@ -337,18 +212,12 @@ fun ShellBadge(
     label: String,
     modifier: Modifier = Modifier,
 ) {
-    val palette = LocalHarvestCirclePalette.current
-    Box(
-        modifier
-            .semantics(mergeDescendants = true) {}
-            .background(palette.surfaceSecondary.toComposeColor(), RoundedCornerShape(LocalHarvestCircleShapes.current.smallRadiusDp.dp))
-            .border(
-                HarvestCircleDesign.BORDER_DP.dp,
-                palette.border.toComposeColor(),
-                RoundedCornerShape(LocalHarvestCircleShapes.current.smallRadiusDp.dp),
-            ).padding(horizontal = HarvestCircleDesign.spacingDp[2].dp, vertical = HarvestCircleDesign.spacingDp[1].dp),
+    HarvestCircleCard(
+        modifier = modifier.semantics(mergeDescendants = true) {},
+        variant = HarvestCircleCardVariant.Outlined,
+        padding = HarvestCircleCardPadding.Compact,
     ) {
-        ShellText(label, textRole = ShellTextRole.Secondary)
+        HarvestCircleText(label, role = DesignTextRole.LabelSmall, tone = HarvestCircleContentTone.Secondary)
     }
 }
 
@@ -357,35 +226,18 @@ fun ShellCard(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    val palette = LocalHarvestCirclePalette.current
-    Box(
-        modifier
-            .background(palette.surface.toComposeColor(), RoundedCornerShape(LocalHarvestCircleShapes.current.surfaceRadiusDp.dp))
-            .border(
-                HarvestCircleDesign.BORDER_DP.dp,
-                palette.border.toComposeColor(),
-                RoundedCornerShape(LocalHarvestCircleShapes.current.surfaceRadiusDp.dp),
-            ).padding(HarvestCircleDesign.spacingDp[4].dp),
-    ) {
-        content()
-    }
+    HarvestCircleCard(modifier = modifier) { content() }
 }
 
 @Composable
 fun ShellDivider(modifier: Modifier = Modifier) {
-    Box(
-        modifier
-            .fillMaxWidth()
-            .heightIn(
-                min = HarvestCircleDesign.BORDER_DP.dp,
-            ).background(LocalHarvestCirclePalette.current.border.toComposeColor()),
-    )
+    HarvestCircleHorizontalDivider(modifier)
 }
 
-private fun TypographyToken.toTextStyle(color: Color): TextStyle =
-    TextStyle(
-        color = color,
-        fontSize = sizeSp.sp,
-        fontWeight = if (weight == FontWeightToken.Semibold) FontWeight.SemiBold else FontWeight.Normal,
-        fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default,
-    )
+private fun ShellButtonKind.toDesignVariant(): HarvestCircleButtonVariant =
+    when (this) {
+        ShellButtonKind.Primary -> HarvestCircleButtonVariant.Primary
+        ShellButtonKind.Secondary -> HarvestCircleButtonVariant.Secondary
+        ShellButtonKind.Quiet -> HarvestCircleButtonVariant.Ghost
+        ShellButtonKind.Destructive -> HarvestCircleButtonVariant.Destructive
+    }
