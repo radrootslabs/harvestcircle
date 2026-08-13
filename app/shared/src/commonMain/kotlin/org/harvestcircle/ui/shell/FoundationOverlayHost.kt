@@ -5,7 +5,6 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -22,15 +21,17 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
+import org.harvestcircle.application.BannerSeverity
 import org.harvestcircle.application.FoundationOverlay
 import org.harvestcircle.application.OverlayIntent
 import org.harvestcircle.application.OverlayState
 import org.harvestcircle.application.ShellStatusModel
 import org.harvestcircle.application.StatusOverlayKey
+import org.harvestcircle.designsystem.component.container.HarvestCircleDialogFrame
+import org.harvestcircle.designsystem.component.feedback.HarvestCircleBanner
+import org.harvestcircle.designsystem.component.feedback.HarvestCircleBannerTone
+import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 
 @Composable
 fun FoundationOverlayHost(
@@ -39,19 +40,20 @@ fun FoundationOverlayHost(
     onIntent: (OverlayIntent) -> Unit,
 ) {
     status.banner?.let { banner ->
-        ShellCard(
-            Modifier.semantics { contentDescription = "Status: ${banner.title}. ${banner.message}" }.testTag("global-status-banner"),
-        ) {
-            Column {
-                ShellText(banner.title, textRole = ShellTextRole.CardTitle)
-                ShellText(banner.message)
-            }
-        }
+        HarvestCircleBanner(
+            message = banner.message,
+            modifier =
+                Modifier
+                    .semantics { contentDescription = "Status: ${banner.title}. ${banner.message}" }
+                    .testTag("global-status-banner"),
+            tone = banner.severity.toBannerTone(),
+            title = banner.title,
+        )
     }
     state.current?.let { overlay ->
         val overlayBusy = (overlay as? FoundationOverlay.ConfirmAction)?.busy == true
         val rootRequester = remember { FocusRequester() }
-        Dialog(
+        HarvestCircleDialogFrame(
             onDismissRequest = {
                 if (!overlayBusy) {
                     if (overlay is FoundationOverlay.ConfirmAction) {
@@ -61,27 +63,23 @@ fun FoundationOverlayHost(
                     }
                 }
             },
-        ) {
-            ShellSurface(
+            title = overlay.title(),
+            modifier =
                 Modifier
                     .focusGroup()
                     .focusRequester(rootRequester)
                     .focusable(overlayBusy)
-                    .semantics {
-                        contentDescription = "Dialog: ${overlay.title()}"
-                        paneTitle = overlay.title()
-                    }.testTag("foundation-overlay")
-                    .padding(24.dp),
-            ) {
-                when (overlay) {
-                    is FoundationOverlay.ConfirmAction -> ConfirmOverlay(overlay, overlayBusy, rootRequester, onIntent)
-                    is FoundationOverlay.Status ->
-                        when (overlay.key) {
-                            StatusOverlayKey.Signer -> StatusOverlay("Signer status", status.signer.text, onIntent)
-                            StatusOverlayKey.Sync -> StatusOverlay("Sync status", status.sync.text, onIntent)
-                        }
-                    is FoundationOverlay.OpenNostrReference -> ReferenceOverlay(overlay, onIntent)
-                }
+                    .semantics { contentDescription = "Dialog: ${overlay.title()}" }
+                    .testTag("foundation-overlay"),
+        ) {
+            when (overlay) {
+                is FoundationOverlay.ConfirmAction -> ConfirmOverlay(overlay, overlayBusy, rootRequester, onIntent)
+                is FoundationOverlay.Status ->
+                    when (overlay.key) {
+                        StatusOverlayKey.Signer -> StatusOverlay("Signer status", status.signer.text, onIntent)
+                        StatusOverlayKey.Sync -> StatusOverlay("Sync status", status.sync.text, onIntent)
+                    }
+                is FoundationOverlay.OpenNostrReference -> ReferenceOverlay(overlay, onIntent)
             }
         }
     }
@@ -96,10 +94,10 @@ private fun ConfirmOverlay(
 ) {
     val confirmRequester = remember { FocusRequester() }
     val cancelRequester = remember { FocusRequester() }
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap)) {
         ShellText(overlay.title, Modifier.semantics { heading() }, ShellTextRole.SectionTitle)
         ShellText(overlay.explanation)
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
             ShellButton(
                 overlay.actionLabel,
                 overlay.actionLabel,
@@ -141,7 +139,7 @@ private fun StatusOverlay(
     onIntent: (OverlayIntent) -> Unit,
 ) {
     val requester = remember { FocusRequester() }
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap)) {
         ShellText(title, Modifier.semantics { heading() }, ShellTextRole.SectionTitle)
         ShellText(status, Modifier.testTag("overlay-status"))
         ShellButton(
@@ -168,7 +166,7 @@ private fun ReferenceOverlay(
     val inputRequester = remember { FocusRequester() }
     val submitRequester = remember { FocusRequester() }
     val cancelRequester = remember { FocusRequester() }
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap)) {
         ShellText("Open a Nostr reference", Modifier.semantics { heading() }, ShellTextRole.SectionTitle)
         ShellTextField(
             value = overlay.input,
@@ -185,7 +183,7 @@ private fun ReferenceOverlay(
                     .testTag("nostr-reference-input"),
         )
         overlay.result?.let { ShellText(it.message, Modifier.testTag("nostr-reference-result")) }
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
             ShellButton(
                 "Open a Nostr reference",
                 "Open a Nostr reference",
@@ -234,4 +232,11 @@ private fun FoundationOverlay.title(): String =
         is FoundationOverlay.ConfirmAction -> title
         is FoundationOverlay.Status -> if (key == StatusOverlayKey.Signer) "Signer status" else "Sync status"
         is FoundationOverlay.OpenNostrReference -> "Open a Nostr reference"
+    }
+
+private fun BannerSeverity.toBannerTone(): HarvestCircleBannerTone =
+    when (this) {
+        BannerSeverity.Information -> HarvestCircleBannerTone.Info
+        BannerSeverity.Caution -> HarvestCircleBannerTone.Warning
+        BannerSeverity.Critical -> HarvestCircleBannerTone.Error
     }

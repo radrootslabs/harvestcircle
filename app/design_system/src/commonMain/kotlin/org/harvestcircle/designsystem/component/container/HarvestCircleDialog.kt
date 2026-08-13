@@ -3,6 +3,7 @@ package org.harvestcircle.designsystem.component.container
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -31,6 +32,34 @@ import org.harvestcircle.designsystem.primitive.HarvestCircleSurfaceRole
 import org.harvestcircle.designsystem.primitive.HarvestCircleText
 import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 
+/** Generic dialog frame for product-owned forms and interaction flows. */
+@Composable
+public fun HarvestCircleDialogFrame(
+    onDismissRequest: () -> Unit,
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Dialog(onDismissRequest = onDismissRequest) {
+        HarvestCircleSurface(
+            modifier =
+                modifier
+                    .widthIn(min = 360.dp, max = 480.dp)
+                    .semantics { paneTitle = title },
+            role = HarvestCircleSurfaceRole.Overlay,
+            shape = HarvestCircleTheme.foundation.shapes.dialog,
+            border = BorderStroke(1.dp, HarvestCircleTheme.foundation.colors.border.subtle),
+            shadowElevation = HarvestCircleTheme.component.elevations.dialog,
+        ) {
+            Column(
+                modifier = Modifier.padding(HarvestCircleTheme.foundation.spacing.xl),
+                verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.foundation.spacing.lg),
+                content = content,
+            )
+        }
+    }
+}
+
 /** Canonical macOS alert sheet/panel treatment implemented with Compose Dialog primitives. */
 @Composable
 public fun HarvestCircleDialog(
@@ -55,94 +84,83 @@ public fun HarvestCircleDialog(
     val defaultFocusRequester = remember { FocusRequester() }
     val focusDismiss = destructive && dismissLabel != null
 
-    Dialog(onDismissRequest = onDismissRequest) {
-        val focusManager = LocalFocusManager.current
-        LaunchedEffect(defaultFocusRequester, focusDismiss) {
-            defaultFocusRequester.requestFocus()
+    val focusManager = LocalFocusManager.current
+    LaunchedEffect(defaultFocusRequester, focusDismiss) {
+        defaultFocusRequester.requestFocus()
+    }
+
+    HarvestCircleDialogFrame(
+        onDismissRequest = onDismissRequest,
+        title = title,
+        modifier =
+            modifier.harvestCircleClearFocusOnBackgroundPress(
+                focusManager = focusManager,
+                enabled =
+                    focusDismissBehavior ==
+                        HarvestCircleFocusDismissBehavior.ClearOnBackgroundPress,
+                force = forceFocusDismissal,
+            ),
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.foundation.spacing.sm),
+        ) {
+            HarvestCircleText(
+                text = title,
+                role = HarvestCircleTextRole.SectionTitle,
+            )
+            HarvestCircleText(
+                text = message,
+                role = HarvestCircleTextRole.Body,
+                tone = HarvestCircleContentTone.Secondary,
+            )
         }
 
-        HarvestCircleSurface(
-            modifier =
-                modifier
-                    .widthIn(min = 360.dp, max = 480.dp)
-                    .harvestCircleClearFocusOnBackgroundPress(
-                        focusManager = focusManager,
-                        enabled =
-                            focusDismissBehavior ==
-                                HarvestCircleFocusDismissBehavior.ClearOnBackgroundPress,
-                        force = forceFocusDismissal,
-                    ).semantics { paneTitle = title },
-            role = HarvestCircleSurfaceRole.Overlay,
-            shape = HarvestCircleTheme.foundation.shapes.dialog,
-            border = BorderStroke(1.dp, HarvestCircleTheme.foundation.colors.border.subtle),
-            shadowElevation = HarvestCircleTheme.component.elevations.dialog,
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.foundation.spacing.md, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(
-                modifier = Modifier.padding(HarvestCircleTheme.foundation.spacing.xl),
-                verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.foundation.spacing.lg),
+            if (dismissLabel != null && onDismiss != null) {
+                HarvestCircleButton(
+                    onClick = onDismiss,
+                    modifier =
+                        if (focusDismiss) {
+                            Modifier.focusRequester(defaultFocusRequester)
+                        } else {
+                            Modifier
+                        },
+                    variant = HarvestCircleButtonVariant.Secondary,
+                    focusRing = focusRing,
+                ) {
+                    HarvestCircleText(
+                        text = dismissLabel,
+                        role = HarvestCircleTextRole.Label,
+                        tone = HarvestCircleContentTone.Inherit,
+                    )
+                }
+            }
+
+            HarvestCircleButton(
+                onClick = onConfirm,
+                modifier =
+                    if (!focusDismiss) {
+                        Modifier.focusRequester(defaultFocusRequester)
+                    } else {
+                        Modifier
+                    },
+                variant =
+                    if (destructive) {
+                        HarvestCircleButtonVariant.Destructive
+                    } else {
+                        HarvestCircleButtonVariant.Primary
+                    },
+                focusRing = focusRing,
             ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.foundation.spacing.sm),
-                ) {
-                    HarvestCircleText(
-                        text = title,
-                        role = HarvestCircleTextRole.SectionTitle,
-                    )
-                    HarvestCircleText(
-                        text = message,
-                        role = HarvestCircleTextRole.Body,
-                        tone = HarvestCircleContentTone.Secondary,
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.foundation.spacing.md, Alignment.End),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (dismissLabel != null && onDismiss != null) {
-                        HarvestCircleButton(
-                            onClick = onDismiss,
-                            modifier =
-                                if (focusDismiss) {
-                                    Modifier.focusRequester(defaultFocusRequester)
-                                } else {
-                                    Modifier
-                                },
-                            variant = HarvestCircleButtonVariant.Secondary,
-                            focusRing = focusRing,
-                        ) {
-                            HarvestCircleText(
-                                text = dismissLabel,
-                                role = HarvestCircleTextRole.Label,
-                                tone = HarvestCircleContentTone.Inherit,
-                            )
-                        }
-                    }
-
-                    HarvestCircleButton(
-                        onClick = onConfirm,
-                        modifier =
-                            if (!focusDismiss) {
-                                Modifier.focusRequester(defaultFocusRequester)
-                            } else {
-                                Modifier
-                            },
-                        variant =
-                            if (destructive) {
-                                HarvestCircleButtonVariant.Destructive
-                            } else {
-                                HarvestCircleButtonVariant.Primary
-                            },
-                        focusRing = focusRing,
-                    ) {
-                        HarvestCircleText(
-                            text = confirmLabel,
-                            role = HarvestCircleTextRole.Label,
-                            tone = HarvestCircleContentTone.Inherit,
-                        )
-                    }
-                }
+                HarvestCircleText(
+                    text = confirmLabel,
+                    role = HarvestCircleTextRole.Label,
+                    tone = HarvestCircleContentTone.Inherit,
+                )
             }
         }
     }
