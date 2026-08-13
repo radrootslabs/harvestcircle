@@ -210,18 +210,32 @@ class HarvestCirclePresenter(
         intent: HarvestCircleIntent,
         operationId: OperationId = operationIds.next(),
     ) {
-        launchOperation(operationId = operationId) {
-            val command = intent.toApplicationCommand()
+        val activationTarget = (intent as? HarvestCircleIntent.ActivateIdentity)?.identityId
+        launchOperation(
+            operationId = operationId,
+            onAccepted = {
+                activationTarget?.let { target ->
+                    updateState { copy(activatingIdentityId = target) }
+                }
+            },
+        ) {
             try {
+                val command = intent.toApplicationCommand()
                 acceptResult(runtime.execute(command), operationId)
                 pendingRetry = null
-                if (intent is HarvestCircleIntent.ActivateIdentity || intent == HarvestCircleIntent.SignOut) {
+                if (activationTarget != null || intent == HarvestCircleIntent.SignOut) {
                     updateState { copy(identityChooserVisible = false) }
                 }
             } catch (error: Exception) {
                 val problem = error.toProblem(operationId)
                 pendingRetry = PendingRetry(intent, operationId).takeIf { problem.retryable }
                 throw ApplicationFailure(problem)
+            } finally {
+                activationTarget?.let { target ->
+                    updateState {
+                        if (activatingIdentityId == target) copy(activatingIdentityId = null) else this
+                    }
+                }
             }
         }
     }

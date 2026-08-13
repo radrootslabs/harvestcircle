@@ -5,8 +5,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runComposeUiTest
 import org.harvestcircle.application.HarvestCircleRoute
@@ -82,6 +84,22 @@ class BootstrapRecoveryAndChooserTest {
             assertEquals("second", selected)
             assertEquals("second", activated)
             assertEquals("second", removal)
+        }
+
+    @Test
+    fun activationProgressNamesTheTargetAndExposesIndeterminateStatus() =
+        runComposeUiTest {
+            setHarvestCircleContent {
+                IdentityActivationCanvas(
+                    model = model(identities = listOf(identity("first", selected = true))),
+                    activatingPublicKeyHex = "first",
+                )
+            }
+
+            onNodeWithTag("identity-activation-progress").assertIsDisplayed()
+            onNodeWithTag("identity-activation-indicator").assertIsDisplayed()
+            onNodeWithText("First").assertIsDisplayed()
+            onNodeWithText("Checking the local credential and preparing signed actions.").assertIsDisplayed()
         }
 }
 

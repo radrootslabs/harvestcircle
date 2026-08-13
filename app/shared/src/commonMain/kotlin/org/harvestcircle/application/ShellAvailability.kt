@@ -105,6 +105,9 @@ fun deriveShellRoot(
     if (presenterState.generatedKeyBackup != null) {
         return ShellRoot.BootstrapCanvas(BootstrapStep.GeneratedRecovery)
     }
+    if (presenterState.activatingIdentityId != null) {
+        return ShellRoot.BootstrapCanvas(BootstrapStep.ActivationProgress)
+    }
     if (presenterState.snapshot.activeIdentity != null || session.readOnly) {
         return ShellRoot.Dashboard(NavigationState(AppRoute.PersonalToday))
     }

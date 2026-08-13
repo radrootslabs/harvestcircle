@@ -63,6 +63,8 @@ private fun deriveBanner(
     when {
         state.identity.lastProblem?.category == ApplicationErrorCategory.Storage ->
             GlobalStatusBanner("Local data needs attention", "Review the local runtime status before continuing.", BannerSeverity.Critical)
+        state.identity.problem != null ->
+            GlobalStatusBanner("Identity action could not complete", state.identity.problem, BannerSeverity.Caution)
         sync == SyncStatusLabel.Unavailable ->
             GlobalStatusBanner("Offline", "Public views may be out of date.", BannerSeverity.Caution)
         sync == SyncStatusLabel.Degraded ->

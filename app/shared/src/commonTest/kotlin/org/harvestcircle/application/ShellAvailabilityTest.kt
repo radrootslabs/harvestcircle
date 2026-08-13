@@ -48,6 +48,13 @@ class ShellAvailabilityTest {
                 ShellSessionState(),
             ),
         )
+        assertEquals(
+            ShellRoot.BootstrapCanvas(BootstrapStep.ActivationProgress),
+            deriveShellRoot(
+                signedOut.copy(activatingIdentityId = IdentityId.fromPublicKeyHex("01".repeat(32))),
+                ShellSessionState(),
+            ),
+        )
     }
 
     @Test

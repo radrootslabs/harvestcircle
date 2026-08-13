@@ -57,6 +57,7 @@ data class HarvestCirclePresenterState(
     val lastRemovedIdentityId: IdentityId? = null,
     val identityChooserVisible: Boolean = false,
     val identityEntryMode: IdentityEntryMode = IdentityEntryMode.CHOICE,
+    val activatingIdentityId: IdentityId? = null,
     val busy: Boolean = false,
     val commandStatus: CommandStatus = CommandStatus.IDLE,
     val lastCommandOperationId: OperationId? = null,

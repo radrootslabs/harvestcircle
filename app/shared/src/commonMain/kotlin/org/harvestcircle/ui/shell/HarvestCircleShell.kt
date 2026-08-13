@@ -105,13 +105,16 @@ private fun HarvestCircleShellContent(
                         )
                     BootstrapStep.GeneratedRecovery ->
                         GeneratedRecoveryCanvas(state.identity.toUiModel(), identityActions, platformActions)
-                    BootstrapStep.IdentityChooser,
-                    BootstrapStep.ActivationProgress,
-                    ->
+                    BootstrapStep.IdentityChooser ->
                         IdentityChooserCanvas(
                             model = state.identity.toUiModel(),
                             actions = identityActions,
                             onReadOnly = { dispatch(HarvestCircleShellIntent.EnterReadOnly) },
+                        )
+                    BootstrapStep.ActivationProgress ->
+                        IdentityActivationCanvas(
+                            model = state.identity.toUiModel(),
+                            activatingPublicKeyHex = checkNotNull(state.identity.activatingIdentityId).value,
                         )
                 }
             is ShellRoot.Dashboard -> DashboardRoot(state, root, identityActions, platformActions, dispatch)

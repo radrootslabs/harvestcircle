@@ -29,6 +29,19 @@ class ShellStatusTest {
         val signerMissing = deriveShellStatus(shellState(signer = SignerAvailability.CredentialMissing))
         assertEquals("Signer unavailable", signerMissing.banner?.title)
     }
+
+    @Test
+    fun currentIdentityFailureIsVisibleAheadOfSignedOutGuidance() {
+        val failure = problem(ApplicationErrorCategory.Credential, ApplicationErrorCode.CredentialMissing)
+        val state = shellState(active = false, lastProblem = failure)
+        val status =
+            deriveShellStatus(
+                state.copy(identity = state.identity.copy(problem = failure.safeMessage)),
+            )
+
+        assertEquals("Identity action could not complete", status.banner?.title)
+        assertEquals(failure.safeMessage, status.banner?.message)
+    }
 }
 
 private fun shellState(

@@ -113,6 +113,55 @@ class HarvestCirclePresenterTest {
         }
 
     @Test
+    fun activationTargetIsObservableOnlyWhileTheCommandIsRunning() =
+        runTest {
+            val gate = CompletableDeferred<Unit>()
+            val runtime = FakePresenterRuntime(executeGate = gate)
+            val presenter = presenter(runtime)
+            runCurrent()
+            val identityId = IdentityId.fromPublicKeyHex("01".repeat(32))
+
+            presenter.dispatch(HarvestCircleIntent.ActivateIdentity(identityId))
+            runCurrent()
+
+            assertEquals(identityId, presenter.state.value.activatingIdentityId)
+            assertTrue(presenter.state.value.busy)
+
+            gate.complete(Unit)
+            advanceUntilIdle()
+
+            assertNull(presenter.state.value.activatingIdentityId)
+            assertFalse(presenter.state.value.busy)
+            presenter.close()
+        }
+
+    @Test
+    fun failedActivationClearsProgressAndPublishesTheSafeProblem() =
+        runTest {
+            val runtime = FakePresenterRuntime()
+            val presenter = presenter(runtime)
+            runCurrent()
+            val identityId = IdentityId.fromPublicKeyHex("01".repeat(32))
+            runtime.nextFailure =
+                ApplicationProblem(
+                    code = ApplicationErrorCode.CredentialMissing,
+                    category = ApplicationErrorCategory.Credential,
+                    retryable = false,
+                    recoveryAction = RecoveryAction.RepairCredential,
+                    operationId = null,
+                    safeMessage = "The local credential is missing.",
+                )
+
+            presenter.dispatch(HarvestCircleIntent.ActivateIdentity(identityId))
+            advanceUntilIdle()
+
+            assertNull(presenter.state.value.activatingIdentityId)
+            assertEquals(CommandStatus.FAILED_TERMINAL, presenter.state.value.commandStatus)
+            assertEquals("The local credential is missing.", presenter.state.value.problem)
+            presenter.close()
+        }
+
+    @Test
     fun retryReusesTheOriginalInjectedOperationIdentity() =
         runTest {
             val runtime = FakePresenterRuntime()

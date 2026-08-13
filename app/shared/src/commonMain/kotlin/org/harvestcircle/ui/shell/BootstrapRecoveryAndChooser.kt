@@ -1,6 +1,7 @@
 package org.harvestcircle.ui.shell
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
@@ -8,11 +9,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import org.harvestcircle.appearance.TextSizePreference
 import org.harvestcircle.application.ShellFocusTarget
+import org.harvestcircle.designsystem.component.feedback.HarvestCircleProgressIndicator
 import org.harvestcircle.designsystem.shell.HarvestCircleShellButton
 import org.harvestcircle.designsystem.shell.HarvestCircleShellPalette
 import org.harvestcircle.designsystem.shell.HarvestCircleShellPanel
@@ -93,6 +97,43 @@ fun IdentityChooserCanvas(
                 HarvestCircleShellButton("Explore read-only", onReadOnly, Modifier.testTag("chooser-read-only"), primary = true)
             }
         },
+    )
+}
+
+@Composable
+fun IdentityActivationCanvas(
+    model: HarvestCircleUiModel,
+    activatingPublicKeyHex: String,
+) {
+    val identity = model.identities.singleOrNull { it.publicKeyHex == activatingPublicKeyHex }
+    CanvasScaffold(
+        textSize = TextSizePreference.Default,
+        header = { HarvestCircleShellText("Activating identity", role = HarvestCircleShellTextRole.PaneTitle) },
+        body = {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .semantics { liveRegion = LiveRegionMode.Polite }
+                    .testTag("identity-activation-progress"),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                HarvestCircleShellPanel {
+                    HarvestCircleProgressIndicator(Modifier.testTag("identity-activation-indicator"))
+                    HarvestCircleShellText(
+                        identity?.label ?: "Selected identity",
+                        role = HarvestCircleShellTextRole.SectionTitle,
+                    )
+                    identity?.let {
+                        HarvestCircleShellText(it.shortNpub, role = HarvestCircleShellTextRole.Code)
+                    }
+                    HarvestCircleShellText(
+                        "Checking the local credential and preparing signed actions.",
+                        color = HarvestCircleShellPalette.contentSecondary,
+                    )
+                }
+            }
+        },
+        actionBar = {},
     )
 }
 
