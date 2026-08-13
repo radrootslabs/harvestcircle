@@ -8,6 +8,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -95,7 +96,7 @@ class IdentityBootstrapAcceptanceTest {
                 waitForTag("foundation-today")
                 onNodeWithTag("sidebar-Network").performClick()
                 waitForTag("network-overview")
-                onNodeWithTag("network-tab-identity").performClick()
+                onNodeWithTag("main-tab-identity").performClick()
                 onNodeWithTag("refresh-profile").performClick()
                 waitUntil(timeoutMillis = UI_TIMEOUT_MILLIS) {
                     onAllNodesWithText("Display name: Farm Identity").fetchSemanticsNodes().size == 1
@@ -184,7 +185,7 @@ class IdentityBootstrapAcceptanceTest {
                 waitForTag("bootstrap-welcome")
                 onNodeWithTag("bootstrap-read-only").performClick()
                 waitForTag("foundation-today")
-                onNodeWithText("Read-only session").assertIsDisplayed()
+                onNodeWithTag("today-context").assertTextEquals("Read-only session").assertIsDisplayed()
                 assertTrue(runtime.currentSnapshot().identities.isEmpty())
 
                 onNodeWithTag("today-open-reference").performClick()
@@ -272,7 +273,7 @@ class IdentityBootstrapAcceptanceTest {
                 onNodeWithTag("global-status-banner").assertIsDisplayed()
                 onNodeWithTag("sidebar-Network").performClick()
                 waitForTag("network-overview")
-                onNodeWithTag("network-tab-identity").performClick()
+                onNodeWithTag("main-tab-identity").performClick()
                 onNodeWithTag("sign-out").performClick()
                 waitForTag("saved-identity-list")
                 onNodeWithTag("global-status-banner").assertIsDisplayed()
