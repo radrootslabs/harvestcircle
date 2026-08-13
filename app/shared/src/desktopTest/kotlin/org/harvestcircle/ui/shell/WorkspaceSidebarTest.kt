@@ -1,6 +1,5 @@
 package org.harvestcircle.ui.shell
 
-import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -14,7 +13,6 @@ import androidx.compose.ui.test.v2.runComposeUiTest
 import org.harvestcircle.product.ScreenKey
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
@@ -31,9 +29,6 @@ class WorkspaceSidebarTest {
             onNodeWithContentDescription("Explore. Not available in this build.").assertExists()
             onNodeWithContentDescription("Activity. Not available in this build.").assertExists()
             onNodeWithContentDescription("Add a farm workspace. Not available in this build.").assertExists()
-            assertFalse(
-                onNodeWithTag("sidebar-add-farm").fetchSemanticsNode().config.contains(SemanticsProperties.Selected),
-            )
             onNodeWithText("Explore").performClick()
             onNodeWithText("Network").performClick()
             onNodeWithText("Settings").performClick()

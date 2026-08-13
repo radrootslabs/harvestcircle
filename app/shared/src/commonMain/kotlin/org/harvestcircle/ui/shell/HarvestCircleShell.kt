@@ -28,6 +28,7 @@ import org.harvestcircle.identities.ui.toUiModel
 import org.harvestcircle.navigation.AppRoute
 import org.harvestcircle.navigation.BootstrapStep
 import org.harvestcircle.navigation.NavigationIntent
+import org.harvestcircle.navigation.SettingsSection
 import org.harvestcircle.product.ScreenKey
 
 @Composable
@@ -179,7 +180,7 @@ private fun DashboardRoot(
                         syncStatus = status.sync,
                         signerStatus = status.signer,
                     ),
-                onIntent = { intent -> dispatchTopBar(intent, dispatch) },
+                onIntent = { intent -> dispatchTopBar(intent, platformActions, dispatch) },
             )
         },
         sidebar = { WorkspaceSidebar(route.screenKey) { dispatch(HarvestCircleShellIntent.Navigate(it)) } },
@@ -265,26 +266,46 @@ private fun todayContext(state: HarvestCircleShellState): String =
 
 private fun dispatchTopBar(
     intent: GlobalTopBarIntent,
+    platformActions: HarvestCirclePlatformActions,
     dispatch: (HarvestCircleShellIntent) -> Unit,
 ) {
-    val shellIntent =
-        when (intent) {
-            GlobalTopBarIntent.Back -> HarvestCircleShellIntent.Navigation(NavigationIntent.Back)
-            GlobalTopBarIntent.Forward -> HarvestCircleShellIntent.Navigation(NavigationIntent.Forward)
-            GlobalTopBarIntent.OpenNostrReference ->
-                HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference(ShellFocusTarget.TopBarReference))
-            GlobalTopBarIntent.ShowSyncStatus ->
+    when (intent) {
+        GlobalTopBarIntent.Back -> dispatch(HarvestCircleShellIntent.Navigation(NavigationIntent.Back))
+        GlobalTopBarIntent.Forward -> dispatch(HarvestCircleShellIntent.Navigation(NavigationIntent.Forward))
+        GlobalTopBarIntent.OpenNostrReference ->
+            dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference(ShellFocusTarget.TopBarReference)))
+        GlobalTopBarIntent.ShowSyncStatus ->
+            dispatch(
                 HarvestCircleShellIntent.Overlay(
                     OverlayIntent.Open(FoundationOverlay.Status(StatusOverlayKey.Sync), ShellFocusTarget.TopBarSync),
-                )
-            GlobalTopBarIntent.ShowSignerStatus ->
+                ),
+            )
+        GlobalTopBarIntent.ShowSignerStatus ->
+            dispatch(
                 HarvestCircleShellIntent.Overlay(
                     OverlayIntent.Open(FoundationOverlay.Status(StatusOverlayKey.Signer), ShellFocusTarget.TopBarSigner),
-                )
-            GlobalTopBarIntent.OpenApplicationMenu ->
-                HarvestCircleShellIntent.Navigate(ScreenKey.Settings)
-        }
-    dispatch(shellIntent)
+                ),
+            )
+        is GlobalTopBarIntent.SelectApplicationMenu ->
+            when (intent.action) {
+                ApplicationMenuAction.Settings -> openSettingsSection(SettingsSection.Appearance, dispatch)
+                ApplicationMenuAction.AboutBuild -> openSettingsSection(SettingsSection.Project, dispatch)
+                ApplicationMenuAction.Source -> platformActions.openSource()
+                ApplicationMenuAction.Licence -> platformActions.openLicence()
+            }
+    }
+}
+
+private fun openSettingsSection(
+    section: SettingsSection,
+    dispatch: (HarvestCircleShellIntent) -> Unit,
+) {
+    dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.Settings))
+    dispatch(
+        HarvestCircleShellIntent.Navigation(
+            NavigationIntent.SelectSettingsSection(section),
+        ),
+    )
 }
 
 private fun AppRoute.title(): String =

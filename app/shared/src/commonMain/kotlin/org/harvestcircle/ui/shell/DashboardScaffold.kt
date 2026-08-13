@@ -1,21 +1,22 @@
 package org.harvestcircle.ui.shell
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import org.harvestcircle.designsystem.layout.HarvestCircleAppFrame
+import org.harvestcircle.designsystem.layout.HarvestCirclePaneSlot
+import org.harvestcircle.designsystem.layout.HarvestCirclePaneWidth
+import org.harvestcircle.designsystem.primitive.HarvestCircleSurface
+import org.harvestcircle.designsystem.primitive.HarvestCircleSurfaceRole
 import kotlin.math.roundToInt
 
 @Composable
@@ -29,30 +30,53 @@ fun DashboardScaffold(
 ) {
     BoxWithConstraints(Modifier.fillMaxSize().testTag("dashboard-scaffold")) {
         val placement = inspectorPlacement(maxWidth.value.roundToInt(), inspectorVisible)
-        val palette = LocalHarvestCirclePalette.current
-        Column(Modifier.fillMaxSize().background(palette.background.toComposeColor())) {
-            Region("dashboard-top-bar", "Global top bar", Modifier.fillMaxWidth().height(56.dp), topBar)
-            Row(Modifier.fillMaxSize()) {
-                Region("dashboard-sidebar", "Workspace sidebar", Modifier.width(232.dp).fillMaxHeight(), sidebar)
-                Column(Modifier.weight(1f).fillMaxHeight()) {
-                    Region("dashboard-main-header", "Main panel header", Modifier.fillMaxWidth().height(56.dp), mainHeader)
-                    Region("dashboard-main-body", "Main panel body", Modifier.fillMaxSize(), mainBody)
-                }
-                if (placement == InspectorPlacement.Beside) {
-                    Region("dashboard-inspector-beside", "Inspector", Modifier.width(400.dp).fillMaxHeight(), inspector)
-                }
+        val inspectorPane =
+            if (placement == InspectorPlacement.Beside) {
+                HarvestCirclePaneSlot(
+                    width = HarvestCirclePaneWidth.Inspector,
+                    header = {},
+                    content = {
+                        DashboardRegion("dashboard-inspector-beside", "Inspector", Modifier.fillMaxSize(), inspector)
+                    },
+                )
+            } else {
+                null
             }
-        }
+
+        HarvestCircleAppFrame(
+            sidebarCollapsed = false,
+            sidebar = {
+                DashboardRegion("dashboard-sidebar", "Workspace sidebar", Modifier.fillMaxSize(), sidebar)
+            },
+            topBar = {
+                DashboardRegion("dashboard-top-bar", "Global top bar", Modifier.fillMaxSize(), topBar)
+            },
+            mainHeader = {
+                DashboardRegion("dashboard-main-header", "Main panel header", Modifier.fillMaxSize(), mainHeader)
+            },
+            utilityPane = inspectorPane,
+            mainContent = {
+                DashboardRegion("dashboard-main-body", "Main panel body", Modifier.fillMaxSize(), mainBody)
+            },
+        )
+
         if (placement == InspectorPlacement.Overlay) {
-            Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.CenterEnd) {
-                Region("dashboard-inspector-overlay", "Inspector", Modifier.width(360.dp).fillMaxHeight(), inspector)
+            HarvestCircleSurface(
+                modifier =
+                    Modifier
+                        .width(ShellDimensions.MINIMUM_INSPECTOR_WIDTH_DP.dp)
+                        .fillMaxHeight()
+                        .align(Alignment.CenterEnd),
+                role = HarvestCircleSurfaceRole.Overlay,
+            ) {
+                DashboardRegion("dashboard-inspector-overlay", "Inspector", Modifier.fillMaxSize(), inspector)
             }
         }
     }
 }
 
 @Composable
-private fun Region(
+private fun DashboardRegion(
     tag: String,
     label: String,
     modifier: Modifier,
@@ -61,12 +85,7 @@ private fun Region(
     Box(
         modifier =
             modifier
-                .background(
-                    when (tag) {
-                        "dashboard-main-body" -> LocalHarvestCirclePalette.current.background.toComposeColor()
-                        else -> LocalHarvestCirclePalette.current.surface.toComposeColor()
-                    },
-                ).semantics { contentDescription = label }
+                .semantics { contentDescription = label }
                 .testTag(tag),
     ) {
         content()

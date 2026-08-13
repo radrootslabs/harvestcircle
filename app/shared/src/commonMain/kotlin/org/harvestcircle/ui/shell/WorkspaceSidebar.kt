@@ -4,13 +4,24 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import org.harvestcircle.application.ShellNavigationItem
 import org.harvestcircle.application.addFarmWorkspaceAction
 import org.harvestcircle.application.shellNavigationItems
 import org.harvestcircle.application.shellSettingsItem
+import org.harvestcircle.designsystem.component.HarvestCircleContentTone
+import org.harvestcircle.designsystem.component.HarvestCircleTextRole
+import org.harvestcircle.designsystem.component.navigation.HarvestCircleNavigationItem
+import org.harvestcircle.designsystem.component.utility.HarvestCircleHorizontalDivider
+import org.harvestcircle.designsystem.layout.HarvestCircleSidebar
+import org.harvestcircle.designsystem.layout.HarvestCircleSidebarSectionHeader
+import org.harvestcircle.designsystem.primitive.HarvestCircleText
+import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 import org.harvestcircle.product.ScreenKey
 
 @Composable
@@ -18,16 +29,16 @@ fun WorkspaceSidebar(
     selected: ScreenKey,
     onScreen: (ScreenKey) -> Unit,
 ) {
-    Column(Modifier.fillMaxHeight().testTag("workspace-sidebar")) {
-        ShellText("Workspace", Modifier.testTag("workspace-label"), ShellTextRole.SectionTitle)
-        ShellText("Personal", Modifier.testTag("workspace-personal"), ShellTextRole.Secondary)
-        ShellDivider()
+    HarvestCircleSidebar(Modifier.fillMaxHeight().testTag("workspace-sidebar")) {
+        HarvestCircleSidebarSectionHeader("Navigation", Modifier.testTag("workspace-label"))
         shellNavigationItems.forEach { item ->
             SidebarItem(item, selected == item.screenKey, onScreen)
         }
+
+        HarvestCircleSidebarSectionHeader("Workspaces")
         DisabledWorkspaceAction()
         Spacer(Modifier.weight(1f))
-        ShellDivider()
+        HarvestCircleHorizontalDivider()
         SidebarItem(shellSettingsItem, selected == shellSettingsItem.screenKey, onScreen)
     }
 }
@@ -44,25 +55,49 @@ private fun SidebarItem(
         } else {
             "${item.label}. ${item.unavailableExplanation}"
         }
-    ShellTab(
-        label = item.label,
-        description = description,
-        selected = selected,
-        onClick = { onScreen(item.screenKey) },
-        modifier = Modifier.fillMaxWidth().testTag("sidebar-${item.screenKey.name}"),
-        enabled = item.enabled,
-    )
+    Column {
+        HarvestCircleNavigationItem(
+            selected = selected,
+            onClick = { if (item.enabled && !selected) onScreen(item.screenKey) },
+            label = item.label,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = description }
+                    .testTag("sidebar-${item.screenKey.name}"),
+            enabled = item.enabled,
+        )
+        if (!item.enabled) {
+            HarvestCircleText(
+                text = requireNotNull(item.unavailableExplanation),
+                modifier = Modifier.padding(horizontal = HarvestCircleTheme.foundation.spacing.md),
+                role = HarvestCircleTextRole.LabelSmall,
+                tone = HarvestCircleContentTone.Muted,
+            )
+        }
+    }
 }
 
 @Composable
 private fun DisabledWorkspaceAction() {
     val action = addFarmWorkspaceAction
-    ShellButton(
-        label = action.label,
-        description = "${action.label}. ${action.unavailableExplanation}",
-        onClick = {},
-        modifier = Modifier.fillMaxWidth().testTag("sidebar-add-farm"),
-        enabled = false,
-        kind = ShellButtonKind.Quiet,
-    )
+    Column {
+        HarvestCircleNavigationItem(
+            selected = false,
+            onClick = {},
+            label = action.label,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "${action.label}. ${action.unavailableExplanation}" }
+                    .testTag("sidebar-add-farm"),
+            enabled = false,
+        )
+        HarvestCircleText(
+            text = requireNotNull(action.unavailableExplanation),
+            modifier = Modifier.padding(horizontal = HarvestCircleTheme.foundation.spacing.md),
+            role = HarvestCircleTextRole.LabelSmall,
+            tone = HarvestCircleContentTone.Muted,
+        )
+    }
 }

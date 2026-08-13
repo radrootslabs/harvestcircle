@@ -4,12 +4,19 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
+import org.harvestcircle.designsystem.component.HarvestCircleContentTone
+import org.harvestcircle.designsystem.component.HarvestCircleTextRole
+import org.harvestcircle.designsystem.component.navigation.HarvestCircleTab
+import org.harvestcircle.designsystem.component.navigation.HarvestCircleTabRow
+import org.harvestcircle.designsystem.primitive.HarvestCircleText
+import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 
 data class MainPanelHeaderModel(
     val title: String,
@@ -34,28 +41,47 @@ fun MainPanelHeader(
     primaryAction: @Composable () -> Unit = {},
 ) {
     Row(
-        Modifier.fillMaxSize().testTag("main-panel-header"),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = HarvestCircleTheme.shell.layout.paneInset)
+                .testTag("main-panel-header"),
+        horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.foundation.spacing.lg),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            ShellText(
-                model.title,
-                Modifier.semantics { contentDescription = "Screen title: ${model.title}" }.testTag("main-title"),
-                ShellTextRole.ScreenTitle,
+            HarvestCircleText(
+                text = model.title,
+                modifier =
+                    Modifier
+                        .semantics { contentDescription = "Screen title: ${model.title}" }
+                        .testTag("main-title"),
+                role = HarvestCircleTextRole.PageTitle,
             )
             if (model.breadcrumb.isNotEmpty()) {
-                ShellText(model.breadcrumb.joinToString(" / "), Modifier.testTag("main-breadcrumb"), ShellTextRole.Secondary)
+                HarvestCircleText(
+                    text = model.breadcrumb.joinToString(" / "),
+                    modifier = Modifier.testTag("main-breadcrumb"),
+                    role = HarvestCircleTextRole.LabelSmall,
+                    tone = HarvestCircleContentTone.Secondary,
+                )
             }
-            model.localStatus?.let { ShellBadge(it, Modifier.testTag("main-local-status")) }
         }
-        model.tabs.forEach { tab ->
-            ShellTab(
-                label = tab.label,
-                description = "Show ${tab.label}",
-                selected = tab.key == model.selectedTab,
-                onClick = { onTabSelected(tab.key) },
-                modifier = Modifier.testTag("main-tab-${tab.key.value}"),
-            )
+        model.localStatus?.let { ShellBadge(it, Modifier.testTag("main-local-status")) }
+        if (model.tabs.isNotEmpty()) {
+            HarvestCircleTabRow {
+                model.tabs.forEach { tab ->
+                    HarvestCircleTab(
+                        selected = tab.key == model.selectedTab,
+                        onClick = { if (tab.key != model.selectedTab) onTabSelected(tab.key) },
+                        label = tab.label,
+                        modifier =
+                            Modifier
+                                .semantics { contentDescription = "Show ${tab.label}" }
+                                .testTag("main-tab-${tab.key.value}"),
+                    )
+                }
+            }
         }
         Row(Modifier.testTag("main-secondary-action")) { secondaryAction() }
         Row(Modifier.testTag("main-primary-action")) { primaryAction() }

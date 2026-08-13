@@ -33,11 +33,14 @@ class GlobalTopBarTest {
             onNodeWithText("Open a Nostr reference").assertExists()
             onNodeWithTag("top-bar-open-reference").performClick()
             onNodeWithTag("top-bar-forward").assertIsNotEnabled()
+            onNodeWithTag("top-bar-menu").performClick()
+            onNodeWithText("About this build").performClick()
             assertEquals(
                 listOf(
                     GlobalTopBarIntent.ShowSyncStatus,
                     GlobalTopBarIntent.ShowSignerStatus,
                     GlobalTopBarIntent.OpenNostrReference,
+                    GlobalTopBarIntent.SelectApplicationMenu(ApplicationMenuAction.AboutBuild),
                 ),
                 intents,
             )

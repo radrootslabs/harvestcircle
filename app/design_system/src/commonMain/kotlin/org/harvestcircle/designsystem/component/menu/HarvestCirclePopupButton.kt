@@ -90,6 +90,8 @@ public fun <T> HarvestCirclePopupButton(
     options: List<HarvestCircleMenuOption<T>>,
     onValueChange: (T) -> Unit,
     modifier: Modifier = Modifier,
+    buttonLabel: String? = null,
+    showSelection: Boolean = true,
     enabled: Boolean = true,
     size: HarvestCircleControlSize = HarvestCircleControlSize.Medium,
     focusRing: HarvestCircleFocusRing = HarvestCircleFocusRing.WhenFocused,
@@ -159,7 +161,7 @@ public fun <T> HarvestCirclePopupButton(
             focusRing = focusRing,
         ) {
             HarvestCircleText(
-                text = selected.label,
+                text = buttonLabel ?: selected.label,
                 role = HarvestCircleTextRole.Label,
                 tone = HarvestCircleContentTone.Inherit,
                 maxLines = 1,
@@ -291,7 +293,7 @@ public fun <T> HarvestCirclePopupButton(
                                         modifier = Modifier.width(HarvestCircleTheme.shell.dimensions.iconSmall),
                                         contentAlignment = Alignment.Center,
                                     ) {
-                                        if (selectedOption) {
+                                        if (selectedOption && showSelection) {
                                             HarvestCircleIcon(
                                                 resource = HarvestCircleIcons.Check,
                                                 contentDescription = null,
