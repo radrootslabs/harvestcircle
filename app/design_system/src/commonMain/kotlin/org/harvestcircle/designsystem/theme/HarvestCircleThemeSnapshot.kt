@@ -17,6 +17,7 @@ public class HarvestCircleFoundationTokens internal constructor(
 public class HarvestCircleShellTokens internal constructor(
     public val layout: HarvestCircleLayout,
     public val dimensions: HarvestCircleDimensions,
+    public val frame: HarvestCircleFrameMetrics,
 )
 
 @Immutable
@@ -60,6 +61,7 @@ internal fun createHarvestCircleThemeSnapshot(
             HarvestCircleShellTokens(
                 layout = harvestCircleLayout(config.density),
                 dimensions = harvestCircleDimensions(config.density, config.inputMode),
+                frame = HarvestCircleDefaultFrameMetrics,
             ),
         component =
             HarvestCircleComponentTokens(

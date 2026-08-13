@@ -55,6 +55,24 @@ public class HarvestCircleDimensions internal constructor(
     public val menuItemHeight: Dp,
 )
 
+/** Reference-derived geometry for the desktop application frame. */
+@Immutable
+public class HarvestCircleFrameMetrics internal constructor(
+    public val structuralDividerWidth: Dp,
+    public val topBarHeight: Dp,
+    public val localHeaderHeight: Dp,
+    public val sidebarWidth: Dp,
+    public val collapsedSidebarWidth: Dp,
+    public val narrowPaneWidth: Dp,
+    public val standardPaneWidth: Dp,
+    public val widePaneWidth: Dp,
+    public val utilityPaneWidth: Dp,
+    public val inspectorPaneWidth: Dp,
+    public val mainPaneMinimumWidth: Dp,
+    public val compactBreakpoint: Dp,
+    public val expandedBreakpoint: Dp,
+)
+
 /** Shadow elevations. Surfaces remain mostly flat, as in canonical AppKit windows. */
 @Immutable
 public class HarvestCircleElevations internal constructor(
@@ -168,6 +186,23 @@ internal val HarvestCircleDefaultElevations: HarvestCircleElevations =
         raised = 1.dp,
         overlay = 10.dp,
         dialog = 18.dp,
+    )
+
+internal val HarvestCircleDefaultFrameMetrics: HarvestCircleFrameMetrics =
+    HarvestCircleFrameMetrics(
+        structuralDividerWidth = 1.dp,
+        topBarHeight = 48.dp,
+        localHeaderHeight = 40.dp,
+        sidebarWidth = 232.dp,
+        collapsedSidebarWidth = 72.dp,
+        narrowPaneWidth = 168.dp,
+        standardPaneWidth = 296.dp,
+        widePaneWidth = 344.dp,
+        utilityPaneWidth = 296.dp,
+        inspectorPaneWidth = 320.dp,
+        mainPaneMinimumWidth = 480.dp,
+        compactBreakpoint = 976.dp,
+        expandedBreakpoint = 1272.dp,
     )
 
 internal fun harvestCircleMotion(mode: HarvestCircleMotionMode): HarvestCircleMotion =
