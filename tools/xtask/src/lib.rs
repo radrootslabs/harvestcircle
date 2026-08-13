@@ -717,16 +717,20 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
                 "{path}: hard-coded Compose color outside the theme adapter"
             ));
         }
+        let approved_text_primitive = path
+            == "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/primitive/HarvestCircleText.kt";
+        let approved_input_primitive = path
+            == "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/component/input/HarvestCircleTextField.kt";
         if is_production_compose(path, &source)
             && path
                 != "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/ShellControls.kt"
         {
-            if contains_direct_call(&compact, "BasicText(") {
+            if !approved_text_primitive && contains_direct_call(&compact, "BasicText(") {
                 findings.push(format!(
                     "{path}: BasicText bypasses the shell primitive adapter"
                 ));
             }
-            if contains_direct_call(&compact, "BasicTextField(") {
+            if !approved_input_primitive && contains_direct_call(&compact, "BasicTextField(") {
                 findings.push(format!(
                     "{path}: BasicTextField bypasses the shell primitive adapter"
                 ));
