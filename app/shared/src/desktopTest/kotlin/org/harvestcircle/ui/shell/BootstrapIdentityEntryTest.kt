@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
@@ -56,6 +57,29 @@ class BootstrapIdentityEntryTest {
             }
             onNodeWithTag("generate-key").performClick()
             assertEquals(1, generate)
+        }
+
+    @Test
+    fun hcEx004ImportScreenExplainsTemporaryCustodyTruthfully() =
+        runComposeUiTest {
+            setContent {
+                BootstrapIdentityEntry(
+                    BootstrapStep.ImportIdentity,
+                    model = model(),
+                    actions = HarvestCircleUiActions(),
+                    onBack = {},
+                )
+            }
+
+            onNodeWithText(
+                "The secret is held only for this import.\n\n" +
+                    "It is cleared after it is sent to the local native runtime.",
+            ).assertExists()
+            onNodeWithText(
+                "The secret is sent directly to the local native runtime " +
+                    "and is not retained in the interface.",
+            ).assertDoesNotExist()
+            onNodeWithTag("import-nsec-input").assertIsFocused()
         }
 }
 

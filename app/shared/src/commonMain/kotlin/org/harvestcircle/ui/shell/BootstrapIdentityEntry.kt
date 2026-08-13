@@ -95,7 +95,10 @@ private fun ImportIdentityBody(
                     }.testTag("import-nsec-input"),
             visualTransformation = PasswordVisualTransformation(),
         )
-        ShellText("The secret is sent directly to the local native runtime and is not retained in the interface.")
+        ShellText(
+            "The secret is held only for this import.\n\n" +
+                "It is cleared after it is sent to the local native runtime.",
+        )
         model.importGuidance?.let { ShellText(it, Modifier.testTag("identity-entry-guidance")) }
         model.problem?.let { ShellText(it, Modifier.testTag("identity-entry-problem")) }
     }
