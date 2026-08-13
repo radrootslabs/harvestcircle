@@ -1,13 +1,13 @@
 schema = "harvestcircle.design_source_baseline.v1"
 source_product = "Studio"
 source_repository = "https://github.com/radrootslabs/studio_app"
-source_head = "768279b16a1256a4432a692b4f74582ab22eb2f4"
+source_head = "8ae5d8a0377c5673038a20b82b87c314370f0395"
 source_state = "clean"
-snapshot_sha256 = "914c5d3b81c95bded19e36044cece8cff93e74cce0d4089324bb2effa4eebb93"
-snapshot_file_count = 91
+snapshot_sha256 = "c2fe49f3c3ea43105cb2fff4a67c7cd9c21561c71825440a91654a0c1b12e3b8"
+snapshot_file_count = 102
 source_license = "GPL-3.0-only"
 golden_host = "macos-aarch64"
-golden_status = "verified"
+golden_status = "corrective-pending"
 golden_source_snapshot_sha256 = "914c5d3b81c95bded19e36044cece8cff93e74cce0d4089324bb2effa4eebb93"
 golden_light_sha256 = "844a42a37d05671a9665a75214ee40f9c23dafd90c8a5e199d831daede3faf20"
 golden_dark_sha256 = "ce06a1ae820005adddebd8f627b5402279d3365762305f8dd64004612322eae7"
@@ -54,8 +54,8 @@ disposition = "visual-reference"
 
 [[mapping]]
 source = "shared/src/commonMain/kotlin/com/radroots/studio/ui/dashboard"
-destination = "audit-only/dashboard-visual-inputs"
-disposition = "audit-only"
+destination = "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell"
+disposition = "visual-reference"
 
 [[mapping]]
 source = "shared/src/commonMain/composeResources/values/strings.xml"

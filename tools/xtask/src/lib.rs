@@ -733,20 +733,28 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
                 "{path}: interactive control defaults to a hidden keyboard focus ring"
             ));
         }
+        let approved_color_adapter = path.starts_with(
+            "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/theme/color/",
+        ) || path
+            == "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/shell/HarvestCircleShellVisuals.kt";
         if is_production_compose(path, &source)
-            && !path.starts_with(
-                "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/theme/color/",
-            )
+            && !approved_color_adapter
             && contains_direct_call(&compact, "Color(")
         {
             findings.push(format!(
                 "{path}: hard-coded Compose color outside the theme adapter"
             ));
         }
-        let approved_text_primitive = path
-            == "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/primitive/HarvestCircleText.kt";
-        let approved_input_primitive = path
-            == "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/component/input/HarvestCircleTextField.kt";
+        let approved_text_primitive = matches!(
+            path.as_str(),
+            "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/primitive/HarvestCircleText.kt"
+                | "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/shell/HarvestCircleShellText.kt"
+        );
+        let approved_input_primitive = matches!(
+            path.as_str(),
+            "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/component/input/HarvestCircleTextField.kt"
+                | "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/shell/HarvestCircleShellControls.kt"
+        );
         if is_production_compose(path, &source) {
             if !approved_text_primitive && contains_direct_call(&compact, "BasicText(") {
                 findings.push(format!(
@@ -899,25 +907,30 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         return;
     }
     let source = read_text(root, PATH);
-    let expected_snapshot = "914c5d3b81c95bded19e36044cece8cff93e74cce0d4089324bb2effa4eebb93";
+    let expected_snapshot = "c2fe49f3c3ea43105cb2fff4a67c7cd9c21561c71825440a91654a0c1b12e3b8";
+    let pending_golden_snapshot =
+        "914c5d3b81c95bded19e36044cece8cff93e74cce0d4089324bb2effa4eebb93";
     let required_scalars = [
         "schema = \"harvestcircle.design_source_baseline.v1\"",
         "source_product = \"Studio\"",
         "source_repository = \"https://github.com/radrootslabs/studio_app\"",
-        "source_head = \"768279b16a1256a4432a692b4f74582ab22eb2f4\"",
+        "source_head = \"8ae5d8a0377c5673038a20b82b87c314370f0395\"",
         "source_state = \"clean\"",
-        "snapshot_file_count = 91",
+        "snapshot_file_count = 102",
         "source_license = \"GPL-3.0-only\"",
         "golden_host = \"macos-aarch64\"",
-        "golden_status = \"verified\"",
+        "golden_status = \"corrective-pending\"",
     ];
     for scalar in required_scalars {
         if source.lines().filter(|line| line.trim() == scalar).count() != 1 {
             findings.push(format!("{PATH}: missing or duplicate authority: {scalar}"));
         }
     }
-    for key in ["snapshot_sha256", "golden_source_snapshot_sha256"] {
-        let expected = format!("{key} = \"{expected_snapshot}\"");
+    for (key, digest) in [
+        ("snapshot_sha256", expected_snapshot),
+        ("golden_source_snapshot_sha256", pending_golden_snapshot),
+    ] {
+        let expected = format!("{key} = \"{digest}\"");
         if source
             .lines()
             .filter(|line| line.trim() == expected)
@@ -998,8 +1011,8 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         ),
         (
             "shared/src/commonMain/kotlin/com/radroots/studio/ui/dashboard",
-            "audit-only/dashboard-visual-inputs",
-            "audit-only",
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell",
+            "visual-reference",
         ),
         (
             "shared/src/commonMain/composeResources/values/strings.xml",

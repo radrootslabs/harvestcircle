@@ -32,6 +32,10 @@ public data class HarvestCircleShellColors(
     public val accentPressed: Color,
     public val accentSubtle: Color,
     public val onAccent: Color,
+    public val destructive: Color,
+    public val destructiveHover: Color,
+    public val destructivePressed: Color,
+    public val onDestructive: Color,
     public val shadow: Color,
 )
 
@@ -58,6 +62,10 @@ private val HarvestCircleShellLightColors =
         accentPressed = Color(0xFF10432F),
         accentSubtle = Color(0xFFE6EFEA),
         onAccent = Color.White,
+        destructive = Color(0xFF982018),
+        destructiveHover = Color(0xFFB42318),
+        destructivePressed = Color(0xFF7A1A14),
+        onDestructive = Color.White,
         shadow = Color(0x2E000000),
     )
 
@@ -84,6 +92,10 @@ private val HarvestCircleShellDarkColors =
         accentPressed = Color(0xFF10432F),
         accentSubtle = Color(0xFF173126),
         onAccent = Color.White,
+        destructive = Color(0xFFB42318),
+        destructiveHover = Color(0xFFD92D20),
+        destructivePressed = Color(0xFF982018),
+        onDestructive = Color.White,
         shadow = Color(0x66000000),
     )
 

@@ -112,9 +112,9 @@ public fun HarvestCircleShellButton(
     val sources = rememberHarvestCircleShellInteractionSources(text)
     val interaction = sources.collectHarvestCircleShellInteractions(enabled)
     val filled = primary || destructive
-    val active = if (destructive) Color(0xFF982018) else colors.accent
-    val activeHover = if (destructive) Color(0xFFB42318) else colors.accentHover
-    val activePressed = if (destructive) Color(0xFF7A1A14) else colors.accentPressed
+    val active = if (destructive) colors.destructive else colors.accent
+    val activeHover = if (destructive) colors.destructiveHover else colors.accentHover
+    val activePressed = if (destructive) colors.destructivePressed else colors.accentPressed
     val background =
         when {
             !enabled -> colors.input
@@ -129,7 +129,7 @@ public fun HarvestCircleShellButton(
         if (!enabled) {
             colors.contentDisabled
         } else if (filled) {
-            colors.onAccent
+            if (destructive) colors.onDestructive else colors.onAccent
         } else {
             colors.contentPrimary
         }
