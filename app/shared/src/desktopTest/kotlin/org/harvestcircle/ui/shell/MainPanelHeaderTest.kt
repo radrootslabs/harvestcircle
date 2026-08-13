@@ -1,5 +1,8 @@
 package org.harvestcircle.ui.shell
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
@@ -39,5 +42,31 @@ class MainPanelHeaderTest {
             onNodeWithTag("main-tab-identity").performClick()
             onAllNodesWithTag("main-primary-action").assertCountEquals(1)
             assertEquals(listOf(identity.key), selections)
+        }
+
+    @Test
+    fun tabFootprintsRemainStableWhenSelectionChanges() =
+        runComposeUiTest {
+            val relays = TemplateTab(TemplateSelectionKey("public-relays"), "Public relays")
+            val diagnostics = TemplateTab(TemplateSelectionKey("runtime-diagnostics"), "Runtime diagnostics")
+            var selected by mutableStateOf(relays.key)
+            setHarvestCircleContent {
+                MainPanelHeader(
+                    MainPanelHeaderModel(
+                        title = "Network",
+                        tabs = listOf(relays, diagnostics),
+                        selectedTab = selected,
+                    ),
+                    onTabSelected = { selected = it },
+                )
+            }
+
+            val relaysBefore = onNodeWithTag("main-tab-public-relays").fetchSemanticsNode().boundsInRoot
+            val diagnosticsBefore = onNodeWithTag("main-tab-runtime-diagnostics").fetchSemanticsNode().boundsInRoot
+            onNodeWithTag("main-tab-runtime-diagnostics").performClick()
+            waitForIdle()
+
+            assertEquals(relaysBefore, onNodeWithTag("main-tab-public-relays").fetchSemanticsNode().boundsInRoot)
+            assertEquals(diagnosticsBefore, onNodeWithTag("main-tab-runtime-diagnostics").fetchSemanticsNode().boundsInRoot)
         }
 }

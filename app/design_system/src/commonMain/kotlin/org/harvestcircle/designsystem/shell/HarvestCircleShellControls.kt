@@ -265,7 +265,7 @@ public fun HarvestCircleShellTab(
         icon?.let { HarvestCircleIcon(it, null, Modifier.size(16.dp), tint = colors.contentSecondary) }
         HarvestCircleShellText(
             label,
-            role = if (selected) HarvestCircleShellTextRole.BodyStrong else HarvestCircleShellTextRole.Body,
+            role = HarvestCircleShellTextRole.Body,
             maxLines = 1,
         )
     }

@@ -942,12 +942,12 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         (
             "app/shared/src/desktopTest/resources/goldens/macos-aarch64/design-surface-light.png",
             "golden_light_sha256",
-            "7df7cbd0a69b62deba5f924586f19537f09d03afbb2176d9aa081acf5b88ea94",
+            "f6c513064320e144ddc92dbd377f91dcbc275f17e6c0645c2ac3c94c0808ebb9",
         ),
         (
             "app/shared/src/desktopTest/resources/goldens/macos-aarch64/design-surface-dark.png",
             "golden_dark_sha256",
-            "f1e88380060c099ee3a2ba8e90f3a24bd1d4b0e2ce90614456fbd7f379c77ca8",
+            "49b9af1d391feb599ce4a3ce862d7dfc403cae973a8f0f6abf5c0a7ee66cfca4",
         ),
     ] {
         let authority = format!("{key} = \"{sha256}\"");
