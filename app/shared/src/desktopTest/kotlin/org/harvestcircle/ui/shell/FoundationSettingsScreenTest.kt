@@ -16,11 +16,11 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
+import org.harvestcircle.appearance.AppearanceState
+import org.harvestcircle.appearance.MotionPreference
+import org.harvestcircle.appearance.TextSizePreference
+import org.harvestcircle.appearance.ThemePreference
 import org.harvestcircle.application.BuildInfo
-import org.harvestcircle.design.AppearanceState
-import org.harvestcircle.design.MotionPreference
-import org.harvestcircle.design.TextSizePreference
-import org.harvestcircle.design.ThemePreference
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.navigation.SettingsSection
 import kotlin.test.Test

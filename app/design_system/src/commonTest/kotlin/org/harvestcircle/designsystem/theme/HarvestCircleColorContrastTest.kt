@@ -37,7 +37,7 @@ class HarvestCircleColorContrastTest {
     }
 
     @Test
-    fun primaryAndDestructiveActionsMeetNormalTextContrast() {
+    fun hcSc009PrimaryAndDestructiveActionsMeetNormalTextContrast() {
         schemes.forEach { colors ->
             assertContrast(
                 foreground = colors.action.primary.content,
@@ -74,7 +74,7 @@ class HarvestCircleColorContrastTest {
     }
 
     @Test
-    fun focusRingSeparatesFromPrimarySurfaces() {
+    fun hcSc008FocusRingSeparatesFromPrimarySurfaces() {
         schemes.forEach { colors ->
             assertContrast(
                 foreground = colors.focus.ring,

@@ -15,10 +15,10 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
+import org.harvestcircle.appearance.AppearanceState
+import org.harvestcircle.appearance.TextSizePreference
 import org.harvestcircle.application.ApplicationLifecycle
 import org.harvestcircle.application.RelayDestination
-import org.harvestcircle.design.AppearanceState
-import org.harvestcircle.design.TextSizePreference
 import kotlin.test.Test
 
 @OptIn(ExperimentalTestApi::class)

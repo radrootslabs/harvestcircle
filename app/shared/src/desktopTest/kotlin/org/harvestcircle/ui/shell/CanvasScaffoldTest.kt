@@ -8,8 +8,8 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.v2.runComposeUiTest
-import org.harvestcircle.design.AppearanceState
-import org.harvestcircle.design.TextSizePreference
+import org.harvestcircle.appearance.AppearanceState
+import org.harvestcircle.appearance.TextSizePreference
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue

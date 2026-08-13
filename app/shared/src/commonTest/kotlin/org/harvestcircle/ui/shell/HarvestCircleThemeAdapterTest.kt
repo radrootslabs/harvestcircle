@@ -1,9 +1,9 @@
 package org.harvestcircle.ui.shell
 
-import org.harvestcircle.design.AppearanceState
-import org.harvestcircle.design.MotionPreference
-import org.harvestcircle.design.TextSizePreference
-import org.harvestcircle.design.ThemePreference
+import org.harvestcircle.appearance.AppearanceState
+import org.harvestcircle.appearance.MotionPreference
+import org.harvestcircle.appearance.TextSizePreference
+import org.harvestcircle.appearance.ThemePreference
 import org.harvestcircle.designsystem.theme.HarvestCircleInputMode
 import org.harvestcircle.designsystem.theme.HarvestCircleMotionMode
 import org.harvestcircle.designsystem.theme.HarvestCircleTextScale

@@ -23,10 +23,10 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import org.harvestcircle.appearance.AppearanceState
+import org.harvestcircle.appearance.MotionPreference
 import org.harvestcircle.application.FoundationOverlay
 import org.harvestcircle.application.ShellFocusTarget
-import org.harvestcircle.design.AppearanceState
-import org.harvestcircle.design.MotionPreference
 
 val LocalShellAppearance = compositionLocalOf { AppearanceState() }
 

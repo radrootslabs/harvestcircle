@@ -14,7 +14,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.password
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import org.harvestcircle.design.TextSizePreference
+import org.harvestcircle.appearance.TextSizePreference
 import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 import org.harvestcircle.identities.ui.HarvestCircleUiModel

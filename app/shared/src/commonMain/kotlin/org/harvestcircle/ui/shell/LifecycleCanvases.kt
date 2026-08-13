@@ -8,10 +8,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import org.harvestcircle.appearance.AppearanceState
+import org.harvestcircle.appearance.TextSizePreference
 import org.harvestcircle.application.HarvestCirclePresenterState
 import org.harvestcircle.application.HarvestCircleRoute
-import org.harvestcircle.design.AppearanceState
-import org.harvestcircle.design.TextSizePreference
 import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 

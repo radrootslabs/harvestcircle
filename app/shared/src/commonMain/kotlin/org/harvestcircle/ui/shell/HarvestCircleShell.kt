@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import org.harvestcircle.appearance.TextSizePreference
 import org.harvestcircle.application.FoundationOverlay
 import org.harvestcircle.application.HarvestCircleIntent
 import org.harvestcircle.application.HarvestCircleShellIntent
@@ -114,7 +115,7 @@ private fun HarvestCircleShellContent(
 @Composable
 private fun BootstrapWelcome(dispatch: (HarvestCircleShellIntent) -> Unit) {
     CanvasScaffold(
-        textSize = org.harvestcircle.design.TextSizePreference.Default,
+        textSize = TextSizePreference.Default,
         header = { ShellText("HarvestCircle", textRole = ShellTextRole.ScreenTitle) },
         body = {
             Column(

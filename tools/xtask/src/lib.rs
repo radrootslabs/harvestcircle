@@ -423,7 +423,7 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
     let required = [
         "app/shared/src/commonMain/kotlin/org/harvestcircle/product/SurfaceRegistry.kt",
         "app/shared/src/commonMain/kotlin/org/harvestcircle/navigation/Navigation.kt",
-        "app/shared/src/commonMain/kotlin/org/harvestcircle/design/HarvestCircleDesign.kt",
+        "app/shared/src/commonMain/kotlin/org/harvestcircle/appearance/AppearanceState.kt",
         "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/HarvestCircleShell.kt",
         "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationTodayScreen.kt",
         "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationNetworkScreen.kt",
@@ -449,7 +449,7 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             &["hcSc005", "hcSc006", "hcSc007"],
         ),
         (
-            "app/shared/src/commonTest/kotlin/org/harvestcircle/ui/shell/ShellControlsTest.kt",
+            "app/design_system/src/commonTest/kotlin/org/harvestcircle/designsystem/theme/HarvestCircleColorContrastTest.kt",
             &["hcSc008", "hcSc009"],
         ),
         (

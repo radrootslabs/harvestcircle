@@ -8,10 +8,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import org.harvestcircle.design.AppearanceState
-import org.harvestcircle.design.MotionPreference
-import org.harvestcircle.design.TextSizePreference
-import org.harvestcircle.design.ThemePreference
+import org.harvestcircle.appearance.AppearanceState
+import org.harvestcircle.appearance.MotionPreference
+import org.harvestcircle.appearance.TextSizePreference
+import org.harvestcircle.appearance.ThemePreference
 import org.harvestcircle.navigation.AppRoute
 import org.harvestcircle.navigation.NavigationIntent
 import org.harvestcircle.product.ScreenKey

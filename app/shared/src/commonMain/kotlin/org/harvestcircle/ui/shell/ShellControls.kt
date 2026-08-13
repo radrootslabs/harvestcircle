@@ -1,17 +1,11 @@
 package org.harvestcircle.ui.shell
 
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.unit.dp
-import org.harvestcircle.design.ColorToken
-import org.harvestcircle.design.HarvestCircleDesign
-import org.harvestcircle.design.HarvestCirclePalette
 import org.harvestcircle.designsystem.component.HarvestCircleButtonVariant
 import org.harvestcircle.designsystem.component.HarvestCircleContentTone
 import org.harvestcircle.designsystem.component.action.HarvestCircleButton
@@ -30,66 +24,6 @@ import org.harvestcircle.designsystem.component.HarvestCircleTextRole as DesignT
 enum class ShellTextRole { ScreenTitle, SectionTitle, CardTitle, Body, Secondary, Protocol, Button }
 
 enum class ShellButtonKind { Primary, Secondary, Quiet, Destructive }
-
-sealed interface ShellControlBackground {
-    data class Solid(
-        val color: ColorToken,
-    ) : ShellControlBackground
-
-    data object Transparent : ShellControlBackground
-}
-
-data class ShellControlVisuals(
-    val background: ShellControlBackground,
-    val foreground: ColorToken,
-    val border: ColorToken,
-    val focusRing: ColorToken?,
-)
-
-internal val ShellControlBackgroundKey = SemanticsPropertyKey<String>("ShellControlBackground")
-internal val ShellControlForegroundKey = SemanticsPropertyKey<String>("ShellControlForeground")
-internal val ShellControlBorderKey = SemanticsPropertyKey<String>("ShellControlBorder")
-
-fun resolveShellControlVisuals(
-    kind: ShellButtonKind,
-    enabled: Boolean,
-    selected: Boolean,
-    focused: Boolean,
-    pressed: Boolean,
-    hovered: Boolean,
-    palette: HarvestCirclePalette,
-): ShellControlVisuals {
-    if (!enabled) {
-        return ShellControlVisuals(
-            background = ShellControlBackground.Solid(palette.surfaceSecondary),
-            foreground = palette.textSecondary,
-            border = palette.border,
-            focusRing = null,
-        )
-    }
-    val background =
-        when {
-            selected -> ShellControlBackground.Solid(if (hovered && !pressed) palette.primaryHover else palette.primary)
-            kind == ShellButtonKind.Primary ->
-                ShellControlBackground.Solid(if (hovered && !pressed) palette.primaryHover else palette.primary)
-            kind == ShellButtonKind.Destructive -> ShellControlBackground.Solid(palette.critical)
-            kind == ShellButtonKind.Secondary -> ShellControlBackground.Solid(palette.surfaceSecondary)
-            pressed || hovered -> ShellControlBackground.Solid(palette.surfaceSecondary)
-            else -> ShellControlBackground.Transparent
-        }
-    val foreground =
-        if (selected || kind == ShellButtonKind.Primary || kind == ShellButtonKind.Destructive) {
-            palette.surface
-        } else {
-            palette.textPrimary
-        }
-    return ShellControlVisuals(
-        background = background,
-        foreground = foreground,
-        border = if (focused) palette.focus else palette.border,
-        focusRing = if (focused) palette.focus else null,
-    )
-}
 
 @Composable
 fun ShellSurface(
@@ -178,7 +112,7 @@ fun ShellIconButton(
         glyph,
         description,
         onClick,
-        modifier.sizeIn(minWidth = HarvestCircleDesign.MINIMUM_TARGET_DP.dp),
+        modifier,
         enabled,
         kind = ShellButtonKind.Quiet,
     )

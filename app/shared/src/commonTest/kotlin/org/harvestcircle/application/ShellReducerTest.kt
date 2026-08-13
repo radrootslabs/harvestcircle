@@ -6,9 +6,9 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.harvestcircle.design.MotionPreference
-import org.harvestcircle.design.TextSizePreference
-import org.harvestcircle.design.ThemePreference
+import org.harvestcircle.appearance.MotionPreference
+import org.harvestcircle.appearance.TextSizePreference
+import org.harvestcircle.appearance.ThemePreference
 import org.harvestcircle.navigation.AppRoute
 import org.harvestcircle.product.ScreenKey
 import kotlin.test.Test

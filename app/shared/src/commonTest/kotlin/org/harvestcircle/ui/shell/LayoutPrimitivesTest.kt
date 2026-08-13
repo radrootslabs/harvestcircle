@@ -1,6 +1,6 @@
 package org.harvestcircle.ui.shell
 
-import org.harvestcircle.design.TextSizePreference
+import org.harvestcircle.appearance.TextSizePreference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue

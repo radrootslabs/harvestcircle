@@ -26,7 +26,7 @@ class LifecycleCanvasesTest {
             var retries = 0
             var dismissals = 0
             setHarvestCircleContent {
-                HarvestCircleTheme(org.harvestcircle.design.AppearanceState()) {
+                HarvestCircleTheme(org.harvestcircle.appearance.AppearanceState()) {
                     ShellLifecycleCanvas(
                         presenterState(),
                         HarvestCircleUiActions(

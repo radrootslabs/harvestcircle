@@ -1,8 +1,8 @@
 package org.harvestcircle.application
 
-import org.harvestcircle.design.MotionPreference
-import org.harvestcircle.design.TextSizePreference
-import org.harvestcircle.design.ThemePreference
+import org.harvestcircle.appearance.MotionPreference
+import org.harvestcircle.appearance.TextSizePreference
+import org.harvestcircle.appearance.ThemePreference
 import org.harvestcircle.navigation.NavigationIntent
 import org.harvestcircle.navigation.NavigationReducer
 import org.harvestcircle.product.ScreenKey

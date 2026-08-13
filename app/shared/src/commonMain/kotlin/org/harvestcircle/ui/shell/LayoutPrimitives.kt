@@ -1,6 +1,6 @@
 package org.harvestcircle.ui.shell
 
-import org.harvestcircle.design.TextSizePreference
+import org.harvestcircle.appearance.TextSizePreference
 
 object ShellDimensions {
     const val PREFERRED_WINDOW_WIDTH_DP = 1280

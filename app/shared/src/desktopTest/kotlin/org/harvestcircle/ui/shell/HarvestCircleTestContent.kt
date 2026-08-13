@@ -3,7 +3,7 @@ package org.harvestcircle.ui.shell
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
-import org.harvestcircle.design.AppearanceState
+import org.harvestcircle.appearance.AppearanceState
 
 @OptIn(ExperimentalTestApi::class)
 internal fun ComposeUiTest.setHarvestCircleContent(content: @Composable () -> Unit) {

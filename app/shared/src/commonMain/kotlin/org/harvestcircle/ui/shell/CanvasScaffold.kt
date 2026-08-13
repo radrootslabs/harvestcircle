@@ -7,7 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import org.harvestcircle.design.TextSizePreference
+import org.harvestcircle.appearance.TextSizePreference
 import org.harvestcircle.designsystem.layout.HarvestCircleCanvasFrame
 
 @Composable

@@ -6,12 +6,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import org.harvestcircle.appearance.AppearanceState
+import org.harvestcircle.appearance.MotionPreference
+import org.harvestcircle.appearance.TextSizePreference
+import org.harvestcircle.appearance.ThemePreference
 import org.harvestcircle.application.BuildDirtyState
 import org.harvestcircle.application.BuildInfo
-import org.harvestcircle.design.AppearanceState
-import org.harvestcircle.design.MotionPreference
-import org.harvestcircle.design.TextSizePreference
-import org.harvestcircle.design.ThemePreference
 import org.harvestcircle.designsystem.component.navigation.HarvestCircleTab
 import org.harvestcircle.designsystem.component.navigation.HarvestCircleTabRow
 import org.harvestcircle.designsystem.theme.HarvestCircleTheme

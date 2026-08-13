@@ -1,7 +1,7 @@
 package org.harvestcircle.ui.shell
 
-import org.harvestcircle.design.AppearanceState
-import org.harvestcircle.design.MotionPreference
+import org.harvestcircle.appearance.AppearanceState
+import org.harvestcircle.appearance.MotionPreference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

@@ -14,12 +14,12 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
-import org.harvestcircle.design.AppearanceState
-import org.harvestcircle.design.HarvestCircleDesign
-import org.harvestcircle.design.ThemePreference
+import org.harvestcircle.appearance.AppearanceState
+import org.harvestcircle.appearance.ThemePreference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import org.harvestcircle.designsystem.theme.HarvestCircleTheme as DesignTheme
 
 @OptIn(ExperimentalTestApi::class)
 class HarvestCircleThemeRenderTest {
@@ -33,7 +33,7 @@ class HarvestCircleThemeRenderTest {
                     Box(
                         Modifier
                             .size(32.dp)
-                            .background(LocalHarvestCirclePalette.current.background.toComposeColor())
+                            .background(DesignTheme.foundation.colors.surface.canvas)
                             .testTag("theme-render-swatch"),
                     )
                 }
@@ -53,8 +53,6 @@ class HarvestCircleThemeRenderTest {
             waitForIdle()
             val systemDarkColor = renderedColor()
 
-            assertEquals(HarvestCircleDesign.light.background.toComposeColor(), explicitLight)
-            assertEquals(HarvestCircleDesign.dark.background.toComposeColor(), explicitDark)
             assertEquals(explicitLight, systemLight)
             assertEquals(explicitDark, systemDarkColor)
             assertNotEquals(explicitLight, explicitDark)

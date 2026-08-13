@@ -16,8 +16,8 @@ import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
-import org.harvestcircle.design.AppearanceState
-import org.harvestcircle.design.ThemePreference
+import org.harvestcircle.appearance.AppearanceState
+import org.harvestcircle.appearance.ThemePreference
 import kotlin.test.Test
 import kotlin.test.assertFalse
 
