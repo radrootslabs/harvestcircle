@@ -7,8 +7,10 @@ snapshot_sha256 = "914c5d3b81c95bded19e36044cece8cff93e74cce0d4089324bb2effa4eeb
 snapshot_file_count = 91
 source_license = "GPL-3.0-only"
 golden_host = "macos-aarch64"
-golden_status = "pending"
+golden_status = "verified"
 golden_source_snapshot_sha256 = "914c5d3b81c95bded19e36044cece8cff93e74cce0d4089324bb2effa4eebb93"
+golden_light_sha256 = "844a42a37d05671a9665a75214ee40f9c23dafd90c8a5e199d831daede3faf20"
+golden_dark_sha256 = "ce06a1ae820005adddebd8f627b5402279d3365762305f8dd64004612322eae7"
 
 [[mapping]]
 source = "core/designsystem/src/commonMain"

@@ -419,6 +419,10 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         "app/shared/src/commonMain/kotlin/org/harvestcircle/product/SurfaceRegistry.kt",
         "app/shared/src/commonMain/kotlin/org/harvestcircle/navigation/Navigation.kt",
         "app/shared/src/commonMain/kotlin/org/harvestcircle/appearance/AppearanceState.kt",
+        "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/theme/HarvestCircleTheme.kt",
+        "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/component/action/HarvestCircleButton.kt",
+        "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/component/feedback/HarvestCircleBadge.kt",
+        "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/layout/HarvestCircleAppFrame.kt",
         "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/HarvestCircleShell.kt",
         "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationTodayScreen.kt",
         "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationNetworkScreen.kt",
@@ -636,6 +640,28 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             .filter(|character| !character.is_whitespace())
             .collect::<String>();
         for (shape, diagnostic) in [
+            ("funShellText(", "superseded shell text adapter"),
+            ("funShellButton(", "superseded shell button adapter"),
+            ("funShellTextField(", "superseded shell field adapter"),
+            (
+                "enumclassShellTextRole",
+                "superseded shell text-role adapter",
+            ),
+            (
+                "enumclassShellButtonKind",
+                "superseded shell button-kind adapter",
+            ),
+        ] {
+            if compact.contains(shape) {
+                findings.push(format!("{path}: {diagnostic}"));
+            }
+        }
+        if source.contains("androidx.compose.material") {
+            findings.push(format!(
+                "{path}: Material component dependency is forbidden"
+            ));
+        }
+        for (shape, diagnostic) in [
             (
                 "dataobjectConfirmIdentityRemoval",
                 "retired parameterless confirmation source shape",
@@ -708,8 +734,6 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             ));
         }
         if is_production_compose(path, &source)
-            && path
-                != "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/HarvestCircleTheme.kt"
             && !path.starts_with(
                 "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/theme/color/",
             )
@@ -753,6 +777,16 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
                     "{path}: fake commercial product data marker {marker}"
                 ));
             }
+        }
+    }
+    for forbidden in [
+        "app/shared/src/commonMain/kotlin/org/harvestcircle/design/HarvestCircleDesign.kt",
+        "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/ShellControls.kt",
+    ] {
+        if inventory.paths.iter().any(|path| path == forbidden) {
+            findings.push(format!(
+                "{forbidden}: superseded product-shell authority returned"
+            ));
         }
     }
 }
@@ -875,7 +909,7 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         "snapshot_file_count = 91",
         "source_license = \"GPL-3.0-only\"",
         "golden_host = \"macos-aarch64\"",
-        "golden_status = \"pending\"",
+        "golden_status = \"verified\"",
     ];
     for scalar in required_scalars {
         if source.lines().filter(|line| line.trim() == scalar).count() != 1 {
@@ -891,6 +925,33 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             != 1
         {
             findings.push(format!("{PATH}: {key} must match the governed snapshot"));
+        }
+    }
+    for (path, key, sha256) in [
+        (
+            "app/shared/src/desktopTest/resources/goldens/macos-aarch64/design-surface-light.png",
+            "golden_light_sha256",
+            "844a42a37d05671a9665a75214ee40f9c23dafd90c8a5e199d831daede3faf20",
+        ),
+        (
+            "app/shared/src/desktopTest/resources/goldens/macos-aarch64/design-surface-dark.png",
+            "golden_dark_sha256",
+            "ce06a1ae820005adddebd8f627b5402279d3365762305f8dd64004612322eae7",
+        ),
+    ] {
+        let authority = format!("{key} = \"{sha256}\"");
+        if source
+            .lines()
+            .filter(|line| line.trim() == authority)
+            .count()
+            != 1
+        {
+            findings.push(format!("{PATH}: {key} must match the governed golden"));
+        }
+        if !inventory.paths.iter().any(|candidate| candidate == path)
+            || sha256_file(&root.join(path)).as_deref() != Some(sha256)
+        {
+            findings.push(format!("{path}: macOS golden is missing or changed"));
         }
     }
     let mappings = design_source_mappings(&source, PATH, findings);
@@ -1539,7 +1600,7 @@ mod tests {
         write(
             &root,
             path,
-            "import androidx.compose.runtime.Composable\n@Composable fun Moved() { Color(0xFF000000); BasicText(\"bypass\"); BasicTextField(\"\", {}) }\n",
+            "import androidx.compose.runtime.Composable\nimport androidx.compose.material.Button\n@Composable fun ShellButton() { Color(0xFF000000); BasicText(\"bypass\"); BasicTextField(\"\", {}) }\n",
         );
         let inventory = Inventory::load(&root).expect("moved UI inventory");
         let mut findings = Vec::new();
@@ -1558,6 +1619,16 @@ mod tests {
         assert!(findings.iter().any(|finding| {
             finding.contains("BasicTextField bypasses the shell primitive adapter")
         }));
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.contains("Material component dependency is forbidden"))
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.contains("superseded shell button adapter"))
+        );
         fs::remove_dir_all(root).expect("remove fixture");
     }
 
