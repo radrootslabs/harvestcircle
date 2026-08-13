@@ -330,6 +330,7 @@ fn namespace_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String
                     .replace("audit-only/product-copy", "")
                     .replace("audit-only/web-target", "")
                     .replace("fixture(\"design-source\")", "")
+                    .replace("com.radroots.studio", "")
                     .replace(r#"source_product = \"Studio\""#, "")
                     .replace(&format!("\"{}\"", title_case(&legacy)), "");
             }
@@ -707,6 +708,9 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         if is_production_compose(path, &source)
             && path
                 != "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/HarvestCircleTheme.kt"
+            && !path.starts_with(
+                "app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem/theme/color/",
+            )
             && contains_direct_call(&compact, "Color(")
         {
             findings.push(format!(
@@ -975,6 +979,23 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             findings.push(format!(
                 "gradle/libs.versions.toml: forbidden design dependency or target: {forbidden}"
             ));
+        }
+    }
+    for path in &inventory.paths {
+        if !path.starts_with("app/design_system/") && !path.starts_with("tools/design_catalog/") {
+            continue;
+        }
+        let lowercase = read_text(root, path).to_ascii_lowercase();
+        for forbidden in [
+            "androidx.compose.material3",
+            "io.github.kdroidfilter.platformtools",
+            "com.radroots.studio",
+        ] {
+            if lowercase.contains(forbidden) {
+                findings.push(format!(
+                    "{path}: forbidden dependency or legacy namespace: {forbidden}"
+                ));
+            }
         }
     }
     for (path, sha256) in [

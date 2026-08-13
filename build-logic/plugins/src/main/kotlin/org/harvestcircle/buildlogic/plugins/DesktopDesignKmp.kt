@@ -27,7 +27,7 @@ internal fun Project.applyDesktopDesignKmp() {
         )
         extension.filter { filter ->
             filter.exclude { element ->
-                element.file.invariantSeparatorsPath.contains("/build/generated/")
+                element.file.invariantSeparatorsPath.contains("/generated/compose/resourceGenerator/")
             }
         }
     }

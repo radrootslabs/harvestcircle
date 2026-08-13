@@ -1,0 +1,4 @@
+<resources>
+    <string name="harvestcircle_loading">Loading</string>
+    <string name="harvestcircle_error">Error</string>
+</resources>
