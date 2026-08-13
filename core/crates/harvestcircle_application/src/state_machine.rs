@@ -248,14 +248,23 @@ impl StateMachine {
             return Err(invalid_application_state());
         }
         let target = *target;
-        self.pending_activation = None;
-        self.copy_ready(
+        let mut identities = self.snapshot.identities().to_vec();
+        let registered = identities
+            .iter_mut()
+            .find(|identity| identity.public_key() == target)
+            .ok_or_else(identity_not_found)?;
+        *registered = active_identity.identity().clone();
+        let next = AppSnapshot::ready(
             revision,
+            self.snapshot.relay_configuration().clone(),
+            identities,
             Some(target),
             SessionState::Active,
             Some(active_identity),
             None,
-        )
+        )?;
+        self.pending_activation = None;
+        Ok(next)
     }
 
     fn activation_failed(

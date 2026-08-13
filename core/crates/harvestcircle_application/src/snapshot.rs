@@ -275,8 +275,7 @@ fn validate_snapshot(
     if unique_identities.len() != identities.len()
         || (identities.is_empty() != selected_identity.is_none())
         || selected_identity.is_some_and(|key| !unique_identities.contains(&key))
-        || active_identity
-            .is_some_and(|active| !unique_identities.contains(&active.identity().public_key()))
+        || active_identity.is_some_and(|active| !identities.contains(active.identity()))
         || (matches!(session, SessionState::Active) && active_identity.is_none())
         || (matches!(session, SessionState::SignedOut) && active_identity.is_some())
     {

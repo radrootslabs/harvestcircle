@@ -70,6 +70,7 @@ public class HarvestCircleDesktopAppPlugin : Plugin<Project> {
         configureKotlin(target)
         configureDependencies(target, catalog)
         configureIntegrationContract(target)
+        configureHostUiContract(target)
         configureTests(target)
         configureMetadata(target, catalog, appVersion, baseline["package.version"])
         configureCompose(target, productCoordinates["desktop.main_class"])
@@ -163,6 +164,28 @@ public class HarvestCircleDesktopAppPlugin : Plugin<Project> {
             task.classpath = integration.runtimeClasspath
             task.dependsOn("ktlintIntegrationTestSourceSetCheck", "detektIntegrationTest")
             task.shouldRunAfter(target.tasks.named("test"))
+        }
+    }
+
+    private fun configureHostUiContract(target: Project) {
+        val sourceSets = target.extensions.getByType(SourceSetContainer::class.java)
+        val hostUi = sourceSets.maybeCreate("hostUiTest")
+        val main = sourceSets.getByName("main")
+        hostUi.compileClasspath += main.output
+        hostUi.runtimeClasspath += main.output
+        target.configurations.named("hostUiTestImplementation") {
+            it.extendsFrom(target.configurations.getByName("testImplementation"))
+        }
+        target.configurations.named("hostUiTestRuntimeOnly") {
+            it.extendsFrom(target.configurations.getByName("testRuntimeOnly"))
+        }
+        target.tasks.register("hostUiLifecycleTest", Test::class.java) { task ->
+            task.description = "Runs the explicit host-native desktop identity lifecycle UI suite."
+            task.group = "verification"
+            task.testClassesDirs = hostUi.output.classesDirs
+            task.classpath = hostUi.runtimeClasspath
+            task.dependsOn("ktlintHostUiTestSourceSetCheck", "detektHostUiTest")
+            task.shouldRunAfter(target.tasks.named("integrationTest"))
         }
     }
 

@@ -165,15 +165,16 @@ mod tests {
             .expect("second")
             .identity()
             .public_key();
-        core.activate_identity(
-            first,
-            &identities,
-            &identities,
-            &profiles,
-            &secrets,
-            &FixedClock,
-        )
-        .expect("activate first");
+        let activated = core
+            .activate_identity(
+                first,
+                &identities,
+                &identities,
+                &profiles,
+                &secrets,
+                &FixedClock,
+            )
+            .expect("activate first");
         assert_eq!(core.snapshot().session(), SessionState::Active);
         assert_eq!(
             core.snapshot()
@@ -181,6 +182,14 @@ mod tests {
                 .map(|active| active.identity().public_key()),
             Some(first)
         );
+        let registered = activated
+            .identities()
+            .iter()
+            .find(|identity| identity.public_key() == first)
+            .expect("activated identity remains registered");
+        let active = activated.active_identity().expect("active identity");
+        assert_eq!(registered, active.identity());
+        assert_eq!(registered.last_used_at(), Some(FixedClock.now()));
 
         secrets.delete(second).expect("remove second credential");
         let error = core

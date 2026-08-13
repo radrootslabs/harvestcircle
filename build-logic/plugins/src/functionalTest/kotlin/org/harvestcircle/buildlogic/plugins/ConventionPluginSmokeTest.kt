@@ -212,6 +212,8 @@ class ConventionPluginSmokeTest {
             "verifyTestInventory",
             "compileIntegrationTestKotlin",
             "integrationTest",
+            "compileHostUiTestKotlin",
+            "hostUiLifecycleTest",
         ).forEach { taskName -> assertTrue(result.output.contains(taskName), result.output) }
     }
 

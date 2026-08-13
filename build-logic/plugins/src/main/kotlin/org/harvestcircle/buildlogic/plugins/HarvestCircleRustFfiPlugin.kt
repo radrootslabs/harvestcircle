@@ -237,6 +237,13 @@ public class HarvestCircleRustFfiPlugin : Plugin<Project> {
                 },
             )
         }
+        target.tasks.named("compileHostUiTestKotlin", KotlinCompile::class.java) { task ->
+            task.compilerOptions.freeCompilerArgs.add(
+                target.layout.buildDirectory.dir("classes/kotlin/main").map { output ->
+                    "-Xfriend-paths=${output.asFile.absolutePath}"
+                },
+            )
+        }
         target.tasks.named("integrationTest", Test::class.java) { task ->
             task.dependsOn(verifyTestIsolation)
             task.systemProperty("jna.library.path", testBridgeLibraryFile.parentFile.absolutePath)
