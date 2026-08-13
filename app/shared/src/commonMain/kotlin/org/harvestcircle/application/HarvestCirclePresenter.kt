@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -31,9 +32,12 @@ class HarvestCirclePresenter(
     private var pendingRecovery: GeneratedIdentityRecovery? = null
     private var pendingRemoval: PendingRemovalLease? = null
     private var pendingRetry: PendingRetry? = null
+    private val removalMutex = Mutex()
     private val closeMutex = Mutex()
     private var closeReceipt: ShutdownReceipt? = null
-    private var closed = false
+    private var closePhase = PresenterClosePhase.Open
+    private val closed: Boolean
+        get() = closePhase != PresenterClosePhase.Open
 
     override val state: StateFlow<HarvestCirclePresenterState> = mutableState.asStateFlow()
     val effects: SharedFlow<HarvestCircleEffect> = mutableEffects.asSharedFlow()
@@ -88,17 +92,24 @@ class HarvestCirclePresenter(
     suspend fun close(): ShutdownReceipt? =
         closeMutex.withLock {
             closeReceipt?.let { return@withLock it }
-            if (closed) return@withLock null
-            closed = true
-            updateState { copy(route = HarvestCircleRoute.SHUTTING_DOWN, busy = true, problem = null) }
-            commandJob?.cancelAndJoin()
-            subscriptionJob?.cancelAndJoin()
-            releaseRecovery()
-            clearImportDraft()
-            pendingRemoval = null
+            if (closePhase == PresenterClosePhase.Open) {
+                closePhase = PresenterClosePhase.Closing
+                updateState { copy(route = HarvestCircleRoute.SHUTTING_DOWN, busy = true, problem = null) }
+            }
+            if (closePhase == PresenterClosePhase.Closing) {
+                commandJob?.cancelAndJoin()
+                subscriptionJob?.cancelAndJoin()
+                releaseRecovery()
+                clearImportDraft()
+                transferRemovalToShutdown()
+                closePhase = PresenterClosePhase.TransferredToShutdown
+            }
             return try {
                 runtime.shutdown().also { receipt ->
-                    closeReceipt = receipt
+                    if (receipt.closed) {
+                        closeReceipt = receipt
+                        closePhase = PresenterClosePhase.Closed
+                    }
                     updateState {
                         copy(
                             route = if (receipt.closed) HarvestCircleRoute.CLOSED else HarvestCircleRoute.FATAL,
@@ -108,7 +119,6 @@ class HarvestCirclePresenter(
                     }
                 }
             } catch (error: CancellationException) {
-                closed = false
                 throw error
             } catch (error: Exception) {
                 acceptFailure(error, null)
@@ -223,7 +233,7 @@ class HarvestCirclePresenter(
 
     private fun requestIdentityRemoval(intent: HarvestCircleIntent.RequestIdentityRemoval) {
         launchOperation {
-            pendingRemoval?.let { previous -> releaseRemovalRequest(previous, RemovalStatus.NONE) }
+            releaseCurrentRemovalForReplacement()
             updateState {
                 copy(
                     removalConfirmation = null,
@@ -232,9 +242,18 @@ class HarvestCirclePresenter(
             }
             val request = runtime.requestIdentityRemoval(intent.identityId)
             val lease = PendingRemovalLease(request)
-            pendingRemoval = lease
-            if (request.isExpired()) {
-                releaseRemovalRequest(lease, RemovalStatus.FAILED)
+            val expired = request.isExpired()
+            removalMutex.withLock {
+                pendingRemoval = lease
+                if (expired) {
+                    lease.phase = RemovalLeasePhase.Releasing
+                    lease.releaseReason = RemovalReleaseReason.Expired
+                } else {
+                    lease.expiryJob = scope.launch { expireRemovalLease(lease) }
+                }
+            }
+            if (expired) {
+                releaseClaimedRemoval(ClaimedRemovalRelease(lease, RemovalReleaseReason.Expired), RemovalStatus.FAILED)
                 throw ApplicationFailure(removalExpiredProblem())
             }
             updateState {
@@ -247,35 +266,37 @@ class HarvestCirclePresenter(
     }
 
     private fun cancelIdentityRemoval(intent: HarvestCircleIntent.CancelIdentityRemoval) {
-        val lease = matchingRemoval(intent.identityId, intent.requestId) ?: return
         launchOperation {
-            val expired = lease.request.isExpired()
-            releaseRemovalRequest(lease, if (expired) RemovalStatus.FAILED else RemovalStatus.NONE)
-            if (expired) {
+            val claim =
+                claimMatchingRemoval(intent.identityId, intent.requestId, RemovalTerminalAction.Cancel)
+                    ?: return@launchOperation
+            releaseClaimedRemoval(
+                ClaimedRemovalRelease(claim.lease, claim.releaseReason ?: RemovalReleaseReason.UserCancelled),
+                if (claim.expired) RemovalStatus.FAILED else RemovalStatus.NONE,
+            )
+            if (claim.expired) {
                 throw ApplicationFailure(removalExpiredProblem())
             }
         }
     }
 
     private fun confirmIdentityRemoval(intent: HarvestCircleIntent.ConfirmIdentityRemoval) {
-        val lease = matchingRemoval(intent.identityId, intent.requestId) ?: return
-        val request = lease.request
         val operationId = operationIds.next()
-        launchOperation(
-            operationId = operationId,
-            onAccepted = {
-                lease.phase = RemovalLeasePhase.Confirming
-                updateState {
-                    copy(
-                        removalConfirmation = null,
-                        removalStatus = RemovalStatus.CONFIRMING,
-                    )
-                }
-            },
-        ) {
-            if (request.isExpired()) {
-                releaseRemovalRequest(lease, RemovalStatus.FAILED)
+        launchOperation(operationId = operationId) {
+            val claim =
+                claimMatchingRemoval(intent.identityId, intent.requestId, RemovalTerminalAction.Confirm)
+                    ?: return@launchOperation
+            val lease = claim.lease
+            val request = lease.request
+            if (claim.expired) {
+                releaseClaimedRemoval(ClaimedRemovalRelease(lease, RemovalReleaseReason.Expired), RemovalStatus.FAILED)
                 throw ApplicationFailure(removalExpiredProblem(operationId))
+            }
+            updateState {
+                copy(
+                    removalConfirmation = null,
+                    removalStatus = RemovalStatus.CONFIRMING,
+                )
             }
             try {
                 val result =
@@ -286,8 +307,12 @@ class HarvestCirclePresenter(
                         ),
                     )
                 acceptResult(result, operationId)
-                lease.phase = RemovalLeasePhase.Confirmed
-                if (pendingRemoval === lease) pendingRemoval = null
+                removalMutex.withLock {
+                    if (pendingRemoval === lease && lease.phase == RemovalLeasePhase.Confirming) {
+                        lease.phase = RemovalLeasePhase.Confirmed
+                        pendingRemoval = null
+                    }
+                }
                 updateState {
                     copy(
                         removalConfirmation = null,
@@ -298,71 +323,149 @@ class HarvestCirclePresenter(
                 mutableEffects.tryEmit(HarvestCircleEffect.IdentityRemoved(request.identityId))
             } catch (error: CancellationException) {
                 withContext(NonCancellable) {
-                    releaseRemovalRequest(lease, RemovalStatus.FAILED)
+                    releaseAfterFailedConfirmation(lease)
                 }
                 throw error
             } catch (error: Exception) {
-                releaseRemovalRequest(lease, RemovalStatus.FAILED)
+                releaseAfterFailedConfirmation(lease)
                 throw error
             }
         }
     }
 
-    private fun matchingRemoval(
+    private suspend fun claimMatchingRemoval(
         identityId: IdentityId,
         requestId: RemovalRequestId,
-    ): PendingRemovalLease? {
-        val lease = pendingRemoval
-        val confirmation = state.value.removalConfirmation
-        if (lease?.phase == RemovalLeasePhase.ReleaseFailed) {
+        action: RemovalTerminalAction,
+    ): ClaimedRemoval? {
+        var rejection: String? = null
+        var releaseFailed = false
+        val claim =
+            removalMutex.withLock {
+                val lease = pendingRemoval
+                val confirmation = state.value.removalConfirmation
+                if (lease?.phase == RemovalLeasePhase.ReleaseFailed) {
+                    releaseFailed = true
+                    return@withLock null
+                }
+                if (lease == null ||
+                    lease.phase != RemovalLeasePhase.Open ||
+                    confirmation == null ||
+                    state.value.removalStatus != RemovalStatus.AWAITING_CONFIRMATION
+                ) {
+                    rejection = "Identity removal confirmation is not available."
+                    return@withLock null
+                }
+                val request = lease.request
+                if (request.identityId != identityId ||
+                    request.requestId != requestId ||
+                    confirmation.identityId != identityId ||
+                    confirmation.requestId != requestId
+                ) {
+                    rejection = "Identity removal confirmation does not match the current request."
+                    return@withLock null
+                }
+                val expired = request.isExpired()
+                val releaseReason =
+                    when {
+                        expired -> RemovalReleaseReason.Expired
+                        action == RemovalTerminalAction.Cancel -> RemovalReleaseReason.UserCancelled
+                        else -> null
+                    }
+                lease.phase = if (releaseReason == null) RemovalLeasePhase.Confirming else RemovalLeasePhase.Releasing
+                lease.releaseReason = releaseReason
+                val expiryJob = lease.expiryJob
+                lease.expiryJob = null
+                ClaimedRemoval(lease, expiryJob, expired, releaseReason)
+            }
+        if (releaseFailed) {
             acceptFailure(ApplicationFailure(removalReleaseFailedProblem()), null)
             return null
         }
-        if (lease == null ||
-            lease.phase != RemovalLeasePhase.Open ||
-            confirmation == null ||
-            state.value.removalStatus != RemovalStatus.AWAITING_CONFIRMATION
-        ) {
-            rejectUnavailable("Identity removal confirmation is not available.")
+        if (claim == null) {
+            rejectUnavailable(checkNotNull(rejection))
             return null
         }
-        val request = lease.request
-        if (request.identityId != identityId ||
-            request.requestId != requestId ||
-            confirmation.identityId != identityId ||
-            confirmation.requestId != requestId
-        ) {
-            rejectUnavailable("Identity removal confirmation does not match the current request.")
-            return null
-        }
-        return lease
+        claim.expiryJob?.cancelAndJoin()
+        return claim
     }
 
-    private suspend fun releaseRemovalRequest(
-        lease: PendingRemovalLease,
+    private suspend fun releaseCurrentRemovalForReplacement() {
+        var releaseFailed = false
+        val claim =
+            removalMutex.withLock {
+                val lease = pendingRemoval ?: return@withLock null
+                if (lease.phase == RemovalLeasePhase.ReleaseFailed) {
+                    releaseFailed = true
+                    return@withLock null
+                }
+                if (lease.phase != RemovalLeasePhase.Open) {
+                    throw ApplicationFailure(removalReleaseFailedProblem())
+                }
+                lease.phase = RemovalLeasePhase.Releasing
+                lease.releaseReason = RemovalReleaseReason.Replaced
+                val expiryJob = lease.expiryJob
+                lease.expiryJob = null
+                ClaimedRemoval(lease, expiryJob, expired = false, RemovalReleaseReason.Replaced)
+            }
+        if (releaseFailed) throw ApplicationFailure(removalReleaseFailedProblem())
+        claim ?: return
+        claim.expiryJob?.cancelAndJoin()
+        releaseClaimedRemoval(
+            ClaimedRemovalRelease(claim.lease, RemovalReleaseReason.Replaced),
+            RemovalStatus.NONE,
+        )
+    }
+
+    private suspend fun releaseAfterFailedConfirmation(lease: PendingRemovalLease) {
+        val claimed =
+            removalMutex.withLock {
+                if (pendingRemoval !== lease || lease.phase != RemovalLeasePhase.Confirming) return@withLock false
+                lease.phase = RemovalLeasePhase.Releasing
+                lease.releaseReason = RemovalReleaseReason.ConfirmFailed
+                true
+            }
+        if (claimed) {
+            releaseClaimedRemoval(
+                ClaimedRemovalRelease(lease, RemovalReleaseReason.ConfirmFailed),
+                RemovalStatus.FAILED,
+            )
+        }
+    }
+
+    private suspend fun releaseClaimedRemoval(
+        claim: ClaimedRemovalRelease,
         resultingStatus: RemovalStatus,
     ) {
-        if (pendingRemoval !== lease || lease.phase !in RELEASABLE_REMOVAL_PHASES) {
-            throw ApplicationFailure(removalReleaseFailedProblem())
-        }
-        lease.phase = RemovalLeasePhase.Releasing
+        val lease = claim.lease
         val released =
             try {
                 runtime.cancelIdentityRemoval(lease.request.requestId)
             } catch (error: CancellationException) {
-                quarantineRemovalLease(lease)
-                acceptFailure(ApplicationFailure(removalReleaseFailedProblem()), null)
+                quarantineRemovalLease(claim)
+                if (!closed) acceptFailure(ApplicationFailure(removalReleaseFailedProblem()), null)
                 throw error
             } catch (_: Exception) {
-                quarantineRemovalLease(lease)
+                quarantineRemovalLease(claim)
                 throw ApplicationFailure(removalReleaseFailedProblem())
             }
         if (!released) {
-            quarantineRemovalLease(lease)
+            quarantineRemovalLease(claim)
             throw ApplicationFailure(removalReleaseFailedProblem())
         }
-        lease.phase = RemovalLeasePhase.Released
-        if (pendingRemoval === lease) pendingRemoval = null
+        val completed =
+            removalMutex.withLock {
+                if (pendingRemoval !== lease ||
+                    lease.phase != RemovalLeasePhase.Releasing ||
+                    lease.releaseReason != claim.reason
+                ) {
+                    return@withLock false
+                }
+                lease.phase = RemovalLeasePhase.Released
+                pendingRemoval = null
+                true
+            }
+        if (!completed) throw ApplicationFailure(removalReleaseFailedProblem())
         updateState {
             copy(
                 removalConfirmation = null,
@@ -371,14 +474,85 @@ class HarvestCirclePresenter(
         }
     }
 
-    private fun quarantineRemovalLease(lease: PendingRemovalLease) {
-        lease.phase = RemovalLeasePhase.ReleaseFailed
-        updateState {
-            copy(
-                removalConfirmation = null,
-                removalStatus = RemovalStatus.FAILED,
-            )
+    private suspend fun quarantineRemovalLease(claim: ClaimedRemovalRelease) {
+        val publish =
+            removalMutex.withLock {
+                val lease = claim.lease
+                if (pendingRemoval !== lease ||
+                    lease.phase != RemovalLeasePhase.Releasing ||
+                    lease.releaseReason != claim.reason
+                ) {
+                    return@withLock false
+                }
+                lease.phase = RemovalLeasePhase.ReleaseFailed
+                closePhase == PresenterClosePhase.Open
+            }
+        if (publish) {
+            updateState {
+                copy(
+                    removalConfirmation = null,
+                    removalStatus = RemovalStatus.FAILED,
+                )
+            }
         }
+    }
+
+    private suspend fun expireRemovalLease(lease: PendingRemovalLease) {
+        while (true) {
+            delay(removalExpiryDelayMillis(lease.request.expiresAt, clock.now()))
+            var stillOpenBeforeDeadline = false
+            val claimed =
+                removalMutex.withLock {
+                    if (pendingRemoval !== lease ||
+                        lease.phase != RemovalLeasePhase.Open ||
+                        closePhase != PresenterClosePhase.Open
+                    ) {
+                        return@withLock false
+                    }
+                    if (!lease.request.isExpired()) {
+                        stillOpenBeforeDeadline = true
+                        return@withLock false
+                    }
+                    lease.phase = RemovalLeasePhase.Releasing
+                    lease.releaseReason = RemovalReleaseReason.Expired
+                    true
+                }
+            if (!claimed) {
+                if (stillOpenBeforeDeadline) continue
+                return
+            }
+            updateState { copy(removalConfirmation = null) }
+            try {
+                releaseClaimedRemoval(
+                    ClaimedRemovalRelease(lease, RemovalReleaseReason.Expired),
+                    RemovalStatus.FAILED,
+                )
+                acceptFailure(ApplicationFailure(removalExpiredProblem()), null)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                acceptFailure(error, null)
+            }
+            return
+        }
+    }
+
+    private suspend fun transferRemovalToShutdown() {
+        val expiryJob =
+            removalMutex.withLock {
+                pendingRemoval?.let { lease ->
+                    lease.expiryJob.also { lease.expiryJob = null }
+                }
+            }
+        expiryJob?.cancelAndJoin()
+        removalMutex.withLock {
+            pendingRemoval?.let { lease ->
+                lease.phase = RemovalLeasePhase.TransferredToShutdown
+                lease.releaseReason = null
+            }
+            pendingRemoval = null
+        }
+        updateState { copy(removalConfirmation = null) }
     }
 
     private fun IdentityRemovalRequest.isExpired(): Boolean = expiresAt.value <= clock.now().value
@@ -553,16 +727,50 @@ private data class PendingRetry(
 private class PendingRemovalLease(
     val request: IdentityRemovalRequest,
     var phase: RemovalLeasePhase = RemovalLeasePhase.Open,
+    var releaseReason: RemovalReleaseReason? = null,
+    var expiryJob: Job? = null,
 )
 
 private enum class RemovalLeasePhase {
     Open,
-    Releasing,
-    ReleaseFailed,
     Confirming,
+    Releasing,
     Confirmed,
     Released,
+    ReleaseFailed,
+    TransferredToShutdown,
 }
+
+private enum class RemovalReleaseReason {
+    Expired,
+    UserCancelled,
+    Replaced,
+    ConfirmFailed,
+}
+
+private enum class RemovalTerminalAction {
+    Confirm,
+    Cancel,
+}
+
+private enum class PresenterClosePhase {
+    Open,
+    Closing,
+    TransferredToShutdown,
+    Closed,
+}
+
+private data class ClaimedRemoval(
+    val lease: PendingRemovalLease,
+    val expiryJob: Job?,
+    val expired: Boolean,
+    val releaseReason: RemovalReleaseReason?,
+)
+
+private data class ClaimedRemovalRelease(
+    val lease: PendingRemovalLease,
+    val reason: RemovalReleaseReason,
+)
 
 private fun IdentityRemovalRequest.toConfirmation(): IdentityRemovalConfirmation =
     IdentityRemovalConfirmation(
@@ -621,4 +829,23 @@ private val READY_ROUTES =
     )
 private const val EFFECT_BUFFER_CAPACITY = 8
 private const val COMMAND_DEADLINE_MILLIS = 5_000UL
-private val RELEASABLE_REMOVAL_PHASES = setOf(RemovalLeasePhase.Open, RemovalLeasePhase.Confirming)
+
+internal fun removalExpiryDelayMillis(
+    expiresAt: UnixSeconds,
+    now: UnixSeconds,
+): Long {
+    if (expiresAt.value <= now.value) return 0L
+    val remainingSeconds =
+        if (now.value < 0L && expiresAt.value > Long.MAX_VALUE + now.value) {
+            Long.MAX_VALUE
+        } else {
+            expiresAt.value - now.value
+        }
+    return if (remainingSeconds > Long.MAX_VALUE / MILLIS_PER_SECOND) {
+        Long.MAX_VALUE
+    } else {
+        remainingSeconds * MILLIS_PER_SECOND
+    }
+}
+
+private const val MILLIS_PER_SECOND = 1_000L

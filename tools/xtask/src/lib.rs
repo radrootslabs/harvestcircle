@@ -420,7 +420,9 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         ),
         (
             "app/shared/src/commonTest/kotlin/org/harvestcircle/application/HarvestCirclePresenterTest.kt",
-            &["hcSl002", "hcSl003", "hcSl004", "hcSl005"],
+            &[
+                "hcSl002", "hcSl003", "hcSl004", "hcSl005", "hcEx001", "hcEx002",
+            ],
         ),
         (
             "app/shared/src/commonTest/kotlin/org/harvestcircle/application/HarvestCircleShellPresenterTest.kt",
@@ -468,7 +470,10 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             "app/shared/src/commonMain/kotlin/org/harvestcircle/application/HarvestCirclePresenter.kt",
             &[
                 "PendingRemovalLease",
-                "releaseRemovalRequest",
+                "removalMutex",
+                "expireRemovalLease",
+                "releaseClaimedRemoval",
+                "PresenterClosePhase.TransferredToShutdown",
                 "ImportSecretDraft",
             ],
         ),
