@@ -6,7 +6,7 @@ fn main() -> ExitCode {
     let mut arguments = env::args().skip(1);
     let Some(command) = arguments.next() else {
         eprintln!(
-            "usage: cargo run --manifest-path tools/xtask/Cargo.toml -- <repo-audit|namespace-audit|provenance-check|qualification-report>"
+            "usage: cargo run --manifest-path tools/xtask/Cargo.toml -- <design-source-audit|repo-audit|namespace-audit|provenance-check|qualification-report>"
         );
         return ExitCode::FAILURE;
     };

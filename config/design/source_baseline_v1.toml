@@ -1,0 +1,66 @@
+schema = "harvestcircle.design_source_baseline.v1"
+source_product = "Studio"
+source_repository = "https://github.com/radrootslabs/studio_app"
+source_head = "768279b16a1256a4432a692b4f74582ab22eb2f4"
+source_state = "clean"
+snapshot_sha256 = "914c5d3b81c95bded19e36044cece8cff93e74cce0d4089324bb2effa4eebb93"
+snapshot_file_count = 91
+source_license = "GPL-3.0-only"
+golden_host = "macos-aarch64"
+golden_status = "pending"
+golden_source_snapshot_sha256 = "914c5d3b81c95bded19e36044cece8cff93e74cce0d4089324bb2effa4eebb93"
+
+[[mapping]]
+source = "core/designsystem/src/commonMain"
+destination = "app/design_system/src/commonMain"
+disposition = "owned-port"
+
+[[mapping]]
+source = "core/designsystem/src/commonTest"
+destination = "app/design_system/src/commonTest"
+disposition = "owned-port"
+
+[[mapping]]
+source = "core/designsystem/src/jvmMain"
+destination = "app/design_system/src/desktopMain"
+disposition = "owned-port"
+
+[[mapping]]
+source = "tools/designcatalog/src/commonMain"
+destination = "tools/design_catalog/src/commonMain"
+disposition = "owned-port"
+
+[[mapping]]
+source = "tools/designcatalog/src/jvmMain"
+destination = "tools/design_catalog/src/desktopMain"
+disposition = "owned-port"
+
+[[mapping]]
+source = "shared/src/commonMain/kotlin/com/radroots/studio/ui/shell"
+destination = "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell"
+disposition = "visual-reference"
+
+[[mapping]]
+source = "shared/src/commonTest/kotlin/com/radroots/studio/ui/shell"
+destination = "app/shared/src/commonTest/kotlin/org/harvestcircle/ui/shell"
+disposition = "test-reference"
+
+[[mapping]]
+source = "shared/src/jvmMain/kotlin/com/radroots/studio/ui/shell"
+destination = "app/shared/src/desktopMain/kotlin/org/harvestcircle/ui/shell"
+disposition = "visual-reference"
+
+[[mapping]]
+source = "shared/src/commonMain/kotlin/com/radroots/studio/ui/dashboard"
+destination = "audit-only/dashboard-visual-inputs"
+disposition = "audit-only"
+
+[[mapping]]
+source = "shared/src/commonMain/composeResources/values/strings.xml"
+destination = "audit-only/product-copy"
+disposition = "reject-product-copy"
+
+[[mapping]]
+source = "shared/src/webMain/kotlin/com/radroots/studio/ui/shell"
+destination = "audit-only/web-target"
+disposition = "reject-platform-target"
