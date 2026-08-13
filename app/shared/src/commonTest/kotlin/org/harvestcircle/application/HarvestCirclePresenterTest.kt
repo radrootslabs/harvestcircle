@@ -454,6 +454,207 @@ class HarvestCirclePresenterTest {
     }
 
     @Test
+    fun hcEx002ConfirmBeforeExpiryWinsWithoutCancellation() =
+        runTest {
+            val runtime = FakePresenterRuntime()
+            val presenter = presenter(runtime, clock = schedulerClock())
+            runCurrent()
+            val identityId = IdentityId.fromPublicKeyHex("01".repeat(32))
+            presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(identityId))
+            runCurrent()
+            val requestId = checkNotNull(presenter.state.value.removalConfirmation).requestId
+
+            advanceTimeBy(49_999L)
+            presenter.dispatch(HarvestCircleIntent.ConfirmIdentityRemoval(identityId, requestId))
+            runCurrent()
+            advanceTimeBy(1L)
+            runCurrent()
+
+            assertEquals(listOf(requestId), runtime.confirmedRemovalRequests)
+            assertEquals(0, runtime.removalCancellationCalls)
+            assertTrue(runtime.activeRemovalRequests.isEmpty())
+            presenter.close()
+        }
+
+    @Test
+    fun hcEx002ExpiryBeforeConfirmWinsWithoutConfirmation() =
+        runTest {
+            val runtime = FakePresenterRuntime()
+            val presenter = presenter(runtime, clock = schedulerClock())
+            runCurrent()
+            val identityId = IdentityId.fromPublicKeyHex("01".repeat(32))
+            presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(identityId))
+            runCurrent()
+            val requestId = checkNotNull(presenter.state.value.removalConfirmation).requestId
+
+            advanceTimeBy(50_000L)
+            runCurrent()
+            presenter.dispatch(HarvestCircleIntent.ConfirmIdentityRemoval(identityId, requestId))
+            runCurrent()
+
+            assertTrue(runtime.confirmedRemovalRequests.isEmpty())
+            assertEquals(1, runtime.removalCancellationCalls)
+            assertTrue(runtime.activeRemovalRequests.isEmpty())
+            presenter.close()
+        }
+
+    @Test
+    fun hcEx002CancelAndExpiryExecuteOneCancellation() =
+        runTest {
+            val runtime = FakePresenterRuntime()
+            val presenter = presenter(runtime, clock = schedulerClock())
+            runCurrent()
+            val identityId = IdentityId.fromPublicKeyHex("01".repeat(32))
+            presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(identityId))
+            runCurrent()
+            val requestId = checkNotNull(presenter.state.value.removalConfirmation).requestId
+
+            advanceTimeBy(49_999L)
+            presenter.dispatch(HarvestCircleIntent.CancelIdentityRemoval(identityId, requestId))
+            runCurrent()
+            advanceTimeBy(1L)
+            runCurrent()
+
+            assertEquals(1, runtime.removalCancellationCalls)
+            assertTrue(runtime.activeRemovalRequests.isEmpty())
+            presenter.close()
+        }
+
+    @Test
+    fun hcEx002ExpiryBeforeCancelCannotReleaseTwice() =
+        runTest {
+            val runtime = FakePresenterRuntime()
+            val presenter = presenter(runtime, clock = schedulerClock())
+            runCurrent()
+            val identityId = IdentityId.fromPublicKeyHex("01".repeat(32))
+            presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(identityId))
+            runCurrent()
+            val requestId = checkNotNull(presenter.state.value.removalConfirmation).requestId
+
+            advanceTimeBy(50_000L)
+            runCurrent()
+            presenter.dispatch(HarvestCircleIntent.CancelIdentityRemoval(identityId, requestId))
+            runCurrent()
+
+            assertEquals(1, runtime.removalCancellationCalls)
+            assertTrue(runtime.activeRemovalRequests.isEmpty())
+            presenter.close()
+        }
+
+    @Test
+    fun hcEx002ReplacementAndExpiryReleasePriorLeaseOnce() =
+        runTest {
+            val runtime = FakePresenterRuntime()
+            val presenter = presenter(runtime, clock = schedulerClock())
+            runCurrent()
+            val identityId = IdentityId.fromPublicKeyHex("01".repeat(32))
+            presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(identityId))
+            runCurrent()
+
+            advanceTimeBy(49_999L)
+            presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(identityId))
+            runCurrent()
+
+            assertEquals(
+                listOf("request:removal-1", "cancel:removal-1", "request:removal-2"),
+                runtime.removalEvents,
+            )
+            assertEquals(setOf(RemovalRequestId.from("removal-2")), runtime.activeRemovalRequests)
+            presenter.close()
+            assertTrue(runtime.activeRemovalRequests.isEmpty())
+        }
+
+    @Test
+    fun hcEx002ExpiryBeforeReplacementStartsOnlyTheNewLease() =
+        runTest {
+            val runtime = FakePresenterRuntime()
+            val presenter = presenter(runtime, clock = schedulerClock())
+            runCurrent()
+            val identityId = IdentityId.fromPublicKeyHex("01".repeat(32))
+            presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(identityId))
+            runCurrent()
+
+            advanceTimeBy(50_000L)
+            runCurrent()
+            runtime.removalExpiresAt = UnixSeconds(110)
+            presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(identityId))
+            runCurrent()
+
+            assertEquals(
+                listOf("request:removal-1", "cancel:removal-1", "request:removal-2"),
+                runtime.removalEvents,
+            )
+            assertEquals(setOf(RemovalRequestId.from("removal-2")), runtime.activeRemovalRequests)
+            presenter.close()
+        }
+
+    @Test
+    fun hcEx003FailedAutomaticCancellationIsQuarantinedWithoutRetry() =
+        runTest {
+            val runtime = FakePresenterRuntime().also { it.removalCancellationResult = false }
+            val presenter = presenter(runtime, clock = schedulerClock())
+            runCurrent()
+            presenter.dispatch(
+                HarvestCircleIntent.RequestIdentityRemoval(IdentityId.fromPublicKeyHex("01".repeat(32))),
+            )
+            runCurrent()
+
+            advanceTimeBy(50_000L)
+            runCurrent()
+            advanceTimeBy(100_000L)
+            runCurrent()
+
+            assertEquals(1, runtime.removalCancellationCalls)
+            assertEquals("The identity removal request could not be released safely.", presenter.state.value.problem)
+            assertEquals(setOf(RemovalRequestId.from("removal-1")), runtime.activeRemovalRequests)
+            presenter.close()
+            assertTrue(runtime.activeRemovalRequests.isEmpty())
+        }
+
+    @Test
+    fun hcEx003ExceptionalAutomaticCancellationIsQuarantinedWithoutRetry() =
+        runTest {
+            val runtime = FakePresenterRuntime().also { it.removalCancellationFailure = problem(retryable = false) }
+            val presenter = presenter(runtime, clock = schedulerClock())
+            runCurrent()
+            presenter.dispatch(
+                HarvestCircleIntent.RequestIdentityRemoval(IdentityId.fromPublicKeyHex("01".repeat(32))),
+            )
+            runCurrent()
+
+            advanceTimeBy(50_000L)
+            runCurrent()
+            advanceTimeBy(100_000L)
+            runCurrent()
+
+            assertEquals(1, runtime.removalCancellationCalls)
+            assertEquals("The identity removal request could not be released safely.", presenter.state.value.problem)
+            assertEquals(setOf(RemovalRequestId.from("removal-1")), runtime.activeRemovalRequests)
+            presenter.close()
+        }
+
+    @Test
+    fun hcEx003NoPostCloseExpiryMutation() =
+        runTest {
+            val runtime = FakePresenterRuntime()
+            val presenter = presenter(runtime, clock = schedulerClock())
+            runCurrent()
+            presenter.dispatch(
+                HarvestCircleIntent.RequestIdentityRemoval(IdentityId.fromPublicKeyHex("01".repeat(32))),
+            )
+            runCurrent()
+
+            presenter.close()
+            val closedState = presenter.state.value
+            advanceTimeBy(100_000L)
+            runCurrent()
+
+            assertEquals(closedState, presenter.state.value)
+            assertEquals(0, runtime.removalCancellationCalls)
+            assertTrue(runtime.activeRemovalRequests.isEmpty())
+        }
+
+    @Test
     fun hcSc001FailedRemovalRequestExposesNoConfirmation() =
         runTest {
             val runtime = FakePresenterRuntime().also { it.removalFailure = problem(retryable = false) }
@@ -658,6 +859,8 @@ class HarvestCirclePresenterTest {
             clock = clock,
             operationIds = ids,
         )
+
+    private fun TestScope.schedulerClock() = ApplicationClock { UnixSeconds(10L + testScheduler.currentTime / 1_000L) }
 }
 
 private class DeterministicOperationIds : OperationIdSource {

@@ -421,8 +421,12 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         (
             "app/shared/src/commonTest/kotlin/org/harvestcircle/application/HarvestCirclePresenterTest.kt",
             &[
-                "hcSl002", "hcSl003", "hcSl004", "hcSl005", "hcEx001", "hcEx002",
+                "hcSl002", "hcSl003", "hcSl004", "hcSl005", "hcEx001", "hcEx002", "hcEx003",
             ],
+        ),
+        (
+            "app/shared/src/desktopTest/kotlin/org/harvestcircle/ui/shell/BootstrapIdentityEntryTest.kt",
+            &["hcEx004"],
         ),
         (
             "app/shared/src/commonTest/kotlin/org/harvestcircle/application/HarvestCircleShellPresenterTest.kt",
@@ -485,6 +489,13 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationOverlayHost.kt",
             &["val overlayBusy = (overlay as? FoundationOverlay.ConfirmAction)?.busy == true"],
         ),
+        (
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/BootstrapIdentityEntry.kt",
+            &[
+                "The secret is held only for this import.",
+                "It is cleared after it is sent to the local native runtime.",
+            ],
+        ),
     ];
     for (path, markers) in closure_source_contract {
         let source = read_text(root, path);
@@ -495,6 +506,29 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
                 ));
             }
         }
+    }
+    let presenter_tests = read_text(
+        root,
+        "app/shared/src/commonTest/kotlin/org/harvestcircle/application/HarvestCirclePresenterTest.kt",
+    );
+    for forbidden in ["Thread.sleep", "kotlinx.coroutines.delay("] {
+        if presenter_tests.contains(forbidden) {
+            findings.push(format!(
+                "automatic-expiry tests must use virtual time, not {forbidden}"
+            ));
+        }
+    }
+    let bootstrap_entry = read_text(
+        root,
+        "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/BootstrapIdentityEntry.kt",
+    );
+    let retired_copy = [
+        "The secret is sent directly to the local native runtime ",
+        "and is not retained in the interface.",
+    ]
+    .concat();
+    if bootstrap_entry.contains(&retired_copy) {
+        findings.push("Bootstrap identity entry retains retired secret-custody copy".to_owned());
     }
     let locked_copy = [
         (
