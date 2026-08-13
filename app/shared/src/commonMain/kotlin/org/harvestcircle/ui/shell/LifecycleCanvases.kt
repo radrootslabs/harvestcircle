@@ -8,11 +8,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import org.harvestcircle.application.HarvestCirclePresenterState
 import org.harvestcircle.application.HarvestCircleRoute
 import org.harvestcircle.design.AppearanceState
 import org.harvestcircle.design.TextSizePreference
+import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 
 @Composable
@@ -27,14 +27,14 @@ fun ShellLifecycleCanvas(
         body = {
             Column(
                 Modifier.testTag("lifecycle-${state.route.name.lowercase()}"),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap),
             ) {
                 ShellText(presentation.detail)
                 state.problem?.let { ShellText(it, Modifier.testTag("lifecycle-problem")) }
             }
         },
         actionBar = {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
                 if (state.lastProblem?.retryable == true) {
                     ShellButton("Retry", "Retry the last local operation", actions.retryLastCommand)
                 }

@@ -1,23 +1,14 @@
 package org.harvestcircle.ui.shell
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import org.harvestcircle.design.TextSizePreference
+import org.harvestcircle.designsystem.layout.HarvestCircleCanvasFrame
 
 @Composable
 fun CanvasScaffold(
@@ -31,45 +22,41 @@ fun CanvasScaffold(
     val effectiveTextSize =
         textSize.takeUnless { it == TextSizePreference.Default }
             ?: LocalShellAppearance.current.textSize
-    val palette = LocalHarvestCirclePalette.current
-    Column(Modifier.fillMaxSize().background(palette.background.toComposeColor()).testTag("canvas-scaffold")) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .height(64.dp)
-                .background(palette.surface.toComposeColor())
-                .semantics { contentDescription = "Canvas header" }
-                .testTag("canvas-header"),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+    HarvestCircleCanvasFrame(
+        modifier = Modifier.fillMaxSize().testTag("canvas-scaffold"),
+        navigation = {
             Box(Modifier.testTag("canvas-navigation")) { navigation() }
-            Box(Modifier.weight(1f)) { header() }
+        },
+        header = {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .semantics { contentDescription = "Canvas header" }
+                    .testTag("canvas-header"),
+            ) {
+                header()
+            }
+        },
+        step = {
             Box(Modifier.testTag("canvas-step")) { step() }
-        }
-        val bodyModifier =
+        },
+        bodyScrollable = canvasBodyScroll(effectiveTextSize) == ScrollOwnership.CanvasBodyAccessibility,
+        bodyModifier =
             Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .let { modifier ->
-                    if (canvasBodyScroll(effectiveTextSize) == ScrollOwnership.CanvasBodyAccessibility) {
-                        modifier.verticalScroll(rememberScrollState())
-                    } else {
-                        modifier
-                    }
-                }.semantics { contentDescription = "Canvas body" }
-                .testTag("canvas-body")
-        Box(bodyModifier, contentAlignment = Alignment.TopCenter) {
-            Box(Modifier.fillMaxWidth().widthIn(max = 960.dp)) { body() }
-        }
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(72.dp)
-                .background(palette.surface.toComposeColor())
-                .semantics { contentDescription = "Canvas action bar" }
-                .testTag("canvas-action-bar"),
-        ) {
-            actionBar()
-        }
-    }
+                .semantics { contentDescription = "Canvas body" }
+                .testTag("canvas-body"),
+        body = {
+            body()
+        },
+        actionBar = {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .semantics { contentDescription = "Canvas action bar" }
+                    .testTag("canvas-action-bar"),
+            ) {
+                actionBar()
+            }
+        },
+    )
 }

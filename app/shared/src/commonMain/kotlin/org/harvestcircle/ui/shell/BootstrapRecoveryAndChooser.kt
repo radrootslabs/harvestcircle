@@ -11,9 +11,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import org.harvestcircle.application.ShellFocusTarget
 import org.harvestcircle.design.TextSizePreference
+import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 import org.harvestcircle.identities.ui.HarvestCircleUiModel
@@ -30,7 +30,10 @@ fun GeneratedRecoveryCanvas(
         textSize = TextSizePreference.Default,
         header = { ShellText("Save your recovery key", textRole = ShellTextRole.ScreenTitle) },
         body = {
-            Column(Modifier.testTag("generated-key-backup"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(
+                Modifier.testTag("generated-key-backup"),
+                verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap),
+            ) {
                 ShellText("This key is shown once.")
                 ShellText("Store it somewhere private before continuing.")
                 ShellText("Recovery key", textRole = ShellTextRole.CardTitle)
@@ -38,7 +41,7 @@ fun GeneratedRecoveryCanvas(
             }
         },
         actionBar = {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
                 ShellAction("Copy recovery key", "Copy recovery key", "copy-generated-key") {
                     platformActions.copySecret(backup.nsec)
                 }
@@ -70,7 +73,7 @@ fun IdentityChooserCanvas(
             }
         },
         actionBar = {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
                 ShellAction("Create another identity", "Create another identity", "choose-create-identity") {
                     actions.chooseCreateIdentity()
                 }
@@ -94,7 +97,7 @@ private fun IdentityRow(
             .fillMaxWidth()
             .semantics { selected = identity.selected }
             .testTag("identity-row:${identity.publicKeyHex}"),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap),
     ) {
         ShellText(identity.label, textRole = ShellTextRole.CardTitle)
         ShellText(identity.shortNpub, textRole = ShellTextRole.Protocol)

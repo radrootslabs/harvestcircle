@@ -14,8 +14,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.password
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.unit.dp
 import org.harvestcircle.design.TextSizePreference
+import org.harvestcircle.designsystem.theme.HarvestCircleTheme
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 import org.harvestcircle.identities.ui.HarvestCircleUiModel
 import org.harvestcircle.navigation.BootstrapStep
@@ -49,7 +49,7 @@ fun BootstrapIdentityEntry(
             }
         },
         actionBar = {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
                 if (step == BootstrapStep.CreateIdentity) {
                     ShellAction("Generate identity", "Generate identity", "generate-key", enabled = !model.busy) {
                         actions.generateIdentity()
@@ -67,7 +67,10 @@ fun BootstrapIdentityEntry(
 
 @Composable
 private fun CreateIdentityBody(model: HarvestCircleUiModel) {
-    Column(Modifier.testTag("create-identity-entry"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(
+        Modifier.testTag("create-identity-entry"),
+        verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap),
+    ) {
         ShellText("HarvestCircle will generate a new Nostr identity.")
         ShellText("Save the recovery key before the identity is stored in the operating-system keyring.")
         model.problem?.let { ShellText(it, Modifier.testTag("identity-entry-problem")) }
@@ -80,7 +83,10 @@ private fun ImportIdentityBody(
     actions: HarvestCircleUiActions,
 ) {
     val requester = remember { FocusRequester() }
-    Column(Modifier.testTag("import-identity-entry"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(
+        Modifier.testTag("import-identity-entry"),
+        verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap),
+    ) {
         ShellTextField(
             value = model.importDraft.revealForDisplay(),
             onValueChange = actions.editImportDraft,

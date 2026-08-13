@@ -71,6 +71,9 @@ public class HarvestCircleFrameMetrics internal constructor(
     public val mainPaneMinimumWidth: Dp,
     public val compactBreakpoint: Dp,
     public val expandedBreakpoint: Dp,
+    public val canvasHeaderHeight: Dp,
+    public val canvasActionBarHeight: Dp,
+    public val canvasContentMaxWidth: Dp,
 )
 
 /** Shadow elevations. Surfaces remain mostly flat, as in canonical AppKit windows. */
@@ -203,6 +206,9 @@ internal val HarvestCircleDefaultFrameMetrics: HarvestCircleFrameMetrics =
         mainPaneMinimumWidth = 480.dp,
         compactBreakpoint = 976.dp,
         expandedBreakpoint = 1272.dp,
+        canvasHeaderHeight = 64.dp,
+        canvasActionBarHeight = 72.dp,
+        canvasContentMaxWidth = 960.dp,
     )
 
 internal fun harvestCircleMotion(mode: HarvestCircleMotionMode): HarvestCircleMotion =

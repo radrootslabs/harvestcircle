@@ -12,7 +12,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.unit.dp
 import org.harvestcircle.application.FoundationOverlay
 import org.harvestcircle.application.HarvestCircleIntent
 import org.harvestcircle.application.HarvestCircleShellIntent
@@ -30,6 +29,7 @@ import org.harvestcircle.navigation.BootstrapStep
 import org.harvestcircle.navigation.NavigationIntent
 import org.harvestcircle.navigation.SettingsSection
 import org.harvestcircle.product.ScreenKey
+import org.harvestcircle.designsystem.theme.HarvestCircleTheme as HarvestCircleDesignTokens
 
 @Composable
 fun HarvestCircleShell(
@@ -119,7 +119,7 @@ private fun BootstrapWelcome(dispatch: (HarvestCircleShellIntent) -> Unit) {
         body = {
             Column(
                 Modifier.testTag("bootstrap-welcome"),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(HarvestCircleDesignTokens.shell.layout.contentGap),
             ) {
                 ShellText("Coordinate local food with clear, signed terms.", textRole = ShellTextRole.SectionTitle)
                 ShellText("HarvestCircle helps farms and nearby buyers form one shared order.")
@@ -134,7 +134,7 @@ private fun BootstrapWelcome(dispatch: (HarvestCircleShellIntent) -> Unit) {
             }
         },
         actionBar = {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleDesignTokens.shell.layout.inlineGap)) {
                 ShellAction("Explore read-only", "Explore read-only", "bootstrap-read-only") {
                     dispatch(HarvestCircleShellIntent.EnterReadOnly)
                 }
