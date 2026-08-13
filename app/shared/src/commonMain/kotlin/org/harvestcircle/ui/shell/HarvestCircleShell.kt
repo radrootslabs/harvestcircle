@@ -125,6 +125,7 @@ private fun HarvestCircleShellContent(
         state = state.overlays,
         status = deriveShellStatus(state),
         showBanner = state.root !is ShellRoot.Dashboard,
+        onAddOrActivateIdentity = { dispatch(HarvestCircleShellIntent.ManageIdentity) },
     ) {
         dispatch(HarvestCircleShellIntent.Overlay(it))
     }

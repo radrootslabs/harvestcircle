@@ -14,6 +14,8 @@ sealed interface ShellEvent {
 
     data object EnterReadOnly : ShellEvent
 
+    data object ManageIdentity : ShellEvent
+
     data class Navigate(
         val screenKey: ScreenKey,
     ) : ShellEvent
@@ -47,6 +49,7 @@ object ShellReducer {
         when (event) {
             is ShellEvent.IdentityObserved -> observeIdentity(state, event.identity)
             ShellEvent.EnterReadOnly -> updateSession(state, state.session.enterReadOnly())
+            ShellEvent.ManageIdentity -> manageIdentity(state)
             is ShellEvent.Navigate -> updateNavigation(state) { activateShellScreen(it, event.screenKey) }
             is ShellEvent.Navigation -> updateNavigation(state, event.intent)
             is ShellEvent.Overlay -> OverlayReducer.transition(state, event.intent).state
@@ -112,6 +115,11 @@ object ShellReducer {
             ),
             ShellFocusTarget.IdentityRow(admitted.identityId.value),
         )
+    }
+
+    private fun manageIdentity(state: HarvestCircleShellState): HarvestCircleShellState {
+        if (!state.session.readOnly) return state
+        return updateSession(state, state.session.leaveReadOnly()).copy(overlays = OverlayState())
     }
 
     private fun updateSession(

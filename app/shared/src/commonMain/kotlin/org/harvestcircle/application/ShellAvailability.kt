@@ -14,6 +14,8 @@ data class ShellSessionState(
     val readOnly: Boolean = false,
 ) {
     fun enterReadOnly(): ShellSessionState = copy(readOnly = true)
+
+    fun leaveReadOnly(): ShellSessionState = copy(readOnly = false)
 }
 
 enum class DegradationReason {

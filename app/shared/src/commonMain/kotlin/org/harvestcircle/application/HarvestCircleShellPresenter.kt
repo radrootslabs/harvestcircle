@@ -39,6 +39,8 @@ sealed interface HarvestCircleShellIntent {
 
     data object EnterReadOnly : HarvestCircleShellIntent
 
+    data object ManageIdentity : HarvestCircleShellIntent
+
     data class Navigate(
         val screenKey: ScreenKey,
     ) : HarvestCircleShellIntent
@@ -81,6 +83,7 @@ class HarvestCircleShellPresenter(
         when (intent) {
             is HarvestCircleShellIntent.Identity -> identityPresenter.dispatch(intent.intent)
             HarvestCircleShellIntent.EnterReadOnly -> reduce(ShellEvent.EnterReadOnly)
+            HarvestCircleShellIntent.ManageIdentity -> reduce(ShellEvent.ManageIdentity)
             is HarvestCircleShellIntent.Navigate -> reduce(ShellEvent.Navigate(intent.screenKey))
             is HarvestCircleShellIntent.Navigation -> reduce(ShellEvent.Navigation(intent.intent))
             is HarvestCircleShellIntent.Overlay -> dispatchOverlay(intent.intent)

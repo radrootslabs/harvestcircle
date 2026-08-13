@@ -186,6 +186,26 @@ class FoundationOverlayHostTest {
         }
 
     @Test
+    fun readOnlySignerStatusOffersTheIdentityEntryActionAndContainsFocus() =
+        runComposeUiTest {
+            var actionCount = 0
+            val state = OverlayState(FoundationOverlay.Status(org.harvestcircle.application.StatusOverlayKey.Signer))
+            setHarvestCircleContent {
+                FoundationOverlayHost(
+                    state = state,
+                    status = ShellStatusModel(SyncStatusLabel.NotYetObserved, SignerStatusLabel.ReadOnly, null),
+                    onAddOrActivateIdentity = { actionCount += 1 },
+                    onIntent = {},
+                )
+            }
+
+            onNodeWithTag("signer-add-or-activate-identity").assertIsFocused().pressTab()
+            onNodeWithTag("overlay-close").assertIsFocused().pressTab()
+            onNodeWithTag("signer-add-or-activate-identity").assertIsFocused().performClick()
+            kotlin.test.assertEquals(1, actionCount)
+        }
+
+    @Test
     fun openStatusDialogRendersTheLatestStatusModel() =
         runComposeUiTest {
             var status by mutableStateOf(status())

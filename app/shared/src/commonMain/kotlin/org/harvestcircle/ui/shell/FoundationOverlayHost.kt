@@ -29,6 +29,7 @@ import org.harvestcircle.application.FoundationOverlay
 import org.harvestcircle.application.OverlayIntent
 import org.harvestcircle.application.OverlayState
 import org.harvestcircle.application.ShellStatusModel
+import org.harvestcircle.application.SignerStatusLabel
 import org.harvestcircle.application.StatusOverlayKey
 import org.harvestcircle.designsystem.shell.HarvestCircleShellBanner
 import org.harvestcircle.designsystem.shell.HarvestCircleShellBannerTone
@@ -43,6 +44,7 @@ fun FoundationOverlayHost(
     state: OverlayState,
     status: ShellStatusModel,
     showBanner: Boolean = true,
+    onAddOrActivateIdentity: () -> Unit = {},
     onIntent: (OverlayIntent) -> Unit,
 ) {
     if (showBanner) {
@@ -74,8 +76,19 @@ fun FoundationOverlayHost(
                 is FoundationOverlay.ConfirmAction -> ConfirmOverlay(overlay, overlayBusy, rootRequester, onIntent)
                 is FoundationOverlay.Status ->
                     when (overlay.key) {
-                        StatusOverlayKey.Signer -> StatusOverlay("Signer status", status.signer.text, onIntent)
-                        StatusOverlayKey.Sync -> StatusOverlay("Sync status", status.sync.text, onIntent)
+                        StatusOverlayKey.Signer ->
+                            StatusOverlay(
+                                title = "Signer status",
+                                status = status.signer.text,
+                                primaryAction =
+                                    if (status.signer == SignerStatusLabel.ReadOnly) {
+                                        StatusOverlayAction("Add or activate identity", onAddOrActivateIdentity)
+                                    } else {
+                                        null
+                                    },
+                                onIntent = onIntent,
+                            )
+                        StatusOverlayKey.Sync -> StatusOverlay("Sync status", status.sync.text, onIntent = onIntent)
                     }
                 is FoundationOverlay.OpenNostrReference -> ReferenceOverlay(overlay, onIntent)
             }
@@ -151,26 +164,53 @@ private fun ConfirmOverlay(
 private fun StatusOverlay(
     title: String,
     status: String,
+    primaryAction: StatusOverlayAction? = null,
     onIntent: (OverlayIntent) -> Unit,
 ) {
-    val requester = remember { FocusRequester() }
+    val primaryRequester = remember { FocusRequester() }
+    val closeRequester = remember { FocusRequester() }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         HarvestCircleShellText(title, Modifier.semantics { heading() }, HarvestCircleShellTextRole.SectionTitle)
         HarvestCircleShellText(status, Modifier.testTag("overlay-status"))
-        HarvestCircleShellButton(
-            "Close",
-            { onIntent(OverlayIntent.Close) },
-            Modifier
-                .focusRequester(requester)
-                .focusProperties {
-                    next = requester
-                    previous = requester
-                }.modalFocusCycle(requester, requester)
-                .testTag("overlay-close"),
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            primaryAction?.let { action ->
+                HarvestCircleShellButton(
+                    action.label,
+                    action.onClick,
+                    Modifier
+                        .focusRequester(primaryRequester)
+                        .focusProperties {
+                            next = closeRequester
+                            previous = closeRequester
+                        }.modalFocusCycle(closeRequester, closeRequester)
+                        .testTag("signer-add-or-activate-identity"),
+                    primary = true,
+                )
+            }
+            HarvestCircleShellButton(
+                "Close",
+                { onIntent(OverlayIntent.Close) },
+                Modifier
+                    .focusRequester(closeRequester)
+                    .focusProperties {
+                        next = if (primaryAction == null) closeRequester else primaryRequester
+                        previous = if (primaryAction == null) closeRequester else primaryRequester
+                    }.modalFocusCycle(
+                        if (primaryAction == null) closeRequester else primaryRequester,
+                        if (primaryAction == null) closeRequester else primaryRequester,
+                    ).testTag("overlay-close"),
+            )
+        }
     }
-    LaunchedEffect(Unit) { requester.requestFocus() }
+    LaunchedEffect(primaryAction != null) {
+        if (primaryAction == null) closeRequester.requestFocus() else primaryRequester.requestFocus()
+    }
 }
+
+private data class StatusOverlayAction(
+    val label: String,
+    val onClick: () -> Unit,
+)
 
 @Composable
 private fun ReferenceOverlay(

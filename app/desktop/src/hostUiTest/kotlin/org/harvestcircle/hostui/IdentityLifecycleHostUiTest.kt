@@ -70,6 +70,12 @@ class IdentityLifecycleHostUiTest {
                 }
 
                 waitForTag("bootstrap-welcome")
+                onNodeWithTag("bootstrap-read-only").performClick()
+                waitForTag("foundation-today")
+                onNodeWithTag("top-bar-signer").performClick()
+                waitForTag("signer-add-or-activate-identity")
+                onNodeWithTag("signer-add-or-activate-identity").performClick()
+                waitForTag("bootstrap-welcome")
                 onNodeWithTag("bootstrap-create").performClick()
                 onNodeWithTag("generate-key").performClick()
                 waitForTag("generated-key-backup")

@@ -51,6 +51,22 @@ class ShellReducerTest {
     }
 
     @Test
+    fun manageIdentityLeavesReadOnlyAndReturnsToSavedIdentityChooserAtomically() {
+        val entered =
+            ShellReducer.reduce(
+                HarvestCircleShellState(signedOutPresenterState(1UL), BuildInfo.unknown()),
+                ShellEvent.EnterReadOnly,
+            )
+        val readOnly = entered.copy(overlays = OverlayState(FoundationOverlay.Status(StatusOverlayKey.Signer)))
+
+        val managed = ShellReducer.reduce(readOnly, ShellEvent.ManageIdentity)
+
+        assertEquals(false, managed.session.readOnly)
+        assertEquals(ShellRoot.BootstrapCanvas(org.harvestcircle.navigation.BootstrapStep.IdentityChooser), managed.root)
+        assertEquals(OverlayState(), managed.overlays)
+    }
+
+    @Test
     fun presenterAtomicallyRetainsConcurrentIndependentEvents() =
         runTest {
             val identity = ReducerIdentityPresentation(activePresenterState(1UL))
