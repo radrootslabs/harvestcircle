@@ -14,13 +14,12 @@ import androidx.compose.ui.platform.testTag
 import org.harvestcircle.application.ShellFocusTarget
 import org.harvestcircle.application.SignerStatusLabel
 import org.harvestcircle.application.SyncStatusLabel
-import org.harvestcircle.designsystem.component.HarvestCircleControlSize
 import org.harvestcircle.designsystem.component.menu.HarvestCircleMenuOption
-import org.harvestcircle.designsystem.component.menu.HarvestCirclePopupButton
 import org.harvestcircle.designsystem.icon.HarvestCircleIcons
 import org.harvestcircle.designsystem.primitive.HarvestCircleIcon
 import org.harvestcircle.designsystem.shell.HarvestCircleShellButton
 import org.harvestcircle.designsystem.shell.HarvestCircleShellIconButton
+import org.harvestcircle.designsystem.shell.HarvestCircleShellMenuButton
 import org.harvestcircle.designsystem.shell.HarvestCircleShellMetrics
 import org.harvestcircle.designsystem.shell.HarvestCircleShellPalette
 import org.harvestcircle.designsystem.shell.HarvestCircleShellTab
@@ -144,14 +143,12 @@ fun GlobalTopBar(
             { onIntent(GlobalTopBarIntent.ShowSignerStatus) },
             Modifier.shellFocusTarget(ShellFocusTarget.TopBarSigner).testTag("top-bar-signer"),
         )
-        HarvestCirclePopupButton(
+        HarvestCircleShellMenuButton(
             selectedValue = ApplicationMenuAction.Settings,
             options = ApplicationMenuAction.entries.map { HarvestCircleMenuOption(it, it.label) },
             onValueChange = { onIntent(GlobalTopBarIntent.SelectApplicationMenu(it)) },
             modifier = Modifier.testTag("top-bar-menu"),
-            buttonLabel = "Menu",
-            showSelection = false,
-            size = HarvestCircleControlSize.Small,
+            label = "Menu",
         )
     }
 }

@@ -5,6 +5,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -22,21 +23,20 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import org.harvestcircle.application.BannerSeverity
 import org.harvestcircle.application.FoundationOverlay
 import org.harvestcircle.application.OverlayIntent
 import org.harvestcircle.application.OverlayState
 import org.harvestcircle.application.ShellStatusModel
 import org.harvestcircle.application.StatusOverlayKey
-import org.harvestcircle.designsystem.component.HarvestCircleButtonVariant
-import org.harvestcircle.designsystem.component.HarvestCircleTextRole
-import org.harvestcircle.designsystem.component.action.HarvestCircleLabeledButton
-import org.harvestcircle.designsystem.component.container.HarvestCircleDialogFrame
-import org.harvestcircle.designsystem.component.feedback.HarvestCircleBanner
-import org.harvestcircle.designsystem.component.feedback.HarvestCircleBannerTone
-import org.harvestcircle.designsystem.component.input.HarvestCircleTextField
-import org.harvestcircle.designsystem.primitive.HarvestCircleText
-import org.harvestcircle.designsystem.theme.HarvestCircleTheme
+import org.harvestcircle.designsystem.shell.HarvestCircleShellBanner
+import org.harvestcircle.designsystem.shell.HarvestCircleShellBannerTone
+import org.harvestcircle.designsystem.shell.HarvestCircleShellButton
+import org.harvestcircle.designsystem.shell.HarvestCircleShellDialogFrame
+import org.harvestcircle.designsystem.shell.HarvestCircleShellText
+import org.harvestcircle.designsystem.shell.HarvestCircleShellTextField
+import org.harvestcircle.designsystem.shell.HarvestCircleShellTextRole
 
 @Composable
 fun FoundationOverlayHost(
@@ -45,20 +45,21 @@ fun FoundationOverlayHost(
     onIntent: (OverlayIntent) -> Unit,
 ) {
     status.banner?.let { banner ->
-        HarvestCircleBanner(
+        HarvestCircleShellBanner(
             message = banner.message,
             modifier =
                 Modifier
+                    .padding(16.dp)
                     .semantics { contentDescription = "Status: ${banner.title}. ${banner.message}" }
                     .testTag("global-status-banner"),
-            tone = banner.severity.toBannerTone(),
+            tone = banner.severity.toShellBannerTone(),
             title = banner.title,
         )
     }
     state.current?.let { overlay ->
         val overlayBusy = (overlay as? FoundationOverlay.ConfirmAction)?.busy == true
         val rootRequester = remember { FocusRequester() }
-        HarvestCircleDialogFrame(
+        HarvestCircleShellDialogFrame(
             onDismissRequest = {
                 if (!overlayBusy) {
                     if (overlay is FoundationOverlay.ConfirmAction) {
@@ -99,12 +100,11 @@ private fun ConfirmOverlay(
 ) {
     val confirmRequester = remember { FocusRequester() }
     val cancelRequester = remember { FocusRequester() }
-    Column(verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap)) {
-        HarvestCircleText(overlay.title, Modifier.semantics { heading() }, HarvestCircleTextRole.SectionTitle)
-        HarvestCircleText(overlay.explanation)
-        Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
-            HarvestCircleLabeledButton(
-                overlay.actionLabel,
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        HarvestCircleShellText(overlay.title, Modifier.semantics { heading() }, HarvestCircleShellTextRole.SectionTitle)
+        HarvestCircleShellText(overlay.explanation)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            HarvestCircleShellButton(
                 overlay.actionLabel,
                 { onIntent(OverlayIntent.Confirm(overlay.action)) },
                 Modifier
@@ -115,10 +115,9 @@ private fun ConfirmOverlay(
                     }.modalFocusCycle(cancelRequester, cancelRequester)
                     .testTag("overlay-confirm"),
                 enabled = !busy,
-                variant = HarvestCircleButtonVariant.Destructive,
+                destructive = true,
             )
-            HarvestCircleLabeledButton(
-                "Cancel",
+            HarvestCircleShellButton(
                 "Cancel",
                 { onIntent(OverlayIntent.DismissConfirmation(overlay.action)) },
                 Modifier
@@ -128,7 +127,7 @@ private fun ConfirmOverlay(
                         previous = confirmRequester
                     }.modalFocusCycle(confirmRequester, confirmRequester)
                     .testTag("overlay-cancel"),
-                !busy,
+                enabled = !busy,
             )
         }
     }
@@ -144,11 +143,10 @@ private fun StatusOverlay(
     onIntent: (OverlayIntent) -> Unit,
 ) {
     val requester = remember { FocusRequester() }
-    Column(verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap)) {
-        HarvestCircleText(title, Modifier.semantics { heading() }, HarvestCircleTextRole.SectionTitle)
-        HarvestCircleText(status, Modifier.testTag("overlay-status"))
-        HarvestCircleLabeledButton(
-            "Close",
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        HarvestCircleShellText(title, Modifier.semantics { heading() }, HarvestCircleShellTextRole.SectionTitle)
+        HarvestCircleShellText(status, Modifier.testTag("overlay-status"))
+        HarvestCircleShellButton(
             "Close",
             { onIntent(OverlayIntent.Close) },
             Modifier
@@ -171,9 +169,13 @@ private fun ReferenceOverlay(
     val inputRequester = remember { FocusRequester() }
     val submitRequester = remember { FocusRequester() }
     val cancelRequester = remember { FocusRequester() }
-    Column(verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap)) {
-        HarvestCircleText("Open a Nostr reference", Modifier.semantics { heading() }, HarvestCircleTextRole.SectionTitle)
-        HarvestCircleTextField(
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        HarvestCircleShellText(
+            "Open a Nostr reference",
+            Modifier.semantics { heading() },
+            HarvestCircleShellTextRole.SectionTitle,
+        )
+        HarvestCircleShellTextField(
             value = overlay.input,
             onValueChange = { onIntent(OverlayIntent.EditReference(it)) },
             label = "Nostr link, note1, nevent1, or address",
@@ -187,10 +189,9 @@ private fun ReferenceOverlay(
                     }.modalFocusCycle(submitRequester, cancelRequester)
                     .testTag("nostr-reference-input"),
         )
-        overlay.result?.let { HarvestCircleText(it.message, Modifier.testTag("nostr-reference-result")) }
-        Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
-            HarvestCircleLabeledButton(
-                "Open a Nostr reference",
+        overlay.result?.let { HarvestCircleShellText(it.message, Modifier.testTag("nostr-reference-result")) }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            HarvestCircleShellButton(
                 "Open a Nostr reference",
                 { onIntent(OverlayIntent.SubmitReference) },
                 Modifier
@@ -200,10 +201,9 @@ private fun ReferenceOverlay(
                         previous = inputRequester
                     }.modalFocusCycle(cancelRequester, inputRequester)
                     .testTag("nostr-reference-submit"),
-                variant = HarvestCircleButtonVariant.Primary,
+                primary = true,
             )
-            HarvestCircleLabeledButton(
-                "Cancel",
+            HarvestCircleShellButton(
                 "Cancel",
                 { onIntent(OverlayIntent.Close) },
                 Modifier
@@ -239,9 +239,9 @@ private fun FoundationOverlay.title(): String =
         is FoundationOverlay.OpenNostrReference -> "Open a Nostr reference"
     }
 
-private fun BannerSeverity.toBannerTone(): HarvestCircleBannerTone =
+private fun BannerSeverity.toShellBannerTone(): HarvestCircleShellBannerTone =
     when (this) {
-        BannerSeverity.Information -> HarvestCircleBannerTone.Info
-        BannerSeverity.Caution -> HarvestCircleBannerTone.Warning
-        BannerSeverity.Critical -> HarvestCircleBannerTone.Error
+        BannerSeverity.Information -> HarvestCircleShellBannerTone.Information
+        BannerSeverity.Caution -> HarvestCircleShellBannerTone.Caution
+        BannerSeverity.Critical -> HarvestCircleShellBannerTone.Critical
     }
