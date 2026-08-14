@@ -32,6 +32,7 @@ import java.security.SecureRandom
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import javax.accessibility.AccessibleContext
 import javax.imageio.ImageIO
 import javax.swing.JRootPane
 import kotlin.system.exitProcess
@@ -67,7 +68,7 @@ fun main(args: Array<String>) {
             onCloseRequest = {
                 if (nativeStartupProblem == null) closeRequested = true else exitApplication()
             },
-            title = APPLICATION_NAME,
+            title = desktopWindowTitle(isMacOs),
             state =
                 rememberWindowState(
                     width = INITIAL_WINDOW_WIDTH.dp,
@@ -78,7 +79,7 @@ fun main(args: Array<String>) {
                 window.minimumSize = Dimension(MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT)
 
                 if (isMacOs) {
-                    configureMacOsWindowChrome(window.rootPane)
+                    configureMacOsWindowChrome(window.rootPane, window.accessibleContext)
                 }
 
                 onDispose { }
@@ -96,10 +97,16 @@ fun main(args: Array<String>) {
     }
 }
 
-internal fun configureMacOsWindowChrome(rootPane: JRootPane) {
+internal fun desktopWindowTitle(macOs: Boolean): String = if (macOs) "" else APPLICATION_NAME
+
+internal fun configureMacOsWindowChrome(
+    rootPane: JRootPane,
+    windowAccessibility: AccessibleContext,
+) {
     rootPane.putClientProperty("apple.awt.fullWindowContent", true)
     rootPane.putClientProperty("apple.awt.transparentTitleBar", true)
     rootPane.putClientProperty("apple.awt.windowTitleVisible", true)
+    windowAccessibility.accessibleName = APPLICATION_NAME
 }
 
 internal fun isHealthCheck(args: Array<String>): Boolean = args.size == 1 && args.single() == HEALTH_CHECK_ARGUMENT

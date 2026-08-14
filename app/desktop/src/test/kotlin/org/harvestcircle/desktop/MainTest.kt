@@ -23,14 +23,17 @@ class MainTest {
     }
 
     @Test
-    fun macOsWindowChromeKeepsNativeControlsVisible() {
+    fun macOsWindowChromeHidesTheVisualTitleButKeepsNativeControlsAndAccessibility() {
         val rootPane = JRootPane()
 
-        configureMacOsWindowChrome(rootPane)
+        configureMacOsWindowChrome(rootPane, rootPane.accessibleContext)
 
+        assertEquals("", desktopWindowTitle(macOs = true))
+        assertEquals("HarvestCircle", desktopWindowTitle(macOs = false))
         assertEquals(true, rootPane.getClientProperty("apple.awt.fullWindowContent"))
         assertEquals(true, rootPane.getClientProperty("apple.awt.transparentTitleBar"))
         assertEquals(true, rootPane.getClientProperty("apple.awt.windowTitleVisible"))
+        assertEquals("HarvestCircle", rootPane.accessibleContext.accessibleName)
     }
 
     @Test
