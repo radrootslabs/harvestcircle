@@ -46,7 +46,7 @@ class ConventionPluginSmokeTest {
                     if (pluginId == "org.harvestcircle.build.design-catalog") {
                         append("include(\":app:design_system\", \":tools:design_catalog\")\n")
                     }
-                    if (desktopFixture) append("include(\":app:shared\", \":app:desktop\")\n")
+                    if (desktopFixture) append("include(\":app:design_system\", \":app:shared\", \":app:desktop\")\n")
                 },
             )
             if (
@@ -129,6 +129,8 @@ class ConventionPluginSmokeTest {
         withUnitTest: Boolean = true,
     ) {
         fixture.resolve("build.gradle.kts").writeText("plugins { id(\"org.harvestcircle.build.root\") }\n")
+        fixture.resolve("app/design_system").createDirectories().resolve("build.gradle.kts")
+            .writeText("plugins { `java-library` }\n")
         fixture.resolve("app/shared").createDirectories().resolve("build.gradle.kts").writeText("plugins { `java-library` }\n")
         fixture.resolve("app/desktop").createDirectories()
         fixture.resolve("config/product").createDirectories().resolve("harvestcircle-v1.properties").writeText(productCoordinates)
@@ -470,7 +472,7 @@ class ConventionPluginSmokeTest {
             pluginManagement { repositories { gradlePluginPortal(); mavenCentral() } }
             dependencyResolutionManagement { repositories { mavenCentral() } }
             rootProject.name = "fixture"
-            include(":app:shared", ":app:desktop")
+            include(":app:design_system", ":app:shared", ":app:desktop")
             """.trimIndent() + "\n",
         )
         fixture.resolve("gradle").createDirectories().resolve("libs.versions.toml").writeText(kmpCatalog)

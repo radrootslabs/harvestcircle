@@ -119,6 +119,7 @@ public class HarvestCircleDesktopAppPlugin : Plugin<Project> {
         target: Project,
         catalog: org.gradle.api.artifacts.VersionCatalog,
     ) {
+        target.dependencies.add("implementation", target.project(":app:design_system"))
         target.dependencies.add("implementation", target.project(":app:shared"))
         val composeVersion = catalog.findVersion("compose").get().requiredVersion
         val osName = target.providers.gradleProperty("nativeOs").getOrElse(System.getProperty("os.name"))
