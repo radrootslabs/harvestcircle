@@ -40,4 +40,41 @@ class HarvestCircleAppFrameTest {
         assertTrue(geometry.showSecondaryPane)
         assertTrue(geometry.showUtilityPane)
     }
+
+    @Test
+    fun expandedSidebarAbsorbsTheMacOsChromeExclusion() {
+        val geometry =
+            resolveHarvestCircleFrameGeometry(
+                width = 1280.dp,
+                sidebarCollapsed = false,
+                metrics = HarvestCircleDefaultFrameMetrics,
+                windowChromeExclusion = macOsExclusion(),
+            )
+
+        assertEquals(112.dp, geometry.sidebarChromeClearance.left)
+        assertEquals(0.dp, geometry.topBarChromeClearance.left)
+        assertFalse(geometry.sidebarTopBandFullyExcluded)
+    }
+
+    @Test
+    fun collapsedSidebarMovesResidualMacOsClearanceIntoTheTopBar() {
+        val geometry =
+            resolveHarvestCircleFrameGeometry(
+                width = 1280.dp,
+                sidebarCollapsed = true,
+                metrics = HarvestCircleDefaultFrameMetrics,
+                windowChromeExclusion = macOsExclusion(),
+            )
+
+        assertEquals(72.dp, geometry.sidebarChromeClearance.left)
+        assertEquals(39.dp, geometry.topBarChromeClearance.left)
+        assertTrue(geometry.sidebarTopBandFullyExcluded)
+    }
+
+    private fun macOsExclusion(): HarvestCircleWindowChromeExclusion =
+        HarvestCircleWindowChromeExclusion(
+            edge = HarvestCircleWindowChromeEdge.Left,
+            width = 112.dp,
+            height = 40.dp,
+        )
 }

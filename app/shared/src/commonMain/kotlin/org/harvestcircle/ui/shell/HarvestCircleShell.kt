@@ -228,6 +228,9 @@ private fun DashboardRoot(
                     ),
                 onIntent = { intent -> dispatchTopBar(intent, platformActions, dispatch) },
                 compact = geometry.layoutClass != HarvestCircleFrameLayoutClass.Expanded,
+                showSidebarToggle = geometry.sidebarTopBandFullyExcluded,
+                sidebarCollapsed = geometry.sidebarWidth == HarvestCircleDesignTokens.shell.frame.collapsedSidebarWidth,
+                onToggleSidebar = { sidebarCollapsed = !sidebarCollapsed },
             )
         },
         sidebar = { geometry ->
@@ -237,6 +240,8 @@ private fun DashboardRoot(
                 compact = geometry.sidebarWidth == HarvestCircleDesignTokens.shell.frame.collapsedSidebarWidth,
                 onToggleCollapsed = { sidebarCollapsed = !sidebarCollapsed },
                 sessionLabel = todayContext(state),
+                chromeClearance = geometry.sidebarChromeClearance,
+                topBandFullyExcluded = geometry.sidebarTopBandFullyExcluded,
             )
         },
         mainHeader = {

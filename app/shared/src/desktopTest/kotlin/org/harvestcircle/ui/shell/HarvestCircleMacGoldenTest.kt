@@ -22,6 +22,9 @@ import org.harvestcircle.application.HarvestCircleShellState
 import org.harvestcircle.application.SessionLifecycle
 import org.harvestcircle.application.ShellSessionState
 import org.harvestcircle.application.SnapshotRevision
+import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeEdge
+import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeEnvironment
+import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeExclusion
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 import java.awt.image.BufferedImage
@@ -70,13 +73,15 @@ private fun captureLiveTodayShell(theme: ThemePreference): BufferedImage {
     lateinit var captured: ImageBitmap
     runComposeUiTest {
         setContent {
-            Box(Modifier.size(width = 1280.dp, height = 800.dp).testTag("golden-surface")) {
-                HarvestCircleShell(
-                    state = liveTodayState(theme),
-                    identityActions = HarvestCircleUiActions(),
-                    platformActions = HarvestCirclePlatformActions(),
-                    dispatch = {},
-                )
+            HarvestCircleWindowChromeEnvironment(macOsWindowChromeExclusion()) {
+                Box(Modifier.size(width = 1280.dp, height = 800.dp).testTag("golden-surface")) {
+                    HarvestCircleShell(
+                        state = liveTodayState(theme),
+                        identityActions = HarvestCircleUiActions(),
+                        platformActions = HarvestCirclePlatformActions(),
+                        dispatch = {},
+                    )
+                }
             }
         }
         waitForIdle()
@@ -106,6 +111,13 @@ private fun liveTodayState(theme: ThemePreference): HarvestCircleShellState =
         buildInfo = BuildInfo.unknown(),
         session = ShellSessionState(readOnly = true),
         appearance = AppearanceState(theme = theme),
+    )
+
+private fun macOsWindowChromeExclusion(): HarvestCircleWindowChromeExclusion =
+    HarvestCircleWindowChromeExclusion(
+        edge = HarvestCircleWindowChromeEdge.Left,
+        width = 112.dp,
+        height = 40.dp,
     )
 
 private fun ImageBitmap.toBufferedImage(): BufferedImage {

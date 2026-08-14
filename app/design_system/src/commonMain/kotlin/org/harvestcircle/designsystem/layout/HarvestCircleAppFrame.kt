@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -44,6 +45,9 @@ public data class HarvestCircleFrameGeometry(
     public val sidebarWidth: Dp,
     public val showSecondaryPane: Boolean,
     public val showUtilityPane: Boolean,
+    public val sidebarChromeClearance: HarvestCircleWindowChromeClearance,
+    public val topBarChromeClearance: HarvestCircleWindowChromeClearance,
+    public val sidebarTopBandFullyExcluded: Boolean,
 )
 
 public class HarvestCirclePaneSlot(
@@ -67,6 +71,7 @@ public fun resolveHarvestCircleFrameGeometry(
     metrics: HarvestCircleFrameMetrics,
     secondaryWidth: HarvestCirclePaneWidth? = null,
     utilityWidth: HarvestCirclePaneWidth? = null,
+    windowChromeExclusion: HarvestCircleWindowChromeExclusion = HarvestCircleWindowChromeExclusion.None,
 ): HarvestCircleFrameGeometry {
     val layoutClass =
         when {
@@ -99,22 +104,48 @@ public fun resolveHarvestCircleFrameGeometry(
 
     val secondaryRequested = secondaryWidth != null
     val utilityRequested = utilityWidth != null
-    return when (layoutClass) {
-        HarvestCircleFrameLayoutClass.Compact ->
-            HarvestCircleFrameGeometry(layoutClass, sidebarWidth, false, false)
-
-        HarvestCircleFrameLayoutClass.Medium -> {
-            val showSecondary = secondaryRequested && fits(true, false)
-            val showUtility = !showSecondary && utilityRequested && fits(false, true)
-            HarvestCircleFrameGeometry(layoutClass, sidebarWidth, showSecondary, showUtility)
+    val (showSecondary, showUtility) =
+        when (layoutClass) {
+            HarvestCircleFrameLayoutClass.Compact -> false to false
+            HarvestCircleFrameLayoutClass.Medium -> {
+                val secondary = secondaryRequested && fits(true, false)
+                secondary to (!secondary && utilityRequested && fits(false, true))
+            }
+            HarvestCircleFrameLayoutClass.Expanded -> {
+                val secondary = secondaryRequested && fits(true, false)
+                secondary to (utilityRequested && fits(secondary, true))
+            }
         }
+    val sidebarRegionWidth = minOf(sidebarWidth, width)
+    val topBarRegionLeft = minOf(width, sidebarWidth + metrics.structuralDividerWidth)
+    val sidebarChromeClearance =
+        resolveHarvestCircleWindowChromeClearance(
+            exclusion = windowChromeExclusion,
+            windowWidth = width,
+            regionLeft = 0.dp,
+            regionWidth = sidebarRegionWidth,
+            minimumTopBandHeight = metrics.topBarHeight,
+        )
+    val topBarChromeClearance =
+        resolveHarvestCircleWindowChromeClearance(
+            exclusion = windowChromeExclusion,
+            windowWidth = width,
+            regionLeft = topBarRegionLeft,
+            regionWidth = width - topBarRegionLeft,
+            minimumTopBandHeight = metrics.topBarHeight,
+        )
 
-        HarvestCircleFrameLayoutClass.Expanded -> {
-            val showSecondary = secondaryRequested && fits(true, false)
-            val showUtility = utilityRequested && fits(showSecondary, true)
-            HarvestCircleFrameGeometry(layoutClass, sidebarWidth, showSecondary, showUtility)
-        }
-    }
+    return HarvestCircleFrameGeometry(
+        layoutClass = layoutClass,
+        sidebarWidth = sidebarWidth,
+        showSecondaryPane = showSecondary,
+        showUtilityPane = showUtility,
+        sidebarChromeClearance = sidebarChromeClearance,
+        topBarChromeClearance = topBarChromeClearance,
+        sidebarTopBandFullyExcluded =
+            sidebarRegionWidth > 0.dp &&
+                sidebarChromeClearance.left + sidebarChromeClearance.right >= sidebarRegionWidth,
+    )
 }
 
 @Composable
@@ -149,6 +180,7 @@ public fun HarvestCircleAppFrame(
                     metrics = frameMetrics,
                     secondaryWidth = secondaryPane?.width,
                     utilityWidth = utilityPane?.width,
+                    windowChromeExclusion = HarvestCircleWindowChrome.exclusion,
                 )
 
             Row(Modifier.fillMaxSize()) {
@@ -173,10 +205,20 @@ public fun HarvestCircleAppFrame(
                         modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .height(frameMetrics.topBarHeight)
+                                .height(geometry.topBarChromeClearance.topBandHeight)
+                                .background(shellColors.applicationFrame)
                                 .testTag("harvestcircle-top-bar"),
                     ) {
-                        topBar(geometry)
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .absolutePadding(
+                                    left = geometry.topBarChromeClearance.left,
+                                    right = geometry.topBarChromeClearance.right,
+                                ).testTag("harvestcircle-top-bar-chrome-content"),
+                        ) {
+                            topBar(geometry)
+                        }
                     }
                     HarvestCircleStructuralDivider(vertical = false)
                     Row(

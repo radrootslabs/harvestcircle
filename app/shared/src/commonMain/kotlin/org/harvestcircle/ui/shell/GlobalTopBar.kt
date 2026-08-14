@@ -67,6 +67,9 @@ fun GlobalTopBar(
     model: GlobalTopBarModel,
     onIntent: (GlobalTopBarIntent) -> Unit,
     compact: Boolean = false,
+    showSidebarToggle: Boolean = false,
+    sidebarCollapsed: Boolean = false,
+    onToggleSidebar: () -> Unit = {},
 ) {
     val colors = HarvestCircleShellPalette
     Row(
@@ -79,6 +82,14 @@ fun GlobalTopBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(HarvestCircleShellMetrics.topBarControlGap),
     ) {
+        if (showSidebarToggle) {
+            HarvestCircleShellIconButton(
+                onClick = onToggleSidebar,
+                icon = if (sidebarCollapsed) HarvestCircleIcons.ChevronRight else HarvestCircleIcons.ChevronLeft,
+                label = if (sidebarCollapsed) "Expand sidebar" else "Collapse sidebar",
+                modifier = Modifier.testTag("top-bar-sidebar-toggle"),
+            )
+        }
         HarvestCircleShellTab(
             "Today",
             model.selectedScreen == ScreenKey.PersonalToday,

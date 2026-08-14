@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,6 +24,7 @@ import org.harvestcircle.application.addFarmWorkspaceAction
 import org.harvestcircle.application.shellNavigationItems
 import org.harvestcircle.application.shellSettingsItem
 import org.harvestcircle.designsystem.icon.HarvestCircleIcons
+import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeClearance
 import org.harvestcircle.designsystem.primitive.HarvestCircleIcon
 import org.harvestcircle.designsystem.shell.HarvestCircleShellButton
 import org.harvestcircle.designsystem.shell.HarvestCircleShellIconButton
@@ -41,8 +43,18 @@ fun WorkspaceSidebar(
     compact: Boolean = false,
     onToggleCollapsed: () -> Unit = {},
     sessionLabel: String = "Read-only",
+    chromeClearance: HarvestCircleWindowChromeClearance =
+        HarvestCircleWindowChromeClearance(
+            topBandHeight = HarvestCircleShellMetrics.sidebarHeaderHeight,
+            left = 0.dp,
+            right = 0.dp,
+        ),
+    topBandFullyExcluded: Boolean = false,
 ) {
     val colors = HarvestCircleShellPalette
+    val chromeConsumesTitle =
+        chromeClearance.left > HarvestCircleShellMetrics.sidebarHorizontalInset ||
+            chromeClearance.right > HarvestCircleShellMetrics.sidebarHorizontalInset
     Column(
         Modifier
             .fillMaxHeight()
@@ -53,22 +65,28 @@ fun WorkspaceSidebar(
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(HarvestCircleShellMetrics.sidebarHeaderHeight)
-                .padding(start = if (compact) HarvestCircleShellMetrics.sidebarHorizontalInset else 74.dp, end = 10.dp),
+                .height(chromeClearance.topBandHeight)
+                .absolutePadding(
+                    left = maxOf(HarvestCircleShellMetrics.sidebarHorizontalInset, chromeClearance.left),
+                    right = maxOf(10.dp, chromeClearance.right),
+                ).testTag("workspace-sidebar-chrome-content"),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (!compact) {
+            if (!compact && !chromeConsumesTitle) {
                 HarvestCircleShellText("HarvestCircle", Modifier.weight(1f), HarvestCircleShellTextRole.PaneTitle)
             } else {
                 Spacer(Modifier.weight(1f))
             }
-            HarvestCircleShellIconButton(
-                onClick = onToggleCollapsed,
-                icon = HarvestCircleIcons.ChevronLeft,
-                label = if (compact) "Expand sidebar" else "Collapse sidebar",
-                controlSize = HarvestCircleShellMetrics.sidebarHeaderIconTarget,
-                iconSize = HarvestCircleShellMetrics.sidebarHeaderIconSize,
-            )
+            if (!topBandFullyExcluded) {
+                HarvestCircleShellIconButton(
+                    onClick = onToggleCollapsed,
+                    icon = HarvestCircleIcons.ChevronLeft,
+                    label = if (compact) "Expand sidebar" else "Collapse sidebar",
+                    modifier = Modifier.testTag("workspace-sidebar-toggle"),
+                    controlSize = HarvestCircleShellMetrics.sidebarHeaderIconTarget,
+                    iconSize = HarvestCircleShellMetrics.sidebarHeaderIconSize,
+                )
+            }
         }
 
         Box(Modifier.fillMaxWidth().padding(horizontal = HarvestCircleShellMetrics.sidebarHorizontalInset)) {

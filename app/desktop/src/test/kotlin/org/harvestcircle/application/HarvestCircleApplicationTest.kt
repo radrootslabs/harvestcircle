@@ -2,11 +2,13 @@ package org.harvestcircle.application
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
@@ -23,6 +25,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeEnvironment
+import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeExclusion
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -38,7 +42,7 @@ class HarvestCircleApplicationTest {
             var runtime: ApplicationRuntime? = null
             var applicationJob: Job? = null
 
-            setContent {
+            setApplicationContent {
                 HarvestCircleApplication(
                     closeRequested = closeRequested,
                     onExitApproved = { approvedExits += 1 },
@@ -77,7 +81,7 @@ class HarvestCircleApplicationTest {
     @Test
     fun welcomeEntersOneReadOnlyDashboardSession() =
         runComposeUiTest {
-            setContent { HarvestCircleApplication(presenterFactory = ::testPresenter) }
+            setApplicationContent { HarvestCircleApplication(presenterFactory = ::testPresenter) }
             onNodeWithText("Coordinate local food with clear, signed terms.").assertIsDisplayed()
             onAllNodesWithText("Connect a remote signer").assertCountEquals(0)
             onNodeWithTag("bootstrap-read-only").performClick()
@@ -90,7 +94,7 @@ class HarvestCircleApplicationTest {
     @Test
     fun welcomeRoutesToLocalCreateAndImportEntry() =
         runComposeUiTest {
-            setContent { HarvestCircleApplication(presenterFactory = ::testPresenter) }
+            setApplicationContent { HarvestCircleApplication(presenterFactory = ::testPresenter) }
             onNodeWithTag("bootstrap-create").performClick()
             waitUntil { onAllNodesWithTag("generate-key").fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag("generate-key").assertIsDisplayed()
@@ -100,7 +104,7 @@ class HarvestCircleApplicationTest {
     @Test
     fun welcomeRoutesDirectlyToMaskedImportEntry() =
         runComposeUiTest {
-            setContent { HarvestCircleApplication(presenterFactory = ::testPresenter) }
+            setApplicationContent { HarvestCircleApplication(presenterFactory = ::testPresenter) }
             onNodeWithTag("bootstrap-import").performClick()
             waitUntil { onAllNodesWithTag("import-nsec-input").fetchSemanticsNodes().isNotEmpty() }
             onNodeWithTag("import-nsec-input").assertIsDisplayed()
@@ -114,7 +118,7 @@ class HarvestCircleApplicationTest {
             var runtime: ApplicationRuntime? = null
             var applicationJob: Job? = null
 
-            setContent {
+            setApplicationContent {
                 if (showApplication) {
                     HarvestCircleApplication { scope ->
                         applicationJob = scope.coroutineContext[Job]
@@ -174,7 +178,7 @@ class HarvestCircleApplicationTest {
     fun failedNativeShutdownRequiresAnExplicitForceExitChoice() =
         runComposeUiTest {
             var approvedExits = 0
-            setContent {
+            setApplicationContent {
                 HarvestCircleApplication(
                     closeRequested = true,
                     onExitApproved = { approvedExits += 1 },
@@ -199,7 +203,7 @@ class HarvestCircleApplicationTest {
     fun shutdownTimeoutRequiresAnExplicitForceExitChoice() =
         runComposeUiTest {
             var approvedExits = 0
-            setContent {
+            setApplicationContent {
                 HarvestCircleApplication(
                     closeRequested = true,
                     onExitApproved = { approvedExits += 1 },
@@ -224,7 +228,7 @@ class HarvestCircleApplicationTest {
     @Test
     fun applicationRendersSafeStartupFailureWithoutLeakingInternalMessage() =
         runComposeUiTest {
-            setContent {
+            setApplicationContent {
                 HarvestCircleApplication {
                     error("sensitive internal startup detail")
                 }
@@ -234,6 +238,13 @@ class HarvestCircleApplicationTest {
             onNodeWithText("The application could not start.").assertIsDisplayed()
             onAllNodesWithText("sensitive internal startup detail").assertCountEquals(0)
         }
+}
+
+@OptIn(ExperimentalTestApi::class)
+private fun ComposeUiTest.setApplicationContent(content: @Composable () -> Unit) {
+    setContent {
+        HarvestCircleWindowChromeEnvironment(HarvestCircleWindowChromeExclusion.None, content)
+    }
 }
 
 private fun testPresenter(scope: kotlinx.coroutines.CoroutineScope): HarvestCirclePresenter =
