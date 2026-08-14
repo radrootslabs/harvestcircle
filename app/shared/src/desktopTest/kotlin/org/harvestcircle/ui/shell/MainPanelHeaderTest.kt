@@ -45,28 +45,39 @@ class MainPanelHeaderTest {
         }
 
     @Test
-    fun tabFootprintsRemainStableWhenSelectionChanges() =
+    fun tabFootprintsAndLabelAlignmentRemainStableWhenSelectionChanges() =
         runComposeUiTest {
-            val relays = TemplateTab(TemplateSelectionKey("public-relays"), "Public relays")
-            val diagnostics = TemplateTab(TemplateSelectionKey("runtime-diagnostics"), "Runtime diagnostics")
-            var selected by mutableStateOf(relays.key)
+            val overview = TemplateTab(TemplateSelectionKey("overview"), "Overview")
+            val identity = TemplateTab(TemplateSelectionKey("identity"), "Identity")
+            var selected by mutableStateOf(overview.key)
             setHarvestCircleContent {
                 MainPanelHeader(
                     MainPanelHeaderModel(
                         title = "Network",
-                        tabs = listOf(relays, diagnostics),
+                        tabs = listOf(overview, identity),
                         selectedTab = selected,
                     ),
                     onTabSelected = { selected = it },
                 )
             }
 
-            val relaysBefore = onNodeWithTag("main-tab-public-relays").fetchSemanticsNode().boundsInRoot
-            val diagnosticsBefore = onNodeWithTag("main-tab-runtime-diagnostics").fetchSemanticsNode().boundsInRoot
-            onNodeWithTag("main-tab-runtime-diagnostics").performClick()
+            val overviewBefore = onNodeWithTag("main-tab-overview").fetchSemanticsNode().boundsInRoot
+            val identityBefore = onNodeWithTag("main-tab-identity").fetchSemanticsNode().boundsInRoot
+            val overviewLabelBefore = onNodeWithText("Overview", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            val identityLabelBefore = onNodeWithText("Identity", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            assertEquals(overviewBefore.center.x, overviewLabelBefore.center.x, absoluteTolerance = 0.5f)
+            assertEquals(identityBefore.center.x, identityLabelBefore.center.x, absoluteTolerance = 0.5f)
+
+            onNodeWithTag("main-tab-identity").performClick()
             waitForIdle()
 
-            assertEquals(relaysBefore, onNodeWithTag("main-tab-public-relays").fetchSemanticsNode().boundsInRoot)
-            assertEquals(diagnosticsBefore, onNodeWithTag("main-tab-runtime-diagnostics").fetchSemanticsNode().boundsInRoot)
+            val overviewAfter = onNodeWithTag("main-tab-overview").fetchSemanticsNode().boundsInRoot
+            val identityAfter = onNodeWithTag("main-tab-identity").fetchSemanticsNode().boundsInRoot
+            val overviewLabelAfter = onNodeWithText("Overview", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            val identityLabelAfter = onNodeWithText("Identity", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            assertEquals(overviewBefore, overviewAfter)
+            assertEquals(identityBefore, identityAfter)
+            assertEquals(overviewAfter.center.x, overviewLabelAfter.center.x, absoluteTolerance = 0.5f)
+            assertEquals(identityAfter.center.x, identityLabelAfter.center.x, absoluteTolerance = 0.5f)
         }
 }

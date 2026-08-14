@@ -260,7 +260,7 @@ public fun HarvestCircleShellTab(
                 .selectable(selected, sources.activation, null, true, Role.Tab, onClick)
                 .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
     ) {
         icon?.let { HarvestCircleIcon(it, null, Modifier.size(16.dp), tint = colors.contentSecondary) }
         HarvestCircleShellText(

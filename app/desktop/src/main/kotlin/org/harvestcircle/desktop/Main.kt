@@ -33,6 +33,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import javax.imageio.ImageIO
+import javax.swing.JRootPane
 import kotlin.system.exitProcess
 
 private const val APPLICATION_NAME = "HarvestCircle"
@@ -77,10 +78,7 @@ fun main(args: Array<String>) {
                 window.minimumSize = Dimension(MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT)
 
                 if (isMacOs) {
-                    val rootPane = window.rootPane
-                    rootPane.putClientProperty("apple.awt.fullWindowContent", true)
-                    rootPane.putClientProperty("apple.awt.transparentTitleBar", true)
-                    rootPane.putClientProperty("apple.awt.windowTitleVisible", false)
+                    configureMacOsWindowChrome(window.rootPane)
                 }
 
                 onDispose { }
@@ -96,6 +94,12 @@ fun main(args: Array<String>) {
             }
         }
     }
+}
+
+internal fun configureMacOsWindowChrome(rootPane: JRootPane) {
+    rootPane.putClientProperty("apple.awt.fullWindowContent", true)
+    rootPane.putClientProperty("apple.awt.transparentTitleBar", true)
+    rootPane.putClientProperty("apple.awt.windowTitleVisible", true)
 }
 
 internal fun isHealthCheck(args: Array<String>): Boolean = args.size == 1 && args.single() == HEALTH_CHECK_ARGUMENT

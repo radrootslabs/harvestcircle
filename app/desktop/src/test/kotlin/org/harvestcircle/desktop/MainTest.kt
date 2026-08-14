@@ -5,6 +5,7 @@ import kotlinx.coroutines.runBlocking
 import org.harvestcircle.application.ApplicationLifecycle
 import java.io.ByteArrayInputStream
 import java.nio.file.Files
+import javax.swing.JRootPane
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -19,6 +20,17 @@ class MainTest {
         assertEquals(800, INITIAL_WINDOW_HEIGHT)
         assertEquals(1100, MINIMUM_WINDOW_WIDTH)
         assertEquals(720, MINIMUM_WINDOW_HEIGHT)
+    }
+
+    @Test
+    fun macOsWindowChromeKeepsNativeControlsVisible() {
+        val rootPane = JRootPane()
+
+        configureMacOsWindowChrome(rootPane)
+
+        assertEquals(true, rootPane.getClientProperty("apple.awt.fullWindowContent"))
+        assertEquals(true, rootPane.getClientProperty("apple.awt.transparentTitleBar"))
+        assertEquals(true, rootPane.getClientProperty("apple.awt.windowTitleVisible"))
     }
 
     @Test
