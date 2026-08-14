@@ -1,6 +1,10 @@
 package org.harvestcircle.designsystem.layout
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
@@ -44,6 +48,31 @@ public data class HarvestCircleWindowChromeClearance(
     public val left: Dp,
     public val right: Dp,
 )
+
+private val LocalHarvestCircleWindowChromeExclusion =
+    staticCompositionLocalOf<HarvestCircleWindowChromeExclusion> {
+        error("HarvestCircleWindowChromeEnvironment is missing from the composition")
+    }
+
+/** Read-only access to the host-owned exclusion for the current window. */
+public object HarvestCircleWindowChrome {
+    public val exclusion: HarvestCircleWindowChromeExclusion
+        @Composable
+        @ReadOnlyComposable
+        get() = LocalHarvestCircleWindowChromeExclusion.current
+}
+
+/** Installs immutable host chrome geometry for exactly one application window. */
+@Composable
+public fun HarvestCircleWindowChromeEnvironment(
+    exclusion: HarvestCircleWindowChromeExclusion,
+    content: @Composable () -> Unit,
+) {
+    CompositionLocalProvider(
+        LocalHarvestCircleWindowChromeExclusion provides exclusion,
+        content = content,
+    )
+}
 
 /**
  * Resolves the portion of [exclusion] intersecting a top-edge region.

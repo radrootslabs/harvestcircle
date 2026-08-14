@@ -1,8 +1,11 @@
 package org.harvestcircle.desktop
 
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.harvestcircle.application.ApplicationLifecycle
+import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeEdge
+import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeExclusion
 import java.io.ByteArrayInputStream
 import java.nio.file.Files
 import javax.swing.JRootPane
@@ -34,6 +37,19 @@ class MainTest {
         assertEquals(true, rootPane.getClientProperty("apple.awt.transparentTitleBar"))
         assertEquals(true, rootPane.getClientProperty("apple.awt.windowTitleVisible"))
         assertEquals("HarvestCircle", rootPane.accessibleContext.accessibleName)
+    }
+
+    @Test
+    fun macOsWindowChromeReservesAConservativePhysicalExclusion() {
+        assertEquals(
+            HarvestCircleWindowChromeExclusion(
+                edge = HarvestCircleWindowChromeEdge.Left,
+                width = 112.dp,
+                height = 40.dp,
+            ),
+            desktopWindowChromeExclusion(macOs = true),
+        )
+        assertEquals(HarvestCircleWindowChromeExclusion.None, desktopWindowChromeExclusion(macOs = false))
     }
 
     @Test

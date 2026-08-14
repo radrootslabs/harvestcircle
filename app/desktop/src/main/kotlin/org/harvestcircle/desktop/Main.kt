@@ -16,6 +16,9 @@ import org.harvestcircle.application.HarvestCircleApplication
 import org.harvestcircle.application.NativeHarvestCircleRuntime
 import org.harvestcircle.application.desktopRuntimeOpenConfiguration
 import org.harvestcircle.application.verifyNativeCompatibility
+import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeEdge
+import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeEnvironment
+import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeExclusion
 import org.harvestcircle.ffi.HarvestCircleException
 import org.harvestcircle.ffi.compatibilityDescriptor
 import org.harvestcircle.ui.shell.StartupFailureScreen
@@ -42,6 +45,8 @@ internal const val INITIAL_WINDOW_WIDTH = 1280
 internal const val INITIAL_WINDOW_HEIGHT = 800
 internal const val MINIMUM_WINDOW_WIDTH = 1100
 internal const val MINIMUM_WINDOW_HEIGHT = 720
+internal const val MACOS_WINDOW_CHROME_EXCLUSION_WIDTH = 112
+internal const val MACOS_WINDOW_CHROME_EXCLUSION_HEIGHT = 40
 internal const val HEALTH_CHECK_ARGUMENT = "--health-check"
 internal const val HEALTH_READY_EVIDENCE = "HARVESTCIRCLE_HEALTH_READY"
 internal const val HEALTH_CLOSED_EVIDENCE = "HARVESTCIRCLE_HEALTH_CLOSED"
@@ -85,19 +90,32 @@ fun main(args: Array<String>) {
                 onDispose { }
             }
 
-            if (nativeStartupProblem == null) {
-                HarvestCircleApplication(
-                    closeRequested = closeRequested,
-                    onExitApproved = ::exitApplication,
-                )
-            } else {
-                StartupFailureScreen(nativeStartupProblem)
+            HarvestCircleWindowChromeEnvironment(desktopWindowChromeExclusion(isMacOs)) {
+                if (nativeStartupProblem == null) {
+                    HarvestCircleApplication(
+                        closeRequested = closeRequested,
+                        onExitApproved = ::exitApplication,
+                    )
+                } else {
+                    StartupFailureScreen(nativeStartupProblem)
+                }
             }
         }
     }
 }
 
 internal fun desktopWindowTitle(macOs: Boolean): String = if (macOs) "" else APPLICATION_NAME
+
+internal fun desktopWindowChromeExclusion(macOs: Boolean): HarvestCircleWindowChromeExclusion =
+    if (macOs) {
+        HarvestCircleWindowChromeExclusion(
+            edge = HarvestCircleWindowChromeEdge.Left,
+            width = MACOS_WINDOW_CHROME_EXCLUSION_WIDTH.dp,
+            height = MACOS_WINDOW_CHROME_EXCLUSION_HEIGHT.dp,
+        )
+    } else {
+        HarvestCircleWindowChromeExclusion.None
+    }
 
 internal fun configureMacOsWindowChrome(
     rootPane: JRootPane,
