@@ -3,6 +3,7 @@ package org.harvestcircle.hostui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
@@ -26,6 +27,9 @@ import org.harvestcircle.application.SecretClipboardController
 import org.harvestcircle.application.TextClipboard
 import org.harvestcircle.application.UnixSeconds
 import org.harvestcircle.application.desktopRuntimeOpenConfiguration
+import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeEnvironment
+import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeExclusion
+import org.harvestcircle.desktop.desktopWindowChromeExclusion
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
@@ -51,27 +55,32 @@ class IdentityLifecycleHostUiTest {
             lateinit var presenter: HarvestCirclePresenter
             var closeRequested by mutableStateOf(false)
             var approvedExits = 0
+            val windowChromeExclusion = desktopWindowChromeExclusion(hostIsMacOs())
             try {
                 setContent {
-                    HarvestCircleApplicationWithDependencies(
-                        closeRequested = closeRequested,
-                        onExitApproved = { approvedExits += 1 },
-                        clipboardFactory = { scope ->
-                            SecretClipboardController(scope, EmptyClipboard(), clearDelayMillis = 60_000)
-                        },
-                    ) { scope ->
-                        HarvestCirclePresenter(
-                            runtime = runtime,
-                            scope = scope,
-                            clock = ApplicationClock { UnixSeconds(System.currentTimeMillis() / 1_000) },
-                            operationIds = operationIds,
-                        ).also { presenter = it }
+                    HarvestCircleWindowChromeEnvironment(windowChromeExclusion) {
+                        HarvestCircleApplicationWithDependencies(
+                            closeRequested = closeRequested,
+                            onExitApproved = { approvedExits += 1 },
+                            clipboardFactory = { scope ->
+                                SecretClipboardController(scope, EmptyClipboard(), clearDelayMillis = 60_000)
+                            },
+                        ) { scope ->
+                            HarvestCirclePresenter(
+                                runtime = runtime,
+                                scope = scope,
+                                clock = ApplicationClock { UnixSeconds(System.currentTimeMillis() / 1_000) },
+                                operationIds = operationIds,
+                            ).also { presenter = it }
+                        }
                     }
                 }
 
                 waitForTag("bootstrap-welcome")
+                assertCanvasChromeClearance(windowChromeExclusion)
                 onNodeWithTag("bootstrap-read-only").performClick()
                 waitForTag("foundation-today")
+                assertDashboardChromeClearance(windowChromeExclusion)
                 onNodeWithTag("top-bar-signer").performClick()
                 waitForTag("signer-add-or-activate-identity")
                 onNodeWithTag("signer-add-or-activate-identity").performClick()
@@ -137,6 +146,23 @@ class IdentityLifecycleHostUiTest {
             runCatching { onNodeWithTag(tag).assertIsEnabled() }.isSuccess
         }
     }
+
+    private fun ComposeUiTest.assertCanvasChromeClearance(exclusion: HarvestCircleWindowChromeExclusion) {
+        if (exclusion == HarvestCircleWindowChromeExclusion.None) return
+        val canvas = onNodeWithTag("canvas-scaffold").fetchSemanticsNode().boundsInRoot
+        val content = onNodeWithTag("harvestcircle-canvas-chrome-content").fetchSemanticsNode().boundsInRoot
+        val exclusionWidth = with(density) { exclusion.width.toPx() }
+        assertTrue(content.left >= canvas.left + exclusionWidth)
+    }
+
+    private fun ComposeUiTest.assertDashboardChromeClearance(exclusion: HarvestCircleWindowChromeExclusion) {
+        if (exclusion == HarvestCircleWindowChromeExclusion.None) return
+        val frame = onNodeWithTag("harvestcircle-frame").fetchSemanticsNode().boundsInRoot
+        val toggle = onNodeWithTag("workspace-sidebar-toggle").fetchSemanticsNode().boundsInRoot
+        val exclusionWidth = with(density) { exclusion.width.toPx() }
+        assertTrue(toggle.left >= frame.left + exclusionWidth)
+        onAllNodesWithTag("top-bar-sidebar-toggle").assertCountEquals(0)
+    }
 }
 
 private fun cleanupRuntime(
@@ -178,3 +204,8 @@ private fun deleteTree(root: Path) {
 }
 
 private const val UI_TIMEOUT_MILLIS = 15_000L
+
+private fun hostIsMacOs(): Boolean =
+    System
+        .getProperty("os.name", "")
+        .startsWith("Mac", ignoreCase = true)
