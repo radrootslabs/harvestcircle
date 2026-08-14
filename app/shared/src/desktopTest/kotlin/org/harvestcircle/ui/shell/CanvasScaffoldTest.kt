@@ -8,9 +8,13 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.v2.runComposeUiTest
+import androidx.compose.ui.unit.dp
 import org.harvestcircle.appearance.AppearanceState
 import org.harvestcircle.appearance.TextSizePreference
+import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeEdge
+import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeExclusion
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -46,6 +50,29 @@ class CanvasScaffoldTest {
                 }
             }
             assertTrue(onNodeWithTag("canvas-body").fetchSemanticsNode().config.contains(SemanticsActions.ScrollBy))
+        }
+
+    @Test
+    fun macOsChromeExclusionProtectsHeaderForegroundAndMovesBodyBelowTallChrome() =
+        runComposeUiTest {
+            setHarvestCircleContent(
+                windowChromeExclusion =
+                    HarvestCircleWindowChromeExclusion(
+                        edge = HarvestCircleWindowChromeEdge.Left,
+                        width = 112.dp,
+                        height = 56.dp,
+                    ),
+            ) {
+                canvas(TextSizePreference.Default)
+            }
+
+            val chromeContent = onNodeWithTag("harvestcircle-canvas-chrome-content").fetchSemanticsNode().boundsInRoot
+            val header = onNodeWithTag("canvas-header").fetchSemanticsNode().boundsInRoot
+            val body = onNodeWithTag("canvas-body").fetchSemanticsNode().boundsInRoot
+
+            assertEquals(112f, chromeContent.left)
+            assertTrue(header.left >= 112f)
+            assertTrue(body.top >= 56f)
         }
 }
 

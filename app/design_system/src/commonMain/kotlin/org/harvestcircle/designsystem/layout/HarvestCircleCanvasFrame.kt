@@ -2,8 +2,10 @@ package org.harvestcircle.designsystem.layout
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,6 +16,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import org.harvestcircle.designsystem.shell.HarvestCircleShellMetrics
 import org.harvestcircle.designsystem.shell.HarvestCircleShellPalette
 
@@ -30,15 +34,26 @@ public fun HarvestCircleCanvasFrame(
     bodyScrollable: Boolean = false,
 ) {
     val colors = HarvestCircleShellPalette
-    Box(modifier.fillMaxSize().background(colors.viewportCanvas), contentAlignment = Alignment.Center) {
+    BoxWithConstraints(modifier.fillMaxSize().background(colors.viewportCanvas), contentAlignment = Alignment.Center) {
+        val chromeClearance =
+            resolveHarvestCircleWindowChromeClearance(
+                exclusion = HarvestCircleWindowChrome.exclusion,
+                windowWidth = maxWidth,
+                regionLeft = 0.dp,
+                regionWidth = maxWidth,
+                minimumTopBandHeight = HarvestCircleShellMetrics.topBarHeight,
+            )
         Column(Modifier.fillMaxSize().background(colors.pane)) {
             Row(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .height(HarvestCircleShellMetrics.topBarHeight)
+                        .height(chromeClearance.topBandHeight)
                         .background(colors.applicationFrame)
-                        .padding(horizontal = HarvestCircleShellMetrics.contentPageHorizontalInset),
+                        .absolutePadding(
+                            left = maxOf(HarvestCircleShellMetrics.contentPageHorizontalInset, chromeClearance.left),
+                            right = maxOf(HarvestCircleShellMetrics.contentPageHorizontalInset, chromeClearance.right),
+                        ).testTag("harvestcircle-canvas-chrome-content"),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box { navigation() }
