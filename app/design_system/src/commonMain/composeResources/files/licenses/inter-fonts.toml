@@ -1,0 +1,29 @@
+schema = "harvestcircle-bundled-fonts-v1"
+schema_version = 1
+family = "Inter"
+license = "inter-OFL-1.1.txt"
+license_sha256 = "6835568f43ca615604158a6739349fc9a2225544a1361586315247f3b3380d6a"
+
+[[font]]
+resource = "../../font/inter_regular.ttf"
+weight = 400
+style = "normal"
+sha256 = "40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82"
+
+[[font]]
+resource = "../../font/inter_medium.ttf"
+weight = 500
+style = "normal"
+sha256 = "97ad806f526e41546d46365bb3a393145f75b7b1568913db74549ad8b8dba872"
+
+[[font]]
+resource = "../../font/inter_semibold.ttf"
+weight = 600
+style = "normal"
+sha256 = "78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3"
+
+[[font]]
+resource = "../../font/inter_bold.ttf"
+weight = 700
+style = "normal"
+sha256 = "288316099b1e0a47a4716d159098005eef7c0066921f34e3200393dbdb01947f"
