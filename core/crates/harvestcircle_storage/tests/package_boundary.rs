@@ -33,6 +33,7 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
     }
 
     for module in [
+        "backup",
         "contract",
         "db",
         "identities",
@@ -54,6 +55,10 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
         "pub struct harvestcircle_storage::Database",
         "pub async fn harvestcircle_storage::Database::open",
         "pub async fn harvestcircle_storage::Database::close",
+        "pub async fn harvestcircle_storage::Database::capture_online_backup",
+        "pub async fn harvestcircle_storage::Database::restore_verified_backup",
+        "pub struct harvestcircle_storage::VerifiedHarvestCircleBackup",
+        "pub fn harvestcircle_storage::verify_harvestcircle_backup",
         "impl harvestcircle_application::ports::DurableOperationRepository for harvestcircle_storage::Database",
         "harvestcircle_application::ports::BoxFuture",
         "pub fn harvestcircle_storage::harvestcircle_migration_catalog()",
@@ -67,6 +72,11 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
         "sqlx::",
         "OperationJournal",
         "harvestcircle_initial_schema_sql",
+        "VerifiedServiceBackup",
+        "StagedServiceRestore",
+        "verify_backup_bundle",
+        "stage_verified_restore",
+        "finalize_staged_restore",
         "repair",
         "preflight",
     ] {

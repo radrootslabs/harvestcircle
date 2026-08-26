@@ -55,6 +55,13 @@ close, backup, and restore mechanics. The historical `harvestcircle.sqlite3`
 file is legacy evidence only and is never imported, repaired, deleted, or
 treated as current state.
 
+Online backup capture returns the canonical manifest in memory and writes only
+the governed `state.sqlite` member into a caller-selected new directory.
+Restore accepts only a digest-bound, identity-bound, size-bounded verified
+backup capability, closes the live host, uses the governed marker protocol,
+and reopens recovered state before returning. There is no arbitrary database
+repair or pathname-only restore authority.
+
 ## Project documentation
 
 The consuming Radroots monorepo owns normative HarvestCircle specifications,

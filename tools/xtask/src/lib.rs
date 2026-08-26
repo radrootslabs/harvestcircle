@@ -878,6 +878,10 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
         "pub struct harvestcircle_storage::Database",
         "pub async fn harvestcircle_storage::Database::open",
         "pub async fn harvestcircle_storage::Database::close",
+        "pub async fn harvestcircle_storage::Database::capture_online_backup",
+        "pub async fn harvestcircle_storage::Database::restore_verified_backup",
+        "pub struct harvestcircle_storage::VerifiedHarvestCircleBackup",
+        "pub fn harvestcircle_storage::verify_harvestcircle_backup",
         "impl harvestcircle_application::ports::DurableOperationRepository for harvestcircle_storage::Database",
         "harvestcircle_application::ports::BoxFuture",
     ] {
@@ -891,6 +895,11 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
         "sqlx::",
         "OperationJournal",
         "harvestcircle_initial_schema_sql",
+        "VerifiedServiceBackup",
+        "StagedServiceRestore",
+        "verify_backup_bundle",
+        "stage_verified_restore",
+        "finalize_staged_restore",
         "repair",
         "preflight",
     ] {

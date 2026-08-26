@@ -52,25 +52,7 @@ impl Database {
             .try_exists()
             .map_err(|_| storage_unavailable())?
         {
-            let intent = ExistingServiceDatabaseIntent::new(
-                contract.paths(),
-                contract.state_schema_version(),
-                contract.application_id(),
-            );
-            let (opened, _) = ServiceSqliteHost::open_read_write_existing_with_intent(
-                contract.paths(),
-                &intent,
-                contract.migrations(),
-                contract.schema(),
-                options,
-                applied_at,
-                build,
-                &[],
-            )
-            .await
-            .map_err(map_service_error)?;
-            let (host, metadata) = opened.into_parts();
-            return Ok(Self { host, metadata });
+            return Self::open_existing(&contract, applied_at, build).await;
         }
 
         let mut generation = [0_u8; 32];
@@ -122,6 +104,32 @@ impl Database {
     pub(crate) const fn host(&self) -> &ServiceSqliteHost {
         &self.host
     }
+
+    pub(crate) async fn open_existing(
+        contract: &HarvestCircleStorageContract,
+        applied_at: MigrationAppliedAtUnixSeconds,
+        build: &MigrationBuildIdentity,
+    ) -> Result<Self, SafeError> {
+        let intent = ExistingServiceDatabaseIntent::new(
+            contract.paths(),
+            contract.state_schema_version(),
+            contract.application_id(),
+        );
+        let (opened, _) = ServiceSqliteHost::open_read_write_existing_with_intent(
+            contract.paths(),
+            &intent,
+            contract.migrations(),
+            contract.schema(),
+            ServiceSqliteConnectionOptions::reviewed(),
+            applied_at,
+            build,
+            &[],
+        )
+        .await
+        .map_err(map_service_error)?;
+        let (host, metadata) = opened.into_parts();
+        Ok(Self { host, metadata })
+    }
 }
 
 async fn initialize_application_schema(path: std::path::PathBuf) -> Result<(), sqlx::Error> {
@@ -166,7 +174,7 @@ pub(crate) fn map_transaction_error(error: ServiceSqliteTransactionError<SafeErr
     }
 }
 
-fn map_service_error(error: radroots_service_sqlite::ServiceSqliteError) -> SafeError {
+pub(crate) fn map_service_error(error: radroots_service_sqlite::ServiceSqliteError) -> SafeError {
     match error.kind() {
         ServiceSqliteErrorKind::Metadata
         | ServiceSqliteErrorKind::Migration
@@ -195,7 +203,7 @@ pub(crate) const fn corrupt_storage() -> SafeError {
     )
 }
 
-const fn invalid_storage_contract() -> SafeError {
+pub(crate) const fn invalid_storage_contract() -> SafeError {
     SafeError::new(
         SafeErrorCode::InvalidApplicationState,
         SafeMessage::new("The application storage contract is invalid."),

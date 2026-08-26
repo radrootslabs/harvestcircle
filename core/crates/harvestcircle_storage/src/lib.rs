@@ -1,6 +1,7 @@
 #![doc = "HarvestCircle persistence adapters."]
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
+mod backup;
 mod contract;
 mod db;
 mod identities;
@@ -12,6 +13,7 @@ mod journal;
 mod os_keyring;
 mod profiles;
 
+pub use backup::{VerifiedHarvestCircleBackup, verify_harvestcircle_backup};
 pub use contract::{
     HARVESTCIRCLE_ACTOR_MAILBOX_CAPACITY, HARVESTCIRCLE_APPLICATION_ID,
     HARVESTCIRCLE_COMMAND_DEADLINE_MAX_MS, HARVESTCIRCLE_COMMAND_DEADLINE_MIN_MS,

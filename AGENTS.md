@@ -99,6 +99,10 @@ substitute.
 - Recovery and backup operations must be explicit, user-initiated, bounded,
   fail closed, and keep sensitive material out of logs, crash text, analytics,
   filenames, and long-lived UI state.
+- Backup and restore must use the sealed HarvestCircle wrappers over Lib's
+  capture, verify, stage, finalize, and marker-recovery protocol. Verification
+  requires a trusted manifest digest, current database identity, and positive
+  caller-supplied member limit; never accept an arbitrary replacement path.
 - Clipboard writes of sensitive output require explicit user action, bounded
   lifetime, ownership-aware clearing, and tests for cancellation and
   replacement. Never clear unrelated clipboard content.
