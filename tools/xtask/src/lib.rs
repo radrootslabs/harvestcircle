@@ -751,6 +751,12 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
         format!(
             "radroots_identity = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
         ),
+        format!(
+            "radroots_runtime_paths = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
+        ),
+        format!(
+            "radroots_service_sqlite = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
+        ),
     ] {
         if cargo
             .lines()
@@ -783,7 +789,7 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
         "workspace_catalog_sha256 = \"deca0c080deae187ff8186c0708903e42f41ea57f77c5f91581e23aa561164a4\"\n",
         "version = \"0.1.0-alpha\"\n",
         "source_archive_sha256 = \"aec2fe198b200f40af81424fbec70a9a8f22b0b38455bc6c81b7eb3be4241748\"\n",
-        "lockfile_sha256 = \"a2cb8a0f1d252434acba5e417f93ab9cd3be945af554452b3b40e4a8dcea3c80\"\n",
+        "lockfile_sha256 = \"1bbaae4bd586b936120bb8b2cfab8a5463e7e15aa3d6de0ccdf85f831835467f\"\n",
     );
     if read_text(root, SOURCE_LOCK_PATH) != expected_source_lock {
         findings.push(format!("{SOURCE_LOCK_PATH}: exact Lib source lock changed"));
@@ -798,6 +804,37 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
         root,
         "config/product/harvestcircle-v1.properties",
     ));
+    for (key, expected) in [
+        ("storage.service_id", "harvestcircle"),
+        ("storage.instance_id", "desktop"),
+        ("storage.database_filename", "state.sqlite"),
+        ("storage.lock_filename", "state.lock"),
+        ("storage.application_id", "1212371505"),
+        ("storage.application_id_text", "HCR1"),
+        ("storage.initial_schema_version", "1"),
+        ("legacy.database.filename", "harvestcircle.sqlite3"),
+        ("legacy.database.disposition", "untouched_and_unsupported"),
+        ("platform.macos.architecture", "aarch64"),
+        ("platform.linux.architecture", "x86_64"),
+        ("limit.identities", "256"),
+        ("limit.unfinished_durable_operations", "1024"),
+        ("limit.preference_value_utf8_bytes", "4096"),
+        ("limit.relay_endpoints", "16"),
+        ("limit.relay_url_bytes", "2048"),
+        ("limit.events_per_relay", "64"),
+        ("limit.events_total", "1024"),
+        ("limit.observers", "32"),
+        ("limit.actor_mailbox", "64"),
+        ("limit.command_deadline_min_ms", "1"),
+        ("limit.command_deadline_max_ms", "30000"),
+        ("backup.member_limit", "caller_supplied_positive"),
+    ] {
+        if coordinates.get(key).map(String::as_str) != Some(expected) {
+            findings.push(format!(
+                "config/product/harvestcircle-v1.properties: {key} must remain {expected}"
+            ));
+        }
+    }
     let uniffi = read_text(root, "core/crates/harvestcircle_ffi/uniffi.toml");
     let ffi_package = coordinates
         .get("ffi.kotlin_package")
@@ -832,7 +869,25 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
     {
         findings.push("app/shared/build.gradle.kts: shared KMP target boundary changed".to_owned());
     }
-    for required in [PROVENANCE_PATH, SOURCE_LOCK_PATH] {
+    const STORAGE_API_BASELINE: &str = "core/compatibility/harvestcircle-storage-api-v1.txt";
+    let storage_api = read_text(root, STORAGE_API_BASELINE);
+    for required in [
+        "pub struct harvestcircle_storage::HarvestCircleStorageContract",
+        "pub const harvestcircle_storage::HARVESTCIRCLE_APPLICATION_ID: u32",
+        "pub fn harvestcircle_storage::harvestcircle_schema_catalog()",
+    ] {
+        if !storage_api.contains(required) {
+            findings.push(format!("{STORAGE_API_BASELINE}: missing {required}"));
+        }
+    }
+    for forbidden in ["rusqlite::", "refinery::", "sqlx::"] {
+        if storage_api.contains(forbidden) {
+            findings.push(format!(
+                "{STORAGE_API_BASELINE}: dependency-owned API leaked: {forbidden}"
+            ));
+        }
+    }
+    for required in [PROVENANCE_PATH, SOURCE_LOCK_PATH, STORAGE_API_BASELINE] {
         if !inventory.paths.iter().any(|path| path == required) {
             findings.push(format!("{required}: governed source evidence is missing"));
         }

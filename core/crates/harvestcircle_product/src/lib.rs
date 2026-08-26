@@ -44,8 +44,23 @@ mod tests {
         );
         assert!(
             parse(&source.replace(
-                "database.filename=harvestcircle.sqlite3",
-                "database.filename=../other.sqlite3"
+                "storage.database_filename=state.sqlite",
+                "storage.database_filename=other.sqlite"
+            ))
+            .is_err()
+        );
+        assert!(
+            parse(&source.replace(
+                "legacy.database.filename=harvestcircle.sqlite3",
+                "legacy.database.filename=../other.sqlite3"
+            ))
+            .is_err()
+        );
+        assert!(parse(&source.replace("limit.identities=256", "limit.identities=257")).is_err());
+        assert!(
+            parse(&source.replace(
+                "platform.linux.architecture=x86_64",
+                "platform.linux.architecture=aarch64"
             ))
             .is_err()
         );
@@ -53,7 +68,7 @@ mod tests {
     }
 
     #[test]
-    fn every_coordinate_value_is_manifest_owned_and_generated() {
+    fn mutable_presentation_coordinates_are_manifest_owned_and_generated() {
         let source = include_str!("../../../../config/product/harvestcircle-v1.properties");
         let mutations = [
             ("product.name", "Harvest Circle Test"),
@@ -64,16 +79,11 @@ mod tests {
             ("desktop.main_class", "org.example.MainKt"),
             ("ffi.kotlin_package", "org.example.ffi"),
             ("ffi.cdylib_name", "example_ffi"),
-            ("database.qualifier", "com"),
-            ("database.organization", "example"),
-            ("database.application", "test"),
-            ("database.filename", "example.sqlite3"),
             ("keyring.service", "org.example.desktop.nostr"),
             ("environment.prefix", "EXAMPLE_"),
             ("vendor.name", "Example Cooperative"),
             ("copyright.notice", "Copyright Example contributors"),
         ];
-        assert_eq!(mutations.len() + 1, REQUIRED_KEYS.len());
         for (key, replacement) in mutations {
             let original = parse(source).unwrap().remove(key).unwrap();
             let mutated = source.replace(
@@ -89,6 +99,7 @@ mod tests {
                     .contains(&format!("= {replacement:?};"))
             );
         }
+        assert!(REQUIRED_KEYS.len() > mutations.len());
     }
 
     #[test]
@@ -97,7 +108,7 @@ mod tests {
         let expected = digest(source).expect("canonical product digest");
         assert_eq!(
             expected,
-            "93bf10e334e989b20ba5fb8ed05e5d55b83f4502efba5f893aef4dc1a66c8223"
+            "bf50f9ea6c2537406de255f025463e670eb6263c295f992f7e4c4db36d957064"
         );
         assert_eq!(digest(&source.replace('\n', "\r\n")).unwrap(), expected);
         assert_eq!(

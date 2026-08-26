@@ -13,7 +13,7 @@ class BuildContractsTest {
 
         assertEquals("HarvestCircle", coordinates["product.name"])
         assertEquals(
-            "93bf10e334e989b20ba5fb8ed05e5d55b83f4502efba5f893aef4dc1a66c8223",
+            "bf50f9ea6c2537406de255f025463e670eb6263c295f992f7e4c4db36d957064",
             coordinates.digest,
         )
         assertEquals(coordinates.digest, ProductCoordinates.parse(productCoordinates.replace("\n", "\r\n")).digest)
@@ -33,7 +33,10 @@ class BuildContractsTest {
         assertFails { ProductCoordinates.parse(productCoordinates.substringAfter('\n')) }
         assertFails { ProductCoordinates.parse(productCoordinates.replace("product.name=HarvestCircle", "product.name")) }
         assertFails { ProductCoordinates.parse(productCoordinates.replaceCoordinate("product.slug", "INVALID")) }
-        assertFails { ProductCoordinates.parse(productCoordinates.replace("harvestcircle.sqlite3", "../other.sqlite3")) }
+        assertFails { ProductCoordinates.parse(productCoordinates.replaceCoordinate("storage.database_filename", "other.sqlite")) }
+        assertFails { ProductCoordinates.parse(productCoordinates.replaceCoordinate("legacy.database.filename", "../other.sqlite3")) }
+        assertFails { ProductCoordinates.parse(productCoordinates.replaceCoordinate("limit.identities", "257")) }
+        assertFails { ProductCoordinates.parse(productCoordinates.replaceCoordinate("platform.linux.architecture", "aarch64")) }
 
         val validMutations =
             linkedMapOf(
@@ -45,16 +48,12 @@ class BuildContractsTest {
                 "desktop.main_class" to "org.example.MainKt",
                 "ffi.kotlin_package" to "org.example.ffi",
                 "ffi.cdylib_name" to "example_ffi",
-                "database.qualifier" to "com",
-                "database.organization" to "example",
-                "database.application" to "test",
-                "database.filename" to "example.sqlite3",
                 "keyring.service" to "org.example.desktop.nostr",
                 "environment.prefix" to "EXAMPLE_",
                 "vendor.name" to "Example Cooperative",
                 "copyright.notice" to "Copyright Example contributors",
             )
-        assertEquals(ProductCoordinates.requiredKeys.size - 1, validMutations.size)
+        assertTrue(ProductCoordinates.requiredKeys.size > validMutations.size)
         validMutations.forEach { (key, replacement) ->
             val mutated = ProductCoordinates.parse(productCoordinates.replaceCoordinate(key, replacement))
             assertEquals(replacement, mutated[key])
@@ -172,10 +171,35 @@ class BuildContractsTest {
         ffi.kotlin_package=org.harvestcircle.ffi
         ffi.cdylib_name=harvestcircle_ffi
 
-        database.qualifier=org
-        database.organization=harvestcircle
-        database.application=desktop
-        database.filename=harvestcircle.sqlite3
+        storage.service_id=harvestcircle
+        storage.instance_id=desktop
+        storage.database_filename=state.sqlite
+        storage.lock_filename=state.lock
+        storage.application_id=1212371505
+        storage.application_id_text=HCR1
+        storage.initial_schema_version=1
+
+        legacy.database.qualifier=org
+        legacy.database.organization=harvestcircle
+        legacy.database.application=desktop
+        legacy.database.filename=harvestcircle.sqlite3
+        legacy.database.disposition=untouched_and_unsupported
+
+        platform.macos.architecture=aarch64
+        platform.linux.architecture=x86_64
+
+        limit.identities=256
+        limit.unfinished_durable_operations=1024
+        limit.preference_value_utf8_bytes=4096
+        limit.relay_endpoints=16
+        limit.relay_url_bytes=2048
+        limit.events_per_relay=64
+        limit.events_total=1024
+        limit.observers=32
+        limit.actor_mailbox=64
+        limit.command_deadline_min_ms=1
+        limit.command_deadline_max_ms=30000
+        backup.member_limit=caller_supplied_positive
 
         keyring.service=org.harvestcircle.desktop.nostr
         environment.prefix=HARVESTCIRCLE_

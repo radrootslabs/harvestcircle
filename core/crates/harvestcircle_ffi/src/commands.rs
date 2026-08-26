@@ -16,7 +16,8 @@ use harvestcircle_domain::{
 };
 use harvestcircle_nostr::SdkNostrClient;
 use harvestcircle_product::{
-    DATABASE_APPLICATION, DATABASE_FILENAME, DATABASE_ORGANIZATION, DATABASE_QUALIFIER,
+    LEGACY_DATABASE_APPLICATION, LEGACY_DATABASE_FILENAME, LEGACY_DATABASE_ORGANIZATION,
+    LEGACY_DATABASE_QUALIFIER,
 };
 use harvestcircle_runtime::{
     RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,
@@ -697,14 +698,14 @@ fn application_database_path(input: &RuntimeOpenInputDto) -> Result<PathBuf, Har
         if canonical != directory {
             return Err(path_unavailable());
         }
-        return Ok(canonical.join(DATABASE_FILENAME));
+        return Ok(canonical.join(LEGACY_DATABASE_FILENAME));
     }
     ProjectDirs::from(
-        DATABASE_QUALIFIER,
-        DATABASE_ORGANIZATION,
-        DATABASE_APPLICATION,
+        LEGACY_DATABASE_QUALIFIER,
+        LEGACY_DATABASE_ORGANIZATION,
+        LEGACY_DATABASE_APPLICATION,
     )
-    .map(|project| project.data_dir().join(DATABASE_FILENAME))
+    .map(|project| project.data_dir().join(LEGACY_DATABASE_FILENAME))
     .ok_or_else(path_unavailable)
 }
 
@@ -832,15 +833,15 @@ mod tests {
     use harvestcircle_storage::{CREDENTIAL_SERVICE, CURRENT_SCHEMA_VERSION};
 
     use super::{
-        ACTOR_MAILBOX_CAPACITY, CompatibilityExpectation, DATABASE_APPLICATION, DATABASE_FILENAME,
-        DATABASE_ORGANIZATION, DATABASE_QUALIFIER, FFI_CONTRACT_HASH, FFI_CONTRACT_ID,
+        ACTOR_MAILBOX_CAPACITY, CompatibilityExpectation, FFI_CONTRACT_HASH, FFI_CONTRACT_ID,
         FFI_CONTRACT_MAJOR, FFI_CONTRACT_MINOR, HarvestCircleAppCore, HarvestCircleError,
-        PRODUCT_COORDINATE_DIGEST, ProjectDirs, RelayBootstrapInputDto, RequestContextDto,
-        RuntimeCore, RuntimeOpenInputDto, SNAPSHOT_SCHEMA_VERSION, SystemClock, WireErrorCategory,
-        WireErrorCode, WireRecoveryAction, actor_mailbox_capacity, application_database_path,
-        compatibility_descriptor, confirmation_expired, generated_commit_failed,
-        local_first_relay_configuration, path_unavailable, runtime, runtime_unavailable,
-        verify_compatibility,
+        LEGACY_DATABASE_APPLICATION, LEGACY_DATABASE_FILENAME, LEGACY_DATABASE_ORGANIZATION,
+        LEGACY_DATABASE_QUALIFIER, PRODUCT_COORDINATE_DIGEST, ProjectDirs, RelayBootstrapInputDto,
+        RequestContextDto, RuntimeCore, RuntimeOpenInputDto, SNAPSHOT_SCHEMA_VERSION, SystemClock,
+        WireErrorCategory, WireErrorCode, WireRecoveryAction, actor_mailbox_capacity,
+        application_database_path, compatibility_descriptor, confirmation_expired,
+        generated_commit_failed, local_first_relay_configuration, path_unavailable, runtime,
+        runtime_unavailable, verify_compatibility,
     };
 
     async fn in_memory_core() -> Arc<HarvestCircleAppCore> {
@@ -1197,16 +1198,16 @@ mod tests {
 
     #[test]
     fn final_product_coordinates_do_not_adopt_the_temporary_namespace() {
-        assert_eq!(DATABASE_QUALIFIER, "org");
-        assert_eq!(DATABASE_ORGANIZATION, "harvestcircle");
-        assert_eq!(DATABASE_APPLICATION, "desktop");
-        assert_eq!(DATABASE_FILENAME, "harvestcircle.sqlite3");
+        assert_eq!(LEGACY_DATABASE_QUALIFIER, "org");
+        assert_eq!(LEGACY_DATABASE_ORGANIZATION, "harvestcircle");
+        assert_eq!(LEGACY_DATABASE_APPLICATION, "desktop");
+        assert_eq!(LEGACY_DATABASE_FILENAME, "harvestcircle.sqlite3");
         assert_eq!(CREDENTIAL_SERVICE, "org.harvestcircle.desktop.nostr");
 
         let current = ProjectDirs::from(
-            DATABASE_QUALIFIER,
-            DATABASE_ORGANIZATION,
-            DATABASE_APPLICATION,
+            LEGACY_DATABASE_QUALIFIER,
+            LEGACY_DATABASE_ORGANIZATION,
+            LEGACY_DATABASE_APPLICATION,
         )
         .expect("current product coordinates");
         let temporary =
@@ -1232,7 +1233,7 @@ mod tests {
         };
         assert_eq!(
             application_database_path(&explicit).expect("explicit path"),
-            canonical.join(DATABASE_FILENAME),
+            canonical.join(LEGACY_DATABASE_FILENAME),
         );
 
         for rejected in [

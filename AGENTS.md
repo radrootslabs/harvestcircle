@@ -76,6 +76,16 @@ substitute.
 
 ## Application and security boundaries
 
+- Product state is bound only through `radroots_runtime_paths::RuntimeContext`
+  for service `harvestcircle` and instance `desktop`; the canonical database
+  and lock names are `state.sqlite` and `state.lock`. The exact schema starts
+  at v1, future migrations start at v2, and `radroots_service_sqlite` owns the
+  governed SQLite mechanics.
+- `harvestcircle.sqlite3` is legacy evidence only. Never delete, rename,
+  import, dual-read, dual-write, or otherwise treat it as current state.
+- Native production qualification is limited to macOS aarch64 and Linux
+  x86_64. Do not add or claim another target without an explicit contract
+  change and its complete platform evidence.
 - Keep Compose screens and stores as client presentation and orchestration.
   Do not make them a source of truth for accounts, identities, approvals,
   domain objects, synchronization, reconciliation, or publication state.

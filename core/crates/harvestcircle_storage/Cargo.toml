@@ -17,6 +17,8 @@ keyring = "=4.1.6"
 harvestcircle_application.workspace = true
 harvestcircle_domain.workspace = true
 harvestcircle_product.workspace = true
+radroots_runtime_paths.workspace = true
+radroots_service_sqlite.workspace = true
 refinery = { version = "=0.9.2", default-features = false, features = ["rusqlite"] }
 getrandom.workspace = true
 hmac.workspace = true
