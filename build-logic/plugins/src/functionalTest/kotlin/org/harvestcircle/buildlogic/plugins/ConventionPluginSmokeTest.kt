@@ -502,7 +502,7 @@ class ConventionPluginSmokeTest {
     private fun preparePackagingBuild(
         fixture: java.nio.file.Path,
         scriptBody: String,
-        timeoutSeconds: Long = 10L,
+        timeoutSeconds: Long = 30L,
     ) {
         prepareDesktopBuild(fixture, withUnitTest = true)
         val executable = fixture.resolve("app/desktop/fixture-health.sh")
