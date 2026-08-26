@@ -140,15 +140,22 @@ Gradle otherwise uses its standard ignored `build/` directories and Cargo uses
 the ignored target trees. Run `make doctor` before the first standalone
 mutating lane and `make governed-doctor` before a governed lane. Use `make
 format`, `make lint`, and `make test` while iterating, and run `make check` or
-`make governed-check` for a complete source checkpoint. Signing, notarization,
-and release targets are governed-only. Unknown build modes fail before build
-mutation.
+`make governed-check` for a complete source checkpoint. The active development
+milestone is qualified with `make governed-development-check` on macOS aarch64
+and `make governed-linux-x86_64-development-check` for the faithful Linux
+x86_64 lane. These development targets must retain source, runtime, generated,
+API, source-lock, SQLx-topology, and offline license/source verification without
+activating advisory retrieval, package assembly, release evidence, signing,
+notarization, Nix, or OCI work. Signing, notarization, and release targets are
+governed-only and require a separately declared release candidate and fresh
+authority. Unknown build modes fail before build mutation.
 
-Shared public Git dependencies and package or advisory lanes may require
-external services. Do not weaken immutable inputs or silently switch sources
-when offline. Never claim a lane passed unless it ran successfully; report
-network, toolchain, platform, advisory-service, package, or external-artifact
-blockers exactly.
+Shared public Git dependencies and deferred package or advisory lanes may
+require external services. Do not weaken immutable inputs or silently switch
+sources when offline. During the active development milestone, do not run or
+claim the deferred release integrations merely because they remain available
+as explicit targets. Never claim a lane passed unless it ran successfully;
+report network, toolchain, platform, or external-artifact blockers exactly.
 
 Verify exact manifests/lock agreement, generated binding and native artifact
 freshness when affected, compatibility and architecture guards,

@@ -29,6 +29,8 @@ import org.harvestcircle.application.RequestContext
 import org.harvestcircle.application.SecretClipboardController
 import org.harvestcircle.application.TextClipboard
 import org.harvestcircle.application.UnixSeconds
+import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeEnvironment
+import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeExclusion
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.readBytes
@@ -53,25 +55,27 @@ class IdentityBootstrapAcceptanceTest {
             var approvedExits = 0
             try {
                 setContent {
-                    if (showApplication) {
-                        key(applicationSession) {
-                            HarvestCircleApplicationWithDependencies(
-                                closeRequested = closeRequested,
-                                onExitApproved = { approvedExits += 1 },
-                                clipboardFactory = { scope ->
-                                    SecretClipboardController(
+                    HarvestCircleWindowChromeEnvironment(HarvestCircleWindowChromeExclusion.None) {
+                        if (showApplication) {
+                            key(applicationSession) {
+                                HarvestCircleApplicationWithDependencies(
+                                    closeRequested = closeRequested,
+                                    onExitApproved = { approvedExits += 1 },
+                                    clipboardFactory = { scope ->
+                                        SecretClipboardController(
+                                            scope = scope,
+                                            clipboard = clipboard,
+                                            clearDelayMillis = 60_000,
+                                        )
+                                    },
+                                ) { scope ->
+                                    HarvestCirclePresenter(
+                                        runtime = runtime,
                                         scope = scope,
-                                        clipboard = clipboard,
-                                        clearDelayMillis = 60_000,
+                                        clock = ApplicationClock { UnixSeconds(FIXED_TIME_SECONDS) },
+                                        operationIds = operationIds,
                                     )
-                                },
-                            ) { scope ->
-                                HarvestCirclePresenter(
-                                    runtime = runtime,
-                                    scope = scope,
-                                    clock = ApplicationClock { UnixSeconds(FIXED_TIME_SECONDS) },
-                                    operationIds = operationIds,
-                                )
+                                }
                             }
                         }
                     }
@@ -158,25 +162,27 @@ class IdentityBootstrapAcceptanceTest {
             var approvedExits = 0
             try {
                 setContent {
-                    if (showApplication) {
-                        key(applicationSession) {
-                            HarvestCircleApplicationWithDependencies(
-                                closeRequested = closeRequested,
-                                onExitApproved = { approvedExits += 1 },
-                                clipboardFactory = { scope ->
-                                    SecretClipboardController(
+                    HarvestCircleWindowChromeEnvironment(HarvestCircleWindowChromeExclusion.None) {
+                        if (showApplication) {
+                            key(applicationSession) {
+                                HarvestCircleApplicationWithDependencies(
+                                    closeRequested = closeRequested,
+                                    onExitApproved = { approvedExits += 1 },
+                                    clipboardFactory = { scope ->
+                                        SecretClipboardController(
+                                            scope = scope,
+                                            clipboard = RecordingClipboard(),
+                                            clearDelayMillis = 60_000,
+                                        )
+                                    },
+                                ) { scope ->
+                                    HarvestCirclePresenter(
+                                        runtime = runtime,
                                         scope = scope,
-                                        clipboard = RecordingClipboard(),
-                                        clearDelayMillis = 60_000,
+                                        clock = ApplicationClock { UnixSeconds(FIXED_TIME_SECONDS) },
+                                        operationIds = SequentialOperationIds(),
                                     )
-                                },
-                            ) { scope ->
-                                HarvestCirclePresenter(
-                                    runtime = runtime,
-                                    scope = scope,
-                                    clock = ApplicationClock { UnixSeconds(FIXED_TIME_SECONDS) },
-                                    operationIds = SequentialOperationIds(),
-                                )
+                                }
                             }
                         }
                     }
@@ -253,19 +259,21 @@ class IdentityBootstrapAcceptanceTest {
                 runtime.setNetworkDegraded(true)
 
                 setContent {
-                    HarvestCircleApplicationWithDependencies(
-                        closeRequested = false,
-                        onExitApproved = {},
-                        clipboardFactory = { scope ->
-                            SecretClipboardController(scope, RecordingClipboard(), clearDelayMillis = 60_000)
-                        },
-                    ) { scope ->
-                        HarvestCirclePresenter(
-                            runtime = runtime,
-                            scope = scope,
-                            clock = ApplicationClock { UnixSeconds(FIXED_TIME_SECONDS) },
-                            operationIds = operationIds,
-                        )
+                    HarvestCircleWindowChromeEnvironment(HarvestCircleWindowChromeExclusion.None) {
+                        HarvestCircleApplicationWithDependencies(
+                            closeRequested = false,
+                            onExitApproved = {},
+                            clipboardFactory = { scope ->
+                                SecretClipboardController(scope, RecordingClipboard(), clearDelayMillis = 60_000)
+                            },
+                        ) { scope ->
+                            HarvestCirclePresenter(
+                                runtime = runtime,
+                                scope = scope,
+                                clock = ApplicationClock { UnixSeconds(FIXED_TIME_SECONDS) },
+                                operationIds = operationIds,
+                            )
+                        }
                     }
                 }
 

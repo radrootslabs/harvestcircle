@@ -12,7 +12,7 @@ public class HarvestCircleRootPlugin : Plugin<Project> {
         val productCoordinatesFile = target.layout.projectDirectory.file("config/product/harvestcircle-v1.properties")
         val ffiCompatibilityBaselineFile =
             target.layout.projectDirectory.file("core/compatibility/harvestcircle-ffi-v4.properties")
-        val verificationLanesFile = target.layout.projectDirectory.file("config/verification/lanes-v2.properties")
+        val verificationLanesFile = target.layout.projectDirectory.file("config/verification/lanes-v3.properties")
 
         val verifyProductCoordinates =
             target.tasks.register("verifyProductCoordinates", VerifyProductCoordinates::class.java) { task ->

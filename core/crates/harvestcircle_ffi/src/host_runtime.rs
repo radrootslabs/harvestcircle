@@ -111,9 +111,7 @@ impl HostRuntime {
 
         let thread = self.thread.lock().map_err(|_| ())?.take();
         if let Some(thread) = thread {
-            tokio::task::spawn_blocking(move || thread.join().map_err(|_| ()))
-                .await
-                .map_err(|_| ())??;
+            thread.join().map_err(|_| ())?;
         }
         Ok(())
     }

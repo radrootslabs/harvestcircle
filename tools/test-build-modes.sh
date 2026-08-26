@@ -9,7 +9,7 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-printf '%s\n' '#!/bin/sh' 'if [ "${1:-}" = extbuild ]; then printf "%s\n" "cargo-extbuild unavailable" >&2; else printf "%s\n" "cargo must not be invoked in standalone dry-run" >&2; fi' 'exit 93' > "$fixture/cargo"
+printf '%s\n' '#!/bin/sh' 'if [ "${1:-}" = +1.97.1 ]; then shift; fi' 'if [ "${1:-}" = extbuild ]; then printf "%s\n" "cargo-extbuild unavailable" >&2; else printf "%s\n" "cargo must not be invoked in standalone dry-run" >&2; fi' 'exit 93' > "$fixture/cargo"
 chmod +x "$fixture/cargo"
 
 standalone_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE=standalone -C "$repository_root" check)
@@ -18,7 +18,7 @@ if printf '%s\n' "$standalone_output" | grep -q 'cargo extbuild'; then
     exit 1
 fi
 
-for lane in source-check integration-check; do
+for lane in source-check integration-check development-check; do
     for mode in standalone governed; do
         lane_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$repository_root" "$lane")
         build_logic_count=$(printf '%s\n' "$lane_output" | grep -c -- '-p build-logic')
@@ -27,6 +27,24 @@ for lane in source-check integration-check; do
             exit 1
         fi
     done
+done
+
+development_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE=standalone -C "$repository_root" development-check)
+for forbidden in \
+    'cargo audit' \
+    'dependencyCheckAnalyze' \
+    'verifyHostPackage' \
+    'releaseReadiness' \
+    'unsignedReleaseReadiness' \
+    'signingReadiness' \
+    'notarizationReadiness' \
+    'packageDmg' \
+    'packageDeb'
+do
+    if printf '%s\n' "$development_output" | grep -q "$forbidden"; then
+        printf '%s\n' "development verification activated deferred integration: $forbidden" >&2
+        exit 1
+    fi
 done
 
 for mode in standalone governed; do

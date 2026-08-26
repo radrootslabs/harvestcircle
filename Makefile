@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 
 GRADLE ?= ./gradlew
-CARGO ?= cargo
+override CARGO := cargo +1.97.1
 CARGO_MANIFEST := core/Cargo.toml
 XTASK_MANIFEST := tools/xtask/Cargo.toml
 BUILD_MODE ?= standalone
@@ -17,10 +17,10 @@ else
 override BUILD_RUNNER :=
 endif
 
-.PHONY: help doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check host-ui-lifecycle-check acceptance-check signing-check _signing-check notarization-check _notarization-check release-check _release-check clean
+.PHONY: help doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-provenance-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check signing-check _signing-check notarization-check _notarization-check release-check _release-check clean
 
 help:
-	@printf '%s\n' doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check host-ui-lifecycle-check acceptance-check signing-check notarization-check release-check clean
+	@printf '%s\n' doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check signing-check notarization-check release-check clean
 
 design-source-check: doctor
 	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- design-source-audit
@@ -90,6 +90,9 @@ build: doctor
 bindings: doctor
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:verifyUniFfiBindings :app:desktop:verifyReleaseNativeLibrary
 
+api-check: doctor
+	$(BUILD_RUNNER) tools/verify-storage-api.sh
+
 dev-check: doctor
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon --configuration-cache --configuration-cache-problems=fail :app:desktop:hotRunArgfile
 
@@ -120,7 +123,7 @@ host-package-check: doctor
 governed-package-check:
 	$(MAKE) --no-print-directory BUILD_MODE=governed host-package-check
 
-source-check: build-logic-check check bindings licenses dev-check
+source-check: build-logic-check check bindings api-check licenses dev-check
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:sourceReadiness
 
 governed-source-check:
@@ -134,6 +137,25 @@ integration-check: build-logic-check check
 
 governed-integration-check:
 	$(MAKE) --no-print-directory BUILD_MODE=governed integration-check
+
+development-check: export HARVESTCIRCLE_BUILD_SOURCE_COMMIT = $(shell git rev-parse --verify HEAD)
+development-check: export HARVESTCIRCLE_BUILD_SOURCE_DIRTY = $(if $(strip $(shell git status --porcelain --untracked-files=all)),true,false)
+development-check: export HARVESTCIRCLE_BUILD_RADROOTS_REVISION = $(shell sed -n 's/^revision = "\([0-9a-f]\{40\}\)"$$/\1/p' radroots.lib.source-lock.v1.toml)
+development-check: export HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN = 1.97.1
+development-check: export SOURCE_DATE_EPOCH = $(shell git show -s --format=%ct HEAD)
+development-check: development-provenance-check source-check integration-check
+
+development-provenance-check:
+	@test "$${#HARVESTCIRCLE_BUILD_SOURCE_COMMIT}" -eq 40
+	@test "$${#HARVESTCIRCLE_BUILD_RADROOTS_REVISION}" -eq 40
+	@case "$$SOURCE_DATE_EPOCH" in ''|*[!0-9]*) exit 2 ;; esac
+	@test "$$HARVESTCIRCLE_BUILD_SOURCE_DIRTY" = true -o "$$HARVESTCIRCLE_BUILD_SOURCE_DIRTY" = false
+
+governed-development-check:
+	$(MAKE) --no-print-directory BUILD_MODE=governed development-check
+
+governed-linux-x86_64-development-check: governed-doctor
+	$(CARGO) extbuild run -- tools/run-linux-x86_64-development-check.sh
 
 host-ui-lifecycle-check: doctor
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:hostUiLifecycleTest

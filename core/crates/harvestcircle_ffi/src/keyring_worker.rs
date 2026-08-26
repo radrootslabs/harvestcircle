@@ -98,9 +98,7 @@ impl BoundedKeyringWorker {
         }
         let thread = self.thread.lock().map_err(|_| worker_unavailable())?.take();
         if let Some(thread) = thread {
-            tokio::task::spawn_blocking(move || thread.join().map_err(|_| worker_unavailable()))
-                .await
-                .map_err(|_| worker_unavailable())??;
+            thread.join().map_err(|_| worker_unavailable())?;
         }
         Ok(())
     }

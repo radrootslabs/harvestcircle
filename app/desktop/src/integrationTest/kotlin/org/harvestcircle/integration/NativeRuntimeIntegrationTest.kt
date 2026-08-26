@@ -82,9 +82,7 @@ class NativeRuntimeIntegrationTest {
             val publicEvidence = bridge.snapshot().toString() + secondRead.safeMessage + duplicateAcknowledge.safeMessage
             assertFalse(publicEvidence.contains(secret))
             assertFalse(publicEvidence.contains(cancelledSecret))
-            val databaseBytes = dataRoot.resolve("harvestcircle-integration.sqlite3").readBytes()
-            assertFalse(databaseBytes.containsBytes(secret.encodeToByteArray()))
-            assertFalse(databaseBytes.containsBytes(cancelledSecret.encodeToByteArray()))
+            assertTreeDoesNotContain(dataRoot, secret, cancelledSecret)
             bridge.shutdown()
         } finally {
             bridge.close()
@@ -240,10 +238,7 @@ class NativeRuntimeIntegrationTest {
                     assertFalse(timeout.contains(timeoutSecret))
                     assertEquals(2, bridge.snapshot().identities.size)
 
-                    val databaseBytes = dataRoot.resolve("harvestcircle-integration.sqlite3").readBytes()
-                    assertFalse(databaseBytes.containsBytes(importedSecret.encodeToByteArray()))
-                    assertFalse(databaseBytes.containsBytes(timeoutSecret.encodeToByteArray()))
-                    assertFalse(databaseBytes.containsBytes("nsec1".encodeToByteArray()))
+                    assertTreeDoesNotContain(dataRoot, importedSecret, timeoutSecret, "nsec1")
                     val publicEvidence = bridge.snapshot().toString() + timeout
                     assertFalse(publicEvidence.contains(importedSecret))
                     assertFalse(publicEvidence.contains(timeoutSecret))
@@ -273,6 +268,25 @@ private fun ByteArray.containsBytes(needle: ByteArray): Boolean =
         indices.any { start ->
             start + needle.size <= size && needle.indices.all { offset -> this[start + offset] == needle[offset] }
         }
+
+private fun assertTreeDoesNotContain(
+    root: Path,
+    vararg values: String,
+) {
+    val needles = values.map(String::encodeToByteArray)
+    try {
+        Files.walk(root).use { paths ->
+            paths
+                .filter(Files::isRegularFile)
+                .forEach { file ->
+                    val bytes = file.readBytes()
+                    needles.forEach { needle -> assertFalse(bytes.containsBytes(needle)) }
+                }
+        }
+    } finally {
+        needles.forEach { it.fill(0) }
+    }
+}
 
 private fun deleteTree(root: Path) {
     Files.walk(root).use { paths ->

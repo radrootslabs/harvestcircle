@@ -16,7 +16,7 @@ commercial use.
 - canonical service-instance persistence through the governed SQLx host;
 - configurable Nostr relay bootstrap;
 - compatibility-gated native startup;
-- reproducible source and package verification.
+- reproducible source and development qualification.
 
 ## Sovereign direction
 
@@ -33,13 +33,19 @@ Prerequisites include JDK 21, Rust 1.97.1, and platform packaging tools.
 make doctor
 make check
 make build
-make package
+make governed-development-check
 ```
 
 These commands always use the standalone contributor lane. Use
-`make governed-check`, `make governed-integration-check`, or
-`make governed-package-check` when extbuild-governed output routing is
-required. Release, signing, and notarization checks are governed-only.
+`make governed-check` or `make governed-integration-check` when a narrower
+extbuild-governed lane is required. The full active development milestone uses
+`make governed-development-check` on macOS aarch64 and
+`make governed-linux-x86_64-development-check` for Linux x86_64. It verifies
+source, runtime, generated bindings, the public storage API, the exact Radroots
+source lock, the single SQLx-selected SQLite linkage, and offline license/source
+policy. Network advisory services, package assembly, release evidence, signing,
+notarization, Nix, and OCI qualification remain deferred and unclaimed until a
+release candidate is declared with fresh authority.
 
 ## Development branch
 

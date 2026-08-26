@@ -21,6 +21,8 @@ internal fun verifyNativeCompatibility(descriptor: CompatibilityDescriptor): Com
             descriptor.productCoordinateDigest == Expected.productCoordinateDigest &&
             descriptor.snapshotSchemaVersion == Expected.snapshotSchema &&
             descriptor.currentSchemaVersion >= Expected.minimumStorageSchema &&
+            descriptor.currentSchemaVersion <= Expected.maximumStorageSchema &&
+            descriptor.minimumSchemaVersion <= descriptor.currentSchemaVersion &&
             descriptor.minimumSchemaVersion <= Expected.maximumStorageSchema &&
             descriptor.sourceProvenanceDigest == Expected.sourceProvenanceDigest &&
             descriptor.sourceFoundationBaseline == Expected.sourceFoundationBaseline

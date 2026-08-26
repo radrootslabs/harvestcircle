@@ -832,6 +832,124 @@ fn contains_direct_call(source: &str, call: &str) -> bool {
     })
 }
 
+fn manifest_declares_dependency(source: &str, dependency: &str) -> bool {
+    source.lines().map(str::trim).any(|line| {
+        if line.is_empty() || line.starts_with('#') {
+            return false;
+        }
+        if line
+            .split_once('=')
+            .is_some_and(|(key, _)| key.trim().trim_matches('"') == dependency)
+        {
+            return true;
+        }
+        line.strip_prefix('[')
+            .and_then(|value| value.strip_suffix(']'))
+            .is_some_and(|table| {
+                let segments = table.split('.').collect::<Vec<_>>();
+                segments.contains(&"dependencies")
+                    && segments
+                        .last()
+                        .is_some_and(|name| name.trim_matches('"') == dependency)
+            })
+    })
+}
+
+fn sqlite_dependency_topology(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
+    let cargo_lock = read_text(root, "core/Cargo.lock");
+    let package_count = |name: &str| {
+        let marker = format!("name = \"{name}\"");
+        cargo_lock
+            .lines()
+            .filter(|line| line.trim() == marker)
+            .count()
+    };
+    if package_count("libsqlite3-sys") != 1
+        || ["rusqlite", "refinery", "refinery-core", "refinery-macros"]
+            .iter()
+            .any(|name| package_count(name) != 0)
+    {
+        findings.push(
+            "core/Cargo.lock: exact single SQLx-selected native SQLite topology changed".to_owned(),
+        );
+    }
+
+    for path in inventory
+        .paths
+        .iter()
+        .filter(|path| path.starts_with("core/") && path.ends_with("Cargo.toml"))
+    {
+        let manifest = read_text(root, path);
+        if ["rusqlite", "refinery", "libsqlite3-sys"]
+            .iter()
+            .any(|dependency| manifest_declares_dependency(&manifest, dependency))
+        {
+            findings.push(format!(
+                "{path}: direct alternate or native SQLite dependency is forbidden"
+            ));
+        }
+    }
+}
+
+fn development_integration_policy(root: &Path, findings: &mut Vec<String>) {
+    let makefile = read_text(root, "Makefile");
+    for required in [
+        "override CARGO := cargo +1.97.1",
+        "api-check: doctor",
+        "development-check: development-provenance-check source-check integration-check",
+        "governed-development-check:",
+        "governed-linux-x86_64-development-check: governed-doctor",
+    ] {
+        if makefile
+            .lines()
+            .filter(|line| line.trim() == required)
+            .count()
+            != 1
+        {
+            findings.push(format!(
+                "Makefile: development integration boundary is missing {required}"
+            ));
+        }
+    }
+
+    let runner = read_text(root, "tools/run-linux-x86_64-development-check.sh");
+    for required in [
+        "rust:1.97.1-slim-trixie@sha256:fc0648ac2962539be80bd424729a20fd80f7b64bfba7e90bbd642aed6c697c5a",
+        "--platform linux/amd64",
+        "EXT_BUILD_RUN_ACTIVE",
+        "cargo deny --manifest-path core/Cargo.toml check --config core/deny.toml licenses sources",
+        "cargo test --manifest-path core/Cargo.toml --workspace --locked",
+        "cargo clippy --manifest-path core/Cargo.toml --workspace --all-targets --locked -- -D warnings",
+        ":app:desktop:integrationTest",
+        ":app:desktop:verifyUniFfiBindings",
+        "harvestcircle.linux_x86_64.development=pass",
+    ] {
+        if !runner.contains(required) {
+            findings.push(format!(
+                "tools/run-linux-x86_64-development-check.sh: faithful runner is missing {required}"
+            ));
+        }
+    }
+    for forbidden in [
+        "cargo audit",
+        " advisories",
+        "dependencyCheck",
+        "releaseReadiness",
+        "unsignedReleaseReadiness",
+        "verifyReleaseSupplyChainEvidence",
+        "packageDmg",
+        "packageDeb",
+        "CycloneDX",
+        "SLSA",
+    ] {
+        if runner.contains(forbidden) {
+            findings.push(format!(
+                "tools/run-linux-x86_64-development-check.sh: deferred release integration is active: {forbidden}"
+            ));
+        }
+    }
+}
+
 fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
     const LIB_REVISION: &str = "be9db78e060ebc0000fa7827ac32efa3f6504f53";
     const PROVENANCE_PATH: &str = "core/provenance/harvestcircle-v1.toml";
@@ -900,6 +1018,8 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
     )) {
         findings.push("core/Cargo.lock: selected Lib revision is missing".to_owned());
     }
+    sqlite_dependency_topology(root, inventory, findings);
+    development_integration_policy(root, findings);
     let coordinates = properties(&read_text(
         root,
         "config/product/harvestcircle-v1.properties",
@@ -1009,7 +1129,14 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
             ));
         }
     }
-    for required in [PROVENANCE_PATH, SOURCE_LOCK_PATH, STORAGE_API_BASELINE] {
+    for required in [
+        PROVENANCE_PATH,
+        SOURCE_LOCK_PATH,
+        STORAGE_API_BASELINE,
+        "config/verification/lanes-v3.properties",
+        "tools/run-linux-x86_64-development-check.sh",
+        "tools/verify-storage-api.sh",
+    ] {
         if !inventory.paths.iter().any(|path| path == required) {
             findings.push(format!("{required}: governed source evidence is missing"));
         }
@@ -1380,6 +1507,59 @@ mod tests {
         let mut findings = Vec::new();
         provenance_check(&root, &inventory, &mut findings);
         assert!(findings.is_empty(), "{findings:#?}");
+    }
+
+    #[test]
+    fn sqlite_topology_rejects_alternate_duplicate_and_direct_authority() {
+        let root = fixture("sqlite-topology");
+        write(
+            &root,
+            "core/Cargo.lock",
+            "name = \"libsqlite3-sys\"\nname = \"libsqlite3-sys\"\nname = \"rusqlite\"\n",
+        );
+        write(
+            &root,
+            "core/crates/unsafe_storage/Cargo.toml",
+            "[target.'cfg(unix)'.dependencies.refinery]\nversion = \"0.9\"\n",
+        );
+        let inventory = Inventory::load(&root).expect("archive inventory");
+        let mut findings = Vec::new();
+        sqlite_dependency_topology(&root, &inventory, &mut findings);
+        assert!(
+            findings.iter().any(|finding| finding
+                .contains("exact single SQLx-selected native SQLite topology changed")),
+            "{findings:#?}"
+        );
+        assert!(
+            findings.iter().any(|finding| finding
+                .contains("direct alternate or native SQLite dependency is forbidden")),
+            "{findings:#?}"
+        );
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn development_runner_rejects_release_integration_activation() {
+        let root = fixture("development-runner");
+        write(
+            &root,
+            "Makefile",
+            "override CARGO := cargo +1.97.1\napi-check: doctor\ndevelopment-check: development-provenance-check source-check integration-check\ngoverned-development-check:\ngoverned-linux-x86_64-development-check: governed-doctor\n",
+        );
+        write(
+            &root,
+            "tools/run-linux-x86_64-development-check.sh",
+            "dependencyCheckAnalyze\n",
+        );
+        let mut findings = Vec::new();
+        development_integration_policy(&root, &mut findings);
+        assert!(
+            findings
+                .iter()
+                .any(|finding| { finding.contains("deferred release integration is active") }),
+            "{findings:#?}"
+        );
+        fs::remove_dir_all(root).expect("remove fixture");
     }
 
     #[test]
