@@ -80,6 +80,7 @@ docker run \
     --env CARGO_TARGET_DIR=/workspace/cargo-target \
     --env CARGO_BUILD_JOBS=2 \
     --env GRADLE_USER_HOME=/workspace/gradle-home \
+    --env JAVA_TOOL_OPTIONS=-Duser.home=/workspace/home \
     --env EXT_BUILD_GRADLE_BUILD_DIR=/workspace/gradle-build \
     --env HARVESTCIRCLE_BUILD_MODE=governed \
     --env HARVESTCIRCLE_BUILD_SOURCE_COMMIT="$source_commit" \

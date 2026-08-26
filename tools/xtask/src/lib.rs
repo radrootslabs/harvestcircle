@@ -917,6 +917,7 @@ fn development_integration_policy(root: &Path, findings: &mut Vec<String>) {
         "rust:1.97.1-slim-trixie@sha256:fc0648ac2962539be80bd424729a20fd80f7b64bfba7e90bbd642aed6c697c5a",
         "--platform linux/amd64",
         "EXT_BUILD_RUN_ACTIVE",
+        "--env JAVA_TOOL_OPTIONS=-Duser.home=/workspace/home",
         "cargo deny --manifest-path core/Cargo.toml check --config core/deny.toml licenses sources",
         "cargo test --manifest-path core/Cargo.toml --workspace --locked",
         "cargo clippy --manifest-path core/Cargo.toml --workspace --all-targets --locked -- -D warnings",
