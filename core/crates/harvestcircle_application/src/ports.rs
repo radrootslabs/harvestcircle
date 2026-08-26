@@ -3,9 +3,10 @@ use std::pin::Pin;
 use std::time::Instant;
 
 use harvestcircle_domain::{
-    Kind0ProfileCandidate, NostrIdentity, Npub, Nsec, PublicKey, RelayEndpoint, SafeError,
-    SafeErrorCode, SafeMessage, SecretKeyInput, SignerAvailability, UnixTimestamp,
+    Kind0ProfileCandidate, NostrIdentity, Npub, Nsec, PublicKey, SafeError, SafeErrorCode,
+    SafeMessage, SecretKeyInput, SignerAvailability, UnixTimestamp,
 };
+use radroots_transport_nostr::RelayEndpoint;
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DurableRequestId(String);
@@ -16,13 +17,23 @@ impl DurableRequestId {
     /// # Errors
     ///
     /// Returns a safe validation error when the value is not canonical UUIDv7 text.
-    pub fn parse(value: impl Into<String>) -> Result<Self, SafeError> {
-        let value = value.into();
-        let parsed = uuid::Uuid::parse_str(&value).map_err(|_| invalid_request_id())?;
+    pub fn parse(value: impl AsRef<str>) -> Result<Self, SafeError> {
+        let value = value.as_ref();
+        if value.len() != 36
+            || !value.is_ascii()
+            || value.bytes().enumerate().any(|(index, byte)| match index {
+                8 | 13 | 18 | 23 => byte != b'-',
+                19 => !matches!(byte, b'8' | b'9' | b'a' | b'b'),
+                _ => !matches!(byte, b'0'..=b'9' | b'a'..=b'f'),
+            })
+        {
+            return Err(invalid_request_id());
+        }
+        let parsed = uuid::Uuid::parse_str(value).map_err(|_| invalid_request_id())?;
         if parsed.get_version_num() != 7 || parsed.hyphenated().to_string() != value {
             return Err(invalid_request_id());
         }
-        Ok(Self(value))
+        Ok(Self(value.to_owned()))
     }
 
     #[must_use]
@@ -735,7 +746,8 @@ mod tests {
 
     use std::sync::Mutex;
 
-    use harvestcircle_domain::{NostrIdentity, PublicKey, RelayEndpoint, SafeError, UnixTimestamp};
+    use harvestcircle_domain::{NostrIdentity, PublicKey, SafeError, UnixTimestamp};
+    use radroots_transport_nostr::RelayEndpoint;
 
     use super::{
         AppStateRepository, BoxFuture, CachedProfile, Clock, DurableOperationReceipt,
@@ -763,9 +775,12 @@ mod tests {
             "01890f3e-7b1c-4000-8000-000000000031",
             "01890F3E-7B1C-7000-8000-000000000031",
             "01890f3e-7b1c-6000-8000-000000000031",
+            "01890f3e-7b1c-7000-7000-000000000031",
         ] {
             assert!(DurableRequestId::parse(invalid).is_err());
         }
+        let oversized = "0".repeat(1_000_000);
+        assert!(DurableRequestId::parse(&oversized).is_err());
     }
 
     #[tokio::test]

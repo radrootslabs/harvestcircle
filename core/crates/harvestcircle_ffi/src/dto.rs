@@ -1,10 +1,11 @@
+use std::fmt::{self, Formatter};
+
 use harvestcircle_application::{
     ActiveIdentitySnapshot, AppLifecycle, AppSnapshot, ProfileLoadState, RelayConnectionState,
-    RuntimeLifecycle, SessionState,
+    RelayEndpoint, RelayUrlPolicy, RuntimeLifecycle, SessionState,
 };
 use harvestcircle_domain::{
-    NostrIdentity, ProfileMetadata, RelayDestinationPolicy, RelayEndpoint, SafeError,
-    SafeErrorCode, SignerAvailability,
+    NostrIdentity, ProfileMetadata, SafeError, SafeErrorCode, SignerAvailability,
 };
 use harvestcircle_nostr::{NostrReferenceKind, NostrReferenceParse};
 
@@ -171,13 +172,25 @@ pub enum RelayDestinationDto {
     Public,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct RelayEndpointDto {
     pub url: String,
     pub destination: RelayDestinationDto,
     pub read: bool,
     pub write: bool,
+}
+
+impl fmt::Debug for RelayEndpointDto {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RelayEndpointDto")
+            .field("url", &"<redacted>")
+            .field("destination", &self.destination)
+            .field("read", &self.read)
+            .field("write", &self.write)
+            .finish()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -334,19 +347,20 @@ impl From<&RelayEndpoint> for RelayEndpointDto {
     fn from(endpoint: &RelayEndpoint) -> Self {
         Self {
             url: endpoint.url().as_str().to_owned(),
-            destination: endpoint.destination().into(),
-            read: endpoint.can_read(),
-            write: endpoint.can_write(),
+            destination: endpoint.policy().into(),
+            read: endpoint.access().can_read(),
+            write: endpoint.access().can_write(),
         }
     }
 }
 
-impl From<RelayDestinationPolicy> for RelayDestinationDto {
-    fn from(destination: RelayDestinationPolicy) -> Self {
+impl From<RelayUrlPolicy> for RelayDestinationDto {
+    fn from(destination: RelayUrlPolicy) -> Self {
         match destination {
-            RelayDestinationPolicy::Local => Self::Local,
-            RelayDestinationPolicy::PrivateNetwork => Self::PrivateNetwork,
-            RelayDestinationPolicy::Public => Self::Public,
+            RelayUrlPolicy::Local => Self::Local,
+            RelayUrlPolicy::PrivateNetwork => Self::PrivateNetwork,
+            RelayUrlPolicy::Public => Self::Public,
+            _ => unreachable!("validated relay policy is outside the governed v1 vocabulary"),
         }
     }
 }

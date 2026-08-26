@@ -83,7 +83,7 @@ fn decode_hex(value: &str) -> Result<[u8; 16], SafeError> {
         return Err(invalid_installation_identity());
     }
     let mut output = [0_u8; 16];
-    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+    for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         let high = hex_nibble(pair[0]).ok_or_else(invalid_installation_identity)?;
         let low = hex_nibble(pair[1]).ok_or_else(invalid_installation_identity)?;
         output[index] = (high << 4) | low;

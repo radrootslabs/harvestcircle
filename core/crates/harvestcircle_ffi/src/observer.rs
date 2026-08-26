@@ -39,19 +39,20 @@ pub struct ObserverSubscription {
 #[cfg_attr(not(coverage_nightly), uniffi::export)]
 impl ObserverSubscription {
     pub async fn unsubscribe(&self) {
-        let id = self
-            .id
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
+        let id = {
+            let Ok(mut retained_id) = self.id.lock() else {
+                return;
+            };
+            retained_id.take()
+        };
         let (Some(core), Some(id)) = (self.core.upgrade(), id) else {
             return;
         };
         let task = {
-            core.observers
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .remove(&id)
+            let Ok(mut observers) = core.observers.lock() else {
+                return;
+            };
+            observers.remove(&id)
         };
         if let Some(Some(task)) = task {
             task.abort();
@@ -72,7 +73,7 @@ impl HarvestCircleAppCore {
         &self,
         observer: Box<dyn HarvestCircleChangeObserver>,
     ) -> Result<Arc<ObserverSubscription>, HarvestCircleError> {
-        if self.inner.closed.load(Ordering::Acquire) {
+        if !self.inner.is_open() {
             return Err(closed_error());
         }
         let mut subscription = self
@@ -89,8 +90,8 @@ impl HarvestCircleAppCore {
                 .inner
                 .observers
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if self.inner.closed.load(Ordering::Acquire) || observers.len() >= MAX_OBSERVERS {
+                .map_err(|_| observer_registration_error())?;
+            if !self.inner.is_open() || observers.len() >= MAX_OBSERVERS {
                 false
             } else {
                 observers.insert(id, None);
@@ -105,7 +106,7 @@ impl HarvestCircleAppCore {
                 .map_err(HarvestCircleError::from)?;
             return Err(observer_registration_error());
         }
-        let task = crate::commands::runtime()?.spawn(async move {
+        let task = self.inner.runtime.spawn(async move {
             while let Some(change) = subscription.receive().await {
                 let Some(runtime_core) = runtime_core.upgrade() else {
                     break;
@@ -125,19 +126,16 @@ impl HarvestCircleAppCore {
             }
             if let Some(runtime_core) = runtime_core.upgrade() {
                 let _ = runtime_core.actor.unsubscribe_changes(id).await;
-                runtime_core
-                    .observers
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .remove(&id);
+                if let Ok(mut observers) = runtime_core.observers.lock() {
+                    observers.remove(&id);
+                }
             }
         });
         let retained = {
-            let mut observers = self
-                .inner
-                .observers
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut observers = self.inner.observers.lock().map_err(|_| {
+                task.abort();
+                observer_registration_error()
+            })?;
             if let Some(slot) = observers.get_mut(&id) {
                 *slot = Some(task);
                 true
@@ -156,13 +154,22 @@ impl HarvestCircleAppCore {
         }))
     }
 
-    /// Stops observer delivery and waits for actor-owned shutdown.
+    /// Stops admission and waits for observer, actor, keyring, and runtime shutdown.
+    ///
+    /// Once shutdown begins, dropping or cancelling the calling future does
+    /// not reopen admission. A later call resumes the same close sequence and
+    /// successful calls are idempotent.
     ///
     /// # Errors
     ///
     /// Returns a safe closed or timeout error when shutdown cannot complete.
     pub async fn shutdown_v2(&self) -> Result<ShutdownReceiptDto, HarvestCircleError> {
-        if self.inner.closed.swap(true, Ordering::AcqRel) {
+        let _ = self
+            .inner
+            .close_state
+            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire);
+        let _close = self.inner.close_gate.lock().await;
+        if self.inner.close_state.load(Ordering::Acquire) == 2 {
             return Ok(ShutdownReceiptDto {
                 final_revision: self.inner.actor.snapshot().revision().value(),
                 closed: true,
@@ -173,19 +180,30 @@ impl HarvestCircleAppCore {
                 .inner
                 .observers
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
+                .map_err(|_| crate::commands::internal_state_unavailable())?,
         );
-        for (_, task) in handles {
-            if let Some(task) = task {
-                task.abort();
-                let _ = task.await;
-            }
+        let tasks = handles
+            .into_values()
+            .flatten()
+            .collect::<Vec<tokio::task::JoinHandle<()>>>();
+        for task in &tasks {
+            task.abort();
+        }
+        for task in tasks {
+            let _ = task.await;
         }
         self.inner
             .actor
             .close()
             .await
             .map_err(HarvestCircleError::from)?;
+        if let Some(keyring) = self.inner.keyring.as_ref() {
+            keyring.close().await.map_err(HarvestCircleError::from)?;
+        }
+        if let Some(runtime) = self.inner.host_runtime.as_ref() {
+            runtime.shutdown().await.map_err(|()| closed_error())?;
+        }
+        self.inner.close_state.store(2, Ordering::Release);
         Ok(ShutdownReceiptDto {
             final_revision: self.inner.actor.snapshot().revision().value(),
             closed: true,
@@ -194,14 +212,7 @@ impl HarvestCircleAppCore {
 }
 
 fn closed_error() -> HarvestCircleError {
-    HarvestCircleError::Failure {
-        code: crate::WireErrorCode::InvalidApplicationState,
-        category: crate::WireErrorCategory::Lifecycle,
-        retryable: false,
-        recovery_action: crate::WireRecoveryAction::None,
-        correlation_id: None,
-        safe_message: "The application runtime is closed.".to_owned(),
-    }
+    crate::commands::runtime_closed_error()
 }
 
 fn observer_registration_error() -> HarvestCircleError {
@@ -221,13 +232,14 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    use harvestcircle_application::RelayConfiguration;
-    use harvestcircle_domain::{RelayDestinationPolicy, RelayEndpoint};
+    use harvestcircle_application::{
+        RelayAccess, RelayConfiguration, RelayEndpoint, RelayUrlPolicy,
+    };
     use nostr::{EventBuilder, Keys, Metadata};
     use nostr_relay_builder::MockRelay;
     use nostr_sdk::Client;
 
-    use crate::commands::{RuntimeCore, runtime, test_actor};
+    use crate::commands::{RuntimeCore, test_actor};
     use crate::{
         AppSnapshotDto, HarvestCircleAppCore, HarvestCircleChangeObserver, ProfileLoadStateDto,
         SnapshotChangeDto,
@@ -267,17 +279,42 @@ mod tests {
         Arc::new(HarvestCircleAppCore {
             inner: Arc::new(RuntimeCore {
                 actor,
+                runtime: tokio::runtime::Handle::current(),
+                host_runtime: None,
+                keyring: None,
                 observers: Mutex::new(std::collections::BTreeMap::new()),
-                closed: std::sync::atomic::AtomicBool::new(false),
-                startup_relay_problem: None,
+                close_state: std::sync::atomic::AtomicU8::new(0),
+                close_gate: tokio::sync::Mutex::new(()),
                 _test_directory: Some(directory),
             }),
         })
     }
 
+    async fn core_with_host_runtime(
+        host_runtime: Arc<crate::host_runtime::HostRuntime>,
+    ) -> Arc<HarvestCircleAppCore> {
+        let (actor, directory) = test_actor(RelayConfiguration::default()).await;
+        Arc::new(HarvestCircleAppCore {
+            inner: Arc::new(RuntimeCore {
+                actor,
+                runtime: tokio::runtime::Handle::current(),
+                host_runtime: Some(host_runtime),
+                keyring: None,
+                observers: Mutex::new(std::collections::BTreeMap::new()),
+                close_state: std::sync::atomic::AtomicU8::new(0),
+                close_gate: tokio::sync::Mutex::new(()),
+                _test_directory: Some(directory),
+            }),
+        })
+    }
+
+    fn test_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Runtime::new().expect("test runtime")
+    }
+
     #[test]
     fn callbacks_allow_reentry_and_stop_after_subscription_close() {
-        runtime().expect("runtime").block_on(async {
+        test_runtime().block_on(async {
             let core = core().await;
             let observer = Arc::new(RecordingObserver::default());
             *observer.core.lock().expect("core") = Some(Arc::clone(&core));
@@ -301,7 +338,7 @@ mod tests {
 
     #[test]
     fn core_close_deregisters_all_observers_and_rejects_new_subscriptions() {
-        runtime().expect("runtime").block_on(async {
+        test_runtime().block_on(async {
             let core = core().await;
             let observer = Arc::new(RecordingObserver::default());
             let subscription = core
@@ -341,9 +378,31 @@ mod tests {
         });
     }
 
+    #[tokio::test]
+    async fn cancelled_host_close_remains_non_admitting_and_resumes() {
+        let gated = crate::host_runtime::HostRuntime::new_completion_gated_for_test()
+            .expect("host runtime");
+        let core = core_with_host_runtime(gated.runtime).await;
+        let closing_core = Arc::clone(&core);
+        let closing = tokio::spawn(async move { closing_core.shutdown_v2().await });
+        tokio::task::spawn_blocking(move || gated.entered.recv())
+            .await
+            .expect("entered join")
+            .expect("close reached host completion gate");
+        closing.abort();
+        assert!(closing.await.is_err());
+        assert!(
+            core.subscribe_changes_v2(Box::new(PanickingObserver))
+                .await
+                .is_err()
+        );
+        gated.release.send(()).expect("release host close");
+        assert!(core.shutdown_v2().await.expect("resumed close").closed);
+    }
+
     #[test]
     fn subscription_unsubscribe_tolerates_a_dropped_runtime_core() {
-        runtime().expect("runtime").block_on(async {
+        test_runtime().block_on(async {
             let core = core().await;
             let observer = Arc::new(RecordingObserver::default());
             let subscription = core
@@ -359,7 +418,7 @@ mod tests {
 
     #[test]
     fn observer_registration_is_bounded_and_callback_panics_are_contained() {
-        runtime().expect("runtime").block_on(async {
+        test_runtime().block_on(async {
             let core = core().await;
             let panic_subscription = core
                 .subscribe_changes_v2(Box::new(PanickingObserver))
@@ -409,11 +468,10 @@ mod tests {
 
         let core = core_with_relays(
             RelayConfiguration::new(vec![
-                RelayEndpoint::parse(
+                RelayEndpoint::new(
                     relay_url.as_str(),
-                    RelayDestinationPolicy::Local,
-                    true,
-                    true,
+                    RelayUrlPolicy::Local,
+                    RelayAccess::ReadWrite,
                 )
                 .expect("relay endpoint"),
             ])

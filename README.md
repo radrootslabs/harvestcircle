@@ -62,6 +62,16 @@ backup capability, closes the live host, uses the governed marker protocol,
 and reopens recovered state before returning. There is no arbitrary database
 repair or pathname-only restore authority.
 
+Relay endpoints are explicit inputs validated by the pinned Radroots Nostr
+transport policy before any socket work. HarvestCircle owns profile selection
+and signature-verified kind-0 interpretation, while the shared transport owns
+relay URL, destination, DNS, connection, and bounded-fetch behavior. The
+native FFI host owns one runtime per application core and closes it
+idempotently. Cancelling a close never reopens command admission, and a later
+close call resumes the same shutdown. Operating-system keyring calls run
+through a bounded supervised worker rather than directly on an async runtime
+worker.
+
 ## Project documentation
 
 The consuming Radroots monorepo owns normative HarvestCircle specifications,

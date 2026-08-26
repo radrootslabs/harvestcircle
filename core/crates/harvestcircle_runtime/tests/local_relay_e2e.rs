@@ -4,7 +4,7 @@ use harvestcircle_application::{
     Clock, DurableRequestId, InMemorySecretStore, ProfileLoadState, ProfileRepository,
     RelayConfiguration, RelayConnectionState, SecretStore, SessionState,
 };
-use harvestcircle_domain::{RelayDestinationPolicy, RelayEndpoint, SecretKeyInput, UnixTimestamp};
+use harvestcircle_domain::{SecretKeyInput, UnixTimestamp};
 use harvestcircle_nostr::SdkNostrClient;
 use harvestcircle_runtime::PersistentAppCore;
 use nostr::{EventBuilder, Keys, Metadata};
@@ -15,6 +15,7 @@ use radroots_runtime_paths::{
     RadrootsPlatform, RuntimeContext, RuntimeContextBootstrap, RuntimeContextSource, ServiceId,
 };
 use radroots_service_sqlite::MigrationBuildIdentity;
+use radroots_transport_nostr::{RelayAccess, RelayEndpoint, RelayUrlPolicy};
 
 const SECRET_HEX: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
 
@@ -79,11 +80,10 @@ async fn local_relay_e2e_imports_activates_refreshes_and_caches_profile() {
         .await
         .expect("publish profile");
 
-    let relay = RelayEndpoint::parse(
+    let relay = RelayEndpoint::new(
         relay_url.as_str(),
-        RelayDestinationPolicy::Local,
-        true,
-        true,
+        RelayUrlPolicy::Local,
+        RelayAccess::ReadWrite,
     )
     .expect("relay endpoint");
     let adapter = PersistentAppCore::open(

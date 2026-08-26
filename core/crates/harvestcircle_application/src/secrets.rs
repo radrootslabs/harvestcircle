@@ -71,20 +71,17 @@ pub struct FailureSecretStore {
 
 impl FailureSecretStore {
     pub fn fail_next(&self, operation: SecretStoreOperation) {
-        *self
-            .remaining_failures
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .entry(operation)
-            .or_default() += 1;
+        if let Ok(mut failures) = self.remaining_failures.lock() {
+            *failures.entry(operation).or_default() += 1;
+        }
     }
 
     #[must_use]
     pub fn calls(&self) -> Vec<SecretStoreCall> {
         self.calls
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
+            .map(|calls| calls.clone())
+            .unwrap_or_default()
     }
 
     fn record_and_should_fail(
@@ -92,17 +89,17 @@ impl FailureSecretStore {
         operation: SecretStoreOperation,
         public_key: PublicKey,
     ) -> bool {
-        self.calls
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(SecretStoreCall {
-                operation,
-                public_key,
-            });
-        let mut failures = self
-            .remaining_failures
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Ok(mut calls) = self.calls.lock() else {
+            return true;
+        };
+        calls.push(SecretStoreCall {
+            operation,
+            public_key,
+        });
+        drop(calls);
+        let Ok(mut failures) = self.remaining_failures.lock() else {
+            return true;
+        };
         let remaining = failures.entry(operation).or_default();
         let should_fail = *remaining > 0;
         *remaining = remaining.saturating_sub(1);
@@ -141,16 +138,14 @@ impl SecretStore for FailureSecretStore {
 }
 
 impl InMemorySecretStore {
-    fn credentials(&self) -> MutexGuard<'_, BTreeMap<PublicKey, SecretString>> {
-        self.credentials
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    fn credentials(&self) -> Result<MutexGuard<'_, BTreeMap<PublicKey, SecretString>>, SafeError> {
+        self.credentials.lock().map_err(|_| keyring_unavailable())
     }
 }
 
 impl SecretStore for InMemorySecretStore {
     fn put(&self, public_key: PublicKey, secret: SecretKeyInput) -> Result<(), SafeError> {
-        let mut credentials = self.credentials();
+        let mut credentials = self.credentials()?;
         if credentials.contains_key(&public_key) {
             return Err(credential_exists());
         }
@@ -160,7 +155,7 @@ impl SecretStore for InMemorySecretStore {
     }
 
     fn load(&self, public_key: PublicKey) -> Result<SecretKeyInput, SafeError> {
-        let credentials = self.credentials();
+        let credentials = self.credentials()?;
         let secret = credentials
             .get(&public_key)
             .ok_or_else(credential_missing)?;
@@ -168,11 +163,11 @@ impl SecretStore for InMemorySecretStore {
     }
 
     fn contains(&self, public_key: PublicKey) -> Result<bool, SafeError> {
-        Ok(self.credentials().contains_key(&public_key))
+        Ok(self.credentials()?.contains_key(&public_key))
     }
 
     fn delete(&self, public_key: PublicKey) -> Result<(), SafeError> {
-        self.credentials()
+        self.credentials()?
             .remove(&public_key)
             .map(|_| ())
             .ok_or_else(credential_missing)

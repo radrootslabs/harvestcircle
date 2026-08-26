@@ -1,4 +1,5 @@
-use harvestcircle_domain::{PublicKey, RelayEndpoint, SafeError, SafeErrorCode};
+use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode};
+use radroots_transport_nostr::RelayEndpoint;
 use std::time::Instant;
 
 use crate::{
@@ -259,10 +260,10 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use harvestcircle_domain::{
-        EventId, Kind0ProfileCandidate, ProfileMetadata, PublicKey, RelayDestinationPolicy,
-        RelayEndpoint, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput, UnixTimestamp,
-        select_latest_kind0,
+        EventId, Kind0ProfileCandidate, ProfileMetadata, PublicKey, SafeError, SafeErrorCode,
+        SafeMessage, SecretKeyInput, UnixTimestamp, select_latest_kind0,
     };
+    use radroots_transport_nostr::{RelayAccess, RelayEndpoint, RelayUrlPolicy};
 
     use crate::{
         ActiveIdentitySnapshot, AppCore, BoxFuture, CachedProfile, Clock,
@@ -394,11 +395,10 @@ mod tests {
         cached_name: Option<&str>,
     ) -> (AppCore, PublicKey) {
         let relays = RelayConfiguration::new(vec![
-            RelayEndpoint::parse(
+            RelayEndpoint::new(
                 "ws://localhost:8080",
-                RelayDestinationPolicy::Local,
-                true,
-                true,
+                RelayUrlPolicy::Local,
+                RelayAccess::ReadWrite,
             )
             .expect("relay"),
         ])

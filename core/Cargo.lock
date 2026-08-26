@@ -831,7 +831,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1131,6 +1131,7 @@ name = "harvestcircle_application"
 version = "0.1.0-alpha"
 dependencies = [
  "harvestcircle_domain",
+ "radroots_transport_nostr",
  "secrecy",
  "tokio",
  "uuid",
@@ -1143,7 +1144,6 @@ dependencies = [
  "bech32",
  "radroots_identity",
  "secrecy",
- "url",
  "zeroize",
 ]
 
@@ -1158,9 +1158,9 @@ dependencies = [
  "harvestcircle_product",
  "harvestcircle_runtime",
  "harvestcircle_storage",
- "nostr",
+ "nostr 0.44.1",
  "nostr-relay-builder",
- "nostr-sdk",
+ "nostr-sdk 0.44.0",
  "quote",
  "radroots_runtime_paths",
  "radroots_service_sqlite",
@@ -1177,10 +1177,12 @@ version = "0.1.0-alpha"
 dependencies = [
  "harvestcircle_application",
  "harvestcircle_domain",
- "nostr",
+ "nostr 0.44.1",
  "nostr-relay-builder",
- "nostr-sdk",
+ "nostr-sdk 0.44.0",
  "radroots_identity",
+ "radroots_transport",
+ "radroots_transport_nostr",
  "tokio",
 ]
 
@@ -1200,11 +1202,12 @@ dependencies = [
  "harvestcircle_domain",
  "harvestcircle_nostr",
  "harvestcircle_storage",
- "nostr",
+ "nostr 0.44.1",
  "nostr-relay-builder",
- "nostr-sdk",
+ "nostr-sdk 0.44.0",
  "radroots_runtime_paths",
  "radroots_service_sqlite",
+ "radroots_transport_nostr",
  "tempfile",
  "tokio",
  "uuid",
@@ -1237,9 +1240,9 @@ dependencies = [
  "harvestcircle_domain",
  "harvestcircle_nostr",
  "harvestcircle_runtime",
- "nostr",
+ "nostr 0.44.1",
  "nostr-relay-builder",
- "nostr-sdk",
+ "nostr-sdk 0.44.0",
  "radroots_runtime_paths",
  "radroots_service_sqlite",
  "tokio",
@@ -1429,6 +1432,16 @@ dependencies = [
  "zerofrom",
  "zerotrie",
  "zerovec",
+]
+
+[[package]]
+name = "idna"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "634d9b1461af396cad843f47fdba5597a4f9e6ddd4bfb6ff5d85028c25cb12f6"
+dependencies = [
+ "unicode-bidi",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -1697,13 +1710,59 @@ dependencies = [
 ]
 
 [[package]]
+name = "nostr"
+version = "0.44.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40ff7b77ef428b40aa2834a6acbae38a0e104c98b306208ca4b87a420d579a4b"
+dependencies = [
+ "aes",
+ "base64",
+ "bech32",
+ "bip39",
+ "bitcoin_hashes",
+ "cbc",
+ "chacha20",
+ "chacha20poly1305",
+ "getrandom 0.2.17",
+ "hex",
+ "instant",
+ "scrypt",
+ "secp256k1",
+ "serde",
+ "serde_json",
+ "unicode-normalization",
+ "url",
+ "url-fork",
+]
+
+[[package]]
+name = "nostr-database"
+version = "0.44.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7462c9d8ae5ef6a28d66a192d399ad2530f1f2130b13186296dbb11bdef5b3d1"
+dependencies = [
+ "lru",
+ "nostr 0.44.8",
+ "tokio",
+]
+
+[[package]]
 name = "nostr-database"
 version = "0.44.0"
 source = "git+https://github.com/rust-nostr/nostr.git?rev=5bba5163eb77107f82c4a8262cf29d7f33a73219#5bba5163eb77107f82c4a8262cf29d7f33a73219"
 dependencies = [
  "lru",
- "nostr",
+ "nostr 0.44.1",
  "tokio",
+]
+
+[[package]]
+name = "nostr-gossip"
+version = "0.44.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ade30de16869618919c6b5efc8258f47b654a98b51541eb77f85e8ec5e3c83a6"
+dependencies = [
+ "nostr 0.44.8",
 ]
 
 [[package]]
@@ -1711,7 +1770,7 @@ name = "nostr-gossip"
 version = "0.44.0"
 source = "git+https://github.com/rust-nostr/nostr.git?rev=5bba5163eb77107f82c4a8262cf29d7f33a73219#5bba5163eb77107f82c4a8262cf29d7f33a73219"
 dependencies = [
- "nostr",
+ "nostr 0.44.1",
 ]
 
 [[package]]
@@ -1724,8 +1783,8 @@ dependencies = [
  "atomic-destructor",
  "hex",
  "negentropy",
- "nostr",
- "nostr-database",
+ "nostr 0.44.1",
+ "nostr-database 0.44.0 (git+https://github.com/rust-nostr/nostr.git?rev=5bba5163eb77107f82c4a8262cf29d7f33a73219)",
  "tokio",
  "tracing",
 ]
@@ -1741,8 +1800,26 @@ dependencies = [
  "hex",
  "lru",
  "negentropy",
- "nostr",
- "nostr-database",
+ "nostr 0.44.1",
+ "nostr-database 0.44.0 (git+https://github.com/rust-nostr/nostr.git?rev=5bba5163eb77107f82c4a8262cf29d7f33a73219)",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nostr-relay-pool"
+version = "0.44.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c85c54d6ca9aae4ae2bf19a7663ba9db5f45f783f1d24aff55f006386b8b99a1"
+dependencies = [
+ "async-utility",
+ "async-wsocket",
+ "atomic-destructor",
+ "hex",
+ "lru",
+ "negentropy",
+ "nostr 0.44.8",
+ "nostr-database 0.44.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio",
  "tracing",
 ]
@@ -1753,10 +1830,25 @@ version = "0.44.0"
 source = "git+https://github.com/rust-nostr/nostr.git?rev=5bba5163eb77107f82c4a8262cf29d7f33a73219#5bba5163eb77107f82c4a8262cf29d7f33a73219"
 dependencies = [
  "async-utility",
- "nostr",
- "nostr-database",
- "nostr-gossip",
- "nostr-relay-pool",
+ "nostr 0.44.1",
+ "nostr-database 0.44.0 (git+https://github.com/rust-nostr/nostr.git?rev=5bba5163eb77107f82c4a8262cf29d7f33a73219)",
+ "nostr-gossip 0.44.0 (git+https://github.com/rust-nostr/nostr.git?rev=5bba5163eb77107f82c4a8262cf29d7f33a73219)",
+ "nostr-relay-pool 0.44.0",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nostr-sdk"
+version = "0.44.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "471732576710e779b64f04c55e3f8b5292f865fea228436daf19694f0bf70393"
+dependencies = [
+ "async-utility",
+ "nostr 0.44.8",
+ "nostr-database 0.44.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "nostr-gossip 0.44.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "nostr-relay-pool 0.44.3",
  "tokio",
  "tracing",
 ]
@@ -2043,6 +2135,7 @@ version = "0.1.0-alpha"
 source = "git+https://github.com/radrootslabs/lib?rev=be9db78e060ebc0000fa7827ac32efa3f6504f53#be9db78e060ebc0000fa7827ac32efa3f6504f53"
 dependencies = [
  "mediatype",
+ "serde",
  "sha2",
  "unicode-general-category",
  "url",
@@ -2099,6 +2192,20 @@ source = "git+https://github.com/radrootslabs/lib?rev=be9db78e060ebc0000fa7827ac
 dependencies = [
  "k256",
  "serde",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "radroots_nostr"
+version = "0.1.0-alpha"
+source = "git+https://github.com/radrootslabs/lib?rev=be9db78e060ebc0000fa7827ac32efa3f6504f53#be9db78e060ebc0000fa7827ac32efa3f6504f53"
+dependencies = [
+ "nostr 0.44.8",
+ "radroots_event",
+ "radroots_event_codec",
+ "radroots_identity",
+ "serde",
+ "serde_json",
  "thiserror 2.0.20",
 ]
 
@@ -2169,6 +2276,26 @@ dependencies = [
  "radroots_identity",
  "radroots_protocol",
  "sha2",
+]
+
+[[package]]
+name = "radroots_transport_nostr"
+version = "0.1.0-alpha"
+source = "git+https://github.com/radrootslabs/lib?rev=be9db78e060ebc0000fa7827ac32efa3f6504f53#be9db78e060ebc0000fa7827ac32efa3f6504f53"
+dependencies = [
+ "async-wsocket",
+ "futures",
+ "nostr-relay-pool 0.44.3",
+ "nostr-sdk 0.44.1",
+ "radroots_event_codec",
+ "radroots_nostr",
+ "radroots_protocol",
+ "radroots_transport",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
 ]
 
 [[package]]
@@ -2327,7 +2454,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2826,7 +2953,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3101,6 +3228,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "unicode-bidi"
+version = "0.3.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c1cb5db39152898a79168971543b1cb5020dff7fe43c8dc468b0885f5e29df5"
+
+[[package]]
 name = "unicode-general-category"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3265,10 +3398,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
 dependencies = [
  "form_urlencoded",
- "idna",
+ "idna 1.1.0",
  "percent-encoding",
  "serde",
  "serde_derive",
+]
+
+[[package]]
+name = "url-fork"
+version = "3.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fa3323c39b8e786154d3000b70ae9af0e9bd746c9791456da0d4a1f68ad89d6"
+dependencies = [
+ "form_urlencoded",
+ "idna 0.5.0",
+ "percent-encoding",
+ "serde",
 ]
 
 [[package]]

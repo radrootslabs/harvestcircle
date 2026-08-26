@@ -310,10 +310,10 @@ impl RuntimeActorHandle {
 
     #[must_use]
     pub fn lifecycle(&self) -> RuntimeLifecycle {
-        self.lifecycle
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .lifecycle()
+        self.lifecycle.lock().map_or_else(
+            |_| RuntimeLifecycle::Fatal(runtime_state_unavailable()),
+            |lifecycle| lifecycle.lifecycle(),
+        )
     }
 
     #[must_use]
@@ -325,8 +325,8 @@ impl RuntimeActorHandle {
     pub fn foreground_session(&self) -> Option<ActiveSessionBinding> {
         self.foreground_session
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
+            .map(|session| session.clone())
+            .unwrap_or(None)
     }
 
     #[must_use]
@@ -598,7 +598,7 @@ impl RuntimeActorHandle {
         let actor_task = self
             .actor_task
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .map_err(|_| runtime_state_unavailable())?
             .take();
         if let Some(actor_task) = actor_task {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -883,11 +883,10 @@ impl RuntimeActor {
         if context.is_expired(Instant::now()) {
             return Some(CommandResult::TimedOut);
         }
-        let lifecycle = self
-            .lifecycle
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .to_owned();
+        let lifecycle = match self.lifecycle.lock() {
+            Ok(lifecycle) => lifecycle.to_owned(),
+            Err(_) => return Some(CommandResult::Failed(runtime_state_unavailable())),
+        };
         if matches!(lifecycle.lifecycle(), RuntimeLifecycle::Closed) {
             return Some(CommandResult::Closed);
         }
@@ -1102,11 +1101,16 @@ impl RuntimeActor {
         reply: oneshot::Sender<CommandReceipt<RuntimeCommandValue>>,
         completion_sender: mpsc::Sender<ProfileCompletion>,
     ) {
-        let foreground = self
-            .published_foreground_session
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
+        let foreground = match self.published_foreground_session.lock() {
+            Ok(foreground) => foreground.clone(),
+            Err(_) => {
+                let _ = reply.send(CommandReceipt::new(
+                    context.request_id(),
+                    CommandResult::Failed(runtime_state_unavailable()),
+                ));
+                return;
+            }
+        };
         let plan = match self.adapter.core().begin_profile_refresh() {
             Ok(Some(plan)) => plan,
             Ok(None) => {
@@ -1165,10 +1169,7 @@ impl RuntimeActor {
             },
         );
         if let Some(previous) = previous {
-            self.lifecycle
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .fail(request_space_exhausted());
+            self.fail_lifecycle(request_space_exhausted());
             previous.handle.abort();
             let _ = previous.handle.await;
             let _ = previous.reply.send(CommandReceipt::new(
@@ -1181,10 +1182,9 @@ impl RuntimeActor {
 
     async fn close_actor(&mut self) -> CommandResult<RuntimeCommandValue> {
         let begin = {
-            let mut lifecycle = self
-                .lifecycle
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let Ok(mut lifecycle) = self.lifecycle.lock() else {
+                return CommandResult::Failed(runtime_state_unavailable());
+            };
             lifecycle.begin_shutdown()
         };
         match begin {
@@ -1192,23 +1192,19 @@ impl RuntimeActor {
                 self.generated_key_stage.cancel();
                 self.cancel_profile_tasks(None).await;
                 if let Err(error) = self.adapter.close().await {
-                    self.lifecycle
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .fail(error);
+                    self.fail_lifecycle(error);
                     return CommandResult::Failed(error);
                 }
                 self.changes.close();
-                *self
-                    .published_foreground_session
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
-                match self
-                    .lifecycle
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .finish_shutdown()
-                {
+                let Ok(mut foreground) = self.published_foreground_session.lock() else {
+                    return CommandResult::Failed(runtime_state_unavailable());
+                };
+                *foreground = None;
+                drop(foreground);
+                let Ok(mut lifecycle) = self.lifecycle.lock() else {
+                    return CommandResult::Failed(runtime_state_unavailable());
+                };
+                match lifecycle.finish_shutdown() {
                     Ok(()) => CommandResult::Completed(RuntimeCommandValue::Closed),
                     Err(error) => CommandResult::Failed(error),
                 }
@@ -1223,11 +1219,17 @@ impl RuntimeActor {
         };
         let _ = task.handle.await;
         let current = self.adapter.core().snapshot();
-        let foreground = self
-            .published_foreground_session
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
+        let foreground = match self.published_foreground_session.lock() {
+            Ok(foreground) => foreground.clone(),
+            Err(_) => {
+                self.fail_lifecycle(runtime_state_unavailable());
+                let _ = task.reply.send(CommandReceipt::new(
+                    task.correlation.request_id(),
+                    CommandResult::Failed(runtime_state_unavailable()),
+                ));
+                return;
+            }
+        };
         let correlated = task.correlation.session_generation() == self.session_generation
             && foreground.is_some_and(|binding| {
                 binding.generation() == task.correlation.session_generation()
@@ -1268,10 +1270,7 @@ impl RuntimeActor {
 
     async fn advance_session_generation(&mut self) {
         let Some(next) = self.session_generation.next() else {
-            self.lifecycle
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .fail(request_space_exhausted());
+            self.fail_lifecycle(request_space_exhausted());
             self.cancel_profile_tasks(None).await;
             return;
         };
@@ -1299,17 +1298,20 @@ impl RuntimeActor {
         let session = match session.transpose() {
             Ok(session) => session,
             Err(error) => {
-                self.lifecycle
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .fail(error);
+                self.fail_lifecycle(error);
                 None
             }
         };
-        *self
-            .published_foreground_session
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = session;
+        match self.published_foreground_session.lock() {
+            Ok(mut foreground) => *foreground = session,
+            Err(_) => self.fail_lifecycle(runtime_state_unavailable()),
+        }
+    }
+
+    fn fail_lifecycle(&self, error: SafeError) {
+        if let Ok(mut lifecycle) = self.lifecycle.lock() {
+            lifecycle.fail(error);
+        }
     }
 
     async fn cancel_profile_tasks(&mut self, snapshot: Option<&AppSnapshot>) {
@@ -1435,6 +1437,13 @@ const fn runtime_closed() -> SafeError {
     )
 }
 
+const fn runtime_state_unavailable() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::InvalidApplicationState,
+        SafeMessage::new("The application runtime state is unavailable."),
+    )
+}
+
 const fn command_unavailable() -> SafeError {
     SafeError::new(
         SafeErrorCode::InvalidApplicationState,
@@ -1479,9 +1488,10 @@ mod tests {
         SecretStore, SecretStoreOperation, SessionGeneration, SessionState, SnapshotRevision,
     };
     use harvestcircle_domain::{
-        LocalKeyringBinding, NostrIdentityReference, PublicKey, RelayDestinationPolicy,
-        RelayEndpoint, SafeError, SafeErrorCode, SecretKeyInput, SignerAvailability, UnixTimestamp,
+        LocalKeyringBinding, NostrIdentityReference, PublicKey, SafeError, SafeErrorCode,
+        SecretKeyInput, SignerAvailability, UnixTimestamp,
     };
+    use radroots_transport_nostr::{RelayAccess, RelayEndpoint, RelayUrlPolicy};
 
     use super::{
         DEFAULT_COMMAND_TIMEOUT, RuntimeActorHandle, RuntimeDependencies, command_unavailable,
@@ -1945,11 +1955,10 @@ mod tests {
         let client = Arc::new(BlockingNostr::new());
         let actor = RuntimeActorHandle::in_memory(
             RelayConfiguration::new(vec![
-                RelayEndpoint::parse(
+                RelayEndpoint::new(
                     "ws://localhost:8080",
-                    RelayDestinationPolicy::Local,
-                    true,
-                    true,
+                    RelayUrlPolicy::Local,
+                    RelayAccess::ReadWrite,
                 )
                 .expect("relay"),
             ])
@@ -1996,11 +2005,10 @@ mod tests {
         let client = Arc::new(BlockingNostr::new());
         let actor = RuntimeActorHandle::in_memory(
             RelayConfiguration::new(vec![
-                RelayEndpoint::parse(
+                RelayEndpoint::new(
                     "ws://localhost:8080",
-                    RelayDestinationPolicy::Local,
-                    true,
-                    true,
+                    RelayUrlPolicy::Local,
+                    RelayAccess::ReadWrite,
                 )
                 .expect("relay"),
             ])
@@ -2340,11 +2348,10 @@ mod tests {
         let client = Arc::new(BlockingNostr::new());
         let actor = RuntimeActorHandle::in_memory(
             RelayConfiguration::new(vec![
-                RelayEndpoint::parse(
+                RelayEndpoint::new(
                     "ws://localhost:8080",
-                    RelayDestinationPolicy::Local,
-                    true,
-                    true,
+                    RelayUrlPolicy::Local,
+                    RelayAccess::ReadWrite,
                 )
                 .expect("relay"),
             ])

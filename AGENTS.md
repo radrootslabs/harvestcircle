@@ -112,6 +112,14 @@ substitute.
 - Keep lifecycle and coroutine work structured, cancelable, and scoped. Avoid
   hidden workers, process-global mutable state, unbounded retries, blocking UI
   work, and external mutation inferred from environment state.
+- Relay parsing, destination policy, DNS admission, and connection ownership
+  come from the pinned `radroots_transport_nostr` boundary. Product code may
+  select a governed profile and verify product events, but must not recreate
+  relay URL policy or open a second production `nostr-sdk` client.
+- The native host owns its Tokio runtime for exactly one application-core
+  lifetime. Runtime close is explicit, idempotent, and cancellation-resumable;
+  observer work and the bounded keyring worker must finish before terminal
+  close is reported. Authoritative locks fail closed on poison.
 - Services-hardening changes use the approved target-state contracts. Do not
   add compatibility aliases, dual reads, dual writes, or fallback behavior for
   prototype surfaces removed by the clean-slate refactor.

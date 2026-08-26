@@ -70,6 +70,7 @@ pub struct AppCore {
     relay_configuration: RelayConfiguration,
     key_material: Arc<dyn KeyMaterialProvider>,
     state: Mutex<CoreState>,
+    published_snapshot: tokio::sync::watch::Sender<AppSnapshot>,
 }
 
 impl AppCore {
@@ -78,14 +79,17 @@ impl AppCore {
         relay_configuration: RelayConfiguration,
         key_material: Arc<dyn KeyMaterialProvider>,
     ) -> Self {
+        let state_machine = StateMachine::booting();
+        let (published_snapshot, _) = tokio::sync::watch::channel(state_machine.snapshot().clone());
         Self {
             relay_configuration,
             key_material,
             state: Mutex::new(CoreState {
-                state_machine: StateMachine::booting(),
+                state_machine,
                 removal_tokens: BTreeMap::new(),
                 next_removal_token: 1,
             }),
+            published_snapshot,
         }
     }
 
@@ -145,16 +149,19 @@ impl AppCore {
 
     #[must_use]
     pub fn snapshot(&self) -> AppSnapshot {
-        self.lock_state().state_machine.snapshot().clone()
+        self.published_snapshot.borrow().clone()
     }
 
     pub(crate) fn apply_transition(
         &self,
         transition: StateTransition,
     ) -> Result<AppSnapshot, SafeError> {
-        self.lock_state()
+        let snapshot = self
+            .lock_state()?
             .state_machine
-            .apply(transition, &self.relay_configuration)
+            .apply(transition, &self.relay_configuration)?;
+        self.published_snapshot.send_replace(snapshot.clone());
+        Ok(snapshot)
     }
 
     pub(crate) fn issue_removal_token(
@@ -162,7 +169,7 @@ impl AppCore {
         public_key: PublicKey,
         now: UnixTimestamp,
     ) -> Result<RemovalConfirmationToken, SafeError> {
-        let mut state = self.lock_state();
+        let mut state = self.lock_state()?;
         let Some(identity) = state
             .state_machine
             .snapshot()
@@ -228,7 +235,7 @@ impl AppCore {
             expires_at,
             impact,
         } = token;
-        let mut state = self.lock_state();
+        let mut state = self.lock_state()?;
         let stored = state.removal_tokens.remove(&id);
         if stored.is_none_or(|stored| {
             stored.public_key != public_key
@@ -245,14 +252,22 @@ impl AppCore {
 
     #[allow(clippy::needless_pass_by_value)]
     pub(crate) fn cancel_removal_token(&self, token: RemovalConfirmationToken) -> bool {
-        self.lock_state().removal_tokens.remove(&token.id).is_some()
-    }
-
-    fn lock_state(&self) -> MutexGuard<'_, CoreState> {
         self.state
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .map(|mut state| state.removal_tokens.remove(&token.id).is_some())
+            .unwrap_or(false)
     }
+
+    fn lock_state(&self) -> Result<MutexGuard<'_, CoreState>, SafeError> {
+        self.state.lock().map_err(|_| internal_state_unavailable())
+    }
+}
+
+const fn internal_state_unavailable() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::InvalidApplicationState,
+        SafeMessage::new("The application state is unavailable."),
+    )
 }
 
 const fn invalid_application_state() -> SafeError {

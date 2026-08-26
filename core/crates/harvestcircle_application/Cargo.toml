@@ -13,6 +13,7 @@ include = ["src/**", "tests/**", "Cargo.toml"]
 
 [dependencies]
 harvestcircle_domain.workspace = true
+radroots_transport_nostr.workspace = true
 secrecy = "=0.10.3"
 tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 uuid.workspace = true

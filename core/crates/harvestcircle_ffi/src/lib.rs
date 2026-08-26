@@ -4,6 +4,8 @@
 mod commands;
 mod contract;
 mod dto;
+mod host_runtime;
+mod keyring_worker;
 mod observer;
 
 pub use commands::{

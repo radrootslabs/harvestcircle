@@ -2,17 +2,18 @@ use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use directories::BaseDirs;
 use harvestcircle_application::{
-    Clock, DurableRequestId, GeneratedKeyRecoveryHandle, RelayConfiguration, RelayEndpointInput,
-    RemovalConfirmationToken, relay_configuration_from_endpoints,
+    Clock, DurableRequestId, GeneratedKeyRecoveryHandle, MAX_CONFIGURED_RELAYS, RelayConfiguration,
+    RelayEndpointInput, RelayUrlPolicy, RemovalConfirmationToken, SecretStore,
+    relay_configuration_from_endpoints,
 };
 use harvestcircle_domain::{
-    PublicKey, RelayDestinationPolicy, SafeError, SecretKeyInput, UnixTimestamp,
+    PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput, UnixTimestamp,
 };
 use harvestcircle_nostr::SdkNostrClient;
 use harvestcircle_runtime::{
@@ -37,12 +38,14 @@ use crate::{
         SNAPSHOT_SCHEMA_VERSION, SOURCE_FOUNDATION_BASELINE, SOURCE_PROVENANCE_DIGEST,
     },
     dto::error_policy,
+    host_runtime::HostRuntime,
+    keyring_worker::BoundedKeyringWorker,
 };
 
 pub(crate) const ACTOR_MAILBOX_CAPACITY: usize = 64;
 const MAX_COMMAND_DEADLINE_MILLIS: u64 = 30_000;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct RequestContextDto {
     pub request_id: String,
@@ -50,13 +53,33 @@ pub struct RequestContextDto {
     pub deadline_millis: u64,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+impl fmt::Debug for RequestContextDto {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RequestContextDto")
+            .field("request_id", &"<redacted>")
+            .field("expected_revision", &self.expected_revision)
+            .field("deadline_millis", &self.deadline_millis)
+            .finish()
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct RelayBootstrapInputDto {
     pub endpoints: Vec<RelayEndpointDto>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+impl fmt::Debug for RelayBootstrapInputDto {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RelayBootstrapInputDto")
+            .field("endpoint_count", &self.endpoints.len())
+            .finish()
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct RuntimeOpenInputDto {
     pub development_mode: bool,
@@ -64,12 +87,37 @@ pub struct RuntimeOpenInputDto {
     pub relay_input: RelayBootstrapInputDto,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+impl fmt::Debug for RuntimeOpenInputDto {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RuntimeOpenInputDto")
+            .field("development_mode", &self.development_mode)
+            .field(
+                "explicit_data_directory",
+                &self.explicit_data_directory.as_ref().map(|_| "<redacted>"),
+            )
+            .field("relay_endpoint_count", &self.relay_input.endpoints.len())
+            .finish()
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct IdentityCommandReceiptDto {
     pub request_id: String,
     pub committed_revision: u64,
     pub snapshot: AppSnapshotDto,
+}
+
+impl fmt::Debug for IdentityCommandReceiptDto {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("IdentityCommandReceiptDto")
+            .field("request_id", &"<redacted>")
+            .field("committed_revision", &self.committed_revision)
+            .field("snapshot", &self.snapshot)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -162,7 +210,6 @@ pub fn compatibility_descriptor() -> CompatibilityDescriptor {
     }
 }
 
-#[derive(Debug)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Error))]
 pub enum HarvestCircleError {
     Failure {
@@ -173,6 +220,32 @@ pub enum HarvestCircleError {
         correlation_id: Option<String>,
         safe_message: String,
     },
+}
+
+impl fmt::Debug for HarvestCircleError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Failure {
+                code,
+                category,
+                retryable,
+                recovery_action,
+                correlation_id,
+                ..
+            } => formatter
+                .debug_struct("HarvestCircleError::Failure")
+                .field("code", code)
+                .field("category", category)
+                .field("retryable", retryable)
+                .field("recovery_action", recovery_action)
+                .field(
+                    "correlation_id",
+                    &correlation_id.as_ref().map(|_| "<redacted>"),
+                )
+                .field("safe_message", &"<redacted>")
+                .finish(),
+        }
+    }
 }
 
 impl Display for HarvestCircleError {
@@ -200,14 +273,14 @@ impl From<SafeError> for HarvestCircleError {
 }
 
 impl HarvestCircleError {
-    fn correlated(error: SafeError, correlation_id: &str) -> Self {
+    fn correlated(error: SafeError, correlation_id: &DurableRequestId) -> Self {
         let (category, retryable, recovery_action) = error_policy(error.code());
         Self::Failure {
             code: error.code().into(),
             category,
             retryable,
             recovery_action,
-            correlation_id: Some(correlation_id.to_owned()),
+            correlation_id: Some(correlation_id.as_str().to_owned()),
             safe_message: error.message().as_str().to_owned(),
         }
     }
@@ -216,8 +289,12 @@ impl HarvestCircleError {
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Object))]
 pub struct GeneratedRecoveryRequest {
     handle: GeneratedKeyRecoveryHandle,
-    resolved: AtomicBool,
+    resolution: AtomicU8,
 }
+
+const RECOVERY_PENDING: u8 = 0;
+const RECOVERY_RESOLVING: u8 = 1;
+const RECOVERY_RESOLVED: u8 = 2;
 
 #[cfg_attr(not(coverage_nightly), uniffi::export)]
 impl GeneratedRecoveryRequest {
@@ -272,14 +349,17 @@ impl RemovalRequest {
 
 pub(crate) struct RuntimeCore {
     pub(crate) actor: RuntimeActorHandle,
+    pub(crate) runtime: tokio::runtime::Handle,
+    pub(crate) host_runtime: Option<Arc<HostRuntime>>,
+    pub(crate) keyring: Option<Arc<BoundedKeyringWorker>>,
     pub(crate) observers: Mutex<
         BTreeMap<
             harvestcircle_application::ChangeSubscriptionId,
             Option<tokio::task::JoinHandle<()>>,
         >,
     >,
-    pub(crate) closed: AtomicBool,
-    pub(crate) startup_relay_problem: Option<SafeError>,
+    pub(crate) close_state: AtomicU8,
+    pub(crate) close_gate: tokio::sync::Mutex<()>,
     #[cfg(test)]
     pub(crate) _test_directory: Option<Arc<tempfile::TempDir>>,
 }
@@ -297,12 +377,18 @@ impl RuntimeCore {
     }
 
     pub(crate) fn effective_lifecycle(&self) -> harvestcircle_application::RuntimeLifecycle {
-        let lifecycle = self.actor.lifecycle();
-        match (lifecycle, self.startup_relay_problem) {
-            (harvestcircle_application::RuntimeLifecycle::Ready, Some(problem)) => {
-                harvestcircle_application::RuntimeLifecycle::Degraded(problem)
-            }
-            _ => lifecycle,
+        self.actor.lifecycle()
+    }
+
+    pub(crate) fn is_open(&self) -> bool {
+        self.close_state.load(Ordering::Acquire) == 0
+    }
+
+    pub(crate) fn ensure_open(&self) -> Result<(), HarvestCircleError> {
+        if self.is_open() {
+            Ok(())
+        } else {
+            Err(runtime_closed_error())
         }
     }
 }
@@ -325,8 +411,10 @@ impl HarvestCircleAppCore {
         expectation: CompatibilityExpectation,
         input: RuntimeOpenInputDto,
     ) -> Result<Arc<Self>, HarvestCircleError> {
+        verify_compatibility(&expectation)?;
+        let relays = validated_relay_configuration(&input.relay_input)?;
         let context = application_runtime_context(&input)?;
-        Self::open_context_compatible(&context, &expectation, input.relay_input)
+        Self::open_context(&context, relays)
     }
 
     /// Restores durable public application state.
@@ -335,6 +423,7 @@ impl HarvestCircleAppCore {
     ///
     /// Returns a safe storage, recovery, or application-state error.
     pub async fn bootstrap(&self) -> Result<AppSnapshotDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
         self.inner
             .actor
             .bootstrap()
@@ -356,6 +445,7 @@ impl HarvestCircleAppCore {
     pub async fn begin_generated_identity(
         &self,
     ) -> Result<Arc<GeneratedRecoveryRequest>, HarvestCircleError> {
+        self.inner.ensure_open()?;
         self.inner
             .actor
             .begin_generated_key_stage()
@@ -363,7 +453,7 @@ impl HarvestCircleAppCore {
             .map(|handle| {
                 Arc::new(GeneratedRecoveryRequest {
                     handle,
-                    resolved: AtomicBool::new(false),
+                    resolution: AtomicU8::new(RECOVERY_PENDING),
                 })
             })
             .map_err(HarvestCircleError::from)
@@ -380,13 +470,22 @@ impl HarvestCircleAppCore {
         context: RequestContextDto,
         request: Arc<GeneratedRecoveryRequest>,
     ) -> Result<AppSnapshotDto, HarvestCircleError> {
-        if request.resolved.swap(true, Ordering::AcqRel) {
+        self.inner.ensure_open()?;
+        let (request_id, timeout) = validate_request_context(&context)?;
+        if request
+            .resolution
+            .compare_exchange(
+                RECOVERY_PENDING,
+                RECOVERY_RESOLVING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
             return Err(generated_recovery_expired());
         }
-        let request_id = DurableRequestId::parse(context.request_id.clone())
-            .map_err(|error| HarvestCircleError::correlated(error, &context.request_id))?;
-        let timeout = command_timeout(context.deadline_millis, &context.request_id)?;
-        self.inner
+        let result = self
+            .inner
             .actor
             .acknowledge_generated_key_stage(
                 request.handle.id(),
@@ -394,7 +493,11 @@ impl HarvestCircleAppCore {
                 harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
                 timeout,
             )
-            .await
+            .await;
+        request
+            .resolution
+            .store(RECOVERY_RESOLVED, Ordering::Release);
+        result
             .map(|snapshot| self.inner.dto_for(&snapshot))
             .map_err(generated_commit_failed)
     }
@@ -408,14 +511,24 @@ impl HarvestCircleAppCore {
         &self,
         request: Arc<GeneratedRecoveryRequest>,
     ) -> Result<bool, HarvestCircleError> {
-        if request.resolved.swap(true, Ordering::AcqRel) {
+        self.inner.ensure_open()?;
+        if request
+            .resolution
+            .compare_exchange(
+                RECOVERY_PENDING,
+                RECOVERY_RESOLVING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
             return Ok(false);
         }
-        self.inner
-            .actor
-            .cancel_generated_key_stage()
-            .await
-            .map_err(HarvestCircleError::from)
+        let result = self.inner.actor.cancel_generated_key_stage().await;
+        request
+            .resolution
+            .store(RECOVERY_RESOLVED, Ordering::Release);
+        result.map_err(HarvestCircleError::from)
     }
 
     /// Imports or repairs an identity using a caller-owned idempotency key.
@@ -428,15 +541,14 @@ impl HarvestCircleAppCore {
         context: RequestContextDto,
         secret_key: Vec<u8>,
     ) -> Result<IdentityCommandReceiptDto, HarvestCircleError> {
-        let request_id = DurableRequestId::parse(context.request_id.clone())
-            .map_err(|error| HarvestCircleError::correlated(error, &context.request_id))?;
-        let timeout = command_timeout(context.deadline_millis, &context.request_id)?;
+        self.inner.ensure_open()?;
+        let (request_id, timeout) = validate_request_context(&context)?;
         let input = SecretKeyInput::parse_bytes(secret_key)
-            .map_err(|error| HarvestCircleError::correlated(error, &context.request_id))?;
+            .map_err(|error| HarvestCircleError::correlated(error, &request_id))?;
         self.inner
             .actor
             .import_secret_key(
-                request_id,
+                request_id.clone(),
                 harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
                 input,
                 timeout,
@@ -450,7 +562,7 @@ impl HarvestCircleAppCore {
                     snapshot,
                 }
             })
-            .map_err(|error| HarvestCircleError::correlated(error, &context.request_id))
+            .map_err(|error| HarvestCircleError::correlated(error, &request_id))
     }
 
     /// Selects one saved identity without activating it.
@@ -462,6 +574,7 @@ impl HarvestCircleAppCore {
         &self,
         public_key_hex: String,
     ) -> Result<AppSnapshotDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
         let public_key = parse_public_key(&public_key_hex)?;
         self.inner
             .actor
@@ -480,6 +593,7 @@ impl HarvestCircleAppCore {
         &self,
         public_key_hex: String,
     ) -> Result<AppSnapshotDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
         let public_key = parse_public_key(&public_key_hex)?;
         self.inner
             .actor
@@ -495,6 +609,7 @@ impl HarvestCircleAppCore {
     ///
     /// Returns a safe application-state error.
     pub async fn sign_out(&self) -> Result<AppSnapshotDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
         self.inner
             .actor
             .sign_out()
@@ -509,6 +624,7 @@ impl HarvestCircleAppCore {
     ///
     /// Returns a safe storage or application-state error.
     pub async fn refresh_active_profile(&self) -> Result<AppSnapshotDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
         self.inner
             .actor
             .refresh_active_profile()
@@ -526,6 +642,7 @@ impl HarvestCircleAppCore {
         &self,
         public_key_hex: String,
     ) -> Result<Arc<RemovalRequest>, HarvestCircleError> {
+        self.inner.ensure_open()?;
         let public_key = parse_public_key(&public_key_hex)?;
         self.inner
             .actor
@@ -554,26 +671,25 @@ impl HarvestCircleAppCore {
         context: RequestContextDto,
         request: Arc<RemovalRequest>,
     ) -> Result<AppSnapshotDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let (request_id, timeout) = validate_request_context(&context)?;
         let token = request
             .token
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .map_err(|_| internal_state_unavailable())?
             .take()
             .ok_or_else(confirmation_expired)?;
-        let request_id = DurableRequestId::parse(context.request_id.clone())
-            .map_err(|error| HarvestCircleError::correlated(error, &context.request_id))?;
-        let timeout = command_timeout(context.deadline_millis, &context.request_id)?;
         self.inner
             .actor
             .confirm_identity_removal(
                 token,
-                request_id,
+                request_id.clone(),
                 harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
                 timeout,
             )
             .await
             .map(|snapshot| self.inner.dto_for(&snapshot))
-            .map_err(HarvestCircleError::from)
+            .map_err(|error| HarvestCircleError::correlated(error, &request_id))
     }
 }
 
@@ -594,13 +710,15 @@ fn verify_compatibility(expectation: &CompatibilityExpectation) -> Result<(), Ha
 }
 
 impl HarvestCircleAppCore {
+    #[cfg(test)]
     fn open_context_compatible(
         context: &RuntimeContext,
         expectation: &CompatibilityExpectation,
         relay_input: RelayBootstrapInputDto,
     ) -> Result<Arc<Self>, HarvestCircleError> {
         verify_compatibility(expectation)?;
-        Self::open_context(context, relay_input)
+        let relays = validated_relay_configuration(&relay_input)?;
+        Self::open_context(context, relays)
     }
 
     // The concrete product opener binds operating-system paths, keyrings, and
@@ -609,49 +727,44 @@ impl HarvestCircleAppCore {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn open_context(
         context: &RuntimeContext,
-        relay_input: RelayBootstrapInputDto,
+        relays: RelayConfiguration,
     ) -> Result<Arc<Self>, HarvestCircleError> {
-        let relay_endpoints = relay_input
-            .endpoints
-            .into_iter()
-            .map(|endpoint| {
-                RelayEndpointInput::new(
-                    endpoint.url,
-                    match endpoint.destination {
-                        RelayDestinationDto::Local => RelayDestinationPolicy::Local,
-                        RelayDestinationDto::PrivateNetwork => {
-                            RelayDestinationPolicy::PrivateNetwork
-                        }
-                        RelayDestinationDto::Public => RelayDestinationPolicy::Public,
-                    },
-                    endpoint.read,
-                    endpoint.write,
-                )
-            })
-            .collect::<Vec<_>>();
-        let (relays, startup_relay_problem) =
-            local_first_relay_configuration(relay_configuration_from_endpoints(&relay_endpoints));
-        let runtime = runtime()?;
+        let runtime = HostRuntime::new().map_err(|()| runtime_unavailable())?;
+        let runtime_handle = runtime.handle().clone();
+        let keyring = BoundedKeyringWorker::new(OsKeyringSecretStore::default())
+            .map_err(HarvestCircleError::from)?;
+        let secrets: Arc<dyn SecretStore> = keyring.clone();
         let build = migration_build_identity()?;
-        let actor = runtime.block_on(RuntimeActorHandle::open(
-            context,
-            relays,
-            RuntimeDependencies::new(
-                Arc::new(OsKeyringSecretStore::default()),
-                Arc::new(SystemClock),
-                Arc::new(SdkNostrClient::new(Duration::from_secs(5))),
-                Arc::new(UuidInstallationIdentitySource),
-            ),
-            &build,
-            actor_mailbox_capacity()?,
-            runtime.handle(),
-        ))?;
+        let actor_capacity = actor_mailbox_capacity()?;
+        let owned_context = context.clone();
+        let actor_runtime = runtime_handle.clone();
+        let actor = runtime
+            .block_on(async move {
+                RuntimeActorHandle::open(
+                    &owned_context,
+                    relays,
+                    RuntimeDependencies::new(
+                        secrets,
+                        Arc::new(SystemClock),
+                        Arc::new(SdkNostrClient::new(Duration::from_secs(5))),
+                        Arc::new(UuidInstallationIdentitySource),
+                    ),
+                    &build,
+                    actor_capacity,
+                    &actor_runtime,
+                )
+                .await
+            })
+            .map_err(|()| runtime_unavailable())??;
         Ok(Arc::new(Self {
             inner: Arc::new(RuntimeCore {
                 actor,
+                runtime: runtime_handle,
+                host_runtime: Some(runtime),
+                keyring: Some(keyring),
                 observers: Mutex::new(BTreeMap::new()),
-                closed: AtomicBool::new(false),
-                startup_relay_problem,
+                close_state: AtomicU8::new(0),
+                close_gate: tokio::sync::Mutex::new(()),
                 #[cfg(test)]
                 _test_directory: None,
             }),
@@ -659,13 +772,29 @@ impl HarvestCircleAppCore {
     }
 }
 
-fn local_first_relay_configuration(
-    configured: Result<RelayConfiguration, SafeError>,
-) -> (RelayConfiguration, Option<SafeError>) {
-    match configured {
-        Ok(relays) => (relays, None),
-        Err(problem) => (RelayConfiguration::default(), Some(problem)),
+fn validated_relay_configuration(
+    relay_input: &RelayBootstrapInputDto,
+) -> Result<RelayConfiguration, HarvestCircleError> {
+    if relay_input.endpoints.len() > MAX_CONFIGURED_RELAYS {
+        return Err(invalid_relay_configuration());
     }
+    let relay_endpoints = relay_input
+        .endpoints
+        .iter()
+        .map(|endpoint| {
+            RelayEndpointInput::new(
+                endpoint.url.clone(),
+                match endpoint.destination {
+                    RelayDestinationDto::Local => RelayUrlPolicy::Local,
+                    RelayDestinationDto::PrivateNetwork => RelayUrlPolicy::PrivateNetwork,
+                    RelayDestinationDto::Public => RelayUrlPolicy::Public,
+                },
+                endpoint.read,
+                endpoint.write,
+            )
+        })
+        .collect::<Vec<_>>();
+    relay_configuration_from_endpoints(&relay_endpoints).map_err(HarvestCircleError::from)
 }
 
 #[derive(Clone, Copy)]
@@ -768,32 +897,30 @@ fn parse_public_key(value: &str) -> Result<PublicKey, HarvestCircleError> {
     PublicKey::from_hex(value).map_err(HarvestCircleError::from)
 }
 
-fn command_timeout(millis: u64, correlation_id: &str) -> Result<Duration, HarvestCircleError> {
+fn validate_request_context(
+    context: &RequestContextDto,
+) -> Result<(DurableRequestId, Duration), HarvestCircleError> {
+    let request_id =
+        DurableRequestId::parse(&context.request_id).map_err(HarvestCircleError::from)?;
+    let timeout = command_timeout(context.deadline_millis, &request_id)?;
+    Ok((request_id, timeout))
+}
+
+fn command_timeout(
+    millis: u64,
+    correlation_id: &DurableRequestId,
+) -> Result<Duration, HarvestCircleError> {
     if millis == 0 || millis > MAX_COMMAND_DEADLINE_MILLIS {
         return Err(HarvestCircleError::Failure {
             code: WireErrorCode::InvalidApplicationState,
             category: WireErrorCategory::Input,
             retryable: false,
             recovery_action: WireRecoveryAction::None,
-            correlation_id: Some(correlation_id.to_owned()),
+            correlation_id: Some(correlation_id.as_str().to_owned()),
             safe_message: "The command deadline is invalid.".to_owned(),
         });
     }
     Ok(Duration::from_millis(millis))
-}
-
-pub(crate) fn runtime() -> Result<&'static tokio::runtime::Runtime, HarvestCircleError> {
-    static RUNTIME: OnceLock<Result<tokio::runtime::Runtime, ()>> = OnceLock::new();
-    RUNTIME
-        .get_or_init(|| {
-            tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .thread_name("harvestcircle-core")
-                .build()
-                .map_err(|_| ())
-        })
-        .as_ref()
-        .map_err(|()| runtime_unavailable())
 }
 
 #[cfg(test)]
@@ -828,7 +955,7 @@ pub(crate) async fn test_actor(
         ),
         &build,
         actor_mailbox_capacity().expect("capacity"),
-        runtime().expect("runtime").handle(),
+        &tokio::runtime::Handle::current(),
     )
     .await
     .expect("test actor");
@@ -848,6 +975,35 @@ fn runtime_unavailable() -> HarvestCircleError {
         correlation_id: None,
         safe_message: "The application runtime is unavailable.".to_owned(),
     }
+}
+
+pub(crate) fn internal_state_unavailable() -> HarvestCircleError {
+    HarvestCircleError::Failure {
+        code: WireErrorCode::Internal,
+        category: WireErrorCategory::Internal,
+        retryable: false,
+        recovery_action: WireRecoveryAction::RestartApplication,
+        correlation_id: None,
+        safe_message: "The application state is unavailable.".to_owned(),
+    }
+}
+
+pub(crate) fn runtime_closed_error() -> HarvestCircleError {
+    HarvestCircleError::Failure {
+        code: WireErrorCode::InvalidApplicationState,
+        category: WireErrorCategory::Lifecycle,
+        retryable: false,
+        recovery_action: WireRecoveryAction::None,
+        correlation_id: None,
+        safe_message: "The application runtime is closed.".to_owned(),
+    }
+}
+
+fn invalid_relay_configuration() -> HarvestCircleError {
+    HarvestCircleError::from(SafeError::new(
+        SafeErrorCode::InvalidRelayConfiguration,
+        SafeMessage::new("The Nostr relay configuration is invalid."),
+    ))
 }
 
 fn path_unavailable() -> HarvestCircleError {
@@ -911,24 +1067,26 @@ fn compatibility_mismatch() -> HarvestCircleError {
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
+    use std::error::Error as _;
     use std::sync::Arc;
 
     use harvestcircle_application::{
-        RelayConfiguration, RelayEndpointInput, relay_configuration_from_endpoints,
+        RelayConfiguration, RelayEndpointInput, RelayUrlPolicy, relay_configuration_from_endpoints,
     };
-    use harvestcircle_domain::{RelayDestinationPolicy, SafeError};
+    use harvestcircle_domain::SafeError;
     use harvestcircle_storage::{
         CREDENTIAL_SERVICE, CURRENT_SCHEMA_VERSION, HarvestCircleStorageContract,
     };
 
     use super::{
         CompatibilityExpectation, FFI_CONTRACT_HASH, FFI_CONTRACT_ID, FFI_CONTRACT_MAJOR,
-        FFI_CONTRACT_MINOR, HarvestCircleAppCore, HarvestCircleError, PRODUCT_COORDINATE_DIGEST,
-        RelayBootstrapInputDto, RequestContextDto, RuntimeCore, RuntimeOpenInputDto,
-        SNAPSHOT_SCHEMA_VERSION, WireErrorCategory, WireErrorCode, WireRecoveryAction,
-        actor_mailbox_capacity, application_runtime_context, compatibility_descriptor,
-        confirmation_expired, generated_commit_failed, local_first_relay_configuration,
-        path_unavailable, runtime_unavailable, test_actor, verify_compatibility,
+        FFI_CONTRACT_MINOR, HarvestCircleAppCore, HarvestCircleError, MAX_CONFIGURED_RELAYS,
+        PRODUCT_COORDINATE_DIGEST, RelayBootstrapInputDto, RelayDestinationDto, RelayEndpointDto,
+        RequestContextDto, RuntimeCore, RuntimeOpenInputDto, SNAPSHOT_SCHEMA_VERSION,
+        WireErrorCategory, WireErrorCode, WireRecoveryAction, actor_mailbox_capacity,
+        application_runtime_context, compatibility_descriptor, confirmation_expired,
+        generated_commit_failed, path_unavailable, runtime_unavailable, test_actor,
+        verify_compatibility,
     };
 
     async fn in_memory_core() -> Arc<HarvestCircleAppCore> {
@@ -936,9 +1094,12 @@ mod tests {
         Arc::new(HarvestCircleAppCore {
             inner: Arc::new(RuntimeCore {
                 actor,
+                runtime: tokio::runtime::Handle::current(),
+                host_runtime: None,
+                keyring: None,
                 observers: std::sync::Mutex::new(std::collections::BTreeMap::new()),
-                closed: std::sync::atomic::AtomicBool::new(false),
-                startup_relay_problem: None,
+                close_state: std::sync::atomic::AtomicU8::new(0),
+                close_gate: tokio::sync::Mutex::new(()),
                 _test_directory: Some(directory),
             }),
         })
@@ -1054,6 +1215,25 @@ mod tests {
         assert!(removal.deletes_local_credential());
         assert!(!removal.signs_out());
         assert!(removal.expires_at_seconds() > 0);
+        let invalid_confirmation = core
+            .confirm_identity_removal(
+                RequestContextDto {
+                    request_id: "secret-invalid-request".to_owned(),
+                    expected_revision: signed_out.revision,
+                    deadline_millis: 5_000,
+                },
+                Arc::clone(&removal),
+            )
+            .await
+            .expect_err("invalid request context");
+        assert!(matches!(
+            invalid_confirmation,
+            HarvestCircleError::Failure {
+                correlation_id: None,
+                ..
+            }
+        ));
+        assert_eq!(core.snapshot().identities.len(), 1);
         let removed = core
             .confirm_identity_removal(
                 RequestContextDto {
@@ -1137,6 +1317,82 @@ mod tests {
             .await
             .is_err()
         );
+
+        let recovery = core
+            .begin_generated_identity()
+            .await
+            .expect("begin after validation failures");
+        let invalid = core
+            .acknowledge_generated_identity(
+                RequestContextDto {
+                    request_id: "not-a-valid-request-id".to_owned(),
+                    expected_revision: core.snapshot().revision,
+                    deadline_millis: 5_000,
+                },
+                Arc::clone(&recovery),
+            )
+            .await
+            .expect_err("invalid request");
+        assert!(matches!(
+            invalid,
+            HarvestCircleError::Failure {
+                correlation_id: None,
+                ..
+            }
+        ));
+        core.acknowledge_generated_identity(
+            RequestContextDto {
+                request_id: "01890f3e-7b1c-7000-8000-000000000049".to_owned(),
+                expected_revision: core.snapshot().revision,
+                deadline_millis: 5_000,
+            },
+            recovery,
+        )
+        .await
+        .expect("valid retry retains one-shot recovery");
+    }
+
+    #[test]
+    fn input_and_error_debug_are_type_safe_and_redacted() {
+        let request_secret = "01890f3e-7b1c-7000-8000-00000000dead";
+        let path_secret = "/Users/private/secret-data";
+        let relay_secret = "wss://user:secret@example.invalid/private";
+        let request = RequestContextDto {
+            request_id: request_secret.to_owned(),
+            expected_revision: 9,
+            deadline_millis: 1_000,
+        };
+        let relay = crate::RelayEndpointDto {
+            url: relay_secret.to_owned(),
+            destination: crate::RelayDestinationDto::PrivateNetwork,
+            read: true,
+            write: true,
+        };
+        let open = RuntimeOpenInputDto {
+            development_mode: true,
+            explicit_data_directory: Some(path_secret.to_owned()),
+            relay_input: RelayBootstrapInputDto {
+                endpoints: vec![relay.clone()],
+            },
+        };
+        let error = HarvestCircleError::Failure {
+            code: WireErrorCode::Internal,
+            category: WireErrorCategory::Internal,
+            retryable: false,
+            recovery_action: WireRecoveryAction::RestartApplication,
+            correlation_id: Some(request_secret.to_owned()),
+            safe_message: "A safe public message.".to_owned(),
+        };
+        let rendered = format!("{request:?} {relay:?} {open:?} {error:?}");
+        for secret in [
+            request_secret,
+            path_secret,
+            relay_secret,
+            "A safe public message.",
+        ] {
+            assert!(!rendered.contains(secret));
+        }
+        assert!(error.source().is_none());
     }
 
     #[test]
@@ -1249,6 +1505,33 @@ mod tests {
         ] {
             assert!(verify_compatibility(&incompatible).is_err());
         }
+
+        let oversized_relay_error = HarvestCircleAppCore::open_compatible(
+            compatible.clone(),
+            RuntimeOpenInputDto {
+                development_mode: true,
+                explicit_data_directory: Some("relative/path-must-not-be-read".to_owned()),
+                relay_input: RelayBootstrapInputDto {
+                    endpoints: (0..=MAX_CONFIGURED_RELAYS)
+                        .map(|index| RelayEndpointDto {
+                            url: format!("wss://relay-{index}.example"),
+                            destination: RelayDestinationDto::Public,
+                            read: true,
+                            write: true,
+                        })
+                        .collect(),
+                },
+            },
+        )
+        .err()
+        .expect("relay bound must reject before path inspection");
+        assert!(matches!(
+            oversized_relay_error,
+            HarvestCircleError::Failure {
+                code: WireErrorCode::InvalidRelayConfiguration,
+                ..
+            }
+        ));
 
         let directory = tempfile::tempdir().expect("directory");
         let canonical = directory
@@ -1397,52 +1680,58 @@ mod tests {
     }
 
     #[test]
-    fn invalid_relay_configuration_preserves_local_startup_as_degraded() {
-        let problem = SafeError::new(
-            harvestcircle_domain::SafeErrorCode::InvalidRelayConfiguration,
-            harvestcircle_domain::SafeMessage::new("The Nostr relay configuration is invalid."),
-        );
-        let (relays, degraded) = local_first_relay_configuration(Err(problem));
-
-        assert!(relays.relays().is_empty());
-        assert_eq!(degraded, Some(problem));
+    fn invalid_relay_configuration_fails_before_runtime_mutation() {
+        assert!(relay_configuration_from_endpoints(&[]).is_err());
     }
 
     #[test]
-    fn injected_relay_input_is_explicit_mixed_and_fail_closed() {
-        let mixed = relay_configuration_from_endpoints(&[
+    fn injected_relay_input_is_explicit_profile_bound_and_fail_closed() {
+        let local = relay_configuration_from_endpoints(&[
             RelayEndpointInput::new(
-                "ws://localhost:8080",
-                RelayDestinationPolicy::Local,
+                "ws://localhost:8080".to_owned(),
+                RelayUrlPolicy::Local,
                 true,
                 true,
             ),
             RelayEndpointInput::new(
-                "wss://relay.example",
-                RelayDestinationPolicy::Public,
+                "ws://127.0.0.1:8081".to_owned(),
+                RelayUrlPolicy::Local,
                 true,
                 true,
             ),
         ])
-        .expect("explicit mixed relays");
-        assert_eq!(mixed.relays()[0].url().as_str(), "ws://localhost:8080/");
-        assert_eq!(mixed.relays()[1].url().as_str(), "wss://relay.example/");
+        .expect("explicit local profile");
+        assert_eq!(local.relays()[0].url().as_str(), "ws://localhost:8080");
+        assert_eq!(local.relays()[1].url().as_str(), "ws://127.0.0.1:8081");
 
         for input in [
             Vec::new(),
             vec![RelayEndpointInput::new(
-                "https://not-a-relay.example",
-                RelayDestinationPolicy::Public,
+                "https://not-a-relay.example".to_owned(),
+                RelayUrlPolicy::Public,
                 true,
                 true,
             )],
+            vec![
+                RelayEndpointInput::new(
+                    "ws://localhost:8080".to_owned(),
+                    RelayUrlPolicy::Local,
+                    true,
+                    true,
+                ),
+                RelayEndpointInput::new(
+                    "wss://relay.example".to_owned(),
+                    RelayUrlPolicy::Public,
+                    true,
+                    true,
+                ),
+            ],
         ] {
-            let (relays, degraded) =
-                local_first_relay_configuration(relay_configuration_from_endpoints(&input));
-            assert!(relays.relays().is_empty());
             assert_eq!(
-                degraded.map(|problem| problem.code()),
-                Some(harvestcircle_domain::SafeErrorCode::InvalidRelayConfiguration)
+                relay_configuration_from_endpoints(&input)
+                    .expect_err("invalid profile")
+                    .code(),
+                harvestcircle_domain::SafeErrorCode::InvalidRelayConfiguration
             );
         }
     }

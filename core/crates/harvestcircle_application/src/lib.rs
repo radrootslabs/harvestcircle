@@ -49,6 +49,9 @@ pub use ports::{
     PendingIdentityOperation,
 };
 pub use profile_refresh::ProfileRefreshPlan;
+pub use radroots_transport_nostr::{
+    RelayAccess, RelayEndpoint, RelayProfileKind, RelayUrl, RelayUrlPolicy,
+};
 pub use secrets::{
     FailureSecretStore, InMemorySecretStore, SecretStore, SecretStoreCall, SecretStoreOperation,
 };

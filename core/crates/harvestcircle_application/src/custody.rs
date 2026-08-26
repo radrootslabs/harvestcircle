@@ -113,7 +113,7 @@ impl GeneratedKeyRecoveryHandle {
     pub fn take_recovery_nsec(&self) -> Result<Nsec, SafeError> {
         self.recovery_nsec
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .map_err(|_| recovery_not_available())?
             .take()
             .ok_or_else(recovery_not_available)
     }

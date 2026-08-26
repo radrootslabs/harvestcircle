@@ -13,14 +13,16 @@ include = ["src/**", "Cargo.toml"]
 
 [dependencies]
 nostr = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr" }
-nostr-sdk = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr-sdk" }
 harvestcircle_application.workspace = true
 harvestcircle_domain.workspace = true
 radroots_identity.workspace = true
+radroots_transport.workspace = true
+radroots_transport_nostr.workspace = true
 tokio = { version = "=1.47.1", features = ["sync", "time"] }
 
 [dev-dependencies]
 nostr-relay-builder = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr-relay-builder" }
+nostr-sdk = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr-sdk" }
 tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 [lints]

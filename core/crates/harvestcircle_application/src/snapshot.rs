@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 
 use harvestcircle_domain::{
-    NostrIdentity, ProfileMetadata, PublicKey, RelayEndpoint, SafeError, SafeErrorCode, SafeMessage,
+    NostrIdentity, ProfileMetadata, PublicKey, SafeError, SafeErrorCode, SafeMessage,
 };
+use radroots_transport_nostr::{RelayEndpoint, RelayProfile, RelayProfileKind, RelayUrlPolicy};
 
 pub const MAX_CONFIGURED_RELAYS: usize = 16;
 
@@ -68,8 +69,18 @@ pub enum ProfileLoadState {
     Error(SafeError),
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct RelayConfiguration(Vec<RelayEndpoint>);
+#[derive(Clone, Default, Eq, PartialEq)]
+pub struct RelayConfiguration(Option<RelayProfile>);
+
+impl core::fmt::Debug for RelayConfiguration {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_struct("RelayConfiguration")
+            .field("profile", &self.0.as_ref().map(RelayProfile::kind))
+            .field("relay_count", &self.relays().len())
+            .finish()
+    }
+}
 
 impl RelayConfiguration {
     /// Creates a bounded, explicitly classified relay configuration.
@@ -79,15 +90,40 @@ impl RelayConfiguration {
     /// Returns a safe configuration error before runtime or network work when
     /// the relay count exceeds the HarvestCircle policy.
     pub fn new(relays: Vec<RelayEndpoint>) -> Result<Self, SafeError> {
+        if relays.is_empty() {
+            return Ok(Self::default());
+        }
         if relays.len() > MAX_CONFIGURED_RELAYS {
             return Err(relay_limit_exceeded());
         }
-        Ok(Self(relays))
+        let has_local = relays
+            .iter()
+            .any(|relay| relay.policy() == RelayUrlPolicy::Local);
+        let has_private = relays
+            .iter()
+            .any(|relay| relay.policy() == RelayUrlPolicy::PrivateNetwork);
+        let has_public = relays
+            .iter()
+            .any(|relay| relay.policy() == RelayUrlPolicy::Public);
+        let profile = match (has_local, has_private, has_public) {
+            (true, false, false) => RelayProfileKind::Simulator,
+            (false, false, true) => RelayProfileKind::Public,
+            (false, true, _) => RelayProfileKind::Device,
+            _ => return Err(relay_limit_exceeded()),
+        };
+        let profile =
+            RelayProfile::explicit(profile, relays).map_err(|_| relay_limit_exceeded())?;
+        Ok(Self(Some(profile)))
     }
 
     #[must_use]
     pub fn relays(&self) -> &[RelayEndpoint] {
-        &self.0
+        self.0.as_ref().map_or(&[], |profile| profile.endpoints())
+    }
+
+    #[must_use]
+    pub const fn profile(&self) -> Option<&RelayProfile> {
+        self.0.as_ref()
     }
 }
 
@@ -295,8 +331,9 @@ const fn invalid_snapshot() -> SafeError {
 mod tests {
     use harvestcircle_domain::{
         IdentityCreatedAt, LocalKeyringBinding, NostrIdentity, NostrIdentityReference,
-        RelayDestinationPolicy, RelayEndpoint, SafeErrorCode, SignerAvailability, UnixTimestamp,
+        SafeErrorCode, SignerAvailability, UnixTimestamp,
     };
+    use radroots_transport_nostr::{RelayAccess, RelayEndpoint, RelayUrlPolicy};
 
     use super::{
         ActiveIdentitySnapshot, AppLifecycle, AppSnapshot, ProfileLoadState, RelayConfiguration,
@@ -337,11 +374,10 @@ mod tests {
     fn relay_configuration_rejects_excess_targets_before_runtime_work() {
         let relays = (0..=super::MAX_CONFIGURED_RELAYS)
             .map(|index| {
-                RelayEndpoint::parse(
-                    format!("wss://relay-{index}.example").as_str(),
-                    RelayDestinationPolicy::Public,
-                    true,
-                    true,
+                RelayEndpoint::new(
+                    format!("wss://relay-{index}.example"),
+                    RelayUrlPolicy::Public,
+                    RelayAccess::ReadWrite,
                 )
                 .expect("relay")
             })

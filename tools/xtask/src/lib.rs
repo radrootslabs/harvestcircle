@@ -231,6 +231,97 @@ fn repo_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
         }
     }
     git_source_policy(root, findings);
+    native_runtime_boundary(root, findings);
+}
+
+fn native_runtime_boundary(root: &Path, findings: &mut Vec<String>) {
+    let domain_lib = root.join("core/crates/harvestcircle_domain/src/lib.rs");
+    if !domain_lib.is_file() {
+        return;
+    }
+
+    if root
+        .join("core/crates/harvestcircle_domain/src/relay.rs")
+        .exists()
+        || read_text(root, "core/crates/harvestcircle_domain/src/lib.rs").contains("mod relay")
+    {
+        findings
+            .push("harvestcircle_domain: duplicate relay policy surface is forbidden".to_owned());
+    }
+
+    let nostr_manifest = read_text(root, "core/crates/harvestcircle_nostr/Cargo.toml");
+    let production_manifest = nostr_manifest
+        .split_once("[dev-dependencies]")
+        .map_or(nostr_manifest.as_str(), |(production, _)| production);
+    if production_manifest.contains("nostr-sdk") {
+        findings.push(
+            "harvestcircle_nostr: production nostr-sdk connection authority is forbidden"
+                .to_owned(),
+        );
+    }
+    let nostr_client = read_text(root, "core/crates/harvestcircle_nostr/src/client.rs");
+    for required in [
+        "radroots_transport_nostr::{Config, NostrTransport, RelayEndpoint, RelayProfile}",
+        "parse_verified_kind0",
+        "FetchBounds::new(MAX_PROFILE_EVENTS_PER_FETCH",
+    ] {
+        if !nostr_client.contains(required) {
+            findings.push(format!(
+                "harvestcircle_nostr: governed transport boundary is missing {required}"
+            ));
+        }
+    }
+
+    for (path, forbidden) in [
+        ("core/crates/harvestcircle_ffi/src/commands.rs", "OnceLock"),
+        (
+            "core/crates/harvestcircle_ffi/src/commands.rs",
+            "PoisonError::into_inner",
+        ),
+        (
+            "core/crates/harvestcircle_ffi/src/observer.rs",
+            "PoisonError::into_inner",
+        ),
+        (
+            "core/crates/harvestcircle_application/src/app_core.rs",
+            "PoisonError::into_inner",
+        ),
+        (
+            "core/crates/harvestcircle_application/src/custody.rs",
+            "PoisonError::into_inner",
+        ),
+        (
+            "core/crates/harvestcircle_application/src/secrets.rs",
+            "PoisonError::into_inner",
+        ),
+    ] {
+        if read_text(root, path).contains(forbidden) {
+            findings.push(format!("{path}: forbidden runtime boundary {forbidden}"));
+        }
+    }
+
+    let runtime = read_text(root, "core/crates/harvestcircle_ffi/src/host_runtime.rs");
+    let keyring = read_text(root, "core/crates/harvestcircle_ffi/src/keyring_worker.rs");
+    for (source, required, owner) in [
+        (&runtime, "pub(crate) struct HostRuntime", "host runtime"),
+        (&runtime, "pub(crate) async fn shutdown", "host runtime"),
+        (
+            &keyring,
+            "const KEYRING_QUEUE_CAPACITY: usize = 8",
+            "keyring worker",
+        ),
+        (
+            &keyring,
+            "pub(crate) struct BoundedKeyringWorker",
+            "keyring worker",
+        ),
+    ] {
+        if !source.contains(required) {
+            findings.push(format!(
+                "harvestcircle_ffi: {owner} contract is missing {required}"
+            ));
+        }
+    }
 }
 
 fn namespace_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
@@ -757,6 +848,15 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
         format!(
             "radroots_service_sqlite = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
         ),
+        format!(
+            "radroots_storage = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
+        ),
+        format!(
+            "radroots_transport = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
+        ),
+        format!(
+            "radroots_transport_nostr = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
+        ),
     ] {
         if cargo
             .lines()
@@ -789,7 +889,7 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
         "workspace_catalog_sha256 = \"deca0c080deae187ff8186c0708903e42f41ea57f77c5f91581e23aa561164a4\"\n",
         "version = \"0.1.0-alpha\"\n",
         "source_archive_sha256 = \"aec2fe198b200f40af81424fbec70a9a8f22b0b38455bc6c81b7eb3be4241748\"\n",
-        "lockfile_sha256 = \"1bbaae4bd586b936120bb8b2cfab8a5463e7e15aa3d6de0ccdf85f831835467f\"\n",
+        "lockfile_sha256 = \"1d5187f6394e470a027d3643bc1b74beaf92c5168718783e69f2e3f67dfeb1c0\"\n",
     );
     if read_text(root, SOURCE_LOCK_PATH) != expected_source_lock {
         findings.push(format!("{SOURCE_LOCK_PATH}: exact Lib source lock changed"));

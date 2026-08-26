@@ -10,12 +10,10 @@ use std::time::Duration;
 
 use harvestcircle_application::{
     AppLifecycle, AppSnapshot, Clock, DurableRequestId, GeneratedKeyRecoveryHandle,
-    InMemorySecretStore, RelayConfiguration, RemovalConfirmationToken, SecretStore, SessionState,
-    SnapshotRevision,
+    InMemorySecretStore, RelayAccess, RelayConfiguration, RelayEndpoint, RelayUrlPolicy,
+    RemovalConfirmationToken, SecretStore, SessionState, SnapshotRevision,
 };
-use harvestcircle_domain::{
-    PublicKey, RelayDestinationPolicy, RelayEndpoint, SafeError, SecretKeyInput, UnixTimestamp,
-};
+use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
 use harvestcircle_nostr::SdkNostrClient;
 use harvestcircle_runtime::{
     InstallationIdentity, InstallationIdentitySource, RuntimeActorHandle,
@@ -551,7 +549,10 @@ async fn open_actor(
     clock: Arc<FixedClock>,
     runtime: &tokio::runtime::Handle,
 ) -> Result<RuntimeActorHandle, TestBridgeError> {
-    let relay = RelayEndpoint::parse(relay_url, RelayDestinationPolicy::Local, true, true)?;
+    let relay = RelayEndpoint::new(relay_url, RelayUrlPolicy::Local, RelayAccess::ReadWrite)
+        .map_err(|_| TestBridgeError::Failure {
+            safe_message: "The local relay configuration is invalid.".to_owned(),
+        })?;
     let dependencies = RuntimeDependencies::new(
         secrets,
         clock,
