@@ -875,12 +875,25 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
         "pub struct harvestcircle_storage::HarvestCircleStorageContract",
         "pub const harvestcircle_storage::HARVESTCIRCLE_APPLICATION_ID: u32",
         "pub fn harvestcircle_storage::harvestcircle_schema_catalog()",
+        "pub struct harvestcircle_storage::Database",
+        "pub async fn harvestcircle_storage::Database::open",
+        "pub async fn harvestcircle_storage::Database::close",
+        "impl harvestcircle_application::ports::DurableOperationRepository for harvestcircle_storage::Database",
+        "harvestcircle_application::ports::BoxFuture",
     ] {
         if !storage_api.contains(required) {
             findings.push(format!("{STORAGE_API_BASELINE}: missing {required}"));
         }
     }
-    for forbidden in ["rusqlite::", "refinery::", "sqlx::"] {
+    for forbidden in [
+        "rusqlite::",
+        "refinery::",
+        "sqlx::",
+        "OperationJournal",
+        "harvestcircle_initial_schema_sql",
+        "repair",
+        "preflight",
+    ] {
         if storage_api.contains(forbidden) {
             findings.push(format!(
                 "{STORAGE_API_BASELINE}: dependency-owned API leaked: {forbidden}"

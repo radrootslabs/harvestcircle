@@ -31,19 +31,22 @@ pub use custody::{
     GENERATED_KEY_STAGE_TTL, GeneratedKeyRecoveryHandle, GeneratedKeyStage, GeneratedKeyStageView,
     RecoveryStageId, StagedGeneratedKey,
 };
-pub use identities::{
-    GenerateIdentityReceipt, ImportIdentityReceipt, InMemoryIdentityRepository,
-    InMemoryOperationJournal,
-};
+#[cfg(test)]
+pub use identities::InMemoryOperationJournal;
+pub use identities::{GenerateIdentityReceipt, ImportIdentityReceipt, InMemoryIdentityRepository};
 pub use ports::{
     AppStateRepository, BoxFuture, CachedProfile, Clock, DurableIdentityOperation,
     DurableOperationKind, DurableOperationPhase, DurableOperationReceipt,
     DurableOperationRepository, DurableOperationStart, DurableRequestId, DurableTerminalOutcome,
-    GeneratedKeyMaterial, IdentityNamespaceRepository, IdentityOperationKind,
-    IdentityOperationPhase, IdentityPreferenceKey, IdentityRepository, ImportedKeyMaterial,
-    KeyMaterialProvider, NostrClient, OperationDiagnostic, OperationId, OperationJournal,
-    OperationPriorState, PendingIdentityOperation, ProfileFetchResult, ProfileRefreshStatus,
-    ProfileRepository, RelayFetchCompleteness,
+    GeneratedKeyMaterial, IdentityNamespaceRepository, IdentityPreferenceKey, IdentityRepository,
+    ImportedKeyMaterial, KeyMaterialProvider, NostrClient, OperationDiagnostic,
+    OperationPriorState, ProfileFetchResult, ProfileRefreshStatus, ProfileRepository,
+    RelayFetchCompleteness,
+};
+#[cfg(test)]
+pub use ports::{
+    IdentityOperationKind, IdentityOperationPhase, OperationId, OperationJournal,
+    PendingIdentityOperation,
 };
 pub use profile_refresh::ProfileRefreshPlan;
 pub use secrets::{

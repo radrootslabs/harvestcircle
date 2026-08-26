@@ -17,6 +17,7 @@ const CONTRACT_SOURCES: &[&str] = &[
 const BASELINE_PATH: &str = "../../compatibility/harvestcircle-ffi-v4.properties";
 const PRODUCT_MANIFEST_PATH: &str = "../../../config/product/harvestcircle-v1.properties";
 const SOURCE_PROVENANCE_PATH: &str = "../../provenance/harvestcircle-v1.toml";
+const STORAGE_CONTRACT_PATH: &str = "../harvestcircle_storage/src/contract.rs";
 const BASELINE_KEYS: &[&str] = &[
     "schema",
     "contract.id",
@@ -48,7 +49,7 @@ fn main() {
     for source in CONTRACT_SOURCES {
         println!("cargo:rerun-if-changed={source}");
     }
-    println!("cargo:rerun-if-changed=../harvestcircle_storage/migrations");
+    println!("cargo:rerun-if-changed={STORAGE_CONTRACT_PATH}");
     println!("cargo:rerun-if-changed={BASELINE_PATH}");
     println!("cargo:rerun-if-changed={PRODUCT_MANIFEST_PATH}");
     println!("cargo:rerun-if-changed={SOURCE_PROVENANCE_PATH}");
@@ -62,22 +63,10 @@ fn main() {
     for source in CONTRACT_SOURCES {
         collect_public_metadata(Path::new(source), &mut metadata);
     }
-    let mut migrations = fs::read_dir("../harvestcircle_storage/migrations")
-        .expect("read HarvestCircle migration catalog")
-        .map(|entry| entry.expect("read migration entry").path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "sql"))
-        .collect::<Vec<_>>();
-    migrations.sort();
-    for migration in migrations {
-        metadata.push(format!(
-            "migration:{}:{}",
-            migration
-                .file_name()
-                .expect("migration filename")
-                .to_string_lossy(),
-            hex_digest(&fs::read(&migration).expect("read migration"))
-        ));
-    }
+    metadata.push(format!(
+        "storage-contract:{}",
+        hex_digest(&fs::read(STORAGE_CONTRACT_PATH).expect("read storage contract"))
+    ));
     metadata.sort();
     metadata.dedup();
     let normalized = metadata.join("\n");
@@ -112,12 +101,16 @@ fn main() {
         required(&baseline, "source.foundation_baseline"),
     );
     emit("HARVESTCIRCLE_FFI_CONTRACT_DIGEST", &contract_digest);
+    let provenance_source =
+        fs::read_to_string(SOURCE_PROVENANCE_PATH).expect("read source provenance as UTF-8");
+    let provenance =
+        source_provenance::parse(&provenance_source).expect("canonicalize source provenance");
     let mut build_provenance = Vec::new();
     for (output, input, default) in [
         (
             "HARVESTCIRCLE_BUILD_SOURCE_COMMIT",
             "HARVESTCIRCLE_BUILD_SOURCE_COMMIT",
-            "unknown",
+            provenance.foundation_baseline(),
         ),
         (
             "HARVESTCIRCLE_BUILD_SOURCE_DIRTY",
@@ -127,7 +120,7 @@ fn main() {
         (
             "HARVESTCIRCLE_BUILD_RADROOTS_REVISION",
             "HARVESTCIRCLE_BUILD_RADROOTS_REVISION",
-            "unknown",
+            provenance.canonical_radroots_revision(),
         ),
         (
             "HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN",
@@ -225,8 +218,8 @@ fn validate_baseline_inputs(baseline: &BTreeMap<String, String>) {
     assert_eq!(required(baseline, "contract.major"), "4");
     assert_eq!(required(baseline, "contract.minor"), "3");
     assert_eq!(required(baseline, "snapshot.schema"), "1");
-    assert_eq!(required(baseline, "storage.schema.minimum"), "5");
-    assert_eq!(required(baseline, "storage.schema.current"), "10");
+    assert_eq!(required(baseline, "storage.schema.minimum"), "1");
+    assert_eq!(required(baseline, "storage.schema.current"), "1");
     assert_eq!(
         required(baseline, "product.version"),
         env!("CARGO_PKG_VERSION")
@@ -253,23 +246,7 @@ fn validate_baseline_inputs(baseline: &BTreeMap<String, String>) {
         required(baseline, "source.foundation_baseline")
     );
 
-    let current_migration = fs::read_dir("../harvestcircle_storage/migrations")
-        .expect("read migration catalog")
-        .map(|entry| entry.expect("read migration entry"))
-        .filter_map(|entry| {
-            let file_name = entry.file_name();
-            let file_name = file_name.to_string_lossy();
-            file_name
-                .strip_prefix('V')
-                .and_then(|name| name.split_once("__"))
-                .and_then(|(version, _)| version.parse::<u32>().ok())
-        })
-        .max()
-        .expect("at least one storage migration");
-    assert_eq!(
-        required(baseline, "storage.schema.current"),
-        current_migration.to_string()
-    );
+    assert_eq!(required(baseline, "storage.schema.current"), "1");
 }
 
 fn required<'a>(baseline: &'a BTreeMap<String, String>, key: &str) -> &'a str {

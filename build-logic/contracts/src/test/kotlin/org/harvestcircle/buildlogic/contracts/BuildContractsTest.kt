@@ -217,8 +217,8 @@ class BuildContractsTest {
         contract.hash=${"a".repeat(64)}
         product.coordinate_digest=${"b".repeat(64)}
         snapshot.schema=1
-        storage.schema.minimum=5
-        storage.schema.current=10
+        storage.schema.minimum=1
+        storage.schema.current=1
         product.version=0.1.0-alpha
         package.version=1.0.0
         source.provenance_digest=${"c".repeat(64)}

@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::num::{NonZeroU64, NonZeroUsize};
-use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -19,15 +18,20 @@ use harvestcircle_domain::{
     LocalKeyringBinding, NostrIdentityReference, PublicKey, SafeError, SafeErrorCode, SafeMessage,
     SecretKeyInput, SignerAvailability,
 };
+use radroots_runtime_paths::RuntimeContext;
+#[cfg(test)]
+use radroots_runtime_paths::{
+    InstanceId, RadrootsHostEnvironment, RadrootsPathProfile, RadrootsPathResolver,
+    RadrootsPlatform, RuntimeContextBootstrap, RuntimeContextSource, ServiceId,
+};
+use radroots_service_sqlite::MigrationBuildIdentity;
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::blocking::{BlockingExecutionError, BoundedBlockingExecutor};
 use crate::{InstallationIdentity, InstallationIdentitySource, PersistentAppCore};
 
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_TASK_CAPACITY: usize = 64;
-const DEFAULT_BLOCKING_CAPACITY: usize = 4;
 
 enum RuntimeCommand {
     Snapshot,
@@ -108,7 +112,6 @@ struct RuntimeActor {
     nostr: Arc<dyn NostrClient>,
     lifecycle: Arc<Mutex<LifecycleGate>>,
     runtime: Handle,
-    blocking: BoundedBlockingExecutor,
     session_generation: SessionGeneration,
     published_session_generation: Arc<AtomicU64>,
     profile_tasks: BTreeMap<RequestId, PendingProfileTask>,
@@ -142,6 +145,8 @@ pub struct RuntimeActorHandle {
     runtime: Handle,
     actor_task: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     actor_exit: watch::Receiver<bool>,
+    #[cfg(test)]
+    _test_directory: Option<Arc<tempfile::TempDir>>,
 }
 
 #[derive(Clone)]
@@ -193,42 +198,27 @@ impl RuntimeActorHandle {
     /// Returns a safe storage, recovery, or lifecycle error before the actor is
     /// published when opening cannot reach ready state.
     pub async fn open(
-        path: &Path,
+        context: &RuntimeContext,
         relay_configuration: RelayConfiguration,
         dependencies: RuntimeDependencies,
+        build: &MigrationBuildIdentity,
         capacity: NonZeroUsize,
         runtime: &Handle,
     ) -> Result<Self, SafeError> {
-        let blocking = BoundedBlockingExecutor::new(DEFAULT_BLOCKING_CAPACITY, runtime);
-        let path = path.to_path_buf();
-        let adapter = blocking
-            .execute(Instant::now() + DEFAULT_COMMAND_TIMEOUT, move || {
-                PersistentAppCore::open(&path, relay_configuration)
-            })
-            .await
-            .map_err(blocking_execution_failed)??;
-        Self::start(adapter, dependencies, capacity, runtime, blocking).await
-    }
-
-    /// Starts one isolated actor-owned in-memory runtime for tests.
-    ///
-    /// # Errors
-    ///
-    /// Returns a safe storage, recovery, or lifecycle error before publication.
-    pub async fn in_memory(
-        relay_configuration: RelayConfiguration,
-        dependencies: RuntimeDependencies,
-        capacity: NonZeroUsize,
-        runtime: &Handle,
-    ) -> Result<Self, SafeError> {
-        let blocking = BoundedBlockingExecutor::new(DEFAULT_BLOCKING_CAPACITY, runtime);
-        let adapter = blocking
-            .execute(Instant::now() + DEFAULT_COMMAND_TIMEOUT, move || {
-                PersistentAppCore::in_memory(relay_configuration)
-            })
-            .await
-            .map_err(blocking_execution_failed)??;
-        Self::start(adapter, dependencies, capacity, runtime, blocking).await
+        let applied_at_unix_s = u64::try_from(dependencies.clock.now().as_seconds())
+            .map_err(|_| invalid_runtime_evidence())?;
+        let created_at_unix_ms = applied_at_unix_s
+            .checked_mul(1_000)
+            .ok_or_else(invalid_runtime_evidence)?;
+        let adapter = PersistentAppCore::open(
+            context,
+            relay_configuration,
+            created_at_unix_ms,
+            applied_at_unix_s,
+            build,
+        )
+        .await?;
+        Self::start(adapter, dependencies, capacity, runtime).await
     }
 
     async fn start(
@@ -236,7 +226,6 @@ impl RuntimeActorHandle {
         dependencies: RuntimeDependencies,
         capacity: NonZeroUsize,
         runtime: &Handle,
-        blocking: BoundedBlockingExecutor,
     ) -> Result<Self, SafeError> {
         let mut gate = LifecycleGate::opening();
         gate.begin_compatibility_check()?;
@@ -250,17 +239,10 @@ impl RuntimeActorHandle {
             installation_source,
         } = dependencies;
         let adapter = Arc::new(adapter);
-        let bootstrap_adapter = Arc::clone(&adapter);
-        let bootstrap_secrets = Arc::clone(&secrets);
-        let bootstrap_clock = Arc::clone(&clock);
-        let installation_identity = blocking
-            .execute(Instant::now() + DEFAULT_COMMAND_TIMEOUT, move || {
-                bootstrap_adapter
-                    .bootstrap(bootstrap_secrets.as_ref(), bootstrap_clock.as_ref())?;
-                bootstrap_adapter.initialize_installation_identity(installation_source.as_ref())
-            })
-            .await
-            .map_err(blocking_execution_failed)??;
+        adapter.bootstrap(secrets.as_ref(), clock.as_ref()).await?;
+        let installation_identity = adapter
+            .initialize_installation_identity(installation_source.as_ref())
+            .await?;
         gate.recovery_complete()?;
 
         let lifecycle = Arc::new(Mutex::new(gate));
@@ -275,7 +257,6 @@ impl RuntimeActorHandle {
             nostr,
             lifecycle: Arc::clone(&lifecycle),
             runtime: runtime.clone(),
-            blocking,
             session_generation: SessionGeneration::initial(),
             published_session_generation: Arc::clone(&session_generation),
             profile_tasks: BTreeMap::new(),
@@ -299,7 +280,32 @@ impl RuntimeActorHandle {
             runtime: runtime.clone(),
             actor_task: Arc::new(Mutex::new(Some(actor_task))),
             actor_exit,
+            #[cfg(test)]
+            _test_directory: None,
         })
+    }
+
+    #[cfg(test)]
+    async fn in_memory(
+        relay_configuration: RelayConfiguration,
+        dependencies: RuntimeDependencies,
+        capacity: NonZeroUsize,
+        runtime: &Handle,
+    ) -> Result<Self, SafeError> {
+        let directory = Arc::new(tempfile::tempdir().map_err(|_| invalid_runtime_evidence())?);
+        let context = test_runtime_context(directory.path())?;
+        let build = test_migration_build_identity()?;
+        let mut actor = Self::open(
+            &context,
+            relay_configuration,
+            dependencies,
+            &build,
+            capacity,
+            runtime,
+        )
+        .await?;
+        actor._test_directory = Some(directory);
+        Ok(actor)
     }
 
     #[must_use]
@@ -925,16 +931,20 @@ impl RuntimeActor {
                 durable_request,
                 expected_revision,
             } => {
-                self.run_blocking(context.deadline(), move |adapter, secrets, clock| {
-                    adapter
-                        .generate_identity_durable(
-                            &durable_request,
-                            expected_revision,
-                            secrets.as_ref(),
-                            clock.as_ref(),
-                        )
-                        .map(RuntimeCommandValue::Generated)
-                })
+                self.run_async(
+                    context.deadline(),
+                    move |adapter, secrets, clock| async move {
+                        adapter
+                            .generate_identity_durable(
+                                &durable_request,
+                                expected_revision,
+                                secrets.as_ref(),
+                                clock.as_ref(),
+                            )
+                            .await
+                            .map(RuntimeCommandValue::Generated)
+                    },
+                )
                 .await
             }
             RuntimeCommand::BeginGeneratedKeyStage => {
@@ -956,15 +966,19 @@ impl RuntimeActor {
                 durable_request,
             } => match self.generated_key_stage.take(id, self.clock.now()) {
                 Ok(staged) => {
-                    self.run_blocking(context.deadline(), move |adapter, secrets, clock| {
-                        commit_generated_key_stage(
-                            adapter.as_ref(),
-                            secrets.as_ref(),
-                            clock.as_ref(),
-                            &durable_request,
-                            staged,
-                        )
-                    })
+                    self.run_async(
+                        context.deadline(),
+                        move |adapter, secrets, clock| async move {
+                            commit_generated_key_stage(
+                                adapter.as_ref(),
+                                secrets.as_ref(),
+                                clock.as_ref(),
+                                &durable_request,
+                                staged,
+                            )
+                            .await
+                        },
+                    )
                     .await
                 }
                 Err(error) => Err(error),
@@ -977,35 +991,44 @@ impl RuntimeActor {
                 durable_request,
                 expected_revision,
             } => {
-                self.run_blocking(context.deadline(), move |adapter, secrets, clock| {
-                    adapter
-                        .import_secret_key_durable(
-                            &durable_request,
-                            expected_revision,
-                            input,
-                            secrets.as_ref(),
-                            clock.as_ref(),
-                        )
-                        .map(RuntimeCommandValue::Imported)
-                })
+                self.run_async(
+                    context.deadline(),
+                    move |adapter, secrets, clock| async move {
+                        adapter
+                            .import_secret_key_durable(
+                                &durable_request,
+                                expected_revision,
+                                input,
+                                secrets.as_ref(),
+                                clock.as_ref(),
+                            )
+                            .await
+                            .map(RuntimeCommandValue::Imported)
+                    },
+                )
                 .await
             }
             RuntimeCommand::SelectIdentity(public_key) => {
-                self.run_blocking(context.deadline(), move |adapter, _, _| {
+                self.run_async(context.deadline(), move |adapter, _, _| async move {
                     adapter
                         .select_identity(public_key)
+                        .await
                         .map(Box::new)
                         .map(RuntimeCommandValue::Snapshot)
                 })
                 .await
             }
             RuntimeCommand::ActivateIdentity(public_key) => {
-                self.run_blocking(context.deadline(), move |adapter, secrets, clock| {
-                    adapter
-                        .activate_identity(public_key, secrets.as_ref(), clock.as_ref())
-                        .map(Box::new)
-                        .map(RuntimeCommandValue::Snapshot)
-                })
+                self.run_async(
+                    context.deadline(),
+                    move |adapter, secrets, clock| async move {
+                        adapter
+                            .activate_identity(public_key, secrets.as_ref(), clock.as_ref())
+                            .await
+                            .map(Box::new)
+                            .map(RuntimeCommandValue::Snapshot)
+                    },
+                )
                 .await
             }
             RuntimeCommand::SignOut => self
@@ -1021,17 +1044,21 @@ impl RuntimeActor {
                 token,
                 durable_request,
             } => {
-                self.run_blocking(context.deadline(), move |adapter, secrets, clock| {
-                    adapter
-                        .confirm_identity_removal_durable(
-                            &durable_request,
-                            token,
-                            secrets.as_ref(),
-                            clock.as_ref(),
-                        )
-                        .map(Box::new)
-                        .map(RuntimeCommandValue::Snapshot)
-                })
+                self.run_async(
+                    context.deadline(),
+                    move |adapter, secrets, clock| async move {
+                        adapter
+                            .confirm_identity_removal_durable(
+                                &durable_request,
+                                token,
+                                secrets.as_ref(),
+                                clock.as_ref(),
+                            )
+                            .await
+                            .map(Box::new)
+                            .map(RuntimeCommandValue::Snapshot)
+                    },
+                )
                 .await
             }
             RuntimeCommand::SubscribeChanges(capacity) => self
@@ -1051,27 +1078,22 @@ impl RuntimeActor {
         result.map_or_else(CommandResult::Failed, CommandResult::Completed)
     }
 
-    async fn run_blocking<F>(
+    async fn run_async<F, Fut>(
         &self,
         deadline: Instant,
         operation: F,
     ) -> Result<RuntimeCommandValue, SafeError>
     where
-        F: FnOnce(
-                Arc<PersistentAppCore>,
-                Arc<dyn SecretStore>,
-                Arc<dyn Clock>,
-            ) -> Result<RuntimeCommandValue, SafeError>
-            + Send
-            + 'static,
+        F: FnOnce(Arc<PersistentAppCore>, Arc<dyn SecretStore>, Arc<dyn Clock>) -> Fut,
+        Fut: Future<Output = Result<RuntimeCommandValue, SafeError>>,
     {
         let adapter = Arc::clone(&self.adapter);
         let secrets = Arc::clone(&self.secrets);
         let clock = Arc::clone(&self.clock);
-        self.blocking
-            .execute(deadline, move || operation(adapter, secrets, clock))
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        tokio::time::timeout(remaining, operation(adapter, secrets, clock))
             .await
-            .map_err(blocking_execution_failed)?
+            .map_err(|_| command_timed_out())?
     }
 
     async fn start_profile_task(
@@ -1158,24 +1180,38 @@ impl RuntimeActor {
     }
 
     async fn close_actor(&mut self) -> CommandResult<RuntimeCommandValue> {
-        let transition = (|| {
+        let begin = {
             let mut lifecycle = self
                 .lifecycle
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            lifecycle.begin_shutdown()?;
-            lifecycle.finish_shutdown()
-        })();
-        match transition {
+            lifecycle.begin_shutdown()
+        };
+        match begin {
             Ok(()) => {
                 self.generated_key_stage.cancel();
                 self.cancel_profile_tasks(None).await;
+                if let Err(error) = self.adapter.close().await {
+                    self.lifecycle
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .fail(error);
+                    return CommandResult::Failed(error);
+                }
                 self.changes.close();
                 *self
                     .published_foreground_session
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
-                CommandResult::Completed(RuntimeCommandValue::Closed)
+                match self
+                    .lifecycle
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .finish_shutdown()
+                {
+                    Ok(()) => CommandResult::Completed(RuntimeCommandValue::Closed),
+                    Err(error) => CommandResult::Failed(error),
+                }
             }
             Err(error) => CommandResult::Failed(error),
         }
@@ -1204,7 +1240,7 @@ impl RuntimeActor {
         let result = if correlated {
             let plan = task.plan.clone();
             let completed = self
-                .run_blocking(task.deadline, move |adapter, _, clock| {
+                .run_async(task.deadline, move |adapter, _, clock| async move {
                     adapter
                         .core()
                         .complete_profile_refresh(
@@ -1213,6 +1249,7 @@ impl RuntimeActor {
                             adapter.database(),
                             clock.as_ref(),
                         )
+                        .await
                         .map(Box::new)
                         .map(RuntimeCommandValue::Snapshot)
                 })
@@ -1291,34 +1328,75 @@ impl RuntimeActor {
     }
 }
 
-fn commit_generated_key_stage(
+async fn commit_generated_key_stage(
     adapter: &PersistentAppCore,
     secrets: &dyn SecretStore,
     clock: &dyn Clock,
     request: &DurableRequestId,
     staged: StagedGeneratedKey,
 ) -> Result<RuntimeCommandValue, SafeError> {
-    adapter.commit_staged_generated_key(request, staged, secrets, clock)?;
+    adapter
+        .commit_staged_generated_key(request, staged, secrets, clock)
+        .await?;
     Ok(RuntimeCommandValue::Snapshot(Box::new(
         adapter.core().snapshot(),
     )))
 }
 
-const fn blocking_execution_failed(error: BlockingExecutionError) -> SafeError {
-    match error {
-        BlockingExecutionError::DeadlineElapsed => command_timed_out(),
-        BlockingExecutionError::Saturated => command_rejected(),
-        BlockingExecutionError::TaskFailed => SafeError::new(
-            SafeErrorCode::InvalidApplicationState,
-            SafeMessage::new("The runtime blocking worker failed."),
-        ),
-    }
+#[cfg(test)]
+fn test_runtime_context(root: &std::path::Path) -> Result<RuntimeContext, SafeError> {
+    let canonical = root
+        .canonicalize()
+        .map_err(|_| invalid_runtime_evidence())?;
+    let resolver = RadrootsPathResolver::new(
+        RadrootsPlatform::current(),
+        RadrootsHostEnvironment::default(),
+    );
+    let bootstrap = RuntimeContextBootstrap::new(
+        RadrootsPathProfile::RepoLocal,
+        Some(canonical),
+        RuntimeContextSource::BootstrapCli,
+        RuntimeContextSource::SafeDefault,
+    )
+    .map_err(|_| invalid_runtime_evidence())?;
+    RuntimeContext::resolve(
+        &resolver,
+        bootstrap,
+        ServiceId::new("harvestcircle").map_err(|_| invalid_runtime_evidence())?,
+        InstanceId::new("desktop").map_err(|_| invalid_runtime_evidence())?,
+    )
+    .map_err(|_| invalid_runtime_evidence())
+}
+
+#[cfg(test)]
+fn test_migration_build_identity() -> Result<MigrationBuildIdentity, SafeError> {
+    MigrationBuildIdentity::new(
+        "0.1.0-alpha",
+        "1111111111111111111111111111111111111111",
+        "2222222222222222222222222222222222222222",
+        "1.97.1",
+        "test",
+        "test",
+        1,
+        1,
+        1,
+        1,
+        1,
+    )
+    .map_err(|_| invalid_runtime_evidence())
 }
 
 const fn request_space_exhausted() -> SafeError {
     SafeError::new(
         SafeErrorCode::InvalidApplicationState,
         SafeMessage::new("The runtime request identifier space is exhausted."),
+    )
+}
+
+const fn invalid_runtime_evidence() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::InvalidApplicationState,
+        SafeMessage::new("The runtime startup evidence is invalid."),
     )
 }
 
@@ -1407,6 +1485,7 @@ mod tests {
 
     use super::{
         DEFAULT_COMMAND_TIMEOUT, RuntimeActorHandle, RuntimeDependencies, command_unavailable,
+        test_migration_build_identity, test_runtime_context,
     };
     use crate::{InstallationIdentity, InstallationIdentitySource, UuidInstallationIdentitySource};
 
@@ -1596,13 +1675,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn installation_identity_survives_file_backed_runtime_restart() {
         let directory = tempfile::tempdir().expect("temporary directory");
-        let path = directory
-            .path()
-            .canonicalize()
-            .expect("canonical temporary directory")
-            .join("harvestcircle.sqlite3");
+        let context = test_runtime_context(directory.path()).expect("runtime context");
+        let build = test_migration_build_identity().expect("build identity");
         let first = RuntimeActorHandle::open(
-            &path,
+            &context,
             RelayConfiguration::default(),
             RuntimeDependencies::new(
                 Arc::new(InMemorySecretStore::default()),
@@ -1612,6 +1688,7 @@ mod tests {
                     "11aabbccddeeff001122334455667788",
                 )),
             ),
+            &build,
             NonZeroUsize::new(8).expect("capacity"),
             &tokio::runtime::Handle::current(),
         )
@@ -1625,7 +1702,7 @@ mod tests {
         drop(first);
 
         let second = RuntimeActorHandle::open(
-            &path,
+            &context,
             RelayConfiguration::default(),
             RuntimeDependencies::new(
                 Arc::new(InMemorySecretStore::default()),
@@ -1635,6 +1712,7 @@ mod tests {
                     "22aabbccddeeff001122334455667788",
                 )),
             ),
+            &build,
             NonZeroUsize::new(8).expect("capacity"),
             &tokio::runtime::Handle::current(),
         )

@@ -24,6 +24,11 @@ use harvestcircle_runtime::{
 use nostr::{EventBuilder, Keys, Metadata};
 use nostr_relay_builder::MockRelay;
 use nostr_sdk::Client;
+use radroots_runtime_paths::{
+    InstanceId, RadrootsHostEnvironment, RadrootsPathProfile, RadrootsPathResolver,
+    RadrootsPlatform, RuntimeContext, RuntimeContextBootstrap, RuntimeContextSource, ServiceId,
+};
+use radroots_service_sqlite::MigrationBuildIdentity;
 use tokio::runtime::{Builder, Runtime};
 
 const ACTOR_CAPACITY: usize = 16;
@@ -176,7 +181,7 @@ pub struct HarvestCircleTestBridge {
     clock: Arc<FixedClock>,
     relay: Mutex<Option<MockRelay>>,
     relay_url: String,
-    database_path: PathBuf,
+    context: RuntimeContext,
     network_degraded: AtomicBool,
 }
 
@@ -191,7 +196,7 @@ impl HarvestCircleTestBridge {
                 safe_message: "The integration test runtime could not start.".to_owned(),
             })?;
         let data_root = prepare_data_root(Path::new(&data_directory))?;
-        let database_path = data_root.join("harvestcircle-integration.sqlite3");
+        let context = runtime_context(&data_root)?;
         let relay = runtime
             .block_on(MockRelay::run())
             .map_err(|_| TestBridgeError::Failure {
@@ -201,7 +206,7 @@ impl HarvestCircleTestBridge {
         let secrets = Arc::new(InMemorySecretStore::default());
         let clock = Arc::new(FixedClock);
         let actor = runtime.block_on(open_actor(
-            &database_path,
+            &context,
             &relay_url,
             Arc::clone(&secrets),
             Arc::clone(&clock),
@@ -215,7 +220,7 @@ impl HarvestCircleTestBridge {
             clock,
             relay: Mutex::new(Some(relay)),
             relay_url,
-            database_path,
+            context,
             network_degraded: AtomicBool::new(false),
         }))
     }
@@ -464,7 +469,7 @@ impl HarvestCircleTestBridge {
         let _ = self.stop_observer();
         self.close_actor()?;
         let actor = self.runtime.block_on(open_actor(
-            &self.database_path,
+            &self.context,
             &self.relay_url,
             Arc::clone(&self.secrets),
             Arc::clone(&self.clock),
@@ -540,7 +545,7 @@ impl HarvestCircleTestBridge {
 }
 
 async fn open_actor(
-    database_path: &Path,
+    context: &RuntimeContext,
     relay_url: &str,
     secrets: Arc<InMemorySecretStore>,
     clock: Arc<FixedClock>,
@@ -555,10 +560,12 @@ async fn open_actor(
         ))),
         Arc::new(FixedInstallationIdentity),
     );
+    let build = migration_build_identity()?;
     Ok(RuntimeActorHandle::open(
-        database_path,
+        context,
         RelayConfiguration::new(vec![relay])?,
         dependencies,
+        &build,
         NonZeroUsize::new(ACTOR_CAPACITY).expect("actor capacity"),
         runtime,
     )
@@ -568,6 +575,50 @@ async fn open_actor(
 fn prepare_data_root(path: &Path) -> Result<PathBuf, TestBridgeError> {
     fs::create_dir_all(path)?;
     Ok(path.canonicalize()?)
+}
+
+fn runtime_context(root: &Path) -> Result<RuntimeContext, TestBridgeError> {
+    let resolver = RadrootsPathResolver::new(
+        RadrootsPlatform::current(),
+        RadrootsHostEnvironment::default(),
+    );
+    let bootstrap = RuntimeContextBootstrap::new(
+        RadrootsPathProfile::RepoLocal,
+        Some(root.to_path_buf()),
+        RuntimeContextSource::BootstrapCli,
+        RuntimeContextSource::SafeDefault,
+    )
+    .map_err(|_| invalid_runtime_evidence())?;
+    RuntimeContext::resolve(
+        &resolver,
+        bootstrap,
+        ServiceId::new("harvestcircle").map_err(|_| invalid_runtime_evidence())?,
+        InstanceId::new("desktop").map_err(|_| invalid_runtime_evidence())?,
+    )
+    .map_err(|_| invalid_runtime_evidence())
+}
+
+fn migration_build_identity() -> Result<MigrationBuildIdentity, TestBridgeError> {
+    MigrationBuildIdentity::new(
+        "0.1.0-alpha",
+        "1111111111111111111111111111111111111111",
+        "2222222222222222222222222222222222222222",
+        "1.97.1",
+        "test",
+        "test",
+        1,
+        1,
+        1,
+        1,
+        1,
+    )
+    .map_err(|_| invalid_runtime_evidence())
+}
+
+fn invalid_runtime_evidence() -> TestBridgeError {
+    TestBridgeError::Failure {
+        safe_message: "The integration test runtime evidence is invalid.".to_owned(),
+    }
 }
 
 fn to_identity(identity: &harvestcircle_domain::NostrIdentity) -> TestIdentity {

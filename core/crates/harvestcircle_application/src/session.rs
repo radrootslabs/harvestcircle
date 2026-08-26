@@ -23,7 +23,7 @@ impl AppCore {
     ///
     /// Returns a safe identity, credential, profile-cache, persistence, or state
     /// error while preserving any previously active session.
-    pub fn activate_identity(
+    pub async fn activate_identity(
         &self,
         public_key: PublicKey,
         identities: &(impl IdentityRepository + ?Sized),
@@ -33,10 +33,11 @@ impl AppCore {
         clock: &(impl Clock + ?Sized),
     ) -> Result<AppSnapshot, SafeError> {
         let identity = identities
-            .find_identity(public_key)?
+            .find_identity(public_key)
+            .await?
             .ok_or_else(identity_not_found)?;
         self.apply_transition(StateTransition::BeginActivation(public_key))?;
-        let prepared = (|| {
+        let prepared = async {
             let credential = secrets.load(public_key)?;
             let imported = self.key_material().import(credential)?;
             let (derived_public_key, _npub, canonical_secret) = imported.into_parts();
@@ -44,7 +45,7 @@ impl AppCore {
             if derived_public_key != public_key {
                 return Err(invalid_credential());
             }
-            let cached = profiles.load_profile(public_key)?;
+            let cached = profiles.load_profile(public_key).await?;
             let active = ActiveIdentitySnapshot::new(
                 identity.with_last_used_at(clock.now()),
                 RelayConnectionState::Disconnected,
@@ -55,10 +56,11 @@ impl AppCore {
                 },
                 cached.map(|profile| profile.candidate().metadata().clone()),
             );
-            identities.update_identity(active.identity())?;
-            app_state.save_selected_identity(Some(public_key))?;
+            identities.update_identity(active.identity()).await?;
+            app_state.save_selected_identity(Some(public_key)).await?;
             Ok(active)
-        })();
+        }
+        .await;
         match prepared {
             Ok(active) => {
                 self.apply_transition(StateTransition::ActivationSucceeded(Box::new(active)))
@@ -90,34 +92,40 @@ mod tests {
     use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
 
     use crate::{
-        AppCore, CachedProfile, Clock, InMemoryIdentityRepository, InMemoryOperationJournal,
-        InMemorySecretStore, ProfileRefreshStatus, ProfileRepository, RelayConfiguration,
-        SecretStore, SessionState,
+        AppCore, BoxFuture, CachedProfile, Clock, InMemoryIdentityRepository,
+        InMemoryOperationJournal, InMemorySecretStore, ProfileRefreshStatus, ProfileRepository,
+        RelayConfiguration, SecretStore, SessionState,
     };
 
     #[derive(Default)]
     struct EmptyProfiles;
 
     impl ProfileRepository for EmptyProfiles {
-        fn load_profile(&self, _public_key: PublicKey) -> Result<Option<CachedProfile>, SafeError> {
-            Ok(None)
-        }
-
-        fn save_profile(&self, _profile: &CachedProfile) -> Result<(), SafeError> {
-            Ok(())
-        }
-
-        fn record_refresh_status(
+        fn load_profile(
             &self,
+            _public_key: PublicKey,
+        ) -> BoxFuture<'_, Result<Option<CachedProfile>, SafeError>> {
+            Box::pin(async { Ok(None) })
+        }
+
+        fn save_profile<'a>(
+            &'a self,
+            _profile: &'a CachedProfile,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn record_refresh_status<'a>(
+            &'a self,
             _public_key: PublicKey,
             _refreshed_at: UnixTimestamp,
             _status: ProfileRefreshStatus,
-        ) -> Result<(), SafeError> {
-            Ok(())
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(async { Ok(()) })
         }
 
-        fn remove_profile(&self, _public_key: PublicKey) -> Result<(), SafeError> {
-            Ok(())
+        fn remove_profile(&self, _public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
+            Box::pin(async { Ok(()) })
         }
     }
 
@@ -133,8 +141,8 @@ mod tests {
         SecretKeyInput::parse(value.to_owned()).expect("input")
     }
 
-    #[test]
-    fn activate_identity_switches_only_after_candidate_is_ready() {
+    #[tokio::test]
+    async fn activate_identity_switches_only_after_candidate_is_ready() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let identities = InMemoryIdentityRepository::default();
         let secrets = InMemorySecretStore::default();
@@ -150,6 +158,7 @@ mod tests {
                 &journal,
                 &FixedClock,
             )
+            .await
             .expect("first")
             .identity()
             .public_key();
@@ -162,6 +171,7 @@ mod tests {
                 &journal,
                 &FixedClock,
             )
+            .await
             .expect("second")
             .identity()
             .public_key();
@@ -174,6 +184,7 @@ mod tests {
                 &secrets,
                 &FixedClock,
             )
+            .await
             .expect("activate first");
         assert_eq!(core.snapshot().session(), SessionState::Active);
         assert_eq!(
@@ -201,6 +212,7 @@ mod tests {
                 &secrets,
                 &FixedClock,
             )
+            .await
             .expect_err("missing credential");
         assert_eq!(
             error.code(),
@@ -221,6 +233,7 @@ mod tests {
                 &secrets,
                 &FixedClock,
             )
+            .await
             .expect_err("mismatched credential");
         assert_eq!(
             invalid.code(),
@@ -235,8 +248,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn sign_out_retains_saved_identity_selection_and_credential() {
+    #[tokio::test]
+    async fn sign_out_retains_saved_identity_selection_and_credential() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let identities = InMemoryIdentityRepository::default();
         let secrets = InMemorySecretStore::default();
@@ -252,6 +265,7 @@ mod tests {
                 &journal,
                 &FixedClock,
             )
+            .await
             .expect("import")
             .identity()
             .public_key();
@@ -263,6 +277,7 @@ mod tests {
             &secrets,
             &FixedClock,
         )
+        .await
         .expect("activate");
 
         let signed_out = core.sign_out().expect("sign out");

@@ -1,187 +1,304 @@
-use harvestcircle_application::{AppStateRepository, IdentityRepository};
+use harvestcircle_application::{AppStateRepository, BoxFuture, IdentityRepository};
 use harvestcircle_domain::{
     IdentityCreatedAt, IdentityLabel, LocalKeyringBinding, NostrIdentity, NostrIdentityReference,
     PublicKey, SafeError, SafeErrorCode, SafeMessage, SignerAvailability, UnixTimestamp,
 };
-use rusqlite::{OptionalExtension, Row, params};
+use sqlx::Row;
 
-use crate::Database;
+use crate::db::{corrupt_storage, map_transaction_error, storage_unavailable};
+use crate::{Database, HARVESTCIRCLE_IDENTITY_CAPACITY};
+
+const IDENTITY_PROJECTION: &str = "SELECT substr(identity.public_key, 1, 33) AS public_key, length(identity.public_key) AS public_key_bytes, \
+     substr(CAST(identity.npub AS BLOB), 1, 64) AS npub, length(CAST(identity.npub AS BLOB)) AS npub_bytes, \
+     substr(CAST(binding.binding_kind AS BLOB), 1, 17) AS binding_kind, \
+     length(CAST(binding.binding_kind AS BLOB)) AS binding_kind_bytes, \
+     substr(CAST(binding.availability AS BLOB), 1, 19) AS availability, \
+     length(CAST(binding.availability AS BLOB)) AS availability_bytes, \
+     CASE WHEN identity.label IS NULL THEN NULL ELSE substr(CAST(identity.label AS BLOB), 1, 81) END AS label, \
+     CASE WHEN identity.label IS NULL THEN NULL ELSE length(CAST(identity.label AS BLOB)) END AS label_bytes, \
+     identity.created_at_unix_s, identity.last_used_at_unix_s \
+     FROM account_identities AS identity JOIN local_signer_bindings AS binding \
+     ON binding.account_public_key = identity.public_key";
 
 impl IdentityRepository for Database {
-    fn list_identities(&self) -> Result<Vec<NostrIdentity>, SafeError> {
-        let connection = self.connection();
-        let mut statement = connection
-            .prepare(
-                "SELECT identity.public_key, identity.npub, binding.binding_kind, \
-                 binding.availability, identity.label, identity.created_at, identity.last_used_at \
-                 FROM account_identities AS identity \
-                 JOIN local_signer_bindings AS binding \
-                 ON binding.account_public_key = identity.public_key \
-                 ORDER BY identity.created_at ASC, identity.public_key ASC",
-            )
-            .map_err(|_| storage_error())?;
-        let rows = statement
-            .query_map([], decode_identity)
-            .map_err(|_| storage_error())?;
-        rows.map(|row| row.map_err(|_| corrupt_storage_error()))
-            .collect()
+    fn list_identities(&self) -> BoxFuture<'_, Result<Vec<NostrIdentity>, SafeError>> {
+        Box::pin(async move {
+            self.host()
+                .transaction(|transaction| {
+                    Box::pin(async move {
+                        let sql = format!(
+                            "{IDENTITY_PROJECTION} ORDER BY identity.created_at_unix_s, identity.public_key LIMIT {}",
+                            HARVESTCIRCLE_IDENTITY_CAPACITY + 1
+                        );
+                        let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                            .fetch_all(&mut *transaction)
+                            .await
+                            .map_err(|_| corrupt_storage())?;
+                        if rows.len() > HARVESTCIRCLE_IDENTITY_CAPACITY {
+                            return Err(corrupt_storage());
+                        }
+                        rows.iter().map(decode_identity).collect()
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)
+        })
     }
 
-    fn find_identity(&self, public_key: PublicKey) -> Result<Option<NostrIdentity>, SafeError> {
-        self.connection()
-            .query_row(
-                "SELECT identity.public_key, identity.npub, binding.binding_kind, \
-                 binding.availability, identity.label, identity.created_at, identity.last_used_at \
-                 FROM account_identities AS identity \
-                 JOIN local_signer_bindings AS binding \
-                 ON binding.account_public_key = identity.public_key \
-                 WHERE identity.public_key = ?1",
-                [public_key.to_hex()],
-                decode_identity,
-            )
-            .optional()
-            .map_err(|_| storage_error())
+    fn find_identity(
+        &self,
+        public_key: PublicKey,
+    ) -> BoxFuture<'_, Result<Option<NostrIdentity>, SafeError>> {
+        Box::pin(async move {
+            self.host()
+                .transaction(|transaction| {
+                    Box::pin(async move {
+                        let sql =
+                            format!("{IDENTITY_PROJECTION} WHERE identity.public_key = ? LIMIT 2");
+                        let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                            .bind(public_key.as_bytes().as_slice())
+                            .fetch_all(&mut *transaction)
+                            .await
+                            .map_err(|_| corrupt_storage())?;
+                        match rows.as_slice() {
+                            [] => Ok(None),
+                            [row] => decode_identity(row).map(Some),
+                            _ => Err(corrupt_storage()),
+                        }
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)
+        })
     }
 
-    fn insert_identity(&self, identity: &NostrIdentity) -> Result<(), SafeError> {
-        let encoded = EncodedIdentity::try_from(identity)?;
-        let mut connection = self.connection();
-        let transaction = connection.transaction().map_err(|_| storage_error())?;
-        let result = transaction.execute(
-            "INSERT INTO account_identities (public_key, npub, label, created_at, last_used_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                encoded.public_key,
-                encoded.npub,
-                encoded.label,
-                encoded.created_at,
-                encoded.last_used_at
-            ],
-        );
-        match result {
-            Ok(1) => {}
-            Err(error) if is_constraint_violation(&error) => return Err(identity_exists()),
-            Ok(_) | Err(_) => return Err(storage_error()),
-        }
-        if transaction
-            .execute(
-                "INSERT INTO local_signer_bindings (account_public_key, binding_public_key, \
-                 binding_kind, availability) VALUES (?1, ?1, ?2, ?3)",
-                params![
-                    encoded.public_key,
-                    encoded.signer_kind,
-                    encoded.key_availability
-                ],
-            )
-            .map_err(|_| storage_error())?
-            != 1
-        {
-            return Err(storage_error());
-        }
-        transaction.commit().map_err(|_| storage_error())
+    fn insert_identity<'a>(
+        &'a self,
+        identity: &'a NostrIdentity,
+    ) -> BoxFuture<'a, Result<(), SafeError>> {
+        Box::pin(async move {
+            let encoded = EncodedIdentity::try_from(identity)?;
+            self.host()
+                .transaction(|transaction| {
+                    Box::pin(async move {
+                        let existing: i64 = sqlx::query_scalar(
+                            "SELECT EXISTS(SELECT 1 FROM account_identities WHERE public_key = ?)",
+                        )
+                        .bind(encoded.public_key.as_slice())
+                        .fetch_one(&mut *transaction)
+                        .await
+                        .map_err(|_| storage_unavailable())?;
+                        match existing {
+                            0 => {}
+                            1 => return Err(identity_exists()),
+                            _ => return Err(corrupt_storage()),
+                        }
+                        let admitted: i64 = sqlx::query_scalar(
+                            "SELECT count(*) FROM (SELECT 1 FROM account_identities LIMIT 257)",
+                        )
+                        .fetch_one(&mut *transaction)
+                        .await
+                        .map_err(|_| storage_unavailable())?;
+                        if usize::try_from(admitted)
+                            .ok()
+                            .is_none_or(|count| count >= HARVESTCIRCLE_IDENTITY_CAPACITY)
+                        {
+                            return Err(identity_capacity_exhausted());
+                        }
+                        let result = sqlx::query(
+                            "INSERT INTO account_identities \
+                             (public_key, npub, label, created_at_unix_s, last_used_at_unix_s) \
+                             VALUES (?, ?, ?, ?, ?)",
+                        )
+                        .bind(encoded.public_key.as_slice())
+                        .bind(&encoded.npub)
+                        .bind(&encoded.label)
+                        .bind(encoded.created_at)
+                        .bind(encoded.last_used_at)
+                        .execute(&mut *transaction)
+                        .await;
+                        match result {
+                            Ok(result) if result.rows_affected() == 1 => {}
+                            Err(error) if is_unique_violation(&error) => {
+                                return Err(identity_exists());
+                            }
+                            Ok(_) | Err(_) => return Err(storage_unavailable()),
+                        }
+                        let result = sqlx::query(
+                            "INSERT INTO local_signer_bindings \
+                             (account_public_key, binding_public_key, binding_kind, availability) \
+                             VALUES (?, ?, 'local_secret', ?)",
+                        )
+                        .bind(encoded.public_key.as_slice())
+                        .bind(encoded.public_key.as_slice())
+                        .bind(encoded.key_availability)
+                        .execute(&mut *transaction)
+                        .await
+                        .map_err(|_| storage_unavailable())?;
+                        if result.rows_affected() != 1 {
+                            return Err(storage_unavailable());
+                        }
+                        Ok(())
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)
+        })
     }
 
-    fn update_identity(&self, identity: &NostrIdentity) -> Result<(), SafeError> {
-        let encoded = EncodedIdentity::try_from(identity)?;
-        let mut connection = self.connection();
-        let transaction = connection.transaction().map_err(|_| storage_error())?;
-        let identity_rows = transaction
-            .execute(
-                "UPDATE account_identities SET npub = ?2, label = ?5, created_at = ?6, \
-             last_used_at = ?7 WHERE public_key = ?1",
-                params![
-                    encoded.public_key,
-                    encoded.npub,
-                    encoded.signer_kind,
-                    encoded.key_availability,
-                    encoded.label,
-                    encoded.created_at,
-                    encoded.last_used_at,
-                ],
-            )
-            .map_err(|_| storage_error())?;
-        if identity_rows == 0 {
-            return Err(identity_not_found());
-        }
-        if identity_rows != 1 {
-            return Err(storage_error());
-        }
-        let binding_rows = transaction
-            .execute(
-                "UPDATE local_signer_bindings SET binding_kind = ?2, availability = ?3 \
-                 WHERE account_public_key = ?1 AND binding_public_key = ?1",
-                params![
-                    encoded.public_key,
-                    encoded.signer_kind,
-                    encoded.key_availability
-                ],
-            )
-            .map_err(|_| storage_error())?;
-        if binding_rows != 1 {
-            return Err(corrupt_storage_error());
-        }
-        transaction.commit().map_err(|_| storage_error())
+    fn update_identity<'a>(
+        &'a self,
+        identity: &'a NostrIdentity,
+    ) -> BoxFuture<'a, Result<(), SafeError>> {
+        Box::pin(async move {
+            let encoded = EncodedIdentity::try_from(identity)?;
+            self.host()
+                .transaction(|transaction| {
+                    Box::pin(async move {
+                        let result = sqlx::query(
+                            "UPDATE account_identities SET npub = ?, label = ?, \
+                             created_at_unix_s = ?, last_used_at_unix_s = ? WHERE public_key = ?",
+                        )
+                        .bind(&encoded.npub)
+                        .bind(&encoded.label)
+                        .bind(encoded.created_at)
+                        .bind(encoded.last_used_at)
+                        .bind(encoded.public_key.as_slice())
+                        .execute(&mut *transaction)
+                        .await
+                        .map_err(|_| storage_unavailable())?;
+                        if result.rows_affected() == 0 {
+                            return Err(identity_not_found());
+                        }
+                        if result.rows_affected() != 1 {
+                            return Err(corrupt_storage());
+                        }
+                        let result = sqlx::query(
+                            "UPDATE local_signer_bindings SET availability = ? \
+                             WHERE account_public_key = ? AND binding_public_key = ? \
+                             AND binding_kind = 'local_secret'",
+                        )
+                        .bind(encoded.key_availability)
+                        .bind(encoded.public_key.as_slice())
+                        .bind(encoded.public_key.as_slice())
+                        .execute(&mut *transaction)
+                        .await
+                        .map_err(|_| storage_unavailable())?;
+                        if result.rows_affected() != 1 {
+                            return Err(corrupt_storage());
+                        }
+                        Ok(())
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)
+        })
     }
 
-    fn remove_identity(&self, public_key: PublicKey) -> Result<(), SafeError> {
-        match self.connection().execute(
-            "DELETE FROM account_identities WHERE public_key = ?1",
-            [public_key.to_hex()],
-        ) {
-            Ok(1) => Ok(()),
-            Ok(0) => Err(identity_not_found()),
-            Ok(_) | Err(_) => Err(storage_error()),
-        }
+    fn remove_identity(&self, public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
+        Box::pin(async move {
+            self.host()
+                .transaction(|transaction| {
+                    Box::pin(async move {
+                        let result =
+                            sqlx::query("DELETE FROM account_identities WHERE public_key = ?")
+                                .bind(public_key.as_bytes().as_slice())
+                                .execute(&mut *transaction)
+                                .await
+                                .map_err(|_| storage_unavailable())?;
+                        match result.rows_affected() {
+                            1 => Ok(()),
+                            0 => Err(identity_not_found()),
+                            _ => Err(corrupt_storage()),
+                        }
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)
+        })
     }
 }
 
 impl AppStateRepository for Database {
-    fn load_selected_identity(&self) -> Result<Option<PublicKey>, SafeError> {
-        let value = self
-            .connection()
-            .query_row(
-                "SELECT selected_public_key FROM runtime_state WHERE singleton = 1",
-                [],
-                |row| row.get::<_, Option<String>>(0),
-            )
-            .map_err(|_| corrupt_storage_error())?;
-        value
-            .map(|hex| PublicKey::from_hex(&hex).map_err(|_| corrupt_storage_error()))
-            .transpose()
+    fn load_selected_identity(&self) -> BoxFuture<'_, Result<Option<PublicKey>, SafeError>> {
+        Box::pin(async move {
+            self.host()
+                .transaction(|transaction| {
+                    Box::pin(async move {
+                        let rows = sqlx::query(
+                            "SELECT CASE WHEN selected_public_key IS NULL THEN NULL \
+                             ELSE substr(selected_public_key, 1, 33) END AS selected_public_key, \
+                             CASE WHEN selected_public_key IS NULL THEN NULL \
+                             ELSE length(selected_public_key) END AS selected_bytes \
+                             FROM runtime_state WHERE singleton = 1 LIMIT 2",
+                        )
+                        .fetch_all(&mut *transaction)
+                        .await
+                        .map_err(|_| corrupt_storage())?;
+                        let [row] = rows.as_slice() else {
+                            return Err(corrupt_storage());
+                        };
+                        let value = row
+                            .try_get::<Option<Vec<u8>>, _>("selected_public_key")
+                            .map_err(|_| corrupt_storage())?;
+                        let length = row
+                            .try_get::<Option<i64>, _>("selected_bytes")
+                            .map_err(|_| corrupt_storage())?;
+                        match (value, length) {
+                            (None, None) => Ok(None),
+                            (Some(value), Some(32)) => public_key_from_bytes(&value).map(Some),
+                            _ => Err(corrupt_storage()),
+                        }
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)
+        })
     }
 
-    fn save_selected_identity(&self, public_key: Option<PublicKey>) -> Result<(), SafeError> {
-        let mut connection = self.connection();
-        let transaction = connection.transaction().map_err(|_| storage_error())?;
-        if let Some(public_key) = public_key {
-            let exists = transaction
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM account_identities WHERE public_key = ?1)",
-                    [public_key.to_hex()],
-                    |row| row.get::<_, bool>(0),
-                )
-                .map_err(|_| storage_error())?;
-            if !exists {
-                return Err(identity_not_found());
-            }
-        }
-        let rows = transaction
-            .execute(
-                "UPDATE runtime_state SET selected_public_key = ?1 WHERE singleton = 1",
-                [public_key.map(PublicKey::to_hex)],
-            )
-            .map_err(|_| storage_error())?;
-        if rows != 1 {
-            return Err(corrupt_storage_error());
-        }
-        transaction.commit().map_err(|_| storage_error())
+    fn save_selected_identity(
+        &self,
+        public_key: Option<PublicKey>,
+    ) -> BoxFuture<'_, Result<(), SafeError>> {
+        Box::pin(async move {
+            self.host()
+                .transaction(|transaction| {
+                    Box::pin(async move {
+                        if let Some(public_key) = public_key {
+                            let exists: i64 = sqlx::query_scalar(
+                                "SELECT EXISTS(SELECT 1 FROM account_identities WHERE public_key = ?)",
+                            )
+                            .bind(public_key.as_bytes().as_slice())
+                            .fetch_one(&mut *transaction)
+                            .await
+                            .map_err(|_| storage_unavailable())?;
+                            if exists != 1 {
+                                return Err(identity_not_found());
+                            }
+                        }
+                        let selected = public_key.map(|key| key.as_bytes().to_vec());
+                        let result = sqlx::query(
+                            "UPDATE runtime_state SET selected_public_key = ? WHERE singleton = 1",
+                        )
+                        .bind(selected)
+                        .execute(&mut *transaction)
+                        .await
+                        .map_err(|_| storage_unavailable())?;
+                        if result.rows_affected() != 1 {
+                            return Err(corrupt_storage());
+                        }
+                        Ok(())
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)
+        })
     }
 }
 
 struct EncodedIdentity {
-    public_key: String,
+    public_key: [u8; 32],
     npub: String,
-    signer_kind: &'static str,
     key_availability: &'static str,
     label: Option<String>,
     created_at: i64,
@@ -195,11 +312,10 @@ impl TryFrom<&NostrIdentity> for EncodedIdentity {
         let binding = identity
             .signer_binding()
             .as_local_keyring()
-            .ok_or_else(storage_error)?;
+            .ok_or_else(storage_unavailable)?;
         Ok(Self {
-            public_key: identity.public_key().to_hex(),
+            public_key: *identity.public_key().as_bytes(),
             npub: identity.npub().as_str().to_owned(),
-            signer_kind: "local_secret",
             key_availability: encode_key_availability(binding.availability()),
             label: identity.label().map(|label| label.as_str().to_owned()),
             created_at: identity.created_at().timestamp().as_seconds(),
@@ -208,32 +324,80 @@ impl TryFrom<&NostrIdentity> for EncodedIdentity {
     }
 }
 
-fn decode_identity(row: &Row<'_>) -> rusqlite::Result<NostrIdentity> {
-    let public_key =
-        PublicKey::from_hex(row.get::<_, String>(0)?.as_str()).map_err(|_| invalid_column(0))?;
-    let npub: String = row.get(1)?;
-    if row.get::<_, String>(2)?.as_str() != "local_secret" {
-        return Err(invalid_column(2));
+fn decode_identity(row: &sqlx::sqlite::SqliteRow) -> Result<NostrIdentity, SafeError> {
+    let public_key_bytes = row
+        .try_get::<Vec<u8>, _>("public_key")
+        .map_err(|_| corrupt_storage())?;
+    if row
+        .try_get::<i64, _>("public_key_bytes")
+        .map_err(|_| corrupt_storage())?
+        != 32
+    {
+        return Err(corrupt_storage());
     }
-    let key_availability = decode_key_availability(row.get::<_, String>(3)?.as_str())?;
-    let label = row
-        .get::<_, Option<String>>(4)?
-        .map(|value| IdentityLabel::parse(&value).map_err(|_| invalid_column(4)))
+    let public_key = public_key_from_bytes(&public_key_bytes)?;
+    let npub = bounded_utf8(row, "npub", "npub_bytes", 63)?.ok_or_else(corrupt_storage)?;
+    let binding_kind =
+        bounded_utf8(row, "binding_kind", "binding_kind_bytes", 16)?.ok_or_else(corrupt_storage)?;
+    if binding_kind != "local_secret" {
+        return Err(corrupt_storage());
+    }
+    let availability =
+        bounded_utf8(row, "availability", "availability_bytes", 18)?.ok_or_else(corrupt_storage)?;
+    let availability = decode_key_availability(&availability)?;
+    let label = bounded_utf8(row, "label", "label_bytes", 80)?
+        .map(|value| IdentityLabel::parse(&value).map_err(|_| corrupt_storage()))
         .transpose()?;
-    let created_at = UnixTimestamp::from_seconds(row.get(5)?).ok_or_else(|| invalid_column(5))?;
+    let created_at = UnixTimestamp::from_seconds(
+        row.try_get("created_at_unix_s")
+            .map_err(|_| corrupt_storage())?,
+    )
+    .ok_or_else(corrupt_storage)?;
     let last_used_at = row
-        .get::<_, Option<i64>>(6)?
-        .map(|value| UnixTimestamp::from_seconds(value).ok_or_else(|| invalid_column(6)))
+        .try_get::<Option<i64>, _>("last_used_at_unix_s")
+        .map_err(|_| corrupt_storage())?
+        .map(|value| UnixTimestamp::from_seconds(value).ok_or_else(corrupt_storage))
         .transpose()?;
-
     NostrIdentity::new(
-        NostrIdentityReference::verify(public_key, npub).map_err(|_| invalid_column(1))?,
-        LocalKeyringBinding::new(public_key, key_availability),
+        NostrIdentityReference::verify(public_key, npub).map_err(|_| corrupt_storage())?,
+        LocalKeyringBinding::new(public_key, availability),
         label,
         IdentityCreatedAt::new(created_at),
         last_used_at,
     )
-    .map_err(|_| invalid_column(0))
+    .map_err(|_| corrupt_storage())
+}
+
+fn bounded_utf8(
+    row: &sqlx::sqlite::SqliteRow,
+    value_column: &str,
+    length_column: &str,
+    maximum: usize,
+) -> Result<Option<String>, SafeError> {
+    let value = row
+        .try_get::<Option<Vec<u8>>, _>(value_column)
+        .map_err(|_| corrupt_storage())?;
+    let length = row
+        .try_get::<Option<i64>, _>(length_column)
+        .map_err(|_| corrupt_storage())?;
+    match (value, length) {
+        (None, None) => Ok(None),
+        (Some(value), Some(length))
+            if usize::try_from(length)
+                .ok()
+                .is_some_and(|length| length <= maximum && length == value.len()) =>
+        {
+            String::from_utf8(value)
+                .map(Some)
+                .map_err(|_| corrupt_storage())
+        }
+        _ => Err(corrupt_storage()),
+    }
+}
+
+fn public_key_from_bytes(bytes: &[u8]) -> Result<PublicKey, SafeError> {
+    let bytes: [u8; 32] = bytes.try_into().map_err(|_| corrupt_storage())?;
+    PublicKey::from_bytes(bytes).map_err(|_| corrupt_storage())
 }
 
 const fn encode_key_availability(value: SignerAvailability) -> &'static str {
@@ -244,283 +408,38 @@ const fn encode_key_availability(value: SignerAvailability) -> &'static str {
     }
 }
 
-fn decode_key_availability(value: &str) -> rusqlite::Result<SignerAvailability> {
+fn decode_key_availability(value: &str) -> Result<SignerAvailability, SafeError> {
     match value {
         "available" => Ok(SignerAvailability::Available),
         "credential_missing" => Ok(SignerAvailability::CredentialMissing),
         "store_unavailable" => Ok(SignerAvailability::StoreUnavailable),
-        _ => Err(invalid_column(3)),
+        _ => Err(corrupt_storage()),
     }
 }
 
-fn invalid_column(index: usize) -> rusqlite::Error {
-    rusqlite::Error::InvalidColumnType(
-        index,
-        "public identity metadata".to_owned(),
-        rusqlite::types::Type::Text,
-    )
-}
-
-fn is_constraint_violation(error: &rusqlite::Error) -> bool {
-    matches!(
-        error,
-        rusqlite::Error::SqliteFailure(
-            rusqlite::ffi::Error {
-                code: rusqlite::ErrorCode::ConstraintViolation,
-                ..
-            },
-            _
-        )
-    )
-}
-
-const fn storage_error() -> SafeError {
-    SafeError::new(
-        SafeErrorCode::StorageUnavailable,
-        SafeMessage::new("The application database is unavailable."),
-    )
-}
-
-const fn corrupt_storage_error() -> SafeError {
-    SafeError::new(
-        SafeErrorCode::StorageCorrupt,
-        SafeMessage::new("The application database could not be read."),
-    )
+fn is_unique_violation(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .is_some_and(sqlx::error::DatabaseError::is_unique_violation)
 }
 
 const fn identity_exists() -> SafeError {
     SafeError::new(
         SafeErrorCode::IdentityAlreadyExists,
-        SafeMessage::new("The Nostr identity is already saved."),
+        SafeMessage::new("That identity is already saved."),
     )
 }
 
 const fn identity_not_found() -> SafeError {
     SafeError::new(
         SafeErrorCode::IdentityNotFound,
-        SafeMessage::new("The identity was not found."),
+        SafeMessage::new("That identity is not saved."),
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use std::fs;
-
-    use harvestcircle_application::{AppStateRepository, IdentityRepository};
-    use harvestcircle_domain::{
-        IdentityCreatedAt, IdentityLabel, LocalKeyringBinding, NostrIdentity,
-        NostrIdentityReference, PublicKey, SafeErrorCode, SignerAvailability, UnixTimestamp,
-    };
-    use tempfile::{TempDir, tempdir_in};
-
-    use crate::Database;
-
-    fn tempdir() -> std::io::Result<TempDir> {
-        tempdir_in(std::env::temp_dir().canonicalize()?)
-    }
-
-    fn public_key(key_byte: u8) -> PublicKey {
-        let value = match key_byte {
-            1 => "585591529da0bab31b3b1b1f986611cf5f435dca84f978c89ee8a40cca7103df",
-            2 => "e0266e3cfb0d2886f91c73f5f868f3b98273713e5fcd97c081663f5518a4b3af",
-            _ => "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7",
-        };
-        PublicKey::from_hex(value).expect("valid public key")
-    }
-
-    fn identity(key_byte: u8, created_at: i64) -> NostrIdentity {
-        let public_key = public_key(key_byte);
-        NostrIdentity::new(
-            NostrIdentityReference::derive(public_key).expect("identity"),
-            LocalKeyringBinding::new(public_key, SignerAvailability::Available),
-            Some(IdentityLabel::parse("Farm identity").expect("valid label")),
-            IdentityCreatedAt::new(
-                UnixTimestamp::from_seconds(created_at).expect("valid timestamp"),
-            ),
-            None,
-        )
-        .expect("identity")
-    }
-
-    #[test]
-    fn identities_insert_list_update_and_reject_duplicates() {
-        let database = Database::in_memory().expect("database");
-        let first = identity(1, 20);
-        let second = identity(2, 10);
-
-        database.insert_identity(&first).expect("insert first");
-        database.insert_identity(&second).expect("insert second");
-        let duplicate = database.insert_identity(&first).expect_err("duplicate");
-
-        assert_eq!(duplicate.code(), SafeErrorCode::IdentityAlreadyExists);
-        assert_eq!(
-            database.list_identities().expect("list"),
-            vec![second, first.clone()]
-        );
-        assert_eq!(
-            database.find_identity(first.public_key()).expect("find"),
-            Some(first)
-        );
-    }
-
-    #[test]
-    fn identities_and_selection_survive_restart_without_secret_text() {
-        let directory = tempdir().expect("temporary directory");
-        let path = directory.path().join("harvestcircle.sqlite3");
-        let identity = identity(3, 30);
-
-        {
-            let database = Database::open(&path).expect("database");
-            database.insert_identity(&identity).expect("insert");
-            database
-                .save_selected_identity(Some(identity.public_key()))
-                .expect("select");
-        }
-        let reopened = Database::open(&path).expect("reopen");
-
-        assert_eq!(
-            reopened.list_identities().expect("list"),
-            vec![identity.clone()]
-        );
-        assert_eq!(
-            reopened.load_selected_identity().expect("selection"),
-            Some(identity.public_key())
-        );
-        let bytes = fs::read(path).expect("database bytes");
-        assert!(!String::from_utf8_lossy(&bytes).contains("nsec1known-test-secret"));
-    }
-
-    #[test]
-    fn selection_requires_an_existing_identity_and_clears_on_delete() {
-        let database = Database::in_memory().expect("database");
-        let identity = identity(4, 40);
-
-        let missing = database
-            .save_selected_identity(Some(identity.public_key()))
-            .expect_err("missing identity");
-        assert_eq!(missing.code(), SafeErrorCode::IdentityNotFound);
-
-        database.insert_identity(&identity).expect("insert");
-        database
-            .save_selected_identity(Some(identity.public_key()))
-            .expect("select");
-        database
-            .remove_identity(identity.public_key())
-            .expect("remove");
-
-        assert_eq!(database.load_selected_identity().expect("selection"), None);
-    }
-
-    #[test]
-    fn identity_mutations_reject_missing_and_corrupt_rows() {
-        let database = Database::in_memory().expect("database");
-        let missing = identity(3, 30);
-        assert_eq!(
-            database
-                .update_identity(&missing)
-                .expect_err("missing update")
-                .code(),
-            SafeErrorCode::IdentityNotFound
-        );
-        assert_eq!(
-            database
-                .remove_identity(missing.public_key())
-                .expect_err("missing removal")
-                .code(),
-            SafeErrorCode::IdentityNotFound
-        );
-        assert_eq!(
-            database.find_identity(missing.public_key()).expect("find"),
-            None
-        );
-
-        database.insert_identity(&missing).expect("insert");
-        database.update_identity(&missing).expect("update");
-        database
-            .connection()
-            .execute(
-                "DELETE FROM local_signer_bindings WHERE account_public_key = ?1",
-                [missing.public_key().to_hex()],
-            )
-            .expect("delete binding");
-        assert_eq!(
-            database
-                .update_identity(&missing)
-                .expect_err("missing binding must fail")
-                .code(),
-            SafeErrorCode::StorageCorrupt
-        );
-        database
-            .connection()
-            .execute(
-                "INSERT INTO local_signer_bindings (account_public_key, binding_public_key, binding_kind, availability) VALUES (?1, ?1, 'local_secret', 'available')",
-                [missing.public_key().to_hex()],
-            )
-            .expect("restore binding");
-        database
-            .connection()
-            .pragma_update(None, "ignore_check_constraints", "ON")
-            .expect("disable check constraints for corruption fixture");
-        database
-            .connection()
-            .execute(
-                "UPDATE local_signer_bindings SET binding_kind = 'remote' WHERE account_public_key = ?1",
-                [missing.public_key().to_hex()],
-            )
-            .expect("corrupt binding kind");
-        assert_eq!(
-            database
-                .list_identities()
-                .expect_err("corrupt binding must fail")
-                .code(),
-            SafeErrorCode::StorageCorrupt
-        );
-
-        let database = Database::in_memory().expect("database");
-        database.insert_identity(&missing).expect("insert");
-        database
-            .connection()
-            .pragma_update(None, "ignore_check_constraints", "ON")
-            .expect("disable check constraints for corruption fixture");
-        database
-            .connection()
-            .execute(
-                "UPDATE local_signer_bindings SET availability = 'invalid' WHERE account_public_key = ?1",
-                [missing.public_key().to_hex()],
-            )
-            .expect("corrupt availability");
-        assert_eq!(
-            database
-                .find_identity(missing.public_key())
-                .expect_err("corrupt availability must fail")
-                .code(),
-            SafeErrorCode::StorageUnavailable
-        );
-
-        let database = Database::in_memory().expect("database");
-        database
-            .connection()
-            .execute("DELETE FROM runtime_state", [])
-            .expect("delete runtime singleton");
-        assert_eq!(
-            database
-                .save_selected_identity(None)
-                .expect_err("missing runtime singleton must fail")
-                .code(),
-            SafeErrorCode::StorageCorrupt
-        );
-
-        let read_only = Database::in_memory().expect("read-only database");
-        read_only
-            .connection()
-            .pragma_update(None, "query_only", "ON")
-            .expect("enable query-only mode");
-        assert_eq!(
-            read_only
-                .insert_identity(&missing)
-                .expect_err("non-constraint insertion failure must fail closed")
-                .code(),
-            SafeErrorCode::StorageUnavailable
-        );
-    }
+const fn identity_capacity_exhausted() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::InvalidApplicationState,
+        SafeMessage::new("The saved identity capacity is exhausted."),
+    )
 }

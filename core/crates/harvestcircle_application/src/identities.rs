@@ -1,11 +1,15 @@
 use std::sync::{Mutex, MutexGuard};
 
 use crate::{
-    AppCore, AppStateRepository, Clock, DurableOperationKind, DurableOperationPhase,
+    AppCore, AppStateRepository, BoxFuture, Clock, DurableOperationKind, DurableOperationPhase,
     DurableOperationRepository, DurableOperationStart, DurableRequestId, DurableTerminalOutcome,
-    IdentityOperationKind, IdentityOperationPhase, IdentityRepository, OperationDiagnostic,
-    OperationId, OperationJournal, OperationPriorState, PendingIdentityOperation,
-    RemovalConfirmationToken, SecretStore, StagedGeneratedKey, StateTransition,
+    IdentityRepository, OperationPriorState, RemovalConfirmationToken, SecretStore,
+    StagedGeneratedKey, StateTransition,
+};
+#[cfg(test)]
+use crate::{
+    IdentityOperationKind, IdentityOperationPhase, OperationDiagnostic, OperationId,
+    OperationJournal, PendingIdentityOperation,
 };
 use harvestcircle_domain::{
     IdentityCreatedAt, LocalKeyringBinding, NostrIdentity, NostrIdentityReference, Nsec, PublicKey,
@@ -48,7 +52,7 @@ impl AppCore {
     ///
     /// Returns a safe conflict, keyring, persistence, or recovery error.
     #[allow(clippy::too_many_arguments)]
-    pub fn commit_staged_generated_key(
+    pub async fn commit_staged_generated_key(
         &self,
         request_id: &DurableRequestId,
         staged: StagedGeneratedKey,
@@ -73,7 +77,8 @@ impl AppCore {
             secrets,
             operations,
             clock,
-        )?;
+        )
+        .await?;
         Ok(ImportIdentityReceipt { identity })
     }
 
@@ -84,7 +89,7 @@ impl AppCore {
     /// Returns a safe conflict, keyring, persistence, or state error. Staged recovery transport
     /// replaces this transitional generated-secret receipt in the custody phase.
     #[allow(clippy::too_many_arguments)]
-    pub fn generate_identity_durable(
+    pub async fn generate_identity_durable(
         &self,
         request_id: &DurableRequestId,
         expected_revision: u64,
@@ -116,7 +121,8 @@ impl AppCore {
             secrets,
             operations,
             clock,
-        )?;
+        )
+        .await?;
         Ok(GenerateIdentityReceipt {
             identity,
             generated_nsec: nsec,
@@ -129,7 +135,7 @@ impl AppCore {
     ///
     /// Returns a safe conflict, validation, keyring, persistence, or state error.
     #[allow(clippy::too_many_arguments)]
-    pub fn import_secret_key_durable(
+    pub async fn import_secret_key_durable(
         &self,
         request_id: &DurableRequestId,
         expected_revision: u64,
@@ -140,13 +146,14 @@ impl AppCore {
         operations: &(impl DurableOperationRepository + ?Sized),
         clock: &(impl Clock + ?Sized),
     ) -> Result<ImportIdentityReceipt, SafeError> {
-        if let Some(existing) = operations.load_durable_operation(request_id)? {
+        if let Some(existing) = operations.load_durable_operation(request_id).await? {
             return if existing
                 .terminal()
                 .is_some_and(|receipt| receipt.outcome() == DurableTerminalOutcome::Completed)
             {
                 identities
-                    .find_identity(existing.identity())?
+                    .find_identity(existing.identity())
+                    .await?
                     .map(|identity| ImportIdentityReceipt { identity })
                     .ok_or_else(recovery_required)
             } else {
@@ -156,7 +163,7 @@ impl AppCore {
         self.require_revision(expected_revision)?;
         let imported = self.key_material().import(input)?;
         let (public_key, npub, secret) = imported.into_parts();
-        let previous = identities.find_identity(public_key)?;
+        let previous = identities.find_identity(public_key).await?;
         if let Some(existing) = &previous
             && (local_keyring_binding(existing)?.availability()
                 != SignerAvailability::CredentialMissing
@@ -197,7 +204,8 @@ impl AppCore {
             secrets,
             operations,
             clock,
-        )?;
+        )
+        .await?;
         Ok(ImportIdentityReceipt { identity })
     }
 
@@ -209,7 +217,7 @@ impl AppCore {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn persist_identity_durable(
+    async fn persist_identity_durable(
         &self,
         request_id: &DurableRequestId,
         kind: DurableOperationKind,
@@ -227,16 +235,21 @@ impl AppCore {
             .map(local_keyring_binding)
             .transpose()?
             .map(LocalKeyringBinding::availability);
-        let prior =
-            OperationPriorState::new(app_state.load_selected_identity()?, prior_availability);
-        match operations.begin_durable_operation(
-            request_id,
-            kind,
-            identity.public_key(),
-            Some(expected_revision),
-            prior,
-            clock.now(),
-        )? {
+        let prior = OperationPriorState::new(
+            app_state.load_selected_identity().await?,
+            prior_availability,
+        );
+        match operations
+            .begin_durable_operation(
+                request_id,
+                kind,
+                identity.public_key(),
+                Some(expected_revision),
+                prior,
+                clock.now(),
+            )
+            .await?
+        {
             DurableOperationStart::Started(_) => {}
             DurableOperationStart::Existing(operation) => {
                 return if operation
@@ -250,43 +263,54 @@ impl AppCore {
             }
         }
         secrets.put(identity.public_key(), secret)?;
-        operations.advance_durable_operation(
-            request_id,
-            DurableOperationPhase::IntentRecorded,
-            DurableOperationPhase::CredentialWritten,
-            clock.now(),
-            None,
-        )?;
-        previous.map_or_else(
-            || identities.insert_identity(identity),
-            |_| identities.update_identity(identity),
-        )?;
-        operations.advance_durable_operation(
-            request_id,
-            DurableOperationPhase::CredentialWritten,
-            DurableOperationPhase::MetadataCommitted,
-            clock.now(),
-            None,
-        )?;
-        app_state.save_selected_identity(Some(identity.public_key()))?;
-        operations.advance_durable_operation(
-            request_id,
-            DurableOperationPhase::MetadataCommitted,
-            DurableOperationPhase::SelectionCommitted,
-            clock.now(),
-            None,
-        )?;
+        operations
+            .advance_durable_operation(
+                request_id,
+                DurableOperationPhase::IntentRecorded,
+                DurableOperationPhase::CredentialWritten,
+                clock.now(),
+                None,
+            )
+            .await?;
+        if previous.is_some() {
+            identities.update_identity(identity).await?;
+        } else {
+            identities.insert_identity(identity).await?;
+        }
+        operations
+            .advance_durable_operation(
+                request_id,
+                DurableOperationPhase::CredentialWritten,
+                DurableOperationPhase::MetadataCommitted,
+                clock.now(),
+                None,
+            )
+            .await?;
+        app_state
+            .save_selected_identity(Some(identity.public_key()))
+            .await?;
+        operations
+            .advance_durable_operation(
+                request_id,
+                DurableOperationPhase::MetadataCommitted,
+                DurableOperationPhase::SelectionCommitted,
+                clock.now(),
+                None,
+            )
+            .await?;
         let snapshot = self.apply_transition(StateTransition::ReplaceRegistry {
-            identities: identities.list_identities()?,
+            identities: identities.list_identities().await?,
             selected: Some(identity.public_key()),
         })?;
-        operations.finalize_durable_operation(
-            request_id,
-            DurableOperationPhase::SelectionCommitted,
-            DurableTerminalOutcome::Completed,
-            Some(snapshot.revision().value()),
-            clock.now(),
-        )?;
+        operations
+            .finalize_durable_operation(
+                request_id,
+                DurableOperationPhase::SelectionCommitted,
+                DurableTerminalOutcome::Completed,
+                Some(snapshot.revision().value()),
+                clock.now(),
+            )
+            .await?;
         Ok(())
     }
 
@@ -312,7 +336,8 @@ impl AppCore {
     /// # Errors
     ///
     /// Returns a safe confirmation, credential, persistence, recovery, or state error.
-    pub fn confirm_identity_removal(
+    #[cfg(test)]
+    pub async fn confirm_identity_removal(
         &self,
         token: RemovalConfirmationToken,
         identities: &(impl IdentityRepository + ?Sized),
@@ -322,7 +347,7 @@ impl AppCore {
         clock: &(impl Clock + ?Sized),
     ) -> Result<crate::AppSnapshot, SafeError> {
         let public_key = self.consume_removal_token(token, clock.now())?;
-        let registry = identities.list_identities()?;
+        let registry = identities.list_identities().await?;
         let index = registry
             .iter()
             .position(|identity| identity.public_key() == public_key)
@@ -335,8 +360,9 @@ impl AppCore {
         } else {
             self.snapshot().selected_identity()
         };
-        let operation =
-            journal.begin_operation(IdentityOperationKind::Remove, public_key, clock.now())?;
+        let operation = journal
+            .begin_operation(IdentityOperationKind::Remove, public_key, clock.now())
+            .await?;
         let was_active = self
             .snapshot()
             .active_identity()
@@ -353,23 +379,27 @@ impl AppCore {
                     && local_keyring.availability() == SignerAvailability::CredentialMissing => {}
             Err(error) => return Err(error),
         }
-        journal.update_operation(
-            operation,
-            IdentityOperationPhase::CredentialDeleted,
-            clock.now(),
-            None,
-        )?;
-        identities.remove_identity(public_key)?;
-        app_state.save_selected_identity(selected)?;
-        journal.update_operation(
-            operation,
-            IdentityOperationPhase::MetadataDeleted,
-            clock.now(),
-            None,
-        )?;
-        journal.finalize_operation(operation)?;
+        journal
+            .update_operation(
+                operation,
+                IdentityOperationPhase::CredentialDeleted,
+                clock.now(),
+                None,
+            )
+            .await?;
+        identities.remove_identity(public_key).await?;
+        app_state.save_selected_identity(selected).await?;
+        journal
+            .update_operation(
+                operation,
+                IdentityOperationPhase::MetadataDeleted,
+                clock.now(),
+                None,
+            )
+            .await?;
+        journal.finalize_operation(operation).await?;
         self.apply_transition(StateTransition::ReplaceRegistryPreservingSession {
-            identities: identities.list_identities()?,
+            identities: identities.list_identities().await?,
             selected,
         })
     }
@@ -380,7 +410,7 @@ impl AppCore {
     ///
     /// Returns a safe expiry, conflict, credential, persistence, or recovery error.
     #[allow(clippy::too_many_arguments)]
-    pub fn confirm_identity_removal_durable(
+    pub async fn confirm_identity_removal_durable(
         &self,
         request_id: &DurableRequestId,
         token: RemovalConfirmationToken,
@@ -393,7 +423,7 @@ impl AppCore {
         let expected_revision = token.revision().value();
         let public_key = self.consume_removal_token(token, clock.now())?;
         self.require_revision(expected_revision)?;
-        let registry = identities.list_identities()?;
+        let registry = identities.list_identities().await?;
         let index = registry
             .iter()
             .position(|identity| identity.public_key() == public_key)
@@ -408,14 +438,17 @@ impl AppCore {
         };
         let identity = &registry[index];
         let local_keyring = local_keyring_binding(identity)?;
-        match operations.begin_durable_operation(
-            request_id,
-            DurableOperationKind::Remove,
-            public_key,
-            Some(expected_revision),
-            OperationPriorState::new(selected, Some(local_keyring.availability())),
-            clock.now(),
-        )? {
+        match operations
+            .begin_durable_operation(
+                request_id,
+                DurableOperationKind::Remove,
+                public_key,
+                Some(expected_revision),
+                OperationPriorState::new(selected, Some(local_keyring.availability())),
+                clock.now(),
+            )
+            .await?
+        {
             DurableOperationStart::Started(_) => {}
             DurableOperationStart::Existing(operation) => {
                 return if operation
@@ -442,41 +475,49 @@ impl AppCore {
                     && local_keyring.availability() == SignerAvailability::CredentialMissing => {}
             Err(error) => return Err(error),
         }
-        operations.advance_durable_operation(
-            request_id,
-            DurableOperationPhase::IntentRecorded,
-            DurableOperationPhase::CredentialDeleted,
-            clock.now(),
-            None,
-        )?;
-        identities.remove_identity(public_key)?;
-        operations.advance_durable_operation(
-            request_id,
-            DurableOperationPhase::CredentialDeleted,
-            DurableOperationPhase::MetadataDeleted,
-            clock.now(),
-            None,
-        )?;
-        app_state.save_selected_identity(selected)?;
-        operations.advance_durable_operation(
-            request_id,
-            DurableOperationPhase::MetadataDeleted,
-            DurableOperationPhase::SelectionCommitted,
-            clock.now(),
-            None,
-        )?;
+        operations
+            .advance_durable_operation(
+                request_id,
+                DurableOperationPhase::IntentRecorded,
+                DurableOperationPhase::CredentialDeleted,
+                clock.now(),
+                None,
+            )
+            .await?;
+        identities.remove_identity(public_key).await?;
+        operations
+            .advance_durable_operation(
+                request_id,
+                DurableOperationPhase::CredentialDeleted,
+                DurableOperationPhase::MetadataDeleted,
+                clock.now(),
+                None,
+            )
+            .await?;
+        app_state.save_selected_identity(selected).await?;
+        operations
+            .advance_durable_operation(
+                request_id,
+                DurableOperationPhase::MetadataDeleted,
+                DurableOperationPhase::SelectionCommitted,
+                clock.now(),
+                None,
+            )
+            .await?;
         let snapshot =
             self.apply_transition(StateTransition::ReplaceRegistryPreservingSession {
-                identities: identities.list_identities()?,
+                identities: identities.list_identities().await?,
                 selected,
             })?;
-        operations.finalize_durable_operation(
-            request_id,
-            DurableOperationPhase::SelectionCommitted,
-            DurableTerminalOutcome::Completed,
-            Some(snapshot.revision().value()),
-            clock.now(),
-        )?;
+        operations
+            .finalize_durable_operation(
+                request_id,
+                DurableOperationPhase::SelectionCommitted,
+                DurableTerminalOutcome::Completed,
+                Some(snapshot.revision().value()),
+                clock.now(),
+            )
+            .await?;
         Ok(snapshot)
     }
 
@@ -485,16 +526,16 @@ impl AppCore {
     /// # Errors
     ///
     /// Returns a safe identity, persistence, or application-state error.
-    pub fn select_identity(
+    pub async fn select_identity(
         &self,
         public_key: PublicKey,
         identities: &(impl IdentityRepository + ?Sized),
         app_state: &(impl AppStateRepository + ?Sized),
     ) -> Result<crate::AppSnapshot, SafeError> {
-        if identities.find_identity(public_key)?.is_none() {
+        if identities.find_identity(public_key).await?.is_none() {
             return Err(identity_not_found());
         }
-        app_state.save_selected_identity(Some(public_key))?;
+        app_state.save_selected_identity(Some(public_key)).await?;
         self.apply_transition(StateTransition::Select(public_key))
     }
 
@@ -503,7 +544,8 @@ impl AppCore {
     /// # Errors
     ///
     /// Returns a safe key, credential, persistence, or application-state error.
-    pub fn generate_identity(
+    #[cfg(test)]
+    pub async fn generate_identity(
         &self,
         identities: &(impl IdentityRepository + ?Sized),
         app_state: &(impl AppStateRepository + ?Sized),
@@ -530,8 +572,9 @@ impl AppCore {
             secrets,
             journal,
             clock,
-        )?;
-        let registry = identities.list_identities()?;
+        )
+        .await?;
+        let registry = identities.list_identities().await?;
         self.apply_transition(StateTransition::ReplaceRegistry {
             identities: registry,
             selected: Some(public_key),
@@ -547,7 +590,8 @@ impl AppCore {
     /// # Errors
     ///
     /// Returns a safe key, credential, persistence, or application-state error.
-    pub fn import_secret_key(
+    #[cfg(test)]
+    pub async fn import_secret_key(
         &self,
         input: SecretKeyInput,
         identities: &(impl IdentityRepository + ?Sized),
@@ -558,7 +602,7 @@ impl AppCore {
     ) -> Result<ImportIdentityReceipt, SafeError> {
         let imported = self.key_material().import(input)?;
         let (public_key, npub, secret) = imported.into_parts();
-        if let Some(existing) = identities.find_identity(public_key)? {
+        if let Some(existing) = identities.find_identity(public_key).await? {
             if local_keyring_binding(&existing)?.availability()
                 != SignerAvailability::CredentialMissing
                 || secrets.contains(public_key)?
@@ -578,9 +622,10 @@ impl AppCore {
                 secrets,
                 journal,
                 clock,
-            )?;
+            )
+            .await?;
             self.apply_transition(StateTransition::ReplaceRegistry {
-                identities: identities.list_identities()?,
+                identities: identities.list_identities().await?,
                 selected: Some(public_key),
             })?;
             return Ok(ImportIdentityReceipt { identity: repaired });
@@ -605,16 +650,18 @@ impl AppCore {
             secrets,
             journal,
             clock,
-        )?;
+        )
+        .await?;
         self.apply_transition(StateTransition::ReplaceRegistry {
-            identities: identities.list_identities()?,
+            identities: identities.list_identities().await?,
             selected: Some(public_key),
         })?;
         Ok(ImportIdentityReceipt { identity })
     }
 
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
-    fn persist_identity_transaction(
+    async fn persist_identity_transaction(
         kind: IdentityOperationKind,
         identity: &NostrIdentity,
         secret: SecretKeyInput,
@@ -626,18 +673,23 @@ impl AppCore {
         clock: &(impl Clock + ?Sized),
     ) -> Result<(), SafeError> {
         let public_key = identity.public_key();
-        let previous_selection = app_state.load_selected_identity()?;
-        let operation = journal.begin_operation(kind, public_key, clock.now())?;
+        let previous_selection = app_state.load_selected_identity().await?;
+        let operation = journal
+            .begin_operation(kind, public_key, clock.now())
+            .await?;
         if let Err(error) = secrets.put(public_key, secret) {
-            let _ = journal.finalize_operation(operation);
+            let _ = journal.finalize_operation(operation).await;
             return Err(error);
         }
-        if let Err(error) = journal.update_operation(
-            operation,
-            IdentityOperationPhase::CredentialWritten,
-            clock.now(),
-            None,
-        ) {
+        if let Err(error) = journal
+            .update_operation(
+                operation,
+                IdentityOperationPhase::CredentialWritten,
+                clock.now(),
+                None,
+            )
+            .await
+        {
             return compensate_identity_write(
                 operation,
                 public_key,
@@ -649,12 +701,14 @@ impl AppCore {
                 secrets,
                 journal,
                 clock,
-            );
+            )
+            .await;
         }
-        let metadata_result = previous.map_or_else(
-            || identities.insert_identity(identity),
-            |_| identities.update_identity(identity),
-        );
+        let metadata_result = if previous.is_some() {
+            identities.update_identity(identity).await
+        } else {
+            identities.insert_identity(identity).await
+        };
         if let Err(error) = metadata_result {
             return compensate_identity_write(
                 operation,
@@ -667,9 +721,10 @@ impl AppCore {
                 secrets,
                 journal,
                 clock,
-            );
+            )
+            .await;
         }
-        if let Err(error) = app_state.save_selected_identity(Some(public_key)) {
+        if let Err(error) = app_state.save_selected_identity(Some(public_key)).await {
             return compensate_identity_write(
                 operation,
                 public_key,
@@ -681,20 +736,24 @@ impl AppCore {
                 secrets,
                 journal,
                 clock,
-            );
+            )
+            .await;
         }
-        journal.update_operation(
-            operation,
-            IdentityOperationPhase::MetadataCommitted,
-            clock.now(),
-            None,
-        )?;
-        journal.finalize_operation(operation)
+        journal
+            .update_operation(
+                operation,
+                IdentityOperationPhase::MetadataCommitted,
+                clock.now(),
+                None,
+            )
+            .await?;
+        journal.finalize_operation(operation).await
     }
 }
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
-fn compensate_identity_write(
+async fn compensate_identity_write(
     operation: OperationId,
     public_key: PublicKey,
     original_error: SafeError,
@@ -707,103 +766,112 @@ fn compensate_identity_write(
     clock: &(impl Clock + ?Sized),
 ) -> Result<(), SafeError> {
     let metadata_rollback = if let Some(previous) = previous {
-        identities.update_identity(previous)
+        identities.update_identity(previous).await
     } else {
-        identities.remove_identity(public_key)
+        identities.remove_identity(public_key).await
     };
-    let selection_rollback = app_state.save_selected_identity(previous_selection);
+    let selection_rollback = app_state.save_selected_identity(previous_selection).await;
     let credential_rollback = secrets.delete(public_key);
     if metadata_rollback.is_err() || selection_rollback.is_err() || credential_rollback.is_err() {
-        let _ = journal.update_operation(
-            operation,
-            IdentityOperationPhase::CompensationPending,
-            clock.now(),
-            Some(OperationDiagnostic::CompensationFailed),
-        );
+        let _ = journal
+            .update_operation(
+                operation,
+                IdentityOperationPhase::CompensationPending,
+                clock.now(),
+                Some(OperationDiagnostic::CompensationFailed),
+            )
+            .await;
         return Err(recovery_required());
     }
-    let _ = journal.finalize_operation(operation);
+    let _ = journal.finalize_operation(operation).await;
     Err(original_error)
 }
 
+#[cfg(test)]
 #[derive(Default)]
 pub struct InMemoryOperationJournal {
     state: Mutex<InMemoryJournalState>,
 }
 
+#[cfg(test)]
 #[derive(Default)]
 struct InMemoryJournalState {
     next_id: u64,
     pending: Vec<PendingIdentityOperation>,
 }
 
+#[cfg(test)]
 impl OperationJournal for InMemoryOperationJournal {
-    fn begin_operation(
-        &self,
+    fn begin_operation<'a>(
+        &'a self,
         kind: IdentityOperationKind,
         subject: PublicKey,
         updated_at: harvestcircle_domain::UnixTimestamp,
-    ) -> Result<OperationId, SafeError> {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        state.next_id = state.next_id.checked_add(1).ok_or_else(recovery_required)?;
-        let id = OperationId::from_raw(state.next_id);
-        state.pending.push(PendingIdentityOperation::new(
-            id,
-            kind,
-            subject,
-            IdentityOperationPhase::IntentRecorded,
-            updated_at,
-            None,
-        ));
-        Ok(id)
+    ) -> BoxFuture<'a, Result<OperationId, SafeError>> {
+        Box::pin(async move {
+            let mut state = self.state.lock().map_err(|_| recovery_required())?;
+            state.next_id = state.next_id.checked_add(1).ok_or_else(recovery_required)?;
+            let id = OperationId::from_raw(state.next_id);
+            state.pending.push(PendingIdentityOperation::new(
+                id,
+                kind,
+                subject,
+                IdentityOperationPhase::IntentRecorded,
+                updated_at,
+                None,
+            ));
+            Ok(id)
+        })
     }
 
-    fn update_operation(
-        &self,
+    fn update_operation<'a>(
+        &'a self,
         id: OperationId,
         phase: IdentityOperationPhase,
         updated_at: harvestcircle_domain::UnixTimestamp,
         diagnostic: Option<OperationDiagnostic>,
-    ) -> Result<(), SafeError> {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let operation = state
-            .pending
-            .iter_mut()
-            .find(|operation| operation.id() == id)
-            .ok_or_else(recovery_required)?;
-        *operation = PendingIdentityOperation::new(
-            id,
-            operation.kind(),
-            operation.subject(),
-            phase,
-            updated_at,
-            diagnostic,
-        );
-        Ok(())
+    ) -> BoxFuture<'a, Result<(), SafeError>> {
+        Box::pin(async move {
+            let mut state = self.state.lock().map_err(|_| recovery_required())?;
+            let operation = state
+                .pending
+                .iter_mut()
+                .find(|operation| operation.id() == id)
+                .ok_or_else(recovery_required)?;
+            *operation = PendingIdentityOperation::new(
+                id,
+                operation.kind(),
+                operation.subject(),
+                phase,
+                updated_at,
+                diagnostic,
+            );
+            Ok(())
+        })
     }
 
-    fn list_pending_operations(&self) -> Result<Vec<PendingIdentityOperation>, SafeError> {
-        Ok(self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .pending
-            .clone())
+    fn list_pending_operations(
+        &self,
+    ) -> BoxFuture<'_, Result<Vec<PendingIdentityOperation>, SafeError>> {
+        Box::pin(async move {
+            Ok(self
+                .state
+                .lock()
+                .map_err(|_| recovery_required())?
+                .pending
+                .clone())
+        })
     }
 
-    fn finalize_operation(&self, id: OperationId) -> Result<(), SafeError> {
-        self.state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .pending
-            .retain(|operation| operation.id() != id);
-        Ok(())
+    fn finalize_operation(&self, id: OperationId) -> BoxFuture<'_, Result<(), SafeError>> {
+        Box::pin(async move {
+            self.state
+                .lock()
+                .map_err(|_| recovery_required())?
+                .pending
+                .retain(|operation| operation.id() != id);
+            Ok(())
+        })
     }
 }
 
@@ -819,83 +887,103 @@ struct InMemoryIdentityState {
 }
 
 impl InMemoryIdentityRepository {
-    fn state(&self) -> MutexGuard<'_, InMemoryIdentityState> {
-        self.state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    fn state(&self) -> Result<MutexGuard<'_, InMemoryIdentityState>, SafeError> {
+        self.state.lock().map_err(|_| recovery_required())
     }
 }
 
 impl IdentityRepository for InMemoryIdentityRepository {
-    fn list_identities(&self) -> Result<Vec<NostrIdentity>, SafeError> {
-        Ok(self.state().identities.clone())
+    fn list_identities(&self) -> BoxFuture<'_, Result<Vec<NostrIdentity>, SafeError>> {
+        Box::pin(async move { Ok(self.state()?.identities.clone()) })
     }
 
-    fn find_identity(&self, public_key: PublicKey) -> Result<Option<NostrIdentity>, SafeError> {
-        Ok(self
-            .state()
-            .identities
-            .iter()
-            .find(|identity| identity.public_key() == public_key)
-            .cloned())
+    fn find_identity(
+        &self,
+        public_key: PublicKey,
+    ) -> BoxFuture<'_, Result<Option<NostrIdentity>, SafeError>> {
+        Box::pin(async move {
+            Ok(self
+                .state()?
+                .identities
+                .iter()
+                .find(|identity| identity.public_key() == public_key)
+                .cloned())
+        })
     }
 
-    fn insert_identity(&self, identity: &NostrIdentity) -> Result<(), SafeError> {
-        let mut state = self.state();
-        if state
-            .identities
-            .iter()
-            .any(|saved| saved.public_key() == identity.public_key())
-        {
-            return Err(identity_exists());
-        }
-        state.identities.push(identity.clone());
-        state
-            .identities
-            .sort_by_key(|saved| (saved.created_at().timestamp(), saved.public_key()));
-        Ok(())
+    fn insert_identity<'a>(
+        &'a self,
+        identity: &'a NostrIdentity,
+    ) -> BoxFuture<'a, Result<(), SafeError>> {
+        Box::pin(async move {
+            let mut state = self.state()?;
+            if state
+                .identities
+                .iter()
+                .any(|saved| saved.public_key() == identity.public_key())
+            {
+                return Err(identity_exists());
+            }
+            state.identities.push(identity.clone());
+            state
+                .identities
+                .sort_by_key(|saved| (saved.created_at().timestamp(), saved.public_key()));
+            Ok(())
+        })
     }
 
-    fn update_identity(&self, identity: &NostrIdentity) -> Result<(), SafeError> {
-        let mut state = self.state();
-        let saved = state
-            .identities
-            .iter_mut()
-            .find(|saved| saved.public_key() == identity.public_key())
-            .ok_or_else(identity_not_found)?;
-        *saved = identity.clone();
-        Ok(())
+    fn update_identity<'a>(
+        &'a self,
+        identity: &'a NostrIdentity,
+    ) -> BoxFuture<'a, Result<(), SafeError>> {
+        Box::pin(async move {
+            let mut state = self.state()?;
+            let saved = state
+                .identities
+                .iter_mut()
+                .find(|saved| saved.public_key() == identity.public_key())
+                .ok_or_else(identity_not_found)?;
+            *saved = identity.clone();
+            Ok(())
+        })
     }
 
-    fn remove_identity(&self, public_key: PublicKey) -> Result<(), SafeError> {
-        let mut state = self.state();
-        state
-            .identities
-            .retain(|identity| identity.public_key() != public_key);
-        if state.selected == Some(public_key) {
-            state.selected = None;
-        }
-        Ok(())
+    fn remove_identity(&self, public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
+        Box::pin(async move {
+            let mut state = self.state()?;
+            state
+                .identities
+                .retain(|identity| identity.public_key() != public_key);
+            if state.selected == Some(public_key) {
+                state.selected = None;
+            }
+            Ok(())
+        })
     }
 }
 
 impl AppStateRepository for InMemoryIdentityRepository {
-    fn load_selected_identity(&self) -> Result<Option<PublicKey>, SafeError> {
-        Ok(self.state().selected)
+    fn load_selected_identity(&self) -> BoxFuture<'_, Result<Option<PublicKey>, SafeError>> {
+        Box::pin(async move { Ok(self.state()?.selected) })
     }
 
-    fn save_selected_identity(&self, public_key: Option<PublicKey>) -> Result<(), SafeError> {
-        let mut state = self.state();
-        if public_key.is_some_and(|key| {
-            !state
-                .identities
-                .iter()
-                .any(|identity| identity.public_key() == key)
-        }) {
-            return Err(identity_not_found());
-        }
-        state.selected = public_key;
-        Ok(())
+    fn save_selected_identity(
+        &self,
+        public_key: Option<PublicKey>,
+    ) -> BoxFuture<'_, Result<(), SafeError>> {
+        Box::pin(async move {
+            let mut state = self.state()?;
+            if public_key.is_some_and(|key| {
+                !state
+                    .identities
+                    .iter()
+                    .any(|identity| identity.public_key() == key)
+            }) {
+                return Err(identity_not_found());
+            }
+            state.selected = public_key;
+            Ok(())
+        })
     }
 }
 
@@ -945,7 +1033,7 @@ mod tests {
 
     use super::InMemoryIdentityRepository;
     use crate::{
-        AppCore, AppStateRepository, Clock, DurableOperationKind, DurableOperationPhase,
+        AppCore, AppStateRepository, BoxFuture, Clock, DurableOperationKind, DurableOperationPhase,
         FailureSecretStore, IdentityOperationPhase, IdentityRepository, InMemoryOperationJournal,
         InMemorySecretStore, OperationJournal, ProfileRefreshStatus, ProfileRepository,
         RelayConfiguration, SecretStore, SecretStoreOperation, SessionState, StateTransition,
@@ -974,25 +1062,28 @@ mod tests {
         fn load_profile(
             &self,
             _public_key: PublicKey,
-        ) -> Result<Option<crate::CachedProfile>, SafeError> {
-            Ok(None)
+        ) -> BoxFuture<'_, Result<Option<crate::CachedProfile>, SafeError>> {
+            Box::pin(async { Ok(None) })
         }
 
-        fn save_profile(&self, _profile: &crate::CachedProfile) -> Result<(), SafeError> {
-            Ok(())
+        fn save_profile<'a>(
+            &'a self,
+            _profile: &'a crate::CachedProfile,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(async { Ok(()) })
         }
 
-        fn record_refresh_status(
-            &self,
+        fn record_refresh_status<'a>(
+            &'a self,
             _public_key: PublicKey,
             _refreshed_at: UnixTimestamp,
             _status: ProfileRefreshStatus,
-        ) -> Result<(), SafeError> {
-            Ok(())
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(async { Ok(()) })
         }
 
-        fn remove_profile(&self, _public_key: PublicKey) -> Result<(), SafeError> {
-            Ok(())
+        fn remove_profile(&self, _public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
+            Box::pin(async { Ok(()) })
         }
     }
 
@@ -1000,35 +1091,40 @@ mod tests {
     struct FailingUpdateJournal(InMemoryOperationJournal);
 
     impl OperationJournal for FailingUpdateJournal {
-        fn begin_operation(
-            &self,
+        fn begin_operation<'a>(
+            &'a self,
             kind: crate::IdentityOperationKind,
             subject: PublicKey,
             updated_at: UnixTimestamp,
-        ) -> Result<crate::OperationId, SafeError> {
+        ) -> BoxFuture<'a, Result<crate::OperationId, SafeError>> {
             self.0.begin_operation(kind, subject, updated_at)
         }
 
-        fn update_operation(
-            &self,
+        fn update_operation<'a>(
+            &'a self,
             _id: crate::OperationId,
             _phase: IdentityOperationPhase,
             _updated_at: UnixTimestamp,
             _diagnostic: Option<crate::OperationDiagnostic>,
-        ) -> Result<(), SafeError> {
-            Err(SafeError::new(
-                SafeErrorCode::StorageUnavailable,
-                SafeMessage::new("The test journal is unavailable."),
-            ))
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(async {
+                Err(SafeError::new(
+                    SafeErrorCode::StorageUnavailable,
+                    SafeMessage::new("The test journal is unavailable."),
+                ))
+            })
         }
 
         fn list_pending_operations(
             &self,
-        ) -> Result<Vec<crate::PendingIdentityOperation>, SafeError> {
+        ) -> BoxFuture<'_, Result<Vec<crate::PendingIdentityOperation>, SafeError>> {
             self.0.list_pending_operations()
         }
 
-        fn finalize_operation(&self, id: crate::OperationId) -> Result<(), SafeError> {
+        fn finalize_operation(
+            &self,
+            id: crate::OperationId,
+        ) -> BoxFuture<'_, Result<(), SafeError>> {
             self.0.finalize_operation(id)
         }
     }
@@ -1045,80 +1141,108 @@ mod tests {
     }
 
     impl IdentityRepository for FailingSelectionRepository {
-        fn list_identities(&self) -> Result<Vec<NostrIdentity>, SafeError> {
+        fn list_identities(&self) -> BoxFuture<'_, Result<Vec<NostrIdentity>, SafeError>> {
             self.inner.list_identities()
         }
 
-        fn find_identity(&self, public_key: PublicKey) -> Result<Option<NostrIdentity>, SafeError> {
+        fn find_identity(
+            &self,
+            public_key: PublicKey,
+        ) -> BoxFuture<'_, Result<Option<NostrIdentity>, SafeError>> {
             self.inner.find_identity(public_key)
         }
 
-        fn insert_identity(&self, identity: &NostrIdentity) -> Result<(), SafeError> {
+        fn insert_identity<'a>(
+            &'a self,
+            identity: &'a NostrIdentity,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
             self.inner.insert_identity(identity)
         }
 
-        fn update_identity(&self, identity: &NostrIdentity) -> Result<(), SafeError> {
+        fn update_identity<'a>(
+            &'a self,
+            identity: &'a NostrIdentity,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
             self.inner.update_identity(identity)
         }
 
-        fn remove_identity(&self, public_key: PublicKey) -> Result<(), SafeError> {
+        fn remove_identity(&self, public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
             self.inner.remove_identity(public_key)
         }
     }
 
     impl AppStateRepository for FailingSelectionRepository {
-        fn load_selected_identity(&self) -> Result<Option<PublicKey>, SafeError> {
+        fn load_selected_identity(&self) -> BoxFuture<'_, Result<Option<PublicKey>, SafeError>> {
             self.inner.load_selected_identity()
         }
 
-        fn save_selected_identity(&self, public_key: Option<PublicKey>) -> Result<(), SafeError> {
+        fn save_selected_identity(
+            &self,
+            public_key: Option<PublicKey>,
+        ) -> BoxFuture<'_, Result<(), SafeError>> {
             if self.fail_next_selection.swap(false, Ordering::SeqCst) {
-                return Err(SafeError::new(
-                    SafeErrorCode::StorageUnavailable,
-                    SafeMessage::new("The test selection repository is unavailable."),
-                ));
+                return Box::pin(async {
+                    Err(SafeError::new(
+                        SafeErrorCode::StorageUnavailable,
+                        SafeMessage::new("The test selection repository is unavailable."),
+                    ))
+                });
             }
             self.inner.save_selected_identity(public_key)
         }
     }
 
     impl IdentityRepository for FailingInsertRepository {
-        fn list_identities(&self) -> Result<Vec<NostrIdentity>, SafeError> {
+        fn list_identities(&self) -> BoxFuture<'_, Result<Vec<NostrIdentity>, SafeError>> {
             self.inner.list_identities()
         }
 
-        fn find_identity(&self, public_key: PublicKey) -> Result<Option<NostrIdentity>, SafeError> {
+        fn find_identity(
+            &self,
+            public_key: PublicKey,
+        ) -> BoxFuture<'_, Result<Option<NostrIdentity>, SafeError>> {
             self.inner.find_identity(public_key)
         }
 
-        fn insert_identity(&self, _identity: &NostrIdentity) -> Result<(), SafeError> {
-            Err(SafeError::new(
-                SafeErrorCode::StorageUnavailable,
-                SafeMessage::new("The test identity repository is unavailable."),
-            ))
+        fn insert_identity<'a>(
+            &'a self,
+            _identity: &'a NostrIdentity,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(async {
+                Err(SafeError::new(
+                    SafeErrorCode::StorageUnavailable,
+                    SafeMessage::new("The test identity repository is unavailable."),
+                ))
+            })
         }
 
-        fn update_identity(&self, identity: &NostrIdentity) -> Result<(), SafeError> {
+        fn update_identity<'a>(
+            &'a self,
+            identity: &'a NostrIdentity,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
             self.inner.update_identity(identity)
         }
 
-        fn remove_identity(&self, public_key: PublicKey) -> Result<(), SafeError> {
+        fn remove_identity(&self, public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
             self.inner.remove_identity(public_key)
         }
     }
 
     impl AppStateRepository for FailingInsertRepository {
-        fn load_selected_identity(&self) -> Result<Option<PublicKey>, SafeError> {
+        fn load_selected_identity(&self) -> BoxFuture<'_, Result<Option<PublicKey>, SafeError>> {
             self.inner.load_selected_identity()
         }
 
-        fn save_selected_identity(&self, public_key: Option<PublicKey>) -> Result<(), SafeError> {
+        fn save_selected_identity(
+            &self,
+            public_key: Option<PublicKey>,
+        ) -> BoxFuture<'_, Result<(), SafeError>> {
             self.inner.save_selected_identity(public_key)
         }
     }
 
-    #[test]
-    fn generate_identity_stores_selects_and_returns_one_time_nsec_without_activation() {
+    #[tokio::test]
+    async fn generate_identity_stores_selects_and_returns_one_time_nsec_without_activation() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let identities = InMemoryIdentityRepository::default();
         let secrets = InMemorySecretStore::default();
@@ -1127,12 +1251,16 @@ mod tests {
 
         let receipt = core
             .generate_identity(&identities, &identities, &secrets, &journal, &FixedClock)
+            .await
             .expect("generate");
         let public_key = receipt.identity().public_key();
         assert_eq!(public_key.to_hex().len(), 64);
         assert!(secrets.contains(public_key).expect("credential"));
         assert_eq!(
-            identities.load_selected_identity().expect("selection"),
+            identities
+                .load_selected_identity()
+                .await
+                .expect("selection"),
             Some(public_key)
         );
         assert_eq!(core.snapshot().selected_identity(), Some(public_key));
@@ -1142,8 +1270,8 @@ mod tests {
         assert!(!format!("{:?}", core.snapshot()).contains("nsec1"));
     }
 
-    #[test]
-    fn import_secret_key_accepts_nsec_and_hex_without_exposing_or_activating() {
+    #[tokio::test]
+    async fn import_secret_key_accepts_nsec_and_hex_without_exposing_or_activating() {
         for input in [
             "nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5",
             "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7",
@@ -1162,6 +1290,7 @@ mod tests {
                     &journal,
                     &FixedClock,
                 )
+                .await
                 .expect("import");
             let public_key = receipt.identity().public_key();
             assert!(secrets.contains(public_key).expect("credential"));
@@ -1171,8 +1300,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn import_secret_key_rejects_invalid_nsec_checksum_before_persistence() {
+    #[tokio::test]
+    async fn import_secret_key_rejects_invalid_nsec_checksum_before_persistence() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let identities = InMemoryIdentityRepository::default();
         let secrets = InMemorySecretStore::default();
@@ -1191,13 +1320,14 @@ mod tests {
                 &journal,
                 &FixedClock,
             )
+            .await
             .expect_err("invalid import");
         assert_eq!(error.code(), SafeErrorCode::InvalidSecretKey);
         assert!(core.snapshot().identities().is_empty());
     }
 
-    #[test]
-    fn duplicate_import_preserves_existing_credential_and_snapshot() {
+    #[tokio::test]
+    async fn duplicate_import_preserves_existing_credential_and_snapshot() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let identities = InMemoryIdentityRepository::default();
         let secrets = InMemorySecretStore::default();
@@ -1217,6 +1347,7 @@ mod tests {
             &journal,
             &FixedClock,
         )
+        .await
         .expect("first import");
         let before = core.snapshot();
         let error = core
@@ -1228,14 +1359,15 @@ mod tests {
                 &journal,
                 &FixedClock,
             )
+            .await
             .expect_err("duplicate");
         assert_eq!(error.code(), SafeErrorCode::IdentityAlreadyExists);
         assert_eq!(core.snapshot(), before);
         assert_eq!(core.snapshot().identities().len(), 1);
     }
 
-    #[test]
-    fn duplicate_import_repairs_only_explicit_missing_credential_identity() {
+    #[tokio::test]
+    async fn duplicate_import_repairs_only_explicit_missing_credential_identity() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let identities = InMemoryIdentityRepository::default();
         let secrets = InMemorySecretStore::default();
@@ -1259,9 +1391,11 @@ mod tests {
         .expect("missing identity");
         identities
             .insert_identity(&missing)
+            .await
             .expect("missing metadata");
         identities
             .save_selected_identity(Some(public_key))
+            .await
             .expect("selection");
         core.apply_transition(StateTransition::ReplaceRegistry {
             identities: vec![missing],
@@ -1278,6 +1412,7 @@ mod tests {
                 &journal,
                 &FixedClock,
             )
+            .await
             .expect("repair");
         assert_eq!(
             receipt
@@ -1292,8 +1427,8 @@ mod tests {
         assert_eq!(core.snapshot().identities().len(), 1);
     }
 
-    #[test]
-    fn identity_transaction_publishes_nothing_when_credential_write_fails() {
+    #[tokio::test]
+    async fn identity_transaction_publishes_nothing_when_credential_write_fails() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let identities = InMemoryIdentityRepository::default();
         let secrets = FailureSecretStore::default();
@@ -1303,6 +1438,7 @@ mod tests {
 
         let error = core
             .generate_identity(&identities, &identities, &secrets, &journal, &FixedClock)
+            .await
             .err()
             .expect("credential failure");
         assert_eq!(error.code(), SafeErrorCode::KeyringUnavailable);
@@ -1310,13 +1446,14 @@ mod tests {
         assert!(
             journal
                 .list_pending_operations()
+                .await
                 .expect("journal")
                 .is_empty()
         );
     }
 
-    #[test]
-    fn identity_transaction_removes_written_credential_when_metadata_fails() {
+    #[tokio::test]
+    async fn identity_transaction_removes_written_credential_when_metadata_fails() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let identities = FailingInsertRepository::default();
         let secrets = FailureSecretStore::default();
@@ -1325,6 +1462,7 @@ mod tests {
 
         let error = core
             .generate_identity(&identities, &identities, &secrets, &journal, &FixedClock)
+            .await
             .err()
             .expect("metadata failure");
         assert_eq!(error.code(), SafeErrorCode::StorageUnavailable);
@@ -1336,13 +1474,14 @@ mod tests {
         assert!(
             journal
                 .list_pending_operations()
+                .await
                 .expect("journal")
                 .is_empty()
         );
     }
 
-    #[test]
-    fn identity_transaction_rolls_back_metadata_and_credential_when_selection_fails() {
+    #[tokio::test]
+    async fn identity_transaction_rolls_back_metadata_and_credential_when_selection_fails() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let identities = FailingSelectionRepository::default();
         let secrets = FailureSecretStore::default();
@@ -1352,13 +1491,23 @@ mod tests {
 
         let error = core
             .generate_identity(&identities, &identities, &secrets, &journal, &FixedClock)
+            .await
             .err()
             .expect("selection failure");
 
         assert_eq!(error.code(), SafeErrorCode::StorageUnavailable);
-        assert!(identities.list_identities().expect("identities").is_empty());
+        assert!(
+            identities
+                .list_identities()
+                .await
+                .expect("identities")
+                .is_empty()
+        );
         assert_eq!(
-            identities.load_selected_identity().expect("selection"),
+            identities
+                .load_selected_identity()
+                .await
+                .expect("selection"),
             None
         );
         let calls = secrets.calls();
@@ -1369,13 +1518,14 @@ mod tests {
         assert!(
             journal
                 .list_pending_operations()
+                .await
                 .expect("journal")
                 .is_empty()
         );
     }
 
-    #[test]
-    fn identity_transaction_retains_non_secret_journal_when_compensation_fails() {
+    #[tokio::test]
+    async fn identity_transaction_retains_non_secret_journal_when_compensation_fails() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let identities = FailingInsertRepository::default();
         let secrets = FailureSecretStore::default();
@@ -1385,13 +1535,14 @@ mod tests {
 
         let error = core
             .generate_identity(&identities, &identities, &secrets, &journal, &FixedClock)
+            .await
             .err()
             .expect("recovery required");
         assert_eq!(
             error.code(),
             SafeErrorCode::PendingOperationRecoveryRequired
         );
-        let pending = journal.list_pending_operations().expect("journal");
+        let pending = journal.list_pending_operations().await.expect("journal");
         assert_eq!(pending.len(), 1);
         assert_eq!(
             pending[0].phase(),
@@ -1401,8 +1552,8 @@ mod tests {
         assert!(core.snapshot().identities().is_empty());
     }
 
-    #[test]
-    fn select_identity_persists_existing_choice_without_activating() {
+    #[tokio::test]
+    async fn select_identity_persists_existing_choice_without_activating() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let identities = InMemoryIdentityRepository::default();
         let secrets = InMemorySecretStore::default();
@@ -1410,20 +1561,23 @@ mod tests {
         core.bootstrap().expect("bootstrap");
         let first = core
             .generate_identity(&identities, &identities, &secrets, &journal, &FixedClock)
+            .await
             .expect("first")
             .identity()
             .public_key();
         core.generate_identity(&identities, &identities, &secrets, &journal, &FixedClock)
+            .await
             .expect("second");
 
         let selected = core
             .select_identity(first, &identities, &identities)
+            .await
             .expect("select first");
         assert_eq!(selected.selected_identity(), Some(first));
         assert_eq!(selected.session(), SessionState::SignedOut);
         assert!(selected.active_identity().is_none());
         assert_eq!(
-            identities.load_selected_identity().expect("saved"),
+            identities.load_selected_identity().await.expect("saved"),
             Some(first)
         );
         let missing = core
@@ -1435,13 +1589,14 @@ mod tests {
                 &identities,
                 &identities,
             )
+            .await
             .expect_err("missing identity");
         assert_eq!(missing.code(), SafeErrorCode::IdentityNotFound);
         assert_eq!(core.snapshot(), selected);
     }
 
-    #[test]
-    fn remove_identity_requires_fresh_single_use_confirmation_and_selects_next_fallback() {
+    #[tokio::test]
+    async fn remove_identity_requires_fresh_single_use_confirmation_and_selects_next_fallback() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let identities = InMemoryIdentityRepository::default();
         let secrets = InMemorySecretStore::default();
@@ -1449,20 +1604,24 @@ mod tests {
         core.bootstrap().expect("bootstrap");
         let first = core
             .generate_identity(&identities, &identities, &secrets, &journal, &FixedClock)
+            .await
             .expect("first")
             .identity()
             .public_key();
         let second = core
             .generate_identity(&identities, &identities, &secrets, &journal, &FixedClock)
+            .await
             .expect("second")
             .identity()
             .public_key();
         core.select_identity(first, &identities, &identities)
+            .await
             .expect("select first");
         let stale = core
             .request_identity_removal(first, &FixedClock)
             .expect("stale token");
         core.select_identity(second, &identities, &identities)
+            .await
             .expect("change revision");
         let stale_error = core
             .confirm_identity_removal(
@@ -1473,11 +1632,13 @@ mod tests {
                 &journal,
                 &FixedClock,
             )
+            .await
             .expect_err("stale token");
         assert_eq!(stale_error.code(), SafeErrorCode::InvalidApplicationState);
         assert_eq!(core.snapshot().identities().len(), 2);
 
         core.select_identity(first, &identities, &identities)
+            .await
             .expect("reselect first");
         let token = core
             .request_identity_removal(first, &FixedClock)
@@ -1491,6 +1652,7 @@ mod tests {
                 &journal,
                 &FixedClock,
             )
+            .await
             .expect("remove");
         assert_eq!(removed.identities().len(), 1);
         assert_eq!(removed.selected_identity(), Some(second));
@@ -1498,8 +1660,8 @@ mod tests {
         assert_eq!(removed.session(), SessionState::SignedOut);
     }
 
-    #[test]
-    fn removal_preflight_reports_impact_expires_and_can_be_cancelled() {
+    #[tokio::test]
+    async fn removal_preflight_reports_impact_expires_and_can_be_cancelled() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let identities = InMemoryIdentityRepository::default();
         let secrets = InMemorySecretStore::default();
@@ -1507,6 +1669,7 @@ mod tests {
         core.bootstrap().expect("bootstrap");
         let identity = core
             .generate_identity(&identities, &identities, &secrets, &journal, &FixedClock)
+            .await
             .expect("identity")
             .identity()
             .public_key();
@@ -1524,6 +1687,7 @@ mod tests {
                 &journal,
                 &LateClock,
             )
+            .await
             .is_err()
         );
         let cancelled = core
@@ -1533,8 +1697,8 @@ mod tests {
         assert_eq!(core.snapshot().identities().len(), 1);
     }
 
-    #[test]
-    fn import_rejects_orphan_credentials_and_durable_nonterminal_replays() {
+    #[tokio::test]
+    async fn import_rejects_orphan_credentials_and_durable_nonterminal_replays() {
         const SECRET: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
         let core = AppCore::in_memory(RelayConfiguration::default());
         let identities = InMemoryIdentityRepository::default();
@@ -1557,6 +1721,7 @@ mod tests {
                 &journal,
                 &FixedClock,
             )
+            .await
             .expect_err("orphan credential must fail")
             .code(),
             SafeErrorCode::IdentityAlreadyExists
@@ -1581,14 +1746,15 @@ mod tests {
                 &operations,
                 &FixedClock,
             )
+            .await
             .expect_err("unfinished replay must require recovery")
             .code(),
             SafeErrorCode::PendingOperationRecoveryRequired
         );
     }
 
-    #[test]
-    fn durable_import_covers_new_and_missing_credential_repair_paths() {
+    #[tokio::test]
+    async fn durable_import_covers_new_and_missing_credential_repair_paths() {
         const SECRET: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
         for repair in [false, true] {
             let core = AppCore::in_memory(RelayConfiguration::default());
@@ -1612,9 +1778,11 @@ mod tests {
                 .expect("identity");
                 identities
                     .insert_identity(&identity)
+                    .await
                     .expect("insert identity");
                 identities
                     .save_selected_identity(Some(public_key))
+                    .await
                     .expect("selection");
                 core.apply_transition(StateTransition::BootstrapRegistry {
                     identities: vec![identity],
@@ -1648,6 +1816,7 @@ mod tests {
                     &operations,
                     &FixedClock,
                 )
+                .await
                 .expect("durable import");
             assert_eq!(receipt.identity().public_key(), public_key);
             assert_eq!(
@@ -1657,8 +1826,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn removal_of_unselected_identity_preserves_the_current_selection() {
+    #[tokio::test]
+    async fn removal_of_unselected_identity_preserves_the_current_selection() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let identities = InMemoryIdentityRepository::default();
         let secrets = InMemorySecretStore::default();
@@ -1666,11 +1835,13 @@ mod tests {
         core.bootstrap().expect("bootstrap");
         let first = core
             .generate_identity(&identities, &identities, &secrets, &journal, &FixedClock)
+            .await
             .expect("first")
             .identity()
             .public_key();
         let second = core
             .generate_identity(&identities, &identities, &secrets, &journal, &FixedClock)
+            .await
             .expect("second")
             .identity()
             .public_key();
@@ -1686,6 +1857,7 @@ mod tests {
                 &journal,
                 &FixedClock,
             )
+            .await
             .expect("remove unselected identity");
         assert_eq!(snapshot.selected_identity(), Some(second));
 
@@ -1693,12 +1865,19 @@ mod tests {
         assert!(
             identities
                 .insert_identity(&snapshot.identities()[0])
+                .await
                 .is_err()
         );
-        assert!(identities.save_selected_identity(Some(missing)).is_err());
+        assert!(
+            identities
+                .save_selected_identity(Some(missing))
+                .await
+                .is_err()
+        );
 
         let third = core
             .generate_identity(&identities, &identities, &secrets, &journal, &FixedClock)
+            .await
             .expect("third")
             .identity()
             .public_key();
@@ -1723,12 +1902,13 @@ mod tests {
                 &operations,
                 &FixedClock,
             )
+            .await
             .expect("durable unselected removal");
         assert_eq!(snapshot.selected_identity(), Some(third));
     }
 
-    #[test]
-    fn duplicate_missing_binding_with_orphan_credential_fails_closed() {
+    #[tokio::test]
+    async fn duplicate_missing_binding_with_orphan_credential_fails_closed() {
         const SECRET: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
         let core = AppCore::in_memory(RelayConfiguration::default());
         let identities = InMemoryIdentityRepository::default();
@@ -1749,9 +1929,11 @@ mod tests {
         .expect("identity");
         identities
             .insert_identity(&identity)
+            .await
             .expect("insert identity");
         identities
             .save_selected_identity(Some(public_key))
+            .await
             .expect("selection");
         secrets.put(public_key, secret).expect("credential");
         core.apply_transition(StateTransition::BootstrapRegistry {
@@ -1769,6 +1951,7 @@ mod tests {
                 &journal,
                 &FixedClock,
             )
+            .await
             .expect_err("orphan credential must fail")
             .code(),
             SafeErrorCode::IdentityAlreadyExists
@@ -1792,14 +1975,15 @@ mod tests {
                 &operations,
                 &FixedClock,
             )
+            .await
             .expect_err("orphan durable credential must fail")
             .code(),
             SafeErrorCode::IdentityAlreadyExists
         );
     }
 
-    #[test]
-    fn removing_an_active_identity_signs_out_for_legacy_and_durable_requests() {
+    #[tokio::test]
+    async fn removing_an_active_identity_signs_out_for_legacy_and_durable_requests() {
         for durable in [false, true] {
             let core = AppCore::in_memory(RelayConfiguration::default());
             let identities = InMemoryIdentityRepository::default();
@@ -1819,6 +2003,7 @@ mod tests {
                     &journal,
                     &FixedClock,
                 )
+                .await
                 .expect("identity")
                 .identity()
                 .public_key();
@@ -1830,6 +2015,7 @@ mod tests {
                 &secrets,
                 &FixedClock,
             )
+            .await
             .expect("activate identity");
             let token = core
                 .request_identity_removal(public_key, &FixedClock)
@@ -1852,6 +2038,7 @@ mod tests {
                     &operations,
                     &FixedClock,
                 )
+                .await
                 .expect("durable removal")
             } else {
                 core.confirm_identity_removal(
@@ -1862,14 +2049,15 @@ mod tests {
                     &journal,
                     &FixedClock,
                 )
+                .await
                 .expect("removal")
             };
             assert_eq!(snapshot.session(), SessionState::SignedOut);
         }
     }
 
-    #[test]
-    fn identity_transaction_compensates_a_journal_phase_failure() {
+    #[tokio::test]
+    async fn identity_transaction_compensates_a_journal_phase_failure() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let identities = InMemoryIdentityRepository::default();
         let secrets = InMemorySecretStore::default();
@@ -1878,11 +2066,12 @@ mod tests {
 
         assert_eq!(
             core.generate_identity(&identities, &identities, &secrets, &journal, &FixedClock)
+                .await
                 .err()
                 .expect("journal failure must be returned")
                 .code(),
             SafeErrorCode::StorageUnavailable
         );
-        assert!(identities.list_identities().unwrap().is_empty());
+        assert!(identities.list_identities().await.unwrap().is_empty());
     }
 }

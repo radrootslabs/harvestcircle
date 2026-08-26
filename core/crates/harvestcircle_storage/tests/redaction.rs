@@ -1,11 +1,16 @@
 use std::fs;
 
-use harvestcircle_application::{IdentityOperationKind, IdentityRepository, OperationJournal};
+use harvestcircle_application::IdentityRepository;
 use harvestcircle_domain::{
     IdentityCreatedAt, LocalKeyringBinding, NostrIdentity, NostrIdentityReference, PublicKey,
     SignerAvailability, UnixTimestamp,
 };
 use harvestcircle_storage::Database;
+use radroots_runtime_paths::{
+    InstanceId, RadrootsHostEnvironment, RadrootsPathProfile, RadrootsPathResolver,
+    RadrootsPlatform, RuntimeContext, RuntimeContextBootstrap, RuntimeContextSource, ServiceId,
+};
+use radroots_service_sqlite::MigrationBuildIdentity;
 use tempfile::{TempDir, tempdir_in};
 
 fn tempdir() -> std::io::Result<TempDir> {
@@ -28,12 +33,56 @@ fn assert_redacted(bytes: &[u8]) {
     assert!(!bytes.windows(5).any(|value| value == b"nsec1"));
 }
 
-#[test]
-fn redaction_guards_sqlite_schema_and_non_secret_records() {
+fn runtime_context(directory: &TempDir) -> RuntimeContext {
+    RuntimeContext::resolve(
+        &RadrootsPathResolver::new(
+            RadrootsPlatform::current(),
+            RadrootsHostEnvironment::default(),
+        ),
+        RuntimeContextBootstrap::new(
+            RadrootsPathProfile::RepoLocal,
+            Some(
+                directory
+                    .path()
+                    .canonicalize()
+                    .expect("canonical directory"),
+            ),
+            RuntimeContextSource::BootstrapCli,
+            RuntimeContextSource::SafeDefault,
+        )
+        .expect("bootstrap"),
+        ServiceId::new("harvestcircle").expect("service"),
+        InstanceId::new("desktop").expect("instance"),
+    )
+    .expect("runtime context")
+}
+
+fn build_identity() -> MigrationBuildIdentity {
+    MigrationBuildIdentity::new(
+        "0.1.0-alpha",
+        "1111111111111111111111111111111111111111",
+        "2222222222222222222222222222222222222222",
+        "1.97.1",
+        "test",
+        "test",
+        1,
+        1,
+        1,
+        1,
+        1,
+    )
+    .expect("build identity")
+}
+
+#[tokio::test]
+async fn redaction_guards_sqlite_schema_and_non_secret_records() {
     let directory = tempdir().expect("directory");
-    let path = directory.path().join("harvestcircle.sqlite3");
+    let context = runtime_context(&directory);
+    let path = context.paths().state().join("state.sqlite");
     {
-        let database = Database::open(&path).expect("database");
+        let database = Database::open(&context, 1, 1, &build_identity())
+            .await
+            .expect("database");
         let public_key = PublicKey::from_bytes([7; 32]).expect("valid public key");
         let identity = NostrIdentity::new(
             NostrIdentityReference::derive(public_key).expect("identity"),
@@ -43,14 +92,8 @@ fn redaction_guards_sqlite_schema_and_non_secret_records() {
             None,
         )
         .expect("identity");
-        database.insert_identity(&identity).expect("identity");
-        database
-            .begin_operation(
-                IdentityOperationKind::Add,
-                identity.public_key(),
-                UnixTimestamp::from_seconds(2).expect("time"),
-            )
-            .expect("journal");
+        database.insert_identity(&identity).await.expect("identity");
+        database.close().await.expect("close");
     }
     assert_redacted(&fs::read(path).expect("database bytes"));
 }

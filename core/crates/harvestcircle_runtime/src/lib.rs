@@ -1,5 +1,6 @@
 #![doc = "HarvestCircle supervised runtime composition."]
 
+#[cfg(test)]
 mod blocking;
 mod installation;
 mod persistence;

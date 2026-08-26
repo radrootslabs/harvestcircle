@@ -218,29 +218,22 @@ fn observer_registration_error() -> HarvestCircleError {
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
-    use std::num::NonZeroUsize;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    use harvestcircle_application::{InMemorySecretStore, RelayConfiguration};
+    use harvestcircle_application::RelayConfiguration;
     use harvestcircle_domain::{RelayDestinationPolicy, RelayEndpoint};
-    use harvestcircle_nostr::SdkNostrClient;
-    use harvestcircle_runtime::{
-        RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,
-    };
     use nostr::{EventBuilder, Keys, Metadata};
     use nostr_relay_builder::MockRelay;
     use nostr_sdk::Client;
 
-    use crate::commands::{ACTOR_MAILBOX_CAPACITY, RuntimeCore, SystemClock, runtime};
+    use crate::commands::{RuntimeCore, runtime, test_actor};
     use crate::{
         AppSnapshotDto, HarvestCircleAppCore, HarvestCircleChangeObserver, ProfileLoadStateDto,
         SnapshotChangeDto,
     };
 
     const SECRET_HEX: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
-    const TEST_RELAY_TIMEOUT: Duration = Duration::from_secs(2);
-
     #[derive(Default)]
     struct RecordingObserver {
         snapshots: Mutex<Vec<AppSnapshotDto>>,
@@ -270,25 +263,14 @@ mod tests {
     }
 
     async fn core_with_relays(relays: RelayConfiguration) -> Arc<HarvestCircleAppCore> {
-        let actor = RuntimeActorHandle::in_memory(
-            relays,
-            RuntimeDependencies::new(
-                Arc::new(InMemorySecretStore::default()),
-                Arc::new(SystemClock),
-                Arc::new(SdkNostrClient::new(TEST_RELAY_TIMEOUT)),
-                Arc::new(UuidInstallationIdentitySource),
-            ),
-            NonZeroUsize::new(ACTOR_MAILBOX_CAPACITY).expect("capacity"),
-            runtime().expect("runtime").handle(),
-        )
-        .await
-        .expect("actor");
+        let (actor, directory) = test_actor(relays).await;
         Arc::new(HarvestCircleAppCore {
             inner: Arc::new(RuntimeCore {
                 actor,
                 observers: Mutex::new(std::collections::BTreeMap::new()),
                 closed: std::sync::atomic::AtomicBool::new(false),
                 startup_relay_problem: None,
+                _test_directory: Some(directory),
             }),
         })
     }

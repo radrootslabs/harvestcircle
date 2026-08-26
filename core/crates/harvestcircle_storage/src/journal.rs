@@ -1,220 +1,299 @@
 use harvestcircle_application::{
-    DurableIdentityOperation, DurableOperationKind, DurableOperationPhase, DurableOperationReceipt,
-    DurableOperationRepository, DurableOperationStart, DurableRequestId, DurableTerminalOutcome,
-    IdentityOperationKind, IdentityOperationPhase, OperationDiagnostic, OperationId,
-    OperationJournal, OperationPriorState, PendingIdentityOperation,
+    BoxFuture, DurableIdentityOperation, DurableOperationKind, DurableOperationPhase,
+    DurableOperationReceipt, DurableOperationRepository, DurableOperationStart, DurableRequestId,
+    DurableTerminalOutcome, OperationDiagnostic, OperationPriorState,
 };
 use harvestcircle_domain::{
     PublicKey, SafeError, SafeErrorCode, SafeMessage, SignerAvailability, UnixTimestamp,
 };
-use rusqlite::{OptionalExtension, Row, params};
+use radroots_service_sqlite::ServiceSqliteTransaction;
+use sqlx::Row;
 
-use crate::Database;
+use crate::db::{corrupt_storage, map_transaction_error, storage_unavailable};
+use crate::{Database, HARVESTCIRCLE_UNFINISHED_DURABLE_OPERATION_CAPACITY};
+
+const DURABLE_OPERATION_PROJECTION: &str = "SELECT \
+    substr(CAST(request_id AS BLOB), 1, 37) AS request_id, length(CAST(request_id AS BLOB)) AS request_id_bytes, \
+    substr(CAST(operation_kind AS BLOB), 1, 7) AS operation_kind, length(CAST(operation_kind AS BLOB)) AS operation_kind_bytes, \
+    substr(account_public_key, 1, 33) AS account_public_key, length(account_public_key) AS account_public_key_bytes, \
+    expected_revision, substr(CAST(phase AS BLOB), 1, 21) AS phase, length(CAST(phase AS BLOB)) AS phase_bytes, \
+    CASE WHEN prior_selected_public_key IS NULL THEN NULL ELSE substr(prior_selected_public_key, 1, 33) END AS prior_selected_public_key, \
+    CASE WHEN prior_selected_public_key IS NULL THEN NULL ELSE length(prior_selected_public_key) END AS prior_selected_public_key_bytes, \
+    updated_at_unix_s, \
+    CASE WHEN diagnostic_code IS NULL THEN NULL ELSE substr(CAST(diagnostic_code AS BLOB), 1, 21) END AS diagnostic_code, \
+    CASE WHEN diagnostic_code IS NULL THEN NULL ELSE length(CAST(diagnostic_code AS BLOB)) END AS diagnostic_code_bytes, \
+    CASE WHEN terminal_outcome IS NULL THEN NULL ELSE substr(CAST(terminal_outcome AS BLOB), 1, 10) END AS terminal_outcome, \
+    CASE WHEN terminal_outcome IS NULL THEN NULL ELSE length(CAST(terminal_outcome AS BLOB)) END AS terminal_outcome_bytes, \
+    CASE WHEN prior_binding_availability IS NULL THEN NULL ELSE substr(CAST(prior_binding_availability AS BLOB), 1, 19) END AS prior_binding_availability, \
+    CASE WHEN prior_binding_availability IS NULL THEN NULL ELSE length(CAST(prior_binding_availability AS BLOB)) END AS prior_binding_availability_bytes, \
+    resulting_revision FROM durable_operations";
 
 impl DurableOperationRepository for Database {
-    fn begin_durable_operation(
-        &self,
-        request_id: &DurableRequestId,
+    #[allow(clippy::too_many_arguments)]
+    fn begin_durable_operation<'a>(
+        &'a self,
+        request_id: &'a DurableRequestId,
         kind: DurableOperationKind,
         identity: PublicKey,
         expected_revision: Option<u64>,
         prior: OperationPriorState,
         updated_at: UnixTimestamp,
-    ) -> Result<DurableOperationStart, SafeError> {
-        let encoded_expected_revision = expected_revision
-            .map(i64::try_from)
-            .transpose()
-            .map_err(|_| operation_conflict())?;
-        let mut connection = self.connection();
-        let transaction = connection.transaction().map_err(|_| storage_error())?;
-        let inserted = transaction
-            .execute(
-                "INSERT OR IGNORE INTO durable_operations (request_id, operation_kind, \
-                 account_public_key, binding_public_key, expected_revision, phase, \
-                 prior_selected_public_key, updated_at, prior_binding_availability) \
-                 VALUES (?1, ?2, ?3, ?3, ?4, 'intent_recorded', ?5, ?6, ?7)",
-                params![
-                    request_id.as_str(),
-                    encode_durable_kind(kind),
-                    identity.to_hex(),
-                    encoded_expected_revision,
-                    prior.selected_identity().map(PublicKey::to_hex),
-                    updated_at.as_seconds(),
-                    prior
-                        .binding_availability()
-                        .map(encode_binding_availability),
-                ],
-            )
-            .map_err(|_| storage_error())?;
-        let operation =
-            query_durable_operation(&transaction, request_id)?.ok_or_else(corrupt_storage_error)?;
-        if operation.kind() != kind
-            || operation.identity() != identity
-            || operation.expected_revision() != expected_revision
-            || operation.prior() != prior
-        {
-            return Err(operation_conflict());
-        }
-        transaction.commit().map_err(|_| storage_error())?;
-        Ok(if inserted == 1 {
-            DurableOperationStart::Started(operation)
-        } else {
-            DurableOperationStart::Existing(operation)
+    ) -> BoxFuture<'a, Result<DurableOperationStart, SafeError>> {
+        Box::pin(async move {
+            let expected_revision = encode_revision(expected_revision)?;
+            let request_id = request_id.as_str().to_owned();
+            self.host()
+                .transaction(|transaction| {
+                    Box::pin(async move {
+                        if let Some(operation) = query_operation(transaction, &request_id).await? {
+                            if operation.kind() != kind
+                                || operation.identity() != identity
+                                || operation.expected_revision()
+                                    != expected_revision.map(|value| value as u64)
+                                || operation.prior() != prior
+                            {
+                                return Err(operation_conflict());
+                            }
+                            return Ok(DurableOperationStart::Existing(operation));
+                        }
+                        let unfinished: i64 = sqlx::query_scalar(
+                            "SELECT count(*) FROM (SELECT 1 FROM durable_operations \
+                             WHERE terminal_outcome IS NULL LIMIT 1025)",
+                        )
+                        .fetch_one(&mut *transaction)
+                        .await
+                        .map_err(|_| storage_unavailable())?;
+                        if usize::try_from(unfinished).ok().is_none_or(|count| {
+                            count >= HARVESTCIRCLE_UNFINISHED_DURABLE_OPERATION_CAPACITY
+                        }) {
+                            return Err(operation_capacity_exhausted());
+                        }
+                        let result = sqlx::query(
+                            "INSERT INTO durable_operations (request_id, operation_kind, \
+                             account_public_key, binding_public_key, expected_revision, phase, \
+                             prior_selected_public_key, updated_at_unix_s, prior_binding_availability) \
+                             VALUES (?, ?, ?, ?, ?, 'intent_recorded', ?, ?, ?)",
+                        )
+                        .bind(&request_id)
+                        .bind(encode_kind(kind))
+                        .bind(identity.as_bytes().as_slice())
+                        .bind(identity.as_bytes().as_slice())
+                        .bind(expected_revision)
+                        .bind(prior.selected_identity().map(|value| value.as_bytes().to_vec()))
+                        .bind(updated_at.as_seconds())
+                        .bind(prior.binding_availability().map(encode_availability))
+                        .execute(&mut *transaction)
+                        .await
+                        .map_err(|_| storage_unavailable())?;
+                        if result.rows_affected() != 1 {
+                            return Err(corrupt_storage());
+                        }
+                        let operation = query_operation(transaction, &request_id)
+                            .await?
+                            .ok_or_else(corrupt_storage)?;
+                        Ok(DurableOperationStart::Started(operation))
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)
         })
     }
 
-    fn load_durable_operation(
-        &self,
-        request_id: &DurableRequestId,
-    ) -> Result<Option<DurableIdentityOperation>, SafeError> {
-        query_durable_operation(&self.connection(), request_id)
+    fn load_durable_operation<'a>(
+        &'a self,
+        request_id: &'a DurableRequestId,
+    ) -> BoxFuture<'a, Result<Option<DurableIdentityOperation>, SafeError>> {
+        Box::pin(async move {
+            let request_id = request_id.as_str().to_owned();
+            self.host()
+                .transaction(|transaction| {
+                    Box::pin(async move { query_operation(transaction, &request_id).await })
+                })
+                .await
+                .map_err(map_transaction_error)
+        })
     }
 
-    fn advance_durable_operation(
-        &self,
-        request_id: &DurableRequestId,
+    fn advance_durable_operation<'a>(
+        &'a self,
+        request_id: &'a DurableRequestId,
         expected_phase: DurableOperationPhase,
         next_phase: DurableOperationPhase,
         updated_at: UnixTimestamp,
         diagnostic: Option<OperationDiagnostic>,
-    ) -> Result<DurableIdentityOperation, SafeError> {
-        let mut connection = self.connection();
-        let transaction = connection.transaction().map_err(|_| storage_error())?;
-        let rows = transaction
-            .execute(
-                "UPDATE durable_operations SET phase = ?3, updated_at = ?4, diagnostic_code = ?5 \
-                 WHERE request_id = ?1 AND phase = ?2 AND terminal_outcome IS NULL",
-                params![
-                    request_id.as_str(),
-                    encode_durable_phase(expected_phase),
-                    encode_durable_phase(next_phase),
-                    updated_at.as_seconds(),
-                    diagnostic.map(encode_diagnostic),
-                ],
-            )
-            .map_err(|_| storage_error())?;
-        if rows != 1 {
-            return Err(operation_conflict());
-        }
-        let operation =
-            query_durable_operation(&transaction, request_id)?.ok_or_else(corrupt_storage_error)?;
-        transaction.commit().map_err(|_| storage_error())?;
-        Ok(operation)
+    ) -> BoxFuture<'a, Result<DurableIdentityOperation, SafeError>> {
+        Box::pin(async move {
+            let request_id = request_id.as_str().to_owned();
+            self.host()
+                .transaction(|transaction| {
+                    Box::pin(async move {
+                        let result = sqlx::query(
+                            "UPDATE durable_operations SET phase = ?, updated_at_unix_s = ?, \
+                             diagnostic_code = ? WHERE request_id = ? AND phase = ? \
+                             AND terminal_outcome IS NULL",
+                        )
+                        .bind(encode_phase(next_phase))
+                        .bind(updated_at.as_seconds())
+                        .bind(diagnostic.map(encode_diagnostic))
+                        .bind(&request_id)
+                        .bind(encode_phase(expected_phase))
+                        .execute(&mut *transaction)
+                        .await
+                        .map_err(|_| storage_unavailable())?;
+                        if result.rows_affected() != 1 {
+                            return Err(operation_conflict());
+                        }
+                        query_operation(transaction, &request_id)
+                            .await?
+                            .ok_or_else(corrupt_storage)
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)
+        })
     }
 
-    fn finalize_durable_operation(
-        &self,
-        request_id: &DurableRequestId,
+    fn finalize_durable_operation<'a>(
+        &'a self,
+        request_id: &'a DurableRequestId,
         expected_phase: DurableOperationPhase,
         outcome: DurableTerminalOutcome,
         resulting_revision: Option<u64>,
         updated_at: UnixTimestamp,
-    ) -> Result<DurableOperationReceipt, SafeError> {
-        if let Some(existing) = self.load_durable_operation(request_id)?
-            && let Some(receipt) = existing.terminal()
-        {
-            return if receipt.outcome() == outcome
-                && receipt.resulting_revision() == resulting_revision
-            {
-                Ok(receipt.clone())
-            } else {
-                Err(operation_conflict())
-            };
-        }
-        let resulting_revision = resulting_revision
-            .map(i64::try_from)
-            .transpose()
-            .map_err(|_| operation_conflict())?;
-        let rows = self
-            .connection()
-            .execute(
-                "UPDATE durable_operations SET phase = 'finalized', terminal_outcome = ?3, \
-                 resulting_revision = ?4, updated_at = ?5 \
-                 WHERE request_id = ?1 AND phase = ?2 AND terminal_outcome IS NULL",
-                params![
-                    request_id.as_str(),
-                    encode_durable_phase(expected_phase),
-                    encode_terminal_outcome(outcome),
-                    resulting_revision,
-                    updated_at.as_seconds(),
-                ],
-            )
-            .map_err(|_| storage_error())?;
-        if rows != 1 {
-            return Err(operation_conflict());
-        }
-        self.load_durable_operation(request_id)?
-            .and_then(|operation| operation.terminal().cloned())
-            .ok_or_else(corrupt_storage_error)
+    ) -> BoxFuture<'a, Result<DurableOperationReceipt, SafeError>> {
+        Box::pin(async move {
+            let resulting_revision = encode_revision(resulting_revision)?;
+            let request_id = request_id.as_str().to_owned();
+            self.host()
+                .transaction(|transaction| {
+                    Box::pin(async move {
+                        if let Some(existing) = query_operation(transaction, &request_id).await?
+                            && let Some(receipt) = existing.terminal()
+                        {
+                            return if receipt.outcome() == outcome
+                                && receipt.resulting_revision()
+                                    == resulting_revision.map(|value| value as u64)
+                            {
+                                Ok(receipt.clone())
+                            } else {
+                                Err(operation_conflict())
+                            };
+                        }
+                        let result = sqlx::query(
+                            "UPDATE durable_operations SET phase = 'finalized', \
+                             terminal_outcome = ?, resulting_revision = ?, updated_at_unix_s = ? \
+                             WHERE request_id = ? AND phase = ? AND terminal_outcome IS NULL",
+                        )
+                        .bind(encode_outcome(outcome))
+                        .bind(resulting_revision)
+                        .bind(updated_at.as_seconds())
+                        .bind(&request_id)
+                        .bind(encode_phase(expected_phase))
+                        .execute(&mut *transaction)
+                        .await
+                        .map_err(|_| storage_unavailable())?;
+                        if result.rows_affected() != 1 {
+                            return Err(operation_conflict());
+                        }
+                        query_operation(transaction, &request_id)
+                            .await?
+                            .and_then(|operation| operation.terminal().cloned())
+                            .ok_or_else(corrupt_storage)
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)
+        })
     }
 
     fn list_unfinished_durable_operations(
         &self,
-    ) -> Result<Vec<DurableIdentityOperation>, SafeError> {
-        let connection = self.connection();
-        let mut statement = connection
-            .prepare(&format!(
-                "{DURABLE_OPERATION_SELECT} WHERE terminal_outcome IS NULL ORDER BY request_id ASC"
-            ))
-            .map_err(|_| storage_error())?;
-        let rows = statement
-            .query_map([], decode_durable_operation)
-            .map_err(|_| storage_error())?;
-        rows.map(|row| row.map_err(|_| corrupt_storage_error()))
-            .collect()
+    ) -> BoxFuture<'_, Result<Vec<DurableIdentityOperation>, SafeError>> {
+        Box::pin(async move {
+            self.host()
+                .transaction(|transaction| {
+                    Box::pin(async move {
+                        let sql = format!(
+                            "{DURABLE_OPERATION_PROJECTION} WHERE terminal_outcome IS NULL \
+                             ORDER BY request_id LIMIT {}",
+                            HARVESTCIRCLE_UNFINISHED_DURABLE_OPERATION_CAPACITY + 1
+                        );
+                        let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                            .fetch_all(&mut *transaction)
+                            .await
+                            .map_err(|_| corrupt_storage())?;
+                        if rows.len() > HARVESTCIRCLE_UNFINISHED_DURABLE_OPERATION_CAPACITY {
+                            return Err(corrupt_storage());
+                        }
+                        rows.iter().map(decode_operation).collect()
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)
+        })
     }
 }
 
-const DURABLE_OPERATION_SELECT: &str = "SELECT request_id, operation_kind, account_public_key, \
-    expected_revision, phase, prior_selected_public_key, updated_at, diagnostic_code, \
-    terminal_outcome, prior_binding_availability, resulting_revision FROM durable_operations";
-
-fn query_durable_operation(
-    connection: &rusqlite::Connection,
-    request_id: &DurableRequestId,
+async fn query_operation(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    request_id: &str,
 ) -> Result<Option<DurableIdentityOperation>, SafeError> {
-    connection
-        .query_row(
-            &format!("{DURABLE_OPERATION_SELECT} WHERE request_id = ?1"),
-            [request_id.as_str()],
-            decode_durable_operation,
-        )
-        .optional()
-        .map_err(|_| corrupt_storage_error())
+    let sql = format!("{DURABLE_OPERATION_PROJECTION} WHERE request_id = ? LIMIT 2");
+    let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+        .bind(request_id)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| corrupt_storage())?;
+    match rows.as_slice() {
+        [] => Ok(None),
+        [row] => decode_operation(row).map(Some),
+        _ => Err(corrupt_storage()),
+    }
 }
 
-fn decode_durable_operation(row: &Row<'_>) -> rusqlite::Result<DurableIdentityOperation> {
+fn decode_operation(row: &sqlx::sqlite::SqliteRow) -> Result<DurableIdentityOperation, SafeError> {
     let request_id =
-        DurableRequestId::parse(row.get::<_, String>(0)?).map_err(|_| invalid_column(0))?;
-    let kind = decode_durable_kind(row.get::<_, String>(1)?.as_str())?;
-    let identity =
-        PublicKey::from_hex(row.get::<_, String>(2)?.as_str()).map_err(|_| invalid_column(2))?;
-    let expected_revision = row
-        .get::<_, Option<i64>>(3)?
-        .map(|value| u64::try_from(value).map_err(|_| invalid_column(3)))
-        .transpose()?;
-    let phase = decode_durable_phase(row.get::<_, String>(4)?.as_str())?;
-    let prior_selected = row
-        .get::<_, Option<String>>(5)?
-        .map(|value| PublicKey::from_hex(&value).map_err(|_| invalid_column(5)))
-        .transpose()?;
-    let updated_at = UnixTimestamp::from_seconds(row.get(6)?).ok_or_else(|| invalid_column(6))?;
-    let diagnostic = row
-        .get::<_, Option<String>>(7)?
+        DurableRequestId::parse(required_text(row, "request_id", "request_id_bytes", 36)?)?;
+    let kind = decode_kind(&required_text(
+        row,
+        "operation_kind",
+        "operation_kind_bytes",
+        6,
+    )?)?;
+    let identity = required_key(row, "account_public_key", "account_public_key_bytes")?;
+    let expected_revision = decode_revision(
+        row.try_get("expected_revision")
+            .map_err(|_| corrupt_storage())?,
+    )?;
+    let phase = decode_phase(&required_text(row, "phase", "phase_bytes", 20)?)?;
+    let prior_selected = optional_key(
+        row,
+        "prior_selected_public_key",
+        "prior_selected_public_key_bytes",
+    )?;
+    let updated_at = UnixTimestamp::from_seconds(
+        row.try_get("updated_at_unix_s")
+            .map_err(|_| corrupt_storage())?,
+    )
+    .ok_or_else(corrupt_storage)?;
+    let diagnostic = optional_text(row, "diagnostic_code", "diagnostic_code_bytes", 20)?
         .map(|value| decode_diagnostic(&value))
         .transpose()?;
-    let outcome = row
-        .get::<_, Option<String>>(8)?
-        .map(|value| decode_terminal_outcome(&value))
+    let outcome = optional_text(row, "terminal_outcome", "terminal_outcome_bytes", 9)?
+        .map(|value| decode_outcome(&value))
         .transpose()?;
-    let prior_availability = row
-        .get::<_, Option<String>>(9)?
-        .map(|value| decode_binding_availability(&value))
-        .transpose()?;
-    let resulting_revision = row
-        .get::<_, Option<i64>>(10)?
-        .map(|value| u64::try_from(value).map_err(|_| invalid_column(10)))
-        .transpose()?;
+    let prior_availability = optional_text(
+        row,
+        "prior_binding_availability",
+        "prior_binding_availability_bytes",
+        18,
+    )?
+    .map(|value| decode_availability(&value))
+    .transpose()?;
+    let resulting_revision = decode_revision(
+        row.try_get("resulting_revision")
+            .map_err(|_| corrupt_storage())?,
+    )?;
     let terminal = outcome.map(|outcome| {
         DurableOperationReceipt::new(request_id.clone(), identity, outcome, resulting_revision)
     });
@@ -231,99 +310,88 @@ fn decode_durable_operation(row: &Row<'_>) -> rusqlite::Result<DurableIdentityOp
     ))
 }
 
-impl OperationJournal for Database {
-    fn begin_operation(
-        &self,
-        kind: IdentityOperationKind,
-        subject: PublicKey,
-        updated_at: UnixTimestamp,
-    ) -> Result<OperationId, SafeError> {
-        let connection = self.connection();
-        connection
-            .execute(
-                "INSERT INTO operation_journal (operation_kind, subject_pubkey, phase, \
-                 updated_at) VALUES (?1, ?2, 'intent_recorded', ?3)",
-                params![encode_kind(kind), subject.to_hex(), updated_at.as_seconds()],
-            )
-            .map_err(|_| storage_error())?;
-        let id =
-            u64::try_from(connection.last_insert_rowid()).map_err(|_| corrupt_storage_error())?;
-        Ok(OperationId::from_raw(id))
-    }
+fn required_key(
+    row: &sqlx::sqlite::SqliteRow,
+    value: &str,
+    length: &str,
+) -> Result<PublicKey, SafeError> {
+    optional_key(row, value, length)?.ok_or_else(corrupt_storage)
+}
 
-    fn update_operation(
-        &self,
-        id: OperationId,
-        phase: IdentityOperationPhase,
-        updated_at: UnixTimestamp,
-        diagnostic: Option<OperationDiagnostic>,
-    ) -> Result<(), SafeError> {
-        let encoded_id = i64::try_from(id.as_raw()).map_err(|_| corrupt_storage_error())?;
-        match self.connection().execute(
-            "UPDATE operation_journal SET phase = ?2, updated_at = ?3, diagnostic_code = ?4 \
-             WHERE operation_id = ?1",
-            params![
-                encoded_id,
-                encode_phase(phase),
-                updated_at.as_seconds(),
-                diagnostic.map(encode_diagnostic)
-            ],
-        ) {
-            Ok(1) => Ok(()),
-            Ok(0) => Err(operation_not_found()),
-            Ok(_) | Err(_) => Err(storage_error()),
+fn optional_key(
+    row: &sqlx::sqlite::SqliteRow,
+    value: &str,
+    length: &str,
+) -> Result<Option<PublicKey>, SafeError> {
+    optional_blob(row, value, length, 32)?
+        .map(|bytes| {
+            let bytes: [u8; 32] = bytes.try_into().map_err(|_| corrupt_storage())?;
+            PublicKey::from_bytes(bytes).map_err(|_| corrupt_storage())
+        })
+        .transpose()
+}
+
+fn required_text(
+    row: &sqlx::sqlite::SqliteRow,
+    value: &str,
+    length: &str,
+    maximum: usize,
+) -> Result<String, SafeError> {
+    optional_text(row, value, length, maximum)?.ok_or_else(corrupt_storage)
+}
+
+fn optional_text(
+    row: &sqlx::sqlite::SqliteRow,
+    value: &str,
+    length: &str,
+    maximum: usize,
+) -> Result<Option<String>, SafeError> {
+    optional_blob(row, value, length, maximum)?
+        .map(String::from_utf8)
+        .transpose()
+        .map_err(|_| corrupt_storage())
+}
+
+fn optional_blob(
+    row: &sqlx::sqlite::SqliteRow,
+    value_column: &str,
+    length_column: &str,
+    maximum: usize,
+) -> Result<Option<Vec<u8>>, SafeError> {
+    let value = row
+        .try_get::<Option<Vec<u8>>, _>(value_column)
+        .map_err(|_| corrupt_storage())?;
+    let length = row
+        .try_get::<Option<i64>, _>(length_column)
+        .map_err(|_| corrupt_storage())?;
+    match (value, length) {
+        (None, None) => Ok(None),
+        (Some(value), Some(length))
+            if usize::try_from(length)
+                .ok()
+                .is_some_and(|length| length <= maximum && length == value.len()) =>
+        {
+            Ok(Some(value))
         }
-    }
-
-    fn list_pending_operations(&self) -> Result<Vec<PendingIdentityOperation>, SafeError> {
-        let connection = self.connection();
-        let mut statement = connection
-            .prepare(
-                "SELECT operation_id, operation_kind, subject_pubkey, phase, updated_at, \
-                 diagnostic_code FROM operation_journal ORDER BY operation_id ASC",
-            )
-            .map_err(|_| storage_error())?;
-        let rows = statement
-            .query_map([], decode_operation)
-            .map_err(|_| storage_error())?;
-        rows.map(|row| row.map_err(|_| corrupt_storage_error()))
-            .collect()
-    }
-
-    fn finalize_operation(&self, id: OperationId) -> Result<(), SafeError> {
-        let encoded_id = i64::try_from(id.as_raw()).map_err(|_| corrupt_storage_error())?;
-        self.connection()
-            .execute(
-                "DELETE FROM operation_journal WHERE operation_id = ?1",
-                [encoded_id],
-            )
-            .map(|_| ())
-            .map_err(|_| storage_error())
+        _ => Err(corrupt_storage()),
     }
 }
 
-fn decode_operation(row: &Row<'_>) -> rusqlite::Result<PendingIdentityOperation> {
-    let id = u64::try_from(row.get::<_, i64>(0)?).map_err(|_| invalid_column(0))?;
-    let kind = decode_kind(row.get::<_, String>(1)?.as_str())?;
-    let subject =
-        PublicKey::from_hex(row.get::<_, String>(2)?.as_str()).map_err(|_| invalid_column(2))?;
-    let phase = decode_phase(row.get::<_, String>(3)?.as_str())?;
-    let updated_at = UnixTimestamp::from_seconds(row.get(4)?).ok_or_else(|| invalid_column(4))?;
-    let diagnostic = row
-        .get::<_, Option<String>>(5)?
-        .map(|value| decode_diagnostic(&value))
-        .transpose()?;
-    Ok(PendingIdentityOperation::new(
-        OperationId::from_raw(id),
-        kind,
-        subject,
-        phase,
-        updated_at,
-        diagnostic,
-    ))
+fn encode_revision(value: Option<u64>) -> Result<Option<i64>, SafeError> {
+    value
+        .map(i64::try_from)
+        .transpose()
+        .map_err(|_| operation_conflict())
 }
 
-const fn encode_durable_kind(value: DurableOperationKind) -> &'static str {
+fn decode_revision(value: Option<i64>) -> Result<Option<u64>, SafeError> {
+    value
+        .map(u64::try_from)
+        .transpose()
+        .map_err(|_| corrupt_storage())
+}
+
+const fn encode_kind(value: DurableOperationKind) -> &'static str {
     match value {
         DurableOperationKind::Create => "create",
         DurableOperationKind::Import => "import",
@@ -332,17 +400,17 @@ const fn encode_durable_kind(value: DurableOperationKind) -> &'static str {
     }
 }
 
-fn decode_durable_kind(value: &str) -> rusqlite::Result<DurableOperationKind> {
+fn decode_kind(value: &str) -> Result<DurableOperationKind, SafeError> {
     match value {
         "create" => Ok(DurableOperationKind::Create),
         "import" => Ok(DurableOperationKind::Import),
         "repair" => Ok(DurableOperationKind::Repair),
         "remove" => Ok(DurableOperationKind::Remove),
-        _ => Err(invalid_column(1)),
+        _ => Err(corrupt_storage()),
     }
 }
 
-const fn encode_durable_phase(value: DurableOperationPhase) -> &'static str {
+const fn encode_phase(value: DurableOperationPhase) -> &'static str {
     match value {
         DurableOperationPhase::IntentRecorded => "intent_recorded",
         DurableOperationPhase::CredentialWritten => "credential_written",
@@ -355,7 +423,7 @@ const fn encode_durable_phase(value: DurableOperationPhase) -> &'static str {
     }
 }
 
-fn decode_durable_phase(value: &str) -> rusqlite::Result<DurableOperationPhase> {
+fn decode_phase(value: &str) -> Result<DurableOperationPhase, SafeError> {
     match value {
         "intent_recorded" => Ok(DurableOperationPhase::IntentRecorded),
         "credential_written" => Ok(DurableOperationPhase::CredentialWritten),
@@ -365,11 +433,11 @@ fn decode_durable_phase(value: &str) -> rusqlite::Result<DurableOperationPhase> 
         "credential_deleted" => Ok(DurableOperationPhase::CredentialDeleted),
         "metadata_deleted" => Ok(DurableOperationPhase::MetadataDeleted),
         "finalized" => Ok(DurableOperationPhase::Finalized),
-        _ => Err(invalid_column(4)),
+        _ => Err(corrupt_storage()),
     }
 }
 
-const fn encode_terminal_outcome(value: DurableTerminalOutcome) -> &'static str {
+const fn encode_outcome(value: DurableTerminalOutcome) -> &'static str {
     match value {
         DurableTerminalOutcome::Completed => "completed",
         DurableTerminalOutcome::Cancelled => "cancelled",
@@ -377,69 +445,12 @@ const fn encode_terminal_outcome(value: DurableTerminalOutcome) -> &'static str 
     }
 }
 
-fn decode_terminal_outcome(value: &str) -> rusqlite::Result<DurableTerminalOutcome> {
+fn decode_outcome(value: &str) -> Result<DurableTerminalOutcome, SafeError> {
     match value {
         "completed" => Ok(DurableTerminalOutcome::Completed),
         "cancelled" => Ok(DurableTerminalOutcome::Cancelled),
         "failed" => Ok(DurableTerminalOutcome::Failed),
-        _ => Err(invalid_column(8)),
-    }
-}
-
-const fn encode_binding_availability(value: SignerAvailability) -> &'static str {
-    match value {
-        SignerAvailability::Available => "available",
-        SignerAvailability::CredentialMissing => "credential_missing",
-        SignerAvailability::StoreUnavailable => "store_unavailable",
-    }
-}
-
-fn decode_binding_availability(value: &str) -> rusqlite::Result<SignerAvailability> {
-    match value {
-        "available" => Ok(SignerAvailability::Available),
-        "credential_missing" => Ok(SignerAvailability::CredentialMissing),
-        "store_unavailable" => Ok(SignerAvailability::StoreUnavailable),
-        _ => Err(invalid_column(9)),
-    }
-}
-
-const fn encode_kind(value: IdentityOperationKind) -> &'static str {
-    match value {
-        IdentityOperationKind::Add => "add",
-        IdentityOperationKind::Import => "import",
-        IdentityOperationKind::Remove => "remove",
-    }
-}
-
-fn decode_kind(value: &str) -> rusqlite::Result<IdentityOperationKind> {
-    match value {
-        "add" => Ok(IdentityOperationKind::Add),
-        "import" => Ok(IdentityOperationKind::Import),
-        "remove" => Ok(IdentityOperationKind::Remove),
-        _ => Err(invalid_column(1)),
-    }
-}
-
-const fn encode_phase(value: IdentityOperationPhase) -> &'static str {
-    match value {
-        IdentityOperationPhase::IntentRecorded => "intent_recorded",
-        IdentityOperationPhase::CredentialWritten => "credential_written",
-        IdentityOperationPhase::MetadataCommitted => "metadata_committed",
-        IdentityOperationPhase::CompensationPending => "compensation_pending",
-        IdentityOperationPhase::CredentialDeleted => "credential_deleted",
-        IdentityOperationPhase::MetadataDeleted => "metadata_deleted",
-    }
-}
-
-fn decode_phase(value: &str) -> rusqlite::Result<IdentityOperationPhase> {
-    match value {
-        "intent_recorded" => Ok(IdentityOperationPhase::IntentRecorded),
-        "credential_written" => Ok(IdentityOperationPhase::CredentialWritten),
-        "metadata_committed" => Ok(IdentityOperationPhase::MetadataCommitted),
-        "compensation_pending" => Ok(IdentityOperationPhase::CompensationPending),
-        "credential_deleted" => Ok(IdentityOperationPhase::CredentialDeleted),
-        "metadata_deleted" => Ok(IdentityOperationPhase::MetadataDeleted),
-        _ => Err(invalid_column(3)),
+        _ => Err(corrupt_storage()),
     }
 }
 
@@ -454,7 +465,7 @@ const fn encode_diagnostic(value: OperationDiagnostic) -> &'static str {
     }
 }
 
-fn decode_diagnostic(value: &str) -> rusqlite::Result<OperationDiagnostic> {
+fn decode_diagnostic(value: &str) -> Result<OperationDiagnostic, SafeError> {
     match value {
         "storage_unavailable" => Ok(OperationDiagnostic::StorageUnavailable),
         "keyring_unavailable" => Ok(OperationDiagnostic::KeyringUnavailable),
@@ -462,316 +473,37 @@ fn decode_diagnostic(value: &str) -> rusqlite::Result<OperationDiagnostic> {
         "compensation_failed" => Ok(OperationDiagnostic::CompensationFailed),
         "conflict" => Ok(OperationDiagnostic::Conflict),
         "expired" => Ok(OperationDiagnostic::Expired),
-        _ => Err(invalid_column(5)),
+        _ => Err(corrupt_storage()),
     }
 }
 
-fn invalid_column(index: usize) -> rusqlite::Error {
-    rusqlite::Error::InvalidColumnType(
-        index,
-        "identity operation journal".to_owned(),
-        rusqlite::types::Type::Text,
-    )
+const fn encode_availability(value: SignerAvailability) -> &'static str {
+    match value {
+        SignerAvailability::Available => "available",
+        SignerAvailability::CredentialMissing => "credential_missing",
+        SignerAvailability::StoreUnavailable => "store_unavailable",
+    }
 }
 
-const fn storage_error() -> SafeError {
-    SafeError::new(
-        SafeErrorCode::StorageUnavailable,
-        SafeMessage::new("The identity recovery journal is unavailable."),
-    )
-}
-
-const fn corrupt_storage_error() -> SafeError {
-    SafeError::new(
-        SafeErrorCode::StorageCorrupt,
-        SafeMessage::new("The identity recovery journal could not be read."),
-    )
-}
-
-const fn operation_not_found() -> SafeError {
-    SafeError::new(
-        SafeErrorCode::PendingOperationRecoveryRequired,
-        SafeMessage::new("The identity recovery operation was not found."),
-    )
+fn decode_availability(value: &str) -> Result<SignerAvailability, SafeError> {
+    match value {
+        "available" => Ok(SignerAvailability::Available),
+        "credential_missing" => Ok(SignerAvailability::CredentialMissing),
+        "store_unavailable" => Ok(SignerAvailability::StoreUnavailable),
+        _ => Err(corrupt_storage()),
+    }
 }
 
 const fn operation_conflict() -> SafeError {
     SafeError::new(
         SafeErrorCode::InvalidApplicationState,
-        SafeMessage::new("The durable identity operation conflicts with existing state."),
+        SafeMessage::new("The durable operation conflicts with existing state."),
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use harvestcircle_application::{
-        DurableOperationKind, DurableOperationPhase, DurableOperationRepository,
-        DurableOperationStart, DurableRequestId, DurableTerminalOutcome, IdentityOperationKind,
-        IdentityOperationPhase, OperationDiagnostic, OperationJournal, OperationPriorState,
-    };
-    use harvestcircle_domain::{PublicKey, SignerAvailability, UnixTimestamp};
-
-    use crate::Database;
-
-    fn public_key(discriminator: u8) -> PublicKey {
-        let value = match discriminator {
-            7 => "0707070707070707070707070707070707070707070707070707070707070707",
-            8 => "585591529da0bab31b3b1b1f986611cf5f435dca84f978c89ee8a40cca7103df",
-            _ => "e0266e3cfb0d2886f91c73f5f868f3b98273713e5fcd97c081663f5518a4b3af",
-        };
-        PublicKey::from_hex(value).expect("valid public key")
-    }
-
-    #[test]
-    fn journal_creates_advances_loads_and_finalizes_pending_operations() {
-        let database = Database::in_memory().expect("database");
-        let subject = public_key(7);
-        let id = database
-            .begin_operation(
-                IdentityOperationKind::Import,
-                subject,
-                UnixTimestamp::from_seconds(10).expect("time"),
-            )
-            .expect("begin");
-        database
-            .update_operation(
-                id,
-                IdentityOperationPhase::CompensationPending,
-                UnixTimestamp::from_seconds(11).expect("time"),
-                Some(OperationDiagnostic::KeyringUnavailable),
-            )
-            .expect("advance");
-
-        let pending = database.list_pending_operations().expect("pending");
-        assert_eq!(pending.len(), 1);
-        assert_eq!(pending[0].subject(), subject);
-        assert_eq!(pending[0].kind(), IdentityOperationKind::Import);
-        assert_eq!(
-            pending[0].phase(),
-            IdentityOperationPhase::CompensationPending
-        );
-        assert_eq!(
-            pending[0].diagnostic(),
-            Some(OperationDiagnostic::KeyringUnavailable)
-        );
-
-        database.finalize_operation(id).expect("finalize");
-        assert!(
-            database
-                .list_pending_operations()
-                .expect("pending")
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn journal_schema_and_rows_exclude_secret_payload_columns() {
-        let database = Database::in_memory().expect("database");
-        database
-            .begin_operation(
-                IdentityOperationKind::Remove,
-                public_key(8),
-                UnixTimestamp::from_seconds(12).expect("time"),
-            )
-            .expect("begin");
-        let connection = database.connection();
-        let schema: String = connection
-            .query_row(
-                "SELECT sql FROM sqlite_master WHERE name = 'operation_journal'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("schema");
-        assert!(!schema.contains("secret"));
-        assert!(!schema.contains("payload"));
-    }
-
-    #[test]
-    fn durable_repository_replays_matching_requests_and_retains_terminal_receipts() {
-        let database = Database::in_memory().expect("database");
-        let request =
-            DurableRequestId::parse("01890f3e-7b1c-7000-8000-000000000011").expect("request");
-        let identity = public_key(9);
-        let prior = OperationPriorState::new(
-            Some(public_key(8)),
-            Some(SignerAvailability::CredentialMissing),
-        );
-        let started = database
-            .begin_durable_operation(
-                &request,
-                DurableOperationKind::Repair,
-                identity,
-                Some(4),
-                prior,
-                UnixTimestamp::from_seconds(10).expect("time"),
-            )
-            .expect("begin");
-        assert!(matches!(started, DurableOperationStart::Started(_)));
-        let replay = database
-            .begin_durable_operation(
-                &request,
-                DurableOperationKind::Repair,
-                identity,
-                Some(4),
-                prior,
-                UnixTimestamp::from_seconds(11).expect("time"),
-            )
-            .expect("replay");
-        assert!(matches!(replay, DurableOperationStart::Existing(_)));
-        assert!(
-            database
-                .begin_durable_operation(
-                    &request,
-                    DurableOperationKind::Remove,
-                    identity,
-                    Some(4),
-                    prior,
-                    UnixTimestamp::from_seconds(11).expect("time"),
-                )
-                .is_err()
-        );
-        let missing_request =
-            DurableRequestId::parse("01890f3e-7b1c-7000-8000-000000000012").expect("request");
-        assert!(
-            database
-                .finalize_durable_operation(
-                    &missing_request,
-                    DurableOperationPhase::IntentRecorded,
-                    DurableTerminalOutcome::Completed,
-                    None,
-                    UnixTimestamp::from_seconds(17).expect("time"),
-                )
-                .is_err()
-        );
-        assert!(
-            database
-                .begin_durable_operation(
-                    &request,
-                    DurableOperationKind::Repair,
-                    public_key(8),
-                    Some(4),
-                    prior,
-                    UnixTimestamp::from_seconds(11).expect("time"),
-                )
-                .is_err()
-        );
-        assert!(
-            database
-                .begin_durable_operation(
-                    &request,
-                    DurableOperationKind::Repair,
-                    identity,
-                    Some(5),
-                    prior,
-                    UnixTimestamp::from_seconds(11).expect("time"),
-                )
-                .is_err()
-        );
-        assert!(
-            database
-                .begin_durable_operation(
-                    &request,
-                    DurableOperationKind::Repair,
-                    identity,
-                    Some(4),
-                    OperationPriorState::new(None, None),
-                    UnixTimestamp::from_seconds(11).expect("time"),
-                )
-                .is_err()
-        );
-        assert!(
-            database
-                .advance_durable_operation(
-                    &request,
-                    DurableOperationPhase::CredentialDeleted,
-                    DurableOperationPhase::Finalized,
-                    UnixTimestamp::from_seconds(11).expect("time"),
-                    None,
-                )
-                .is_err()
-        );
-        database
-            .advance_durable_operation(
-                &request,
-                DurableOperationPhase::IntentRecorded,
-                DurableOperationPhase::CredentialWritten,
-                UnixTimestamp::from_seconds(12).expect("time"),
-                None,
-            )
-            .expect("advance");
-        let receipt = database
-            .finalize_durable_operation(
-                &request,
-                DurableOperationPhase::CredentialWritten,
-                DurableTerminalOutcome::Completed,
-                Some(5),
-                UnixTimestamp::from_seconds(13).expect("time"),
-            )
-            .expect("finalize");
-        assert_eq!(receipt.resulting_revision(), Some(5));
-        assert_eq!(
-            database
-                .finalize_durable_operation(
-                    &request,
-                    DurableOperationPhase::CredentialWritten,
-                    DurableTerminalOutcome::Completed,
-                    Some(5),
-                    UnixTimestamp::from_seconds(14).expect("time"),
-                )
-                .expect("receipt replay"),
-            receipt
-        );
-        assert!(
-            database
-                .finalize_durable_operation(
-                    &request,
-                    DurableOperationPhase::CredentialWritten,
-                    DurableTerminalOutcome::Cancelled,
-                    Some(5),
-                    UnixTimestamp::from_seconds(14).expect("time"),
-                )
-                .is_err()
-        );
-        assert!(
-            database
-                .finalize_durable_operation(
-                    &request,
-                    DurableOperationPhase::CredentialWritten,
-                    DurableTerminalOutcome::Completed,
-                    Some(6),
-                    UnixTimestamp::from_seconds(14).expect("time"),
-                )
-                .is_err()
-        );
-        let overflow_request =
-            DurableRequestId::parse("01890f3e-7b1c-7000-8000-000000000013").expect("request");
-        database
-            .begin_durable_operation(
-                &overflow_request,
-                DurableOperationKind::Import,
-                identity,
-                None,
-                OperationPriorState::new(None, None),
-                UnixTimestamp::from_seconds(15).expect("time"),
-            )
-            .expect("begin overflow operation");
-        assert!(
-            database
-                .finalize_durable_operation(
-                    &overflow_request,
-                    DurableOperationPhase::IntentRecorded,
-                    DurableTerminalOutcome::Completed,
-                    Some(u64::MAX),
-                    UnixTimestamp::from_seconds(16).expect("time"),
-                )
-                .is_err()
-        );
-        assert!(
-            database
-                .list_unfinished_durable_operations()
-                .expect("unfinished")
-                .iter()
-                .any(|operation| operation.request_id() == &overflow_request)
-        );
-    }
+const fn operation_capacity_exhausted() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::InvalidApplicationState,
+        SafeMessage::new("The unfinished operation capacity is exhausted."),
+    )
 }

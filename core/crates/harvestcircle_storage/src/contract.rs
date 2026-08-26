@@ -311,7 +311,7 @@ impl fmt::Display for HarvestCircleStorageContractError {
 impl Error for HarvestCircleStorageContractError {}
 
 #[must_use]
-pub const fn harvestcircle_initial_schema_sql() -> &'static [&'static str] {
+pub(crate) const fn harvestcircle_initial_schema_sql() -> &'static [&'static str] {
     &INITIAL_SCHEMA_SQL
 }
 
@@ -400,6 +400,7 @@ mod tests {
         InstanceId, RadrootsHostEnvironment, RadrootsPathProfile, RadrootsPathResolver,
         RadrootsPlatform, RuntimeContextBootstrap, RuntimeContextSource, ServiceId,
     };
+    use sqlx::{Connection, Row};
 
     fn context(service: &str, instance: &str) -> RuntimeContext {
         RuntimeContext::resolve(
@@ -556,34 +557,38 @@ mod tests {
         );
     }
 
-    #[test]
-    fn schema_sql_executes_as_one_fresh_strict_v1_inventory() {
-        let connection = rusqlite::Connection::open_in_memory().expect("memory database");
-        connection
-            .execute_batch("PRAGMA foreign_keys = ON;")
+    #[tokio::test]
+    async fn schema_sql_executes_as_one_fresh_strict_v1_inventory() {
+        let mut connection = sqlx::SqliteConnection::connect(":memory:")
+            .await
+            .expect("memory database");
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&mut connection)
+            .await
             .expect("foreign keys");
         for statement in harvestcircle_initial_schema_sql() {
-            connection
-                .execute_batch(statement)
+            sqlx::query(*statement)
+                .execute(&mut connection)
+                .await
                 .expect("schema statement");
         }
-        let mut statement = connection
-            .prepare(
-                "SELECT type, name, tbl_name FROM sqlite_schema \
+        let rows = sqlx::query(
+            "SELECT type, name, tbl_name FROM sqlite_schema \
                  WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name LIMIT 10",
-            )
-            .expect("inventory statement");
-        let inventory = statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
+        )
+        .fetch_all(&mut connection)
+        .await
+        .expect("inventory rows");
+        let inventory = rows
+            .iter()
+            .map(|row| {
+                (
+                    row.get::<String, _>("type"),
+                    row.get::<String, _>("name"),
+                    row.get::<String, _>("tbl_name"),
+                )
             })
-            .expect("inventory")
-            .collect::<Result<Vec<_>, _>>()
-            .expect("inventory rows");
+            .collect::<Vec<_>>();
         assert_eq!(inventory.len(), 9);
         assert_eq!(
             inventory

@@ -46,11 +46,11 @@ harvestcircle_uniffi_bindgen = { path = "crates/harvestcircle_uniffi_bindgen", v
 radroots_identity = { git = "https://github.com/radrootslabs/lib", rev = "be9db78e060ebc0000fa7827ac32efa3f6504f53", version = "=0.1.0-alpha", default-features = false }
 radroots_runtime_paths = { git = "https://github.com/radrootslabs/lib", rev = "be9db78e060ebc0000fa7827ac32efa3f6504f53", version = "=0.1.0-alpha", default-features = false }
 radroots_service_sqlite = { git = "https://github.com/radrootslabs/lib", rev = "be9db78e060ebc0000fa7827ac32efa3f6504f53", version = "=0.1.0-alpha", default-features = false }
+radroots_storage = { git = "https://github.com/radrootslabs/lib", rev = "be9db78e060ebc0000fa7827ac32efa3f6504f53", version = "=0.1.0-alpha", default-features = false }
 getrandom = { version = "0.2", default-features = false }
-hmac = { version = "0.12", default-features = false }
 quote = { version = "1" }
-rustix = { version = "1", features = ["fs", "process", "std"] }
 sha2 = { version = "0.10", default-features = false }
+sqlx = { version = "=0.9.0", default-features = false, features = ["runtime-tokio", "sqlite"] }
 syn = { version = "2", features = ["full", "parsing", "visit", "visit-mut"] }
 toml = { version = "1.1.4" }
 uuid = { version = "1.22.0", features = ["v4", "v7"] }

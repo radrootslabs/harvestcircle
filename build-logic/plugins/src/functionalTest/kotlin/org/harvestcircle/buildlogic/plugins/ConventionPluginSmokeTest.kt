@@ -602,8 +602,8 @@ class ConventionPluginSmokeTest {
         contract.hash=b32b9a47d12e445e93866ae0ab668b18de503ba6c999e3a053f26dc9509ddaf9
         product.coordinate_digest=bf50f9ea6c2537406de255f025463e670eb6263c295f992f7e4c4db36d957064
         snapshot.schema=1
-        storage.schema.minimum=5
-        storage.schema.current=10
+        storage.schema.minimum=1
+        storage.schema.current=1
         product.version=0.1.0-alpha
         package.version=1.0.0
         source.provenance_digest=daded0256c87be5a413358b346498dcecb412d4eff53d2998999d26ec20f3d40

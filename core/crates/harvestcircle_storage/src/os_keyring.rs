@@ -18,16 +18,16 @@ impl OsKeyringSecretStore {
         Entry::new(CREDENTIAL_SERVICE, &public_key.to_hex()).map_err(|_| keyring_unavailable())
     }
 
-    fn operation(&self) -> MutexGuard<'_, ()> {
+    fn operation(&self) -> Result<MutexGuard<'_, ()>, SafeError> {
         self.operation_lock
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .map_err(|_| keyring_unavailable())
     }
 }
 
 impl SecretStore for OsKeyringSecretStore {
     fn put(&self, public_key: PublicKey, secret: SecretKeyInput) -> Result<(), SafeError> {
-        let _operation = self.operation();
+        let _operation = self.operation()?;
         let entry = Self::entry(public_key)?;
         match entry.get_password() {
             Ok(password) => {
@@ -43,7 +43,7 @@ impl SecretStore for OsKeyringSecretStore {
     }
 
     fn load(&self, public_key: PublicKey) -> Result<SecretKeyInput, SafeError> {
-        let _operation = self.operation();
+        let _operation = self.operation()?;
         let password = Self::entry(public_key)?
             .get_password()
             .map_err(|error| map_read_error(&error))?;
@@ -51,7 +51,7 @@ impl SecretStore for OsKeyringSecretStore {
     }
 
     fn contains(&self, public_key: PublicKey) -> Result<bool, SafeError> {
-        let _operation = self.operation();
+        let _operation = self.operation()?;
         match Self::entry(public_key)?.get_password() {
             Ok(password) => {
                 drop(Zeroizing::new(password));
@@ -63,7 +63,7 @@ impl SecretStore for OsKeyringSecretStore {
     }
 
     fn delete(&self, public_key: PublicKey) -> Result<(), SafeError> {
-        let _operation = self.operation();
+        let _operation = self.operation()?;
         Self::entry(public_key)?
             .delete_credential()
             .map_err(|error| map_read_error(&error))
@@ -101,7 +101,7 @@ const fn keyring_unavailable() -> SafeError {
 #[cfg(test)]
 mod tests {
     use harvestcircle_application::SecretStore;
-    use harvestcircle_domain::{PublicKey, SecretKeyInput};
+    use harvestcircle_domain::{PublicKey, SafeErrorCode, SecretKeyInput};
 
     use super::{CREDENTIAL_SERVICE, OsKeyringSecretStore};
 
@@ -115,6 +115,22 @@ mod tests {
             public_key.to_hex(),
             "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7"
         );
+    }
+
+    #[test]
+    fn poisoned_operation_lock_fails_closed_before_keyring_access() {
+        let store = OsKeyringSecretStore::default();
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _operation = store.operation_lock.lock().expect("operation lock");
+            panic!("injected operation failure");
+        }));
+        assert!(panic.is_err());
+
+        let public_key =
+            PublicKey::from_hex("7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7")
+                .expect("valid public key");
+        let error = store.contains(public_key).expect_err("poison must reject");
+        assert_eq!(error.code(), SafeErrorCode::KeyringUnavailable);
     }
 
     #[test]

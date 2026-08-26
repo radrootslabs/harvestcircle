@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use harvestcircle_application::{
-    Clock, InMemorySecretStore, ProfileLoadState, ProfileRepository, RelayConfiguration,
-    RelayConnectionState, SecretStore, SessionState,
+    Clock, DurableRequestId, InMemorySecretStore, ProfileLoadState, ProfileRepository,
+    RelayConfiguration, RelayConnectionState, SecretStore, SessionState,
 };
 use harvestcircle_domain::{RelayDestinationPolicy, RelayEndpoint, SecretKeyInput, UnixTimestamp};
 use harvestcircle_nostr::SdkNostrClient;
@@ -10,6 +10,11 @@ use harvestcircle_runtime::PersistentAppCore;
 use nostr::{EventBuilder, Keys, Metadata};
 use nostr_relay_builder::MockRelay;
 use nostr_sdk::Client;
+use radroots_runtime_paths::{
+    InstanceId, RadrootsHostEnvironment, RadrootsPathProfile, RadrootsPathResolver,
+    RadrootsPlatform, RuntimeContext, RuntimeContextBootstrap, RuntimeContextSource, ServiceId,
+};
+use radroots_service_sqlite::MigrationBuildIdentity;
 
 const SECRET_HEX: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
 
@@ -23,6 +28,37 @@ impl Clock for FixedClock {
 
 #[tokio::test]
 async fn local_relay_e2e_imports_activates_refreshes_and_caches_profile() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let context = RuntimeContext::resolve(
+        &RadrootsPathResolver::new(
+            RadrootsPlatform::current(),
+            RadrootsHostEnvironment::default(),
+        ),
+        RuntimeContextBootstrap::new(
+            RadrootsPathProfile::RepoLocal,
+            Some(directory.path().canonicalize().expect("canonical root")),
+            RuntimeContextSource::BootstrapCli,
+            RuntimeContextSource::SafeDefault,
+        )
+        .expect("bootstrap"),
+        ServiceId::new("harvestcircle").expect("service"),
+        InstanceId::new("desktop").expect("instance"),
+    )
+    .expect("context");
+    let build = MigrationBuildIdentity::new(
+        "0.1.0-alpha",
+        "1111111111111111111111111111111111111111",
+        "2222222222222222222222222222222222222222",
+        "1.97.1",
+        "test",
+        "test",
+        1,
+        1,
+        1,
+        1,
+        1,
+    )
+    .expect("build");
     let local_relay = MockRelay::run().await.expect("local relay");
     let relay_url = local_relay.url().await;
     let keys = Keys::parse(SECRET_HEX).expect("known secret key");
@@ -50,23 +86,35 @@ async fn local_relay_e2e_imports_activates_refreshes_and_caches_profile() {
         true,
     )
     .expect("relay endpoint");
-    let adapter = PersistentAppCore::in_memory(
+    let adapter = PersistentAppCore::open(
+        &context,
         RelayConfiguration::new(vec![relay]).expect("relay configuration"),
+        100_000,
+        100,
+        &build,
     )
+    .await
     .expect("persistent adapter");
     let secrets = InMemorySecretStore::default();
-    adapter.bootstrap(&secrets, &FixedClock).expect("bootstrap");
+    adapter
+        .bootstrap(&secrets, &FixedClock)
+        .await
+        .expect("bootstrap");
     let imported = adapter
-        .import_secret_key(
+        .import_secret_key_durable(
+            &DurableRequestId::parse("01890f3e-7b1c-7000-8000-000000000201").expect("request"),
+            adapter.core().snapshot().revision().value(),
             SecretKeyInput::parse(SECRET_HEX.to_owned()).expect("secret input"),
             &secrets,
             &FixedClock,
         )
+        .await
         .expect("import identity");
     let public_key = imported.identity().public_key();
     assert!(secrets.contains(public_key).expect("credential exists"));
     adapter
         .activate_identity(public_key, &secrets, &FixedClock)
+        .await
         .expect("activate identity");
 
     let refreshed = adapter
@@ -91,6 +139,7 @@ async fn local_relay_e2e_imports_activates_refreshes_and_caches_profile() {
     let cached = adapter
         .database()
         .load_profile(public_key)
+        .await
         .expect("load cache")
         .expect("cached profile");
     assert_eq!(
@@ -100,6 +149,7 @@ async fn local_relay_e2e_imports_activates_refreshes_and_caches_profile() {
     let public_debug = format!("{refreshed:?}");
     assert!(!public_debug.contains(SECRET_HEX));
     assert!(!public_debug.contains("nsec1"));
+    adapter.close().await.expect("close");
     publisher.shutdown().await;
     local_relay.shutdown();
 }

@@ -26,6 +26,12 @@ impl SourceProvenance {
             .expect("validated provenance has a foundation baseline")
     }
 
+    pub fn canonical_radroots_revision(&self) -> &str {
+        self.root
+            .get("canonical_radroots_revision")
+            .expect("validated provenance has a canonical Radroots revision")
+    }
+
     pub fn canonical(&self) -> String {
         let mut canonical = String::new();
         for key in ROOT_KEYS {

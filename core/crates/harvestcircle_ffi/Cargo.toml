@@ -23,6 +23,8 @@ harvestcircle_nostr.workspace = true
 harvestcircle_product.workspace = true
 harvestcircle_runtime.workspace = true
 harvestcircle_storage.workspace = true
+radroots_runtime_paths.workspace = true
+radroots_service_sqlite.workspace = true
 tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 uniffi = "=0.32.0"
 

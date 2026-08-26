@@ -80,6 +80,7 @@ impl AppCore {
             .fetch_profile(plan.public_key(), plan.relays(), deadline)
             .await;
         self.complete_profile_refresh(&plan, result, profiles, clock)
+            .await
     }
 
     /// Begins a refresh on the actor and returns the immutable network plan.
@@ -116,7 +117,7 @@ impl AppCore {
     ///
     /// Returns a safe storage or application-state error. Stale results are
     /// discarded without persistence or publication.
-    pub fn complete_profile_refresh(
+    pub async fn complete_profile_refresh(
         &self,
         plan: &ProfileRefreshPlan,
         result: Result<ProfileFetchResult, SafeError>,
@@ -144,10 +145,13 @@ impl AppCore {
                     profiles,
                     clock,
                 )
+                .await
             }
             Err(error) => {
                 let status = refresh_status(error);
-                profiles.record_refresh_status(plan.public_key(), clock.now(), status)?;
+                profiles
+                    .record_refresh_status(plan.public_key(), clock.now(), status)
+                    .await?;
                 self.apply_transition(StateTransition::UpdateActiveIdentity {
                     expected: plan.public_key(),
                     active_identity: Box::new(ActiveIdentitySnapshot::new(
@@ -162,7 +166,7 @@ impl AppCore {
         }
     }
 
-    fn complete_successful_profile_fetch(
+    async fn complete_successful_profile_fetch(
         &self,
         plan: &ProfileRefreshPlan,
         current_active: ActiveIdentitySnapshot,
@@ -186,8 +190,8 @@ impl AppCore {
                     clock.now(),
                     ProfileRefreshStatus::Success,
                 );
-                profiles.save_profile(&cached)?;
-                let winning_profile = profiles.load_profile(plan.public_key())?.map_or_else(
+                profiles.save_profile(&cached).await?;
+                let winning_profile = profiles.load_profile(plan.public_key()).await?.map_or_else(
                     || candidate.metadata().clone(),
                     |profile| profile.candidate().metadata().clone(),
                 );
@@ -271,43 +275,56 @@ mod tests {
     struct MemoryProfiles(Mutex<Option<CachedProfile>>);
 
     impl ProfileRepository for MemoryProfiles {
-        fn load_profile(&self, _public_key: PublicKey) -> Result<Option<CachedProfile>, SafeError> {
-            Ok(self.0.lock().expect("profiles").clone())
-        }
-        fn save_profile(&self, profile: &CachedProfile) -> Result<(), SafeError> {
-            let mut cached = self.0.lock().expect("profiles");
-            let selected = cached.as_ref().map_or_else(
-                || profile.clone(),
-                |current| {
-                    let winner = select_latest_kind0([
-                        current.candidate().clone(),
-                        profile.candidate().clone(),
-                    ])
-                    .expect("two candidates");
-                    if &winner == current.candidate() {
-                        current.clone()
-                    } else {
-                        profile.clone()
-                    }
-                },
-            );
-            *cached = Some(selected);
-            Ok(())
-        }
-        fn record_refresh_status(
+        fn load_profile(
             &self,
+            _public_key: PublicKey,
+        ) -> BoxFuture<'_, Result<Option<CachedProfile>, SafeError>> {
+            Box::pin(async move { Ok(self.0.lock().expect("profiles").clone()) })
+        }
+        fn save_profile<'a>(
+            &'a self,
+            profile: &'a CachedProfile,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(async move {
+                let mut cached = self.0.lock().expect("profiles");
+                let selected = cached.as_ref().map_or_else(
+                    || profile.clone(),
+                    |current| {
+                        let winner = select_latest_kind0([
+                            current.candidate().clone(),
+                            profile.candidate().clone(),
+                        ])
+                        .expect("two candidates");
+                        if &winner == current.candidate() {
+                            current.clone()
+                        } else {
+                            profile.clone()
+                        }
+                    },
+                );
+                *cached = Some(selected);
+                Ok(())
+            })
+        }
+        fn record_refresh_status<'a>(
+            &'a self,
             _public_key: PublicKey,
             refreshed_at: UnixTimestamp,
             status: ProfileRefreshStatus,
-        ) -> Result<(), SafeError> {
-            if let Some(profile) = self.0.lock().expect("profiles").as_mut() {
-                *profile = CachedProfile::new(profile.candidate().clone(), refreshed_at, status);
-            }
-            Ok(())
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(async move {
+                if let Some(profile) = self.0.lock().expect("profiles").as_mut() {
+                    *profile =
+                        CachedProfile::new(profile.candidate().clone(), refreshed_at, status);
+                }
+                Ok(())
+            })
         }
-        fn remove_profile(&self, _public_key: PublicKey) -> Result<(), SafeError> {
-            *self.0.lock().expect("profiles") = None;
-            Ok(())
+        fn remove_profile(&self, _public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
+            Box::pin(async move {
+                *self.0.lock().expect("profiles") = None;
+                Ok(())
+            })
         }
     }
 
@@ -372,7 +389,10 @@ mod tests {
         )
     }
 
-    fn active_core(profiles: &MemoryProfiles, cached_name: Option<&str>) -> (AppCore, PublicKey) {
+    async fn active_core(
+        profiles: &MemoryProfiles,
+        cached_name: Option<&str>,
+    ) -> (AppCore, PublicKey) {
         let relays = RelayConfiguration::new(vec![
             RelayEndpoint::parse(
                 "ws://localhost:8080",
@@ -400,6 +420,7 @@ mod tests {
                 &journal,
                 &FixedClock,
             )
+            .await
             .expect("import")
             .identity()
             .public_key();
@@ -410,6 +431,7 @@ mod tests {
                     UnixTimestamp::from_seconds(11).expect("time"),
                     ProfileRefreshStatus::Success,
                 ))
+                .await
                 .expect("cache");
         }
         core.activate_identity(
@@ -420,6 +442,7 @@ mod tests {
             &secrets,
             &FixedClock,
         )
+        .await
         .expect("activate");
         (core, public_key)
     }
@@ -427,7 +450,7 @@ mod tests {
     #[tokio::test]
     async fn refresh_transitions_from_cache_through_loading_to_fresh_profile() {
         let profiles = MemoryProfiles::default();
-        let (core, public_key) = active_core(&profiles, Some("Cached"));
+        let (core, public_key) = active_core(&profiles, Some("Cached")).await;
         assert_eq!(
             core.snapshot()
                 .active_identity()
@@ -456,6 +479,7 @@ mod tests {
             .fetch_profile(plan.public_key(), plan.relays(), deadline())
             .await;
         core.complete_profile_refresh(&plan, result, &profiles, &FixedClock)
+            .await
             .expect("complete refresh");
         assert_eq!(
             core.snapshot()
@@ -469,7 +493,7 @@ mod tests {
     #[tokio::test]
     async fn refresh_failure_preserves_cached_profile_as_nonfatal_state() {
         let profiles = MemoryProfiles::default();
-        let (core, public_key) = active_core(&profiles, Some("Cached"));
+        let (core, public_key) = active_core(&profiles, Some("Cached")).await;
         let cached = profile(public_key, "Cached", 10);
         let error = SafeError::new(
             SafeErrorCode::RelayConnectionFailed,
@@ -496,6 +520,7 @@ mod tests {
         assert_eq!(
             profiles
                 .load_profile(public_key)
+                .await
                 .expect("load")
                 .expect("cache")
                 .candidate(),
@@ -506,7 +531,7 @@ mod tests {
     #[tokio::test]
     async fn refresh_discards_stale_completion_after_sign_out() {
         let profiles = MemoryProfiles::default();
-        let (core, public_key) = active_core(&profiles, Some("Cached"));
+        let (core, public_key) = active_core(&profiles, Some("Cached")).await;
         let client = BlockingClient::new(Ok(Some(profile(public_key, "Stale", 20))));
 
         let refresh =
@@ -528,6 +553,7 @@ mod tests {
         assert_eq!(
             profiles
                 .load_profile(public_key)
+                .await
                 .expect("load")
                 .expect("cached")
                 .candidate()
@@ -540,7 +566,7 @@ mod tests {
     #[tokio::test]
     async fn manual_refresh_is_repeatable_and_signed_out_safe() {
         let profiles = MemoryProfiles::default();
-        let (core, public_key) = active_core(&profiles, None);
+        let (core, public_key) = active_core(&profiles, None).await;
         let first = core
             .refresh_active_profile(
                 &profiles,
@@ -580,10 +606,10 @@ mod tests {
         Instant::now() + Duration::from_secs(5)
     }
 
-    #[test]
-    fn partial_relay_success_retains_verified_data_and_marks_degraded_connectivity() {
+    #[tokio::test]
+    async fn partial_relay_success_retains_verified_data_and_marks_degraded_connectivity() {
         let profiles = MemoryProfiles::default();
-        let (core, public_key) = active_core(&profiles, None);
+        let (core, public_key) = active_core(&profiles, None).await;
         let plan = core
             .begin_profile_refresh()
             .expect("begin")
@@ -597,6 +623,7 @@ mod tests {
                 &profiles,
                 &FixedClock,
             )
+            .await
             .expect("partial completion");
         let active = snapshot.active_identity().expect("active identity");
         assert_eq!(active.relay_state(), RelayConnectionState::Degraded);
@@ -611,10 +638,10 @@ mod tests {
         );
     }
 
-    #[test]
-    fn overlapping_refreshes_keep_the_newest_event_regardless_of_completion_order() {
+    #[tokio::test]
+    async fn overlapping_refreshes_keep_the_newest_event_regardless_of_completion_order() {
         let profiles = MemoryProfiles::default();
-        let (core, public_key) = active_core(&profiles, Some("Cached"));
+        let (core, public_key) = active_core(&profiles, Some("Cached")).await;
         let first = core
             .begin_profile_refresh()
             .expect("first")
@@ -632,6 +659,7 @@ mod tests {
             &profiles,
             &FixedClock,
         )
+        .await
         .expect("newest completes first");
         let final_snapshot = core
             .complete_profile_refresh(
@@ -642,6 +670,7 @@ mod tests {
                 &profiles,
                 &FixedClock,
             )
+            .await
             .expect("older completes last");
 
         assert_eq!(
@@ -654,6 +683,7 @@ mod tests {
         assert_eq!(
             profiles
                 .load_profile(public_key)
+                .await
                 .expect("cache")
                 .expect("profile")
                 .candidate()

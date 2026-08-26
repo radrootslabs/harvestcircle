@@ -284,6 +284,7 @@ pub enum IdentityPreferenceKey {
     NamespaceProbe,
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IdentityOperationKind {
     Add,
@@ -291,6 +292,7 @@ pub enum IdentityOperationKind {
     Remove,
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IdentityOperationPhase {
     IntentRecorded,
@@ -311,9 +313,11 @@ pub enum OperationDiagnostic {
     Expired,
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct OperationId(u64);
 
+#[cfg(test)]
 impl OperationId {
     #[must_use]
     pub const fn from_raw(value: u64) -> Self {
@@ -326,6 +330,7 @@ impl OperationId {
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PendingIdentityOperation {
     id: OperationId,
@@ -336,6 +341,7 @@ pub struct PendingIdentityOperation {
     diagnostic: Option<OperationDiagnostic>,
 }
 
+#[cfg(test)]
 impl PendingIdentityOperation {
     #[must_use]
     pub const fn new(
@@ -418,32 +424,41 @@ pub trait IdentityRepository: Send + Sync {
     /// # Errors
     ///
     /// Returns a safe storage error when records cannot be read.
-    fn list_identities(&self) -> Result<Vec<NostrIdentity>, SafeError>;
+    fn list_identities(&self) -> BoxFuture<'_, Result<Vec<NostrIdentity>, SafeError>>;
     /// Finds one saved public identity record.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when the lookup cannot complete.
-    fn find_identity(&self, public_key: PublicKey) -> Result<Option<NostrIdentity>, SafeError>;
+    fn find_identity(
+        &self,
+        public_key: PublicKey,
+    ) -> BoxFuture<'_, Result<Option<NostrIdentity>, SafeError>>;
     /// Inserts one public identity record.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when the durable write fails.
-    fn insert_identity(&self, identity: &NostrIdentity) -> Result<(), SafeError>;
+    fn insert_identity<'a>(
+        &'a self,
+        identity: &'a NostrIdentity,
+    ) -> BoxFuture<'a, Result<(), SafeError>>;
     /// Updates one existing public identity record.
     ///
     /// # Errors
     ///
     /// Returns a safe storage or identity-not-found error when the durable
     /// update cannot complete.
-    fn update_identity(&self, identity: &NostrIdentity) -> Result<(), SafeError>;
+    fn update_identity<'a>(
+        &'a self,
+        identity: &'a NostrIdentity,
+    ) -> BoxFuture<'a, Result<(), SafeError>>;
     /// Removes one public identity record.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when the durable delete fails.
-    fn remove_identity(&self, public_key: PublicKey) -> Result<(), SafeError>;
+    fn remove_identity(&self, public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>>;
 }
 
 pub trait ProfileRepository: Send + Sync {
@@ -452,30 +467,36 @@ pub trait ProfileRepository: Send + Sync {
     /// # Errors
     ///
     /// Returns a safe storage error when the cache cannot be read.
-    fn load_profile(&self, public_key: PublicKey) -> Result<Option<CachedProfile>, SafeError>;
+    fn load_profile(
+        &self,
+        public_key: PublicKey,
+    ) -> BoxFuture<'_, Result<Option<CachedProfile>, SafeError>>;
     /// Saves a verified kind-0 profile candidate.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when the cache cannot be committed.
-    fn save_profile(&self, profile: &CachedProfile) -> Result<(), SafeError>;
+    fn save_profile<'a>(
+        &'a self,
+        profile: &'a CachedProfile,
+    ) -> BoxFuture<'a, Result<(), SafeError>>;
     /// Records the result of a profile refresh without replacing cached metadata.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when the cache cannot be committed.
-    fn record_refresh_status(
-        &self,
+    fn record_refresh_status<'a>(
+        &'a self,
         public_key: PublicKey,
         refreshed_at: UnixTimestamp,
         status: ProfileRefreshStatus,
-    ) -> Result<(), SafeError>;
+    ) -> BoxFuture<'a, Result<(), SafeError>>;
     /// Removes cached profile metadata for an identity.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when the cache cannot be deleted.
-    fn remove_profile(&self, public_key: PublicKey) -> Result<(), SafeError>;
+    fn remove_profile(&self, public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>>;
 }
 
 pub trait IdentityNamespaceRepository: Send + Sync {
@@ -484,28 +505,28 @@ pub trait IdentityNamespaceRepository: Send + Sync {
     /// # Errors
     ///
     /// Returns a safe storage error when the value cannot be read.
-    fn get_value(
-        &self,
+    fn get_value<'a>(
+        &'a self,
         owner: PublicKey,
         key: IdentityPreferenceKey,
-    ) -> Result<Option<String>, SafeError>;
+    ) -> BoxFuture<'a, Result<Option<String>, SafeError>>;
     /// Writes one internal non-secret identity-scoped value.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when the value cannot be committed.
-    fn set_value(
-        &self,
+    fn set_value<'a>(
+        &'a self,
         owner: PublicKey,
         key: IdentityPreferenceKey,
-        value: &str,
-    ) -> Result<(), SafeError>;
+        value: &'a str,
+    ) -> BoxFuture<'a, Result<(), SafeError>>;
     /// Removes all internal values owned by an identity.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when cleanup cannot be committed.
-    fn clear_owner(&self, owner: PublicKey) -> Result<(), SafeError>;
+    fn clear_owner(&self, owner: PublicKey) -> BoxFuture<'_, Result<(), SafeError>>;
 }
 
 pub trait AppStateRepository: Send + Sync {
@@ -514,51 +535,57 @@ pub trait AppStateRepository: Send + Sync {
     /// # Errors
     ///
     /// Returns a safe storage error when application state cannot be read.
-    fn load_selected_identity(&self) -> Result<Option<PublicKey>, SafeError>;
+    fn load_selected_identity(&self) -> BoxFuture<'_, Result<Option<PublicKey>, SafeError>>;
     /// Persists the selected identity or the empty selection.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when application state cannot be committed.
-    fn save_selected_identity(&self, public_key: Option<PublicKey>) -> Result<(), SafeError>;
+    fn save_selected_identity(
+        &self,
+        public_key: Option<PublicKey>,
+    ) -> BoxFuture<'_, Result<(), SafeError>>;
 }
 
+#[cfg(test)]
 pub trait OperationJournal: Send + Sync {
     /// Records one cross-resource identity operation intent.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when the entry cannot be committed.
-    fn begin_operation(
-        &self,
+    fn begin_operation<'a>(
+        &'a self,
         kind: IdentityOperationKind,
         subject: PublicKey,
         updated_at: UnixTimestamp,
-    ) -> Result<OperationId, SafeError>;
+    ) -> BoxFuture<'a, Result<OperationId, SafeError>>;
     /// Advances an operation to a durable recovery phase.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when the entry cannot be updated.
-    fn update_operation(
-        &self,
+    fn update_operation<'a>(
+        &'a self,
         id: OperationId,
         phase: IdentityOperationPhase,
         updated_at: UnixTimestamp,
         diagnostic: Option<OperationDiagnostic>,
-    ) -> Result<(), SafeError>;
+    ) -> BoxFuture<'a, Result<(), SafeError>>;
     /// Loads all unfinished operations in deterministic order.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when entries cannot be read.
-    fn list_pending_operations(&self) -> Result<Vec<PendingIdentityOperation>, SafeError>;
+    fn list_pending_operations(
+        &self,
+    ) -> BoxFuture<'_, Result<Vec<PendingIdentityOperation>, SafeError>>;
     /// Deletes one fully reconciled operation entry.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when finalization cannot be committed.
-    fn finalize_operation(&self, id: OperationId) -> Result<(), SafeError>;
+    fn finalize_operation(&self, id: OperationId) -> BoxFuture<'_, Result<(), SafeError>>;
 }
 
 pub trait DurableOperationRepository: Send + Sync {
@@ -568,50 +595,50 @@ pub trait DurableOperationRepository: Send + Sync {
     ///
     /// Returns a safe conflict or storage error when the request cannot be recorded.
     #[allow(clippy::too_many_arguments)]
-    fn begin_durable_operation(
-        &self,
-        request_id: &DurableRequestId,
+    fn begin_durable_operation<'a>(
+        &'a self,
+        request_id: &'a DurableRequestId,
         kind: DurableOperationKind,
         identity: PublicKey,
         expected_revision: Option<u64>,
         prior: OperationPriorState,
         updated_at: UnixTimestamp,
-    ) -> Result<DurableOperationStart, SafeError>;
+    ) -> BoxFuture<'a, Result<DurableOperationStart, SafeError>>;
     /// Loads one durable operation by its idempotency key.
     ///
     /// # Errors
     ///
     /// Returns a safe storage error when the lookup cannot complete.
-    fn load_durable_operation(
-        &self,
-        request_id: &DurableRequestId,
-    ) -> Result<Option<DurableIdentityOperation>, SafeError>;
+    fn load_durable_operation<'a>(
+        &'a self,
+        request_id: &'a DurableRequestId,
+    ) -> BoxFuture<'a, Result<Option<DurableIdentityOperation>, SafeError>>;
     /// Advances one operation only from the caller's expected phase.
     ///
     /// # Errors
     ///
     /// Returns a safe conflict or storage error when the transition cannot commit.
-    fn advance_durable_operation(
-        &self,
-        request_id: &DurableRequestId,
+    fn advance_durable_operation<'a>(
+        &'a self,
+        request_id: &'a DurableRequestId,
         expected_phase: DurableOperationPhase,
         next_phase: DurableOperationPhase,
         updated_at: UnixTimestamp,
         diagnostic: Option<OperationDiagnostic>,
-    ) -> Result<DurableIdentityOperation, SafeError>;
+    ) -> BoxFuture<'a, Result<DurableIdentityOperation, SafeError>>;
     /// Finalizes one operation and durably retains its recoverable receipt.
     ///
     /// # Errors
     ///
     /// Returns a safe conflict or storage error when finalization cannot commit.
-    fn finalize_durable_operation(
-        &self,
-        request_id: &DurableRequestId,
+    fn finalize_durable_operation<'a>(
+        &'a self,
+        request_id: &'a DurableRequestId,
         expected_phase: DurableOperationPhase,
         outcome: DurableTerminalOutcome,
         resulting_revision: Option<u64>,
         updated_at: UnixTimestamp,
-    ) -> Result<DurableOperationReceipt, SafeError>;
+    ) -> BoxFuture<'a, Result<DurableOperationReceipt, SafeError>>;
     /// Lists unfinished operations in deterministic request order.
     ///
     /// # Errors
@@ -619,7 +646,7 @@ pub trait DurableOperationRepository: Send + Sync {
     /// Returns a safe storage error when operations cannot be read.
     fn list_unfinished_durable_operations(
         &self,
-    ) -> Result<Vec<DurableIdentityOperation>, SafeError>;
+    ) -> BoxFuture<'_, Result<Vec<DurableIdentityOperation>, SafeError>>;
 }
 
 pub trait NostrClient: Send + Sync {
@@ -718,8 +745,8 @@ mod tests {
         ProfileFetchResult, ProfileRefreshStatus, ProfileRepository,
     };
 
-    #[test]
-    fn durable_request_ids_and_terminal_receipts_are_bounded_and_public() {
+    #[tokio::test]
+    async fn durable_request_ids_and_terminal_receipts_are_bounded_and_public() {
         let request =
             DurableRequestId::parse("01890f3e-7b1c-7000-8000-000000000031").expect("request id");
         let receipt = DurableOperationReceipt::new(
@@ -741,8 +768,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn durable_request_id_source_is_stateless_canonical_and_unique() {
+    #[tokio::test]
+    async fn durable_request_id_source_is_stateless_canonical_and_unique() {
         let first = DurableRequestId::new_v7();
         let second = DurableRequestId::new_v7();
 
@@ -765,113 +792,132 @@ mod tests {
     }
 
     impl IdentityRepository for FakePorts {
-        fn list_identities(&self) -> Result<Vec<NostrIdentity>, SafeError> {
-            Ok(Vec::new())
+        fn list_identities(&self) -> BoxFuture<'_, Result<Vec<NostrIdentity>, SafeError>> {
+            Box::pin(async { Ok(Vec::new()) })
         }
 
         fn find_identity(
             &self,
             _public_key: PublicKey,
-        ) -> Result<Option<NostrIdentity>, SafeError> {
-            Ok(None)
+        ) -> BoxFuture<'_, Result<Option<NostrIdentity>, SafeError>> {
+            Box::pin(async { Ok(None) })
         }
 
-        fn insert_identity(&self, _identity: &NostrIdentity) -> Result<(), SafeError> {
-            Ok(())
+        fn insert_identity<'a>(
+            &'a self,
+            _identity: &'a NostrIdentity,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(async { Ok(()) })
         }
 
-        fn update_identity(&self, _identity: &NostrIdentity) -> Result<(), SafeError> {
-            Ok(())
+        fn update_identity<'a>(
+            &'a self,
+            _identity: &'a NostrIdentity,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(async { Ok(()) })
         }
 
-        fn remove_identity(&self, _public_key: PublicKey) -> Result<(), SafeError> {
-            Ok(())
+        fn remove_identity(&self, _public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
+            Box::pin(async { Ok(()) })
         }
     }
 
     impl ProfileRepository for FakePorts {
-        fn load_profile(&self, _public_key: PublicKey) -> Result<Option<CachedProfile>, SafeError> {
-            Ok(None)
-        }
-
-        fn save_profile(&self, _profile: &CachedProfile) -> Result<(), SafeError> {
-            Ok(())
-        }
-
-        fn record_refresh_status(
+        fn load_profile(
             &self,
+            _public_key: PublicKey,
+        ) -> BoxFuture<'_, Result<Option<CachedProfile>, SafeError>> {
+            Box::pin(async { Ok(None) })
+        }
+
+        fn save_profile<'a>(
+            &'a self,
+            _profile: &'a CachedProfile,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn record_refresh_status<'a>(
+            &'a self,
             _public_key: PublicKey,
             _refreshed_at: UnixTimestamp,
             _status: ProfileRefreshStatus,
-        ) -> Result<(), SafeError> {
-            Ok(())
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(async { Ok(()) })
         }
 
-        fn remove_profile(&self, _public_key: PublicKey) -> Result<(), SafeError> {
-            Ok(())
+        fn remove_profile(&self, _public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
+            Box::pin(async { Ok(()) })
         }
     }
 
     impl IdentityNamespaceRepository for FakePorts {
-        fn get_value(
-            &self,
+        fn get_value<'a>(
+            &'a self,
             _owner: PublicKey,
             _key: IdentityPreferenceKey,
-        ) -> Result<Option<String>, SafeError> {
-            Ok(None)
+        ) -> BoxFuture<'a, Result<Option<String>, SafeError>> {
+            Box::pin(async { Ok(None) })
         }
 
-        fn set_value(
-            &self,
+        fn set_value<'a>(
+            &'a self,
             _owner: PublicKey,
             _key: IdentityPreferenceKey,
-            _value: &str,
-        ) -> Result<(), SafeError> {
-            Ok(())
+            _value: &'a str,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(async { Ok(()) })
         }
 
-        fn clear_owner(&self, _owner: PublicKey) -> Result<(), SafeError> {
-            Ok(())
+        fn clear_owner(&self, _owner: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
+            Box::pin(async { Ok(()) })
         }
     }
 
     impl AppStateRepository for FakePorts {
-        fn load_selected_identity(&self) -> Result<Option<PublicKey>, SafeError> {
-            Ok(*self.selected.lock().expect("selected lock"))
+        fn load_selected_identity(&self) -> BoxFuture<'_, Result<Option<PublicKey>, SafeError>> {
+            Box::pin(async move { Ok(*self.selected.lock().expect("selected lock")) })
         }
 
-        fn save_selected_identity(&self, public_key: Option<PublicKey>) -> Result<(), SafeError> {
-            *self.selected.lock().expect("selected lock") = public_key;
-            Ok(())
+        fn save_selected_identity(
+            &self,
+            public_key: Option<PublicKey>,
+        ) -> BoxFuture<'_, Result<(), SafeError>> {
+            Box::pin(async move {
+                *self.selected.lock().expect("selected lock") = public_key;
+                Ok(())
+            })
         }
     }
 
     impl OperationJournal for FakePorts {
-        fn begin_operation(
-            &self,
+        fn begin_operation<'a>(
+            &'a self,
             _kind: IdentityOperationKind,
             _subject: PublicKey,
             _updated_at: UnixTimestamp,
-        ) -> Result<OperationId, SafeError> {
-            Ok(OperationId::from_raw(1))
+        ) -> BoxFuture<'a, Result<OperationId, SafeError>> {
+            Box::pin(async { Ok(OperationId::from_raw(1)) })
         }
 
-        fn update_operation(
-            &self,
+        fn update_operation<'a>(
+            &'a self,
             _id: OperationId,
             _phase: IdentityOperationPhase,
             _updated_at: UnixTimestamp,
             _diagnostic: Option<OperationDiagnostic>,
-        ) -> Result<(), SafeError> {
-            Ok(())
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(async { Ok(()) })
         }
 
-        fn list_pending_operations(&self) -> Result<Vec<PendingIdentityOperation>, SafeError> {
-            Ok(Vec::new())
+        fn list_pending_operations(
+            &self,
+        ) -> BoxFuture<'_, Result<Vec<PendingIdentityOperation>, SafeError>> {
+            Box::pin(async { Ok(Vec::new()) })
         }
 
-        fn finalize_operation(&self, _id: OperationId) -> Result<(), SafeError> {
-            Ok(())
+        fn finalize_operation(&self, _id: OperationId) -> BoxFuture<'_, Result<(), SafeError>> {
+            Box::pin(async { Ok(()) })
         }
     }
 
@@ -894,8 +940,8 @@ mod tests {
 
     fn assert_send_sync<T: Send + Sync>() {}
 
-    #[test]
-    fn ports_accept_send_sync_test_fakes() {
+    #[tokio::test]
+    async fn ports_accept_send_sync_test_fakes() {
         assert_send_sync::<FakePorts>();
 
         let ports = FakePorts::default();
@@ -903,9 +949,13 @@ mod tests {
             .save_selected_identity(Some(
                 PublicKey::from_bytes([7_u8; 32]).expect("valid public key"),
             ))
+            .await
             .expect("save selection");
         assert_eq!(
-            ports.load_selected_identity().expect("load selection"),
+            ports
+                .load_selected_identity()
+                .await
+                .expect("load selection"),
             Some(PublicKey::from_bytes([7_u8; 32]).expect("valid public key"))
         );
         assert_eq!(ports.now().as_seconds(), 1);

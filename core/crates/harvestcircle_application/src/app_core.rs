@@ -118,16 +118,17 @@ impl AppCore {
     ///
     /// Returns the safe persistence error after publishing a fatal snapshot when
     /// durable state cannot be read or violates application invariants.
-    pub fn bootstrap_from(
+    pub async fn bootstrap_from(
         &self,
         identities: &(impl IdentityRepository + ?Sized),
         app_state: &(impl AppStateRepository + ?Sized),
     ) -> Result<AppSnapshot, SafeError> {
-        let loaded = identities.list_identities().and_then(|identities| {
-            app_state
-                .load_selected_identity()
-                .map(|selected| (identities, selected))
-        });
+        let loaded = async {
+            let identities = identities.list_identities().await?;
+            let selected = app_state.load_selected_identity().await?;
+            Ok::<_, SafeError>((identities, selected))
+        }
+        .await;
         match loaded {
             Ok((identities, selected)) => {
                 self.apply_transition(StateTransition::BootstrapRegistry {
@@ -277,8 +278,8 @@ mod tests {
 
     use crate::{AppCore, AppLifecycle, RelayConfiguration, StateTransition};
 
-    #[test]
-    fn bootstrap_is_idempotent_and_advances_only_once() {
+    #[tokio::test]
+    async fn bootstrap_is_idempotent_and_advances_only_once() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let ready = core.bootstrap().expect("bootstrap");
         let repeated = core.bootstrap().expect("idempotent bootstrap");
@@ -288,8 +289,8 @@ mod tests {
         assert_eq!(repeated, ready);
     }
 
-    #[test]
-    fn core_instances_never_share_state() {
+    #[tokio::test]
+    async fn core_instances_never_share_state() {
         let first = AppCore::in_memory(RelayConfiguration::default());
         let second = AppCore::in_memory(RelayConfiguration::default());
 
@@ -299,8 +300,8 @@ mod tests {
         assert_eq!(second.snapshot().revision().value(), 0);
     }
 
-    #[test]
-    fn removal_impact_matches_missing_local_binding() {
+    #[tokio::test]
+    async fn removal_impact_matches_missing_local_binding() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let public_key = crate::test_support::valid_test_public_key(9).expect("valid public key");
         let identity = NostrIdentity::new(
@@ -325,8 +326,8 @@ mod tests {
         assert!(!removal.impact().signs_out());
     }
 
-    #[test]
-    fn removal_confirmation_rejects_every_tampered_authority_field() {
+    #[tokio::test]
+    async fn removal_confirmation_rejects_every_tampered_authority_field() {
         let core = AppCore::in_memory(RelayConfiguration::default());
         let public_key = crate::test_support::valid_test_public_key(7).expect("public key");
         let other_key = crate::test_support::valid_test_public_key(8).expect("other key");

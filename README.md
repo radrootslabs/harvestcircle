@@ -13,6 +13,7 @@ commercial use.
 - product-specific Rust core through UniFFI;
 - local Nostr identity creation and import;
 - operating-system keyring custody;
+- canonical service-instance persistence through the governed SQLx host;
 - configurable Nostr relay bootstrap;
 - compatibility-gated native startup;
 - reproducible source and package verification.
@@ -43,6 +44,16 @@ required. Release, signing, and notarization checks are governed-only.
 ## Development branch
 
 Active implementation proceeds on `master`.
+
+## Local state
+
+HarvestCircle derives one canonical `harvestcircle`/`desktop` runtime context
+and stores application state only in its governed `state.sqlite` service
+database. SQLx is the sole high-level SQLite library, while
+`radroots_service_sqlite` owns connection, authority, migration, integrity,
+close, backup, and restore mechanics. The historical `harvestcircle.sqlite3`
+file is legacy evidence only and is never imported, repaired, deleted, or
+treated as current state.
 
 ## Project documentation
 

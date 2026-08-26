@@ -19,6 +19,8 @@ harvestcircle_application.workspace = true
 harvestcircle_domain.workspace = true
 harvestcircle_nostr.workspace = true
 harvestcircle_runtime.workspace = true
+radroots_runtime_paths.workspace = true
+radroots_service_sqlite.workspace = true
 nostr = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr" }
 nostr-relay-builder = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr-relay-builder" }
 nostr-sdk = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr-sdk" }

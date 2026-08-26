@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use directories::ProjectDirs;
+use directories::BaseDirs;
 use harvestcircle_application::{
     Clock, DurableRequestId, GeneratedKeyRecoveryHandle, RelayConfiguration, RelayEndpointInput,
     RemovalConfirmationToken, relay_configuration_from_endpoints,
@@ -15,14 +15,15 @@ use harvestcircle_domain::{
     PublicKey, RelayDestinationPolicy, SafeError, SecretKeyInput, UnixTimestamp,
 };
 use harvestcircle_nostr::SdkNostrClient;
-use harvestcircle_product::{
-    LEGACY_DATABASE_APPLICATION, LEGACY_DATABASE_FILENAME, LEGACY_DATABASE_ORGANIZATION,
-    LEGACY_DATABASE_QUALIFIER,
-};
 use harvestcircle_runtime::{
     RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,
 };
 use harvestcircle_storage::OsKeyringSecretStore;
+use radroots_runtime_paths::{
+    InstanceId, RadrootsHostEnvironment, RadrootsPathProfile, RadrootsPathResolver,
+    RadrootsPlatform, RuntimeContext, RuntimeContextBootstrap, RuntimeContextSource, ServiceId,
+};
+use radroots_service_sqlite::MigrationBuildIdentity;
 
 use crate::{
     AppSnapshotDto, IdentityDto, RelayDestinationDto, RelayEndpointDto, WireErrorCategory,
@@ -279,6 +280,8 @@ pub(crate) struct RuntimeCore {
     >,
     pub(crate) closed: AtomicBool,
     pub(crate) startup_relay_problem: Option<SafeError>,
+    #[cfg(test)]
+    pub(crate) _test_directory: Option<Arc<tempfile::TempDir>>,
 }
 
 impl RuntimeCore {
@@ -322,8 +325,8 @@ impl HarvestCircleAppCore {
         expectation: CompatibilityExpectation,
         input: RuntimeOpenInputDto,
     ) -> Result<Arc<Self>, HarvestCircleError> {
-        let path = application_database_path(&input)?;
-        Self::open_path_compatible(&path, &expectation, input.relay_input)
+        let context = application_runtime_context(&input)?;
+        Self::open_context_compatible(&context, &expectation, input.relay_input)
     }
 
     /// Restores durable public application state.
@@ -591,23 +594,21 @@ fn verify_compatibility(expectation: &CompatibilityExpectation) -> Result<(), Ha
 }
 
 impl HarvestCircleAppCore {
-    fn open_path_compatible(
-        path: &Path,
+    fn open_context_compatible(
+        context: &RuntimeContext,
         expectation: &CompatibilityExpectation,
         relay_input: RelayBootstrapInputDto,
     ) -> Result<Arc<Self>, HarvestCircleError> {
         verify_compatibility(expectation)?;
-        std::fs::create_dir_all(path.parent().ok_or_else(path_unavailable)?)
-            .map_err(|_| path_unavailable())?;
-        Self::open_path(path, relay_input)
+        Self::open_context(context, relay_input)
     }
 
     // The concrete product opener binds operating-system paths, keyrings, and
     // SQLite ownership. Platform installation lanes exercise this adapter;
     // deterministic coverage owns the compatibility and runtime policies.
     #[cfg_attr(coverage_nightly, coverage(off))]
-    fn open_path(
-        path: &Path,
+    fn open_context(
+        context: &RuntimeContext,
         relay_input: RelayBootstrapInputDto,
     ) -> Result<Arc<Self>, HarvestCircleError> {
         let relay_endpoints = relay_input
@@ -631,8 +632,9 @@ impl HarvestCircleAppCore {
         let (relays, startup_relay_problem) =
             local_first_relay_configuration(relay_configuration_from_endpoints(&relay_endpoints));
         let runtime = runtime()?;
+        let build = migration_build_identity()?;
         let actor = runtime.block_on(RuntimeActorHandle::open(
-            path,
+            context,
             relays,
             RuntimeDependencies::new(
                 Arc::new(OsKeyringSecretStore::default()),
@@ -640,6 +642,7 @@ impl HarvestCircleAppCore {
                 Arc::new(SdkNostrClient::new(Duration::from_secs(5))),
                 Arc::new(UuidInstallationIdentitySource),
             ),
+            &build,
             actor_mailbox_capacity()?,
             runtime.handle(),
         ))?;
@@ -649,6 +652,8 @@ impl HarvestCircleAppCore {
                 observers: Mutex::new(BTreeMap::new()),
                 closed: AtomicBool::new(false),
                 startup_relay_problem,
+                #[cfg(test)]
+                _test_directory: None,
             }),
         }))
     }
@@ -677,36 +682,86 @@ impl Clock for SystemClock {
     }
 }
 
-// ProjectDirs is the production host integration boundary. Development paths
-// are supplied explicitly by the desktop host and never inferred from Rust
-// process environment.
+// BaseDirs is the production host integration boundary. Development roots are
+// supplied explicitly by the desktop host and runtime_paths receives only
+// validated injected values.
 #[cfg_attr(coverage_nightly, coverage(off))]
-fn application_database_path(input: &RuntimeOpenInputDto) -> Result<PathBuf, HarvestCircleError> {
-    if let Some(raw_directory) = input.explicit_data_directory.as_deref() {
-        if !input.development_mode || raw_directory.is_empty() {
-            return Err(path_unavailable());
-        }
-        let directory = PathBuf::from(raw_directory);
-        if !directory.is_absolute() {
-            return Err(path_unavailable());
-        }
-        let metadata = std::fs::symlink_metadata(&directory).map_err(|_| path_unavailable())?;
-        if metadata.file_type().is_symlink() || !metadata.is_dir() {
-            return Err(path_unavailable());
-        }
-        let canonical = std::fs::canonicalize(&directory).map_err(|_| path_unavailable())?;
-        if canonical != directory {
-            return Err(path_unavailable());
-        }
-        return Ok(canonical.join(LEGACY_DATABASE_FILENAME));
-    }
-    ProjectDirs::from(
-        LEGACY_DATABASE_QUALIFIER,
-        LEGACY_DATABASE_ORGANIZATION,
-        LEGACY_DATABASE_APPLICATION,
+fn application_runtime_context(
+    input: &RuntimeOpenInputDto,
+) -> Result<RuntimeContext, HarvestCircleError> {
+    let (profile, root, environment, profile_source) =
+        if let Some(raw_directory) = input.explicit_data_directory.as_deref() {
+            if !input.development_mode || raw_directory.is_empty() {
+                return Err(path_unavailable());
+            }
+            let directory = PathBuf::from(raw_directory);
+            if !directory.is_absolute() {
+                return Err(path_unavailable());
+            }
+            let metadata = std::fs::symlink_metadata(&directory).map_err(|_| path_unavailable())?;
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                return Err(path_unavailable());
+            }
+            let canonical = std::fs::canonicalize(&directory).map_err(|_| path_unavailable())?;
+            if canonical != directory {
+                return Err(path_unavailable());
+            }
+            (
+                RadrootsPathProfile::RepoLocal,
+                Some(canonical),
+                RadrootsHostEnvironment::default(),
+                RuntimeContextSource::BootstrapCli,
+            )
+        } else {
+            let base = BaseDirs::new().ok_or_else(path_unavailable)?;
+            (
+                RadrootsPathProfile::InteractiveUser,
+                None,
+                RadrootsHostEnvironment {
+                    home_dir: Some(base.home_dir().to_path_buf()),
+                    xdg_config_home: Some(base.config_dir().to_path_buf()),
+                    xdg_data_home: Some(base.data_dir().to_path_buf()),
+                    xdg_state_home: base.state_dir().map(Path::to_path_buf),
+                    xdg_cache_home: Some(base.cache_dir().to_path_buf()),
+                    xdg_runtime_dir: base.runtime_dir().map(Path::to_path_buf),
+                    appdata_dir: None,
+                    localappdata_dir: None,
+                },
+                RuntimeContextSource::SafeDefault,
+            )
+        };
+    let resolver = RadrootsPathResolver::new(RadrootsPlatform::current(), environment);
+    let bootstrap = RuntimeContextBootstrap::new(
+        profile,
+        root,
+        profile_source,
+        RuntimeContextSource::SafeDefault,
     )
-    .map(|project| project.data_dir().join(LEGACY_DATABASE_FILENAME))
-    .ok_or_else(path_unavailable)
+    .map_err(|_| path_unavailable())?;
+    RuntimeContext::resolve(
+        &resolver,
+        bootstrap,
+        ServiceId::new("harvestcircle").map_err(|_| path_unavailable())?,
+        InstanceId::new("desktop").map_err(|_| path_unavailable())?,
+    )
+    .map_err(|_| path_unavailable())
+}
+
+fn migration_build_identity() -> Result<MigrationBuildIdentity, HarvestCircleError> {
+    MigrationBuildIdentity::new(
+        PRODUCT_VERSION,
+        BUILD_SOURCE_COMMIT,
+        BUILD_RADROOTS_REVISION,
+        BUILD_RUST_TOOLCHAIN,
+        format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS),
+        "desktop",
+        1,
+        1,
+        1,
+        1,
+        1,
+    )
+    .map_err(|_| path_unavailable())
 }
 
 fn parse_public_key(value: &str) -> Result<PublicKey, HarvestCircleError> {
@@ -739,6 +794,45 @@ pub(crate) fn runtime() -> Result<&'static tokio::runtime::Runtime, HarvestCircl
         })
         .as_ref()
         .map_err(|()| runtime_unavailable())
+}
+
+#[cfg(test)]
+pub(crate) async fn test_actor(
+    relays: RelayConfiguration,
+) -> (RuntimeActorHandle, Arc<tempfile::TempDir>) {
+    let directory = Arc::new(tempfile::tempdir().expect("temporary runtime root"));
+    let context = application_runtime_context(&RuntimeOpenInputDto {
+        development_mode: true,
+        explicit_data_directory: Some(
+            directory
+                .path()
+                .canonicalize()
+                .expect("canonical runtime root")
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        relay_input: RelayBootstrapInputDto {
+            endpoints: Vec::new(),
+        },
+    })
+    .expect("runtime context");
+    let build = migration_build_identity().expect("migration build identity");
+    let actor = RuntimeActorHandle::open(
+        &context,
+        relays,
+        RuntimeDependencies::new(
+            Arc::new(harvestcircle_application::InMemorySecretStore::default()),
+            Arc::new(SystemClock),
+            Arc::new(SdkNostrClient::new(Duration::from_millis(10))),
+            Arc::new(UuidInstallationIdentitySource),
+        ),
+        &build,
+        actor_mailbox_capacity().expect("capacity"),
+        runtime().expect("runtime").handle(),
+    )
+    .await
+    .expect("test actor");
+    (actor, directory)
 }
 
 fn actor_mailbox_capacity() -> Result<NonZeroUsize, HarvestCircleError> {
@@ -817,53 +911,35 @@ fn compatibility_mismatch() -> HarvestCircleError {
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
-    use std::num::NonZeroUsize;
     use std::sync::Arc;
 
     use harvestcircle_application::{
-        InMemorySecretStore, RelayConfiguration, RelayEndpointInput,
-        relay_configuration_from_endpoints,
+        RelayConfiguration, RelayEndpointInput, relay_configuration_from_endpoints,
     };
     use harvestcircle_domain::{RelayDestinationPolicy, SafeError};
-    use harvestcircle_nostr::SdkNostrClient;
-    use harvestcircle_runtime::{
-        RuntimeActorHandle, RuntimeDependencies, UuidInstallationIdentitySource,
+    use harvestcircle_storage::{
+        CREDENTIAL_SERVICE, CURRENT_SCHEMA_VERSION, HarvestCircleStorageContract,
     };
 
-    use harvestcircle_storage::{CREDENTIAL_SERVICE, CURRENT_SCHEMA_VERSION};
-
     use super::{
-        ACTOR_MAILBOX_CAPACITY, CompatibilityExpectation, FFI_CONTRACT_HASH, FFI_CONTRACT_ID,
-        FFI_CONTRACT_MAJOR, FFI_CONTRACT_MINOR, HarvestCircleAppCore, HarvestCircleError,
-        LEGACY_DATABASE_APPLICATION, LEGACY_DATABASE_FILENAME, LEGACY_DATABASE_ORGANIZATION,
-        LEGACY_DATABASE_QUALIFIER, PRODUCT_COORDINATE_DIGEST, ProjectDirs, RelayBootstrapInputDto,
-        RequestContextDto, RuntimeCore, RuntimeOpenInputDto, SNAPSHOT_SCHEMA_VERSION, SystemClock,
-        WireErrorCategory, WireErrorCode, WireRecoveryAction, actor_mailbox_capacity,
-        application_database_path, compatibility_descriptor, confirmation_expired,
-        generated_commit_failed, local_first_relay_configuration, path_unavailable, runtime,
-        runtime_unavailable, verify_compatibility,
+        CompatibilityExpectation, FFI_CONTRACT_HASH, FFI_CONTRACT_ID, FFI_CONTRACT_MAJOR,
+        FFI_CONTRACT_MINOR, HarvestCircleAppCore, HarvestCircleError, PRODUCT_COORDINATE_DIGEST,
+        RelayBootstrapInputDto, RequestContextDto, RuntimeCore, RuntimeOpenInputDto,
+        SNAPSHOT_SCHEMA_VERSION, WireErrorCategory, WireErrorCode, WireRecoveryAction,
+        actor_mailbox_capacity, application_runtime_context, compatibility_descriptor,
+        confirmation_expired, generated_commit_failed, local_first_relay_configuration,
+        path_unavailable, runtime_unavailable, test_actor, verify_compatibility,
     };
 
     async fn in_memory_core() -> Arc<HarvestCircleAppCore> {
-        let actor = RuntimeActorHandle::in_memory(
-            RelayConfiguration::default(),
-            RuntimeDependencies::new(
-                Arc::new(InMemorySecretStore::default()),
-                Arc::new(SystemClock),
-                Arc::new(SdkNostrClient::new(std::time::Duration::from_millis(10))),
-                Arc::new(UuidInstallationIdentitySource),
-            ),
-            NonZeroUsize::new(ACTOR_MAILBOX_CAPACITY).expect("capacity"),
-            runtime().expect("runtime").handle(),
-        )
-        .await
-        .expect("in-memory actor");
+        let (actor, directory) = test_actor(RelayConfiguration::default()).await;
         Arc::new(HarvestCircleAppCore {
             inner: Arc::new(RuntimeCore {
                 actor,
                 observers: std::sync::Mutex::new(std::collections::BTreeMap::new()),
                 closed: std::sync::atomic::AtomicBool::new(false),
                 startup_relay_problem: None,
+                _test_directory: Some(directory),
             }),
         })
     }
@@ -1132,7 +1208,7 @@ mod tests {
             contract_hash: FFI_CONTRACT_HASH.to_owned(),
             product_coordinate_digest: PRODUCT_COORDINATE_DIGEST.to_owned(),
             snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
-            minimum_schema_version: 5,
+            minimum_schema_version: 1,
             maximum_schema_version: CURRENT_SCHEMA_VERSION,
         };
         verify_compatibility(&compatible).expect("compatible");
@@ -1175,45 +1251,64 @@ mod tests {
         }
 
         let directory = tempfile::tempdir().expect("directory");
-        let rejected = directory
+        let canonical = directory
             .path()
-            .join("rejected")
-            .join("harvestcircle.sqlite3");
+            .canonicalize()
+            .expect("canonical directory");
+        let input = RuntimeOpenInputDto {
+            development_mode: true,
+            explicit_data_directory: Some(canonical.to_string_lossy().into_owned()),
+            relay_input: RelayBootstrapInputDto {
+                endpoints: Vec::new(),
+            },
+        };
+        let context = application_runtime_context(&input).expect("context");
+        let rejected = HarvestCircleStorageContract::from_runtime_context(&context)
+            .expect("storage contract")
+            .paths()
+            .state_database()
+            .to_path_buf();
         let incompatible = CompatibilityExpectation {
             contract_major: FFI_CONTRACT_MAJOR + 1,
             ..compatible
         };
         assert!(
-            HarvestCircleAppCore::open_path_compatible(
-                &rejected,
+            HarvestCircleAppCore::open_context_compatible(
+                &context,
                 &incompatible,
-                RelayBootstrapInputDto {
-                    endpoints: Vec::new(),
-                },
+                input.relay_input,
             )
             .is_err()
         );
-        assert!(!rejected.parent().expect("parent").exists());
+        assert!(!rejected.exists());
     }
 
     #[test]
     fn final_product_coordinates_do_not_adopt_the_temporary_namespace() {
-        assert_eq!(LEGACY_DATABASE_QUALIFIER, "org");
-        assert_eq!(LEGACY_DATABASE_ORGANIZATION, "harvestcircle");
-        assert_eq!(LEGACY_DATABASE_APPLICATION, "desktop");
-        assert_eq!(LEGACY_DATABASE_FILENAME, "harvestcircle.sqlite3");
         assert_eq!(CREDENTIAL_SERVICE, "org.harvestcircle.desktop.nostr");
-
-        let current = ProjectDirs::from(
-            LEGACY_DATABASE_QUALIFIER,
-            LEGACY_DATABASE_ORGANIZATION,
-            LEGACY_DATABASE_APPLICATION,
-        )
-        .expect("current product coordinates");
-        let temporary =
-            ProjectDirs::from("org", "radroots", "harvestcircle").expect("temporary coordinates");
-        assert_ne!(current.data_dir(), temporary.data_dir());
-        assert_eq!(CURRENT_SCHEMA_VERSION, 10);
+        let temporary = tempfile::tempdir().expect("directory");
+        let canonical = temporary
+            .path()
+            .canonicalize()
+            .expect("canonical directory");
+        let context = application_runtime_context(&RuntimeOpenInputDto {
+            development_mode: true,
+            explicit_data_directory: Some(canonical.to_string_lossy().into_owned()),
+            relay_input: RelayBootstrapInputDto {
+                endpoints: Vec::new(),
+            },
+        })
+        .expect("context");
+        assert_eq!(context.service().as_str(), "harvestcircle");
+        assert_eq!(context.instance().as_str(), "desktop");
+        let database = HarvestCircleStorageContract::from_runtime_context(&context)
+            .expect("storage contract")
+            .paths()
+            .state_database()
+            .to_path_buf();
+        assert!(database.ends_with("data/services/harvestcircle/desktop/state.sqlite"));
+        assert!(!database.to_string_lossy().contains("harvestcircle.sqlite3"));
+        assert_eq!(CURRENT_SCHEMA_VERSION, 1);
     }
 
     #[test]
@@ -1231,9 +1326,14 @@ mod tests {
             explicit_data_directory: Some(canonical.to_string_lossy().into_owned()),
             relay_input: relay_input.clone(),
         };
-        assert_eq!(
-            application_database_path(&explicit).expect("explicit path"),
-            canonical.join(LEGACY_DATABASE_FILENAME),
+        let context = application_runtime_context(&explicit).expect("explicit context");
+        assert_eq!(context.repo_local_root(), Some(canonical.as_path()));
+        assert!(
+            HarvestCircleStorageContract::from_runtime_context(&context)
+                .expect("storage contract")
+                .paths()
+                .state_database()
+                .ends_with("data/services/harvestcircle/desktop/state.sqlite")
         );
 
         for rejected in [
@@ -1255,7 +1355,7 @@ mod tests {
                 relay_input,
             },
         ] {
-            assert!(application_database_path(&rejected).is_err());
+            assert!(application_runtime_context(&rejected).is_err());
         }
     }
 
@@ -1277,7 +1377,7 @@ mod tests {
             },
         };
 
-        assert!(application_database_path(&input).is_err());
+        assert!(application_runtime_context(&input).is_err());
     }
 
     #[test]

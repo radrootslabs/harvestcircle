@@ -1,108 +1,227 @@
-use harvestcircle_application::{CachedProfile, ProfileRefreshStatus, ProfileRepository};
-use harvestcircle_domain::{
-    EventId, Kind0ProfileCandidate, ProfileMetadata, PublicKey, SafeError, SafeErrorCode,
-    SafeMessage, UnixTimestamp,
+use harvestcircle_application::{
+    BoxFuture, CachedProfile, ProfileRefreshStatus, ProfileRepository,
 };
-use rusqlite::{OptionalExtension, Row, params};
+use harvestcircle_domain::{
+    EventId, Kind0ProfileCandidate, ProfileMetadata, PublicKey, SafeError, UnixTimestamp,
+};
+use sqlx::Row;
 
 use crate::Database;
+use crate::db::{corrupt_storage, map_transaction_error, storage_unavailable};
+
+const PROFILE_PROJECTION: &str = "SELECT substr(event_id, 1, 33) AS event_id, \
+    length(event_id) AS event_id_bytes, event_created_at_unix_s, \
+    CASE WHEN name IS NULL THEN NULL ELSE substr(CAST(name AS BLOB), 1, 129) END AS name, \
+    CASE WHEN name IS NULL THEN NULL ELSE length(CAST(name AS BLOB)) END AS name_bytes, \
+    CASE WHEN display_name IS NULL THEN NULL ELSE substr(CAST(display_name AS BLOB), 1, 129) END AS display_name, \
+    CASE WHEN display_name IS NULL THEN NULL ELSE length(CAST(display_name AS BLOB)) END AS display_name_bytes, \
+    CASE WHEN nip05 IS NULL THEN NULL ELSE substr(CAST(nip05 AS BLOB), 1, 321) END AS nip05, \
+    CASE WHEN nip05 IS NULL THEN NULL ELSE length(CAST(nip05 AS BLOB)) END AS nip05_bytes, \
+    CASE WHEN about IS NULL THEN NULL ELSE substr(CAST(about AS BLOB), 1, 4097) END AS about, \
+    CASE WHEN about IS NULL THEN NULL ELSE length(CAST(about AS BLOB)) END AS about_bytes, \
+    CASE WHEN picture IS NULL THEN NULL ELSE substr(CAST(picture AS BLOB), 1, 2049) END AS picture, \
+    CASE WHEN picture IS NULL THEN NULL ELSE length(CAST(picture AS BLOB)) END AS picture_bytes, \
+    refreshed_at_unix_s, substr(CAST(refresh_status AS BLOB), 1, 13) AS refresh_status, \
+    length(CAST(refresh_status AS BLOB)) AS refresh_status_bytes FROM profile_cache";
 
 impl ProfileRepository for Database {
-    fn load_profile(&self, public_key: PublicKey) -> Result<Option<CachedProfile>, SafeError> {
-        self.connection()
-            .query_row(
-                "SELECT event_id, event_created_at, name, display_name, nip05, about, picture, \
-                 refreshed_at, refresh_status FROM profile_cache_v6 WHERE subject_public_key = ?1",
-                [public_key.to_hex()],
-                |row| decode_profile(row, public_key),
-            )
-            .optional()
-            .map_err(|_| corrupt_storage_error())
-    }
-
-    fn save_profile(&self, profile: &CachedProfile) -> Result<(), SafeError> {
-        let candidate = profile.candidate();
-        let metadata = candidate.metadata();
-        self.connection()
-            .execute(
-                "INSERT INTO profile_cache_v6 (subject_public_key, event_id, event_created_at, name, \
-                 display_name, nip05, about, picture, refreshed_at, refresh_status) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) \
-                 ON CONFLICT(subject_public_key) DO UPDATE SET \
-                 event_id = excluded.event_id, event_created_at = excluded.event_created_at, \
-                 name = excluded.name, display_name = excluded.display_name, nip05 = excluded.nip05, \
-                 about = excluded.about, picture = excluded.picture, \
-                 refreshed_at = excluded.refreshed_at, refresh_status = excluded.refresh_status \
-                 WHERE excluded.event_created_at > profile_cache_v6.event_created_at \
-                 OR (excluded.event_created_at = profile_cache_v6.event_created_at \
-                 AND excluded.event_id < profile_cache_v6.event_id)",
-                params![
-                    candidate.author().to_hex(),
-                    candidate.event_id().to_hex(),
-                    candidate.created_at().as_seconds(),
-                    metadata.name(),
-                    metadata.display_name(),
-                    metadata.nip05(),
-                    metadata.about(),
-                    metadata.picture(),
-                    profile.refreshed_at().as_seconds(),
-                    encode_refresh_status(profile.refresh_status()),
-                ],
-            )
-            .map(|_| ())
-            .map_err(|_| storage_error())
-    }
-
-    fn record_refresh_status(
+    fn load_profile(
         &self,
+        public_key: PublicKey,
+    ) -> BoxFuture<'_, Result<Option<CachedProfile>, SafeError>> {
+        Box::pin(async move {
+            self.host()
+                .transaction(|transaction| {
+                    Box::pin(async move {
+                        let sql =
+                            format!("{PROFILE_PROJECTION} WHERE subject_public_key = ? LIMIT 2");
+                        let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                            .bind(public_key.as_bytes().as_slice())
+                            .fetch_all(&mut *transaction)
+                            .await
+                            .map_err(|_| corrupt_storage())?;
+                        match rows.as_slice() {
+                            [] => Ok(None),
+                            [row] => decode_profile(row, public_key).map(Some),
+                            _ => Err(corrupt_storage()),
+                        }
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)
+        })
+    }
+
+    fn save_profile<'a>(
+        &'a self,
+        profile: &'a CachedProfile,
+    ) -> BoxFuture<'a, Result<(), SafeError>> {
+        Box::pin(async move {
+            let candidate = profile.candidate();
+            let metadata = candidate.metadata();
+            let author = *candidate.author().as_bytes();
+            let event_id = candidate.event_id().as_bytes();
+            let event_created_at = candidate.created_at().as_seconds();
+            let name = metadata.name().map(str::to_owned);
+            let display_name = metadata.display_name().map(str::to_owned);
+            let nip05 = metadata.nip05().map(str::to_owned);
+            let about = metadata.about().map(str::to_owned);
+            let picture = metadata.picture().map(str::to_owned);
+            let refreshed_at = profile.refreshed_at().as_seconds();
+            let refresh_status = encode_refresh_status(profile.refresh_status());
+            self.host()
+                .transaction(|transaction| {
+                    Box::pin(async move {
+                        sqlx::query(
+                            "INSERT INTO profile_cache (subject_public_key, event_id, \
+                             event_created_at_unix_s, name, display_name, nip05, about, picture, \
+                             refreshed_at_unix_s, refresh_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+                             ON CONFLICT(subject_public_key) DO UPDATE SET event_id = excluded.event_id, \
+                             event_created_at_unix_s = excluded.event_created_at_unix_s, name = excluded.name, \
+                             display_name = excluded.display_name, nip05 = excluded.nip05, about = excluded.about, \
+                             picture = excluded.picture, refreshed_at_unix_s = excluded.refreshed_at_unix_s, \
+                             refresh_status = excluded.refresh_status WHERE \
+                             excluded.event_created_at_unix_s > profile_cache.event_created_at_unix_s \
+                             OR (excluded.event_created_at_unix_s = profile_cache.event_created_at_unix_s \
+                             AND excluded.event_id < profile_cache.event_id)",
+                        )
+                        .bind(author.as_slice())
+                        .bind(event_id.as_slice())
+                        .bind(event_created_at)
+                        .bind(&name)
+                        .bind(&display_name)
+                        .bind(&nip05)
+                        .bind(&about)
+                        .bind(&picture)
+                        .bind(refreshed_at)
+                        .bind(refresh_status)
+                        .execute(&mut *transaction)
+                        .await
+                        .map(|_| ())
+                        .map_err(|_| storage_unavailable())
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)
+        })
+    }
+
+    fn record_refresh_status<'a>(
+        &'a self,
         public_key: PublicKey,
         refreshed_at: UnixTimestamp,
         status: ProfileRefreshStatus,
-    ) -> Result<(), SafeError> {
-        self.connection()
-            .execute(
-                "UPDATE profile_cache_v6 SET refreshed_at = ?2, refresh_status = ?3 \
-                 WHERE subject_public_key = ?1",
-                params![
-                    public_key.to_hex(),
-                    refreshed_at.as_seconds(),
-                    encode_refresh_status(status)
-                ],
-            )
-            .map(|_| ())
-            .map_err(|_| storage_error())
+    ) -> BoxFuture<'a, Result<(), SafeError>> {
+        Box::pin(async move {
+            self.host()
+                .transaction(|transaction| {
+                    Box::pin(async move {
+                        sqlx::query(
+                            "UPDATE profile_cache SET refreshed_at_unix_s = ?, refresh_status = ? \
+                             WHERE subject_public_key = ?",
+                        )
+                        .bind(refreshed_at.as_seconds())
+                        .bind(encode_refresh_status(status))
+                        .bind(public_key.as_bytes().as_slice())
+                        .execute(&mut *transaction)
+                        .await
+                        .map(|_| ())
+                        .map_err(|_| storage_unavailable())
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)
+        })
     }
 
-    fn remove_profile(&self, public_key: PublicKey) -> Result<(), SafeError> {
-        self.connection()
-            .execute(
-                "DELETE FROM profile_cache_v6 WHERE subject_public_key = ?1",
-                [public_key.to_hex()],
-            )
-            .map(|_| ())
-            .map_err(|_| storage_error())
+    fn remove_profile(&self, public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
+        Box::pin(async move {
+            self.host()
+                .transaction(|transaction| {
+                    Box::pin(async move {
+                        sqlx::query("DELETE FROM profile_cache WHERE subject_public_key = ?")
+                            .bind(public_key.as_bytes().as_slice())
+                            .execute(&mut *transaction)
+                            .await
+                            .map(|_| ())
+                            .map_err(|_| storage_unavailable())
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)
+        })
     }
 }
 
-fn decode_profile(row: &Row<'_>, author: PublicKey) -> rusqlite::Result<CachedProfile> {
+fn decode_profile(
+    row: &sqlx::sqlite::SqliteRow,
+    author: PublicKey,
+) -> Result<CachedProfile, SafeError> {
     let event_id =
-        EventId::from_hex(row.get::<_, String>(0)?.as_str()).map_err(|_| invalid_column(0))?;
-    let created_at = UnixTimestamp::from_seconds(row.get(1)?).ok_or_else(|| invalid_column(1))?;
-    let metadata = ProfileMetadata::new(
-        row.get(2)?,
-        row.get(3)?,
-        row.get(4)?,
-        row.get(5)?,
-        row.get(6)?,
+        bounded_blob(row, "event_id", "event_id_bytes", 32)?.ok_or_else(corrupt_storage)?;
+    let event_id: [u8; 32] = event_id.try_into().map_err(|_| corrupt_storage())?;
+    let created_at = UnixTimestamp::from_seconds(
+        row.try_get("event_created_at_unix_s")
+            .map_err(|_| corrupt_storage())?,
     )
-    .map_err(|_| invalid_column(2))?;
-    let refreshed_at = UnixTimestamp::from_seconds(row.get(7)?).ok_or_else(|| invalid_column(7))?;
-    let refresh_status = decode_refresh_status(row.get::<_, String>(8)?.as_str())?;
+    .ok_or_else(corrupt_storage)?;
+    let metadata = ProfileMetadata::new(
+        bounded_text(row, "name", "name_bytes", 128)?,
+        bounded_text(row, "display_name", "display_name_bytes", 128)?,
+        bounded_text(row, "nip05", "nip05_bytes", 320)?,
+        bounded_text(row, "about", "about_bytes", 4_096)?,
+        bounded_text(row, "picture", "picture_bytes", 2_048)?,
+    )
+    .map_err(|_| corrupt_storage())?;
+    let refreshed_at = UnixTimestamp::from_seconds(
+        row.try_get("refreshed_at_unix_s")
+            .map_err(|_| corrupt_storage())?,
+    )
+    .ok_or_else(corrupt_storage)?;
+    let status = bounded_text(row, "refresh_status", "refresh_status_bytes", 12)?
+        .ok_or_else(corrupt_storage)?;
     Ok(CachedProfile::new(
-        Kind0ProfileCandidate::new(event_id, author, created_at, metadata),
+        Kind0ProfileCandidate::new(EventId::from_bytes(event_id), author, created_at, metadata),
         refreshed_at,
-        refresh_status,
+        decode_refresh_status(&status)?,
     ))
+}
+
+fn bounded_text(
+    row: &sqlx::sqlite::SqliteRow,
+    value_column: &str,
+    length_column: &str,
+    maximum: usize,
+) -> Result<Option<String>, SafeError> {
+    bounded_blob(row, value_column, length_column, maximum)?
+        .map(String::from_utf8)
+        .transpose()
+        .map_err(|_| corrupt_storage())
+}
+
+fn bounded_blob(
+    row: &sqlx::sqlite::SqliteRow,
+    value_column: &str,
+    length_column: &str,
+    maximum: usize,
+) -> Result<Option<Vec<u8>>, SafeError> {
+    let value = row
+        .try_get::<Option<Vec<u8>>, _>(value_column)
+        .map_err(|_| corrupt_storage())?;
+    let length = row
+        .try_get::<Option<i64>, _>(length_column)
+        .map_err(|_| corrupt_storage())?;
+    match (value, length) {
+        (None, None) => Ok(None),
+        (Some(value), Some(length))
+            if usize::try_from(length)
+                .ok()
+                .is_some_and(|length| length <= maximum && length == value.len()) =>
+        {
+            Ok(Some(value))
+        }
+        _ => Err(corrupt_storage()),
+    }
 }
 
 const fn encode_refresh_status(status: ProfileRefreshStatus) -> &'static str {
@@ -113,144 +232,11 @@ const fn encode_refresh_status(status: ProfileRefreshStatus) -> &'static str {
     }
 }
 
-fn decode_refresh_status(value: &str) -> rusqlite::Result<ProfileRefreshStatus> {
+fn decode_refresh_status(value: &str) -> Result<ProfileRefreshStatus, SafeError> {
     match value {
         "success" => Ok(ProfileRefreshStatus::Success),
         "offline" => Ok(ProfileRefreshStatus::Offline),
         "invalid_data" => Ok(ProfileRefreshStatus::InvalidData),
-        _ => Err(invalid_column(8)),
-    }
-}
-
-fn invalid_column(index: usize) -> rusqlite::Error {
-    rusqlite::Error::InvalidColumnType(
-        index,
-        "cached Nostr profile".to_owned(),
-        rusqlite::types::Type::Text,
-    )
-}
-
-const fn storage_error() -> SafeError {
-    SafeError::new(
-        SafeErrorCode::StorageUnavailable,
-        SafeMessage::new("The profile cache is unavailable."),
-    )
-}
-
-const fn corrupt_storage_error() -> SafeError {
-    SafeError::new(
-        SafeErrorCode::StorageCorrupt,
-        SafeMessage::new("The profile cache could not be read."),
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use harvestcircle_application::{
-        CachedProfile, IdentityRepository, ProfileRefreshStatus, ProfileRepository,
-    };
-    use harvestcircle_domain::{
-        EventId, IdentityCreatedAt, Kind0ProfileCandidate, LocalKeyringBinding, NostrIdentity,
-        NostrIdentityReference, ProfileMetadata, PublicKey, SignerAvailability, UnixTimestamp,
-    };
-
-    use crate::Database;
-
-    fn public_key() -> PublicKey {
-        PublicKey::from_bytes([7; 32]).expect("valid public key")
-    }
-
-    fn identity(public_key: PublicKey) -> NostrIdentity {
-        NostrIdentity::new(
-            NostrIdentityReference::derive(public_key).expect("identity"),
-            LocalKeyringBinding::new(public_key, SignerAvailability::Available),
-            None,
-            IdentityCreatedAt::new(UnixTimestamp::from_seconds(1).expect("time")),
-            None,
-        )
-        .expect("identity")
-    }
-
-    fn profile(public_key: PublicKey, id: u8, created_at: i64, name: &str) -> CachedProfile {
-        CachedProfile::new(
-            Kind0ProfileCandidate::new(
-                EventId::from_bytes([id; 32]),
-                public_key,
-                UnixTimestamp::from_seconds(created_at).expect("time"),
-                ProfileMetadata::new(Some(name.to_owned()), None, None, None, None)
-                    .expect("metadata"),
-            ),
-            UnixTimestamp::from_seconds(created_at + 1).expect("refresh time"),
-            ProfileRefreshStatus::Success,
-        )
-    }
-
-    #[test]
-    fn profile_cache_round_trips_and_records_refresh_status() {
-        let database = Database::in_memory().expect("database");
-        let public_key = public_key();
-        database
-            .insert_identity(&identity(public_key))
-            .expect("identity");
-        database
-            .save_profile(&profile(public_key, 1, 10, "Farm"))
-            .expect("save profile");
-        database
-            .record_refresh_status(
-                public_key,
-                UnixTimestamp::from_seconds(20).expect("time"),
-                ProfileRefreshStatus::Offline,
-            )
-            .expect("record status");
-
-        let loaded = database
-            .load_profile(public_key)
-            .expect("load profile")
-            .expect("cached profile");
-        assert_eq!(loaded.candidate().metadata().name(), Some("Farm"));
-        assert_eq!(loaded.refreshed_at().as_seconds(), 20);
-        assert_eq!(loaded.refresh_status(), ProfileRefreshStatus::Offline);
-    }
-
-    #[test]
-    fn profile_cache_keeps_newest_then_lowest_event_id() {
-        let database = Database::in_memory().expect("database");
-        let public_key = public_key();
-        database
-            .insert_identity(&identity(public_key))
-            .expect("identity");
-        database
-            .save_profile(&profile(public_key, 9, 20, "High ID"))
-            .expect("initial");
-        database
-            .save_profile(&profile(public_key, 1, 20, "Low ID"))
-            .expect("equal newer candidate");
-        database
-            .save_profile(&profile(public_key, 0, 10, "Older"))
-            .expect("older candidate");
-
-        let loaded = database
-            .load_profile(public_key)
-            .expect("load")
-            .expect("profile");
-        assert_eq!(loaded.candidate().metadata().name(), Some("Low ID"));
-        assert_eq!(loaded.candidate().event_id(), EventId::from_bytes([1; 32]));
-    }
-
-    #[test]
-    fn profile_cache_cascades_with_identity_removal() {
-        let database = Database::in_memory().expect("database");
-        let public_key = public_key();
-        database
-            .insert_identity(&identity(public_key))
-            .expect("identity");
-        database
-            .save_profile(&profile(public_key, 1, 10, "Farm"))
-            .expect("profile");
-        database
-            .remove_identity(public_key)
-            .expect("remove identity");
-
-        assert_eq!(database.load_profile(public_key).expect("load"), None);
+        _ => Err(corrupt_storage()),
     }
 }

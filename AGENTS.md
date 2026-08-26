@@ -83,6 +83,10 @@ substitute.
   governed SQLite mechanics.
 - `harvestcircle.sqlite3` is legacy evidence only. Never delete, rename,
   import, dual-read, dual-write, or otherwise treat it as current state.
+- SQLx is the only high-level SQLite library. HarvestCircle may use its sealed
+  application-schema callback inside `radroots_service_sqlite` initialization,
+  but must not create another pool, expose a raw connection, or reintroduce
+  Rusqlite, Refinery, arbitrary repair, or a second migration authority.
 - Native production qualification is limited to macOS aarch64 and Linux
   x86_64. Do not add or claim another target without an explicit contract
   change and its complete platform evidence.
