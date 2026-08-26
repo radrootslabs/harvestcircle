@@ -9,31 +9,28 @@ import kotlin.test.assertTrue
 
 class MachineProvenanceTest {
     @Test
-    fun sourceImportProvenanceUsesVerifiedImmutableCoordinates() {
+    fun sourceProvenanceUsesVerifiedImmutableCoordinates() {
         val root = findProvenanceRepositoryRoot()
-        val legacyProduct = "stu" + "dio"
-        val provenance = root.resolve("core/provenance/$legacyProduct-import-v1.toml").readText()
+        val provenance = root.resolve("core/provenance/harvestcircle-v1.toml").readText()
 
         assertTrue(provenance.contains("schema = \"harvestcircle.source_provenance.v1\""))
         assertTrue(
             provenance.contains(
-                "foundation_baseline = \"a2038b3e25b9e34f0b8fd001f26a8ed10b5772cb\"",
+                "source_repository = \"https://github.com/radrootslabs/harvestcircle\"",
             ),
         )
         assertTrue(
             provenance.contains(
-                "canonical_radroots_revision = \"09065a610d95e57acdc895a14c07580fa099e7c3\"",
+                "foundation_baseline = \"c08d18ea569351dddeef70d4c1410708daf067b6\"",
+            ),
+        )
+        assertTrue(
+            provenance.contains(
+                "canonical_radroots_revision = \"be9db78e060ebc0000fa7827ac32efa3f6504f53\"",
             ),
         )
         assertEquals(8, Regex("(?m)^\\[\\[import]]$").findAll(provenance).count())
         assertEquals(8, Regex("(?m)^commit = \"[0-9a-f]{40}\"$").findAll(provenance).count())
-        assertEquals(
-            1,
-            Regex(
-                "(?m)^source_repository = \"https://github.com/radrootslabs/${legacyProduct}_app\"$",
-            ).findAll(provenance)
-                .count(),
-        )
     }
 }
 

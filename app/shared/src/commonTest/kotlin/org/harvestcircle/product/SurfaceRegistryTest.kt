@@ -48,7 +48,7 @@ private val expectedScreenKeys =
         "commitment_screen",
         "allocation_screen",
         "farm_overview_screen",
-        "round_studio_screen",
+        "round_builder_screen",
         "live_round_screen",
         "pickup_desk_screen",
         "round_outcome_screen",

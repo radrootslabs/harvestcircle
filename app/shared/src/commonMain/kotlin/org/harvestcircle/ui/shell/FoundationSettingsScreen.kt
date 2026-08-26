@@ -27,8 +27,8 @@ import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.navigation.SettingsSection
 
 object HarvestCircleProjectLinks {
-    const val SOURCE = "https://github.com/radrootslabs/studio_app"
-    const val LICENCE = "https://github.com/radrootslabs/studio_app/blob/dev/LICENSE"
+    const val SOURCE = "https://github.com/radrootslabs/harvestcircle"
+    const val LICENCE = "https://github.com/radrootslabs/harvestcircle/blob/master/LICENSE"
 }
 
 data class FoundationSettingsActions(

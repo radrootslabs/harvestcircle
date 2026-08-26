@@ -16,7 +16,7 @@ const CONTRACT_SOURCES: &[&str] = &[
 ];
 const BASELINE_PATH: &str = "../../compatibility/harvestcircle-ffi-v4.properties";
 const PRODUCT_MANIFEST_PATH: &str = "../../../config/product/harvestcircle-v1.properties";
-const SOURCE_PROVENANCE_PATH: &str = concat!("../../provenance/", "stu", "dio-import-v1.toml");
+const SOURCE_PROVENANCE_PATH: &str = "../../provenance/harvestcircle-v1.toml";
 const BASELINE_KEYS: &[&str] = &[
     "schema",
     "contract.id",

@@ -584,7 +584,7 @@ class ConventionPluginSmokeTest {
         storage.schema.current=10
         product.version=0.1.0-alpha
         package.version=1.0.0
-        source.provenance_digest=db238195b4a5938a8d4d9ac5681c4b125e65c57aa8133ad03e59da4e4bd062bc
-        source.foundation_baseline=a2038b3e25b9e34f0b8fd001f26a8ed10b5772cb
+        source.provenance_digest=daded0256c87be5a413358b346498dcecb412d4eff53d2998999d26ec20f3d40
+        source.foundation_baseline=c08d18ea569351dddeef70d4c1410708daf067b6
         """.trimIndent() + "\n"
 }

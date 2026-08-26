@@ -1936,7 +1936,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 [[package]]
 name = "radroots_identity"
 version = "0.1.0-alpha"
-source = "git+https://github.com/radrootslabs/lib?rev=09065a610d95e57acdc895a14c07580fa099e7c3#09065a610d95e57acdc895a14c07580fa099e7c3"
+source = "git+https://github.com/radrootslabs/lib?rev=be9db78e060ebc0000fa7827ac32efa3f6504f53#be9db78e060ebc0000fa7827ac32efa3f6504f53"
 dependencies = [
  "k256",
  "thiserror 2.0.20",

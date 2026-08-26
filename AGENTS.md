@@ -38,8 +38,9 @@ local artifacts, absolute host paths, or an enclosing monorepo layout.
 
 ## Machine authority and generated inputs
 
-- `core/Cargo.toml`, `core/Cargo.lock`, `core/rust-toolchain.toml`, and the
-  product crates under `core/crates/**` own the Rust workspace inputs.
+- `core/Cargo.toml`, `core/Cargo.lock`, `core/rust-toolchain.toml`,
+  `radroots.lib.source-lock.v1.toml`, and the product crates under
+  `core/crates/**` own the Rust workspace inputs.
 - Gradle settings, build scripts, the version catalog, wrapper properties,
   policy configuration, and `config/product/harvestcircle-v1.properties` own
   the desktop build, dependency, product-coordinate, and package inputs.

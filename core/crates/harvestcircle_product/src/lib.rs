@@ -123,13 +123,13 @@ mod tests {
         let source = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../provenance")
-                .join(format!("{}-import-v1.toml", ["stu", "dio"].concat())),
+                .join("harvestcircle-v1.toml"),
         )
         .expect("read canonical provenance fixture");
         let expected = provenance::digest(&source).expect("canonical provenance digest");
         assert_eq!(
             expected,
-            "db238195b4a5938a8d4d9ac5681c4b125e65c57aa8133ad03e59da4e4bd062bc"
+            "daded0256c87be5a413358b346498dcecb412d4eff53d2998999d26ec20f3d40"
         );
         assert_eq!(
             provenance::digest(&source.replace('\n', "\r\n")).unwrap(),

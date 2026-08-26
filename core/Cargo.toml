@@ -17,7 +17,7 @@ version = "0.1.0-alpha"
 edition = "2024"
 rust-version = "1.97.1"
 license = "GPL-3.0-only"
-repository = "https://github.com/radrootslabs/studio_app"
+repository = "https://github.com/radrootslabs/harvestcircle"
 homepage = "https://radroots.org"
 authors = ["Tyson Lupul <tyson@radroots.org>"]
 
@@ -43,7 +43,7 @@ harvestcircle_runtime = { path = "crates/harvestcircle_runtime", version = "=0.1
 harvestcircle_storage = { path = "crates/harvestcircle_storage", version = "=0.1.0-alpha" }
 harvestcircle_test_bridge = { path = "crates/harvestcircle_test_bridge", version = "=0.1.0-alpha" }
 harvestcircle_uniffi_bindgen = { path = "crates/harvestcircle_uniffi_bindgen", version = "=0.1.0-alpha" }
-radroots_identity = { git = "https://github.com/radrootslabs/lib", rev = "09065a610d95e57acdc895a14c07580fa099e7c3", version = "=0.1.0-alpha", default-features = false }
+radroots_identity = { git = "https://github.com/radrootslabs/lib", rev = "be9db78e060ebc0000fa7827ac32efa3f6504f53", version = "=0.1.0-alpha", default-features = false }
 getrandom = { version = "0.2", default-features = false }
 hmac = { version = "0.12", default-features = false }
 quote = { version = "1" }

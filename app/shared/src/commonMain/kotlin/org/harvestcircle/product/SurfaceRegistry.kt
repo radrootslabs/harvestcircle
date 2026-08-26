@@ -177,9 +177,9 @@ enum class ScreenKey(
             FeatureAvailability.DeferredCollective,
         ),
     ),
-    RoundStudio(
+    RoundBuilder(
         screen(
-            "round_studio_screen",
+            "round_builder_screen",
             LayoutKind.Dashboard,
             WorkspaceKind.Farm,
             NavigationKind.Permanent,

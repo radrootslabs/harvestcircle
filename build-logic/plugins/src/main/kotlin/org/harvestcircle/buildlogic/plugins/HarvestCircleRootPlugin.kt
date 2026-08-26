@@ -13,7 +13,6 @@ public class HarvestCircleRootPlugin : Plugin<Project> {
         val ffiCompatibilityBaselineFile =
             target.layout.projectDirectory.file("core/compatibility/harvestcircle-ffi-v4.properties")
         val verificationLanesFile = target.layout.projectDirectory.file("config/verification/lanes-v2.properties")
-        val legacyProduct = "stu" + "dio"
 
         val verifyProductCoordinates =
             target.tasks.register("verifyProductCoordinates", VerifyProductCoordinates::class.java) { task ->
@@ -25,7 +24,7 @@ public class HarvestCircleRootPlugin : Plugin<Project> {
                 )
                 task.ffiBaselineFile.set(ffiCompatibilityBaselineFile)
                 task.sourceProvenanceFile.set(
-                    target.layout.projectDirectory.file("core/provenance/$legacyProduct-import-v1.toml"),
+                    target.layout.projectDirectory.file("core/provenance/harvestcircle-v1.toml"),
                 )
             }
 

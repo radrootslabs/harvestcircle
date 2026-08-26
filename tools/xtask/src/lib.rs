@@ -235,10 +235,6 @@ fn repo_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
 
 fn namespace_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
     let legacy = ["stu", "dio"].concat();
-    let provenance_path = format!("core/provenance/{legacy}-import-v1.toml");
-    let design_provenance_path = "config/design/source_baseline_v1.toml";
-    let design_audit_path = "tools/xtask/src/lib.rs";
-    let legacy_repository = format!("https://github.com/radrootslabs/{legacy}_app");
     let temporary_namespace = ["org", "radroots", "harvestcircle"].join(".");
     let inherited_preferences = [
         ["use", "radroots", "dns"].join("_"),
@@ -252,10 +248,7 @@ fn namespace_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String
     ];
     for path in &inventory.paths {
         let normalized = path.to_ascii_lowercase();
-        if path != &provenance_path
-            && path != design_provenance_path
-            && normalized.contains(&legacy)
-        {
+        if normalized.contains(&legacy) {
             findings.push(format!("{path}: legacy product name in source path"));
         }
         if normalized.starts_with("app/")
@@ -276,69 +269,8 @@ fn namespace_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String
             continue;
         }
         let source = read_text(root, path);
-        if path != &provenance_path && path != design_provenance_path {
-            let mut inspected = source.replace(
-                if path == "core/Cargo.toml" {
-                    &legacy_repository
-                } else {
-                    "__no_exact_allowlist__"
-                },
-                "",
-            );
-            if path == "NOTICE" {
-                inspected = inspected
-                    .replace(
-                        &format!("Radroots {} application work", title_case(&legacy)),
-                        "",
-                    )
-                    .replace(&provenance_path, "");
-            }
-            for exact in approved_legacy_product_fragments(path, &legacy, &legacy_repository) {
-                inspected = inspected.replace(&exact, "");
-            }
-            if path == design_audit_path {
-                inspected = inspected
-                    .replace("design-source-audit", "")
-                    .replace("design_source_audit", "")
-                    .replace("DesignSourceAudit", "")
-                    .replace("design_source_mappings", "")
-                    .replace("push_design_mapping", "")
-                    .replace("current_design_source_baseline_is_exact", "")
-                    .replace(
-                        "design_source_baseline_rejects_snapshot_and_mapping_drift",
-                        "",
-                    )
-                    .replace(design_provenance_path, "")
-                    .replace("harvestcircle.design_source_baseline.v1", "")
-                    .replace(&format!("source_product = \"{}\"", title_case(&legacy)), "")
-                    .replace(&legacy_repository, "")
-                    .replace(
-                        "shared/src/commonMain/kotlin/com/radroots/studio/ui/shell",
-                        "",
-                    )
-                    .replace(
-                        "shared/src/commonTest/kotlin/com/radroots/studio/ui/shell",
-                        "",
-                    )
-                    .replace("shared/src/jvmMain/kotlin/com/radroots/studio/ui/shell", "")
-                    .replace(
-                        "shared/src/commonMain/kotlin/com/radroots/studio/ui/dashboard",
-                        "",
-                    )
-                    .replace("shared/src/webMain/kotlin/com/radroots/studio/ui/shell", "")
-                    .replace("audit-only/dashboard-visual-inputs", "")
-                    .replace("audit-only/product-copy", "")
-                    .replace("audit-only/web-target", "")
-                    .replace("fixture(\"design-source\")", "")
-                    .replace("com.radroots.studio", "")
-                    .replace(r#"source_product = \"Studio\""#, "")
-                    .replace(&format!("\"{}\"", title_case(&legacy)), "");
-            }
-            if inspected.to_ascii_lowercase().contains(&legacy) {
-                findings.push(format!(
-                    "{path}: legacy product name outside the exact provenance allowlist"
-                ));
-            }
+        if source.to_ascii_lowercase().contains(&legacy) {
+            findings.push(format!("{path}: legacy product name in source text"));
         }
         if source.contains(&temporary_namespace)
             || source.contains(&temporary_namespace.replace('.', "/"))
@@ -390,27 +322,6 @@ fn namespace_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String
         if production_kotlin && inspected_secret.contains(&secret_marker) {
             findings.push(format!("{path}: secret key literal in production Kotlin"));
         }
-    }
-}
-
-fn approved_legacy_product_fragments(
-    path: &str,
-    legacy: &str,
-    legacy_repository: &str,
-) -> Vec<String> {
-    match path {
-        "app/shared/src/commonMain/kotlin/org/harvestcircle/product/SurfaceRegistry.kt" => vec![
-            format!("round_{legacy}_screen"),
-            format!("Round{}", title_case(legacy)),
-        ],
-        "app/shared/src/commonTest/kotlin/org/harvestcircle/product/SurfaceRegistryTest.kt" => {
-            vec![format!("round_{legacy}_screen")]
-        }
-        "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationSettingsScreen.kt" =>
-        {
-            vec![legacy_repository.to_owned()]
-        }
-        _ => Vec::new(),
     }
 }
 
@@ -831,29 +742,57 @@ fn contains_direct_call(source: &str, call: &str) -> bool {
 }
 
 fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
-    let legacy = ["stu", "dio"].concat();
-    let legacy_repository = format!("https://github.com/radrootslabs/{legacy}_app");
-    let provenance_path = format!("core/provenance/{legacy}-import-v1.toml");
+    const LIB_REVISION: &str = "be9db78e060ebc0000fa7827ac32efa3f6504f53";
+    const PROVENANCE_PATH: &str = "core/provenance/harvestcircle-v1.toml";
+    const SOURCE_LOCK_PATH: &str = "radroots.lib.source-lock.v1.toml";
     let cargo = read_text(root, "core/Cargo.toml");
-    let repository_line = format!("repository = \"{legacy_repository}\"");
-    if cargo
-        .lines()
-        .filter(|line| line.trim() == repository_line)
-        .count()
-        != 1
-    {
-        findings.push("core/Cargo.toml: legacy repository allowlist must be exact".to_owned());
+    for authority in [
+        "repository = \"https://github.com/radrootslabs/harvestcircle\"".to_owned(),
+        format!(
+            "radroots_identity = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
+        ),
+    ] {
+        if cargo
+            .lines()
+            .filter(|line| line.trim() == authority)
+            .count()
+            != 1
+        {
+            findings.push(format!(
+                "core/Cargo.toml: missing exact authority: {authority}"
+            ));
+        }
     }
-    let provenance = read_text(root, &provenance_path);
-    if !provenance.contains(&format!("source_repository = \"{legacy_repository}\""))
+    let provenance = read_text(root, PROVENANCE_PATH);
+    if !provenance.contains("source_product = \"HarvestCircle\"")
         || !provenance
-            .contains("canonical_radroots_revision = \"09065a610d95e57acdc895a14c07580fa099e7c3\"")
+            .contains("source_repository = \"https://github.com/radrootslabs/harvestcircle\"")
+        || !provenance.contains(&format!("canonical_radroots_revision = \"{LIB_REVISION}\""))
         || !provenance
-            .contains("foundation_baseline = \"a2038b3e25b9e34f0b8fd001f26a8ed10b5772cb\"")
+            .contains("foundation_baseline = \"c08d18ea569351dddeef70d4c1410708daf067b6\"")
     {
         findings.push(format!(
-            "{provenance_path}: exact source provenance changed"
+            "{PROVENANCE_PATH}: exact source provenance changed"
         ));
+    }
+    let expected_source_lock = concat!(
+        "schema = \"radroots.lib.source-lock.v1\"\n",
+        "repository = \"https://github.com/radrootslabs/lib\"\n",
+        "revision = \"be9db78e060ebc0000fa7827ac32efa3f6504f53\"\n",
+        "architecture = \"radroots.crates.release.v2\"\n",
+        "workspace_catalog_sha256 = \"deca0c080deae187ff8186c0708903e42f41ea57f77c5f91581e23aa561164a4\"\n",
+        "version = \"0.1.0-alpha\"\n",
+        "source_archive_sha256 = \"aec2fe198b200f40af81424fbec70a9a8f22b0b38455bc6c81b7eb3be4241748\"\n",
+        "lockfile_sha256 = \"a2cb8a0f1d252434acba5e417f93ab9cd3be945af554452b3b40e4a8dcea3c80\"\n",
+    );
+    if read_text(root, SOURCE_LOCK_PATH) != expected_source_lock {
+        findings.push(format!("{SOURCE_LOCK_PATH}: exact Lib source lock changed"));
+    }
+    let cargo_lock = read_text(root, "core/Cargo.lock");
+    if !cargo_lock.contains(&format!(
+        "source = \"git+https://github.com/radrootslabs/lib?rev={LIB_REVISION}#{LIB_REVISION}\""
+    )) {
+        findings.push("core/Cargo.lock: selected Lib revision is missing".to_owned());
     }
     let coordinates = properties(&read_text(
         root,
@@ -893,49 +832,35 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
     {
         findings.push("app/shared/build.gradle.kts: shared KMP target boundary changed".to_owned());
     }
-    if !inventory.paths.iter().any(|path| path == &provenance_path) {
-        findings.push(format!(
-            "{provenance_path}: source provenance file is missing"
-        ));
+    for required in [PROVENANCE_PATH, SOURCE_LOCK_PATH] {
+        if !inventory.paths.iter().any(|path| path == required) {
+            findings.push(format!("{required}: governed source evidence is missing"));
+        }
     }
 }
 
 fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
-    const PATH: &str = "config/design/source_baseline_v1.toml";
+    const PATH: &str = "config/design/harvestcircle-v1.toml";
     if !inventory.paths.iter().any(|path| path == PATH) {
-        findings.push(format!("{PATH}: design source baseline is missing"));
+        findings.push(format!("{PATH}: design contract is missing"));
         return;
     }
     let source = read_text(root, PATH);
-    let expected_snapshot = "c2fe49f3c3ea43105cb2fff4a67c7cd9c21561c71825440a91654a0c1b12e3b8";
     let required_scalars = [
-        "schema = \"harvestcircle.design_source_baseline.v1\"",
-        "source_product = \"Studio\"",
-        "source_repository = \"https://github.com/radrootslabs/studio_app\"",
-        "source_head = \"8ae5d8a0377c5673038a20b82b87c314370f0395\"",
-        "source_state = \"clean\"",
-        "snapshot_file_count = 102",
-        "source_license = \"GPL-3.0-only\"",
+        "schema = \"harvestcircle.design.v1\"",
+        "repository = \"https://github.com/radrootslabs/harvestcircle\"",
+        "baseline_revision = \"c08d18ea569351dddeef70d4c1410708daf067b6\"",
+        "license = \"GPL-3.0-only\"",
         "golden_host = \"macos-aarch64\"",
         "golden_status = \"verified\"",
+        "design_system_root = \"app/design_system\"",
+        "design_catalog_root = \"tools/design_catalog\"",
+        "application_shell_root = \"app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell\"",
+        "golden_test_path = \"app/shared/src/desktopTest/kotlin/org/harvestcircle/ui/shell/HarvestCircleMacGoldenTest.kt\"",
     ];
     for scalar in required_scalars {
         if source.lines().filter(|line| line.trim() == scalar).count() != 1 {
             findings.push(format!("{PATH}: missing or duplicate authority: {scalar}"));
-        }
-    }
-    for (key, digest) in [
-        ("snapshot_sha256", expected_snapshot),
-        ("golden_source_snapshot_sha256", expected_snapshot),
-    ] {
-        let expected = format!("{key} = \"{digest}\"");
-        if source
-            .lines()
-            .filter(|line| line.trim() == expected)
-            .count()
-            != 1
-        {
-            findings.push(format!("{PATH}: {key} must match the governed snapshot"));
         }
     }
     for (path, key, sha256) in [
@@ -978,79 +903,6 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
                 .to_owned(),
         );
     }
-    let mappings = design_source_mappings(&source, PATH, findings);
-    let required = [
-        (
-            "core/designsystem/src/commonMain",
-            "app/design_system/src/commonMain",
-            "owned-port",
-        ),
-        (
-            "core/designsystem/src/commonTest",
-            "app/design_system/src/commonTest",
-            "owned-port",
-        ),
-        (
-            "core/designsystem/src/jvmMain",
-            "app/design_system/src/desktopMain",
-            "owned-port",
-        ),
-        (
-            "tools/designcatalog/src/commonMain",
-            "tools/design_catalog/src/commonMain",
-            "owned-port",
-        ),
-        (
-            "tools/designcatalog/src/jvmMain",
-            "tools/design_catalog/src/desktopMain",
-            "owned-port",
-        ),
-        (
-            "shared/src/commonMain/kotlin/com/radroots/studio/ui/shell",
-            "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell",
-            "visual-reference",
-        ),
-        (
-            "shared/src/commonTest/kotlin/com/radroots/studio/ui/shell",
-            "app/shared/src/commonTest/kotlin/org/harvestcircle/ui/shell",
-            "test-reference",
-        ),
-        (
-            "shared/src/jvmMain/kotlin/com/radroots/studio/ui/shell",
-            "app/shared/src/desktopMain/kotlin/org/harvestcircle/ui/shell",
-            "visual-reference",
-        ),
-        (
-            "shared/src/commonMain/kotlin/com/radroots/studio/ui/dashboard",
-            "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell",
-            "visual-reference",
-        ),
-        (
-            "shared/src/commonMain/composeResources/values/strings.xml",
-            "audit-only/product-copy",
-            "reject-product-copy",
-        ),
-        (
-            "shared/src/webMain/kotlin/com/radroots/studio/ui/shell",
-            "audit-only/web-target",
-            "reject-platform-target",
-        ),
-    ];
-    let expected = required
-        .iter()
-        .map(|(source, destination, disposition)| {
-            (
-                (*source).to_owned(),
-                (*destination).to_owned(),
-                (*disposition).to_owned(),
-            )
-        })
-        .collect::<BTreeSet<_>>();
-    if mappings != expected {
-        findings.push(format!(
-            "{PATH}: source-to-owned mapping differs from the approved migration"
-        ));
-    }
     let catalog = read_text(root, "gradle/libs.versions.toml");
     for required in [
         "compose-animation = { module = \"org.jetbrains.compose.animation:animation\", version.ref = \"compose\" }",
@@ -1075,11 +927,11 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         }
         let lowercase = read_text(root, path).to_ascii_lowercase();
         for forbidden in [
-            "androidx.compose.material3",
-            "io.github.kdroidfilter.platformtools",
-            "com.radroots.studio",
+            "androidx.compose.material3".to_owned(),
+            "io.github.kdroidfilter.platformtools".to_owned(),
+            "com.radroots.".to_owned() + &["stu", "dio"].concat(),
         ] {
-            if lowercase.contains(forbidden) {
+            if lowercase.contains(&forbidden) {
                 findings.push(format!(
                     "{path}: forbidden dependency or legacy namespace: {forbidden}"
                 ));
@@ -1117,62 +969,6 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
     );
     if font_license.is_empty() || packaged_font_license != font_license {
         findings.push("Inter font licence is missing or differs in packaged resources".to_owned());
-    }
-}
-
-fn design_source_mappings(
-    source: &str,
-    path: &str,
-    findings: &mut Vec<String>,
-) -> BTreeSet<(String, String, String)> {
-    let mut mappings = BTreeSet::new();
-    let mut current = Vec::new();
-    for line in source.lines().map(str::trim) {
-        if line == "[[mapping]]" {
-            if !current.is_empty() {
-                push_design_mapping(&mut mappings, &current, path, findings);
-                current.clear();
-            }
-        } else if !line.is_empty()
-            && line.contains(" = ")
-            && (!current.is_empty() || line.starts_with("source = "))
-        {
-            current.push(line.to_owned());
-        }
-    }
-    if !current.is_empty() {
-        push_design_mapping(&mut mappings, &current, path, findings);
-    }
-    mappings
-}
-
-fn push_design_mapping(
-    mappings: &mut BTreeSet<(String, String, String)>,
-    lines: &[String],
-    path: &str,
-    findings: &mut Vec<String>,
-) {
-    let value = |key: &str| {
-        lines
-            .iter()
-            .find_map(|line| {
-                line.strip_prefix(&format!("{key} = \""))
-                    .and_then(|value| value.strip_suffix('"'))
-            })
-            .unwrap_or_default()
-            .to_owned()
-    };
-    let mapping = (value("source"), value("destination"), value("disposition"));
-    if mapping.0.is_empty()
-        || mapping.1.is_empty()
-        || mapping.2.is_empty()
-        || mapping.0.starts_with('/')
-        || mapping.1.starts_with('/')
-        || mapping.0.split('/').any(|part| part == "..")
-        || mapping.1.split('/').any(|part| part == "..")
-        || !mappings.insert(mapping)
-    {
-        findings.push(format!("{path}: invalid or duplicate source mapping"));
     }
 }
 
@@ -1308,13 +1104,6 @@ fn is_lower_hex(value: &str, length: usize) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-fn title_case(value: &str) -> String {
-    let mut characters = value.chars();
-    characters.next().map_or_else(String::new, |first| {
-        first.to_uppercase().collect::<String>() + characters.as_str()
-    })
-}
-
 fn is_text(relative: &str) -> bool {
     let name = Path::new(relative)
         .file_name()
@@ -1391,7 +1180,7 @@ mod tests {
     }
 
     #[test]
-    fn current_design_source_baseline_is_exact() {
+    fn current_design_contract_is_exact() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(Path::parent)
@@ -1404,12 +1193,25 @@ mod tests {
     }
 
     #[test]
-    fn design_source_baseline_rejects_snapshot_and_mapping_drift() {
-        let root = fixture("design-source");
+    fn current_source_provenance_and_lib_lock_are_exact() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("repository root")
+            .to_path_buf();
+        let inventory = Inventory::load(&root).expect("source inventory");
+        let mut findings = Vec::new();
+        provenance_check(&root, &inventory, &mut findings);
+        assert!(findings.is_empty(), "{findings:#?}");
+    }
+
+    #[test]
+    fn design_contract_rejects_identity_and_root_drift() {
+        let root = fixture("design-contract");
         write(
             &root,
-            "config/design/source_baseline_v1.toml",
-            "schema = \"harvestcircle.design_source_baseline.v1\"\n[[mapping]]\nsource = \"../escape\"\ndestination = \"/tmp\"\ndisposition = \"owned-port\"\n",
+            "config/design/harvestcircle-v1.toml",
+            "schema = \"harvestcircle.design.v1\"\nrepository = \"https://example.invalid/other\"\ndesign_system_root = \"../escape\"\n",
         );
         let inventory = Inventory::load(&root).expect("archive inventory");
         let mut findings = Vec::new();
@@ -1417,12 +1219,7 @@ mod tests {
         assert!(
             findings
                 .iter()
-                .any(|finding| finding.contains("governed snapshot"))
-        );
-        assert!(
-            findings
-                .iter()
-                .any(|finding| finding.contains("invalid or duplicate source mapping"))
+                .any(|finding| finding.contains("missing or duplicate authority"))
         );
         fs::remove_dir_all(root).expect("remove fixture");
     }
@@ -1531,21 +1328,16 @@ mod tests {
     }
 
     #[test]
-    fn namespace_policy_allows_only_exact_locked_legacy_contracts_and_placeholder() {
-        let root = fixture("namespace-allowlist");
+    fn namespace_policy_rejects_transition_identity_without_exceptions() {
+        let root = fixture("namespace-no-exceptions");
         let legacy = ["stu", "dio"].concat();
         let repository = format!("https://github.com/radrootslabs/{legacy}_app");
-        let registry =
-            "app/shared/src/commonMain/kotlin/org/harvestcircle/product/SurfaceRegistry.kt";
         let entry =
             "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/BootstrapIdentityEntry.kt";
         write(
             &root,
-            registry,
-            &format!(
-                "val key = \"round_{legacy}_screen\"\nclass Round{}\n",
-                title_case(&legacy)
-            ),
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/product/SurfaceRegistry.kt",
+            &format!("val key = \"round_{legacy}_screen\"\n"),
         );
         write(&root, entry, "val placeholder = \"nsec1…\"\n");
         write(
@@ -1558,7 +1350,20 @@ mod tests {
         let inventory = Inventory::load(&root).expect("allowlist inventory");
         let mut findings = Vec::new();
         namespace_audit(&root, &inventory, &mut findings);
-        assert!(findings.is_empty(), "{findings:?}");
+        assert!(
+            findings
+                .iter()
+                .filter(|finding| finding.contains("legacy product name"))
+                .count()
+                >= 2,
+            "{findings:?}"
+        );
+        assert!(
+            findings
+                .iter()
+                .all(|finding| !finding.contains("secret key literal")),
+            "{findings:?}"
+        );
         fs::remove_dir_all(root).expect("remove fixture");
     }
 
@@ -1826,6 +1631,11 @@ mod tests {
             findings
                 .iter()
                 .any(|finding| finding.contains("exact source provenance changed"))
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.contains("exact Lib source lock changed"))
         );
         fs::remove_dir_all(root).expect("remove fixture");
     }

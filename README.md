@@ -42,7 +42,7 @@ required. Release, signing, and notarization checks are governed-only.
 
 ## Development branch
 
-Active implementation currently proceeds on `dev`.
+Active implementation proceeds on `master`.
 
 ## Project documentation
 
