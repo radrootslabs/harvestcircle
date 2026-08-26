@@ -927,6 +927,14 @@ fn command_timeout(
 pub(crate) async fn test_actor(
     relays: RelayConfiguration,
 ) -> (RuntimeActorHandle, Arc<tempfile::TempDir>) {
+    test_actor_with_nostr_timeout(relays, Duration::from_millis(10)).await
+}
+
+#[cfg(test)]
+pub(crate) async fn test_actor_with_nostr_timeout(
+    relays: RelayConfiguration,
+    nostr_timeout: Duration,
+) -> (RuntimeActorHandle, Arc<tempfile::TempDir>) {
     let directory = Arc::new(tempfile::tempdir().expect("temporary runtime root"));
     let context = application_runtime_context(&RuntimeOpenInputDto {
         development_mode: true,
@@ -950,7 +958,7 @@ pub(crate) async fn test_actor(
         RuntimeDependencies::new(
             Arc::new(harvestcircle_application::InMemorySecretStore::default()),
             Arc::new(SystemClock),
-            Arc::new(SdkNostrClient::new(Duration::from_millis(10))),
+            Arc::new(SdkNostrClient::new(nostr_timeout)),
             Arc::new(UuidInstallationIdentitySource),
         ),
         &build,

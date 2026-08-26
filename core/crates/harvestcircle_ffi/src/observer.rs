@@ -239,13 +239,14 @@ mod tests {
     use nostr_relay_builder::MockRelay;
     use nostr_sdk::Client;
 
-    use crate::commands::{RuntimeCore, test_actor};
+    use crate::commands::{RuntimeCore, test_actor, test_actor_with_nostr_timeout};
     use crate::{
         AppSnapshotDto, HarvestCircleAppCore, HarvestCircleChangeObserver, ProfileLoadStateDto,
         SnapshotChangeDto,
     };
 
     const SECRET_HEX: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
+    const TEST_RELAY_TIMEOUT: Duration = Duration::from_secs(2);
     #[derive(Default)]
     struct RecordingObserver {
         snapshots: Mutex<Vec<AppSnapshotDto>>,
@@ -276,6 +277,18 @@ mod tests {
 
     async fn core_with_relays(relays: RelayConfiguration) -> Arc<HarvestCircleAppCore> {
         let (actor, directory) = test_actor(relays).await;
+        core_with_actor(actor, directory)
+    }
+
+    async fn core_with_live_relays(relays: RelayConfiguration) -> Arc<HarvestCircleAppCore> {
+        let (actor, directory) = test_actor_with_nostr_timeout(relays, TEST_RELAY_TIMEOUT).await;
+        core_with_actor(actor, directory)
+    }
+
+    fn core_with_actor(
+        actor: harvestcircle_runtime::RuntimeActorHandle,
+        directory: Arc<tempfile::TempDir>,
+    ) -> Arc<HarvestCircleAppCore> {
         Arc::new(HarvestCircleAppCore {
             inner: Arc::new(RuntimeCore {
                 actor,
@@ -466,7 +479,7 @@ mod tests {
             .await
             .expect("publish profile");
 
-        let core = core_with_relays(
+        let core = core_with_live_relays(
             RelayConfiguration::new(vec![
                 RelayEndpoint::new(
                     relay_url.as_str(),
