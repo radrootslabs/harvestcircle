@@ -17,7 +17,7 @@ class NativeGeneratedRecoveryTest {
     @BeforeTest
     fun prepareDataDirectory() {
         dataDirectory.toFile().deleteRecursively()
-        Files.createDirectories(dataDirectory)
+        Files.createDirectories(dataDirectory.resolve("data"))
     }
 
     @AfterTest
