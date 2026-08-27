@@ -34,7 +34,7 @@ fn assert_redacted(bytes: &[u8]) {
 }
 
 fn runtime_context(directory: &TempDir) -> RuntimeContext {
-    RuntimeContext::resolve(
+    let context = RuntimeContext::resolve(
         &RadrootsPathResolver::new(
             RadrootsPlatform::current(),
             RadrootsHostEnvironment::default(),
@@ -54,7 +54,9 @@ fn runtime_context(directory: &TempDir) -> RuntimeContext {
         ServiceId::new("harvestcircle").expect("service"),
         InstanceId::new("desktop").expect("instance"),
     )
-    .expect("runtime context")
+    .expect("runtime context");
+    fs::create_dir_all(directory.path().join("data")).expect("state root");
+    context
 }
 
 fn build_identity() -> MigrationBuildIdentity {

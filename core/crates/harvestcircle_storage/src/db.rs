@@ -1,18 +1,14 @@
 use core::num::NonZeroU32;
-use std::fs;
-use std::path::Path;
 
 use harvestcircle_domain::{SafeError, SafeErrorCode, SafeMessage};
 use radroots_runtime_paths::RuntimeContext;
 use radroots_service_sqlite::{
-    ExistingServiceDatabaseIntent, MigrationAppliedAtUnixSeconds, MigrationBuildIdentity, OpenMode,
+    ExistingServiceDatabaseIntent, MigrationAppliedAtUnixSeconds, MigrationBuildIdentity,
     ServiceDatabaseMetadata, ServiceSqliteConnectionOptions, ServiceSqliteErrorKind,
-    ServiceSqliteHost, ServiceSqliteTransactionError, ServiceSqliteTransactionErrorKind,
-    initialize_database,
+    ServiceSqliteHost, ServiceSqliteInitializer, ServiceSqliteInitializerFuture,
+    ServiceSqliteTransactionError, ServiceSqliteTransactionErrorKind,
 };
 use radroots_storage::event::SourceGeneration;
-use sqlx::sqlite::SqliteConnectOptions;
-use sqlx::{Connection, SqliteConnection};
 
 use crate::contract::harvestcircle_initial_schema_sql;
 use crate::{HARVESTCIRCLE_STATE_SCHEMA_VERSION, HarvestCircleStorageContract};
@@ -41,19 +37,9 @@ impl Database {
     ) -> Result<Self, SafeError> {
         let contract = HarvestCircleStorageContract::from_runtime_context(context)
             .map_err(|_| invalid_storage_contract())?;
-        provision_state_directory(contract.paths().state_database())?;
         let applied_at = MigrationAppliedAtUnixSeconds::new(applied_at_unix_s)
             .map_err(|_| invalid_storage_contract())?;
         let options = ServiceSqliteConnectionOptions::reviewed();
-
-        if contract
-            .paths()
-            .state_database()
-            .try_exists()
-            .map_err(|_| storage_unavailable())?
-        {
-            return Self::open_existing(&contract, applied_at, build).await;
-        }
 
         let mut generation = [0_u8; 32];
         getrandom::getrandom(&mut generation).map_err(|_| storage_unavailable())?;
@@ -66,28 +52,25 @@ impl Database {
             contract.application_id(),
         )
         .map_err(|_| invalid_storage_contract())?;
-        let authority = initialize_database(
+        context
+            .state_directory_plan()
+            .map_err(|_| invalid_storage_contract())?
+            .provision()
+            .map_err(|_| storage_unavailable())?;
+        let (opened, _) = ServiceSqliteHost::open_or_initialize(
             contract.paths(),
-            OpenMode::Initialize,
             &metadata,
+            contract.migrations(),
             contract.schema(),
+            options,
+            applied_at,
+            build,
+            &[],
             initialize_application_schema,
         )
         .await
         .map_err(map_service_error)?;
-        let (host, _) = ServiceSqliteHost::open_initialized(
-            contract.paths(),
-            &metadata.identity(),
-            contract.migrations(),
-            contract.schema(),
-            options,
-            authority,
-            applied_at,
-            build,
-            &[],
-        )
-        .await
-        .map_err(map_service_error)?;
+        let (host, metadata) = opened.into_parts();
         Ok(Self { host, metadata })
     }
 
@@ -132,34 +115,18 @@ impl Database {
     }
 }
 
-async fn initialize_application_schema(path: std::path::PathBuf) -> Result<(), sqlx::Error> {
-    let options = SqliteConnectOptions::new()
-        .filename(path)
-        .create_if_missing(false);
-    let mut connection = SqliteConnection::connect_with(&options).await?;
-    for statement in harvestcircle_initial_schema_sql() {
-        sqlx::query(*statement).execute(&mut connection).await?;
-    }
-    sqlx::query("INSERT INTO runtime_state (singleton) VALUES (1)")
-        .execute(&mut connection)
-        .await?;
-    connection.close().await
-}
-
-fn provision_state_directory(database: &Path) -> Result<(), SafeError> {
-    let directory = database.parent().ok_or_else(invalid_storage_contract)?;
-    fs::create_dir_all(directory).map_err(|_| storage_unavailable())?;
-    let metadata = fs::symlink_metadata(directory).map_err(|_| storage_unavailable())?;
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Err(storage_unavailable());
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
-            .map_err(|_| storage_unavailable())?;
-    }
-    Ok(())
+fn initialize_application_schema<'a>(
+    initializer: &'a mut ServiceSqliteInitializer<'_>,
+) -> ServiceSqliteInitializerFuture<'a, sqlx::Error> {
+    Box::pin(async move {
+        for statement in harvestcircle_initial_schema_sql() {
+            sqlx::query(*statement).execute(&mut *initializer).await?;
+        }
+        sqlx::query("INSERT INTO runtime_state (singleton) VALUES (1)")
+            .execute(&mut *initializer)
+            .await?;
+        Ok(())
+    })
 }
 
 pub(crate) fn map_transaction_error(error: ServiceSqliteTransactionError<SafeError>) -> SafeError {

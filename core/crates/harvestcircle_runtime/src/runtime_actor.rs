@@ -1361,13 +1361,15 @@ fn test_runtime_context(root: &std::path::Path) -> Result<RuntimeContext, SafeEr
         RuntimeContextSource::SafeDefault,
     )
     .map_err(|_| invalid_runtime_evidence())?;
-    RuntimeContext::resolve(
+    let context = RuntimeContext::resolve(
         &resolver,
         bootstrap,
         ServiceId::new("harvestcircle").map_err(|_| invalid_runtime_evidence())?,
         InstanceId::new("desktop").map_err(|_| invalid_runtime_evidence())?,
     )
-    .map_err(|_| invalid_runtime_evidence())
+    .map_err(|_| invalid_runtime_evidence())?;
+    std::fs::create_dir_all(root.join("data")).map_err(|_| invalid_runtime_evidence())?;
+    Ok(context)
 }
 
 #[cfg(test)]

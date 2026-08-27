@@ -26,7 +26,7 @@ impl Clock for FixedClock {
 }
 
 fn context(root: &std::path::Path) -> RuntimeContext {
-    RuntimeContext::resolve(
+    let context = RuntimeContext::resolve(
         &RadrootsPathResolver::new(
             RadrootsPlatform::current(),
             RadrootsHostEnvironment::default(),
@@ -41,7 +41,9 @@ fn context(root: &std::path::Path) -> RuntimeContext {
         ServiceId::new("harvestcircle").expect("service"),
         InstanceId::new("desktop").expect("instance"),
     )
-    .expect("context")
+    .expect("context");
+    fs::create_dir_all(root.join("data")).expect("state root");
+    context
 }
 
 fn build() -> MigrationBuildIdentity {

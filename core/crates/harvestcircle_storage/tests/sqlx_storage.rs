@@ -26,7 +26,7 @@ fn tempdir() -> std::io::Result<TempDir> {
     tempdir_in(std::env::temp_dir().canonicalize()?)
 }
 
-fn runtime_context(directory: &TempDir) -> RuntimeContext {
+fn unresolved_runtime_context(directory: &TempDir) -> RuntimeContext {
     RuntimeContext::resolve(
         &RadrootsPathResolver::new(
             RadrootsPlatform::current(),
@@ -48,6 +48,12 @@ fn runtime_context(directory: &TempDir) -> RuntimeContext {
         InstanceId::new("desktop").expect("instance"),
     )
     .expect("runtime context")
+}
+
+fn runtime_context(directory: &TempDir) -> RuntimeContext {
+    let context = unresolved_runtime_context(directory);
+    fs::create_dir_all(directory.path().join("data")).expect("state root");
+    context
 }
 
 fn build_identity() -> MigrationBuildIdentity {
@@ -82,6 +88,46 @@ fn identity(index: usize) -> NostrIdentity {
         None,
     )
     .expect("identity")
+}
+
+#[tokio::test]
+async fn bootstrap_requires_the_existing_governed_state_root() {
+    let directory = tempdir().expect("directory");
+    let context = unresolved_runtime_context(&directory);
+    let state_root = directory.path().join("data");
+    let error = Database::open(&context, 1, 1, &build_identity())
+        .await
+        .err()
+        .expect("missing state root must fail closed");
+
+    assert_eq!(error.code(), SafeErrorCode::StorageUnavailable);
+    assert!(!state_root.exists());
+    assert!(!context.paths().state().exists());
+}
+
+#[test]
+fn bootstrap_source_uses_only_the_governed_path_and_sqlite_boundaries() {
+    const SOURCE: &str = include_str!("../src/db.rs");
+
+    for required in [
+        ".state_directory_plan()",
+        "ServiceSqliteHost::open_or_initialize",
+        "ServiceSqliteInitializer",
+        "opened.into_parts()",
+    ] {
+        assert!(SOURCE.contains(required), "missing `{required}`");
+    }
+    for forbidden in [
+        ".try_exists()",
+        "create_dir_all",
+        "set_permissions",
+        "SqliteConnectOptions",
+        "sqlx::SqliteConnection",
+        "initialize_database",
+        "open_initialized",
+    ] {
+        assert!(!SOURCE.contains(forbidden), "forbidden `{forbidden}`");
+    }
 }
 
 #[tokio::test]

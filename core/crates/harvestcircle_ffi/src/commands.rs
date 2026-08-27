@@ -951,6 +951,7 @@ pub(crate) async fn test_actor_with_nostr_timeout(
         },
     })
     .expect("runtime context");
+    std::fs::create_dir_all(directory.path().join("data")).expect("state root");
     let build = migration_build_identity().expect("migration build identity");
     let actor = RuntimeActorHandle::open(
         &context,

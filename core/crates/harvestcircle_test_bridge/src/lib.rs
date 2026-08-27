@@ -590,13 +590,15 @@ fn runtime_context(root: &Path) -> Result<RuntimeContext, TestBridgeError> {
         RuntimeContextSource::SafeDefault,
     )
     .map_err(|_| invalid_runtime_evidence())?;
-    RuntimeContext::resolve(
+    let context = RuntimeContext::resolve(
         &resolver,
         bootstrap,
         ServiceId::new("harvestcircle").map_err(|_| invalid_runtime_evidence())?,
         InstanceId::new("desktop").map_err(|_| invalid_runtime_evidence())?,
     )
-    .map_err(|_| invalid_runtime_evidence())
+    .map_err(|_| invalid_runtime_evidence())?;
+    fs::create_dir_all(root.join("data"))?;
+    Ok(context)
 }
 
 fn migration_build_identity() -> Result<MigrationBuildIdentity, TestBridgeError> {

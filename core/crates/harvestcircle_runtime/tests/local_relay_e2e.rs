@@ -46,6 +46,7 @@ async fn local_relay_e2e_imports_activates_refreshes_and_caches_profile() {
         InstanceId::new("desktop").expect("instance"),
     )
     .expect("context");
+    std::fs::create_dir_all(directory.path().join("data")).expect("state root");
     let build = MigrationBuildIdentity::new(
         "0.1.0-alpha",
         "1111111111111111111111111111111111111111",

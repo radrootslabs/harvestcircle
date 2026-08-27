@@ -952,7 +952,7 @@ fn development_integration_policy(root: &Path, findings: &mut Vec<String>) {
 }
 
 fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
-    const LIB_REVISION: &str = "be9db78e060ebc0000fa7827ac32efa3f6504f53";
+    const LIB_REVISION: &str = "ad17b7d3455a7147cfa303d976fc5c70c3a4c0cb";
     const PROVENANCE_PATH: &str = "core/provenance/harvestcircle-v1.toml";
     const SOURCE_LOCK_PATH: &str = "radroots.lib.source-lock.v1.toml";
     let cargo = read_text(root, "core/Cargo.toml");
@@ -1003,12 +1003,12 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
     let expected_source_lock = concat!(
         "schema = \"radroots.lib.source-lock.v1\"\n",
         "repository = \"https://github.com/radrootslabs/lib\"\n",
-        "revision = \"be9db78e060ebc0000fa7827ac32efa3f6504f53\"\n",
+        "revision = \"ad17b7d3455a7147cfa303d976fc5c70c3a4c0cb\"\n",
         "architecture = \"radroots.crates.release.v2\"\n",
         "workspace_catalog_sha256 = \"deca0c080deae187ff8186c0708903e42f41ea57f77c5f91581e23aa561164a4\"\n",
         "version = \"0.1.0-alpha\"\n",
-        "source_archive_sha256 = \"aec2fe198b200f40af81424fbec70a9a8f22b0b38455bc6c81b7eb3be4241748\"\n",
-        "lockfile_sha256 = \"1d5187f6394e470a027d3643bc1b74beaf92c5168718783e69f2e3f67dfeb1c0\"\n",
+        "source_archive_sha256 = \"2cf12c24ed649c3c8dd48cebcb8583996646e116fc2472539a55748c803584db\"\n",
+        "lockfile_sha256 = \"4308984326ef320973bd11c78dabad499fd57ea8be8e12d5a57bbe8464196a7a\"\n",
     );
     if read_text(root, SOURCE_LOCK_PATH) != expected_source_lock {
         findings.push(format!("{SOURCE_LOCK_PATH}: exact Lib source lock changed"));

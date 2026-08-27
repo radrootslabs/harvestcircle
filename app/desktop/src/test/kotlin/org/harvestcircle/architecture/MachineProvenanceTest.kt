@@ -26,7 +26,7 @@ class MachineProvenanceTest {
         )
         assertTrue(
             provenance.contains(
-                "canonical_radroots_revision = \"be9db78e060ebc0000fa7827ac32efa3f6504f53\"",
+                "canonical_radroots_revision = \"ad17b7d3455a7147cfa303d976fc5c70c3a4c0cb\"",
             ),
         )
         assertEquals(8, Regex("(?m)^\\[\\[import]]$").findAll(provenance).count())

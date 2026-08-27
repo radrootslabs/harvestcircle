@@ -3,7 +3,7 @@ source_product = "HarvestCircle"
 source_repository = "https://github.com/radrootslabs/harvestcircle"
 foundation_baseline = "c08d18ea569351dddeef70d4c1410708daf067b6"
 canonical_radroots_repository = "https://github.com/radrootslabs/lib"
-canonical_radroots_revision = "be9db78e060ebc0000fa7827ac32efa3f6504f53"
+canonical_radroots_revision = "ad17b7d3455a7147cfa303d976fc5c70c3a4c0cb"
 
 [[import]]
 component = "domain"

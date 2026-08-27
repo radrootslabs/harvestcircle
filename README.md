@@ -61,6 +61,13 @@ close, backup, and restore mechanics. The historical `harvestcircle.sqlite3`
 file is legacy evidence only and is never imported, repaired, deleted, or
 treated as current state.
 
+The platform or development harness must supply the existing canonical state
+root. HarvestCircle then uses the runtime context's sealed provisioning plan to
+create or validate only `services/harvestcircle/desktop`. The SQLite host makes
+the create-versus-existing decision atomically and returns the actual verified
+metadata; product storage never probes the database path, recursively creates
+roots, repairs existing permissions, or opens a raw SQLx connection.
+
 Online backup capture returns the canonical manifest in memory and writes only
 the governed `state.sqlite` member into a caller-selected new directory.
 Restore accepts only a digest-bound, identity-bound, size-bounded verified

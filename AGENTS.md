@@ -87,6 +87,13 @@ substitute.
   application-schema callback inside `radroots_service_sqlite` initialization,
   but must not create another pool, expose a raw connection, or reintroduce
   Rusqlite, Refinery, arbitrary repair, or a second migration authority.
+- Storage bootstrap requires the injected runtime context's canonical state
+  root to exist. `RuntimeContext::state_directory_plan` is the only production
+  authority allowed to create the exact `services/harvestcircle/desktop`
+  suffix. `ServiceSqliteHost::open_or_initialize` alone selects create versus
+  existing state under one retained writer authority and returns the actual
+  verified database metadata. Do not probe paths, recursively create roots,
+  repair permissions, or open a raw SQLx connection during bootstrap.
 - Native production qualification is limited to macOS aarch64 and Linux
   x86_64. Do not add or claim another target without an explicit contract
   change and its complete platform evidence.
