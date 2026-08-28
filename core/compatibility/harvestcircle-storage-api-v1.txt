@@ -55,9 +55,9 @@ pub fn harvestcircle_storage::HarvestCircleStorageContract::fmt(&self, &mut core
 pub struct harvestcircle_storage::OsKeyringSecretStore
 impl harvestcircle_application::secrets::SecretStore for harvestcircle_storage::OsKeyringSecretStore
 pub fn harvestcircle_storage::OsKeyringSecretStore::contains(&self, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture<'_, core::result::Result<bool, harvestcircle_domain::error::SafeError>>
-pub fn harvestcircle_storage::OsKeyringSecretStore::delete(&self, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture<'_, core::result::Result<(), harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::OsKeyringSecretStore::delete<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture<'a, core::result::Result<(), harvestcircle_domain::error::SafeError>>
 pub fn harvestcircle_storage::OsKeyringSecretStore::load(&self, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture<'_, core::result::Result<harvestcircle_domain::key::SecretKeyInput, harvestcircle_domain::error::SafeError>>
-pub fn harvestcircle_storage::OsKeyringSecretStore::put(&self, harvestcircle_domain::key::PublicKey, harvestcircle_domain::key::SecretKeyInput) -> harvestcircle_application::ports::BoxFuture<'_, core::result::Result<(), harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::OsKeyringSecretStore::put<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_domain::key::PublicKey, harvestcircle_domain::key::SecretKeyInput) -> harvestcircle_application::ports::BoxFuture<'a, core::result::Result<(), harvestcircle_domain::error::SafeError>>
 pub struct harvestcircle_storage::VerifiedHarvestCircleBackup
 impl core::fmt::Debug for harvestcircle_storage::VerifiedHarvestCircleBackup
 pub fn harvestcircle_storage::VerifiedHarvestCircleBackup::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result

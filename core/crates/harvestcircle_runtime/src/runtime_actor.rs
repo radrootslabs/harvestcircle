@@ -1604,11 +1604,12 @@ mod tests {
     }
 
     impl SecretStore for BlockingSecretStore {
-        fn put(
-            &self,
+        fn put<'a>(
+            &'a self,
+            request_id: &'a harvestcircle_application::DurableRequestId,
             public_key: PublicKey,
             secret: SecretKeyInput,
-        ) -> BoxFuture<'_, Result<(), SafeError>> {
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
             Box::pin(async move {
                 if self.block_next_put.swap(false, Ordering::AcqRel) {
                     self.put_started.store(true, Ordering::Release);
@@ -1620,7 +1621,7 @@ mod tests {
                         notified.await;
                     }
                 }
-                self.inner.put(public_key, secret).await
+                self.inner.put(request_id, public_key, secret).await
             })
         }
 
@@ -1632,8 +1633,12 @@ mod tests {
             self.inner.contains(public_key)
         }
 
-        fn delete(&self, public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
-            self.inner.delete(public_key)
+        fn delete<'a>(
+            &'a self,
+            request_id: &'a harvestcircle_application::DurableRequestId,
+            public_key: PublicKey,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            self.inner.delete(request_id, public_key)
         }
     }
 

@@ -12,7 +12,6 @@ publish = false
 include = ["src/**", "tests/**", "Cargo.toml"]
 
 [dependencies]
-keyring = "=4.1.6"
 harvestcircle_application.workspace = true
 harvestcircle_domain.workspace = true
 harvestcircle_product.workspace = true
@@ -22,6 +21,13 @@ radroots_storage.workspace = true
 sqlx.workspace = true
 getrandom.workspace = true
 zeroize = "=1.9.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+secret-service = { version = "=5.1.0", features = ["crypto-rust"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "=3.7.0"
+security-framework-sys = "=2.17.0"
 
 [dev-dependencies]
 harvestcircle_nostr.workspace = true

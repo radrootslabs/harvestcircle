@@ -92,7 +92,7 @@ mod tests {
     use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
 
     use crate::{
-        AppCore, BoxFuture, CachedProfile, Clock, InMemoryIdentityRepository,
+        AppCore, BoxFuture, CachedProfile, Clock, DurableRequestId, InMemoryIdentityRepository,
         InMemoryOperationJournal, InMemorySecretStore, ProfileRefreshStatus, ProfileRepository,
         RelayConfiguration, SecretStore, SessionState,
     };
@@ -203,7 +203,7 @@ mod tests {
         assert_eq!(registered.last_used_at(), Some(FixedClock.now()));
 
         secrets
-            .delete(second)
+            .delete(&DurableRequestId::new_v7(), second)
             .await
             .expect("remove second credential");
         let error = core
@@ -223,6 +223,7 @@ mod tests {
         );
         secrets
             .put(
+                &DurableRequestId::new_v7(),
                 second,
                 input("7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7"),
             )

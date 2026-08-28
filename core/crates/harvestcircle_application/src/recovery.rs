@@ -8,7 +8,7 @@ use crate::{
     SecretStore,
 };
 #[cfg(test)]
-use crate::{IdentityOperationKind, IdentityOperationPhase, OperationJournal};
+use crate::{DurableRequestId, IdentityOperationKind, IdentityOperationPhase, OperationJournal};
 
 impl AppCore {
     /// Reconciles durable request operations before public state is restored.
@@ -91,7 +91,7 @@ async fn recover_durable_removal(
     let mut phase = operation.phase();
     if phase == DurableOperationPhase::IntentRecorded {
         if secrets.contains(identity).await? {
-            secrets.delete(identity).await?;
+            secrets.delete(operation.request_id(), identity).await?;
         }
         operations
             .advance_durable_operation(
@@ -161,7 +161,7 @@ async fn recover_durable_addition(
     match operation.phase() {
         DurableOperationPhase::IntentRecorded => {
             if secrets.contains(identity).await? {
-                secrets.delete(identity).await?;
+                secrets.delete(operation.request_id(), identity).await?;
             }
             operations
                 .finalize_durable_operation(
@@ -286,7 +286,9 @@ async fn compensate_durable_addition(
     clock: &(impl Clock + ?Sized),
 ) -> Result<(), SafeError> {
     if secrets.contains(operation.identity()).await? {
-        secrets.delete(operation.identity()).await?;
+        secrets
+            .delete(operation.request_id(), operation.identity())
+            .await?;
     }
     if let Some(availability) = operation.prior().binding_availability() {
         if let Some(previous) = identities.find_identity(operation.identity()).await? {
@@ -346,7 +348,8 @@ async fn recover_removal(
 ) -> Result<(), SafeError> {
     let public_key = operation.subject();
     if operation.phase() == IdentityOperationPhase::IntentRecorded {
-        match secrets.delete(public_key).await {
+        let request_id = DurableRequestId::new_v7();
+        match secrets.delete(&request_id, public_key).await {
             Ok(()) => {}
             Err(error)
                 if error.code() == harvestcircle_domain::SafeErrorCode::CredentialMissing => {}
@@ -401,7 +404,8 @@ async fn recover_addition(
         IdentityOperationPhase::CredentialWritten | IdentityOperationPhase::CompensationPending
             if !has_metadata =>
         {
-            match secrets.delete(operation.subject()).await {
+            let request_id = DurableRequestId::new_v7();
+            match secrets.delete(&request_id, operation.subject()).await {
                 Ok(()) => {}
                 Err(error)
                     if error.code() == harvestcircle_domain::SafeErrorCode::CredentialMissing => {}
@@ -671,7 +675,10 @@ pub(crate) mod tests {
         ] {
             let (core, identities, secrets, _journal, public_key) = seeded().await;
             if phase != DurableOperationPhase::IntentRecorded {
-                secrets.delete(public_key).await.expect("delete credential");
+                secrets
+                    .delete(&DurableRequestId::new_v7(), public_key)
+                    .await
+                    .expect("delete credential");
             }
             if matches!(
                 phase,
@@ -695,7 +702,10 @@ pub(crate) mod tests {
         }
 
         let (core, identities, secrets, _journal, public_key) = seeded().await;
-        secrets.delete(public_key).await.expect("delete credential");
+        secrets
+            .delete(&DurableRequestId::new_v7(), public_key)
+            .await
+            .expect("delete credential");
         identities
             .remove_identity(public_key)
             .await
@@ -757,7 +767,10 @@ pub(crate) mod tests {
                     .expect("remove metadata");
             }
             if !retain_secret {
-                secrets.delete(public_key).await.expect("delete credential");
+                secrets
+                    .delete(&DurableRequestId::new_v7(), public_key)
+                    .await
+                    .expect("delete credential");
             }
             let recovered = run_durable(
                 &core,
@@ -798,7 +811,10 @@ pub(crate) mod tests {
             .remove_identity(public_key)
             .await
             .expect("remove metadata");
-        secrets.delete(public_key).await.expect("delete credential");
+        secrets
+            .delete(&DurableRequestId::new_v7(), public_key)
+            .await
+            .expect("delete credential");
         let recovered = run_durable(
             &core,
             &identities,
@@ -819,7 +835,10 @@ pub(crate) mod tests {
         for credential_present in [true, false] {
             let (core, identities, secrets, journal, public_key) = seeded().await;
             if !credential_present {
-                secrets.delete(public_key).await.expect("delete credential");
+                secrets
+                    .delete(&DurableRequestId::new_v7(), public_key)
+                    .await
+                    .expect("delete credential");
                 identities
                     .save_selected_identity(None)
                     .await
@@ -854,7 +873,10 @@ pub(crate) mod tests {
                     .expect("remove metadata");
             }
             if !credential_present {
-                secrets.delete(public_key).await.expect("delete credential");
+                secrets
+                    .delete(&DurableRequestId::new_v7(), public_key)
+                    .await
+                    .expect("delete credential");
             }
             let id = journal
                 .begin_operation(kind, public_key, FixedClock.now())
@@ -889,6 +911,7 @@ pub(crate) mod tests {
         let secrets = FailureSecretStore::default();
         secrets
             .put(
+                &DurableRequestId::new_v7(),
                 public_key,
                 SecretKeyInput::parse(
                     "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7".to_owned(),

@@ -262,7 +262,9 @@ impl AppCore {
                 };
             }
         }
-        secrets.put(identity.public_key(), secret).await?;
+        secrets
+            .put(request_id, identity.public_key(), secret)
+            .await?;
         operations
             .advance_durable_operation(
                 request_id,
@@ -372,7 +374,8 @@ impl AppCore {
         }
         let identity = &registry[index];
         let local_keyring = local_keyring_binding(identity)?;
-        match secrets.delete(public_key).await {
+        let request_id = DurableRequestId::new_v7();
+        match secrets.delete(&request_id, public_key).await {
             Ok(()) => {}
             Err(error)
                 if error.code() == SafeErrorCode::CredentialMissing
@@ -468,7 +471,7 @@ impl AppCore {
         {
             self.sign_out()?;
         }
-        match secrets.delete(public_key).await {
+        match secrets.delete(request_id, public_key).await {
             Ok(()) => {}
             Err(error)
                 if error.code() == SafeErrorCode::CredentialMissing
@@ -677,7 +680,8 @@ impl AppCore {
         let operation = journal
             .begin_operation(kind, public_key, clock.now())
             .await?;
-        if let Err(error) = secrets.put(public_key, secret).await {
+        let request_id = DurableRequestId::new_v7();
+        if let Err(error) = secrets.put(&request_id, public_key, secret).await {
             let _ = journal.finalize_operation(operation).await;
             return Err(error);
         }
@@ -771,7 +775,8 @@ async fn compensate_identity_write(
         identities.remove_identity(public_key).await
     };
     let selection_rollback = app_state.save_selected_identity(previous_selection).await;
-    let credential_rollback = secrets.delete(public_key).await;
+    let request_id = DurableRequestId::new_v7();
+    let credential_rollback = secrets.delete(&request_id, public_key).await;
     if metadata_rollback.is_err() || selection_rollback.is_err() || credential_rollback.is_err() {
         let _ = journal
             .update_operation(
@@ -1034,9 +1039,10 @@ mod tests {
     use super::InMemoryIdentityRepository;
     use crate::{
         AppCore, AppStateRepository, BoxFuture, Clock, DurableOperationKind, DurableOperationPhase,
-        FailureSecretStore, IdentityOperationPhase, IdentityRepository, InMemoryOperationJournal,
-        InMemorySecretStore, OperationJournal, ProfileRefreshStatus, ProfileRepository,
-        RelayConfiguration, SecretStore, SecretStoreOperation, SessionState, StateTransition,
+        DurableRequestId, FailureSecretStore, IdentityOperationPhase, IdentityRepository,
+        InMemoryOperationJournal, InMemorySecretStore, OperationJournal, ProfileRefreshStatus,
+        ProfileRepository, RelayConfiguration, SecretStore, SecretStoreOperation, SessionState,
+        StateTransition,
         recovery::tests::{TestDurableRepository, operation as durable_operation},
     };
 
@@ -1711,7 +1717,7 @@ mod tests {
             .expect("key material");
         let (public_key, _npub, secret) = material.into_parts();
         secrets
-            .put(public_key, secret)
+            .put(&DurableRequestId::new_v7(), public_key, secret)
             .await
             .expect("orphan credential");
 
@@ -1938,7 +1944,10 @@ mod tests {
             .save_selected_identity(Some(public_key))
             .await
             .expect("selection");
-        secrets.put(public_key, secret).await.expect("credential");
+        secrets
+            .put(&DurableRequestId::new_v7(), public_key, secret)
+            .await
+            .expect("credential");
         core.apply_transition(StateTransition::BootstrapRegistry {
             identities: vec![identity],
             selected: Some(public_key),

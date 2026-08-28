@@ -85,7 +85,20 @@ close call resumes the same shutdown. Operating-system keyring calls run
 through an object-safe asynchronous application port and a bounded supervised
 worker rather than directly on an async runtime worker. Callers await one-shot
 responses; the dedicated operating-system thread alone drives the blocking
-platform adapter.
+platform adapter. Its request queue is fixed at eight entries and credential
+mutations carry the caller's canonical UUIDv7 durable request identity. Work
+cancelled while still queued has no credential effect; caller loss after work
+starts is an unknown outcome reconciled from the durable operation journal.
+Shutdown has a fixed 30-second wait and reports success only after the worker
+thread is joined; a timeout remains recovery-required and a later close resumes
+the same drain.
+
+Credential creation is native and atomic: macOS uses create-only Keychain
+insertion, while Linux uses Secret Service creation with replacement disabled.
+The stored zeroizing envelope binds the creating durable operation to the
+secret. Exact same-operation replay is idempotent only when the complete
+envelope matches; another operation conflicts and never overwrites the existing
+credential. No compatibility path reads the former plaintext credential shape.
 
 ## Project documentation
 

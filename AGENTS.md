@@ -129,7 +129,13 @@ substitute.
   close is reported. `SecretStore` is an object-safe asynchronous application
   port. Every caller awaits it, Tokio workers await one-shot results, and only
   the dedicated credential thread may drive the blocking platform adapter.
-  Authoritative locks fail closed on poison.
+  Authoritative locks fail closed on poison. The worker queue remains fixed at
+  eight, mutations carry the canonical UUIDv7 durable request identity, queued
+  cancellation has no effect, started caller loss is recovery-required, and
+  shutdown succeeds only after join within the fixed 30-second bound. Native
+  creation is create-only (`SecKeychainAddGenericPassword` on macOS and Secret
+  Service `replace=false` on Linux); exact same-operation replay verifies the
+  complete zeroizing credential envelope before it is accepted as idempotent.
 - Services-hardening changes use the approved target-state contracts. Do not
   add compatibility aliases, dual reads, dual writes, or fallback behavior for
   prototype surfaces removed by the clean-slate refactor.

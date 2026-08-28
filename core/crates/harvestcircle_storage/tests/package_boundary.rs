@@ -24,6 +24,10 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
     }
     assert!(manifest.contains("radroots_service_sqlite.workspace = true"));
     assert!(manifest.contains("sqlx.workspace = true"));
+    assert!(!manifest.contains("\nkeyring ="));
+    assert!(manifest.contains("secret-service = { version = \"=5.1.0\""));
+    assert!(manifest.contains("security-framework = \"=3.7.0\""));
+    assert!(manifest.contains("security-framework-sys = \"=2.17.0\""));
     assert!(workspace_manifest.contains("sqlx = { version = \"=0.9.0\""));
     for forbidden_package in ["rusqlite", "refinery"] {
         assert!(
@@ -48,6 +52,10 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
     }
     assert!(!root_source.contains("harvestcircle_initial_schema_sql"));
     assert!(!keyring_source.contains("PoisonError::into_inner"));
+    assert!(!keyring_source.contains("set_password"));
+    assert!(keyring_source.contains("add_generic_password"));
+    assert!(keyring_source.contains("CREDENTIAL_OPERATION_ATTRIBUTE"));
+    assert!(keyring_source.contains("false,\n            \"application/octet-stream\""));
     assert!(!database_source.contains("pub fn host"));
     assert!(!database_source.contains("pub const fn host"));
 
@@ -62,7 +70,8 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
         "impl harvestcircle_application::ports::DurableOperationRepository for harvestcircle_storage::Database",
         "harvestcircle_application::ports::BoxFuture",
         "pub fn harvestcircle_storage::OsKeyringSecretStore::contains(&self, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture",
-        "pub fn harvestcircle_storage::OsKeyringSecretStore::put(&self, harvestcircle_domain::key::PublicKey, harvestcircle_domain::key::SecretKeyInput) -> harvestcircle_application::ports::BoxFuture",
+        "pub fn harvestcircle_storage::OsKeyringSecretStore::put<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_domain::key::PublicKey, harvestcircle_domain::key::SecretKeyInput) -> harvestcircle_application::ports::BoxFuture<'a",
+        "pub fn harvestcircle_storage::OsKeyringSecretStore::delete<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture<'a",
         "pub fn harvestcircle_storage::harvestcircle_migration_catalog()",
         "pub fn harvestcircle_storage::harvestcircle_schema_catalog()",
     ] {
