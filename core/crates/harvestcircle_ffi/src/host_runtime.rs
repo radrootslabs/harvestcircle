@@ -98,6 +98,14 @@ impl HostRuntime {
         receiver.recv().map_err(|_| ())
     }
 
+    pub(crate) async fn run<F>(&self, future: F) -> Result<F::Output, ()>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.handle.spawn(future).await.map_err(|_| ())
+    }
+
     pub(crate) async fn shutdown(&self) -> Result<(), ()> {
         let sender = self.shutdown.lock().map_err(|_| ())?.take();
         if let Some(sender) = sender {

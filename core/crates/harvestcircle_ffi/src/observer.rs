@@ -197,8 +197,20 @@ impl HarvestCircleAppCore {
             .close()
             .await
             .map_err(HarvestCircleError::from)?;
-        if let Some(keyring) = self.inner.keyring.as_ref() {
-            keyring.close().await.map_err(HarvestCircleError::from)?;
+        match (
+            self.inner.keyring.as_ref(),
+            self.inner.host_runtime.as_ref(),
+        ) {
+            (Some(keyring), Some(runtime)) => {
+                let keyring = Arc::clone(keyring);
+                runtime
+                    .run(async move { keyring.close().await })
+                    .await
+                    .map_err(|()| closed_error())?
+                    .map_err(HarvestCircleError::from)?;
+            }
+            (Some(_), None) => return Err(closed_error()),
+            (None, _) => {}
         }
         if let Some(runtime) = self.inner.host_runtime.as_ref() {
             runtime.shutdown().await.map_err(|()| closed_error())?;
