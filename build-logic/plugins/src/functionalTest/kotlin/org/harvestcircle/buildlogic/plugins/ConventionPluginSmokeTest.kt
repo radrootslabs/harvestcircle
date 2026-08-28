@@ -603,7 +603,7 @@ class ConventionPluginSmokeTest {
         product.coordinate_digest=bf50f9ea6c2537406de255f025463e670eb6263c295f992f7e4c4db36d957064
         snapshot.schema=1
         storage.schema.minimum=1
-        storage.schema.current=1
+        storage.schema.current=2
         product.version=0.1.0-alpha
         package.version=1.0.0
         source.provenance_digest=40b9eccd486026128f92de8d55d002a9030f235a35f9b754c98c0b0d387bd8c0

@@ -50,7 +50,7 @@ public class FfiCompatibilityBaseline private constructor(
             require(values.getValue("contract.minor") == "3")
             require(values.getValue("snapshot.schema") == "1")
             require(values.getValue("storage.schema.minimum") == "1")
-            require(values.getValue("storage.schema.current") == "1")
+            require(values.getValue("storage.schema.current") == "2")
             listOf("contract.hash", "product.coordinate_digest", "source.provenance_digest").forEach { key ->
                 require(values.getValue(key).isCanonicalHex(64))
             }
