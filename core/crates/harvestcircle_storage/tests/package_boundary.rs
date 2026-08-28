@@ -12,7 +12,9 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
     let workspace_manifest = read(&workspace_root.join("Cargo.toml"));
     let lock = read(&workspace_root.join("Cargo.lock"));
     let root_source = read(&crate_root.join("src/lib.rs"));
+    let contract_source = read(&crate_root.join("src/contract.rs"));
     let database_source = read(&crate_root.join("src/db.rs"));
+    let journal_source = read(&crate_root.join("src/journal.rs"));
     let keyring_source = read(&crate_root.join("src/os_keyring.rs"));
     let api = read(&workspace_root.join("compatibility/harvestcircle-storage-api-v1.txt"));
 
@@ -74,6 +76,9 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
         "pub fn harvestcircle_storage::OsKeyringSecretStore::delete<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture<'a",
         "pub fn harvestcircle_storage::harvestcircle_migration_catalog()",
         "pub fn harvestcircle_storage::harvestcircle_schema_catalog()",
+        "pub const harvestcircle_storage::HARVESTCIRCLE_DURABLE_OPERATION_CAPACITY: usize",
+        "pub const harvestcircle_storage::HARVESTCIRCLE_DURABLE_OPERATION_CLEANUP_BATCH: usize",
+        "pub const harvestcircle_storage::HARVESTCIRCLE_TERMINAL_RECEIPT_RETENTION_SECONDS: i64",
     ] {
         assert!(api.contains(required), "API baseline is missing {required}");
     }
@@ -94,6 +99,45 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
         assert!(
             !api.contains(forbidden),
             "API baseline exposes forbidden surface {forbidden}"
+        );
+    }
+
+    for required in [
+        "pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 2;",
+        "pub const HARVESTCIRCLE_UNFINISHED_DURABLE_OPERATION_CAPACITY: usize = 1_024;",
+        "pub const HARVESTCIRCLE_DURABLE_OPERATION_CAPACITY: usize = 4_096;",
+        "pub const HARVESTCIRCLE_DURABLE_OPERATION_CLEANUP_BATCH: usize = 256;",
+        "pub const HARVESTCIRCLE_TERMINAL_RECEIPT_RETENTION_SECONDS: i64 = 7 * 24 * 60 * 60;",
+        "bound_durable_operation_receipts",
+        "completed_at_unix_s",
+        "durable_operations_receipt_insert_guard",
+        "durable_operations_receipt_update_guard",
+    ] {
+        assert!(
+            contract_source.contains(required),
+            "storage contract is missing {required}"
+        );
+    }
+    for required in [
+        "LIMIT 1025",
+        "LIMIT 4097",
+        "LIMIT 256",
+        "completed_at_unix_s < ?",
+        "completed_at_unix_s = ?",
+    ] {
+        assert!(
+            journal_source.contains(required),
+            "journal enforcement is missing {required}"
+        );
+    }
+    for forbidden in [
+        "DELETE FROM durable_operations WHERE terminal_outcome IS NOT NULL",
+        "DELETE FROM durable_operations WHERE completed_at_unix_s IS NOT NULL;",
+        "ORDER BY completed_at_unix_s DESC",
+    ] {
+        assert!(
+            !journal_source.contains(forbidden),
+            "journal reintroduced unbounded or in-window eviction: {forbidden}"
         );
     }
 }

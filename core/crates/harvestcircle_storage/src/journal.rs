@@ -9,6 +9,10 @@ use harvestcircle_domain::{
 use radroots_service_sqlite::ServiceSqliteTransaction;
 use sqlx::Row;
 
+use crate::contract::{
+    HARVESTCIRCLE_DURABLE_OPERATION_CAPACITY, HARVESTCIRCLE_DURABLE_OPERATION_CLEANUP_BATCH,
+    HARVESTCIRCLE_TERMINAL_RECEIPT_RETENTION_SECONDS,
+};
 use crate::db::{corrupt_storage, map_transaction_error, storage_unavailable};
 use crate::{Database, HARVESTCIRCLE_UNFINISHED_DURABLE_OPERATION_CAPACITY};
 
@@ -26,7 +30,7 @@ const DURABLE_OPERATION_PROJECTION: &str = "SELECT \
     CASE WHEN terminal_outcome IS NULL THEN NULL ELSE length(CAST(terminal_outcome AS BLOB)) END AS terminal_outcome_bytes, \
     CASE WHEN prior_binding_availability IS NULL THEN NULL ELSE substr(CAST(prior_binding_availability AS BLOB), 1, 19) END AS prior_binding_availability, \
     CASE WHEN prior_binding_availability IS NULL THEN NULL ELSE length(CAST(prior_binding_availability AS BLOB)) END AS prior_binding_availability_bytes, \
-    resulting_revision FROM durable_operations";
+    resulting_revision, completed_at_unix_s FROM durable_operations";
 
 impl DurableOperationRepository for Database {
     #[allow(clippy::too_many_arguments)]
@@ -56,6 +60,7 @@ impl DurableOperationRepository for Database {
                             }
                             return Ok(DurableOperationStart::Existing(operation));
                         }
+                        cleanup_expired_terminal_receipts(transaction, updated_at).await?;
                         let unfinished: i64 = sqlx::query_scalar(
                             "SELECT count(*) FROM (SELECT 1 FROM durable_operations \
                              WHERE terminal_outcome IS NULL LIMIT 1025)",
@@ -66,6 +71,18 @@ impl DurableOperationRepository for Database {
                         if usize::try_from(unfinished).ok().is_none_or(|count| {
                             count >= HARVESTCIRCLE_UNFINISHED_DURABLE_OPERATION_CAPACITY
                         }) {
+                            return Err(operation_capacity_exhausted());
+                        }
+                        let total: i64 = sqlx::query_scalar(
+                            "SELECT count(*) FROM (SELECT 1 FROM durable_operations LIMIT 4097)",
+                        )
+                        .fetch_one(&mut *transaction)
+                        .await
+                        .map_err(|_| storage_unavailable())?;
+                        if usize::try_from(total)
+                            .ok()
+                            .is_none_or(|count| count >= HARVESTCIRCLE_DURABLE_OPERATION_CAPACITY)
+                        {
                             return Err(operation_capacity_exhausted());
                         }
                         let result = sqlx::query(
@@ -181,11 +198,13 @@ impl DurableOperationRepository for Database {
                         }
                         let result = sqlx::query(
                             "UPDATE durable_operations SET phase = 'finalized', \
-                             terminal_outcome = ?, resulting_revision = ?, updated_at_unix_s = ? \
+                             terminal_outcome = ?, resulting_revision = ?, updated_at_unix_s = ?, \
+                             completed_at_unix_s = ? \
                              WHERE request_id = ? AND phase = ? AND terminal_outcome IS NULL",
                         )
                         .bind(encode_outcome(outcome))
                         .bind(resulting_revision)
+                        .bind(updated_at.as_seconds())
                         .bind(updated_at.as_seconds())
                         .bind(&request_id)
                         .bind(encode_phase(expected_phase))
@@ -294,9 +313,22 @@ fn decode_operation(row: &sqlx::sqlite::SqliteRow) -> Result<DurableIdentityOper
         row.try_get("resulting_revision")
             .map_err(|_| corrupt_storage())?,
     )?;
-    let terminal = outcome.map(|outcome| {
-        DurableOperationReceipt::new(request_id.clone(), identity, outcome, resulting_revision)
-    });
+    let completed_at = row
+        .try_get::<Option<i64>, _>("completed_at_unix_s")
+        .map_err(|_| corrupt_storage())?
+        .map(|value| UnixTimestamp::from_seconds(value).ok_or_else(corrupt_storage))
+        .transpose()?;
+    let terminal = match (outcome, completed_at) {
+        (Some(outcome), Some(completed_at)) => Some(DurableOperationReceipt::new(
+            request_id.clone(),
+            identity,
+            outcome,
+            resulting_revision,
+            completed_at,
+        )),
+        (None, None) if resulting_revision.is_none() => None,
+        _ => return Err(corrupt_storage()),
+    };
     Ok(DurableIdentityOperation::new(
         request_id,
         kind,
@@ -308,6 +340,33 @@ fn decode_operation(row: &sqlx::sqlite::SqliteRow) -> Result<DurableIdentityOper
         diagnostic,
         terminal,
     ))
+}
+
+async fn cleanup_expired_terminal_receipts(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    now: UnixTimestamp,
+) -> Result<(), SafeError> {
+    let cutoff = now
+        .as_seconds()
+        .saturating_sub(HARVESTCIRCLE_TERMINAL_RECEIPT_RETENTION_SECONDS);
+    let result = sqlx::query(
+        "DELETE FROM durable_operations WHERE request_id IN (\
+             SELECT request_id FROM durable_operations \
+             WHERE completed_at_unix_s IS NOT NULL AND completed_at_unix_s < ? \
+             ORDER BY completed_at_unix_s, request_id LIMIT 256\
+         )",
+    )
+    .bind(cutoff)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|_| storage_unavailable())?;
+    if result.rows_affected()
+        > u64::try_from(HARVESTCIRCLE_DURABLE_OPERATION_CLEANUP_BATCH)
+            .expect("cleanup bound fits in u64")
+    {
+        return Err(corrupt_storage());
+    }
+    Ok(())
 }
 
 fn required_key(

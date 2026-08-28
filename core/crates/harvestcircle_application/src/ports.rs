@@ -109,6 +109,7 @@ pub struct DurableOperationReceipt {
     identity: PublicKey,
     outcome: DurableTerminalOutcome,
     resulting_revision: Option<u64>,
+    completed_at: UnixTimestamp,
 }
 
 impl DurableOperationReceipt {
@@ -118,12 +119,14 @@ impl DurableOperationReceipt {
         identity: PublicKey,
         outcome: DurableTerminalOutcome,
         resulting_revision: Option<u64>,
+        completed_at: UnixTimestamp,
     ) -> Self {
         Self {
             request_id,
             identity,
             outcome,
             resulting_revision,
+            completed_at,
         }
     }
 
@@ -145,6 +148,11 @@ impl DurableOperationReceipt {
     #[must_use]
     pub const fn resulting_revision(&self) -> Option<u64> {
         self.resulting_revision
+    }
+
+    #[must_use]
+    pub const fn completed_at(&self) -> UnixTimestamp {
+        self.completed_at
     }
 }
 
@@ -766,9 +774,11 @@ mod tests {
             PublicKey::from_bytes([7; 32]).expect("valid public key"),
             DurableTerminalOutcome::Completed,
             Some(42),
+            UnixTimestamp::from_seconds(7).expect("time"),
         );
         assert_eq!(receipt.request_id(), &request);
         assert_eq!(receipt.resulting_revision(), Some(42));
+        assert_eq!(receipt.completed_at().as_seconds(), 7);
         for invalid in [
             "",
             "contains space",

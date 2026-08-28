@@ -10,7 +10,9 @@ use radroots_service_sqlite::{
 };
 use radroots_storage::event::SourceGeneration;
 
-use crate::contract::harvestcircle_initial_schema_sql;
+use crate::contract::{
+    HARVESTCIRCLE_INITIAL_STATE_SCHEMA_VERSION, harvestcircle_initial_schema_sql,
+};
 use crate::{HARVESTCIRCLE_STATE_SCHEMA_VERSION, HarvestCircleStorageContract};
 
 pub const CURRENT_SCHEMA_VERSION: u32 = HARVESTCIRCLE_STATE_SCHEMA_VERSION;
@@ -47,7 +49,8 @@ impl Database {
         let metadata = ServiceDatabaseMetadata::new(
             contract.paths(),
             generation,
-            NonZeroU32::new(CURRENT_SCHEMA_VERSION).expect("schema v1 is nonzero"),
+            NonZeroU32::new(HARVESTCIRCLE_INITIAL_STATE_SCHEMA_VERSION)
+                .expect("initial schema version is nonzero"),
             created_at_unix_ms,
             contract.application_id(),
         )

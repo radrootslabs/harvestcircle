@@ -67,6 +67,8 @@ pub const harvestcircle_storage::HARVESTCIRCLE_ACTOR_MAILBOX_CAPACITY: usize
 pub const harvestcircle_storage::HARVESTCIRCLE_APPLICATION_ID: u32
 pub const harvestcircle_storage::HARVESTCIRCLE_COMMAND_DEADLINE_MAX_MS: u64
 pub const harvestcircle_storage::HARVESTCIRCLE_COMMAND_DEADLINE_MIN_MS: u64
+pub const harvestcircle_storage::HARVESTCIRCLE_DURABLE_OPERATION_CAPACITY: usize
+pub const harvestcircle_storage::HARVESTCIRCLE_DURABLE_OPERATION_CLEANUP_BATCH: usize
 pub const harvestcircle_storage::HARVESTCIRCLE_EVENTS_PER_RELAY_CAPACITY: usize
 pub const harvestcircle_storage::HARVESTCIRCLE_EVENTS_TOTAL_CAPACITY: usize
 pub const harvestcircle_storage::HARVESTCIRCLE_IDENTITY_CAPACITY: usize
@@ -77,6 +79,7 @@ pub const harvestcircle_storage::HARVESTCIRCLE_RELAY_ENDPOINT_CAPACITY: usize
 pub const harvestcircle_storage::HARVESTCIRCLE_RELAY_URL_UTF8_BYTES: usize
 pub const harvestcircle_storage::HARVESTCIRCLE_SERVICE_ID: &str
 pub const harvestcircle_storage::HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32
+pub const harvestcircle_storage::HARVESTCIRCLE_TERMINAL_RECEIPT_RETENTION_SECONDS: i64
 pub const harvestcircle_storage::HARVESTCIRCLE_UNFINISHED_DURABLE_OPERATION_CAPACITY: usize
 pub fn harvestcircle_storage::harvestcircle_migration_catalog() -> core::result::Result<radroots_service_sqlite::migration::MigrationCatalog, harvestcircle_storage::HarvestCircleStorageContractError>
 pub fn harvestcircle_storage::harvestcircle_schema_catalog() -> core::result::Result<radroots_service_sqlite::integrity::catalog::SchemaCatalog, harvestcircle_storage::HarvestCircleStorageContractError>

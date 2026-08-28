@@ -219,7 +219,7 @@ fn validate_baseline_inputs(baseline: &BTreeMap<String, String>) {
     assert_eq!(required(baseline, "contract.minor"), "3");
     assert_eq!(required(baseline, "snapshot.schema"), "1");
     assert_eq!(required(baseline, "storage.schema.minimum"), "1");
-    assert_eq!(required(baseline, "storage.schema.current"), "1");
+    assert_eq!(required(baseline, "storage.schema.current"), "2");
     assert_eq!(
         required(baseline, "product.version"),
         env!("CARGO_PKG_VERSION")
@@ -246,7 +246,7 @@ fn validate_baseline_inputs(baseline: &BTreeMap<String, String>) {
         required(baseline, "source.foundation_baseline")
     );
 
-    assert_eq!(required(baseline, "storage.schema.current"), "1");
+    assert_eq!(required(baseline, "storage.schema.current"), "2");
 }
 
 fn required<'a>(baseline: &'a BTreeMap<String, String>, key: &str) -> &'a str {

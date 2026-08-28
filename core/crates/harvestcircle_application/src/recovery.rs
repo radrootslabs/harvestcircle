@@ -570,7 +570,7 @@ pub(crate) mod tests {
             expected_phase: DurableOperationPhase,
             outcome: DurableTerminalOutcome,
             resulting_revision: Option<u64>,
-            _updated_at: UnixTimestamp,
+            updated_at: UnixTimestamp,
         ) -> BoxFuture<'a, Result<DurableOperationReceipt, SafeError>> {
             Box::pin(async move {
                 let mut operation = self.operation();
@@ -582,6 +582,7 @@ pub(crate) mod tests {
                     operation.identity(),
                     outcome,
                     resulting_revision,
+                    updated_at,
                 );
                 *operation = Self::replace(
                     &operation,

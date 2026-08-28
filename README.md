@@ -100,6 +100,15 @@ secret. Exact same-operation replay is idempotent only when the complete
 envelope matches; another operation conflicts and never overwrites the existing
 credential. No compatibility path reads the former plaintext credential shape.
 
+The state database initializes at schema v1 and applies the pinned schema-v2
+operation-journal migration before the host is exposed. Terminal receipts carry
+an explicit completion time and remain replayable for exactly seven days.
+Admission caps unfinished operations at 1,024 and all journal rows at 4,096,
+deletes at most 256 expired terminal receipts in one transaction, reserves each
+accepted operation's terminal row in place, and never evicts an in-window
+receipt. The migration, resulting table and guards, and both schema snapshots
+are checksum-pinned; invalid legacy rows roll the migration back atomically.
+
 ## Project documentation
 
 The consuming Radroots monorepo owns normative HarvestCircle specifications,

@@ -142,6 +142,7 @@ async fn canonical_database_preserves_legacy_state_and_enforces_identity_capacit
         .await
         .expect("database");
     let generation = database.metadata().source_generation();
+    assert_eq!(database.metadata().state_schema_version().get(), 2);
 
     let first_identity = identity(0);
     database
@@ -185,6 +186,7 @@ async fn canonical_database_preserves_legacy_state_and_enforces_identity_capacit
         .await
         .expect("reopen");
     assert_eq!(reopened.metadata().source_generation(), generation);
+    assert_eq!(reopened.metadata().state_schema_version().get(), 2);
     assert_eq!(
         reopened
             .list_identities()
@@ -273,7 +275,7 @@ async fn unfinished_uuid_ledger_enforces_exact_capacity_and_recovers_after_final
         .expect_err("capacity must reject");
     assert_eq!(error.code(), SafeErrorCode::InvalidApplicationState);
 
-    database
+    let receipt = database
         .finalize_durable_operation(
             &requests[0],
             DurableOperationPhase::IntentRecorded,
@@ -283,6 +285,7 @@ async fn unfinished_uuid_ledger_enforces_exact_capacity_and_recovers_after_final
         )
         .await
         .expect("finalize one operation");
+    assert_eq!(receipt.completed_at().as_seconds(), 3);
     database
         .begin_durable_operation(
             &excess,
@@ -295,4 +298,218 @@ async fn unfinished_uuid_ledger_enforces_exact_capacity_and_recovers_after_final
         .await
         .expect("capacity recovered");
     database.close().await.expect("close");
+}
+
+async fn seed_terminal_operations(
+    connection: &mut SqliteConnection,
+    count: usize,
+    completed_at: impl Fn(usize) -> i64,
+) {
+    let identity = PublicKey::from_bytes([7; 32]).expect("public key");
+    let mut transaction = connection.begin().await.expect("fixture transaction");
+    for index in 0..count {
+        let request = DurableRequestId::new_v7();
+        let completed_at = completed_at(index);
+        sqlx::query(
+            "INSERT INTO durable_operations (request_id, operation_kind, account_public_key, \
+             binding_public_key, phase, terminal_outcome, updated_at_unix_s, \
+             completed_at_unix_s) \
+             VALUES (?, 'import', ?, ?, 'finalized', 'completed', ?, ?)",
+        )
+        .bind(request.as_str())
+        .bind(identity.as_bytes().as_slice())
+        .bind(identity.as_bytes().as_slice())
+        .bind(completed_at)
+        .bind(completed_at)
+        .execute(&mut *transaction)
+        .await
+        .expect("terminal fixture operation");
+    }
+    transaction.commit().await.expect("fixture commit");
+}
+
+#[tokio::test]
+async fn terminal_retention_is_bounded_batched_and_never_evicts_in_window_receipts() {
+    const TOTAL_CAPACITY: usize = 4_096;
+    const CLEANUP_BATCH: usize = 256;
+    const RETENTION_SECONDS: i64 = 7 * 24 * 60 * 60;
+    const EXPIRED: usize = 300;
+    const NOW: i64 = 1_000_000;
+
+    let directory = tempdir().expect("directory");
+    let context = runtime_context(&directory);
+    let database_path = context.paths().state().join("state.sqlite");
+    let build = build_identity();
+    let database = Database::open(&context, 1, 1, &build)
+        .await
+        .expect("database");
+    database.close().await.expect("fixture close");
+
+    let options = SqliteConnectOptions::new()
+        .filename(&database_path)
+        .create_if_missing(false);
+    let mut connection = SqliteConnection::connect_with(&options)
+        .await
+        .expect("fixture connection");
+    seed_terminal_operations(&mut connection, TOTAL_CAPACITY, |index| {
+        if index < EXPIRED {
+            NOW - RETENTION_SECONDS - 1
+        } else {
+            NOW - RETENTION_SECONDS
+        }
+    })
+    .await;
+    connection.close().await.expect("fixture close");
+
+    let database = Database::open(&context, 2, 2, &build)
+        .await
+        .expect("reopen");
+    let identity = PublicKey::from_bytes([7; 32]).expect("public key");
+    database
+        .begin_durable_operation(
+            &DurableRequestId::new_v7(),
+            DurableOperationKind::Import,
+            identity,
+            None,
+            OperationPriorState::new(None, None),
+            UnixTimestamp::from_seconds(NOW).expect("time"),
+        )
+        .await
+        .expect("admission after bounded cleanup");
+    database.close().await.expect("close after cleanup");
+
+    let mut connection = SqliteConnection::connect_with(&options)
+        .await
+        .expect("inspect connection");
+    let total: i64 = sqlx::query_scalar("SELECT count(*) FROM durable_operations")
+        .fetch_one(&mut connection)
+        .await
+        .expect("total");
+    let expired: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM durable_operations WHERE completed_at_unix_s < ?")
+            .bind(NOW - RETENTION_SECONDS)
+            .fetch_one(&mut connection)
+            .await
+            .expect("expired");
+    let in_window: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM durable_operations WHERE completed_at_unix_s = ?")
+            .bind(NOW - RETENTION_SECONDS)
+            .fetch_one(&mut connection)
+            .await
+            .expect("in-window");
+    assert_eq!(
+        total,
+        i64::try_from(TOTAL_CAPACITY - CLEANUP_BATCH + 1).unwrap()
+    );
+    assert_eq!(expired, i64::try_from(EXPIRED - CLEANUP_BATCH).unwrap());
+    assert_eq!(in_window, i64::try_from(TOTAL_CAPACITY - EXPIRED).unwrap());
+    connection.close().await.expect("inspection close");
+
+    let database = Database::open(&context, 3, 3, &build)
+        .await
+        .expect("second reopen");
+    database
+        .begin_durable_operation(
+            &DurableRequestId::new_v7(),
+            DurableOperationKind::Import,
+            identity,
+            None,
+            OperationPriorState::new(None, None),
+            UnixTimestamp::from_seconds(NOW).expect("time"),
+        )
+        .await
+        .expect("admission after remaining cleanup");
+    database.close().await.expect("second cleanup close");
+
+    let mut connection = SqliteConnection::connect_with(&options)
+        .await
+        .expect("final inspection");
+    let expired: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM durable_operations WHERE completed_at_unix_s < ?")
+            .bind(NOW - RETENTION_SECONDS)
+            .fetch_one(&mut connection)
+            .await
+            .expect("remaining expired");
+    let in_window: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM durable_operations WHERE completed_at_unix_s = ?")
+            .bind(NOW - RETENTION_SECONDS)
+            .fetch_one(&mut connection)
+            .await
+            .expect("remaining in-window");
+    assert_eq!(expired, 0);
+    assert_eq!(in_window, i64::try_from(TOTAL_CAPACITY - EXPIRED).unwrap());
+    connection.close().await.expect("final inspection close");
+}
+
+#[tokio::test]
+async fn total_capacity_reserves_terminal_receipts_without_in_window_eviction() {
+    const TOTAL_CAPACITY: usize = 4_096;
+    const NOW: i64 = 1_000_000;
+
+    let directory = tempdir().expect("directory");
+    let context = runtime_context(&directory);
+    let database_path = context.paths().state().join("state.sqlite");
+    let build = build_identity();
+    let database = Database::open(&context, 1, 1, &build)
+        .await
+        .expect("database");
+    database.close().await.expect("fixture close");
+
+    let options = SqliteConnectOptions::new()
+        .filename(&database_path)
+        .create_if_missing(false);
+    let mut connection = SqliteConnection::connect_with(&options)
+        .await
+        .expect("fixture connection");
+    seed_terminal_operations(&mut connection, TOTAL_CAPACITY - 1, |_| NOW).await;
+    connection.close().await.expect("fixture close");
+
+    let database = Database::open(&context, 2, 2, &build)
+        .await
+        .expect("reopen");
+    let reserved = DurableRequestId::new_v7();
+    database
+        .begin_durable_operation(
+            &reserved,
+            DurableOperationKind::Create,
+            PublicKey::from_bytes([7; 32]).expect("public key"),
+            None,
+            OperationPriorState::new(None, None),
+            UnixTimestamp::from_seconds(NOW).expect("time"),
+        )
+        .await
+        .expect("last row must reserve its terminal receipt");
+    database
+        .finalize_durable_operation(
+            &reserved,
+            DurableOperationPhase::IntentRecorded,
+            DurableTerminalOutcome::Completed,
+            None,
+            UnixTimestamp::from_seconds(NOW + 1).expect("time"),
+        )
+        .await
+        .expect("reserved row must finalize in place");
+    let error = database
+        .begin_durable_operation(
+            &DurableRequestId::new_v7(),
+            DurableOperationKind::Create,
+            PublicKey::from_bytes([7; 32]).expect("public key"),
+            None,
+            OperationPriorState::new(None, None),
+            UnixTimestamp::from_seconds(NOW).expect("time"),
+        )
+        .await
+        .expect_err("total capacity must reserve the terminal journal");
+    assert_eq!(error.code(), SafeErrorCode::InvalidApplicationState);
+    database.close().await.expect("close");
+
+    let mut connection = SqliteConnection::connect_with(&options)
+        .await
+        .expect("inspection connection");
+    let total: i64 = sqlx::query_scalar("SELECT count(*) FROM durable_operations")
+        .fetch_one(&mut connection)
+        .await
+        .expect("total");
+    assert_eq!(total, i64::try_from(TOTAL_CAPACITY).unwrap());
+    connection.close().await.expect("inspection close");
 }

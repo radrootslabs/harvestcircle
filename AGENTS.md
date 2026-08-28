@@ -78,9 +78,14 @@ substitute.
 
 - Product state is bound only through `radroots_runtime_paths::RuntimeContext`
   for service `harvestcircle` and instance `desktop`; the canonical database
-  and lock names are `state.sqlite` and `state.lock`. The exact schema starts
-  at v1, future migrations start at v2, and `radroots_service_sqlite` owns the
-  governed SQLite mechanics.
+  and lock names are `state.sqlite` and `state.lock`. Fresh state initializes
+  at schema v1 and is migrated through the pinned current schema v2 before host
+  exposure; `radroots_service_sqlite` owns the governed SQLite mechanics.
+- The durable-operation journal records terminal completion time, retains
+  terminal receipts for exactly seven days, admits at most 1,024 unfinished
+  operations and 4,096 total rows, and deletes no more than 256 expired terminal
+  rows in one transaction. Admission reserves terminal capacity in the same row
+  and must never evict an in-window receipt.
 - `harvestcircle.sqlite3` is legacy evidence only. Never delete, rename,
   import, dual-read, dual-write, or otherwise treat it as current state.
 - SQLx is the only high-level SQLite library. HarvestCircle may use its sealed

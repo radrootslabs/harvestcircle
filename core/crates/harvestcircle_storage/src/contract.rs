@@ -5,17 +5,21 @@ use std::error::Error;
 
 use radroots_runtime_paths::RuntimeContext;
 use radroots_service_sqlite::{
-    MigrationCatalog, MigrationDescriptor, SchemaCatalog, SchemaCatalogContractError, SchemaDigest,
-    SchemaObject, SchemaObjectKind, SchemaVersionCatalog, ServiceSqliteApplicationId,
-    ServiceSqlitePaths,
+    MigrationCatalog, MigrationChecksum, MigrationDescriptor, SchemaCatalog,
+    SchemaCatalogContractError, SchemaDigest, SchemaObject, SchemaObjectKind, SchemaVersionCatalog,
+    ServiceSqliteApplicationId, ServiceSqlitePaths,
 };
 
 pub const HARVESTCIRCLE_SERVICE_ID: &str = "harvestcircle";
 pub const HARVESTCIRCLE_INSTANCE_ID: &str = "desktop";
 pub const HARVESTCIRCLE_APPLICATION_ID: u32 = 0x4843_5231;
-pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 1;
+pub(crate) const HARVESTCIRCLE_INITIAL_STATE_SCHEMA_VERSION: u32 = 1;
+pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 2;
 pub const HARVESTCIRCLE_IDENTITY_CAPACITY: usize = 256;
 pub const HARVESTCIRCLE_UNFINISHED_DURABLE_OPERATION_CAPACITY: usize = 1_024;
+pub const HARVESTCIRCLE_DURABLE_OPERATION_CAPACITY: usize = 4_096;
+pub const HARVESTCIRCLE_DURABLE_OPERATION_CLEANUP_BATCH: usize = 256;
+pub const HARVESTCIRCLE_TERMINAL_RECEIPT_RETENTION_SECONDS: i64 = 7 * 24 * 60 * 60;
 pub const HARVESTCIRCLE_PREFERENCE_VALUE_UTF8_BYTES: usize = 4_096;
 pub const HARVESTCIRCLE_RELAY_ENDPOINT_CAPACITY: usize = 16;
 pub const HARVESTCIRCLE_RELAY_URL_UTF8_BYTES: usize = 2_048;
@@ -135,6 +139,140 @@ pub(crate) const CREATE_DURABLE_OPERATIONS_SQL: &str = r#"CREATE TABLE durable_o
     )
 ) STRICT"#;
 
+const CREATE_DURABLE_OPERATIONS_V2_SQL: &str = r#"CREATE TABLE durable_operations (
+    request_id TEXT NOT NULL PRIMARY KEY CHECK (
+        length(CAST(request_id AS BLOB)) = 36
+        AND request_id = lower(request_id)
+        AND request_id NOT GLOB '*[^0-9a-f-]*'
+        AND substr(request_id, 9, 1) = '-'
+        AND substr(request_id, 14, 1) = '-'
+        AND substr(request_id, 15, 1) = '7'
+        AND substr(request_id, 19, 1) = '-'
+        AND substr(request_id, 20, 1) IN ('8', '9', 'a', 'b')
+        AND substr(request_id, 24, 1) = '-'
+    ),
+    operation_kind TEXT NOT NULL CHECK (operation_kind IN ('create', 'import', 'repair', 'remove')),
+    account_public_key BLOB NOT NULL CHECK (length(account_public_key) = 32),
+    binding_public_key BLOB NOT NULL CHECK (length(binding_public_key) = 32),
+    expected_revision INTEGER CHECK (expected_revision IS NULL OR expected_revision >= 0),
+    phase TEXT NOT NULL CHECK (phase IN (
+        'intent_recorded', 'credential_written', 'metadata_committed', 'selection_committed',
+        'compensation_pending', 'credential_deleted', 'metadata_deleted', 'finalized'
+    )),
+    terminal_outcome TEXT CHECK (
+        terminal_outcome IS NULL OR terminal_outcome IN ('completed', 'cancelled', 'failed')
+    ),
+    prior_selected_public_key BLOB CHECK (
+        prior_selected_public_key IS NULL OR length(prior_selected_public_key) = 32
+    ),
+    prior_binding_availability TEXT CHECK (
+        prior_binding_availability IS NULL OR prior_binding_availability IN (
+            'available', 'credential_missing', 'store_unavailable'
+        )
+    ),
+    resulting_revision INTEGER CHECK (resulting_revision IS NULL OR resulting_revision >= 0),
+    updated_at_unix_s INTEGER NOT NULL CHECK (updated_at_unix_s >= 0),
+    diagnostic_code TEXT CHECK (diagnostic_code IS NULL OR diagnostic_code IN (
+        'storage_unavailable', 'keyring_unavailable', 'credential_missing',
+        'compensation_failed', 'conflict', 'expired'
+    )), completed_at_unix_s INTEGER CHECK (
+    completed_at_unix_s IS NULL OR completed_at_unix_s >= 0
+),
+    CHECK (account_public_key = binding_public_key),
+    CHECK (
+        (phase = 'finalized' AND terminal_outcome IS NOT NULL)
+        OR
+        (phase <> 'finalized' AND terminal_outcome IS NULL AND resulting_revision IS NULL)
+    )
+) STRICT"#;
+
+const CREATE_DURABLE_OPERATIONS_RECEIPT_INSERT_GUARD_SQL: &str = r#"CREATE TRIGGER durable_operations_receipt_insert_guard
+BEFORE INSERT ON durable_operations
+WHEN NOT (
+    (
+        NEW.phase = 'finalized'
+        AND NEW.terminal_outcome IS NOT NULL
+        AND NEW.completed_at_unix_s IS NOT NULL
+    )
+    OR
+    (
+        NEW.phase <> 'finalized'
+        AND NEW.terminal_outcome IS NULL
+        AND NEW.resulting_revision IS NULL
+        AND NEW.completed_at_unix_s IS NULL
+    )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'durable operation receipt invariant');
+END"#;
+
+const CREATE_DURABLE_OPERATIONS_RECEIPT_UPDATE_GUARD_SQL: &str = r#"CREATE TRIGGER durable_operations_receipt_update_guard
+BEFORE UPDATE ON durable_operations
+WHEN NOT (
+    (
+        NEW.phase = 'finalized'
+        AND NEW.terminal_outcome IS NOT NULL
+        AND NEW.completed_at_unix_s IS NOT NULL
+    )
+    OR
+    (
+        NEW.phase <> 'finalized'
+        AND NEW.terminal_outcome IS NULL
+        AND NEW.resulting_revision IS NULL
+        AND NEW.completed_at_unix_s IS NULL
+    )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'durable operation receipt invariant');
+END"#;
+
+pub(crate) const MIGRATE_DURABLE_OPERATIONS_V2_SQL: &str = r#"ALTER TABLE durable_operations
+ADD COLUMN completed_at_unix_s INTEGER CHECK (
+    completed_at_unix_s IS NULL OR completed_at_unix_s >= 0
+);
+UPDATE durable_operations
+SET completed_at_unix_s = updated_at_unix_s
+WHERE phase = 'finalized';
+CREATE TRIGGER durable_operations_receipt_insert_guard
+BEFORE INSERT ON durable_operations
+WHEN NOT (
+    (
+        NEW.phase = 'finalized'
+        AND NEW.terminal_outcome IS NOT NULL
+        AND NEW.completed_at_unix_s IS NOT NULL
+    )
+    OR
+    (
+        NEW.phase <> 'finalized'
+        AND NEW.terminal_outcome IS NULL
+        AND NEW.resulting_revision IS NULL
+        AND NEW.completed_at_unix_s IS NULL
+    )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'durable operation receipt invariant');
+END;
+CREATE TRIGGER durable_operations_receipt_update_guard
+BEFORE UPDATE ON durable_operations
+WHEN NOT (
+    (
+        NEW.phase = 'finalized'
+        AND NEW.terminal_outcome IS NOT NULL
+        AND NEW.completed_at_unix_s IS NOT NULL
+    )
+    OR
+    (
+        NEW.phase <> 'finalized'
+        AND NEW.terminal_outcome IS NULL
+        AND NEW.resulting_revision IS NULL
+        AND NEW.completed_at_unix_s IS NULL
+    )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'durable operation receipt invariant');
+END;
+UPDATE durable_operations SET request_id = request_id"#;
+
 pub(crate) const CREATE_INSTALLATION_IDENTITY_SQL: &str = r#"CREATE TABLE installation_identity (
     singleton INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 1),
     installation_id BLOB NOT NULL CHECK (length(installation_id) = 16)
@@ -206,8 +344,29 @@ const VERSION_ONE_DIGEST: [u8; 32] = [
     61, 122, 56, 39, 178, 126, 179, 157, 145, 167, 19, 2, 172, 134, 213, 107, 151, 196, 212, 57,
     17, 112, 163, 67, 240, 140, 61, 62, 5, 101, 14, 71,
 ];
+const DURABLE_OPERATIONS_V2_DIGEST: [u8; 32] = [
+    162, 24, 8, 218, 50, 32, 224, 252, 60, 229, 209, 160, 204, 46, 226, 37, 88, 102, 22, 2, 156,
+    177, 28, 19, 235, 161, 26, 125, 65, 126, 59, 135,
+];
+const DURABLE_OPERATIONS_RECEIPT_INSERT_GUARD_DIGEST: [u8; 32] = [
+    130, 178, 229, 235, 158, 182, 51, 151, 133, 196, 115, 85, 8, 166, 169, 136, 62, 26, 211, 92,
+    215, 57, 254, 158, 103, 196, 53, 39, 106, 201, 183, 14,
+];
+const DURABLE_OPERATIONS_RECEIPT_UPDATE_GUARD_DIGEST: [u8; 32] = [
+    48, 131, 220, 252, 243, 158, 221, 88, 8, 140, 207, 187, 34, 138, 145, 215, 92, 99, 32, 72, 254,
+    25, 96, 241, 33, 172, 150, 186, 98, 114, 27, 142,
+];
+const VERSION_TWO_DIGEST: [u8; 32] = [
+    78, 151, 73, 238, 2, 15, 71, 52, 11, 111, 100, 95, 135, 11, 170, 138, 84, 105, 106, 177, 27, 7,
+    134, 156, 53, 68, 22, 220, 116, 199, 147, 5,
+];
+const DURABLE_OPERATIONS_V2_MIGRATION_CHECKSUM: MigrationChecksum =
+    MigrationChecksum::from_bytes([
+        107, 95, 237, 250, 255, 0, 44, 110, 142, 194, 92, 163, 84, 27, 96, 31, 210, 37, 151, 186,
+        210, 83, 137, 114, 251, 20, 30, 31, 11, 136, 207, 168,
+    ]);
 
-/// A sealed binding between one HarvestCircle runtime context and the v1 state catalogs.
+/// A sealed binding between one HarvestCircle runtime context and the governed state catalogs.
 ///
 /// External callers cannot forge alternate paths or catalogs:
 ///
@@ -272,7 +431,7 @@ impl HarvestCircleStorageContract {
     #[must_use]
     pub const fn state_schema_version(&self) -> NonZeroU32 {
         NonZeroU32::new(HARVESTCIRCLE_STATE_SCHEMA_VERSION)
-            .expect("HarvestCircle schema v1 is nonzero")
+            .expect("HarvestCircle current schema version is nonzero")
     }
 }
 
@@ -317,7 +476,14 @@ pub(crate) const fn harvestcircle_initial_schema_sql() -> &'static [&'static str
 
 pub fn harvestcircle_migration_catalog()
 -> Result<MigrationCatalog, HarvestCircleStorageContractError> {
-    MigrationCatalog::new(std::iter::empty::<MigrationDescriptor>())
+    let migration = MigrationDescriptor::sql(
+        2,
+        "bound_durable_operation_receipts",
+        MIGRATE_DURABLE_OPERATIONS_V2_SQL,
+        DURABLE_OPERATIONS_V2_MIGRATION_CHECKSUM,
+    )
+    .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)?;
+    MigrationCatalog::new([migration])
         .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)
 }
 
@@ -329,16 +495,25 @@ pub fn harvestcircle_schema_catalog() -> Result<SchemaCatalog, HarvestCircleStor
 fn schema_catalog_for(
     migrations: &MigrationCatalog,
 ) -> Result<SchemaCatalog, HarvestCircleStorageContractError> {
-    let version = SchemaVersionCatalog::new(
-        HARVESTCIRCLE_STATE_SCHEMA_VERSION,
-        schema_objects()?,
+    let version_one = SchemaVersionCatalog::new(
+        HARVESTCIRCLE_INITIAL_STATE_SCHEMA_VERSION,
+        schema_objects(CREATE_DURABLE_OPERATIONS_SQL)?,
         SchemaDigest::from_bytes(VERSION_ONE_DIGEST),
     )
     .map_err(schema_error)?;
-    SchemaCatalog::new(migrations, [version]).map_err(schema_error)
+    let version_two_objects = schema_objects(CREATE_DURABLE_OPERATIONS_V2_SQL)?;
+    let version_two = SchemaVersionCatalog::new(
+        HARVESTCIRCLE_STATE_SCHEMA_VERSION,
+        version_two_objects,
+        SchemaDigest::from_bytes(VERSION_TWO_DIGEST),
+    )
+    .map_err(schema_error)?;
+    SchemaCatalog::new(migrations, [version_one, version_two]).map_err(schema_error)
 }
 
-fn schema_objects() -> Result<Vec<SchemaObject>, HarvestCircleStorageContractError> {
+fn schema_objects(
+    durable_operations_sql: &'static str,
+) -> Result<Vec<SchemaObject>, HarvestCircleStorageContractError> {
     let identities = [
         (
             SchemaObjectKind::Table,
@@ -378,15 +553,56 @@ fn schema_objects() -> Result<Vec<SchemaObject>, HarvestCircleStorageContractErr
             "installation_identity",
         ),
     ];
-    identities
+    let schema_sql = [
+        CREATE_ACCOUNT_IDENTITIES_SQL,
+        CREATE_LOCAL_SIGNER_BINDINGS_SQL,
+        CREATE_RUNTIME_STATE_SQL,
+        CREATE_PROFILE_CACHE_SQL,
+        CREATE_ACCOUNT_PREFERENCES_SQL,
+        durable_operations_sql,
+        CREATE_INSTALLATION_IDENTITY_SQL,
+        CREATE_INSTALLATION_IDENTITY_NO_UPDATE_SQL,
+        CREATE_INSTALLATION_IDENTITY_NO_DELETE_SQL,
+    ];
+    let mut objects = identities
         .into_iter()
-        .zip(INITIAL_SCHEMA_SQL)
+        .zip(schema_sql)
         .zip(OBJECT_DIGESTS)
         .map(|(((kind, name, table), sql), digest)| {
-            SchemaObject::new(kind, name, table, sql, SchemaDigest::from_bytes(digest))
-                .map_err(schema_error)
+            let digest = if sql == CREATE_DURABLE_OPERATIONS_V2_SQL {
+                SchemaDigest::from_bytes(DURABLE_OPERATIONS_V2_DIGEST)
+            } else {
+                SchemaDigest::from_bytes(digest)
+            };
+            SchemaObject::new(kind, name, table, sql, digest).map_err(schema_error)
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    if durable_operations_sql == CREATE_DURABLE_OPERATIONS_V2_SQL {
+        for (name, sql, digest) in [
+            (
+                "durable_operations_receipt_insert_guard",
+                CREATE_DURABLE_OPERATIONS_RECEIPT_INSERT_GUARD_SQL,
+                DURABLE_OPERATIONS_RECEIPT_INSERT_GUARD_DIGEST,
+            ),
+            (
+                "durable_operations_receipt_update_guard",
+                CREATE_DURABLE_OPERATIONS_RECEIPT_UPDATE_GUARD_SQL,
+                DURABLE_OPERATIONS_RECEIPT_UPDATE_GUARD_DIGEST,
+            ),
+        ] {
+            objects.push(
+                SchemaObject::new(
+                    SchemaObjectKind::Trigger,
+                    name,
+                    "durable_operations",
+                    sql,
+                    SchemaDigest::from_bytes(digest),
+                )
+                .map_err(schema_error)?,
+            );
+        }
+    }
+    Ok(objects)
 }
 
 const fn schema_error(_: SchemaCatalogContractError) -> HarvestCircleStorageContractError {
@@ -431,10 +647,10 @@ mod tests {
             contract.application_id().get(),
             HARVESTCIRCLE_APPLICATION_ID
         );
-        assert_eq!(contract.state_schema_version().get(), 1);
-        assert_eq!(contract.migrations().current_version(), 1);
-        assert!(contract.migrations().descriptors().is_empty());
-        assert_eq!(contract.schema().versions().len(), 1);
+        assert_eq!(contract.state_schema_version().get(), 2);
+        assert_eq!(contract.migrations().current_version(), 2);
+        assert_eq!(contract.migrations().descriptors().len(), 1);
+        assert_eq!(contract.schema().versions().len(), 2);
         assert_eq!(harvestcircle_initial_schema_sql().len(), 9);
     }
 
@@ -492,7 +708,7 @@ mod tests {
         assert_eq!(harvestcircle_product::STORAGE_APPLICATION_ID_TEXT, "HCR1");
         assert_eq!(
             harvestcircle_product::STORAGE_INITIAL_SCHEMA_VERSION,
-            HARVESTCIRCLE_STATE_SCHEMA_VERSION.to_string()
+            HARVESTCIRCLE_INITIAL_STATE_SCHEMA_VERSION.to_string()
         );
         assert_eq!(
             harvestcircle_product::LEGACY_DATABASE_FILENAME,
@@ -566,6 +782,10 @@ mod tests {
             .execute(&mut connection)
             .await
             .expect("foreign keys");
+        sqlx::query("PRAGMA trusted_schema = OFF")
+            .execute(&mut connection)
+            .await
+            .expect("trusted schema");
         for statement in harvestcircle_initial_schema_sql() {
             sqlx::query(*statement)
                 .execute(&mut connection)
@@ -610,5 +830,167 @@ mod tests {
                 "application_schema" | "operation_journal" | "refinery_schema_history"
             )
         }));
+    }
+
+    #[tokio::test]
+    async fn migration_v2_adds_the_exact_bounded_journal_schema() {
+        let mut connection = sqlx::SqliteConnection::connect(":memory:")
+            .await
+            .expect("memory database");
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&mut connection)
+            .await
+            .expect("foreign keys");
+        sqlx::query("PRAGMA trusted_schema = OFF")
+            .execute(&mut connection)
+            .await
+            .expect("trusted schema");
+        for statement in harvestcircle_initial_schema_sql() {
+            sqlx::query(*statement)
+                .execute(&mut connection)
+                .await
+                .expect("schema statement");
+        }
+        let identity = [7_u8; 32];
+        sqlx::query(
+            "INSERT INTO durable_operations (request_id, operation_kind, account_public_key, \
+             binding_public_key, phase, terminal_outcome, updated_at_unix_s) \
+             VALUES ('01890f3e-7b1c-7000-8000-000000000001', 'create', ?, ?, \
+                     'finalized', 'completed', 10)",
+        )
+        .bind(identity.as_slice())
+        .bind(identity.as_slice())
+        .execute(&mut connection)
+        .await
+        .expect("terminal v1 row");
+        sqlx::query(
+            "INSERT INTO durable_operations (request_id, operation_kind, account_public_key, \
+             binding_public_key, phase, updated_at_unix_s) \
+             VALUES ('01890f3e-7b1c-7000-8000-000000000002', 'remove', ?, ?, \
+                     'intent_recorded', 11)",
+        )
+        .bind(identity.as_slice())
+        .bind(identity.as_slice())
+        .execute(&mut connection)
+        .await
+        .expect("unfinished v1 row");
+        sqlx::raw_sql(MIGRATE_DURABLE_OPERATIONS_V2_SQL)
+            .execute(&mut connection)
+            .await
+            .expect("migration");
+        let actual: String = sqlx::query_scalar(
+            "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'durable_operations'",
+        )
+        .fetch_one(&mut connection)
+        .await
+        .expect("schema SQL");
+        assert_eq!(actual, CREATE_DURABLE_OPERATIONS_V2_SQL);
+        let rows = sqlx::query(
+            "SELECT request_id, completed_at_unix_s FROM durable_operations ORDER BY request_id",
+        )
+        .fetch_all(&mut connection)
+        .await
+        .expect("migrated rows");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            rows[0].get::<Option<i64>, _>("completed_at_unix_s"),
+            Some(10)
+        );
+        assert_eq!(rows[1].get::<Option<i64>, _>("completed_at_unix_s"), None);
+        assert!(
+            sqlx::query(
+                "INSERT INTO durable_operations (request_id, operation_kind, account_public_key, \
+                 binding_public_key, phase, terminal_outcome, updated_at_unix_s) \
+                 VALUES ('01890f3e-7b1c-7000-8000-000000000004', 'create', ?, ?, \
+                         'finalized', 'completed', 13)",
+            )
+            .bind(identity.as_slice())
+            .bind(identity.as_slice())
+            .execute(&mut connection)
+            .await
+            .is_err(),
+            "insert guard must require terminal completion time"
+        );
+        assert!(
+            sqlx::query(
+                "UPDATE durable_operations SET phase = 'finalized', \
+                 terminal_outcome = 'completed' WHERE request_id = \
+                 '01890f3e-7b1c-7000-8000-000000000002'",
+            )
+            .execute(&mut connection)
+            .await
+            .is_err(),
+            "update guard must require terminal completion time"
+        );
+
+        let migration = MigrationChecksum::for_sql(MIGRATE_DURABLE_OPERATIONS_V2_SQL);
+        let objects = schema_objects(CREATE_DURABLE_OPERATIONS_V2_SQL).expect("objects");
+        let object = objects
+            .iter()
+            .find(|object| object.name() == "durable_operations")
+            .expect("durable operations")
+            .digest();
+        let snapshot = SchemaVersionCatalog::computed_digest(2, objects).expect("snapshot");
+        assert_eq!(migration, DURABLE_OPERATIONS_V2_MIGRATION_CHECKSUM);
+        assert_eq!(
+            object,
+            SchemaDigest::from_bytes(DURABLE_OPERATIONS_V2_DIGEST)
+        );
+        assert_eq!(snapshot, SchemaDigest::from_bytes(VERSION_TWO_DIGEST));
+    }
+
+    #[tokio::test]
+    async fn migration_v2_rolls_back_without_partial_schema_on_invalid_v1_state() {
+        let mut connection = sqlx::SqliteConnection::connect(":memory:")
+            .await
+            .expect("memory database");
+        for statement in harvestcircle_initial_schema_sql() {
+            sqlx::query(*statement)
+                .execute(&mut connection)
+                .await
+                .expect("schema statement");
+        }
+        sqlx::query("PRAGMA ignore_check_constraints = ON")
+            .execute(&mut connection)
+            .await
+            .expect("fixture policy");
+        let identity = [9_u8; 32];
+        sqlx::query(
+            "INSERT INTO durable_operations (request_id, operation_kind, account_public_key, \
+             binding_public_key, phase, updated_at_unix_s) \
+             VALUES ('01890f3e-7b1c-7000-8000-000000000003', 'create', ?, ?, 'finalized', 12)",
+        )
+        .bind(identity.as_slice())
+        .bind(identity.as_slice())
+        .execute(&mut connection)
+        .await
+        .expect("invalid v1 fixture");
+        sqlx::query("PRAGMA ignore_check_constraints = OFF")
+            .execute(&mut connection)
+            .await
+            .expect("restore policy");
+
+        let mut transaction = connection.begin().await.expect("migration transaction");
+        assert!(
+            sqlx::raw_sql(MIGRATE_DURABLE_OPERATIONS_V2_SQL)
+                .execute(&mut *transaction)
+                .await
+                .is_err()
+        );
+        transaction.rollback().await.expect("rollback");
+
+        let columns: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pragma_table_info('durable_operations') \
+             WHERE name = 'completed_at_unix_s'",
+        )
+        .fetch_one(&mut connection)
+        .await
+        .expect("column inventory");
+        let retained: i64 = sqlx::query_scalar("SELECT count(*) FROM durable_operations")
+            .fetch_one(&mut connection)
+            .await
+            .expect("retained row");
+        assert_eq!(columns, 0);
+        assert_eq!(retained, 1);
     }
 }
