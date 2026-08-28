@@ -112,7 +112,12 @@ async fn local_relay_e2e_imports_activates_refreshes_and_caches_profile() {
         .await
         .expect("import identity");
     let public_key = imported.identity().public_key();
-    assert!(secrets.contains(public_key).expect("credential exists"));
+    assert!(
+        secrets
+            .contains(public_key)
+            .await
+            .expect("credential exists")
+    );
     adapter
         .activate_identity(public_key, &secrets, &FixedClock)
         .await

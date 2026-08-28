@@ -1,6 +1,6 @@
 use std::sync::{Mutex, MutexGuard};
 
-use harvestcircle_application::SecretStore;
+use harvestcircle_application::{BoxFuture, SecretStore};
 use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput};
 use harvestcircle_product::KEYRING_SERVICE;
 use keyring::{Entry, Error as KeyringError};
@@ -26,47 +26,59 @@ impl OsKeyringSecretStore {
 }
 
 impl SecretStore for OsKeyringSecretStore {
-    fn put(&self, public_key: PublicKey, secret: SecretKeyInput) -> Result<(), SafeError> {
-        let _operation = self.operation()?;
-        let entry = Self::entry(public_key)?;
-        match entry.get_password() {
-            Ok(password) => {
-                drop(Zeroizing::new(password));
-                return Err(credential_exists());
+    fn put(
+        &self,
+        public_key: PublicKey,
+        secret: SecretKeyInput,
+    ) -> BoxFuture<'_, Result<(), SafeError>> {
+        Box::pin(async move {
+            let _operation = self.operation()?;
+            let entry = Self::entry(public_key)?;
+            match entry.get_password() {
+                Ok(password) => {
+                    drop(Zeroizing::new(password));
+                    return Err(credential_exists());
+                }
+                Err(KeyringError::NoEntry) => {}
+                Err(_) => return Err(keyring_unavailable()),
             }
-            Err(KeyringError::NoEntry) => {}
-            Err(_) => return Err(keyring_unavailable()),
-        }
-        secret
-            .with_exposed_secret(|value| entry.set_password(value))
-            .map_err(|_| keyring_unavailable())
+            secret
+                .with_exposed_secret(|value| entry.set_password(value))
+                .map_err(|_| keyring_unavailable())
+        })
     }
 
-    fn load(&self, public_key: PublicKey) -> Result<SecretKeyInput, SafeError> {
-        let _operation = self.operation()?;
-        let password = Self::entry(public_key)?
-            .get_password()
-            .map_err(|error| map_read_error(&error))?;
-        SecretKeyInput::parse(password)
+    fn load(&self, public_key: PublicKey) -> BoxFuture<'_, Result<SecretKeyInput, SafeError>> {
+        Box::pin(async move {
+            let _operation = self.operation()?;
+            let password = Self::entry(public_key)?
+                .get_password()
+                .map_err(|error| map_read_error(&error))?;
+            SecretKeyInput::parse(password)
+        })
     }
 
-    fn contains(&self, public_key: PublicKey) -> Result<bool, SafeError> {
-        let _operation = self.operation()?;
-        match Self::entry(public_key)?.get_password() {
-            Ok(password) => {
-                drop(Zeroizing::new(password));
-                Ok(true)
+    fn contains(&self, public_key: PublicKey) -> BoxFuture<'_, Result<bool, SafeError>> {
+        Box::pin(async move {
+            let _operation = self.operation()?;
+            match Self::entry(public_key)?.get_password() {
+                Ok(password) => {
+                    drop(Zeroizing::new(password));
+                    Ok(true)
+                }
+                Err(KeyringError::NoEntry) => Ok(false),
+                Err(_) => Err(keyring_unavailable()),
             }
-            Err(KeyringError::NoEntry) => Ok(false),
-            Err(_) => Err(keyring_unavailable()),
-        }
+        })
     }
 
-    fn delete(&self, public_key: PublicKey) -> Result<(), SafeError> {
-        let _operation = self.operation()?;
-        Self::entry(public_key)?
-            .delete_credential()
-            .map_err(|error| map_read_error(&error))
+    fn delete(&self, public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
+        Box::pin(async move {
+            let _operation = self.operation()?;
+            Self::entry(public_key)?
+                .delete_credential()
+                .map_err(|error| map_read_error(&error))
+        })
     }
 }
 
@@ -117,8 +129,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn poisoned_operation_lock_fails_closed_before_keyring_access() {
+    #[tokio::test]
+    async fn poisoned_operation_lock_fails_closed_before_keyring_access() {
         let store = OsKeyringSecretStore::default();
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _operation = store.operation_lock.lock().expect("operation lock");
@@ -129,27 +141,31 @@ mod tests {
         let public_key =
             PublicKey::from_hex("7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7")
                 .expect("valid public key");
-        let error = store.contains(public_key).expect_err("poison must reject");
+        let error = store
+            .contains(public_key)
+            .await
+            .expect_err("poison must reject");
         assert_eq!(error.code(), SafeErrorCode::KeyringUnavailable);
     }
 
-    #[test]
+    #[tokio::test]
     #[ignore = "mutates the current user's operating-system credential store"]
-    fn real_keyring_smoke_round_trips_and_deletes() {
+    async fn real_keyring_smoke_round_trips_and_deletes() {
         let store = OsKeyringSecretStore::default();
         let public_key =
             PublicKey::from_hex("7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7")
                 .expect("valid public key");
-        let _ = store.delete(public_key);
+        let _ = store.delete(public_key).await;
         store
             .put(
                 public_key,
                 SecretKeyInput::parse("11".repeat(32)).expect("secret"),
             )
+            .await
             .expect("keyring put");
-        assert!(store.contains(public_key).expect("keyring contains"));
-        let loaded = store.load(public_key).expect("keyring load");
+        assert!(store.contains(public_key).await.expect("keyring contains"));
+        let loaded = store.load(public_key).await.expect("keyring load");
         assert_eq!(loaded.with_exposed_secret(str::len), 64);
-        store.delete(public_key).expect("keyring delete");
+        store.delete(public_key).await.expect("keyring delete");
     }
 }

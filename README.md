@@ -82,8 +82,10 @@ relay URL, destination, DNS, connection, and bounded-fetch behavior. The
 native FFI host owns one runtime per application core and closes it
 idempotently. Cancelling a close never reopens command admission, and a later
 close call resumes the same shutdown. Operating-system keyring calls run
-through a bounded supervised worker rather than directly on an async runtime
-worker.
+through an object-safe asynchronous application port and a bounded supervised
+worker rather than directly on an async runtime worker. Callers await one-shot
+responses; the dedicated operating-system thread alone drives the blocking
+platform adapter.
 
 ## Project documentation
 

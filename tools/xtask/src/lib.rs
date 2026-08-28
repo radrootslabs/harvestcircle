@@ -315,12 +315,27 @@ fn native_runtime_boundary(root: &Path, findings: &mut Vec<String>) {
             "pub(crate) struct BoundedKeyringWorker",
             "keyring worker",
         ),
+        (
+            &keyring,
+            "use tokio::sync::{oneshot, watch}",
+            "keyring worker",
+        ),
+        (
+            &keyring,
+            "response_receiver.await",
+            "keyring worker",
+        ),
     ] {
         if !source.contains(required) {
             findings.push(format!(
                 "harvestcircle_ffi: {owner} contract is missing {required}"
             ));
         }
+    }
+    if keyring.contains("response_receiver.recv") {
+        findings.push(
+            "harvestcircle_ffi: keyring response blocks a Tokio runtime thread".to_owned(),
+        );
     }
 }
 

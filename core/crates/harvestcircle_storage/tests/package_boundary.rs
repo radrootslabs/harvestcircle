@@ -61,6 +61,8 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
         "pub fn harvestcircle_storage::verify_harvestcircle_backup",
         "impl harvestcircle_application::ports::DurableOperationRepository for harvestcircle_storage::Database",
         "harvestcircle_application::ports::BoxFuture",
+        "pub fn harvestcircle_storage::OsKeyringSecretStore::contains(&self, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture",
+        "pub fn harvestcircle_storage::OsKeyringSecretStore::put(&self, harvestcircle_domain::key::PublicKey, harvestcircle_domain::key::SecretKeyInput) -> harvestcircle_application::ports::BoxFuture",
         "pub fn harvestcircle_storage::harvestcircle_migration_catalog()",
         "pub fn harvestcircle_storage::harvestcircle_schema_catalog()",
     ] {

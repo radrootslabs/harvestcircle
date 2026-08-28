@@ -126,7 +126,10 @@ substitute.
 - The native host owns its Tokio runtime for exactly one application-core
   lifetime. Runtime close is explicit, idempotent, and cancellation-resumable;
   observer work and the bounded keyring worker must finish before terminal
-  close is reported. Authoritative locks fail closed on poison.
+  close is reported. `SecretStore` is an object-safe asynchronous application
+  port. Every caller awaits it, Tokio workers await one-shot results, and only
+  the dedicated credential thread may drive the blocking platform adapter.
+  Authoritative locks fail closed on poison.
 - Services-hardening changes use the approved target-state contracts. Do not
   add compatibility aliases, dual reads, dual writes, or fallback behavior for
   prototype surfaces removed by the clean-slate refactor.

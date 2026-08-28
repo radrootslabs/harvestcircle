@@ -38,7 +38,7 @@ impl AppCore {
             .ok_or_else(identity_not_found)?;
         self.apply_transition(StateTransition::BeginActivation(public_key))?;
         let prepared = async {
-            let credential = secrets.load(public_key)?;
+            let credential = secrets.load(public_key).await?;
             let imported = self.key_material().import(credential)?;
             let (derived_public_key, _npub, canonical_secret) = imported.into_parts();
             drop(canonical_secret);
@@ -202,7 +202,10 @@ mod tests {
         assert_eq!(registered, active.identity());
         assert_eq!(registered.last_used_at(), Some(FixedClock.now()));
 
-        secrets.delete(second).expect("remove second credential");
+        secrets
+            .delete(second)
+            .await
+            .expect("remove second credential");
         let error = core
             .activate_identity(
                 second,
@@ -223,6 +226,7 @@ mod tests {
                 second,
                 input("7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7"),
             )
+            .await
             .expect("mismatched credential");
         let invalid = core
             .activate_identity(
@@ -287,6 +291,11 @@ mod tests {
         assert!(signed_out.active_identity().is_none());
         assert_eq!(signed_out.identities().len(), 1);
         assert_eq!(signed_out.selected_identity(), Some(public_key));
-        assert!(secrets.contains(public_key).expect("credential retained"));
+        assert!(
+            secrets
+                .contains(public_key)
+                .await
+                .expect("credential retained")
+        );
     }
 }

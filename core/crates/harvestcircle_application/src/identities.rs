@@ -167,11 +167,11 @@ impl AppCore {
         if let Some(existing) = &previous
             && (local_keyring_binding(existing)?.availability()
                 != SignerAvailability::CredentialMissing
-                || secrets.contains(public_key)?)
+                || secrets.contains(public_key).await?)
         {
             return Err(identity_exists());
         }
-        if previous.is_none() && secrets.contains(public_key)? {
+        if previous.is_none() && secrets.contains(public_key).await? {
             return Err(identity_exists());
         }
         let identity = if let Some(existing) = &previous {
@@ -262,7 +262,7 @@ impl AppCore {
                 };
             }
         }
-        secrets.put(identity.public_key(), secret)?;
+        secrets.put(identity.public_key(), secret).await?;
         operations
             .advance_durable_operation(
                 request_id,
@@ -372,7 +372,7 @@ impl AppCore {
         }
         let identity = &registry[index];
         let local_keyring = local_keyring_binding(identity)?;
-        match secrets.delete(public_key) {
+        match secrets.delete(public_key).await {
             Ok(()) => {}
             Err(error)
                 if error.code() == SafeErrorCode::CredentialMissing
@@ -468,7 +468,7 @@ impl AppCore {
         {
             self.sign_out()?;
         }
-        match secrets.delete(public_key) {
+        match secrets.delete(public_key).await {
             Ok(()) => {}
             Err(error)
                 if error.code() == SafeErrorCode::CredentialMissing
@@ -605,7 +605,7 @@ impl AppCore {
         if let Some(existing) = identities.find_identity(public_key).await? {
             if local_keyring_binding(&existing)?.availability()
                 != SignerAvailability::CredentialMissing
-                || secrets.contains(public_key)?
+                || secrets.contains(public_key).await?
             {
                 return Err(identity_exists());
             }
@@ -630,7 +630,7 @@ impl AppCore {
             })?;
             return Ok(ImportIdentityReceipt { identity: repaired });
         }
-        if secrets.contains(public_key)? {
+        if secrets.contains(public_key).await? {
             return Err(identity_exists());
         }
         let identity = NostrIdentity::new(
@@ -677,7 +677,7 @@ impl AppCore {
         let operation = journal
             .begin_operation(kind, public_key, clock.now())
             .await?;
-        if let Err(error) = secrets.put(public_key, secret) {
+        if let Err(error) = secrets.put(public_key, secret).await {
             let _ = journal.finalize_operation(operation).await;
             return Err(error);
         }
@@ -771,7 +771,7 @@ async fn compensate_identity_write(
         identities.remove_identity(public_key).await
     };
     let selection_rollback = app_state.save_selected_identity(previous_selection).await;
-    let credential_rollback = secrets.delete(public_key);
+    let credential_rollback = secrets.delete(public_key).await;
     if metadata_rollback.is_err() || selection_rollback.is_err() || credential_rollback.is_err() {
         let _ = journal
             .update_operation(
@@ -1255,7 +1255,7 @@ mod tests {
             .expect("generate");
         let public_key = receipt.identity().public_key();
         assert_eq!(public_key.to_hex().len(), 64);
-        assert!(secrets.contains(public_key).expect("credential"));
+        assert!(secrets.contains(public_key).await.expect("credential"));
         assert_eq!(
             identities
                 .load_selected_identity()
@@ -1293,7 +1293,7 @@ mod tests {
                 .await
                 .expect("import");
             let public_key = receipt.identity().public_key();
-            assert!(secrets.contains(public_key).expect("credential"));
+            assert!(secrets.contains(public_key).await.expect("credential"));
             assert_eq!(core.snapshot().selected_identity(), Some(public_key));
             assert_eq!(core.snapshot().session(), SessionState::SignedOut);
             assert!(!format!("{:?}", core.snapshot()).contains(input));
@@ -1423,7 +1423,7 @@ mod tests {
                 .availability(),
             SignerAvailability::Available
         );
-        assert!(secrets.contains(public_key).expect("credential"));
+        assert!(secrets.contains(public_key).await.expect("credential"));
         assert_eq!(core.snapshot().identities().len(), 1);
     }
 
@@ -1656,7 +1656,7 @@ mod tests {
             .expect("remove");
         assert_eq!(removed.identities().len(), 1);
         assert_eq!(removed.selected_identity(), Some(second));
-        assert!(!secrets.contains(first).expect("credential removed"));
+        assert!(!secrets.contains(first).await.expect("credential removed"));
         assert_eq!(removed.session(), SessionState::SignedOut);
     }
 
@@ -1710,7 +1710,10 @@ mod tests {
             .import(SecretKeyInput::parse(SECRET.to_owned()).expect("secret"))
             .expect("key material");
         let (public_key, _npub, secret) = material.into_parts();
-        secrets.put(public_key, secret).expect("orphan credential");
+        secrets
+            .put(public_key, secret)
+            .await
+            .expect("orphan credential");
 
         assert_eq!(
             core.import_secret_key(
@@ -1935,7 +1938,7 @@ mod tests {
             .save_selected_identity(Some(public_key))
             .await
             .expect("selection");
-        secrets.put(public_key, secret).expect("credential");
+        secrets.put(public_key, secret).await.expect("credential");
         core.apply_transition(StateTransition::BootstrapRegistry {
             identities: vec![identity],
             selected: Some(public_key),

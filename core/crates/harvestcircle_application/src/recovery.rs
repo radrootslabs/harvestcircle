@@ -90,8 +90,8 @@ async fn recover_durable_removal(
     let identity = operation.identity();
     let mut phase = operation.phase();
     if phase == DurableOperationPhase::IntentRecorded {
-        if secrets.contains(identity)? {
-            secrets.delete(identity)?;
+        if secrets.contains(identity).await? {
+            secrets.delete(identity).await?;
         }
         operations
             .advance_durable_operation(
@@ -160,8 +160,8 @@ async fn recover_durable_addition(
     let identity = operation.identity();
     match operation.phase() {
         DurableOperationPhase::IntentRecorded => {
-            if secrets.contains(identity)? {
-                secrets.delete(identity)?;
+            if secrets.contains(identity).await? {
+                secrets.delete(identity).await?;
             }
             operations
                 .finalize_durable_operation(
@@ -285,8 +285,8 @@ async fn compensate_durable_addition(
     operations: &(impl DurableOperationRepository + ?Sized),
     clock: &(impl Clock + ?Sized),
 ) -> Result<(), SafeError> {
-    if secrets.contains(operation.identity())? {
-        secrets.delete(operation.identity())?;
+    if secrets.contains(operation.identity()).await? {
+        secrets.delete(operation.identity()).await?;
     }
     if let Some(availability) = operation.prior().binding_availability() {
         if let Some(previous) = identities.find_identity(operation.identity()).await? {
@@ -346,7 +346,7 @@ async fn recover_removal(
 ) -> Result<(), SafeError> {
     let public_key = operation.subject();
     if operation.phase() == IdentityOperationPhase::IntentRecorded {
-        match secrets.delete(public_key) {
+        match secrets.delete(public_key).await {
             Ok(()) => {}
             Err(error)
                 if error.code() == harvestcircle_domain::SafeErrorCode::CredentialMissing => {}
@@ -401,7 +401,7 @@ async fn recover_addition(
         IdentityOperationPhase::CredentialWritten | IdentityOperationPhase::CompensationPending
             if !has_metadata =>
         {
-            match secrets.delete(operation.subject()) {
+            match secrets.delete(operation.subject()).await {
                 Ok(()) => {}
                 Err(error)
                     if error.code() == harvestcircle_domain::SafeErrorCode::CredentialMissing => {}
@@ -671,7 +671,7 @@ pub(crate) mod tests {
         ] {
             let (core, identities, secrets, _journal, public_key) = seeded().await;
             if phase != DurableOperationPhase::IntentRecorded {
-                secrets.delete(public_key).expect("delete credential");
+                secrets.delete(public_key).await.expect("delete credential");
             }
             if matches!(
                 phase,
@@ -695,7 +695,7 @@ pub(crate) mod tests {
         }
 
         let (core, identities, secrets, _journal, public_key) = seeded().await;
-        secrets.delete(public_key).expect("delete credential");
+        secrets.delete(public_key).await.expect("delete credential");
         identities
             .remove_identity(public_key)
             .await
@@ -757,7 +757,7 @@ pub(crate) mod tests {
                     .expect("remove metadata");
             }
             if !retain_secret {
-                secrets.delete(public_key).expect("delete credential");
+                secrets.delete(public_key).await.expect("delete credential");
             }
             let recovered = run_durable(
                 &core,
@@ -798,7 +798,7 @@ pub(crate) mod tests {
             .remove_identity(public_key)
             .await
             .expect("remove metadata");
-        secrets.delete(public_key).expect("delete credential");
+        secrets.delete(public_key).await.expect("delete credential");
         let recovered = run_durable(
             &core,
             &identities,
@@ -819,7 +819,7 @@ pub(crate) mod tests {
         for credential_present in [true, false] {
             let (core, identities, secrets, journal, public_key) = seeded().await;
             if !credential_present {
-                secrets.delete(public_key).expect("delete credential");
+                secrets.delete(public_key).await.expect("delete credential");
                 identities
                     .save_selected_identity(None)
                     .await
@@ -854,7 +854,7 @@ pub(crate) mod tests {
                     .expect("remove metadata");
             }
             if !credential_present {
-                secrets.delete(public_key).expect("delete credential");
+                secrets.delete(public_key).await.expect("delete credential");
             }
             let id = journal
                 .begin_operation(kind, public_key, FixedClock.now())
@@ -895,6 +895,7 @@ pub(crate) mod tests {
                 )
                 .expect("secret"),
             )
+            .await
             .expect("store credential");
         secrets.fail_next(SecretStoreOperation::Delete);
         let id = journal

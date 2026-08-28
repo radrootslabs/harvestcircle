@@ -1478,8 +1478,8 @@ const fn observer_registration_failed() -> SafeError {
 mod tests {
     use std::future::Future;
     use std::num::NonZeroUsize;
+    use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Condvar, Mutex};
     use std::task::{Context, Poll, Wake, Waker};
     use std::thread::{self, Thread};
     use std::time::{Duration, Instant};
@@ -1576,8 +1576,8 @@ mod tests {
         inner: InMemorySecretStore,
         block_next_put: AtomicBool,
         put_started: AtomicBool,
-        released: Mutex<bool>,
-        release_signal: Condvar,
+        released: AtomicBool,
+        release_signal: tokio::sync::Notify,
     }
 
     impl BlockingSecretStore {
@@ -1586,8 +1586,8 @@ mod tests {
                 inner: InMemorySecretStore::default(),
                 block_next_put: AtomicBool::new(true),
                 put_started: AtomicBool::new(false),
-                released: Mutex::new(false),
-                release_signal: Condvar::new(),
+                released: AtomicBool::new(false),
+                release_signal: tokio::sync::Notify::new(),
             }
         }
 
@@ -1598,40 +1598,41 @@ mod tests {
         }
 
         fn release(&self) {
-            *self
-                .released
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
-            self.release_signal.notify_all();
+            self.released.store(true, Ordering::Release);
+            self.release_signal.notify_waiters();
         }
     }
 
     impl SecretStore for BlockingSecretStore {
-        fn put(&self, public_key: PublicKey, secret: SecretKeyInput) -> Result<(), SafeError> {
-            if self.block_next_put.swap(false, Ordering::AcqRel) {
-                self.put_started.store(true, Ordering::Release);
-                let released = self
-                    .released
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                drop(
-                    self.release_signal
-                        .wait_while(released, |released| !*released)
-                        .unwrap_or_else(std::sync::PoisonError::into_inner),
-                );
-            }
-            self.inner.put(public_key, secret)
+        fn put(
+            &self,
+            public_key: PublicKey,
+            secret: SecretKeyInput,
+        ) -> BoxFuture<'_, Result<(), SafeError>> {
+            Box::pin(async move {
+                if self.block_next_put.swap(false, Ordering::AcqRel) {
+                    self.put_started.store(true, Ordering::Release);
+                    loop {
+                        let notified = self.release_signal.notified();
+                        if self.released.load(Ordering::Acquire) {
+                            break;
+                        }
+                        notified.await;
+                    }
+                }
+                self.inner.put(public_key, secret).await
+            })
         }
 
-        fn load(&self, public_key: PublicKey) -> Result<SecretKeyInput, SafeError> {
+        fn load(&self, public_key: PublicKey) -> BoxFuture<'_, Result<SecretKeyInput, SafeError>> {
             self.inner.load(public_key)
         }
 
-        fn contains(&self, public_key: PublicKey) -> Result<bool, SafeError> {
+        fn contains(&self, public_key: PublicKey) -> BoxFuture<'_, Result<bool, SafeError>> {
             self.inner.contains(public_key)
         }
 
-        fn delete(&self, public_key: PublicKey) -> Result<(), SafeError> {
+        fn delete(&self, public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
             self.inner.delete(public_key)
         }
     }
@@ -1758,7 +1759,7 @@ mod tests {
         assert_eq!(foreground.identity().public_key(), public_key);
         assert_eq!(foreground.signer_binding().identity(), public_key);
         assert_eq!(foreground.generation(), actor.session_generation());
-        assert!(secrets.contains(public_key).expect("credential"));
+        assert!(secrets.contains(public_key).await.expect("credential"));
 
         let signed_out = actor.sign_out().await.expect("sign out");
         assert_eq!(signed_out.session(), SessionState::SignedOut);
@@ -1772,7 +1773,12 @@ mod tests {
             .await
             .expect("remove");
         assert!(removed.identities().is_empty());
-        assert!(!secrets.contains(public_key).expect("credential removed"));
+        assert!(
+            !secrets
+                .contains(public_key)
+                .await
+                .expect("credential removed")
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1869,6 +1875,7 @@ mod tests {
         assert!(
             !secrets
                 .contains(stage.view().identity().public_key())
+                .await
                 .expect("keyring")
         );
         assert!(actor.sign_out().await.is_err());
@@ -1903,7 +1910,7 @@ mod tests {
         assert_eq!(recovery.with_exposed_secret(str::len), 63);
         assert!(handle.take_recovery_nsec().is_err());
         assert_eq!(actor.snapshot(), initial);
-        assert!(!secrets.contains(public_key).expect("not committed"));
+        assert!(!secrets.contains(public_key).await.expect("not committed"));
 
         let committed = actor
             .acknowledge_generated_key_stage_test(handle.id())
@@ -1911,7 +1918,12 @@ mod tests {
             .expect("acknowledge");
         assert_eq!(committed.identities().len(), 1);
         assert_eq!(committed.selected_identity(), Some(public_key));
-        assert!(secrets.contains(public_key).expect("credential committed"));
+        assert!(
+            secrets
+                .contains(public_key)
+                .await
+                .expect("credential committed")
+        );
         assert!(
             actor
                 .acknowledge_generated_key_stage_test(handle.id())

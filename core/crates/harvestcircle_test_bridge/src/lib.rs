@@ -326,8 +326,8 @@ impl HarvestCircleTestBridge {
             .snapshot()
             .selected_identity()
             .ok_or_else(request_unavailable)?;
-        let secret = self.secrets.load(selected)?;
         self.runtime.block_on(async {
+            let secret = self.secrets.load(selected).await?;
             let keys = secret
                 .with_exposed_secret(Keys::parse)
                 .map_err(|_| invalid_secret())?;

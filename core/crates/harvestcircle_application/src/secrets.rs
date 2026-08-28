@@ -4,31 +4,37 @@ use std::sync::{Mutex, MutexGuard};
 use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput};
 use secrecy::{ExposeSecret, SecretString};
 
+use crate::BoxFuture;
+
 pub trait SecretStore: Send + Sync {
     /// Stores a credential under its canonical public key without overwriting.
     ///
     /// # Errors
     ///
     /// Returns a safe duplicate or keyring error without exposing the credential.
-    fn put(&self, public_key: PublicKey, secret: SecretKeyInput) -> Result<(), SafeError>;
+    fn put(
+        &self,
+        public_key: PublicKey,
+        secret: SecretKeyInput,
+    ) -> BoxFuture<'_, Result<(), SafeError>>;
     /// Loads a credential into a non-cloneable redacted boundary value.
     ///
     /// # Errors
     ///
     /// Returns a safe missing-credential or keyring error.
-    fn load(&self, public_key: PublicKey) -> Result<SecretKeyInput, SafeError>;
+    fn load(&self, public_key: PublicKey) -> BoxFuture<'_, Result<SecretKeyInput, SafeError>>;
     /// Reports whether a credential exists without exposing it.
     ///
     /// # Errors
     ///
     /// Returns a safe keyring error when availability cannot be determined.
-    fn contains(&self, public_key: PublicKey) -> Result<bool, SafeError>;
+    fn contains(&self, public_key: PublicKey) -> BoxFuture<'_, Result<bool, SafeError>>;
     /// Deletes a credential without affecting public identity metadata.
     ///
     /// # Errors
     ///
     /// Returns a safe missing-credential or keyring error.
-    fn delete(&self, public_key: PublicKey) -> Result<(), SafeError>;
+    fn delete(&self, public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>>;
 }
 
 #[derive(Default)]
@@ -108,32 +114,44 @@ impl FailureSecretStore {
 }
 
 impl SecretStore for FailureSecretStore {
-    fn put(&self, public_key: PublicKey, secret: SecretKeyInput) -> Result<(), SafeError> {
-        if self.record_and_should_fail(SecretStoreOperation::Put, public_key) {
-            return Err(keyring_unavailable());
-        }
-        self.inner.put(public_key, secret)
+    fn put(
+        &self,
+        public_key: PublicKey,
+        secret: SecretKeyInput,
+    ) -> BoxFuture<'_, Result<(), SafeError>> {
+        Box::pin(async move {
+            if self.record_and_should_fail(SecretStoreOperation::Put, public_key) {
+                return Err(keyring_unavailable());
+            }
+            self.inner.put(public_key, secret).await
+        })
     }
 
-    fn load(&self, public_key: PublicKey) -> Result<SecretKeyInput, SafeError> {
-        if self.record_and_should_fail(SecretStoreOperation::Load, public_key) {
-            return Err(keyring_unavailable());
-        }
-        self.inner.load(public_key)
+    fn load(&self, public_key: PublicKey) -> BoxFuture<'_, Result<SecretKeyInput, SafeError>> {
+        Box::pin(async move {
+            if self.record_and_should_fail(SecretStoreOperation::Load, public_key) {
+                return Err(keyring_unavailable());
+            }
+            self.inner.load(public_key).await
+        })
     }
 
-    fn contains(&self, public_key: PublicKey) -> Result<bool, SafeError> {
-        if self.record_and_should_fail(SecretStoreOperation::Contains, public_key) {
-            return Err(keyring_unavailable());
-        }
-        self.inner.contains(public_key)
+    fn contains(&self, public_key: PublicKey) -> BoxFuture<'_, Result<bool, SafeError>> {
+        Box::pin(async move {
+            if self.record_and_should_fail(SecretStoreOperation::Contains, public_key) {
+                return Err(keyring_unavailable());
+            }
+            self.inner.contains(public_key).await
+        })
     }
 
-    fn delete(&self, public_key: PublicKey) -> Result<(), SafeError> {
-        if self.record_and_should_fail(SecretStoreOperation::Delete, public_key) {
-            return Err(keyring_unavailable());
-        }
-        self.inner.delete(public_key)
+    fn delete(&self, public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
+        Box::pin(async move {
+            if self.record_and_should_fail(SecretStoreOperation::Delete, public_key) {
+                return Err(keyring_unavailable());
+            }
+            self.inner.delete(public_key).await
+        })
     }
 }
 
@@ -144,33 +162,44 @@ impl InMemorySecretStore {
 }
 
 impl SecretStore for InMemorySecretStore {
-    fn put(&self, public_key: PublicKey, secret: SecretKeyInput) -> Result<(), SafeError> {
-        let mut credentials = self.credentials()?;
-        if credentials.contains_key(&public_key) {
-            return Err(credential_exists());
-        }
-        let value = secret.with_exposed_secret(ToOwned::to_owned);
-        credentials.insert(public_key, SecretString::from(value));
-        Ok(())
+    fn put(
+        &self,
+        public_key: PublicKey,
+        secret: SecretKeyInput,
+    ) -> BoxFuture<'_, Result<(), SafeError>> {
+        Box::pin(async move {
+            let mut credentials = self.credentials()?;
+            if credentials.contains_key(&public_key) {
+                return Err(credential_exists());
+            }
+            let value = secret.with_exposed_secret(ToOwned::to_owned);
+            credentials.insert(public_key, SecretString::from(value));
+            Ok(())
+        })
     }
 
-    fn load(&self, public_key: PublicKey) -> Result<SecretKeyInput, SafeError> {
-        let credentials = self.credentials()?;
-        let secret = credentials
-            .get(&public_key)
-            .ok_or_else(credential_missing)?;
-        SecretKeyInput::parse(secret.expose_secret().to_owned()).map_err(|_| credential_missing())
+    fn load(&self, public_key: PublicKey) -> BoxFuture<'_, Result<SecretKeyInput, SafeError>> {
+        Box::pin(async move {
+            let credentials = self.credentials()?;
+            let secret = credentials
+                .get(&public_key)
+                .ok_or_else(credential_missing)?;
+            SecretKeyInput::parse(secret.expose_secret().to_owned())
+                .map_err(|_| credential_missing())
+        })
     }
 
-    fn contains(&self, public_key: PublicKey) -> Result<bool, SafeError> {
-        Ok(self.credentials()?.contains_key(&public_key))
+    fn contains(&self, public_key: PublicKey) -> BoxFuture<'_, Result<bool, SafeError>> {
+        Box::pin(async move { Ok(self.credentials()?.contains_key(&public_key)) })
     }
 
-    fn delete(&self, public_key: PublicKey) -> Result<(), SafeError> {
-        self.credentials()?
-            .remove(&public_key)
-            .map(|_| ())
-            .ok_or_else(credential_missing)
+    fn delete(&self, public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
+        Box::pin(async move {
+            self.credentials()?
+                .remove(&public_key)
+                .map(|_| ())
+                .ok_or_else(credential_missing)
+        })
     }
 }
 
@@ -203,29 +232,30 @@ mod tests {
 
     const SECRET: &str = "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
 
-    #[test]
-    fn secret_store_puts_loads_checks_and_deletes_redacted_credentials() {
+    #[tokio::test]
+    async fn secret_store_puts_loads_checks_and_deletes_redacted_credentials() {
         let store = InMemorySecretStore::default();
         let public_key = PublicKey::from_bytes([7; 32]).expect("valid public key");
-        assert!(!store.contains(public_key).expect("contains"));
+        assert!(!store.contains(public_key).await.expect("contains"));
         store
             .put(
                 public_key,
                 SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
             )
+            .await
             .expect("put");
-        assert!(store.contains(public_key).expect("contains"));
-        let loaded = store.load(public_key).expect("load");
+        assert!(store.contains(public_key).await.expect("contains"));
+        let loaded = store.load(public_key).await.expect("load");
         assert_eq!(loaded.with_exposed_secret(str::len), 64);
-        store.delete(public_key).expect("delete");
-        assert!(!store.contains(public_key).expect("contains"));
+        store.delete(public_key).await.expect("delete");
+        assert!(!store.contains(public_key).await.expect("contains"));
     }
 
-    #[test]
-    fn secret_store_rejects_duplicates_and_reports_missing_credentials() {
+    #[tokio::test]
+    async fn secret_store_rejects_duplicates_and_reports_missing_credentials() {
         let store = InMemorySecretStore::default();
         let public_key = PublicKey::from_bytes([7; 32]).expect("valid public key");
-        let Err(missing) = store.load(public_key) else {
+        let Err(missing) = store.load(public_key).await else {
             panic!("missing credential was returned");
         };
         assert_eq!(missing.code(), SafeErrorCode::CredentialMissing);
@@ -234,21 +264,23 @@ mod tests {
                 public_key,
                 SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
             )
+            .await
             .expect("put");
         let duplicate = store
             .put(
                 public_key,
                 SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
             )
+            .await
             .expect_err("duplicate");
         assert_eq!(duplicate.code(), SafeErrorCode::IdentityAlreadyExists);
-        store.delete(public_key).expect("delete");
-        let missing = store.delete(public_key).expect_err("missing delete");
+        store.delete(public_key).await.expect("delete");
+        let missing = store.delete(public_key).await.expect_err("missing delete");
         assert_eq!(missing.code(), SafeErrorCode::CredentialMissing);
     }
 
-    #[test]
-    fn failure_secret_store_injects_each_boundary_without_mutating_state() {
+    #[tokio::test]
+    async fn failure_secret_store_injects_each_boundary_without_mutating_state() {
         let store = FailureSecretStore::default();
         let public_key = PublicKey::from_bytes([7; 32]).expect("valid public key");
         store.fail_next(SecretStoreOperation::Put);
@@ -257,15 +289,17 @@ mod tests {
                 public_key,
                 SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
             )
+            .await
             .expect_err("put failure");
         assert_eq!(error.code(), SafeErrorCode::KeyringUnavailable);
-        assert!(!store.contains(public_key).expect("not written"));
+        assert!(!store.contains(public_key).await.expect("not written"));
 
         store
             .put(
                 public_key,
                 SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
             )
+            .await
             .expect("put");
         for operation in [
             SecretStoreOperation::Load,
@@ -274,19 +308,24 @@ mod tests {
         ] {
             store.fail_next(operation);
             let error = match operation {
-                SecretStoreOperation::Load => store.load(public_key).map(|_| ()),
-                SecretStoreOperation::Contains => store.contains(public_key).map(|_| ()),
-                SecretStoreOperation::Delete => store.delete(public_key),
+                SecretStoreOperation::Load => store.load(public_key).await.map(|_| ()),
+                SecretStoreOperation::Contains => store.contains(public_key).await.map(|_| ()),
+                SecretStoreOperation::Delete => store.delete(public_key).await,
                 SecretStoreOperation::Put => unreachable!("put tested separately"),
             }
             .expect_err("injected failure");
             assert_eq!(error.code(), SafeErrorCode::KeyringUnavailable);
         }
-        assert!(store.contains(public_key).expect("credential retained"));
+        assert!(
+            store
+                .contains(public_key)
+                .await
+                .expect("credential retained")
+        );
     }
 
-    #[test]
-    fn failure_secret_store_call_log_contains_only_public_identity() {
+    #[tokio::test]
+    async fn failure_secret_store_call_log_contains_only_public_identity() {
         let store = FailureSecretStore::default();
         let public_key = PublicKey::from_bytes([7; 32]).expect("valid public key");
         store
@@ -294,6 +333,7 @@ mod tests {
                 public_key,
                 SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
             )
+            .await
             .expect("put");
         let calls = store.calls();
         assert_eq!(calls[0].operation(), SecretStoreOperation::Put);

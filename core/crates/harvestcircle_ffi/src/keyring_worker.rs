@@ -1,9 +1,9 @@
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-use harvestcircle_application::SecretStore;
+use harvestcircle_application::{BoxFuture, SecretStore};
 use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage, SecretKeyInput};
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 
 const KEYRING_QUEUE_CAPACITY: usize = 8;
 
@@ -11,20 +11,14 @@ enum Request {
     Put(
         PublicKey,
         SecretKeyInput,
-        std::sync::mpsc::SyncSender<Result<(), SafeError>>,
+        oneshot::Sender<Result<(), SafeError>>,
     ),
     Load(
         PublicKey,
-        std::sync::mpsc::SyncSender<Result<SecretKeyInput, SafeError>>,
+        oneshot::Sender<Result<SecretKeyInput, SafeError>>,
     ),
-    Contains(
-        PublicKey,
-        std::sync::mpsc::SyncSender<Result<bool, SafeError>>,
-    ),
-    Delete(
-        PublicKey,
-        std::sync::mpsc::SyncSender<Result<(), SafeError>>,
-    ),
+    Contains(PublicKey, oneshot::Sender<Result<bool, SafeError>>),
+    Delete(PublicKey, oneshot::Sender<Result<(), SafeError>>),
     Close,
 }
 
@@ -38,22 +32,31 @@ impl BoundedKeyringWorker {
     pub(crate) fn new(store: impl SecretStore + 'static) -> Result<Arc<Self>, SafeError> {
         let (sender, receiver) = std::sync::mpsc::sync_channel(KEYRING_QUEUE_CAPACITY);
         let (completion_sender, completion_receiver) = watch::channel(false);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|_| worker_unavailable())?;
         let thread = std::thread::Builder::new()
             .name("harvestcircle-keyring-worker".to_owned())
             .spawn(move || {
                 while let Ok(request) = receiver.recv() {
                     match request {
                         Request::Put(public_key, secret, response) => {
-                            let _ = response.send(store.put(public_key, secret));
+                            let _ = response.send(
+                                runtime.block_on(async { store.put(public_key, secret).await }),
+                            );
                         }
                         Request::Load(public_key, response) => {
-                            let _ = response.send(store.load(public_key));
+                            let _ = response
+                                .send(runtime.block_on(async { store.load(public_key).await }));
                         }
                         Request::Contains(public_key, response) => {
-                            let _ = response.send(store.contains(public_key));
+                            let _ = response
+                                .send(runtime.block_on(async { store.contains(public_key).await }));
                         }
                         Request::Delete(public_key, response) => {
-                            let _ = response.send(store.delete(public_key));
+                            let _ = response
+                                .send(runtime.block_on(async { store.delete(public_key).await }));
                         }
                         Request::Close => break,
                     }
@@ -68,20 +71,21 @@ impl BoundedKeyringWorker {
         }))
     }
 
-    fn submit<T>(
+    async fn submit<T>(
         &self,
-        request: impl FnOnce(std::sync::mpsc::SyncSender<T>) -> Request,
+        request: impl FnOnce(oneshot::Sender<T>) -> Request,
     ) -> Result<T, SafeError> {
-        let (response_sender, response_receiver) = std::sync::mpsc::sync_channel(1);
-        let sender_guard = self.sender.lock().map_err(|_| worker_unavailable())?;
-        let Some(sender) = sender_guard.as_ref() else {
-            return Err(worker_unavailable());
-        };
-        sender
-            .try_send(request(response_sender))
-            .map_err(|_| worker_unavailable())?;
-        drop(sender_guard);
-        response_receiver.recv().map_err(|_| worker_unavailable())
+        let (response_sender, response_receiver) = oneshot::channel();
+        {
+            let sender_guard = self.sender.lock().map_err(|_| worker_unavailable())?;
+            let Some(sender) = sender_guard.as_ref() else {
+                return Err(worker_unavailable());
+            };
+            sender
+                .try_send(request(response_sender))
+                .map_err(|_| worker_unavailable())?;
+        }
+        response_receiver.await.map_err(|_| worker_unavailable())
     }
 
     pub(crate) async fn close(&self) -> Result<(), SafeError> {
@@ -118,20 +122,36 @@ fn signal_close(sender: std::sync::mpsc::SyncSender<Request>) {
 }
 
 impl SecretStore for BoundedKeyringWorker {
-    fn put(&self, public_key: PublicKey, secret: SecretKeyInput) -> Result<(), SafeError> {
-        self.submit(|response| Request::Put(public_key, secret, response))?
+    fn put(
+        &self,
+        public_key: PublicKey,
+        secret: SecretKeyInput,
+    ) -> BoxFuture<'_, Result<(), SafeError>> {
+        Box::pin(async move {
+            self.submit(|response| Request::Put(public_key, secret, response))
+                .await?
+        })
     }
 
-    fn load(&self, public_key: PublicKey) -> Result<SecretKeyInput, SafeError> {
-        self.submit(|response| Request::Load(public_key, response))?
+    fn load(&self, public_key: PublicKey) -> BoxFuture<'_, Result<SecretKeyInput, SafeError>> {
+        Box::pin(async move {
+            self.submit(|response| Request::Load(public_key, response))
+                .await?
+        })
     }
 
-    fn contains(&self, public_key: PublicKey) -> Result<bool, SafeError> {
-        self.submit(|response| Request::Contains(public_key, response))?
+    fn contains(&self, public_key: PublicKey) -> BoxFuture<'_, Result<bool, SafeError>> {
+        Box::pin(async move {
+            self.submit(|response| Request::Contains(public_key, response))
+                .await?
+        })
     }
 
-    fn delete(&self, public_key: PublicKey) -> Result<(), SafeError> {
-        self.submit(|response| Request::Delete(public_key, response))?
+    fn delete(&self, public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
+        Box::pin(async move {
+            self.submit(|response| Request::Delete(public_key, response))
+                .await?
+        })
     }
 }
 
@@ -154,14 +174,46 @@ const fn worker_unavailable() -> SafeError {
 
 #[cfg(test)]
 mod tests {
-    use harvestcircle_application::{InMemorySecretStore, SecretStore};
-    use harvestcircle_domain::{PublicKey, SecretKeyInput};
+    use std::time::Duration;
+
+    use harvestcircle_application::{BoxFuture, InMemorySecretStore, SecretStore};
+    use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput};
+    use tokio::sync::oneshot;
 
     use super::{BoundedKeyringWorker, Request, signal_close};
 
     fn public_key() -> PublicKey {
         PublicKey::from_hex("7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7")
             .expect("public key")
+    }
+
+    struct SlowContainsStore {
+        inner: InMemorySecretStore,
+    }
+
+    impl SecretStore for SlowContainsStore {
+        fn put(
+            &self,
+            public_key: PublicKey,
+            secret: SecretKeyInput,
+        ) -> BoxFuture<'_, Result<(), SafeError>> {
+            self.inner.put(public_key, secret)
+        }
+
+        fn load(&self, public_key: PublicKey) -> BoxFuture<'_, Result<SecretKeyInput, SafeError>> {
+            self.inner.load(public_key)
+        }
+
+        fn contains(&self, public_key: PublicKey) -> BoxFuture<'_, Result<bool, SafeError>> {
+            Box::pin(async move {
+                std::thread::sleep(Duration::from_millis(50));
+                self.inner.contains(public_key).await
+            })
+        }
+
+        fn delete(&self, public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
+            self.inner.delete(public_key)
+        }
     }
 
     #[tokio::test]
@@ -171,19 +223,38 @@ mod tests {
             "0000000000000000000000000000000000000000000000000000000000000001".to_owned(),
         )
         .expect("secret");
-        worker.put(public_key(), secret).expect("put");
-        assert!(worker.contains(public_key()).expect("contains"));
-        let loaded = worker.load(public_key()).expect("load");
+        worker.put(public_key(), secret).await.expect("put");
+        assert!(worker.contains(public_key()).await.expect("contains"));
+        let loaded = worker.load(public_key()).await.expect("load");
         assert_eq!(loaded.with_exposed_secret(str::len), 64);
-        worker.delete(public_key()).expect("delete");
+        worker.delete(public_key()).await.expect("delete");
         worker.close().await.expect("close");
-        assert!(worker.contains(public_key()).is_err());
+        assert!(worker.contains(public_key()).await.is_err());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn response_waiting_never_blocks_the_tokio_runtime_thread() {
+        let worker = BoundedKeyringWorker::new(SlowContainsStore {
+            inner: InMemorySecretStore::default(),
+        })
+        .expect("worker");
+        let response = worker.contains(public_key());
+        tokio::pin!(response);
+
+        tokio::select! {
+            biased;
+            result = &mut response => panic!("slow keyring response completed before runtime progress: {result:?}"),
+            () = tokio::task::yield_now() => {}
+        }
+
+        assert!(!response.await.expect("contains"));
+        worker.close().await.expect("close");
     }
 
     #[test]
     fn close_signal_never_blocks_on_a_full_bounded_queue() {
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-        let (response, _response_receiver) = std::sync::mpsc::sync_channel(1);
+        let (response, _response_receiver) = oneshot::channel();
         assert!(
             sender
                 .try_send(Request::Contains(public_key(), response))
