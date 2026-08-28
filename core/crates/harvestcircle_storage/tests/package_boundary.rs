@@ -27,7 +27,10 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
     assert!(manifest.contains("radroots_service_sqlite.workspace = true"));
     assert!(manifest.contains("sqlx.workspace = true"));
     assert!(!manifest.contains("\nkeyring ="));
-    assert!(manifest.contains("secret-service = { version = \"=5.1.0\""));
+    assert!(manifest.contains(
+        "secret-service = { version = \"=5.1.0\", features = [\"rt-tokio-crypto-rust\"] }"
+    ));
+    assert!(!manifest.contains("features = [\"crypto-rust\"]"));
     assert!(manifest.contains("security-framework = \"=3.7.0\""));
     assert!(manifest.contains("security-framework-sys = \"=2.17.0\""));
     assert!(workspace_manifest.contains("sqlx = { version = \"=0.9.0\""));
