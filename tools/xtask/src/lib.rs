@@ -320,11 +320,7 @@ fn native_runtime_boundary(root: &Path, findings: &mut Vec<String>) {
             "use tokio::sync::{oneshot, watch}",
             "keyring worker",
         ),
-        (
-            &keyring,
-            "response_receiver.await",
-            "keyring worker",
-        ),
+        (&keyring, "response_receiver.await", "keyring worker"),
         (
             &keyring,
             "const KEYRING_SHUTDOWN_DEADLINE: Duration = Duration::from_secs(30)",
@@ -342,14 +338,11 @@ fn native_runtime_boundary(root: &Path, findings: &mut Vec<String>) {
         }
     }
     if keyring.contains("response_receiver.recv") {
-        findings.push(
-            "harvestcircle_ffi: keyring response blocks a Tokio runtime thread".to_owned(),
-        );
+        findings
+            .push("harvestcircle_ffi: keyring response blocks a Tokio runtime thread".to_owned());
     }
     if keyring.contains("std::sync::mpsc::Receiver") {
-        findings.push(
-            "harvestcircle_ffi: keyring response exposes a blocking receiver".to_owned(),
-        );
+        findings.push("harvestcircle_ffi: keyring response exposes a blocking receiver".to_owned());
     }
 }
 
