@@ -264,14 +264,77 @@ def run_step(step: int, source_revision: str) -> None:
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(allow_abbrev=False)
+    parser.add_argument("--emit-platform-result", action="store_true")
     parser.add_argument("--step", type=int, required=True)
-    parser.add_argument("--check-id", required=True)
+    parser.add_argument("--check-id")
     parser.add_argument("--source-revision", required=True)
     parser.add_argument("--source-tree", required=True)
-    parser.add_argument("--candidate-digest", required=True)
+    parser.add_argument("--candidate-digest")
     parser.add_argument("--platform", required=True)
     parser.add_argument("--execution-request-sha256", required=True)
     return parser.parse_args()
+
+
+def emit_platform_result(arguments: argparse.Namespace) -> int:
+    if arguments.check_id is not None or arguments.candidate_digest is not None:
+        raise GateError("platform probe received gate-only arguments")
+    require_source_state(arguments.source_revision, arguments.source_tree)
+    identity = os.uname()
+    if (
+        arguments.platform != "macos_aarch64"
+        or identity.sysname != "Darwin"
+        or identity.machine not in {"arm64", "aarch64"}
+    ):
+        raise GateError("platform probe is not running on macOS aarch64")
+    xcode_identity = {
+        "xcodebuild": run(["/usr/bin/xcodebuild", "-version"]).decode(
+            "utf-8", "strict"
+        ),
+        "sdk": {
+            sdk: run(
+                ["/usr/bin/xcrun", "--sdk", sdk, "--show-sdk-version"]
+            ).decode("utf-8", "strict")
+            for sdk in ("iphoneos", "iphonesimulator", "macosx")
+        },
+    }
+    verifier_path = Path(__file__).resolve()
+    result = {
+        "schema": "radroots.services-hardening.rshr-200-platform-result.v1",
+        "platform": "macos_aarch64",
+        "system": "aarch64-darwin",
+        "os_family": "macos",
+        "architecture": "aarch64",
+        "kernel_name": "Darwin",
+        "kernel_release": identity.release,
+        "os_build_sha256": sha256_bytes(
+            canonical(
+                {
+                    "kernel_name": identity.sysname,
+                    "kernel_release": identity.release,
+                    "kernel_version": identity.version,
+                }
+            )
+        ),
+        "runner_kind": "host",
+        "runner_image_sha256": "none",
+        "apple_toolchain_identity_sha256": sha256_bytes(canonical(xcode_identity)),
+        "probe_source_path": verifier_path.relative_to(ROOT).as_posix(),
+        "probe_source_sha256": sha256_bytes(read_regular(verifier_path)),
+        "execution_request_sha256": arguments.execution_request_sha256,
+        "assertion": [
+            {"id": identifier, "result": "pass"}
+            for identifier in (
+                "os_family",
+                "architecture",
+                "kernel_identity",
+                "runner_identity",
+                "apple_identity",
+            )
+        ],
+        "result": "available",
+    }
+    sys.stdout.buffer.write(canonical(result))
+    return 0
 
 
 def main() -> int:
@@ -279,7 +342,6 @@ def main() -> int:
     if arguments.step not in GATE_DEFINITIONS:
         raise GateError("step is outside the HarvestCircle gate authority")
     for value, label in (
-        (arguments.check_id.removeprefix("gate-01-"), "check digest"),
         (arguments.source_revision, "source revision"),
         (arguments.source_tree, "source tree"),
         (arguments.execution_request_sha256, "execution request"),
@@ -287,6 +349,12 @@ def main() -> int:
         expected_length = 40 if label in {"source revision", "source tree"} else 64
         if re.fullmatch(rf"[0-9a-f]{{{expected_length}}}", value) is None:
             raise GateError(f"{label} is not canonical")
+    if arguments.emit_platform_result:
+        return emit_platform_result(arguments)
+    if arguments.check_id is None or re.fullmatch(
+        r"gate-01-[0-9a-f]{64}", arguments.check_id
+    ) is None:
+        raise GateError("check digest is not canonical")
     if arguments.candidate_digest != "none" or arguments.platform != "macos_aarch64":
         raise GateError("candidate or platform scope differs")
     authority_bytes = read_regular(AUTHORITY_PATH, 256 * 1024)
