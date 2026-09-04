@@ -54,6 +54,7 @@ internal const val HEALTH_DATA_ENVIRONMENT = "HARVESTCIRCLE_DEVELOPMENT_DATA_DIR
 private const val HEALTH_FAILURE_EVIDENCE = "HARVESTCIRCLE_HEALTH_FAILED"
 private const val HEALTH_TIMEOUT_MILLIS = 90_000L
 private const val HEALTH_OWNER_MARKER = ".harvestcircle-health-owner-v1"
+internal const val HEALTH_REPO_LOCAL_STATE_ROOT = "data"
 private const val HEALTH_OWNER_TOKEN_BYTES = 16
 private val healthOwnershipRandom = SecureRandom()
 
@@ -192,6 +193,7 @@ internal suspend fun executeHealthCheck(
     try {
         withTimeout(timeoutMillis) {
             ownedRoot = claimHealthDataRoot(developmentDataDirectory)
+            Files.createDirectory(requireNotNull(ownedRoot).path.resolve(HEALTH_REPO_LOCAL_STATE_ROOT))
             stage = "COMPATIBILITY"
             verifyNativeCompatibility(compatibilityDescriptor())
             stage = "OPEN"

@@ -118,6 +118,7 @@ class MainTest {
                             PackagedHealthRuntimeOpener { ownedRoot ->
                                 openCalls += 1
                                 openedRoots.add(ownedRoot)
+                                assertTrue(Files.isDirectory(ownedRoot.resolve(HEALTH_REPO_LOCAL_STATE_ROOT)))
                                 Files.writeString(ownedRoot.resolve("runtime.sqlite3"), "runtime data")
                                 successfulRuntime()
                             },
