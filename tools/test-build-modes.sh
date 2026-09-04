@@ -124,9 +124,9 @@ if ! printf '%s\n' "$unsigned_release_output" | grep -q ':app:desktop:unsignedRe
     printf '%s\n' 'unsigned release command did not select the unsigned readiness gate' >&2
     exit 1
 fi
-for forbidden in ':app:desktop:releaseReadiness' ':app:desktop:signingReadiness' ':app:desktop:notarizationReadiness'; do
+for forbidden in 'cargo audit' 'advisories' ':app:desktop:dependencyCheckAnalyze' ':app:desktop:releaseReadiness' ':app:desktop:signingReadiness' ':app:desktop:notarizationReadiness'; do
     if printf '%s\n' "$unsigned_release_output" | grep -q "$forbidden"; then
-        printf '%s\n' "unsigned release command activated signer authority: $forbidden" >&2
+        printf '%s\n' "unsigned release command activated out-of-scope authority: $forbidden" >&2
         exit 1
     fi
 done

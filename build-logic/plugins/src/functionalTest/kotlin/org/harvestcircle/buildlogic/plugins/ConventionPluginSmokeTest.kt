@@ -485,6 +485,7 @@ class ConventionPluginSmokeTest {
         assertTrue(unsigned.output.contains(":app:desktop:packageDmg"), unsigned.output)
         assertTrue(unsigned.output.contains(":app:desktop:verifyMacOsPackage"), unsigned.output)
         listOf(
+            ":app:desktop:dependencyCheckAnalyze",
             ":app:desktop:signingReadiness",
             ":app:desktop:notarizationReadiness",
             ":app:desktop:verifyMacOsDeveloperIdSignature",
@@ -504,6 +505,7 @@ class ConventionPluginSmokeTest {
                 )
                 .build()
         assertTrue(signed.output.contains(":app:desktop:unsignedReleaseReadiness"), signed.output)
+        assertTrue(signed.output.contains(":app:desktop:dependencyCheckAnalyze"), signed.output)
         assertTrue(signed.output.contains(":app:desktop:signingReadiness"), signed.output)
         assertTrue(signed.output.contains(":app:desktop:notarizationReadiness"), signed.output)
     }

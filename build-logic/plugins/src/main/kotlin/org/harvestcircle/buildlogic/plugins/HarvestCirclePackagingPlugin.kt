@@ -259,7 +259,6 @@ public class HarvestCirclePackagingPlugin : Plugin<Project> {
             }
             task.dependsOn(
                 "checkLicense",
-                "dependencyCheckAnalyze",
                 sourceReadiness,
                 packageReadiness,
                 "packageDmg",
@@ -267,7 +266,12 @@ public class HarvestCirclePackagingPlugin : Plugin<Project> {
             )
         }
         target.tasks.register("releaseReadiness") { task ->
-            task.dependsOn(unsignedReleaseReadiness, signingReadiness, notarizationReadiness)
+            task.dependsOn(
+                "dependencyCheckAnalyze",
+                unsignedReleaseReadiness,
+                signingReadiness,
+                notarizationReadiness,
+            )
         }
         target.tasks.named("check") { it.dependsOn(verifyMetadata) }
     }

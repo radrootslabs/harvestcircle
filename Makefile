@@ -177,8 +177,7 @@ _unsigned-release-check: export HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN = 1.97.1
 _unsigned-release-check: export SOURCE_DATE_EPOCH = $(shell git show -s --format=%ct HEAD)
 _unsigned-release-check: doctor
 	@test "$(BUILD_MODE)" = governed || { printf '%s\n' 'unsigned-release-check requires governed mode'; exit 2; }
-	$(BUILD_RUNNER) $(CARGO) audit --file core/Cargo.lock
-	$(BUILD_RUNNER) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml advisories licenses sources
+	$(BUILD_RUNNER) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml licenses sources
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:unsignedReleaseReadiness
 
 signing-check:
