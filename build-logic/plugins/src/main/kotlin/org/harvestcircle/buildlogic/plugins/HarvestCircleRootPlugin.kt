@@ -26,6 +26,11 @@ public class HarvestCircleRootPlugin : Plugin<Project> {
                 task.sourceProvenanceFile.set(
                     target.layout.projectDirectory.file("core/provenance/harvestcircle-v1.toml"),
                 )
+                task.radrootsLibSourceLockFile.set(
+                    target.layout.projectDirectory.file("radroots.lib.source-lock.v1.toml"),
+                )
+                task.cargoLockFile.set(target.layout.projectDirectory.file("core/Cargo.lock"))
+                task.repositoryRoot.set(target.layout.projectDirectory)
             }
 
         target.tasks.register("verifyCompatibilityBaseline") { task ->

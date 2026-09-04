@@ -9,6 +9,7 @@ publish = false
 [workspace]
 
 [dependencies]
+libc = "0.2.189"
 sha2 = "0.10.9"
 
 [lints.rust]

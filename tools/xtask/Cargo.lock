@@ -60,6 +60,7 @@ dependencies = [
 name = "harvestcircle_xtask"
 version = "0.1.0-alpha"
 dependencies = [
+ "libc",
  "sha2",
 ]
 

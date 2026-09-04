@@ -1,5 +1,12 @@
 package org.harvestcircle.buildlogic.contracts
 
+import java.nio.file.Files
+import java.security.MessageDigest
+import kotlin.io.path.createDirectories
+import kotlin.io.path.createDirectory
+import kotlin.io.path.createTempDirectory
+import kotlin.io.path.writeBytes
+import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
@@ -7,6 +14,64 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class BuildContractsTest {
+    @Test
+    fun radrootsLibSourceLockHashesActualBoundedNoFollowBytes() {
+        val root = createTempDirectory("harvestcircle-source-lock-")
+        val lockfile = root.resolve("core/Cargo.lock")
+        lockfile.parent.createDirectories()
+        val original = "version = 4\n".toByteArray()
+        lockfile.writeBytes(original)
+        val sourceLock = root.resolve("radroots.lib.source-lock.v1.toml")
+        sourceLock.writeText(radrootsLibSourceLock(sha256(original)))
+
+        val parsed = RadrootsLibSourceLock.load(sourceLock.toFile(), root.toFile())
+        assertEquals("core/Cargo.lock", parsed.lockfile)
+        assertEquals(sha256(original), parsed.lockfileSha256)
+
+        lockfile.writeText("version = 3\n")
+        assertFails { RadrootsLibSourceLock.load(sourceLock.toFile(), root.toFile()) }
+        lockfile.writeBytes(original)
+        sourceLock.writeText(radrootsLibSourceLock("a".repeat(64)))
+        assertFails { RadrootsLibSourceLock.load(sourceLock.toFile(), root.toFile()) }
+
+        val canonical = radrootsLibSourceLock(sha256(original))
+        assertFails { RadrootsLibSourceLock.parse(canonical.replace("lockfile =", "unknown =")) }
+        assertFails { RadrootsLibSourceLock.parse(canonical.replace("lockfile = \"core/Cargo.lock\"\n", "")) }
+        assertFails { RadrootsLibSourceLock.parse(canonical + "lockfile = \"core/Cargo.lock\"\n") }
+        assertFails { RadrootsLibSourceLock.parse(canonical.replace("core/Cargo.lock", "../Cargo.lock")) }
+        assertFails { RadrootsLibSourceLock.parse(canonical.replace("core/Cargo.lock", "/tmp/Cargo.lock")) }
+        assertFails { RadrootsLibSourceLock.parse(canonical.replace("\n", "\r\n")) }
+
+        val oversized = root.resolve("oversized-source-lock.toml")
+        oversized.writeBytes(ByteArray(1024 * 1024 + 1))
+        assertFails { RadrootsLibSourceLock.load(oversized.toFile(), root.toFile()) }
+    }
+
+    @Test
+    fun radrootsLibSourceLockRejectsNonregularAndSymlinkPaths() {
+        val finalLinkRoot = createTempDirectory("harvestcircle-source-lock-final-link-")
+        finalLinkRoot.resolve("core").createDirectories()
+        val outside = finalLinkRoot.resolve("outside.lock").apply { writeText("version = 4\n") }
+        Files.createSymbolicLink(finalLinkRoot.resolve("core/Cargo.lock"), outside)
+        val finalLinkAuthority = finalLinkRoot.resolve("radroots.lib.source-lock.v1.toml")
+        finalLinkAuthority.writeText(radrootsLibSourceLock(sha256(outside.toFile().readBytes())))
+        assertFails { RadrootsLibSourceLock.load(finalLinkAuthority.toFile(), finalLinkRoot.toFile()) }
+
+        val intermediateLinkRoot = createTempDirectory("harvestcircle-source-lock-intermediate-link-")
+        val actual = intermediateLinkRoot.resolve("actual").createDirectories()
+        actual.resolve("Cargo.lock").writeText("version = 4\n")
+        Files.createSymbolicLink(intermediateLinkRoot.resolve("core"), actual)
+        val intermediateAuthority = intermediateLinkRoot.resolve("radroots.lib.source-lock.v1.toml")
+        intermediateAuthority.writeText(radrootsLibSourceLock(sha256(actual.resolve("Cargo.lock").toFile().readBytes())))
+        assertFails { RadrootsLibSourceLock.load(intermediateAuthority.toFile(), intermediateLinkRoot.toFile()) }
+
+        val directoryRoot = createTempDirectory("harvestcircle-source-lock-directory-")
+        directoryRoot.resolve("core").createDirectories().resolve("Cargo.lock").createDirectory()
+        val directoryAuthority = directoryRoot.resolve("radroots.lib.source-lock.v1.toml")
+        directoryAuthority.writeText(radrootsLibSourceLock(sha256(byteArrayOf())))
+        assertFails { RadrootsLibSourceLock.load(directoryAuthority.toFile(), directoryRoot.toFile()) }
+    }
+
     @Test
     fun productCoordinatesAreCanonicalAndMatchTheMigrationAdapterFixture() {
         val coordinates = ProductCoordinates.parse(productCoordinates)
@@ -207,6 +272,25 @@ class BuildContractsTest {
         vendor.name=Radroots Labs
         copyright.notice=Copyright © 2026 HarvestCircle contributors
         """.trimIndent() + "\n"
+
+    private fun radrootsLibSourceLock(lockfileSha256: String): String =
+        """
+        schema = "radroots.lib.source-lock.v1"
+        repository = "https://github.com/radrootslabs/lib"
+        revision = "ad17b7d3455a7147cfa303d976fc5c70c3a4c0cb"
+        architecture = "radroots.crates.release.v2"
+        workspace_catalog_sha256 = "deca0c080deae187ff8186c0708903e42f41ea57f77c5f91581e23aa561164a4"
+        version = "0.1.0-alpha"
+        source_archive_sha256 = "2cf12c24ed649c3c8dd48cebcb8583996646e116fc2472539a55748c803584db"
+        lockfile = "core/Cargo.lock"
+        lockfile_sha256 = "$lockfileSha256"
+        """.trimIndent() + "\n"
+
+    private fun sha256(bytes: ByteArray): String =
+        MessageDigest
+            .getInstance("SHA-256")
+            .digest(bytes)
+            .joinToString("") { byte -> "%02x".format(byte) }
 
     private val ffiBaseline =
         """

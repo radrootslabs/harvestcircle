@@ -1,9 +1,13 @@
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::fs::{self, OpenOptions};
+use std::io::Read;
+use std::path::{Component, Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::str::FromStr;
+
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Command {
@@ -977,6 +981,8 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
     const LIB_REVISION: &str = "ad17b7d3455a7147cfa303d976fc5c70c3a4c0cb";
     const PROVENANCE_PATH: &str = "core/provenance/harvestcircle-v1.toml";
     const SOURCE_LOCK_PATH: &str = "radroots.lib.source-lock.v1.toml";
+    const MAX_SOURCE_LOCK_BYTES: u64 = 1024 * 1024;
+    const MAX_CARGO_LOCK_BYTES: u64 = 32 * 1024 * 1024;
     let cargo = read_text(root, "core/Cargo.toml");
     for authority in [
         "repository = \"https://github.com/radrootslabs/harvestcircle\"".to_owned(),
@@ -1030,12 +1036,46 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
         "workspace_catalog_sha256 = \"deca0c080deae187ff8186c0708903e42f41ea57f77c5f91581e23aa561164a4\"\n",
         "version = \"0.1.0-alpha\"\n",
         "source_archive_sha256 = \"2cf12c24ed649c3c8dd48cebcb8583996646e116fc2472539a55748c803584db\"\n",
-        "lockfile_sha256 = \"4308984326ef320973bd11c78dabad499fd57ea8be8e12d5a57bbe8464196a7a\"\n",
+        "lockfile = \"core/Cargo.lock\"\n",
+        "lockfile_sha256 = \"d4454a053e5f5d1810170fe9987e0f2a1d365de7de3eb9c71599029e46a03fc3\"\n",
     );
-    if read_text(root, SOURCE_LOCK_PATH) != expected_source_lock {
+    let source_lock_bytes =
+        match bounded_no_follow_bytes(root, Path::new(SOURCE_LOCK_PATH), MAX_SOURCE_LOCK_BYTES) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                findings.push(format!("{SOURCE_LOCK_PATH}: {error}"));
+                Vec::new()
+            }
+        };
+    let source_lock = String::from_utf8(source_lock_bytes).unwrap_or_default();
+    if source_lock != expected_source_lock {
         findings.push(format!("{SOURCE_LOCK_PATH}: exact Lib source lock changed"));
     }
-    let cargo_lock = read_text(root, "core/Cargo.lock");
+    let lockfile = exact_string_assignment(&source_lock, "lockfile");
+    let declared_lockfile_sha256 = exact_string_assignment(&source_lock, "lockfile_sha256");
+    let cargo_lock_bytes = lockfile
+        .as_deref()
+        .ok_or_else(|| "lockfile assignment is missing or duplicated".to_owned())
+        .and_then(|path| bounded_no_follow_bytes(root, Path::new(path), MAX_CARGO_LOCK_BYTES));
+    if let (Ok(bytes), Some(declared)) = (&cargo_lock_bytes, declared_lockfile_sha256.as_deref()) {
+        let actual = format!("{:x}", Sha256::digest(bytes));
+        if actual != declared {
+            findings.push(format!(
+                "{SOURCE_LOCK_PATH}: lockfile_sha256 does not match actual bounded no-follow bytes"
+            ));
+        }
+    } else {
+        let error = cargo_lock_bytes
+            .as_ref()
+            .err()
+            .map(String::as_str)
+            .unwrap_or("lockfile_sha256 assignment is missing or duplicated");
+        findings.push(format!("{SOURCE_LOCK_PATH}: {error}"));
+    }
+    let cargo_lock = cargo_lock_bytes
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .unwrap_or_default();
     if !cargo_lock.contains(&format!(
         "source = \"git+https://github.com/radrootslabs/lib?rev={LIB_REVISION}#{LIB_REVISION}\""
     )) {
@@ -1477,6 +1517,116 @@ fn read_text(root: &Path, relative: &str) -> String {
 fn sha256_file(path: &Path) -> Option<String> {
     let bytes = fs::read(path).ok()?;
     Some(format!("{:x}", Sha256::digest(bytes)))
+}
+
+fn exact_string_assignment(source: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key} = \"");
+    let values = source
+        .lines()
+        .filter_map(|line| {
+            let value = line.strip_prefix(&prefix)?.strip_suffix('"')?;
+            (!value.is_empty()).then(|| value.to_owned())
+        })
+        .collect::<Vec<_>>();
+    (values.len() == 1).then(|| values[0].clone())
+}
+
+fn bounded_no_follow_bytes(root: &Path, relative: &Path, maximum: u64) -> Result<Vec<u8>, String> {
+    if relative.is_absolute()
+        || relative.components().next().is_none()
+        || relative
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err("path must be normalized and relative".to_owned());
+    }
+    let components = relative.components().collect::<Vec<_>>();
+    let mut path = root.to_path_buf();
+    let mut admitted = None;
+    for (index, component) in components.iter().enumerate() {
+        path.push(component.as_os_str());
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| format!("unable to inspect {}: {error}", relative.display()))?;
+        if metadata.file_type().is_symlink() {
+            return Err(format!(
+                "path traverses a symbolic link: {}",
+                relative.display()
+            ));
+        }
+        if index + 1 == components.len() {
+            if !metadata.is_file() {
+                return Err(format!(
+                    "path is not a regular file: {}",
+                    relative.display()
+                ));
+            }
+            if metadata.len() > maximum {
+                return Err(format!("file exceeds byte limit: {}", relative.display()));
+            }
+            admitted = Some(metadata);
+        } else if !metadata.is_dir() {
+            return Err(format!(
+                "path parent is not a directory: {}",
+                relative.display()
+            ));
+        }
+    }
+
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    let mut file = options.open(&path).map_err(|error| {
+        format!(
+            "unable to open {} without following links: {error}",
+            relative.display()
+        )
+    })?;
+    let opened = file
+        .metadata()
+        .map_err(|error| format!("unable to inspect opened {}: {error}", relative.display()))?;
+    if !opened.is_file() || opened.len() > maximum {
+        return Err(format!(
+            "opened path is not a bounded regular file: {}",
+            relative.display()
+        ));
+    }
+    #[cfg(unix)]
+    if admitted
+        .as_ref()
+        .is_some_and(|metadata| metadata.dev() != opened.dev() || metadata.ino() != opened.ino())
+    {
+        return Err(format!(
+            "path identity changed before open: {}",
+            relative.display()
+        ));
+    }
+
+    let mut bytes = Vec::with_capacity(opened.len() as usize);
+    file.by_ref()
+        .take(maximum + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("unable to read {}: {error}", relative.display()))?;
+    if bytes.len() as u64 > maximum {
+        return Err(format!("file exceeds byte limit: {}", relative.display()));
+    }
+    let completed = file
+        .metadata()
+        .map_err(|error| format!("unable to revalidate {}: {error}", relative.display()))?;
+    if completed.len() != bytes.len() as u64 {
+        return Err(format!(
+            "file changed while it was read: {}",
+            relative.display()
+        ));
+    }
+    #[cfg(unix)]
+    if opened.dev() != completed.dev() || opened.ino() != completed.ino() {
+        return Err(format!(
+            "file identity changed while it was read: {}",
+            relative.display()
+        ));
+    }
+    Ok(bytes)
 }
 
 fn relative(root: &Path, path: &Path) -> Result<String, String> {
@@ -2016,6 +2166,69 @@ mod tests {
             findings
                 .iter()
                 .any(|finding| finding.contains("exact Lib source lock changed"))
+        );
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn source_lock_digest_rejects_actual_byte_mismatch() {
+        let root = fixture("source-lock-digest");
+        write(
+            &root,
+            "radroots.lib.source-lock.v1.toml",
+            concat!(
+                "schema = \"radroots.lib.source-lock.v1\"\n",
+                "repository = \"https://github.com/radrootslabs/lib\"\n",
+                "revision = \"ad17b7d3455a7147cfa303d976fc5c70c3a4c0cb\"\n",
+                "architecture = \"radroots.crates.release.v2\"\n",
+                "workspace_catalog_sha256 = \"deca0c080deae187ff8186c0708903e42f41ea57f77c5f91581e23aa561164a4\"\n",
+                "version = \"0.1.0-alpha\"\n",
+                "source_archive_sha256 = \"2cf12c24ed649c3c8dd48cebcb8583996646e116fc2472539a55748c803584db\"\n",
+                "lockfile = \"core/Cargo.lock\"\n",
+                "lockfile_sha256 = \"d4454a053e5f5d1810170fe9987e0f2a1d365de7de3eb9c71599029e46a03fc3\"\n",
+            ),
+        );
+        write(&root, "core/Cargo.toml", "");
+        write(&root, "core/Cargo.lock", "version = 3\n");
+        let inventory = Inventory::load(&root).expect("source-lock inventory");
+        let mut findings = Vec::new();
+        provenance_check(&root, &inventory, &mut findings);
+        assert!(findings.iter().any(|finding| {
+            finding.contains("lockfile_sha256 does not match actual bounded no-follow bytes")
+        }));
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_source_lock_reads_reject_final_and_intermediate_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let root = fixture("source-lock-symlinks");
+        write(&root, "actual/Cargo.lock", "version = 4\n");
+        symlink(root.join("actual/Cargo.lock"), root.join("final.lock"))
+            .expect("create final symlink");
+        assert!(
+            bounded_no_follow_bytes(&root, Path::new("final.lock"), 1024)
+                .expect_err("final symlink must fail")
+                .contains("symbolic link")
+        );
+
+        symlink(root.join("actual"), root.join("core")).expect("create intermediate symlink");
+        assert!(
+            bounded_no_follow_bytes(&root, Path::new("core/Cargo.lock"), 1024)
+                .expect_err("intermediate symlink must fail")
+                .contains("symbolic link")
+        );
+        assert_eq!(
+            bounded_no_follow_bytes(&root, Path::new("actual/Cargo.lock"), 1024)
+                .expect("regular bounded file"),
+            b"version = 4\n"
+        );
+        assert!(
+            bounded_no_follow_bytes(&root, Path::new("actual/Cargo.lock"), 1)
+                .expect_err("oversize file must fail")
+                .contains("byte limit")
         );
         fs::remove_dir_all(root).expect("remove fixture");
     }
