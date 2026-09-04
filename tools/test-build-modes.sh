@@ -113,4 +113,36 @@ if "$make_command" --no-print-directory -C "$repository_root" BUILD_MODE=standal
 fi
 grep -q 'release-check requires governed mode' "$fixture/release.log"
 
+if "$make_command" --no-print-directory -C "$repository_root" BUILD_MODE=standalone _unsigned-release-check > "$fixture/unsigned-release.log" 2>&1; then
+    printf '%s\n' 'unsigned release execution accepted standalone mode' >&2
+    exit 1
+fi
+grep -q 'unsigned-release-check requires governed mode' "$fixture/unsigned-release.log"
+
+unsigned_release_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE=governed -C "$repository_root" _unsigned-release-check)
+if ! printf '%s\n' "$unsigned_release_output" | grep -q ':app:desktop:unsignedReleaseReadiness'; then
+    printf '%s\n' 'unsigned release command did not select the unsigned readiness gate' >&2
+    exit 1
+fi
+for forbidden in ':app:desktop:releaseReadiness' ':app:desktop:signingReadiness' ':app:desktop:notarizationReadiness'; do
+    if printf '%s\n' "$unsigned_release_output" | grep -q "$forbidden"; then
+        printf '%s\n' "unsigned release command activated signer authority: $forbidden" >&2
+        exit 1
+    fi
+done
+
+standalone_package_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE=standalone -C "$repository_root" package-check)
+standalone_unsigned_gate_count=$(printf '%s\n' "$standalone_package_output" | grep -c -- '^./gradlew --no-daemon --no-parallel --no-configuration-cache :app:desktop:unsignedReleaseReadiness$')
+if [ "$standalone_unsigned_gate_count" -ne 1 ] || printf '%s\n' "$standalone_package_output" | grep -q 'cargo extbuild'; then
+    printf '%s\n' 'standalone package-check must invoke the unsigned gate once without probing extbuild' >&2
+    exit 1
+fi
+
+governed_package_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE=standalone -C "$repository_root" governed-package-check)
+governed_unsigned_gate_count=$(printf '%s\n' "$governed_package_output" | grep -c -- 'cargo extbuild run -- ./gradlew --no-daemon --no-parallel --no-configuration-cache :app:desktop:unsignedReleaseReadiness')
+if [ "$governed_unsigned_gate_count" -ne 1 ]; then
+    printf '%s\n' 'governed-package-check must invoke the extbuild-routed unsigned gate exactly once' >&2
+    exit 1
+fi
+
 printf '%s\n' 'harvestcircle.build-mode-contract=pass'

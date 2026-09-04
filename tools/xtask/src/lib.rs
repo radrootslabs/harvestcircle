@@ -1,7 +1,7 @@
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
-use std::io::Read;
+use std::io::{ErrorKind, Read};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::str::FromStr;
@@ -112,13 +112,17 @@ impl Inventory {
             if !output.status.success() {
                 return Err("unable to enumerate tracked HarvestCircle sources".to_owned());
             }
-            let mut paths = output
+            let mut paths = Vec::new();
+            for raw_path in output
                 .stdout
                 .split(|byte| *byte == 0)
                 .filter(|path| !path.is_empty())
-                .map(|path| String::from_utf8_lossy(path).replace('\\', "/"))
-                .filter(|path| root.join(path).symlink_metadata().is_ok())
-                .collect::<Vec<_>>();
+            {
+                let path = String::from_utf8(raw_path.to_vec())
+                    .map_err(|_| "Git inventory path is not valid UTF-8".to_owned())?;
+                validate_git_inventory_path(root, Path::new(&path))?;
+                paths.push(path);
+            }
             paths.sort();
             paths.dedup();
             Ok(Self {
@@ -136,6 +140,60 @@ impl Inventory {
             })
         }
     }
+}
+
+fn validate_git_inventory_path(root: &Path, relative: &Path) -> Result<(), String> {
+    if relative.is_absolute()
+        || relative.components().next().is_none()
+        || relative
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err(format!(
+            "{}: Git inventory path must be normalized and relative",
+            relative.display()
+        ));
+    }
+    let components = relative.components().collect::<Vec<_>>();
+    let mut current = root.to_path_buf();
+    for (index, component) in components.iter().enumerate() {
+        current.push(component.as_os_str());
+        let metadata = match fs::symlink_metadata(&current) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                return Err(format!(
+                    "{}: Git inventory path is missing",
+                    relative.display()
+                ));
+            }
+            Err(error) => {
+                return Err(format!(
+                    "{}: unable to inspect Git inventory path: {error}",
+                    relative.display()
+                ));
+            }
+        };
+        if metadata.file_type().is_symlink() {
+            return Err(format!(
+                "{}: Git inventory path traverses a symbolic link",
+                relative.display()
+            ));
+        }
+        if index + 1 < components.len() {
+            if !metadata.is_dir() {
+                return Err(format!(
+                    "{}: Git inventory path parent is not a directory",
+                    relative.display()
+                ));
+            }
+        } else if !metadata.is_file() {
+            return Err(format!(
+                "{}: Git inventory path is not a regular file",
+                relative.display()
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn archive_paths(root: &Path, directory: &Path, paths: &mut Vec<String>) -> Result<(), String> {
@@ -2127,6 +2185,132 @@ mod tests {
         fs::remove_dir_all(root).expect("remove fixture");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn git_inventory_rejects_an_intermediate_symbolic_link() {
+        use std::os::unix::fs::symlink;
+
+        let root = fixture("git-inventory-intermediate-symlink");
+        initialize_git_fixture(&root);
+        write(&root, "tracked/file.txt", "tracked\n");
+        add_git_fixture_path(&root, Path::new("tracked/file.txt"));
+        fs::rename(root.join("tracked"), root.join("actual")).expect("move tracked directory");
+        symlink(root.join("actual"), root.join("tracked")).expect("create intermediate symlink");
+
+        let error = Inventory::load(&root).expect_err("intermediate symlink must fail closed");
+        assert!(error.contains("Git inventory path traverses a symbolic link"));
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn git_inventory_rejects_invalid_utf8_before_filesystem_traversal() {
+        use std::io::Write as _;
+        use std::process::Stdio;
+
+        let root = fixture("git-inventory-invalid-utf8-symlink");
+        initialize_git_fixture(&root);
+        write(&root, "blob.txt", "tracked\n");
+        let object = ProcessCommand::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["hash-object", "-w", "blob.txt"])
+            .output()
+            .expect("write fixture blob");
+        assert!(object.status.success());
+        let object = String::from_utf8(object.stdout).expect("Git object ID is UTF-8");
+        let mut index_entry = format!("100644 blob {}\ttracked/", object.trim()).into_bytes();
+        index_entry.push(0x80);
+        index_entry.extend_from_slice(b"/file.txt\0");
+        let mut update = ProcessCommand::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["update-index", "-z", "--index-info"])
+            .stdin(Stdio::piped())
+            .spawn()
+            .expect("start hostile index update");
+        update
+            .stdin
+            .take()
+            .expect("hostile index stdin")
+            .write_all(&index_entry)
+            .expect("write hostile index entry");
+        assert!(
+            update
+                .wait()
+                .expect("finish hostile index update")
+                .success()
+        );
+        let error =
+            Inventory::load(&root).expect_err("invalid UTF-8 inventory path must fail closed");
+        assert_eq!(error, "Git inventory path is not valid UTF-8");
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn git_inventory_preserves_a_literal_backslash_without_aliasing_a_separator() {
+        let root = fixture("git-inventory-backslash");
+        initialize_git_fixture(&root);
+        write(&root, r"tracked\file.txt", "literal backslash\n");
+        write(&root, "tracked/file.txt", "path separator\n");
+        add_git_fixture_path(&root, Path::new(r"tracked\file.txt"));
+        add_git_fixture_path(&root, Path::new("tracked/file.txt"));
+
+        let inventory = Inventory::load(&root).expect("distinct Git paths must remain distinct");
+        assert!(inventory.paths.contains(&r"tracked\file.txt".to_owned()));
+        assert!(inventory.paths.contains(&"tracked/file.txt".to_owned()));
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn git_inventory_rejects_a_missing_leaf() {
+        let root = fixture("git-inventory-missing-leaf");
+        initialize_git_fixture(&root);
+        write(&root, "tracked/file.txt", "tracked\n");
+        add_git_fixture_path(&root, Path::new("tracked/file.txt"));
+        fs::remove_file(root.join("tracked/file.txt")).expect("remove tracked file");
+
+        let error = Inventory::load(&root).expect_err("missing inventory leaf must fail closed");
+        assert!(error.contains("Git inventory path is missing"));
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn git_inventory_rejects_a_directory_leaf() {
+        let root = fixture("git-inventory-directory-leaf");
+        initialize_git_fixture(&root);
+        write(&root, "tracked/file.txt", "tracked\n");
+        add_git_fixture_path(&root, Path::new("tracked/file.txt"));
+        fs::remove_file(root.join("tracked/file.txt")).expect("remove tracked file");
+        fs::create_dir(root.join("tracked/file.txt")).expect("create directory leaf");
+
+        let error = Inventory::load(&root).expect_err("directory inventory leaf must fail closed");
+        assert!(error.contains("Git inventory path is not a regular file"));
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn git_inventory_rejects_a_fifo_leaf_without_opening_it() {
+        let root = fixture("git-inventory-fifo-leaf");
+        initialize_git_fixture(&root);
+        write(&root, "tracked/file.txt", "tracked\n");
+        add_git_fixture_path(&root, Path::new("tracked/file.txt"));
+        fs::remove_file(root.join("tracked/file.txt")).expect("remove tracked file");
+        assert!(
+            ProcessCommand::new("mkfifo")
+                .arg(root.join("tracked/file.txt"))
+                .status()
+                .expect("create FIFO leaf")
+                .success()
+        );
+
+        let error = Inventory::load(&root).expect_err("FIFO inventory leaf must fail closed");
+        assert!(error.contains("Git inventory path is not a regular file"));
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
     #[test]
     fn mutable_git_dependency_and_provenance_mutation_fail_closed() {
         let root = fixture("provenance");
@@ -2244,6 +2428,31 @@ mod tests {
         ));
         fs::create_dir_all(&root).expect("create fixture");
         root
+    }
+
+    fn initialize_git_fixture(root: &Path) {
+        assert!(
+            ProcessCommand::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(["init", "--quiet"])
+                .status()
+                .expect("initialize Git fixture")
+                .success()
+        );
+    }
+
+    fn add_git_fixture_path(root: &Path, relative: &Path) {
+        assert!(
+            ProcessCommand::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(["add", "--"])
+                .arg(relative)
+                .status()
+                .expect("index tracked fixture")
+                .success()
+        );
     }
 
     fn write(root: &Path, relative: &str, source: &str) {

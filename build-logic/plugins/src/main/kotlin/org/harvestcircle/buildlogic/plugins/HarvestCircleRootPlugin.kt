@@ -2,6 +2,7 @@ package org.harvestcircle.buildlogic.plugins
 
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.harvestcircle.buildlogic.plugins.tasks.VerifyHarvestCircleArtifactContract
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyProductCoordinates
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyVerificationLanes
 
@@ -13,6 +14,8 @@ public class HarvestCircleRootPlugin : Plugin<Project> {
         val ffiCompatibilityBaselineFile =
             target.layout.projectDirectory.file("core/compatibility/harvestcircle-ffi-v4.properties")
         val verificationLanesFile = target.layout.projectDirectory.file("config/verification/lanes-v3.properties")
+        val artifactContractFile =
+            target.layout.projectDirectory.file("contracts/release/harvestcircle-artifact-contract.v3.json")
 
         val verifyProductCoordinates =
             target.tasks.register("verifyProductCoordinates", VerifyProductCoordinates::class.java) { task ->
@@ -42,6 +45,18 @@ public class HarvestCircleRootPlugin : Plugin<Project> {
             task.group = "verification"
             task.description = "Validates canonical source provenance and its governed digest."
             task.dependsOn(verifyProductCoordinates)
+        }
+        target.tasks.register(
+            "verifyHarvestCircleArtifactContract",
+            VerifyHarvestCircleArtifactContract::class.java,
+        ) { task ->
+            task.group = "verification"
+            task.description = "Validates the canonical unsigned HarvestCircle artifact contract."
+            task.contractFile.set(artifactContractFile)
+            task.productCoordinatesFile.set(productCoordinatesFile)
+            task.ffiCompatibilityBaselineFile.set(ffiCompatibilityBaselineFile)
+            task.expectedBuildVersion.set("1")
+            task.repositoryRoot.set(target.layout.projectDirectory)
         }
         target.tasks.register("verifyVerificationLanes", VerifyVerificationLanes::class.java) { task ->
             task.group = "verification"

@@ -6,6 +6,7 @@ import kotlin.io.path.createTempDirectory
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ConventionPluginSmokeTest {
@@ -461,6 +462,81 @@ class ConventionPluginSmokeTest {
                 ).withArguments(":app:desktop:verifyReleaseBuildProvenance", "--stacktrace")
                 .buildAndFail()
         assertTrue(failure.output.contains("Release source commit provenance is unknown or malformed"), failure.output)
+    }
+
+    @Test
+    fun unsignedReleaseReadinessIsBoundToTheMacOsAarch64Package() {
+        val fixture = createTempDirectory("harvestcircle-unsigned-release-")
+        preparePackagingBuild(fixture, "exit 0")
+
+        val unsigned =
+            GradleRunner.create()
+                .withProjectDir(fixture.toFile())
+                .withPluginClasspath()
+                .withArguments(
+                    ":app:desktop:unsignedReleaseReadiness",
+                    "-PnativeOs=Mac OS X",
+                    "-PnativeArch=aarch64",
+                    "--dry-run",
+                    "--stacktrace",
+                )
+                .build()
+        assertTrue(unsigned.output.contains(":app:desktop:unsignedReleaseReadiness"), unsigned.output)
+        assertTrue(unsigned.output.contains(":app:desktop:packageDmg"), unsigned.output)
+        assertTrue(unsigned.output.contains(":app:desktop:verifyMacOsPackage"), unsigned.output)
+        listOf(
+            ":app:desktop:signingReadiness",
+            ":app:desktop:notarizationReadiness",
+            ":app:desktop:verifyMacOsDeveloperIdSignature",
+            ":app:desktop:verifyMacOsNotarization",
+        ).forEach { forbidden -> assertFalse(unsigned.output.contains(forbidden), unsigned.output) }
+
+        val signed =
+            GradleRunner.create()
+                .withProjectDir(fixture.toFile())
+                .withPluginClasspath()
+                .withArguments(
+                    ":app:desktop:releaseReadiness",
+                    "-PnativeOs=Mac OS X",
+                    "-PnativeArch=aarch64",
+                    "--dry-run",
+                    "--stacktrace",
+                )
+                .build()
+        assertTrue(signed.output.contains(":app:desktop:unsignedReleaseReadiness"), signed.output)
+        assertTrue(signed.output.contains(":app:desktop:signingReadiness"), signed.output)
+        assertTrue(signed.output.contains(":app:desktop:notarizationReadiness"), signed.output)
+    }
+
+    @Test
+    fun unsignedReleaseReadinessRejectsEveryNonContractPlatformDuringConfiguration() {
+        listOf(
+            Triple("linux", "Linux", "aarch64"),
+            Triple("macos-x86", "Mac OS X", "x86_64"),
+        ).forEach { (caseName, osName, architecture) ->
+            val fixture = createTempDirectory("harvestcircle-unsigned-release-$caseName-")
+            preparePackagingBuild(fixture, "exit 0")
+
+            val result =
+                GradleRunner.create()
+                    .withProjectDir(fixture.toFile())
+                    .withPluginClasspath()
+                    .withArguments(
+                        ":app:desktop:unsignedReleaseReadiness",
+                        "-PnativeOs=$osName",
+                        "-PnativeArch=$architecture",
+                        "--dry-run",
+                        "--stacktrace",
+                    ).buildAndFail()
+
+            assertTrue(
+                result.output.contains(
+                    "Unsigned release contract requires macOS/aarch64, not $osName/$architecture",
+                ),
+                result.output,
+            )
+            assertTrue(result.tasks.none { it.path.startsWith(":app:desktop:") }, result.output)
+        }
     }
 
     private fun prepareDesktopBuild(

@@ -46,9 +46,12 @@ public class HarvestCirclePackagingPlugin : Plugin<Project> {
         val productSlug = coordinates["product.slug"]
         val bundleId = coordinates["desktop.bundle_id"]
         val nativeOsName = rustFfi.nativeOsName.get()
+        val nativeArchitecture = rustFfi.nativeArchitecture.get()
         val isMacOsHost = nativeOsName.lowercase().startsWith("mac")
         val isLinuxHost = nativeOsName.lowercase().startsWith("linux")
         val isWindowsHost = nativeOsName.lowercase().startsWith("windows")
+        val isGovernedMacOsTarget =
+            isMacOsHost && nativeArchitecture.lowercase() == coordinates["platform.macos.architecture"]
         if (!isMacOsHost && !isLinuxHost && !isWindowsHost) {
             throw GradleException("Unsupported desktop package host: $nativeOsName")
         }
@@ -235,6 +238,7 @@ public class HarvestCirclePackagingPlugin : Plugin<Project> {
             target.tasks.register("sourceReadiness") { task ->
                 task.dependsOn(
                     ":verifyProductCoordinates",
+                    ":verifyHarvestCircleArtifactContract",
                     ":verifyVerificationLanes",
                     ":app:shared:check",
                     "check",
@@ -247,9 +251,23 @@ public class HarvestCirclePackagingPlugin : Plugin<Project> {
             }
         val signingReadiness = target.tasks.register("signingReadiness") { it.dependsOn(verifySignature) }
         val notarizationReadiness = target.tasks.register("notarizationReadiness") { it.dependsOn(verifyNotarization) }
+        val unsignedReleaseReadiness = target.tasks.register("unsignedReleaseReadiness") { task ->
+            if (!isGovernedMacOsTarget) {
+                throw GradleException(
+                    "Unsigned release contract requires macOS/aarch64, not $nativeOsName/$nativeArchitecture",
+                )
+            }
+            task.dependsOn(
+                "checkLicense",
+                "dependencyCheckAnalyze",
+                sourceReadiness,
+                packageReadiness,
+                "packageDmg",
+                "verifyMacOsPackage",
+            )
+        }
         target.tasks.register("releaseReadiness") { task ->
-            task.dependsOn("checkLicense", "dependencyCheckAnalyze", sourceReadiness, packageReadiness)
-            if (isMacOsHost) task.dependsOn(signingReadiness, notarizationReadiness)
+            task.dependsOn(unsignedReleaseReadiness, signingReadiness, notarizationReadiness)
         }
         target.tasks.named("check") { it.dependsOn(verifyMetadata) }
     }

@@ -93,7 +93,7 @@ public abstract class VerifyMacOsDistribution
                 .filter { it.isFile && it.extension == "icns" }
                 .count { it.readBytes().contentEquals(sourceIcon) }
         require(matchingIcons == 1) { "Packaged macOS icon does not match the canonical icon" }
-        verifyPackagedNativeLibraries(app, releaseLibrary.get().asFile, expectedNativeEntry.get(), true)
+        verifyPackagedNativeLibraries(app, releaseLibrary.get().asFile, expectedNativeEntry.get())
     }
 
     private fun plistValue(
@@ -105,18 +105,14 @@ public abstract class VerifyMacOsDistribution
         app: File,
         release: File,
         expectedEntry: String,
-        verifyMachO: Boolean,
     ) {
         val packagedLibraries = packagedNativeLibraries(app, expectedEntry)
         require(packagedLibraries.size == 1) {
             "Packaged application must contain exactly one release native library"
         }
         val packaged = temporaryDir.resolve(release.name).apply { writeBytes(packagedLibraries.single()) }
-        if (verifyMachO) {
-            require(machOIdentity(packaged) == machOIdentity(release)) {
-                "Packaged native library identity does not match the Cargo release artifact"
-            }
-            execOperations.commandOutput("/usr/bin/codesign", "--verify", "--strict", packaged.absolutePath)
+        require(machOIdentity(packaged) == machOIdentity(release)) {
+            "Packaged native library identity does not match the Cargo release artifact"
         }
     }
 

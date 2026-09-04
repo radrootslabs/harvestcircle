@@ -17,10 +17,10 @@ else
 override BUILD_RUNNER :=
 endif
 
-.PHONY: help doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-provenance-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check signing-check _signing-check notarization-check _notarization-check release-check _release-check clean
+.PHONY: help doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-provenance-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check unsigned-release-check _unsigned-release-check signing-check _signing-check notarization-check _notarization-check release-check _release-check clean
 
 help:
-	@printf '%s\n' doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check signing-check notarization-check release-check clean
+	@printf '%s\n' doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check unsigned-release-check signing-check notarization-check release-check clean
 
 design-source-check: doctor
 	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- design-source-audit
@@ -121,7 +121,7 @@ host-package-check: doctor
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:verifyHostPackage
 
 governed-package-check:
-	$(MAKE) --no-print-directory BUILD_MODE=governed host-package-check
+	$(MAKE) --no-print-directory BUILD_MODE=governed package-check
 
 source-check: build-logic-check check bindings api-check licenses dev-check
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:sourceReadiness
@@ -129,8 +129,13 @@ source-check: build-logic-check check bindings api-check licenses dev-check
 governed-source-check:
 	$(MAKE) --no-print-directory BUILD_MODE=governed source-check
 
+package-check: export HARVESTCIRCLE_BUILD_SOURCE_COMMIT = $(shell git rev-parse --verify HEAD)
+package-check: export HARVESTCIRCLE_BUILD_SOURCE_DIRTY = $(if $(strip $(shell git status --porcelain --untracked-files=all)),true,false)
+package-check: export HARVESTCIRCLE_BUILD_RADROOTS_REVISION = $(shell sed -n 's/^revision = "\([0-9a-f]\{40\}\)"$$/\1/p' radroots.lib.source-lock.v1.toml)
+package-check: export HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN = 1.97.1
+package-check: export SOURCE_DATE_EPOCH = $(shell git show -s --format=%ct HEAD)
 package-check: source-check
-	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:packageReadiness
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:unsignedReleaseReadiness
 
 integration-check: build-logic-check check
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:integrationTest :app:desktop:verifyTestBridgeIsolation
@@ -161,6 +166,20 @@ host-ui-lifecycle-check: doctor
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:hostUiLifecycleTest
 
 acceptance-check: integration-check host-package-check
+
+unsigned-release-check:
+	$(MAKE) --no-print-directory BUILD_MODE=governed _unsigned-release-check
+
+_unsigned-release-check: export HARVESTCIRCLE_BUILD_SOURCE_COMMIT = $(shell git rev-parse --verify HEAD)
+_unsigned-release-check: export HARVESTCIRCLE_BUILD_SOURCE_DIRTY = $(if $(strip $(shell git status --porcelain --untracked-files=all)),true,false)
+_unsigned-release-check: export HARVESTCIRCLE_BUILD_RADROOTS_REVISION = $(shell sed -n 's/^revision = "\([0-9a-f]\{40\}\)"$$/\1/p' radroots.lib.source-lock.v1.toml)
+_unsigned-release-check: export HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN = 1.97.1
+_unsigned-release-check: export SOURCE_DATE_EPOCH = $(shell git show -s --format=%ct HEAD)
+_unsigned-release-check: doctor
+	@test "$(BUILD_MODE)" = governed || { printf '%s\n' 'unsigned-release-check requires governed mode'; exit 2; }
+	$(BUILD_RUNNER) $(CARGO) audit --file core/Cargo.lock
+	$(BUILD_RUNNER) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml advisories licenses sources
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:unsignedReleaseReadiness
 
 signing-check:
 	$(MAKE) --no-print-directory BUILD_MODE=governed _signing-check
