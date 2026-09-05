@@ -3,6 +3,7 @@ set -eu
 
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 make_command=$(command -v make)
+gradle_command=${GRADLE:-./gradlew}
 fixture=$(mktemp -d "${TMPDIR:-/tmp}/harvestcircle-build-mode.XXXXXX")
 cleanup() {
     find "$fixture" -depth -delete
@@ -87,8 +88,12 @@ fi
 
 for mode in standalone governed; do
     clean_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$repository_root" clean)
-    root_clean_count=$(printf '%s\n' "$clean_output" | grep -Ec '(^| -- )\./gradlew --no-daemon clean$')
-    included_clean_count=$(printf '%s\n' "$clean_output" | grep -Ec '(^| -- )\./gradlew --no-daemon -p build-logic clean$')
+    build_runner_prefix=
+    if [ "$mode" = governed ]; then
+        build_runner_prefix='cargo extbuild run -- '
+    fi
+    root_clean_count=$(printf '%s\n' "$clean_output" | grep -Fxc -- "${build_runner_prefix}${gradle_command} --no-daemon clean" || true)
+    included_clean_count=$(printf '%s\n' "$clean_output" | grep -Fxc -- "${build_runner_prefix}${gradle_command} --no-daemon -p build-logic clean" || true)
     if [ "$root_clean_count" -ne 1 ] || [ "$included_clean_count" -ne 1 ]; then
         printf '%s\n' "clean in $mode mode must clean the root and included builds exactly once" >&2
         exit 1
@@ -132,14 +137,14 @@ for forbidden in 'cargo audit' 'advisories' ':app:desktop:dependencyCheckAnalyze
 done
 
 standalone_package_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE=standalone -C "$repository_root" package-check)
-standalone_unsigned_gate_count=$(printf '%s\n' "$standalone_package_output" | grep -c -- '^./gradlew --no-daemon --no-parallel --no-configuration-cache :app:desktop:unsignedReleaseReadiness$')
+standalone_unsigned_gate_count=$(printf '%s\n' "$standalone_package_output" | grep -Fxc -- "$gradle_command --no-daemon --no-parallel --no-configuration-cache :app:desktop:unsignedReleaseReadiness" || true)
 if [ "$standalone_unsigned_gate_count" -ne 1 ] || printf '%s\n' "$standalone_package_output" | grep -q 'cargo extbuild'; then
     printf '%s\n' 'standalone package-check must invoke the unsigned gate once without probing extbuild' >&2
     exit 1
 fi
 
 governed_package_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE=standalone -C "$repository_root" governed-package-check)
-governed_unsigned_gate_count=$(printf '%s\n' "$governed_package_output" | grep -c -- 'cargo extbuild run -- ./gradlew --no-daemon --no-parallel --no-configuration-cache :app:desktop:unsignedReleaseReadiness')
+governed_unsigned_gate_count=$(printf '%s\n' "$governed_package_output" | grep -Fxc -- "cargo extbuild run -- $gradle_command --no-daemon --no-parallel --no-configuration-cache :app:desktop:unsignedReleaseReadiness" || true)
 if [ "$governed_unsigned_gate_count" -ne 1 ]; then
     printf '%s\n' 'governed-package-check must invoke the extbuild-routed unsigned gate exactly once' >&2
     exit 1
