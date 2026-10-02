@@ -991,6 +991,7 @@ name = "harvestcircle_domain"
 version = "0.1.0-alpha"
 dependencies = [
  "bech32",
+ "radroots_event",
  "radroots_identity",
  "secrecy",
  "zeroize",

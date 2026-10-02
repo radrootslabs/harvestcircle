@@ -1,11 +1,13 @@
 #![doc = "HarvestCircle Nostr identity domain types."]
 
+pub mod availability;
 pub mod error;
 pub mod identity;
 pub mod key;
 pub mod profile;
 pub mod time;
 
+pub use availability::{AvailabilityEventVersion, AvailabilityListingCoordinate, PublicPublisher};
 pub use error::{SafeError, SafeErrorCode, SafeMessage};
 pub use identity::{
     IdentityCreatedAt, IdentityLabel, LocalKeyringBinding, NostrIdentity, NostrIdentityReference,
