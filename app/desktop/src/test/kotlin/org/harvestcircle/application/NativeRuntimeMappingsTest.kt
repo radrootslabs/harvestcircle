@@ -49,6 +49,122 @@ import org.harvestcircle.application.generated.NativeCompatibilityExpectations a
 
 class NativeRuntimeMappingsTest {
     @Test
+    fun generatedMappingsPreserveExactUtf8Boundaries() {
+        listOf("x", "é", "🥕", "e\u0301").forEach { unit ->
+            val label = textAtUtf8Limit(unit, 80)
+            val values = listOf(128, 128, 320, 4096, 2048).map { textAtUtf8Limit(unit, it) }
+            val identity = nativeIdentity().copy(displayLabel = label)
+            val profile = ProfileDto(values[0], values[1], values[2], values[3], values[4])
+            val native = populatedSnapshot(2UL)
+            val snapshot =
+                native.copy(
+                    identities = listOf(identity),
+                    activeIdentity = requireNotNull(native.activeIdentity).copy(identity = identity, profile = profile),
+                )
+            val mapped = snapshot.toApplicationSnapshot()
+            val mappedProfile = requireNotNull(mapped.activeIdentity?.profile)
+
+            assertEquals(80, label.encodeToByteArray().size)
+            values.zip(listOf(128, 128, 320, 4096, 2048)).forEach { (value, maximum) ->
+                assertEquals(maximum, value.encodeToByteArray().size)
+            }
+            assertEquals(label, mapped.identities.single().displayLabel)
+            assertEquals(label, mapped.activeIdentity?.identity?.displayLabel)
+            assertEquals(values[0], mappedProfile.name)
+            assertEquals(values[1], mappedProfile.displayName)
+            assertEquals(values[2], mappedProfile.nip05)
+            assertEquals(values[3], mappedProfile.about)
+            assertEquals(values[4], mappedProfile.picture)
+        }
+    }
+
+    @Test
+    fun identityMappingRejectsLabelOneByteOverUtf8Limit() {
+        listOf("x", "é", "🥕", "e\u0301").forEach { unit ->
+            val value = textAtUtf8Limit(unit, 80) + "x"
+            assertEquals(81, value.encodeToByteArray().size)
+            assertFailsWith<IllegalArgumentException> {
+                nativeIdentity().copy(displayLabel = value).toIdentitySummary()
+            }
+        }
+    }
+
+    @Test
+    fun profileMappingRejectsNameOneByteOverUtf8Limit() {
+        assertProfileMappingRejectsOneByteOverLimit(0, 128)
+    }
+
+    @Test
+    fun profileMappingRejectsDisplayNameOneByteOverUtf8Limit() {
+        assertProfileMappingRejectsOneByteOverLimit(1, 128)
+    }
+
+    @Test
+    fun profileMappingRejectsNip05OneByteOverUtf8Limit() {
+        assertProfileMappingRejectsOneByteOverLimit(2, 320)
+    }
+
+    @Test
+    fun profileMappingRejectsAboutOneByteOverUtf8Limit() {
+        assertProfileMappingRejectsOneByteOverLimit(3, 4096)
+    }
+
+    @Test
+    fun profileMappingRejectsPictureOneByteOverUtf8Limit() {
+        assertProfileMappingRejectsOneByteOverLimit(4, 2048)
+    }
+
+    @Test
+    fun profileMappingPreservesValidAboutLayoutControls() {
+        val value = "First\nSecond\rThird\tFourth"
+        val mapped = profileDtoWithField(3, value).toProfileSummary()
+        assertEquals(value, mapped.about)
+        assertNull(mapped.name)
+        assertNull(mapped.displayName)
+        assertNull(mapped.nip05)
+        assertNull(mapped.picture)
+    }
+
+    @Test
+    fun generatedMappingsRejectBlankAndForbiddenControls() {
+        val invalid = listOf("", " \u2003\t\r\n ", "a\u0000b", "a\u001Bb", "a\u007Fb", "a\u0085b")
+        invalid.forEach { value ->
+            assertFailsWith<IllegalArgumentException> {
+                nativeIdentity().copy(displayLabel = value).toIdentitySummary()
+            }
+            (0..4).forEach { index ->
+                assertFailsWith<IllegalArgumentException> {
+                    profileDtoWithField(index, value).toProfileSummary()
+                }
+            }
+        }
+        listOf("a\nb", "a\rb", "a\tb").forEach { value ->
+            assertFailsWith<IllegalArgumentException> {
+                nativeIdentity().copy(displayLabel = value).toIdentitySummary()
+            }
+            listOf(0, 1, 2, 4).forEach { index ->
+                assertFailsWith<IllegalArgumentException> {
+                    profileDtoWithField(index, value).toProfileSummary()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun generatedMappingsRejectMalformedUtf16Metadata() {
+        listOf("a\uD800b", "a\uDC00b", "a\uDC00\uD800b").forEach { value ->
+            assertFailsWith<IllegalArgumentException> {
+                nativeIdentity().copy(displayLabel = value).toIdentitySummary()
+            }
+            (0..4).forEach { index ->
+                assertFailsWith<IllegalArgumentException> {
+                    profileDtoWithField(index, value).toProfileSummary()
+                }
+            }
+        }
+    }
+
+    @Test
     fun desktopCombinesNativeAndHostOwnedBuildMetadataForReadiness() {
         val descriptor =
             CompatibilityDescriptor(
@@ -724,6 +840,36 @@ private class FakeRemovalHandle : NativeRemovalHandle {
 
     override fun close() {
         closed = true
+    }
+}
+
+private fun textAtUtf8Limit(
+    unit: String,
+    maximum: Int,
+): String {
+    val width = unit.encodeToByteArray().size
+    return unit.repeat(maximum / width) + "x".repeat(maximum % width)
+}
+
+private fun profileDtoWithField(
+    index: Int,
+    value: String,
+): ProfileDto {
+    val fields = MutableList<String?>(5) { null }
+    fields[index] = value
+    return ProfileDto(fields[0], fields[1], fields[2], fields[3], fields[4])
+}
+
+private fun assertProfileMappingRejectsOneByteOverLimit(
+    index: Int,
+    maximum: Int,
+) {
+    listOf("x", "é", "🥕", "e\u0301").forEach { unit ->
+        val value = textAtUtf8Limit(unit, maximum) + "x"
+        assertEquals(maximum + 1, value.encodeToByteArray().size)
+        assertFailsWith<IllegalArgumentException> {
+            profileDtoWithField(index, value).toProfileSummary()
+        }
     }
 }
 

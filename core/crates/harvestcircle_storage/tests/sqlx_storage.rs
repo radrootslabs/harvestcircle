@@ -1,13 +1,14 @@
 use std::fs;
 
 use harvestcircle_application::{
-    DurableOperationKind, DurableOperationPhase, DurableOperationRepository, DurableOperationStart,
-    DurableRequestId, DurableTerminalOutcome, IdentityRepository, KeyMaterialProvider,
-    OperationPriorState,
+    CachedProfile, DurableOperationKind, DurableOperationPhase, DurableOperationRepository,
+    DurableOperationStart, DurableRequestId, DurableTerminalOutcome, IdentityRepository,
+    KeyMaterialProvider, OperationPriorState, ProfileRefreshStatus, ProfileRepository,
 };
 use harvestcircle_domain::{
-    IdentityCreatedAt, LocalKeyringBinding, NostrIdentity, NostrIdentityReference, PublicKey,
-    SafeErrorCode, SignerAvailability, UnixTimestamp,
+    EventId, IdentityCreatedAt, IdentityLabel, Kind0ProfileCandidate, LocalKeyringBinding,
+    NostrIdentity, NostrIdentityReference, ProfileMetadata, PublicKey, SafeErrorCode,
+    SignerAvailability, UnixTimestamp,
 };
 use harvestcircle_nostr::NostrKeyMaterialProvider;
 use harvestcircle_storage::{
@@ -88,6 +89,207 @@ fn identity(index: usize) -> NostrIdentity {
         None,
     )
     .expect("identity")
+}
+
+fn text_at_utf8_limit(unit: &str, maximum: usize) -> String {
+    unit.repeat(maximum / unit.len()) + &"x".repeat(maximum % unit.len())
+}
+
+fn identity_with_label(base: &NostrIdentity, label: IdentityLabel) -> NostrIdentity {
+    NostrIdentity::new(
+        NostrIdentityReference::derive(base.public_key()).expect("identity reference"),
+        base.signer_binding(),
+        Some(label),
+        base.created_at(),
+        base.last_used_at(),
+    )
+    .expect("labelled identity")
+}
+
+fn metadata_from_fields(
+    fields: [Option<String>; 5],
+) -> Result<ProfileMetadata, harvestcircle_domain::SafeError> {
+    let [name, display_name, nip05, about, picture] = fields;
+    ProfileMetadata::new(name, display_name, nip05, about, picture)
+}
+
+fn cached_profile(author: PublicKey, metadata: ProfileMetadata, created_at: i64) -> CachedProfile {
+    let timestamp = UnixTimestamp::from_seconds(created_at).expect("profile timestamp");
+    CachedProfile::new(
+        Kind0ProfileCandidate::new(EventId::from_bytes([7; 32]), author, timestamp, metadata),
+        timestamp,
+        ProfileRefreshStatus::Success,
+    )
+}
+
+#[tokio::test]
+async fn utf8_boundary_identity_and_profile_metadata_round_trip_through_governed_storage() {
+    let fixtures = ["x", "é", "🥕", "e\u{301}"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, unit)| {
+            let label = text_at_utf8_limit(unit, 80);
+            assert_eq!(label.len(), 80);
+            let identity = identity_with_label(
+                &identity(index),
+                IdentityLabel::parse(&format!(" \u{2003}{label}\u{2003} "))
+                    .expect("boundary label"),
+            );
+            let mut values =
+                [128, 128, 320, 4_096, 2_048].map(|maximum| text_at_utf8_limit(unit, maximum));
+            let layout = "First\nSecond\rThird\t";
+            values[3] = layout.to_owned() + &text_at_utf8_limit(unit, 4_096 - layout.len());
+            for (value, maximum) in values.iter().zip([128, 128, 320, 4_096, 2_048]) {
+                assert_eq!(value.len(), maximum);
+            }
+            let metadata = metadata_from_fields(
+                values.map(|value| Some(format!(" \u{2003}{value}\u{2003} "))),
+            )
+            .expect("normalized boundary profile");
+            let profile = cached_profile(identity.public_key(), metadata, 10);
+            (identity, profile)
+        })
+        .collect::<Vec<_>>();
+    let directory = tempdir().expect("directory");
+    let context = runtime_context(&directory);
+    let build = build_identity();
+    let database = Database::open(&context, 1, 1, &build)
+        .await
+        .expect("database");
+    let mut writes = Vec::new();
+    for (identity, profile) in &fixtures {
+        writes.push((
+            database.insert_identity(identity).await,
+            database.save_profile(profile).await,
+        ));
+    }
+    database
+        .close()
+        .await
+        .expect("close before persistent roundtrip");
+
+    let reopened = Database::open(&context, 2, 2, &build)
+        .await
+        .expect("reopen");
+    let schema_version = reopened.metadata().state_schema_version().get();
+    let mut reads = Vec::new();
+    for (identity, _) in &fixtures {
+        reads.push((
+            reopened.find_identity(identity.public_key()).await,
+            reopened.load_profile(identity.public_key()).await,
+        ));
+    }
+    let all_identities = reopened.list_identities().await;
+    reopened
+        .close()
+        .await
+        .expect("close before final assertions");
+
+    assert_eq!(schema_version, 2);
+    assert_eq!(
+        all_identities.expect("persisted identities").len(),
+        fixtures.len()
+    );
+    for (identity_write, profile_write) in writes {
+        identity_write.expect("boundary identity write");
+        profile_write.expect("boundary profile write");
+    }
+    for ((identity, profile), (identity_read, profile_read)) in fixtures.into_iter().zip(reads) {
+        assert_eq!(identity_read.expect("identity read"), Some(identity));
+        assert_eq!(profile_read.expect("profile read"), Some(profile));
+    }
+}
+
+#[tokio::test]
+async fn overlimit_identity_metadata_is_rejected_before_repository_write() {
+    let base = identity(0);
+    let directory = tempdir().expect("directory");
+    let context = runtime_context(&directory);
+    let database = Database::open(&context, 1, 1, &build_identity())
+        .await
+        .expect("database");
+    let mut outcomes = Vec::new();
+    for unit in ["x", "é", "🥕", "e\u{301}"] {
+        let value = text_at_utf8_limit(unit, 80) + "x";
+        let result = match IdentityLabel::parse(&format!(" {value} ")) {
+            Err(error) => Err(error),
+            Ok(label) => {
+                database
+                    .insert_identity(&identity_with_label(&base, label))
+                    .await
+            }
+        };
+        outcomes.push((unit, value.len(), result));
+    }
+    let stored = database.list_identities().await;
+    database
+        .close()
+        .await
+        .expect("close before typed validation assertions");
+
+    assert!(stored.expect("identity list").is_empty());
+    for (unit, bytes, result) in outcomes {
+        assert_eq!(bytes, 81);
+        assert_eq!(
+            result.expect_err("overlimit label must not persist").code(),
+            SafeErrorCode::InvalidIdentityMetadata,
+            "validation must reject {unit:?} before SQL constraint failure"
+        );
+    }
+}
+
+#[tokio::test]
+async fn overlimit_profile_metadata_is_rejected_before_repository_write() {
+    let identity = identity(0);
+    let original = cached_profile(
+        identity.public_key(),
+        ProfileMetadata::new(Some("original".to_owned()), None, None, None, None)
+            .expect("original metadata"),
+        1,
+    );
+    let directory = tempdir().expect("directory");
+    let context = runtime_context(&directory);
+    let database = Database::open(&context, 1, 1, &build_identity())
+        .await
+        .expect("database");
+    let identity_write = database.insert_identity(&identity).await;
+    let original_write = database.save_profile(&original).await;
+    let mut outcomes = Vec::new();
+    for (index, maximum) in [128, 128, 320, 4_096, 2_048].into_iter().enumerate() {
+        for unit in ["x", "é", "🥕", "e\u{301}"] {
+            let value = text_at_utf8_limit(unit, maximum) + "x";
+            let mut fields: [Option<String>; 5] = std::array::from_fn(|_| None);
+            fields[index] = Some(format!(" {value} "));
+            let result = match metadata_from_fields(fields) {
+                Err(error) => Err(error),
+                Ok(metadata) => {
+                    database
+                        .save_profile(&cached_profile(identity.public_key(), metadata, 2))
+                        .await
+                }
+            };
+            outcomes.push((index, unit, value.len(), maximum, result));
+        }
+    }
+    let stored = database.load_profile(identity.public_key()).await;
+    database
+        .close()
+        .await
+        .expect("close before typed validation assertions");
+
+    identity_write.expect("identity setup");
+    original_write.expect("profile setup");
+    assert_eq!(stored.expect("profile read"), Some(original));
+    for (index, unit, bytes, maximum, result) in outcomes {
+        assert_eq!(bytes, maximum + 1);
+        assert_eq!(
+            result
+                .expect_err("overlimit profile must not persist")
+                .code(),
+            SafeErrorCode::InvalidProfileMetadata,
+            "field {index} must reject {unit:?} before SQL constraint failure"
+        );
+    }
 }
 
 #[tokio::test]

@@ -3,7 +3,7 @@
 use crate::time::UnixTimestamp;
 use crate::{Npub, PublicKey, SafeError, SafeErrorCode, SafeMessage};
 
-const MAX_IDENTITY_LABEL_CHARS: usize = 80;
+const MAX_IDENTITY_LABEL_UTF8_BYTES: usize = 80;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NostrIdentityReference {
@@ -200,7 +200,7 @@ impl IdentityLabel {
     pub fn parse(value: &str) -> Result<Self, SafeError> {
         let normalized = value.trim();
         if normalized.is_empty()
-            || normalized.chars().count() > MAX_IDENTITY_LABEL_CHARS
+            || normalized.len() > MAX_IDENTITY_LABEL_UTF8_BYTES
             || normalized.chars().any(char::is_control)
         {
             return Err(invalid_identity_metadata());
@@ -366,6 +366,55 @@ mod tests {
             None,
         )
         .expect("identity")
+    }
+
+    fn label_at_utf8_limit(unit: &str) -> String {
+        unit.repeat(80 / unit.len()) + &"x".repeat(80 % unit.len())
+    }
+
+    #[test]
+    fn identity_label_accepts_exact_utf8_boundaries_after_trimming() {
+        for unit in ["x", "é", "🥕", "e\u{301}"] {
+            let value = label_at_utf8_limit(unit);
+            assert_eq!(value.len(), 80);
+            let padded = format!(" \u{2003}{value}\u{2003} ");
+            let label = IdentityLabel::parse(&padded).expect("80-byte normalized label");
+            assert_eq!(label.as_str(), value);
+            assert_eq!(identity(Some(label)).display_label(), value);
+        }
+    }
+
+    #[test]
+    fn identity_label_rejects_one_byte_over_utf8_limit() {
+        for unit in ["x", "é", "🥕", "e\u{301}"] {
+            let value = label_at_utf8_limit(unit) + "x";
+            assert_eq!(value.len(), 81);
+            let error = IdentityLabel::parse(&format!(" {value} "))
+                .expect_err("81-byte normalized label must fail before storage");
+            assert_eq!(error.code(), crate::SafeErrorCode::InvalidIdentityMetadata);
+        }
+    }
+
+    #[test]
+    fn identity_label_preserves_blank_and_embedded_control_policy() {
+        for value in [
+            "",
+            " \u{2003}\t\r\n ",
+            "a\nb",
+            "a\rb",
+            "a\tb",
+            "a\0b",
+            "a\u{1b}b",
+            "a\u{7f}b",
+            "a\u{85}b",
+        ] {
+            assert_eq!(
+                IdentityLabel::parse(value)
+                    .expect_err("invalid label")
+                    .code(),
+                crate::SafeErrorCode::InvalidIdentityMetadata
+            );
+        }
     }
 
     #[test]

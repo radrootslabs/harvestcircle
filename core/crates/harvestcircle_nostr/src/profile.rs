@@ -90,6 +90,123 @@ mod tests {
         (keys, event.as_json())
     }
 
+    fn text_at_utf8_limit(unit: &str, maximum: usize) -> String {
+        unit.repeat(maximum / unit.len()) + &"x".repeat(maximum % unit.len())
+    }
+
+    fn signed_metadata(fields: [Option<String>; 5]) -> (PublicKey, String) {
+        let [name, display_name, nip05, about, picture] = fields;
+        let mut metadata = Metadata::new();
+        metadata.name = name;
+        metadata.display_name = display_name;
+        metadata.nip05 = nip05;
+        metadata.about = about;
+        metadata.picture = picture;
+        let keys = Keys::generate();
+        let event = EventBuilder::new(nostr::Kind::Metadata, metadata.as_json())
+            .sign_with_keys(&keys)
+            .expect("signed metadata");
+        event
+            .verify()
+            .expect("fixture has a valid signature and event ID");
+        let author = PublicKey::from_bytes(keys.public_key().to_bytes()).expect("public author");
+        (author, event.as_json())
+    }
+
+    fn assert_signed_one_byte_over_limit_is_rejected(index: usize, maximum: usize) {
+        for unit in ["x", "é", "🥕", "e\u{301}"] {
+            let value = text_at_utf8_limit(unit, maximum) + "x";
+            assert_eq!(value.len(), maximum + 1);
+            let mut fields: [Option<String>; 5] = std::array::from_fn(|_| None);
+            fields[index] = Some(format!(" {value} "));
+            let (author, json) = signed_metadata(fields);
+            assert_eq!(
+                parse_verified_kind0(&json, author)
+                    .expect_err("correctly signed overlimit metadata")
+                    .code(),
+                SafeErrorCode::InvalidProfileMetadata
+            );
+        }
+    }
+
+    #[test]
+    fn signed_kind0_accepts_exact_utf8_profile_boundaries() {
+        for unit in ["x", "é", "🥕", "e\u{301}"] {
+            let fields = [128, 128, 320, 4_096, 2_048]
+                .map(|maximum| Some(text_at_utf8_limit(unit, maximum)));
+            let (author, json) = signed_metadata(fields.clone());
+            let candidate = parse_verified_kind0(&json, author).expect("signed UTF-8 boundaries");
+            assert_eq!(candidate.author(), author);
+            assert_eq!(candidate.metadata().name(), fields[0].as_deref());
+            assert_eq!(candidate.metadata().display_name(), fields[1].as_deref());
+            assert_eq!(candidate.metadata().nip05(), fields[2].as_deref());
+            assert_eq!(candidate.metadata().about(), fields[3].as_deref());
+            assert_eq!(candidate.metadata().picture(), fields[4].as_deref());
+        }
+    }
+
+    #[test]
+    fn signed_kind0_rejects_name_one_byte_over_utf8_limit() {
+        assert_signed_one_byte_over_limit_is_rejected(0, 128);
+    }
+
+    #[test]
+    fn signed_kind0_rejects_display_name_one_byte_over_utf8_limit() {
+        assert_signed_one_byte_over_limit_is_rejected(1, 128);
+    }
+
+    #[test]
+    fn signed_kind0_rejects_nip05_one_byte_over_utf8_limit() {
+        assert_signed_one_byte_over_limit_is_rejected(2, 320);
+    }
+
+    #[test]
+    fn signed_kind0_rejects_about_one_byte_over_utf8_limit() {
+        assert_signed_one_byte_over_limit_is_rejected(3, 4_096);
+    }
+
+    #[test]
+    fn signed_kind0_rejects_picture_one_byte_over_utf8_limit() {
+        assert_signed_one_byte_over_limit_is_rejected(4, 2_048);
+    }
+
+    #[test]
+    fn signed_kind0_preserves_trim_blank_and_about_layout_policy() {
+        let (author, json) = signed_metadata([
+            Some(" \u{2003}e\u{301}\u{2003} ".to_owned()),
+            Some(" \t ".to_owned()),
+            None,
+            Some(" \nFirst\nSecond\rThird\tFourth\t ".to_owned()),
+            Some(" ".to_owned()),
+        ]);
+        let candidate = parse_verified_kind0(&json, author).expect("normalized signed metadata");
+        assert_eq!(candidate.metadata().name(), Some("e\u{301}"));
+        assert_eq!(candidate.metadata().display_name(), None);
+        assert_eq!(candidate.metadata().nip05(), None);
+        assert_eq!(
+            candidate.metadata().about(),
+            Some("First\nSecond\rThird\tFourth")
+        );
+        assert_eq!(candidate.metadata().picture(), None);
+
+        for index in 0..5 {
+            for control in ['\0', '\u{1b}', '\u{7f}', '\u{85}', '\n', '\r', '\t'] {
+                if index == 3 && matches!(control, '\n' | '\r' | '\t') {
+                    continue;
+                }
+                let mut fields: [Option<String>; 5] = std::array::from_fn(|_| None);
+                fields[index] = Some(format!("a{control}b"));
+                let (author, json) = signed_metadata(fields);
+                assert_eq!(
+                    parse_verified_kind0(&json, author)
+                        .expect_err("signed metadata with forbidden embedded control")
+                        .code(),
+                    SafeErrorCode::InvalidProfileMetadata
+                );
+            }
+        }
+    }
+
     #[test]
     fn profile_event_verifies_signature_author_kind_and_metadata() {
         let (keys, json) = signed_profile();

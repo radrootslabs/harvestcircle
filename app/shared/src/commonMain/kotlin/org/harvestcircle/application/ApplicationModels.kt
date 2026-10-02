@@ -47,7 +47,7 @@ data class IdentitySummary(
 ) {
     init {
         requireSafeText(npub, "Nostr public identity", 128)
-        requireSafeText(displayLabel, "Identity display label", 128)
+        validateUtf8Metadata(displayLabel, "Identity display label", 80)
         require(lastUsedAt == null || lastUsedAt.value >= createdAt.value) {
             "Identity last-used time precedes creation"
         }
@@ -107,11 +107,11 @@ data class ProfileSummary(
     val picture: String?,
 ) {
     init {
-        validateOptional(name, "Profile name", 256)
-        validateOptional(displayName, "Profile display name", 256)
-        validateOptional(nip05, "Profile NIP-05 identifier", 320)
-        validateOptional(about, "Profile about text", 4096)
-        validateOptional(picture, "Profile picture URL", 2048)
+        validateUtf8Metadata(name, "Profile name", 128)
+        validateUtf8Metadata(displayName, "Profile display name", 128)
+        validateUtf8Metadata(nip05, "Profile NIP-05 identifier", 320)
+        validateUtf8Metadata(about, "Profile about text", 4096, allowLayoutControls = true)
+        validateUtf8Metadata(picture, "Profile picture URL", 2048)
     }
 }
 
@@ -223,12 +223,38 @@ data class ApplicationSnapshot(
     }
 }
 
-private fun validateOptional(
+private fun validateUtf8Metadata(
     value: String?,
     label: String,
-    maximumLength: Int,
+    maximumBytes: Int,
+    allowLayoutControls: Boolean = false,
 ) {
-    if (value != null) requireSafeText(value, label, maximumLength)
+    if (value == null) return
+    val message = "$label is empty, oversized, malformed, or contains a control character"
+    require(value.length <= maximumBytes && value.isNotBlank()) { message }
+    var index = 0
+    var bytes = 0
+    while (index < value.length) {
+        val character = value[index]
+        require(
+            !character.isISOControl() ||
+                (allowLayoutControls && (character == '\n' || character == '\r' || character == '\t')),
+        ) { message }
+        require(character !in '\uDC00'..'\uDFFF') { message }
+        bytes +=
+            when {
+                character <= '\u007F' -> 1
+                character <= '\u07FF' -> 2
+                character in '\uD800'..'\uDBFF' -> {
+                    require(index + 1 < value.length && value[index + 1] in '\uDC00'..'\uDFFF') { message }
+                    index += 1
+                    4
+                }
+                else -> 3
+            }
+        require(bytes <= maximumBytes) { message }
+        index += 1
+    }
 }
 
 private fun requireSafeText(
