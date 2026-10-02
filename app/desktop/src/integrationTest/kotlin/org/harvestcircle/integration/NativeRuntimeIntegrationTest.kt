@@ -26,6 +26,64 @@ import kotlin.test.fail
 
 class NativeRuntimeIntegrationTest {
     @Test
+    fun generatedActorObserverRecoversFinalTailAfterSaturation() {
+        val dataRoot = Files.createTempDirectory("harvestcircle-generated-observer-")
+        try {
+            val bridge = HarvestCircleTestBridge.open(dataRoot.toString())
+            try {
+                bridge.bootstrap()
+                val publicKeys =
+                    listOf(
+                        "00000000-0000-7000-8000-000000000031",
+                        "00000000-0000-7000-8000-000000000032",
+                    ).map { requestId ->
+                        val request = bridge.beginGeneratedIdentity()
+                        try {
+                            val publicKey = request.identity().publicKeyHex
+                            bridge.acknowledgeGeneratedIdentity(requestId, bridge.snapshot().revision, 2_000UL, request)
+                            publicKey
+                        } finally {
+                            request.close()
+                        }
+                    }
+                assertEquals(2, publicKeys.distinct().size)
+                val initial = bridge.selectIdentity(publicKeys[1])
+                bridge.startObserver()
+                assertEquals(initial, assertNotNull(bridge.nextObservedSnapshot(2_000UL)))
+
+                val queuedCapacity = 16
+                val publications = queuedCapacity + 2
+                repeat(publications) { offset ->
+                    val publicKey = publicKeys[offset % publicKeys.size]
+                    val snapshot = bridge.selectIdentity(publicKey)
+                    assertEquals(initial.revision + offset.toULong() + 1UL, snapshot.revision)
+                    assertEquals(publicKey, snapshot.selectedPublicKeyHex)
+                }
+                val finalRevision = initial.revision + publications.toULong()
+                assertEquals(finalRevision, bridge.snapshot().revision)
+
+                repeat(queuedCapacity) { offset ->
+                    val queued = assertNotNull(bridge.nextObservedSnapshot(2_000UL))
+                    assertEquals(initial.revision + offset.toULong() + 1UL, queued.revision)
+                    assertEquals(publicKeys[offset % publicKeys.size], queued.selectedPublicKeyHex)
+                }
+                val finalTail = assertNotNull(bridge.nextObservedSnapshot(2_000UL))
+                assertEquals(finalRevision, finalTail.revision)
+                assertEquals(publicKeys[(publications - 1) % publicKeys.size], finalTail.selectedPublicKeyHex)
+                assertEquals(2, finalTail.identities.size)
+            } finally {
+                try {
+                    bridge.shutdown()
+                } finally {
+                    bridge.close()
+                }
+            }
+        } finally {
+            deleteTree(dataRoot)
+        }
+    }
+
+    @Test
     fun generatedFfiClassifiesCanonicalReferencesAndRedactsPrivateKeys() {
         val eventId = "d94a3f4dd87b9a3b0bed183b32e916fa29c8020107845d1752d72697fe5309a5"
         val event = classifyNostrReference(eventId)

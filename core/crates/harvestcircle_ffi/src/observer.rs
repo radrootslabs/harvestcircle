@@ -245,8 +245,9 @@ mod tests {
     use std::time::Duration;
 
     use harvestcircle_application::{
-        RelayAccess, RelayConfiguration, RelayEndpoint, RelayUrlPolicy,
+        DurableRequestId, RelayAccess, RelayConfiguration, RelayEndpoint, RelayUrlPolicy,
     };
+    use harvestcircle_domain::SecretKeyInput;
     use nostr::{EventBuilder, Keys, Metadata};
     use nostr_relay_builder::MockRelay;
     use nostr_sdk::Client;
@@ -266,6 +267,28 @@ mod tests {
     }
 
     struct PanickingObserver;
+
+    struct GatedObserver {
+        changes: Mutex<Vec<SnapshotChangeDto>>,
+        entered: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+        delivered: tokio::sync::Notify,
+    }
+
+    impl HarvestCircleChangeObserver for Arc<GatedObserver> {
+        fn on_change(&self, change: SnapshotChangeDto) {
+            self.changes.lock().expect("changes").push(change);
+            if let Some(entered) = self.entered.lock().expect("initial callback gate").take() {
+                entered.send(()).expect("initial callback entered");
+                self.release
+                    .lock()
+                    .expect("callback release gate")
+                    .recv_timeout(OBSERVER_DELIVERY_TIMEOUT)
+                    .expect("release initial callback");
+            }
+            self.delivered.notify_one();
+        }
+    }
 
     impl HarvestCircleChangeObserver for PanickingObserver {
         fn on_change(&self, _change: SnapshotChangeDto) {
@@ -358,6 +381,124 @@ mod tests {
             subscription.unsubscribe().await;
             core.inner.actor.sign_out().await.expect("sign out");
             assert_eq!(observer.snapshots.lock().expect("snapshots").len(), 1);
+        });
+    }
+
+    #[test]
+    fn slow_callback_recovers_final_tail_after_actor_queue_saturation() {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("two-worker callback test runtime");
+        runtime.block_on(async {
+            let core = core().await;
+            let mut public_keys = Vec::with_capacity(2);
+            for request_id in [
+                "01890f3e-7b1c-7000-8000-000000000050",
+                "01890f3e-7b1c-7000-8000-000000000051",
+            ] {
+                let imported = core
+                    .inner
+                    .actor
+                    .import_secret_key(
+                        DurableRequestId::parse(request_id).expect("test import request"),
+                        core.inner.actor.snapshot().revision(),
+                        SecretKeyInput::parse(Keys::generate().secret_key().to_secret_hex())
+                            .expect("ephemeral identity input"),
+                        OBSERVER_DELIVERY_TIMEOUT,
+                    )
+                    .await
+                    .expect("import into isolated memory secret store");
+                public_keys.push(imported.identity().public_key());
+            }
+            assert_ne!(public_keys[0], public_keys[1]);
+            core.inner
+                .actor
+                .select_identity(public_keys[1])
+                .await
+                .expect("select second identity before observation");
+            let initial_revision = core.snapshot().revision;
+            let (entered_sender, entered_receiver) = tokio::sync::oneshot::channel();
+            let (release_sender, release_receiver) = std::sync::mpsc::sync_channel(1);
+            let observer = Arc::new(GatedObserver {
+                changes: Mutex::new(Vec::new()),
+                entered: Mutex::new(Some(entered_sender)),
+                release: Mutex::new(release_receiver),
+                delivered: tokio::sync::Notify::new(),
+            });
+            let subscription = core
+                .subscribe_changes_v2(Box::new(Arc::clone(&observer)))
+                .await
+                .expect("subscribe slow callback");
+            tokio::time::timeout(OBSERVER_DELIVERY_TIMEOUT, entered_receiver)
+                .await
+                .expect("initial callback deadline")
+                .expect("initial callback entered");
+
+            let queued_changes = super::OBSERVER_CHANGE_CAPACITY.get();
+            let publications = queued_changes + 2;
+            let final_revision = tokio::time::timeout(OBSERVER_DELIVERY_TIMEOUT, async {
+                let mut final_revision = initial_revision;
+                for offset in 0..publications {
+                    final_revision = core
+                        .inner
+                        .actor
+                        .select_identity(public_keys[offset % public_keys.len()])
+                        .await
+                        .expect("alternate selected identity")
+                        .revision()
+                        .value();
+                }
+                final_revision
+            })
+            .await
+            .expect("bounded actor publications");
+            assert_eq!(
+                final_revision,
+                initial_revision + u64::try_from(publications).expect("publication count")
+            );
+            assert_eq!(observer.changes.lock().expect("changes").len(), 1);
+            release_sender.send(()).expect("release slow callback");
+
+            tokio::time::timeout(OBSERVER_DELIVERY_TIMEOUT, async {
+                loop {
+                    let delivered = observer.delivered.notified();
+                    if observer
+                        .changes
+                        .lock()
+                        .expect("changes")
+                        .last()
+                        .is_some_and(|change| change.snapshot.revision == final_revision)
+                    {
+                        break;
+                    }
+                    delivered.await;
+                }
+            })
+            .await
+            .expect("final callback without a later publication");
+
+            let changes = observer.changes.lock().expect("changes").clone();
+            let mut expected_revisions = vec![initial_revision];
+            expected_revisions.extend(
+                (1..=queued_changes)
+                    .map(|offset| initial_revision + u64::try_from(offset).expect("queue offset")),
+            );
+            expected_revisions.push(final_revision);
+            assert_eq!(
+                changes
+                    .iter()
+                    .map(|change| change.snapshot.revision)
+                    .collect::<Vec<_>>(),
+                expected_revisions
+            );
+            assert_eq!(changes[0].previous_revision, None);
+            for change in &changes[1..] {
+                assert_eq!(change.previous_revision, Some(change.snapshot.revision - 1));
+            }
+            subscription.unsubscribe().await;
+            core.shutdown_v2().await.expect("shutdown");
         });
     }
 

@@ -5,8 +5,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.buffer
-import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -55,9 +55,11 @@ class NativeHarvestCircleRuntime internal constructor(
         }
 
     override fun changes(): Flow<ApplicationChange> =
-        channelFlow {
+        flow {
             val acceptingCallbacks = AtomicBoolean(true)
             val deliveryFailure = CompletableDeferred<ApplicationFailure>()
+            val initialChange = CompletableDeferred<ApplicationChange>()
+            val latestChanges = Channel<ApplicationChange>(Channel.CONFLATED)
             val subscription =
                 callNative {
                     native.subscribe { change ->
@@ -69,18 +71,33 @@ class NativeHarvestCircleRuntime internal constructor(
                                 deliveryFailure.complete(observerDeliveryFailure())
                                 return@subscribe
                             }
-                        if (trySend(mapped).isFailure && acceptingCallbacks.get()) {
+                        if (initialChange.complete(mapped)) return@subscribe
+                        if (latestChanges.trySend(mapped).isFailure && acceptingCallbacks.get()) {
                             deliveryFailure.complete(observerDeliveryFailure())
                         }
                     }
                 }
             try {
-                throw deliveryFailure.await()
+                val initial =
+                    select<ApplicationChange> {
+                        deliveryFailure.onAwait { throw it }
+                        initialChange.onAwait { it }
+                    }
+                emit(initial)
+                while (true) {
+                    val latest =
+                        select<ApplicationChange> {
+                            deliveryFailure.onAwait { throw it }
+                            latestChanges.onReceive { it }
+                        }
+                    emit(latest)
+                }
             } finally {
                 acceptingCallbacks.set(false)
+                latestChanges.close()
                 withContext(NonCancellable) { subscription.unsubscribe() }
             }
-        }.buffer(Channel.CONFLATED)
+        }
 
     override suspend fun execute(command: ApplicationCommand): ApplicationCommandResult =
         when (command) {

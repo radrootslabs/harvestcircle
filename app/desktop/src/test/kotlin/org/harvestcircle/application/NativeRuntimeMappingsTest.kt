@@ -9,8 +9,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.harvestcircle.ffi.ActiveIdentityDto
 import org.harvestcircle.ffi.AppLifecycleDto
 import org.harvestcircle.ffi.AppSnapshotDto
@@ -214,6 +216,26 @@ class NativeRuntimeMappingsTest {
     }
 
     @Test
+    fun snapshotChangeMappingsPreserveInitialAndCoalescedPredecessorMetadata() {
+        val initial = SnapshotChangeDto(emptySnapshot(), null).toApplicationChange()
+        assertEquals(SnapshotRevision(0UL), initial.snapshot.revision)
+        assertNull(initial.previousRevision)
+
+        val latest = SnapshotChangeDto(populatedSnapshot(100UL), 99UL).toApplicationChange()
+        assertEquals(SnapshotRevision(100UL), latest.snapshot.revision)
+        assertEquals(SnapshotRevision(99UL), latest.previousRevision)
+    }
+
+    @Test
+    fun snapshotChangeMappingsRejectEqualAndFuturePredecessors() {
+        listOf(2UL, 3UL).forEach { previousRevision ->
+            assertFailsWith<IllegalArgumentException> {
+                SnapshotChangeDto(populatedSnapshot(2UL), previousRevision).toApplicationChange()
+            }
+        }
+    }
+
+    @Test
     fun nativeAndUnknownErrorsBecomeStructuredAndSecretSafe() {
         val native =
             HarvestCircleException
@@ -349,6 +371,80 @@ class NativeHarvestCircleRuntimeTest {
         }
 
     @Test
+    fun synchronousRegistrationBurstPreservesInitialBeforeLatestSnapshot() =
+        runTest(UnconfinedTestDispatcher()) {
+            val burst =
+                listOf(SnapshotChangeDto(emptySnapshot(), null)) +
+                    (1UL..100UL).map { revision ->
+                        SnapshotChangeDto(populatedSnapshot(revision), revision - 1UL)
+                    }
+            val port = FakeNativeCorePort(registrationChanges = burst)
+            val runtime = NativeHarvestCircleRuntime(port)
+            val changes = withTimeout(1_000) { runtime.changes().take(2).toList() }
+
+            assertEquals(listOf(0UL, 100UL), changes.map { it.snapshot.revision.value })
+            assertNull(changes[0].previousRevision)
+            assertEquals(SnapshotRevision(99UL), changes[1].previousRevision)
+            assertEquals(1, port.subscriptionCalls)
+            assertEquals(1, port.subscriptionCloseCalls)
+        }
+
+    @Test
+    fun observerRegistrationFailurePreservesTypedSafeNativeProblem() =
+        runTest {
+            val port =
+                FakeNativeCorePort(
+                    registrationFailure =
+                        HarvestCircleException.Failure(
+                            code = WireErrorCode.OBSERVER_REGISTRATION_FAILED,
+                            category = WireErrorCategory.LIFECYCLE,
+                            retryable = true,
+                            recoveryAction = WireRecoveryAction.RETRY,
+                            correlationId = null,
+                            safeMessage = "The change observer could not be registered.",
+                        ),
+                )
+            val runtime = NativeHarvestCircleRuntime(port)
+            val failure =
+                assertFailsWith<ApplicationFailure> {
+                    withTimeout(1_000) { runtime.changes().first() }
+                }
+
+            assertEquals(ApplicationErrorCode.ObserverRegistrationFailed, failure.problem.code)
+            assertEquals(ApplicationErrorCategory.Lifecycle, failure.problem.category)
+            assertTrue(failure.problem.retryable)
+            assertEquals(RecoveryAction.Retry, failure.problem.recoveryAction)
+            assertEquals("The change observer could not be registered.", failure.problem.safeMessage)
+            assertEquals(1, port.subscriptionCalls)
+            assertEquals(0, port.subscriptionCloseCalls)
+        }
+
+    @Test
+    fun invalidObserverSnapshotFailsTypedWithoutExposingPayload() =
+        runTest {
+            val invalidPublicKey = "isolated-invalid-observer-public-key"
+            val port = FakeNativeCorePort()
+            val runtime = NativeHarvestCircleRuntime(port)
+            val pending =
+                async {
+                    assertFailsWith<ApplicationFailure> {
+                        withTimeout(1_000) { runtime.changes().first() }
+                    }
+                }
+            runCurrent()
+
+            port.emit(SnapshotChangeDto(populatedSnapshot(2UL).copy(selectedPublicKeyHex = invalidPublicKey), 1UL))
+            val failure = pending.await()
+
+            assertEquals(ApplicationErrorCode.ObserverRegistrationFailed, failure.problem.code)
+            assertEquals(ApplicationErrorCategory.Lifecycle, failure.problem.category)
+            assertFalse(failure.problem.retryable)
+            assertEquals(RecoveryAction.RestartApplication, failure.problem.recoveryAction)
+            assertFalse(failure.problem.safeMessage.contains(invalidPublicKey))
+            assertEquals(1, port.subscriptionCloseCalls)
+        }
+
+    @Test
     fun invalidObserverDeliveryFailsTypedAndUnsubscribesOnce() =
         runTest {
             val port = FakeNativeCorePort()
@@ -373,7 +469,10 @@ class NativeHarvestCircleRuntimeTest {
         }
 }
 
-private class FakeNativeCorePort : NativeCorePort {
+private class FakeNativeCorePort(
+    private val registrationChanges: List<SnapshotChangeDto> = emptyList(),
+    private val registrationFailure: Exception? = null,
+) : NativeCorePort {
     val generated = FakeGeneratedRecoveryHandle()
     val removal = FakeRemovalHandle()
     var importedSecret: ByteArray? = null
@@ -381,6 +480,7 @@ private class FakeNativeCorePort : NativeCorePort {
     var closed = false
     var subscriptionClosed = false
     var subscriptionCloseCalls = 0
+    var subscriptionCalls = 0
     private var observer: ((SnapshotChangeDto) -> Unit)? = null
     private val snapshot = populatedSnapshot(2UL)
 
@@ -389,7 +489,10 @@ private class FakeNativeCorePort : NativeCorePort {
     override suspend fun bootstrap(): AppSnapshotDto = snapshot
 
     override suspend fun subscribe(onChange: (SnapshotChangeDto) -> Unit): NativeSubscriptionHandle {
+        subscriptionCalls += 1
+        registrationFailure?.let { throw it }
         observer = onChange
+        registrationChanges.forEach(onChange)
         return NativeSubscriptionHandle {
             subscriptionCloseCalls += 1
             subscriptionClosed = true
