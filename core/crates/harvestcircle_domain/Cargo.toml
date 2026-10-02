@@ -17,6 +17,7 @@ radroots_event.workspace = true
 radroots_event_codec = { workspace = true, features = ["json"] }
 radroots_identity.workspace = true
 secrecy = "=0.10.3"
+sha2.workspace = true
 zeroize = "=1.9.0"
 
 [lints]

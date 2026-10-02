@@ -2,6 +2,7 @@
 
 pub mod actor;
 pub mod app_core;
+pub mod availability_query;
 mod change_stream;
 pub mod config;
 pub mod custody;
@@ -23,6 +24,7 @@ pub use actor::{
     RuntimeCommandClass, RuntimeLifecycle, SessionGeneration, TaskCorrelation,
 };
 pub use app_core::{AppCore, RemovalConfirmationToken, RemovalImpact};
+pub use availability_query::{AvailabilityLocalQueryScope, ScopedAvailabilityQuery};
 pub use change_stream::{
     ChangeSubscriptionId, OrderedSnapshotChanges, SnapshotChange, SnapshotChangeReceiver,
 };
