@@ -60,24 +60,27 @@ class NativeHarvestCircleRuntime internal constructor(
             val deliveryFailure = CompletableDeferred<ApplicationFailure>()
             val initialChange = CompletableDeferred<ApplicationChange>()
             val latestChanges = Channel<ApplicationChange>(Channel.CONFLATED)
-            val subscription =
-                callNative {
-                    native.subscribe { change ->
-                        if (!acceptingCallbacks.get()) return@subscribe
-                        val mapped =
-                            try {
-                                change.toApplicationChange()
-                            } catch (_: Exception) {
-                                deliveryFailure.complete(observerDeliveryFailure())
-                                return@subscribe
-                            }
-                        if (initialChange.complete(mapped)) return@subscribe
-                        if (latestChanges.trySend(mapped).isFailure && acceptingCallbacks.get()) {
-                            deliveryFailure.complete(observerDeliveryFailure())
-                        }
-                    }
-                }
+            var subscription: NativeSubscriptionHandle? = null
             try {
+                withContext(NonCancellable) {
+                    subscription =
+                        callNative {
+                            native.subscribe { change ->
+                                if (!acceptingCallbacks.get()) return@subscribe
+                                val mapped =
+                                    try {
+                                        change.toApplicationChange()
+                                    } catch (_: Exception) {
+                                        deliveryFailure.complete(observerDeliveryFailure())
+                                        return@subscribe
+                                    }
+                                if (initialChange.complete(mapped)) return@subscribe
+                                if (latestChanges.trySend(mapped).isFailure && acceptingCallbacks.get()) {
+                                    deliveryFailure.complete(observerDeliveryFailure())
+                                }
+                            }
+                        }
+                }
                 val initial =
                     select<ApplicationChange> {
                         deliveryFailure.onAwait { throw it }
@@ -95,7 +98,7 @@ class NativeHarvestCircleRuntime internal constructor(
             } finally {
                 acceptingCallbacks.set(false)
                 latestChanges.close()
-                withContext(NonCancellable) { subscription.unsubscribe() }
+                withContext(NonCancellable) { subscription?.unsubscribe() }
             }
         }
 

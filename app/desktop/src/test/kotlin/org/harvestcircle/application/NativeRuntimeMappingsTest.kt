@@ -4,11 +4,13 @@ package org.harvestcircle.application
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -467,6 +469,124 @@ class NativeHarvestCircleRuntimeTest {
             assertEquals(RecoveryAction.RestartApplication, failure.problem.recoveryAction)
             assertEquals(1, port.subscriptionCloseCalls)
         }
+
+    @Test
+    fun cancelledRegistrationBeforeInstallationReleasesAdmission() =
+        runTest {
+            val port = FakeNativeCorePort()
+            val release = CompletableDeferred<Unit>()
+            port.beforeRegistration = release
+            val runtime = NativeHarvestCircleRuntime(port)
+            val delivered = mutableListOf<ApplicationChange>()
+            val collector = launch { runtime.changes().collect { delivered.add(it) } }
+            runCurrent()
+            assertEquals(1, port.subscriptionCalls)
+            assertEquals(0, port.activeSubscriptionCount)
+
+            collector.cancel()
+            runCurrent()
+            release.complete(Unit)
+            collector.join()
+
+            assertEquals(0, port.activeSubscriptionCount)
+            assertTrue(delivered.isEmpty())
+            runtime.shutdown()
+        }
+
+    @Test
+    fun cancelledRegistrationAfterInstallationUnsubscribesBeforeCollectorFinishes() =
+        runTest {
+            val port = FakeNativeCorePort()
+            val release = CompletableDeferred<Unit>()
+            port.afterRegistration = release
+            val runtime = NativeHarvestCircleRuntime(port)
+            val delivered = mutableListOf<ApplicationChange>()
+            val collector = launch { runtime.changes().collect { delivered.add(it) } }
+            runCurrent()
+            assertTrue(port.registrationInstalled.isCompleted)
+            assertEquals(1, port.activeSubscriptionCount)
+
+            collector.cancel()
+            runCurrent()
+            release.complete(Unit)
+            collector.join()
+            port.emitToSubscription(0, SnapshotChangeDto(populatedSnapshot(3UL), 2UL))
+            runCurrent()
+            val retainedAdmission = port.activeSubscriptionCount
+            val unsubscribeCalls = port.subscriptionCloseCalls
+            runtime.shutdown()
+
+            assertTrue(delivered.isEmpty())
+            assertEquals(0, retainedAdmission, "cancelled installed registration must release native admission")
+            assertEquals(1, unsubscribeCalls)
+        }
+
+    @Test
+    fun collectorCancellationWaitsForUnsubscribeAndIgnoresStaleCallback() =
+        runTest {
+            val port = FakeNativeCorePort()
+            val release = CompletableDeferred<Unit>()
+            port.unsubscribeRelease = release
+            val runtime = NativeHarvestCircleRuntime(port)
+            val delivered = mutableListOf<ApplicationChange>()
+            val collector = launch { runtime.changes().collect { delivered.add(it) } }
+            runCurrent()
+            port.emit(SnapshotChangeDto(populatedSnapshot(2UL), 1UL))
+            runCurrent()
+
+            collector.cancel()
+            runCurrent()
+            assertTrue(port.unsubscribeStarted.isCompleted)
+            val completedBeforeUnsubscribe = collector.isCompleted
+            port.emitToSubscription(0, SnapshotChangeDto(populatedSnapshot(3UL), 2UL))
+            runCurrent()
+            release.complete(Unit)
+            collector.join()
+            collector.cancelAndJoin()
+            runtime.shutdown()
+
+            assertFalse(completedBeforeUnsubscribe)
+            assertEquals(listOf(2UL), delivered.map { it.snapshot.revision.value })
+            assertEquals(1, port.subscriptionCloseCalls)
+            assertEquals(0, port.activeSubscriptionCount)
+        }
+
+    @Test
+    fun cancelledCollectorCannotDeliverStaleAccountSnapshotToReplacementCollector() =
+        runTest {
+            val port = FakeNativeCorePort()
+            val runtime = NativeHarvestCircleRuntime(port)
+            val oldChanges = mutableListOf<ApplicationChange>()
+            val oldCollector = launch { runtime.changes().collect { oldChanges.add(it) } }
+            runCurrent()
+            port.emitToSubscription(0, SnapshotChangeDto(populatedSnapshot(2UL), 1UL))
+            runCurrent()
+            oldCollector.cancelAndJoin()
+
+            val replacement = async { runtime.changes().first() }
+            runCurrent()
+            val switchedIdentity = nativeIdentity().copy(publicKeyHex = "02".repeat(32))
+            val switchedSnapshot =
+                populatedSnapshot(3UL).copy(
+                    identities = listOf(switchedIdentity),
+                    selectedPublicKeyHex = switchedIdentity.publicKeyHex,
+                    sessionSubjectPublicKeyHex = switchedIdentity.publicKeyHex,
+                    activeIdentity = populatedSnapshot(3UL).activeIdentity?.copy(identity = switchedIdentity),
+                )
+            port.emitToSubscription(0, SnapshotChangeDto(populatedSnapshot(4UL), 3UL))
+            runCurrent()
+            val staleCompletedReplacement = replacement.isCompleted
+            port.emitToSubscription(1, SnapshotChangeDto(switchedSnapshot, 2UL))
+            val current = replacement.await()
+            runtime.shutdown()
+
+            assertFalse(staleCompletedReplacement)
+            assertEquals(listOf(2UL), oldChanges.map { it.snapshot.revision.value })
+            assertEquals(IdentityId.fromPublicKeyHex(switchedIdentity.publicKeyHex), current.snapshot.selectedIdentityId)
+            assertEquals(SnapshotRevision(3UL), current.snapshot.revision)
+            assertEquals(2, port.subscriptionCloseCalls)
+            assertEquals(0, port.activeSubscriptionCount)
+        }
 }
 
 private class FakeNativeCorePort(
@@ -481,6 +601,14 @@ private class FakeNativeCorePort(
     var subscriptionClosed = false
     var subscriptionCloseCalls = 0
     var subscriptionCalls = 0
+    var beforeRegistration: CompletableDeferred<Unit>? = null
+    var afterRegistration: CompletableDeferred<Unit>? = null
+    var unsubscribeRelease: CompletableDeferred<Unit>? = null
+    val registrationInstalled = CompletableDeferred<Unit>()
+    val unsubscribeStarted = CompletableDeferred<Unit>()
+    private val observers = mutableListOf<(SnapshotChangeDto) -> Unit>()
+    private val activeSubscriptions = mutableSetOf<Int>()
+    val activeSubscriptionCount: Int get() = activeSubscriptions.size
     private var observer: ((SnapshotChangeDto) -> Unit)? = null
     private val snapshot = populatedSnapshot(2UL)
 
@@ -490,17 +618,33 @@ private class FakeNativeCorePort(
 
     override suspend fun subscribe(onChange: (SnapshotChangeDto) -> Unit): NativeSubscriptionHandle {
         subscriptionCalls += 1
+        beforeRegistration?.await()
         registrationFailure?.let { throw it }
         observer = onChange
+        val id = observers.size
+        observers.add(onChange)
+        activeSubscriptions.add(id)
+        registrationInstalled.complete(Unit)
         registrationChanges.forEach(onChange)
+        afterRegistration?.await()
         return NativeSubscriptionHandle {
             subscriptionCloseCalls += 1
+            unsubscribeStarted.complete(Unit)
+            unsubscribeRelease?.await()
+            activeSubscriptions.remove(id)
             subscriptionClosed = true
         }
     }
 
     fun emit(change: SnapshotChangeDto) {
         checkNotNull(observer)(change)
+    }
+
+    fun emitToSubscription(
+        id: Int,
+        change: SnapshotChangeDto,
+    ) {
+        observers[id](change)
     }
 
     override suspend fun beginGeneratedIdentity(): NativeGeneratedRecoveryHandle = generated

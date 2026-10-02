@@ -13,6 +13,7 @@ import org.harvestcircle.ffi.classifyNostrReference
 import org.harvestcircle.ffi.compatibilityDescriptor
 import org.harvestcircle.testbridge.ffi.HarvestCircleTestBridge
 import org.harvestcircle.testbridge.ffi.TestBridgeException
+import org.harvestcircle.testbridge.ffi.TestLifecycle
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.readBytes
@@ -21,10 +22,64 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
 class NativeRuntimeIntegrationTest {
+    @Test
+    fun generatedActorObserverDiscardsStoppedQueueBeforeRestartAndFullShutdown() {
+        val dataRoot = Files.createTempDirectory("harvestcircle-generated-observer-close-")
+        try {
+            val bridge = HarvestCircleTestBridge.open(dataRoot.toString())
+            try {
+                bridge.bootstrap()
+                val publicKeys =
+                    listOf(
+                        "00000000-0000-7000-8000-000000000033",
+                        "00000000-0000-7000-8000-000000000034",
+                    ).map { requestId ->
+                        val request = bridge.beginGeneratedIdentity()
+                        try {
+                            val publicKey = request.identity().publicKeyHex
+                            bridge.acknowledgeGeneratedIdentity(requestId, bridge.snapshot().revision, 2_000UL, request)
+                            publicKey
+                        } finally {
+                            request.close()
+                        }
+                    }
+                val initial = bridge.selectIdentity(publicKeys[1])
+                bridge.startObserver()
+                assertEquals(initial, assertNotNull(bridge.nextObservedSnapshot(2_000UL)))
+                repeat(18) { offset ->
+                    val selected = bridge.selectIdentity(publicKeys[offset % publicKeys.size])
+                    assertEquals(initial.revision + offset.toULong() + 1UL, selected.revision)
+                }
+                val finalSnapshot = bridge.snapshot()
+                assertTrue(bridge.stopObserver())
+                assertFalse(bridge.stopObserver())
+
+                bridge.startObserver()
+                assertEquals(finalSnapshot, assertNotNull(bridge.nextObservedSnapshot(2_000UL)))
+                assertNull(bridge.nextObservedSnapshot(0UL))
+                repeat(18) { offset ->
+                    val selected = bridge.selectIdentity(publicKeys[offset % publicKeys.size])
+                    assertEquals(finalSnapshot.revision + offset.toULong() + 1UL, selected.revision)
+                }
+                val closed = bridge.shutdown()
+
+                assertEquals(TestLifecycle.CLOSED, closed.lifecycle)
+                assertEquals(finalSnapshot.revision + 18UL, closed.revision)
+                assertFalse(bridge.stopObserver())
+                assertFailsWith<TestBridgeException.Failure> { bridge.startObserver() }
+            } finally {
+                bridge.close()
+            }
+        } finally {
+            deleteTree(dataRoot)
+        }
+    }
+
     @Test
     fun generatedActorObserverRecoversFinalTailAfterSaturation() {
         val dataRoot = Files.createTempDirectory("harvestcircle-generated-observer-")

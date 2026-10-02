@@ -837,6 +837,9 @@ impl RuntimeActor {
         completion_sender: &mpsc::Sender<ProfileCompletion>,
     ) -> bool {
         let (context, command, reply) = envelope.into_parts();
+        if matches!(command, RuntimeCommand::SubscribeChanges(_)) && reply.is_closed() {
+            return true;
+        }
         if let Some(result) = self.preflight(context, &command) {
             let _ = reply.send(CommandReceipt::new(context.request_id(), result));
             return true;
@@ -871,7 +874,12 @@ impl RuntimeActor {
         if matches!(result, CommandResult::Completed(_)) {
             self.changes.publish(self.adapter.core().snapshot());
         }
-        let _ = reply.send(CommandReceipt::new(context.request_id(), result));
+        if let Err(receipt) = reply.send(CommandReceipt::new(context.request_id(), result))
+            && let CommandResult::Completed(RuntimeCommandValue::Subscription(subscription)) =
+                receipt.into_result()
+        {
+            let _ = self.changes.unsubscribe(subscription.id());
+        }
         true
     }
 
@@ -1485,9 +1493,11 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use harvestcircle_application::{
-        ActiveSessionBinding, BoxFuture, Clock, DurableRequestId, FailureSecretStore,
-        InMemorySecretStore, NostrClient, ProfileFetchResult, RelayConfiguration, RuntimeLifecycle,
-        SecretStore, SecretStoreOperation, SessionGeneration, SessionState, SnapshotRevision,
+        ActiveSessionBinding, ActorMailbox, BoxFuture, Clock, CommandContext, CommandSubmission,
+        DurableRequestId, FailureSecretStore, GeneratedKeyStage, InMemorySecretStore, NostrClient,
+        OrderedSnapshotChanges, ProfileFetchResult, RelayConfiguration, RequestId,
+        RuntimeLifecycle, SecretStore, SecretStoreOperation, SessionGeneration, SessionState,
+        SnapshotRevision,
     };
     use harvestcircle_domain::{
         LocalKeyringBinding, NostrIdentityReference, PublicKey, SafeError, SafeErrorCode,
@@ -1496,8 +1506,9 @@ mod tests {
     use radroots_transport_nostr::{RelayAccess, RelayEndpoint, RelayUrlPolicy};
 
     use super::{
-        DEFAULT_COMMAND_TIMEOUT, RuntimeActorHandle, RuntimeDependencies, command_unavailable,
-        test_migration_build_identity, test_runtime_context,
+        DEFAULT_COMMAND_TIMEOUT, RuntimeActor, RuntimeActorHandle, RuntimeCommand,
+        RuntimeDependencies, command_unavailable, test_migration_build_identity,
+        test_runtime_context,
     };
     use crate::{InstallationIdentity, InstallationIdentitySource, UuidInstallationIdentitySource};
 
@@ -2319,6 +2330,155 @@ mod tests {
                 .await
                 .expect("second unsubscribe")
         );
+    }
+
+    #[tokio::test]
+    async fn cancelled_registration_before_installation_does_not_retain_actor_admission() {
+        let (handle, secrets) = actor().await;
+        let snapshot = handle.snapshot();
+        // Obtain the first identifier from an independent probe, without relying on its value.
+        let mut probe = OrderedSnapshotChanges::new(snapshot.clone());
+        let (probe_id, probe_receiver) = probe.subscribe(NonZeroUsize::MIN).expect("probe id");
+        drop(probe_receiver);
+        let mut owner = RuntimeActor {
+            adapter: Arc::clone(&handle.adapter),
+            secrets,
+            clock: Arc::new(FixedClock),
+            nostr: Arc::new(OfflineNostr),
+            lifecycle: Arc::clone(&handle.lifecycle),
+            runtime: tokio::runtime::Handle::current(),
+            session_generation: handle.session_generation(),
+            published_session_generation: Arc::clone(&handle.session_generation),
+            profile_tasks: std::collections::BTreeMap::new(),
+            changes: OrderedSnapshotChanges::new(snapshot),
+            published_foreground_session: Arc::clone(&handle.foreground_session),
+            generated_key_stage: GeneratedKeyStage::default(),
+        };
+        let (mailbox, mut receiver) = ActorMailbox::bounded(NonZeroUsize::MIN);
+        let context = CommandContext::new(
+            RequestId::new(1).expect("request id"),
+            None,
+            Instant::now() + DEFAULT_COMMAND_TIMEOUT,
+        );
+        let ticket = match mailbox
+            .submit(context, RuntimeCommand::SubscribeChanges(NonZeroUsize::MIN))
+        {
+            CommandSubmission::Accepted(ticket) => ticket,
+            CommandSubmission::Rejected(_) => panic!("empty test mailbox must admit registration"),
+        };
+        drop(ticket);
+        let envelope = receiver.recv().await.expect("queued registration");
+        let (completions, _completed) = tokio::sync::mpsc::channel(1);
+        assert!(owner.handle_command(envelope, &completions).await);
+        let retained_abandoned_registration = owner.changes.unsubscribe(probe_id);
+        drop(owner);
+        handle.close().await.expect("cleanup runtime");
+
+        assert!(
+            !retained_abandoned_registration,
+            "cancelled queued registration must not retain admission"
+        );
+    }
+
+    #[tokio::test]
+    async fn abandoned_installed_subscription_releases_actor_admission_without_mutation() {
+        let (actor, _) = actor().await;
+        let subscription = actor
+            .subscribe_changes(NonZeroUsize::MIN)
+            .await
+            .expect("installed actor subscription");
+        let id = subscription.id();
+        let unchanged_revision = actor.snapshot().revision();
+        drop(subscription);
+        // Awaiting an Observe command orders any cleanup through the same actor mailbox.
+        let snapshot = actor.bootstrap().await.expect("serialized cleanup barrier");
+        let retained_abandoned_registration = actor
+            .unsubscribe_changes(id)
+            .await
+            .expect("registration probe");
+        actor.close().await.expect("cleanup runtime");
+
+        assert_eq!(snapshot.revision(), unchanged_revision);
+        assert!(
+            !retained_abandoned_registration,
+            "receiver abandonment must release admission without a later state mutation"
+        );
+    }
+
+    #[tokio::test]
+    async fn full_actor_queues_preserve_initial_and_final_tail_then_terminate_on_close() {
+        let (actor, _) = actor().await;
+        let mut public_keys = Vec::new();
+        for value in [
+            "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7",
+            "6e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7",
+        ] {
+            public_keys.push(
+                actor
+                    .import_secret_key_test(secret(value))
+                    .await
+                    .expect("memory-store import")
+                    .identity()
+                    .public_key(),
+            );
+        }
+        actor
+            .select_identity(public_keys[1])
+            .await
+            .expect("initial selection");
+        let initial_revision = actor.snapshot().revision();
+        let mut first = actor
+            .subscribe_changes(NonZeroUsize::MIN)
+            .await
+            .expect("first consumer");
+        let mut second = actor
+            .subscribe_changes(NonZeroUsize::MIN)
+            .await
+            .expect("second consumer");
+        for offset in 0..4 {
+            let selected = actor
+                .select_identity(public_keys[offset % 2])
+                .await
+                .expect("revision-changing selection");
+            assert_eq!(
+                selected.revision().value(),
+                initial_revision.value() + u64::try_from(offset).expect("offset") + 1
+            );
+        }
+        let final_snapshot = actor.snapshot();
+        tokio::time::timeout(Duration::from_secs(1), actor.close())
+            .await
+            .expect("bounded full-queue close")
+            .expect("close");
+        actor.close().await.expect("repeated close");
+        for subscription in [&mut first, &mut second] {
+            let initial = tokio::time::timeout(Duration::from_secs(1), subscription.receive())
+                .await
+                .expect("initial deadline")
+                .expect("initial");
+            assert_eq!(initial.revision(), initial_revision);
+            assert!(initial.previous_revision().is_none());
+            let tail = tokio::time::timeout(Duration::from_secs(1), subscription.receive())
+                .await
+                .expect("tail deadline")
+                .expect("final tail");
+            assert_eq!(tail.snapshot(), &final_snapshot);
+            assert_eq!(
+                tail.previous_revision()
+                    .expect("producer predecessor")
+                    .value(),
+                final_snapshot.revision().value() - 1
+            );
+            for _ in 0..2 {
+                assert!(
+                    tokio::time::timeout(Duration::from_secs(1), subscription.receive())
+                        .await
+                        .expect("terminal delivery deadline")
+                        .is_none()
+                );
+            }
+        }
+        assert_eq!(actor.lifecycle(), RuntimeLifecycle::Closed);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

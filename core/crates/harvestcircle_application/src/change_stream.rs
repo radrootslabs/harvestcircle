@@ -163,6 +163,8 @@ impl OrderedSnapshotChanges {
     }
 
     pub fn publish(&mut self, snapshot: AppSnapshot) {
+        self.subscribers
+            .retain(|_, subscriber| !subscriber.sender.is_closed());
         if self.closed || snapshot.revision() <= self.latest.revision() {
             return;
         }
@@ -466,6 +468,27 @@ mod tests {
         );
         changes.close();
         assert!(next_delivery(&mut receiver).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn unchanged_publish_reclaims_abandoned_receiver_registration() {
+        let mut changes = OrderedSnapshotChanges::new(snapshot(0));
+        let (id, receiver) = changes.subscribe(NonZeroUsize::MIN).expect("subscription");
+        drop(receiver);
+
+        changes.publish(snapshot(0));
+
+        assert!(
+            !changes.unsubscribe(id),
+            "unchanged observation must reclaim a closed receiver"
+        );
+        assert_eq!(changes.last_revision(), revision(0));
+        let (_, mut replacement) = changes.subscribe(NonZeroUsize::MIN).expect("replacement");
+        let initial = next_change(&mut replacement, "replacement initial snapshot").await;
+        assert_eq!(initial.revision(), revision(0));
+        assert!(initial.previous_revision().is_none());
+        changes.close();
+        assert!(next_delivery(&mut replacement).await.is_none());
     }
 
     async fn next_delivery(receiver: &mut SnapshotChangeReceiver) -> Option<SnapshotChange> {

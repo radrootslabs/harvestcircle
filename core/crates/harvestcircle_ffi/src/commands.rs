@@ -355,9 +355,16 @@ pub(crate) struct RuntimeCore {
     pub(crate) observers: Mutex<
         BTreeMap<
             harvestcircle_application::ChangeSubscriptionId,
-            Option<tokio::task::JoinHandle<()>>,
+            Arc<crate::observer::ObserverTask>,
         >,
     >,
+    pub(crate) retired_observers: Mutex<
+        BTreeMap<
+            harvestcircle_application::ChangeSubscriptionId,
+            Arc<crate::observer::ObserverTask>,
+        >,
+    >,
+    pub(crate) observer_admission: Arc<tokio::sync::Semaphore>,
     pub(crate) close_state: AtomicU8,
     pub(crate) close_gate: tokio::sync::Mutex<()>,
     #[cfg(test)]
@@ -763,6 +770,10 @@ impl HarvestCircleAppCore {
                 host_runtime: Some(runtime),
                 keyring: Some(keyring),
                 observers: Mutex::new(BTreeMap::new()),
+                retired_observers: Mutex::new(BTreeMap::new()),
+                observer_admission: Arc::new(tokio::sync::Semaphore::new(
+                    crate::observer::MAX_OBSERVERS,
+                )),
                 close_state: AtomicU8::new(0),
                 close_gate: tokio::sync::Mutex::new(()),
                 #[cfg(test)]
@@ -1107,6 +1118,10 @@ mod tests {
                 host_runtime: None,
                 keyring: None,
                 observers: std::sync::Mutex::new(std::collections::BTreeMap::new()),
+                retired_observers: std::sync::Mutex::new(std::collections::BTreeMap::new()),
+                observer_admission: Arc::new(tokio::sync::Semaphore::new(
+                    crate::observer::MAX_OBSERVERS,
+                )),
                 close_state: std::sync::atomic::AtomicU8::new(0),
                 close_gate: tokio::sync::Mutex::new(()),
                 _test_directory: Some(directory),
