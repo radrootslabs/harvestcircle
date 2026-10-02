@@ -352,6 +352,18 @@ impl AvailabilityHeadView {
         }
     }
 
+    /// Returns the retained logical coordinate even when no head is known.
+    ///
+    /// Selected raw empty or overlong identifiers remain broader evidence and
+    /// have no bounded application coordinate. Suppression is unchanged.
+    #[must_use]
+    pub fn listing_coordinate(&self) -> Option<&AvailabilityListingCoordinate> {
+        match &self.evidence {
+            AvailabilityHeadEvidence::Missing(coordinate) => Some(coordinate),
+            AvailabilityHeadEvidence::Selected { version, .. } => version.listing_coordinate(),
+        }
+    }
+
     /// Returns the retained version, including historical deleted evidence.
     #[must_use]
     pub fn version(&self) -> Option<&AvailabilityVersionView> {

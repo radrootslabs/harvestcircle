@@ -50,6 +50,30 @@ impl AvailabilityLocalQueryScope {
     pub const fn session_generation(&self) -> SessionGeneration {
         self.session_generation
     }
+
+    /// Compares structural bindings without admitting an account or storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ScopeMismatch` for a different owner/context identity and
+    /// `StaleQuery` for a different store/source/projection/session binding.
+    pub fn validate_current(&self, current: &Self) -> Result<(), AvailabilityQueryError> {
+        let original_context = self.context();
+        let current_context = current.context();
+        if self.owner() != current.owner()
+            || original_context.context_id() != current_context.context_id()
+        {
+            return Err(AvailabilityQueryError::ScopeMismatch);
+        }
+        if original_context.store_generation() != current_context.store_generation()
+            || original_context.source_revision() != current_context.source_revision()
+            || original_context.projection_generation() != current_context.projection_generation()
+            || self.session_generation() != current.session_generation()
+        {
+            return Err(AvailabilityQueryError::StaleQuery);
+        }
+        Ok(())
+    }
 }
 
 impl fmt::Debug for AvailabilityLocalQueryScope {
@@ -145,21 +169,7 @@ impl ScopedAvailabilityQuery {
         &self,
         current: &AvailabilityLocalQueryScope,
     ) -> Result<(), AvailabilityQueryError> {
-        let original_context = self.scope.context();
-        let current_context = current.context();
-        if self.scope.owner() != current.owner()
-            || original_context.context_id() != current_context.context_id()
-        {
-            return Err(AvailabilityQueryError::ScopeMismatch);
-        }
-        if original_context.store_generation() != current_context.store_generation()
-            || original_context.source_revision() != current_context.source_revision()
-            || original_context.projection_generation() != current_context.projection_generation()
-            || self.scope.session_generation() != current.session_generation()
-        {
-            return Err(AvailabilityQueryError::StaleQuery);
-        }
-        Ok(())
+        self.scope.validate_current(current)
     }
 
     /// Moves bounded rows into a page at this query's exact projection.

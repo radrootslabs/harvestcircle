@@ -3,6 +3,7 @@
 pub mod actor;
 pub mod app_core;
 pub mod availability_outcomes;
+pub mod availability_ports;
 pub mod availability_query;
 mod change_stream;
 pub mod config;
@@ -31,6 +32,10 @@ pub use availability_outcomes::{
     AvailabilityDiscoveryTargetOutcome, AvailabilityDiscoveryUsage,
     DISCOVERY_FETCH_RAW_RESERVATION_BYTES, MAX_DISCOVERY_FETCH_CALLS, MAX_DISCOVERY_METADATA_BYTES,
     MAX_DISCOVERY_RETURNED_EVENTS, MAX_DISCOVERY_RETURNED_PER_TARGET, MAX_DISCOVERY_TARGETS,
+};
+pub use availability_ports::{
+    AvailabilityLocalAdmission, AvailabilityLocalReadPort, AvailabilityMonotonicClock,
+    AvailabilityQueryService, AvailabilityRefreshOperation, AvailabilityRefreshPort,
 };
 pub use availability_query::{AvailabilityLocalQueryScope, ScopedAvailabilityQuery};
 pub use change_stream::{
