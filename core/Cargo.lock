@@ -980,6 +980,7 @@ name = "harvestcircle_application"
 version = "0.1.0-alpha"
 dependencies = [
  "harvestcircle_domain",
+ "radroots_transport",
  "radroots_transport_nostr",
  "secrecy",
  "tokio",

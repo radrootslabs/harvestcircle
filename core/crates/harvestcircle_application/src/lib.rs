@@ -2,6 +2,7 @@
 
 pub mod actor;
 pub mod app_core;
+pub mod availability_outcomes;
 pub mod availability_query;
 mod change_stream;
 pub mod config;
@@ -24,6 +25,13 @@ pub use actor::{
     RuntimeCommandClass, RuntimeLifecycle, SessionGeneration, TaskCorrelation,
 };
 pub use app_core::{AppCore, RemovalConfirmationToken, RemovalImpact};
+pub use availability_outcomes::{
+    AvailabilityDiscoveryOutcome, AvailabilityDiscoveryProgress, AvailabilityDiscoveryRequest,
+    AvailabilityDiscoveryState, AvailabilityDiscoveryStopReason,
+    AvailabilityDiscoveryTargetOutcome, AvailabilityDiscoveryUsage,
+    DISCOVERY_FETCH_RAW_RESERVATION_BYTES, MAX_DISCOVERY_FETCH_CALLS, MAX_DISCOVERY_METADATA_BYTES,
+    MAX_DISCOVERY_RETURNED_EVENTS, MAX_DISCOVERY_RETURNED_PER_TARGET, MAX_DISCOVERY_TARGETS,
+};
 pub use availability_query::{AvailabilityLocalQueryScope, ScopedAvailabilityQuery};
 pub use change_stream::{
     ChangeSubscriptionId, OrderedSnapshotChanges, SnapshotChange, SnapshotChangeReceiver,

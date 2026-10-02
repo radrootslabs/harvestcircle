@@ -60,7 +60,7 @@ mod tests {
         assert_eq!(env!("CARGO_PKG_VERSION"), "0.1.0-alpha");
         assert_eq!(super::FFI_CONTRACT_ID, "harvestcircle-desktop-ffi-v4");
         assert_eq!(super::FFI_CONTRACT_MAJOR, 4);
-        assert_eq!(super::FFI_CONTRACT_MINOR, 3);
+        assert_eq!(super::FFI_CONTRACT_MINOR, 4);
         assert_eq!(super::SNAPSHOT_SCHEMA_VERSION, 1);
         assert_eq!(
             super::PRODUCT_COORDINATE_DIGEST,

@@ -210,7 +210,20 @@ class BuildContractsTest {
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("package.version=1.0.0", "package.version=invalid")) }
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("schema=harvestcircle.ffi.v4", "schema=harvestcircle.ffi.v3")) }
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.major=4", "contract.major=3")) }
-        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=3", "contract.minor=2")) }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=4", "contract.minor=3")) }
+    }
+
+    @Test
+    fun ffiBaselineAdmitsAllocatedMinorAndRejectsOldCurrentMinor() {
+        val baseline = FfiCompatibilityBaseline.parse(ffiBaseline)
+
+        assertEquals("4", baseline["contract.major"])
+        assertEquals("4", baseline["contract.minor"])
+        assertEquals("1", baseline["snapshot.schema"])
+        assertEquals("1", baseline["storage.schema.minimum"])
+        assertEquals("2", baseline["storage.schema.current"])
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=4", "contract.minor=3")) }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=4", "contract.minor=5")) }
     }
 
     @Test
@@ -366,7 +379,7 @@ class BuildContractsTest {
         schema=harvestcircle.ffi.v4
         contract.id=harvestcircle-desktop-ffi-v4
         contract.major=4
-        contract.minor=3
+        contract.minor=4
         contract.hash=${"a".repeat(64)}
         product.coordinate_digest=${"b".repeat(64)}
         snapshot.schema=1

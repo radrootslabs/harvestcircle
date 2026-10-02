@@ -247,6 +247,12 @@ internal fun WireErrorCode.toApplicationErrorCode(): ApplicationErrorCode =
         WireErrorCode.NATIVE_LIBRARY_LOAD_FAILED -> ApplicationErrorCode.NativeLibraryLoadFailed
         WireErrorCode.COMPATIBILITY_MISMATCH -> ApplicationErrorCode.CompatibilityMismatch
         WireErrorCode.INTERNAL -> ApplicationErrorCode.Internal
+        WireErrorCode.AVAILABILITY_INVALID_INPUT -> ApplicationErrorCode.AvailabilityInvalidInput
+        WireErrorCode.AVAILABILITY_UNSUPPORTED_PROFILE -> ApplicationErrorCode.AvailabilityUnsupportedProfile
+        WireErrorCode.AVAILABILITY_SCOPE_MISMATCH -> ApplicationErrorCode.AvailabilityScopeMismatch
+        WireErrorCode.AVAILABILITY_STALE_QUERY -> ApplicationErrorCode.AvailabilityStaleQuery
+        WireErrorCode.AVAILABILITY_CAPACITY -> ApplicationErrorCode.AvailabilityCapacity
+        WireErrorCode.AVAILABILITY_UNAVAILABLE -> ApplicationErrorCode.AvailabilityUnavailable
     }
 
 internal fun WireErrorCategory.toApplicationErrorCategory(): ApplicationErrorCategory =

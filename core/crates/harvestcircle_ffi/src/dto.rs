@@ -79,6 +79,12 @@ pub enum WireErrorCode {
     NativeLibraryLoadFailed,
     CompatibilityMismatch,
     Internal,
+    AvailabilityInvalidInput,
+    AvailabilityUnsupportedProfile,
+    AvailabilityScopeMismatch,
+    AvailabilityStaleQuery,
+    AvailabilityCapacity,
+    AvailabilityUnavailable,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -427,6 +433,12 @@ impl From<SafeErrorCode> for WireErrorCode {
             SafeErrorCode::ProfileRefreshFailed => Self::ProfileRefreshFailed,
             SafeErrorCode::ObserverRegistrationFailed => Self::ObserverRegistrationFailed,
             SafeErrorCode::NativeLibraryLoadFailed => Self::NativeLibraryLoadFailed,
+            SafeErrorCode::AvailabilityInvalidInput => Self::AvailabilityInvalidInput,
+            SafeErrorCode::AvailabilityUnsupportedProfile => Self::AvailabilityUnsupportedProfile,
+            SafeErrorCode::AvailabilityScopeMismatch => Self::AvailabilityScopeMismatch,
+            SafeErrorCode::AvailabilityStaleQuery => Self::AvailabilityStaleQuery,
+            SafeErrorCode::AvailabilityCapacity => Self::AvailabilityCapacity,
+            SafeErrorCode::AvailabilityUnavailable => Self::AvailabilityUnavailable,
         }
     }
 }
@@ -502,6 +514,25 @@ pub(crate) const fn error_policy(
             false,
             WireRecoveryAction::RestartApplication,
         ),
+        SafeErrorCode::AvailabilityInvalidInput => {
+            (WireErrorCategory::Input, false, WireRecoveryAction::None)
+        }
+        SafeErrorCode::AvailabilityUnsupportedProfile => (
+            WireErrorCategory::Compatibility,
+            false,
+            WireRecoveryAction::None,
+        ),
+        SafeErrorCode::AvailabilityScopeMismatch | SafeErrorCode::AvailabilityStaleQuery => {
+            (WireErrorCategory::Conflict, false, WireRecoveryAction::None)
+        }
+        SafeErrorCode::AvailabilityCapacity => (
+            WireErrorCategory::Lifecycle,
+            true,
+            WireRecoveryAction::Retry,
+        ),
+        SafeErrorCode::AvailabilityUnavailable => {
+            (WireErrorCategory::Network, true, WireRecoveryAction::Retry)
+        }
     }
 }
 
@@ -696,6 +727,30 @@ mod tests {
                 SafeErrorCode::NativeLibraryLoadFailed,
                 WireErrorCode::NativeLibraryLoadFailed,
             ),
+            (
+                SafeErrorCode::AvailabilityInvalidInput,
+                WireErrorCode::AvailabilityInvalidInput,
+            ),
+            (
+                SafeErrorCode::AvailabilityUnsupportedProfile,
+                WireErrorCode::AvailabilityUnsupportedProfile,
+            ),
+            (
+                SafeErrorCode::AvailabilityScopeMismatch,
+                WireErrorCode::AvailabilityScopeMismatch,
+            ),
+            (
+                SafeErrorCode::AvailabilityStaleQuery,
+                WireErrorCode::AvailabilityStaleQuery,
+            ),
+            (
+                SafeErrorCode::AvailabilityCapacity,
+                WireErrorCode::AvailabilityCapacity,
+            ),
+            (
+                SafeErrorCode::AvailabilityUnavailable,
+                WireErrorCode::AvailabilityUnavailable,
+            ),
         ];
         for (code, expected_wire_code) in cases {
             let dto = SafeErrorDto::from(safe_error(code));
@@ -823,6 +878,71 @@ mod tests {
             ),
         ] {
             assert_eq!(ProfileLoadStateDto::from(source), expected);
+        }
+    }
+
+    #[test]
+    fn availability_errors_have_exact_wire_codes_and_recovery_policy() {
+        use harvestcircle_domain::error::AvailabilityFailure;
+
+        for (failure, code, category, retryable, recovery, message) in [
+            (
+                AvailabilityFailure::InvalidInput,
+                WireErrorCode::AvailabilityInvalidInput,
+                WireErrorCategory::Input,
+                false,
+                WireRecoveryAction::None,
+                "The availability request is invalid.",
+            ),
+            (
+                AvailabilityFailure::UnsupportedProfile,
+                WireErrorCode::AvailabilityUnsupportedProfile,
+                WireErrorCategory::Compatibility,
+                false,
+                WireRecoveryAction::None,
+                "This availability profile is unsupported.",
+            ),
+            (
+                AvailabilityFailure::ScopeMismatch,
+                WireErrorCode::AvailabilityScopeMismatch,
+                WireErrorCategory::Conflict,
+                false,
+                WireRecoveryAction::None,
+                "The availability request belongs to another scope.",
+            ),
+            (
+                AvailabilityFailure::StaleQuery,
+                WireErrorCode::AvailabilityStaleQuery,
+                WireErrorCategory::Conflict,
+                false,
+                WireRecoveryAction::None,
+                "The availability query is stale.",
+            ),
+            (
+                AvailabilityFailure::Capacity,
+                WireErrorCode::AvailabilityCapacity,
+                WireErrorCategory::Lifecycle,
+                true,
+                WireRecoveryAction::Retry,
+                "The availability operation reached its capacity.",
+            ),
+            (
+                AvailabilityFailure::Unavailable,
+                WireErrorCode::AvailabilityUnavailable,
+                WireErrorCategory::Network,
+                true,
+                WireRecoveryAction::Retry,
+                "Availability discovery is unavailable.",
+            ),
+        ] {
+            let dto = SafeErrorDto::from(SafeError::from(failure));
+            assert_eq!(dto.code, code);
+            assert_eq!(
+                (dto.category, dto.retryable, dto.recovery_action),
+                (category, retryable, recovery)
+            );
+            assert_eq!(dto.message, message);
+            assert!(!format!("{dto:?}").contains("HCAV_PRIVATE_REMOTE_PAYLOAD"));
         }
     }
 }

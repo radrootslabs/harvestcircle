@@ -255,7 +255,7 @@ class NativeRuntimeMappingsTest {
                 .size,
         )
         assertEquals(
-            23,
+            29,
             WireErrorCode.entries
                 .map(WireErrorCode::toApplicationErrorCode)
                 .distinct()
@@ -275,6 +275,110 @@ class NativeRuntimeMappingsTest {
                 .distinct()
                 .size,
         )
+    }
+
+    @Test
+    fun availabilityErrorsPreserveDistinctCodesAndStaticRecovery() {
+        data class ExpectedError(
+            val wireCode: String,
+            val applicationCode: String,
+            val wireCategory: WireErrorCategory,
+            val applicationCategory: ApplicationErrorCategory,
+            val retryable: Boolean,
+            val wireRecovery: WireRecoveryAction,
+            val applicationRecovery: RecoveryAction,
+            val message: String,
+        )
+
+        val cases =
+            listOf(
+                ExpectedError(
+                    "AVAILABILITY_INVALID_INPUT",
+                    "AvailabilityInvalidInput",
+                    WireErrorCategory.INPUT,
+                    ApplicationErrorCategory.Input,
+                    false,
+                    WireRecoveryAction.NONE,
+                    RecoveryAction.None,
+                    "The availability request is invalid.",
+                ),
+                ExpectedError(
+                    "AVAILABILITY_UNSUPPORTED_PROFILE",
+                    "AvailabilityUnsupportedProfile",
+                    WireErrorCategory.COMPATIBILITY,
+                    ApplicationErrorCategory.Compatibility,
+                    false,
+                    WireRecoveryAction.NONE,
+                    RecoveryAction.None,
+                    "This availability profile is unsupported.",
+                ),
+                ExpectedError(
+                    "AVAILABILITY_SCOPE_MISMATCH",
+                    "AvailabilityScopeMismatch",
+                    WireErrorCategory.CONFLICT,
+                    ApplicationErrorCategory.Conflict,
+                    false,
+                    WireRecoveryAction.NONE,
+                    RecoveryAction.None,
+                    "The availability request belongs to another scope.",
+                ),
+                ExpectedError(
+                    "AVAILABILITY_STALE_QUERY",
+                    "AvailabilityStaleQuery",
+                    WireErrorCategory.CONFLICT,
+                    ApplicationErrorCategory.Conflict,
+                    false,
+                    WireRecoveryAction.NONE,
+                    RecoveryAction.None,
+                    "The availability query is stale.",
+                ),
+                ExpectedError(
+                    "AVAILABILITY_CAPACITY",
+                    "AvailabilityCapacity",
+                    WireErrorCategory.LIFECYCLE,
+                    ApplicationErrorCategory.Lifecycle,
+                    true,
+                    WireRecoveryAction.RETRY,
+                    RecoveryAction.Retry,
+                    "The availability operation reached its capacity.",
+                ),
+                ExpectedError(
+                    "AVAILABILITY_UNAVAILABLE",
+                    "AvailabilityUnavailable",
+                    WireErrorCategory.NETWORK,
+                    ApplicationErrorCategory.Network,
+                    true,
+                    WireRecoveryAction.RETRY,
+                    RecoveryAction.Retry,
+                    "Availability discovery is unavailable.",
+                ),
+            )
+
+        assertEquals(22, WireErrorCode.INTERNAL.ordinal)
+        assertEquals(22, ApplicationErrorCode.Internal.ordinal)
+        cases.forEachIndexed { index, expected ->
+            val wireCode = WireErrorCode.valueOf(expected.wireCode)
+            val applicationCode = ApplicationErrorCode.valueOf(expected.applicationCode)
+            val problem =
+                SafeErrorDto(
+                    code = wireCode,
+                    category = expected.wireCategory,
+                    retryable = expected.retryable,
+                    recoveryAction = expected.wireRecovery,
+                    message = expected.message,
+                ).toApplicationProblem()
+
+            assertEquals(23 + index, wireCode.ordinal)
+            assertEquals(23 + index, applicationCode.ordinal)
+            assertEquals(applicationCode, problem.code)
+            assertEquals(expected.applicationCategory, problem.category)
+            assertEquals(expected.retryable, problem.retryable)
+            assertEquals(expected.applicationRecovery, problem.recoveryAction)
+            assertEquals(expected.message, problem.safeMessage)
+            assertNull(problem.operationId)
+            assertFalse(problem.toString().contains("HCAV_PRIVATE_REMOTE_PAYLOAD"))
+        }
+        assertEquals(6, cases.map { WireErrorCode.valueOf(it.wireCode).toApplicationErrorCode() }.distinct().size)
     }
 
     @Test

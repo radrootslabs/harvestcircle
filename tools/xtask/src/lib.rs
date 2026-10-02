@@ -1159,7 +1159,7 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
         "version = \"0.1.0-alpha\"\n",
         "source_archive_sha256 = \"c648a3ab993d10253b9073e7e86db7b8970863bdf1d394d9fc30d66825695240\"\n",
         "lockfile = \"core/Cargo.lock\"\n",
-        "lockfile_sha256 = \"8f31db666b29a3864a006d318e44e14c246f7aeda60921f56f914de9dca62ed6\"\n",
+        "lockfile_sha256 = \"3adc3bd3370fcb21821fd7e9be45554258e89088a791781a798fc39a4bdfcc31\"\n",
     );
     let source_lock_bytes =
         match bounded_no_follow_bytes(root, Path::new(SOURCE_LOCK_PATH), MAX_SOURCE_LOCK_BYTES) {
@@ -2434,7 +2434,7 @@ mod tests {
                 "version = \"0.1.0-alpha\"\n",
                 "source_archive_sha256 = \"c648a3ab993d10253b9073e7e86db7b8970863bdf1d394d9fc30d66825695240\"\n",
                 "lockfile = \"core/Cargo.lock\"\n",
-                "lockfile_sha256 = \"8f31db666b29a3864a006d318e44e14c246f7aeda60921f56f914de9dca62ed6\"\n",
+                "lockfile_sha256 = \"3adc3bd3370fcb21821fd7e9be45554258e89088a791781a798fc39a4bdfcc31\"\n",
             ),
         );
         write(&root, "core/Cargo.toml", "");

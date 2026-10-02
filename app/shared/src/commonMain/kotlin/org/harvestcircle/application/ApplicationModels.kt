@@ -146,6 +146,12 @@ enum class ApplicationErrorCode {
     NativeLibraryLoadFailed,
     CompatibilityMismatch,
     Internal,
+    AvailabilityInvalidInput,
+    AvailabilityUnsupportedProfile,
+    AvailabilityScopeMismatch,
+    AvailabilityStaleQuery,
+    AvailabilityCapacity,
+    AvailabilityUnavailable,
 }
 
 enum class ApplicationErrorCategory {

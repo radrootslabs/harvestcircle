@@ -24,6 +24,23 @@ pub enum SafeErrorCode {
     ProfileRefreshFailed,
     ObserverRegistrationFailed,
     NativeLibraryLoadFailed,
+    AvailabilityInvalidInput,
+    AvailabilityUnsupportedProfile,
+    AvailabilityScopeMismatch,
+    AvailabilityStaleQuery,
+    AvailabilityCapacity,
+    AvailabilityUnavailable,
+}
+
+/// Finite availability failures with fixed public diagnostic messages.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AvailabilityFailure {
+    InvalidInput,
+    UnsupportedProfile,
+    ScopeMismatch,
+    StaleQuery,
+    Capacity,
+    Unavailable,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -94,6 +111,54 @@ impl Display for SafeError {
 
 impl Error for SafeError {}
 
+impl From<AvailabilityFailure> for SafeError {
+    fn from(failure: AvailabilityFailure) -> Self {
+        let (code, message) = match failure {
+            AvailabilityFailure::InvalidInput => (
+                SafeErrorCode::AvailabilityInvalidInput,
+                "The availability request is invalid.",
+            ),
+            AvailabilityFailure::UnsupportedProfile => (
+                SafeErrorCode::AvailabilityUnsupportedProfile,
+                "This availability profile is unsupported.",
+            ),
+            AvailabilityFailure::ScopeMismatch => (
+                SafeErrorCode::AvailabilityScopeMismatch,
+                "The availability request belongs to another scope.",
+            ),
+            AvailabilityFailure::StaleQuery => (
+                SafeErrorCode::AvailabilityStaleQuery,
+                "The availability query is stale.",
+            ),
+            AvailabilityFailure::Capacity => (
+                SafeErrorCode::AvailabilityCapacity,
+                "The availability operation reached its capacity.",
+            ),
+            AvailabilityFailure::Unavailable => (
+                SafeErrorCode::AvailabilityUnavailable,
+                "Availability discovery is unavailable.",
+            ),
+        };
+        Self::new(code, SafeMessage::new(message))
+    }
+}
+
+impl From<crate::AvailabilityQueryError> for SafeError {
+    fn from(error: crate::AvailabilityQueryError) -> Self {
+        use crate::AvailabilityQueryError;
+
+        let failure = match error {
+            AvailabilityQueryError::InvalidInput | AvailabilityQueryError::InputTooLarge => {
+                AvailabilityFailure::InvalidInput
+            }
+            AvailabilityQueryError::ScopeMismatch => AvailabilityFailure::ScopeMismatch,
+            AvailabilityQueryError::StaleQuery => AvailabilityFailure::StaleQuery,
+            AvailabilityQueryError::Capacity => AvailabilityFailure::Capacity,
+        };
+        failure.into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{SafeError, SafeErrorCode, SafeMessage};
@@ -109,5 +174,74 @@ mod tests {
         assert_eq!(error.code(), SafeErrorCode::InvalidSecretKey);
         assert_eq!(error.message().as_str(), "The secret key is invalid.");
         assert!(!format!("{error:?}").contains("nsec1unsafe-test-value"));
+    }
+
+    #[test]
+    fn availability_failures_and_query_errors_are_static() {
+        use super::AvailabilityFailure;
+        use crate::AvailabilityQueryError;
+
+        for (failure, code, message) in [
+            (
+                AvailabilityFailure::InvalidInput,
+                SafeErrorCode::AvailabilityInvalidInput,
+                "The availability request is invalid.",
+            ),
+            (
+                AvailabilityFailure::UnsupportedProfile,
+                SafeErrorCode::AvailabilityUnsupportedProfile,
+                "This availability profile is unsupported.",
+            ),
+            (
+                AvailabilityFailure::ScopeMismatch,
+                SafeErrorCode::AvailabilityScopeMismatch,
+                "The availability request belongs to another scope.",
+            ),
+            (
+                AvailabilityFailure::StaleQuery,
+                SafeErrorCode::AvailabilityStaleQuery,
+                "The availability query is stale.",
+            ),
+            (
+                AvailabilityFailure::Capacity,
+                SafeErrorCode::AvailabilityCapacity,
+                "The availability operation reached its capacity.",
+            ),
+            (
+                AvailabilityFailure::Unavailable,
+                SafeErrorCode::AvailabilityUnavailable,
+                "Availability discovery is unavailable.",
+            ),
+        ] {
+            let error = SafeError::from(failure);
+            assert_eq!(error.code(), code);
+            assert_eq!(error.message().as_str(), message);
+            assert_eq!(error.to_string(), message);
+            assert!(!format!("{error:?}").contains("HCAV_PRIVATE_REMOTE_PAYLOAD"));
+        }
+        for (query, code) in [
+            (
+                AvailabilityQueryError::InvalidInput,
+                SafeErrorCode::AvailabilityInvalidInput,
+            ),
+            (
+                AvailabilityQueryError::InputTooLarge,
+                SafeErrorCode::AvailabilityInvalidInput,
+            ),
+            (
+                AvailabilityQueryError::ScopeMismatch,
+                SafeErrorCode::AvailabilityScopeMismatch,
+            ),
+            (
+                AvailabilityQueryError::StaleQuery,
+                SafeErrorCode::AvailabilityStaleQuery,
+            ),
+            (
+                AvailabilityQueryError::Capacity,
+                SafeErrorCode::AvailabilityCapacity,
+            ),
+        ] {
+            assert_eq!(SafeError::from(query).code(), code);
+        }
     }
 }
