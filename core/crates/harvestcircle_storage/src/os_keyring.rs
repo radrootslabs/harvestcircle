@@ -62,6 +62,20 @@ impl SecretStore for OsKeyringSecretStore {
         })
     }
 
+    fn verify<'a>(
+        &'a self,
+        request_id: &'a DurableRequestId,
+        public_key: PublicKey,
+        secret: SecretKeyInput,
+    ) -> BoxFuture<'a, Result<(), SafeError>> {
+        Box::pin(async move {
+            let _operation = self.operation()?;
+            let account = public_key.to_hex();
+            let encoded = Zeroizing::new(platform_read(&account).map_err(map_read_error)?);
+            verify_replay_binding(request_id, &secret, encoded.as_slice())
+        })
+    }
+
     fn load(&self, public_key: PublicKey) -> BoxFuture<'_, Result<SecretKeyInput, SafeError>> {
         Box::pin(async move {
             let _operation = self.operation()?;
@@ -145,6 +159,23 @@ fn verify_existing_replay(
     } else {
         Err(credential_exists())
     }
+}
+
+fn verify_replay_binding(
+    request_id: &DurableRequestId,
+    secret: &SecretKeyInput,
+    encoded: &[u8],
+) -> Result<(), SafeError> {
+    verify_existing_replay(request_id, secret, encoded).map_err(|error| {
+        if error.code() == SafeErrorCode::IdentityAlreadyExists {
+            SafeError::new(
+                SafeErrorCode::InvalidApplicationState,
+                SafeMessage::new("The identity operation conflicts with the stored credential."),
+            )
+        } else {
+            error
+        }
+    })
 }
 
 const fn map_read_error(error: ReadError) -> SafeError {
@@ -363,8 +394,9 @@ mod tests {
 
     use super::{
         CREDENTIAL_ENVELOPE_DOMAIN, CREDENTIAL_SERVICE, OsKeyringSecretStore, decode_credential,
-        encode_credential, verify_existing_replay,
+        encode_credential, verify_existing_replay, verify_replay_binding,
     };
+    use zeroize::Zeroizing;
 
     const SECRET: &str = "0000000000000000000000000000000000000000000000000000000000000001";
 
@@ -443,6 +475,60 @@ mod tests {
         let secret_conflict = verify_existing_replay(&request_id(), &another_secret, &encoded)
             .expect_err("same operation cannot change the secret");
         assert_eq!(secret_conflict.code(), SafeErrorCode::IdentityAlreadyExists);
+    }
+
+    #[test]
+    fn readonly_envelope_verification_preserves_bytes_and_safe_conflict_errors() {
+        let secret = SecretKeyInput::parse(SECRET.to_owned()).expect("secret");
+        let request = request_id();
+        let encoded = encode_credential(&request, &secret);
+        let before = Zeroizing::new(encoded.to_vec());
+        let exact = verify_replay_binding(&request, &secret, encoded.as_slice());
+        let another_request = DurableRequestId::new_v7();
+        let changed_request = verify_replay_binding(&another_request, &secret, encoded.as_slice())
+            .expect_err("original request required");
+        let another_secret = SecretKeyInput::parse(
+            "0000000000000000000000000000000000000000000000000000000000000002".to_owned(),
+        )
+        .expect("different secret");
+        let changed_secret = verify_replay_binding(&request, &another_secret, encoded.as_slice())
+            .expect_err("full secret required");
+        let malformed = verify_replay_binding(&request, &secret, &encoded[..encoded.len() - 1])
+            .expect_err("malformed native envelope");
+        assert!(exact.is_ok());
+        assert_eq!(
+            changed_request.code(),
+            SafeErrorCode::InvalidApplicationState
+        );
+        assert_eq!(
+            changed_secret.code(),
+            SafeErrorCode::InvalidApplicationState
+        );
+        assert_eq!(malformed.code(), SafeErrorCode::KeyringUnavailable);
+        assert!(encoded.as_slice() == before.as_slice());
+        let public_evidence = format!("{changed_request:?} {changed_secret:?} {malformed:?}");
+        assert!(!public_evidence.contains(SECRET));
+        assert!(!another_secret.with_exposed_secret(|value| public_evidence.contains(value)));
+    }
+
+    #[tokio::test]
+    async fn poisoned_readonly_verification_fails_before_os_custody_access() {
+        let store = OsKeyringSecretStore::default();
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _operation = store.operation_lock.lock().expect("operation lock");
+            panic!("injected operation failure");
+        }));
+        let error = store
+            .verify(
+                &request_id(),
+                public_key(),
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+            )
+            .await
+            .expect_err("poison must reject before native read");
+        assert!(panic.is_err());
+        assert_eq!(error.code(), SafeErrorCode::KeyringUnavailable);
+        assert!(!format!("{error:?}").contains(SECRET));
     }
 
     #[test]

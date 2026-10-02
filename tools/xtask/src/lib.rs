@@ -406,6 +406,64 @@ fn native_runtime_boundary(root: &Path, findings: &mut Vec<String>) {
     if keyring.contains("std::sync::mpsc::Receiver") {
         findings.push("harvestcircle_ffi: keyring response exposes a blocking receiver".to_owned());
     }
+    let native_keyring = read_text(root, "core/crates/harvestcircle_storage/src/os_keyring.rs");
+    let native_verify = native_keyring
+        .split_once("    fn verify<'a>(")
+        .and_then(|(_, source)| source.split_once("\n    fn load("))
+        .map(|(body, _)| body)
+        .unwrap_or_default();
+    for required in [
+        "request_id: &'a DurableRequestId",
+        "secret: SecretKeyInput",
+        "self.operation()?",
+        "Zeroizing::new(platform_read(&account).map_err(map_read_error)?)",
+        "verify_replay_binding(request_id, &secret, encoded.as_slice())",
+    ] {
+        if !native_verify.contains(required) {
+            findings.push(format!(
+                "harvestcircle_storage: read-only verification is missing {required}"
+            ));
+        }
+    }
+    for forbidden in ["platform_create(", "platform_delete(", ".put(", ".delete("] {
+        if native_verify.contains(forbidden) {
+            findings.push(format!(
+                "harvestcircle_storage: verification mutates custody through {forbidden}"
+            ));
+        }
+    }
+    let worker_verify = keyring
+        .split_once("Request::Verify(request_id, public_key, secret, phase, response) => {")
+        .and_then(|(_, source)| source.split_once("Request::Load("))
+        .map(|(body, _)| body)
+        .unwrap_or_default();
+    for required in [
+        "start_operation(&phase)",
+        "store.verify(&request_id, public_key, secret).await",
+        "finish_operation(&phase)",
+        "response.send(result)",
+    ] {
+        if !worker_verify.contains(required) {
+            findings.push(format!(
+                "harvestcircle_ffi: verification lifecycle is missing {required}"
+            ));
+        }
+    }
+    let worker_submit = keyring
+        .split_once("    fn verify<'a>(")
+        .and_then(|(_, source)| source.split_once("\n    fn load("))
+        .map(|(body, _)| body)
+        .unwrap_or_default();
+    if !worker_submit.contains("self.submit(|phase, response|")
+        || !worker_submit
+            .contains("Request::Verify(request_id.clone(), public_key, secret, phase, response)")
+        || worker_submit.contains("Request::Put(")
+    {
+        findings.push(
+            "harvestcircle_ffi: verification bypasses the bounded read-only worker submission"
+                .to_owned(),
+        );
+    }
 }
 
 fn namespace_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
@@ -1216,7 +1274,7 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
     {
         findings.push("app/shared/build.gradle.kts: shared KMP target boundary changed".to_owned());
     }
-    const STORAGE_API_BASELINE: &str = "core/compatibility/harvestcircle-storage-api-v1.txt";
+    const STORAGE_API_BASELINE: &str = "core/compatibility/harvestcircle-storage-api-v2.txt";
     let storage_api = read_text(root, STORAGE_API_BASELINE);
     for required in [
         "pub struct harvestcircle_storage::HarvestCircleStorageContract",
@@ -1231,6 +1289,7 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
         "pub fn harvestcircle_storage::verify_harvestcircle_backup",
         "impl harvestcircle_application::ports::DurableOperationRepository for harvestcircle_storage::Database",
         "harvestcircle_application::ports::BoxFuture",
+        "pub fn harvestcircle_storage::OsKeyringSecretStore::verify<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_domain::key::PublicKey, harvestcircle_domain::key::SecretKeyInput) -> harvestcircle_application::ports::BoxFuture<'a",
     ] {
         if !storage_api.contains(required) {
             findings.push(format!("{STORAGE_API_BASELINE}: missing {required}"));

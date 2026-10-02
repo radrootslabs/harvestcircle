@@ -14,6 +14,7 @@ import org.harvestcircle.ffi.compatibilityDescriptor
 import org.harvestcircle.testbridge.ffi.HarvestCircleTestBridge
 import org.harvestcircle.testbridge.ffi.TestBridgeException
 import org.harvestcircle.testbridge.ffi.TestLifecycle
+import org.harvestcircle.testbridge.ffi.TestSnapshot
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.readBytes
@@ -27,6 +28,122 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 class NativeRuntimeIntegrationTest {
+    @Test
+    fun generatedImportExactReplayAfterAdvanceAndRestart() {
+        val dataRoot = Files.createTempDirectory("harvestcircle-import-replay-restart-")
+        try {
+            val bridge = HarvestCircleTestBridge.open(dataRoot.toString())
+            try {
+                bridge.bootstrap()
+                val originalSecret = generatedImportFixtureSecret(bridge)
+                val otherSecret = generatedImportFixtureSecret(bridge)
+                val originalRequest = "00000000-0000-7000-8000-000000000051"
+                val originalRevision = bridge.snapshot().revision
+                val imported = importFixtureIdentity(bridge, originalRequest, originalRevision, originalSecret)
+                val other =
+                    importFixtureIdentity(
+                        bridge,
+                        "00000000-0000-7000-8000-000000000052",
+                        imported.revision,
+                        otherSecret,
+                    )
+                val otherPublicKey = checkNotNull(other.selectedPublicKeyHex)
+                val advanced = bridge.selectIdentity(otherPublicKey)
+                val replayAfterAdvance =
+                    runCatching {
+                        importFixtureIdentity(bridge, originalRequest, originalRevision, originalSecret)
+                    }
+                val afterAdvanceReplay = bridge.snapshot()
+                val restarted = bridge.restart()
+                val replayAfterRestart =
+                    runCatching {
+                        importFixtureIdentity(bridge, originalRequest, originalRevision, originalSecret)
+                    }
+                val afterRestartReplay = bridge.snapshot()
+                bridge.shutdown()
+                bridge.close()
+
+                assertTrue(advanced.revision > originalRevision)
+                assertEquals(otherPublicKey, advanced.selectedPublicKeyHex)
+                assertEquals(advanced, replayAfterAdvance.getOrThrow())
+                assertEquals(advanced, afterAdvanceReplay)
+                assertEquals(advanced.identities, restarted.identities)
+                assertEquals(otherPublicKey, restarted.selectedPublicKeyHex)
+                assertEquals(restarted, replayAfterRestart.getOrThrow())
+                assertEquals(restarted, afterRestartReplay)
+                val publicEvidence =
+                    advanced.toString() +
+                        afterAdvanceReplay +
+                        restarted +
+                        afterRestartReplay +
+                        replayAfterAdvance.safeReplayEvidence() +
+                        replayAfterRestart.safeReplayEvidence()
+                assertFalse(publicEvidence.contains(originalSecret))
+                assertFalse(publicEvidence.contains(otherSecret))
+                assertTreeDoesNotContain(dataRoot, originalSecret, otherSecret, "nsec1")
+            } finally {
+                try {
+                    runCatching { bridge.shutdown() }
+                } finally {
+                    bridge.close()
+                }
+            }
+        } finally {
+            deleteTree(dataRoot)
+        }
+    }
+
+    @Test
+    fun generatedImportChangedInputAndRevisionFailWithoutStateMutation() {
+        val dataRoot = Files.createTempDirectory("harvestcircle-import-replay-conflicts-")
+        try {
+            val bridge = HarvestCircleTestBridge.open(dataRoot.toString())
+            try {
+                bridge.bootstrap()
+                val originalSecret = generatedImportFixtureSecret(bridge)
+                val changedSecret = generatedImportFixtureSecret(bridge)
+                val originalRequest = "00000000-0000-7000-8000-000000000053"
+                val originalRevision = bridge.snapshot().revision
+                importFixtureIdentity(bridge, originalRequest, originalRevision, originalSecret)
+                val before = bridge.snapshot()
+                val changedInput =
+                    runCatching {
+                        importFixtureIdentity(bridge, originalRequest, originalRevision, changedSecret)
+                    }
+                val afterChangedInput = bridge.snapshot()
+                val changedRevision =
+                    runCatching {
+                        importFixtureIdentity(bridge, originalRequest, originalRevision + 1UL, originalSecret)
+                    }
+                val afterChangedRevision = bridge.snapshot()
+                bridge.shutdown()
+                bridge.close()
+
+                assertTrue(changedInput.exceptionOrNull() is TestBridgeException.Failure)
+                assertTrue(changedRevision.exceptionOrNull() is TestBridgeException.Failure)
+                assertEquals(before, afterChangedInput)
+                assertEquals(before, afterChangedRevision)
+                val publicEvidence =
+                    before.toString() +
+                        afterChangedInput +
+                        afterChangedRevision +
+                        changedInput.safeReplayEvidence() +
+                        changedRevision.safeReplayEvidence()
+                assertFalse(publicEvidence.contains(originalSecret))
+                assertFalse(publicEvidence.contains(changedSecret))
+                assertTreeDoesNotContain(dataRoot, originalSecret, changedSecret, "nsec1")
+            } finally {
+                try {
+                    runCatching { bridge.shutdown() }
+                } finally {
+                    bridge.close()
+                }
+            }
+        } finally {
+            deleteTree(dataRoot)
+        }
+    }
+
     @Test
     fun generatedActorObserverDiscardsStoppedQueueBeforeRestartAndFullShutdown() {
         val dataRoot = Files.createTempDirectory("harvestcircle-generated-observer-close-")
@@ -365,6 +482,39 @@ class NativeRuntimeIntegrationTest {
             }
         }
 }
+
+private fun generatedImportFixtureSecret(bridge: HarvestCircleTestBridge): String {
+    val generated = bridge.beginGeneratedIdentity()
+    return try {
+        val secret = generated.takeRecoveryNsec()
+        check(bridge.cancelGeneratedIdentity(generated))
+        secret
+    } finally {
+        generated.close()
+    }
+}
+
+private fun importFixtureIdentity(
+    bridge: HarvestCircleTestBridge,
+    requestId: String,
+    revision: ULong,
+    secret: String,
+): TestSnapshot {
+    val bytes = secret.encodeToByteArray()
+    return try {
+        bridge.importIdentity(requestId, revision, bytes, 2_000UL)
+    } finally {
+        bytes.fill(0)
+    }
+}
+
+private fun Result<TestSnapshot>.safeReplayEvidence(): String =
+    fold(
+        onSuccess = TestSnapshot::toString,
+        onFailure = { failure ->
+            if (failure is TestBridgeException.Failure) failure.safeMessage else "Unexpected test bridge failure."
+        },
+    )
 
 private fun request(
     operationId: String,

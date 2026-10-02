@@ -22,6 +22,13 @@ enum Request {
         Arc<AtomicU8>,
         oneshot::Sender<Result<(), SafeError>>,
     ),
+    Verify(
+        DurableRequestId,
+        PublicKey,
+        SecretKeyInput,
+        Arc<AtomicU8>,
+        oneshot::Sender<Result<(), SafeError>>,
+    ),
     Load(
         PublicKey,
         oneshot::Sender<Result<SecretKeyInput, SafeError>>,
@@ -91,6 +98,15 @@ impl BoundedKeyringWorker {
                             if start_operation(&phase) {
                                 let result = runtime.block_on(async {
                                     store.put(&request_id, public_key, secret).await
+                                });
+                                finish_operation(&phase);
+                                let _ = response.send(result);
+                            }
+                        }
+                        Request::Verify(request_id, public_key, secret, phase, response) => {
+                            if start_operation(&phase) {
+                                let result = runtime.block_on(async {
+                                    store.verify(&request_id, public_key, secret).await
                                 });
                                 finish_operation(&phase);
                                 let _ = response.send(result);
@@ -238,6 +254,20 @@ impl SecretStore for BoundedKeyringWorker {
         })
     }
 
+    fn verify<'a>(
+        &'a self,
+        request_id: &'a DurableRequestId,
+        public_key: PublicKey,
+        secret: SecretKeyInput,
+    ) -> BoxFuture<'a, Result<(), SafeError>> {
+        Box::pin(async move {
+            self.submit(|phase, response| {
+                Request::Verify(request_id.clone(), public_key, secret, phase, response)
+            })
+            .await?
+        })
+    }
+
     fn load(&self, public_key: PublicKey) -> BoxFuture<'_, Result<SecretKeyInput, SafeError>> {
         Box::pin(async move {
             self.submit(|_phase, response| Request::Load(public_key, response))
@@ -334,6 +364,10 @@ mod tests {
         put_started: AtomicBool,
         release_put: AtomicBool,
         put_calls: AtomicUsize,
+        verify_calls: AtomicUsize,
+        block_next_verify: AtomicBool,
+        verify_started: AtomicBool,
+        release_verify: AtomicBool,
     }
 
     #[derive(Clone)]
@@ -350,6 +384,10 @@ mod tests {
                     put_started: AtomicBool::new(false),
                     release_put: AtomicBool::new(false),
                     put_calls: AtomicUsize::new(0),
+                    verify_calls: AtomicUsize::new(0),
+                    block_next_verify: AtomicBool::new(false),
+                    verify_started: AtomicBool::new(false),
+                    release_verify: AtomicBool::new(false),
                 }),
             }
         }
@@ -366,6 +404,16 @@ mod tests {
 
         fn put_calls(&self) -> usize {
             self.state.put_calls.load(Ordering::Acquire)
+        }
+
+        async fn wait_until_verification_started(&self) {
+            while !self.state.verify_started.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        }
+
+        fn release_verification(&self) {
+            self.state.release_verify.store(true, Ordering::Release);
         }
 
         async fn contains_direct(&self, public_key: PublicKey) -> bool {
@@ -393,6 +441,27 @@ mod tests {
                     }
                 }
                 self.state.inner.put(request_id, public_key, secret).await
+            })
+        }
+
+        fn verify<'a>(
+            &'a self,
+            request_id: &'a DurableRequestId,
+            public_key: PublicKey,
+            secret: SecretKeyInput,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(async move {
+                self.state.verify_calls.fetch_add(1, Ordering::AcqRel);
+                if self.state.block_next_verify.swap(false, Ordering::AcqRel) {
+                    self.state.verify_started.store(true, Ordering::Release);
+                    while !self.state.release_verify.load(Ordering::Acquire) {
+                        std::thread::yield_now();
+                    }
+                }
+                self.state
+                    .inner
+                    .verify(request_id, public_key, secret)
+                    .await
             })
         }
 
@@ -463,6 +532,153 @@ mod tests {
             .expect("delete");
         worker.close().await.expect("close");
         assert!(worker.contains(public_key()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn worker_readonly_verification_forwards_full_binding_and_closes_without_mutation() {
+        let store = BlockingPutStore::new();
+        store.release();
+        let worker = BoundedKeyringWorker::new(store.clone()).expect("worker");
+        worker
+            .put(&request_id(), public_key(), secret())
+            .await
+            .expect("put");
+        let exact = worker.verify(&request_id(), public_key(), secret()).await;
+        let changed_request = worker
+            .verify(&alternate_request_id(), public_key(), secret())
+            .await
+            .expect_err("request mismatch");
+        let changed_secret = worker
+            .verify(
+                &request_id(),
+                public_key(),
+                SecretKeyInput::parse(
+                    "0000000000000000000000000000000000000000000000000000000000000002".to_owned(),
+                )
+                .expect("different secret"),
+            )
+            .await
+            .expect_err("secret mismatch");
+        let missing = worker
+            .verify(
+                &request_id(),
+                PublicKey::from_bytes([8; 32]).expect("other public key"),
+                secret(),
+            )
+            .await
+            .expect_err("missing credential");
+        let retained = worker
+            .load(public_key())
+            .await
+            .expect("retained credential");
+        worker.close().await.expect("close after verification");
+        let closed = worker
+            .verify(&request_id(), public_key(), secret())
+            .await
+            .expect_err("closed worker");
+        assert!(exact.is_ok());
+        assert_eq!(
+            changed_request.code(),
+            SafeErrorCode::InvalidApplicationState
+        );
+        assert_eq!(
+            changed_secret.code(),
+            SafeErrorCode::InvalidApplicationState
+        );
+        assert_eq!(missing.code(), SafeErrorCode::CredentialMissing);
+        assert_eq!(closed.code(), SafeErrorCode::KeyringUnavailable);
+        assert_eq!(store.put_calls(), 1);
+        assert_eq!(store.state.verify_calls.load(Ordering::Acquire), 4);
+        assert!(retained.with_exposed_secret(|value| {
+            secret().with_exposed_secret(|expected| value == expected)
+        }));
+        assert!(worker.thread.lock().expect("thread").is_none());
+        assert!(*worker.completion.borrow());
+        let public_evidence =
+            format!("{changed_request:?} {changed_secret:?} {missing:?} {closed:?}");
+        assert!(!secret().with_exposed_secret(|value| public_evidence.contains(value)));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn queued_readonly_verification_cancellation_skips_adapter_and_joins_on_close() {
+        let store = BlockingPutStore::new();
+        let worker = BoundedKeyringWorker::new(store.clone()).expect("worker");
+        let first_worker = Arc::clone(&worker);
+        let first = tokio::spawn(async move {
+            first_worker
+                .put(&request_id(), public_key(), secret())
+                .await
+        });
+        store.wait_until_started().await;
+        let request = request_id();
+        let mut verification = worker.verify(&request, public_key(), secret());
+        tokio::select! {
+            biased;
+            result = &mut verification => panic!("blocked worker completed verification: {result:?}"),
+            () = tokio::task::yield_now() => {}
+        }
+        drop(verification);
+        store.release();
+        let first_result = first.await.expect("first task");
+        worker
+            .close()
+            .await
+            .expect("close drains cancelled verification");
+        assert!(first_result.is_ok());
+        assert_eq!(store.put_calls(), 1);
+        assert_eq!(store.state.verify_calls.load(Ordering::Acquire), 0);
+        assert!(store.contains_direct(public_key()).await);
+        assert!(worker.thread.lock().expect("thread").is_none());
+        assert!(*worker.completion.borrow());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn started_readonly_verification_caller_loss_keeps_close_resumable_until_join() {
+        let store = BlockingPutStore::new();
+        store.release();
+        let worker = BoundedKeyringWorker::new(store.clone()).expect("worker");
+        worker
+            .put(&request_id(), public_key(), secret())
+            .await
+            .expect("put");
+        store.state.block_next_verify.store(true, Ordering::Release);
+        let verification_worker = Arc::clone(&worker);
+        let verification = tokio::spawn(async move {
+            verification_worker
+                .verify(&request_id(), public_key(), secret())
+                .await
+        });
+        store.wait_until_verification_started().await;
+        verification.abort();
+        let caller_loss = verification
+            .await
+            .expect_err("cancelled verification caller");
+        let timeout = worker.close_with_deadline(Duration::from_millis(1)).await;
+        let retained_thread = worker.thread.lock().expect("thread").is_some();
+        store.release_verification();
+        let resumed_close = worker.close_with_deadline(Duration::from_secs(1)).await;
+        let retained = store
+            .state
+            .inner
+            .load(public_key())
+            .await
+            .expect("retained credential");
+        assert!(caller_loss.is_cancelled());
+        assert_eq!(
+            timeout
+                .expect_err("started verification keeps close pending")
+                .code(),
+            SafeErrorCode::PendingOperationRecoveryRequired
+        );
+        assert!(retained_thread);
+        assert!(resumed_close.is_ok());
+        assert_eq!(store.put_calls(), 1);
+        assert_eq!(store.state.verify_calls.load(Ordering::Acquire), 1);
+        assert!(retained.with_exposed_secret(|value| {
+            secret().with_exposed_secret(|expected| value == expected)
+        }));
+        assert!(worker.thread.lock().expect("thread").is_none());
+        assert!(*worker.completion.borrow());
     }
 
     #[test]

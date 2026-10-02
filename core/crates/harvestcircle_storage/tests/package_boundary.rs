@@ -16,7 +16,7 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
     let database_source = read(&crate_root.join("src/db.rs"));
     let journal_source = read(&crate_root.join("src/journal.rs"));
     let keyring_source = read(&crate_root.join("src/os_keyring.rs"));
-    let api = read(&workspace_root.join("compatibility/harvestcircle-storage-api-v1.txt"));
+    let api = read(&workspace_root.join("compatibility/harvestcircle-storage-api-v2.txt"));
 
     for forbidden in ["rusqlite", "refinery", "hmac", "rustix"] {
         assert!(
@@ -61,6 +61,49 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
     assert!(keyring_source.contains("add_generic_password"));
     assert!(keyring_source.contains("CREDENTIAL_OPERATION_ATTRIBUTE"));
     assert!(keyring_source.contains("false,\n            \"application/octet-stream\""));
+    let readonly_verification = keyring_source
+        .split_once("    fn verify<'a>(")
+        .and_then(|(_, source)| source.split_once("\n    fn load("))
+        .map(|(body, _)| body)
+        .expect("request-bound read-only verification method");
+    for required in [
+        "request_id: &'a DurableRequestId",
+        "public_key: PublicKey",
+        "secret: SecretKeyInput",
+        "self.operation()?",
+        "Zeroizing::new(platform_read(&account).map_err(map_read_error)?)",
+        "verify_replay_binding(request_id, &secret, encoded.as_slice())",
+    ] {
+        assert!(
+            readonly_verification.contains(required),
+            "read-only custody boundary is missing {required}"
+        );
+    }
+    for forbidden in ["platform_create(", "platform_delete(", ".put(", ".delete("] {
+        assert!(
+            !readonly_verification.contains(forbidden),
+            "verification mutates custody through {forbidden}"
+        );
+    }
+    assert!(keyring_source.contains("verify_existing_replay(request_id, secret, encoded).map_err"));
+    assert!(keyring_source.contains("SafeErrorCode::InvalidApplicationState"));
+    let envelope_comparison = keyring_source
+        .split_once("fn verify_existing_replay(")
+        .and_then(|(_, source)| source.split_once("\nfn verify_replay_binding("))
+        .map(|(body, _)| body)
+        .expect("shared complete envelope comparison");
+    for required in [
+        "decode_credential(encoded)?",
+        "existing_request == *request_id",
+        "existing_secret",
+        "secret.with_exposed_secret(|expected| value == expected)",
+        "Err(credential_exists())",
+    ] {
+        assert!(
+            envelope_comparison.contains(required),
+            "complete custody binding is missing {required}"
+        );
+    }
     assert!(!database_source.contains("pub fn host"));
     assert!(!database_source.contains("pub const fn host"));
 
@@ -76,6 +119,7 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
         "harvestcircle_application::ports::BoxFuture",
         "pub fn harvestcircle_storage::OsKeyringSecretStore::contains(&self, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture",
         "pub fn harvestcircle_storage::OsKeyringSecretStore::put<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_domain::key::PublicKey, harvestcircle_domain::key::SecretKeyInput) -> harvestcircle_application::ports::BoxFuture<'a",
+        "pub fn harvestcircle_storage::OsKeyringSecretStore::verify<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_domain::key::PublicKey, harvestcircle_domain::key::SecretKeyInput) -> harvestcircle_application::ports::BoxFuture<'a",
         "pub fn harvestcircle_storage::OsKeyringSecretStore::delete<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture<'a",
         "pub fn harvestcircle_storage::harvestcircle_migration_catalog()",
         "pub fn harvestcircle_storage::harvestcircle_schema_catalog()",

@@ -18,6 +18,23 @@ pub trait SecretStore: Send + Sync {
         public_key: PublicKey,
         secret: SecretKeyInput,
     ) -> BoxFuture<'a, Result<(), SafeError>>;
+    /// Verifies the original request and full canonical secret without changing custody.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe conflict, missing-credential, or keyring error. Adapters without
+    /// request-bound verification fail closed rather than loading an unbound credential.
+    fn verify<'a>(
+        &'a self,
+        _request_id: &'a DurableRequestId,
+        _public_key: PublicKey,
+        secret: SecretKeyInput,
+    ) -> BoxFuture<'a, Result<(), SafeError>> {
+        Box::pin(async move {
+            drop(secret);
+            Err(keyring_unavailable())
+        })
+    }
     /// Loads a credential into a non-cloneable redacted boundary value.
     ///
     /// # Errors
@@ -44,12 +61,18 @@ pub trait SecretStore: Send + Sync {
 
 #[derive(Default)]
 pub struct InMemorySecretStore {
-    credentials: Mutex<BTreeMap<PublicKey, SecretString>>,
+    credentials: Mutex<BTreeMap<PublicKey, StoredCredential>>,
+}
+
+struct StoredCredential {
+    request_id: DurableRequestId,
+    secret: SecretString,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SecretStoreOperation {
     Put,
+    Verify,
     Load,
     Contains,
     Delete,
@@ -133,6 +156,20 @@ impl SecretStore for FailureSecretStore {
         })
     }
 
+    fn verify<'a>(
+        &'a self,
+        request_id: &'a DurableRequestId,
+        public_key: PublicKey,
+        secret: SecretKeyInput,
+    ) -> BoxFuture<'a, Result<(), SafeError>> {
+        Box::pin(async move {
+            if self.record_and_should_fail(SecretStoreOperation::Verify, public_key) {
+                return Err(keyring_unavailable());
+            }
+            self.inner.verify(request_id, public_key, secret).await
+        })
+    }
+
     fn load(&self, public_key: PublicKey) -> BoxFuture<'_, Result<SecretKeyInput, SafeError>> {
         Box::pin(async move {
             if self.record_and_should_fail(SecretStoreOperation::Load, public_key) {
@@ -166,7 +203,9 @@ impl SecretStore for FailureSecretStore {
 }
 
 impl InMemorySecretStore {
-    fn credentials(&self) -> Result<MutexGuard<'_, BTreeMap<PublicKey, SecretString>>, SafeError> {
+    fn credentials(
+        &self,
+    ) -> Result<MutexGuard<'_, BTreeMap<PublicKey, StoredCredential>>, SafeError> {
         self.credentials.lock().map_err(|_| keyring_unavailable())
     }
 }
@@ -174,7 +213,7 @@ impl InMemorySecretStore {
 impl SecretStore for InMemorySecretStore {
     fn put<'a>(
         &'a self,
-        _request_id: &'a DurableRequestId,
+        request_id: &'a DurableRequestId,
         public_key: PublicKey,
         secret: SecretKeyInput,
     ) -> BoxFuture<'a, Result<(), SafeError>> {
@@ -184,7 +223,34 @@ impl SecretStore for InMemorySecretStore {
                 return Err(credential_exists());
             }
             let value = secret.with_exposed_secret(ToOwned::to_owned);
-            credentials.insert(public_key, SecretString::from(value));
+            credentials.insert(
+                public_key,
+                StoredCredential {
+                    request_id: request_id.clone(),
+                    secret: SecretString::from(value),
+                },
+            );
+            Ok(())
+        })
+    }
+
+    fn verify<'a>(
+        &'a self,
+        request_id: &'a DurableRequestId,
+        public_key: PublicKey,
+        secret: SecretKeyInput,
+    ) -> BoxFuture<'a, Result<(), SafeError>> {
+        Box::pin(async move {
+            let credentials = self.credentials()?;
+            let existing = credentials
+                .get(&public_key)
+                .ok_or_else(credential_missing)?;
+            if existing.request_id != *request_id
+                || !secret
+                    .with_exposed_secret(|expected| existing.secret.expose_secret() == expected)
+            {
+                return Err(replay_conflict());
+            }
             Ok(())
         })
     }
@@ -195,7 +261,7 @@ impl SecretStore for InMemorySecretStore {
             let secret = credentials
                 .get(&public_key)
                 .ok_or_else(credential_missing)?;
-            SecretKeyInput::parse(secret.expose_secret().to_owned())
+            SecretKeyInput::parse(secret.secret.expose_secret().to_owned())
                 .map_err(|_| credential_missing())
         })
     }
@@ -216,6 +282,13 @@ impl SecretStore for InMemorySecretStore {
                 .ok_or_else(credential_missing)
         })
     }
+}
+
+const fn replay_conflict() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::InvalidApplicationState,
+        SafeMessage::new("The identity operation conflicts with the stored credential."),
+    )
 }
 
 const fn credential_exists() -> SafeError {
@@ -241,9 +314,9 @@ const fn keyring_unavailable() -> SafeError {
 
 #[cfg(test)]
 mod tests {
-    use crate::DurableRequestId;
+    use crate::{BoxFuture, DurableRequestId};
 
-    use harvestcircle_domain::{PublicKey, SafeErrorCode, SecretKeyInput};
+    use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode, SecretKeyInput};
 
     use super::{FailureSecretStore, InMemorySecretStore, SecretStore, SecretStoreOperation};
 
@@ -251,6 +324,227 @@ mod tests {
 
     fn request_id() -> DurableRequestId {
         DurableRequestId::parse("01890f3e-7b1c-7000-8000-000000000301").expect("request")
+    }
+
+    struct UnverifiedSecretStore(InMemorySecretStore);
+
+    impl SecretStore for UnverifiedSecretStore {
+        fn put<'a>(
+            &'a self,
+            request_id: &'a DurableRequestId,
+            public_key: PublicKey,
+            secret: SecretKeyInput,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            self.0.put(request_id, public_key, secret)
+        }
+
+        fn load(&self, public_key: PublicKey) -> BoxFuture<'_, Result<SecretKeyInput, SafeError>> {
+            self.0.load(public_key)
+        }
+
+        fn contains(&self, public_key: PublicKey) -> BoxFuture<'_, Result<bool, SafeError>> {
+            self.0.contains(public_key)
+        }
+
+        fn delete<'a>(
+            &'a self,
+            request_id: &'a DurableRequestId,
+            public_key: PublicKey,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            self.0.delete(request_id, public_key)
+        }
+    }
+
+    #[tokio::test]
+    async fn default_secret_verification_fails_closed_through_object_safe_port() {
+        let store = UnverifiedSecretStore(InMemorySecretStore::default());
+        let port: &dyn SecretStore = &store;
+        let public_key = PublicKey::from_bytes([7; 32]).expect("public key");
+        port.put(
+            &request_id(),
+            public_key,
+            SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+        )
+        .await
+        .expect("put");
+        let error = port
+            .verify(
+                &request_id(),
+                public_key,
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+            )
+            .await
+            .expect_err("unbound adapter must fail closed");
+        let retained = port.load(public_key).await.expect("retained credential");
+        assert_eq!(error.code(), SafeErrorCode::KeyringUnavailable);
+        assert!(retained.with_exposed_secret(|value| value == SECRET));
+        assert!(!format!("{error:?}").contains(SECRET));
+    }
+
+    #[tokio::test]
+    async fn memory_secret_verification_binds_request_and_full_secret_without_mutation() {
+        let store = InMemorySecretStore::default();
+        let request = request_id();
+        let another_request = DurableRequestId::new_v7();
+        let public_key = PublicKey::from_bytes([7; 32]).expect("public key");
+        store
+            .put(
+                &request,
+                public_key,
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+            )
+            .await
+            .expect("put");
+        let exact = store
+            .verify(
+                &request,
+                public_key,
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+            )
+            .await;
+        let changed_request = store
+            .verify(
+                &another_request,
+                public_key,
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+            )
+            .await
+            .expect_err("original request required");
+        let changed_secret = store
+            .verify(
+                &request,
+                public_key,
+                SecretKeyInput::parse(
+                    "0000000000000000000000000000000000000000000000000000000000000001".to_owned(),
+                )
+                .expect("different secret"),
+            )
+            .await
+            .expect_err("full secret required");
+        let missing = store
+            .verify(
+                &request,
+                PublicKey::from_bytes([8; 32]).expect("other public key"),
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+            )
+            .await
+            .expect_err("missing credential");
+        let retained = store.load(public_key).await.expect("retained credential");
+        let still_exact = store
+            .verify(
+                &request,
+                public_key,
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+            )
+            .await;
+        assert!(exact.is_ok());
+        assert!(still_exact.is_ok());
+        assert_eq!(
+            changed_request.code(),
+            SafeErrorCode::InvalidApplicationState
+        );
+        assert_eq!(
+            changed_secret.code(),
+            SafeErrorCode::InvalidApplicationState
+        );
+        assert_eq!(missing.code(), SafeErrorCode::CredentialMissing);
+        assert!(retained.with_exposed_secret(|value| value == SECRET));
+        assert_eq!(store.credentials().expect("credentials").len(), 1);
+        assert!(!format!("{changed_request:?} {changed_secret:?} {missing:?}").contains(SECRET));
+    }
+
+    #[tokio::test]
+    async fn memory_secret_verification_fails_closed_on_poison() {
+        let store = InMemorySecretStore::default();
+        let public_key = PublicKey::from_bytes([7; 32]).expect("public key");
+        store
+            .put(
+                &request_id(),
+                public_key,
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+            )
+            .await
+            .expect("put");
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _credentials = store.credentials.lock().expect("credentials lock");
+            panic!("injected custody failure");
+        }));
+        let error = store
+            .verify(
+                &request_id(),
+                public_key,
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+            )
+            .await
+            .expect_err("poison must fail closed");
+        assert!(panic.is_err());
+        assert_eq!(error.code(), SafeErrorCode::KeyringUnavailable);
+        assert!(!format!("{error:?}").contains(SECRET));
+    }
+
+    #[tokio::test]
+    async fn failure_secret_verification_audits_only_public_identity_and_preserves_custody() {
+        let store = FailureSecretStore::default();
+        let request = request_id();
+        let public_key = PublicKey::from_bytes([7; 32]).expect("public key");
+        store
+            .put(
+                &request,
+                public_key,
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+            )
+            .await
+            .expect("put");
+        store.fail_next(SecretStoreOperation::Verify);
+        let unavailable = store
+            .verify(
+                &request,
+                public_key,
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+            )
+            .await
+            .expect_err("injected verification failure");
+        let exact = store
+            .verify(
+                &request,
+                public_key,
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+            )
+            .await;
+        let conflict = store
+            .verify(
+                &DurableRequestId::new_v7(),
+                public_key,
+                SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+            )
+            .await
+            .expect_err("request mismatch");
+        let retained = store
+            .inner
+            .load(public_key)
+            .await
+            .expect("retained credential");
+        let calls = store.calls();
+        assert_eq!(unavailable.code(), SafeErrorCode::KeyringUnavailable);
+        assert!(exact.is_ok());
+        assert_eq!(conflict.code(), SafeErrorCode::InvalidApplicationState);
+        assert!(retained.with_exposed_secret(|value| value == SECRET));
+        assert_eq!(
+            calls
+                .iter()
+                .map(|call| call.operation())
+                .collect::<Vec<_>>(),
+            vec![
+                SecretStoreOperation::Put,
+                SecretStoreOperation::Verify,
+                SecretStoreOperation::Verify,
+                SecretStoreOperation::Verify,
+            ]
+        );
+        assert!(calls.iter().all(|call| call.public_key() == public_key));
+        let public_evidence = format!("{calls:?} {unavailable:?} {conflict:?}");
+        assert!(!public_evidence.contains(SECRET));
+        assert!(!public_evidence.contains(request.as_str()));
     }
 
     #[tokio::test]
@@ -337,12 +631,22 @@ mod tests {
             .await
             .expect("put");
         for operation in [
+            SecretStoreOperation::Verify,
             SecretStoreOperation::Load,
             SecretStoreOperation::Contains,
             SecretStoreOperation::Delete,
         ] {
             store.fail_next(operation);
             let error = match operation {
+                SecretStoreOperation::Verify => {
+                    store
+                        .verify(
+                            &request_id(),
+                            public_key,
+                            SecretKeyInput::parse(SECRET.to_owned()).expect("secret"),
+                        )
+                        .await
+                }
                 SecretStoreOperation::Load => store.load(public_key).await.map(|_| ()),
                 SecretStoreOperation::Contains => store.contains(public_key).await.map(|_| ()),
                 SecretStoreOperation::Delete => store.delete(&request_id(), public_key).await,

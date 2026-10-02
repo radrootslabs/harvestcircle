@@ -1,10 +1,10 @@
 use std::sync::{Mutex, MutexGuard};
 
 use crate::{
-    AppCore, AppStateRepository, BoxFuture, Clock, DurableOperationKind, DurableOperationPhase,
-    DurableOperationRepository, DurableOperationStart, DurableRequestId, DurableTerminalOutcome,
-    IdentityRepository, OperationPriorState, RemovalConfirmationToken, SecretStore,
-    StagedGeneratedKey, StateTransition,
+    AppCore, AppStateRepository, BoxFuture, Clock, DurableIdentityOperation, DurableOperationKind,
+    DurableOperationPhase, DurableOperationRepository, DurableOperationStart, DurableRequestId,
+    DurableTerminalOutcome, IdentityRepository, OperationPriorState, RemovalConfirmationToken,
+    SecretStore, StagedGeneratedKey, StateTransition,
 };
 #[cfg(test)]
 use crate::{
@@ -65,20 +65,21 @@ impl AppCore {
         let expected_revision = staged.expected_revision();
         self.require_revision(expected_revision)?;
         let (identity, secret) = staged.into_commit_parts();
-        self.persist_identity_durable(
-            request_id,
-            DurableOperationKind::Create,
-            expected_revision,
-            &identity,
-            secret,
-            None,
-            identities,
-            app_state,
-            secrets,
-            operations,
-            clock,
-        )
-        .await?;
+        let identity = self
+            .persist_identity_durable(
+                request_id,
+                DurableOperationKind::Create,
+                expected_revision,
+                &identity,
+                secret,
+                None,
+                identities,
+                app_state,
+                secrets,
+                operations,
+                clock,
+            )
+            .await?;
         Ok(ImportIdentityReceipt { identity })
     }
 
@@ -109,20 +110,21 @@ impl AppCore {
             IdentityCreatedAt::new(clock.now()),
             None,
         )?;
-        self.persist_identity_durable(
-            request_id,
-            DurableOperationKind::Create,
-            expected_revision,
-            &identity,
-            secret,
-            None,
-            identities,
-            app_state,
-            secrets,
-            operations,
-            clock,
-        )
-        .await?;
+        let identity = self
+            .persist_identity_durable(
+                request_id,
+                DurableOperationKind::Create,
+                expected_revision,
+                &identity,
+                secret,
+                None,
+                identities,
+                app_state,
+                secrets,
+                operations,
+                clock,
+            )
+            .await?;
         Ok(GenerateIdentityReceipt {
             identity,
             generated_nsec: nsec,
@@ -147,18 +149,30 @@ impl AppCore {
         clock: &(impl Clock + ?Sized),
     ) -> Result<ImportIdentityReceipt, SafeError> {
         if let Some(existing) = operations.load_durable_operation(request_id).await? {
-            return if existing
-                .terminal()
-                .is_some_and(|receipt| receipt.outcome() == DurableTerminalOutcome::Completed)
-            {
-                identities
-                    .find_identity(existing.identity())
-                    .await?
-                    .map(|identity| ImportIdentityReceipt { identity })
-                    .ok_or_else(recovery_required)
-            } else {
-                Err(recovery_required())
-            };
+            if !matches!(
+                existing.kind(),
+                DurableOperationKind::Import | DurableOperationKind::Repair
+            ) {
+                return Err(operation_conflict());
+            }
+            require_completed_identity_operation(&existing)?;
+            let imported = self.key_material().import(input)?;
+            let (public_key, _, secret) = imported.into_parts();
+            verify_completed_identity_replay(
+                &existing,
+                request_id,
+                existing.kind(),
+                expected_revision,
+                public_key,
+                secret,
+                secrets,
+            )
+            .await?;
+            return identities
+                .find_identity(public_key)
+                .await?
+                .map(|identity| ImportIdentityReceipt { identity })
+                .ok_or_else(recovery_required);
         }
         self.require_revision(expected_revision)?;
         let imported = self.key_material().import(input)?;
@@ -192,20 +206,21 @@ impl AppCore {
         } else {
             DurableOperationKind::Import
         };
-        self.persist_identity_durable(
-            request_id,
-            kind,
-            expected_revision,
-            &identity,
-            secret,
-            previous.as_ref(),
-            identities,
-            app_state,
-            secrets,
-            operations,
-            clock,
-        )
-        .await?;
+        let identity = self
+            .persist_identity_durable(
+                request_id,
+                kind,
+                expected_revision,
+                &identity,
+                secret,
+                previous.as_ref(),
+                identities,
+                app_state,
+                secrets,
+                operations,
+                clock,
+            )
+            .await?;
         Ok(ImportIdentityReceipt { identity })
     }
 
@@ -230,7 +245,7 @@ impl AppCore {
         secrets: &(impl SecretStore + ?Sized),
         operations: &(impl DurableOperationRepository + ?Sized),
         clock: &(impl Clock + ?Sized),
-    ) -> Result<(), SafeError> {
+    ) -> Result<NostrIdentity, SafeError> {
         let prior_availability = previous
             .map(local_keyring_binding)
             .transpose()?
@@ -252,14 +267,20 @@ impl AppCore {
         {
             DurableOperationStart::Started(_) => {}
             DurableOperationStart::Existing(operation) => {
-                return if operation
-                    .terminal()
-                    .is_some_and(|receipt| receipt.outcome() == DurableTerminalOutcome::Completed)
-                {
-                    Ok(())
-                } else {
-                    Err(recovery_required())
-                };
+                verify_completed_identity_replay(
+                    &operation,
+                    request_id,
+                    kind,
+                    expected_revision,
+                    identity.public_key(),
+                    secret,
+                    secrets,
+                )
+                .await?;
+                return identities
+                    .find_identity(operation.identity())
+                    .await?
+                    .ok_or_else(recovery_required);
             }
         }
         secrets
@@ -313,7 +334,7 @@ impl AppCore {
                 clock.now(),
             )
             .await?;
-        Ok(())
+        Ok(identity.clone())
     }
 
     /// Issues a single-use confirmation bound to the target and current revision.
@@ -992,6 +1013,43 @@ impl AppStateRepository for InMemoryIdentityRepository {
     }
 }
 
+fn require_completed_identity_operation(
+    operation: &DurableIdentityOperation,
+) -> Result<(), SafeError> {
+    if operation.phase() != DurableOperationPhase::Finalized
+        || !operation
+            .terminal()
+            .is_some_and(|receipt| receipt.outcome() == DurableTerminalOutcome::Completed)
+    {
+        return Err(recovery_required());
+    }
+    Ok(())
+}
+
+async fn verify_completed_identity_replay(
+    operation: &DurableIdentityOperation,
+    request_id: &DurableRequestId,
+    kind: DurableOperationKind,
+    expected_revision: u64,
+    public_key: PublicKey,
+    secret: SecretKeyInput,
+    secrets: &(impl SecretStore + ?Sized),
+) -> Result<(), SafeError> {
+    if operation.request_id() != request_id
+        || operation.kind() != kind
+        || operation.identity() != public_key
+        || operation.expected_revision() != Some(expected_revision)
+    {
+        return Err(operation_conflict());
+    }
+    require_completed_identity_operation(operation)?;
+    let receipt = operation.terminal().ok_or_else(recovery_required)?;
+    if receipt.request_id() != request_id || receipt.identity() != public_key {
+        return Err(operation_conflict());
+    }
+    secrets.verify(request_id, public_key, secret).await
+}
+
 const fn identity_exists() -> SafeError {
     SafeError::new(
         SafeErrorCode::IdentityAlreadyExists,
@@ -1038,11 +1096,12 @@ mod tests {
 
     use super::InMemoryIdentityRepository;
     use crate::{
-        AppCore, AppStateRepository, BoxFuture, Clock, DurableOperationKind, DurableOperationPhase,
-        DurableRequestId, FailureSecretStore, IdentityOperationPhase, IdentityRepository,
-        InMemoryOperationJournal, InMemorySecretStore, OperationJournal, ProfileRefreshStatus,
-        ProfileRepository, RelayConfiguration, SecretStore, SecretStoreOperation, SessionState,
-        StateTransition,
+        AppCore, AppStateRepository, BoxFuture, Clock, DurableIdentityOperation,
+        DurableOperationKind, DurableOperationPhase, DurableOperationReceipt, DurableRequestId,
+        DurableTerminalOutcome, FailureSecretStore, IdentityOperationPhase, IdentityRepository,
+        InMemoryOperationJournal, InMemorySecretStore, OperationJournal, OperationPriorState,
+        ProfileRefreshStatus, ProfileRepository, RelayConfiguration, SecretStore,
+        SecretStoreOperation, SessionState, StateTransition,
         recovery::tests::{TestDurableRepository, operation as durable_operation},
     };
 
@@ -1760,6 +1819,341 @@ mod tests {
             .code(),
             SafeErrorCode::PendingOperationRecoveryRequired
         );
+    }
+
+    const ADMISSION_SECRET: &str =
+        "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7";
+
+    struct CompletedAdmissionFixture {
+        core: AppCore,
+        identities: InMemoryIdentityRepository,
+        secrets: FailureSecretStore,
+        operations: TestDurableRepository,
+        original: NostrIdentity,
+        candidate: NostrIdentity,
+        request: DurableRequestId,
+        expected_revision: u64,
+    }
+
+    impl CompletedAdmissionFixture {
+        async fn new() -> Self {
+            let core = AppCore::in_memory(RelayConfiguration::default());
+            core.bootstrap().expect("bootstrap");
+            let identities = InMemoryIdentityRepository::default();
+            let secrets = FailureSecretStore::default();
+            let material = core
+                .key_material()
+                .import(SecretKeyInput::parse(ADMISSION_SECRET.to_owned()).expect("secret"))
+                .expect("key material");
+            let (public_key, npub, secret) = material.into_parts();
+            let original = NostrIdentity::new(
+                NostrIdentityReference::verify(public_key, npub.as_str().to_owned())
+                    .expect("reference"),
+                LocalKeyringBinding::new(public_key, SignerAvailability::Available),
+                None,
+                IdentityCreatedAt::new(FixedClock.now()),
+                None,
+            )
+            .expect("original identity");
+            let candidate = NostrIdentity::new(
+                NostrIdentityReference::verify(public_key, npub.as_str().to_owned())
+                    .expect("reference"),
+                LocalKeyringBinding::new(public_key, SignerAvailability::Available),
+                None,
+                IdentityCreatedAt::new(LateClock.now()),
+                None,
+            )
+            .expect("candidate identity");
+            identities
+                .insert_identity(&original)
+                .await
+                .expect("insert original identity");
+            identities
+                .save_selected_identity(Some(public_key))
+                .await
+                .expect("selection");
+            let request = DurableRequestId::new_v7();
+            secrets
+                .put(&request, public_key, secret)
+                .await
+                .expect("original custody");
+            let expected_revision = core.snapshot().revision().value();
+            let operation = DurableIdentityOperation::new(
+                request.clone(),
+                DurableOperationKind::Import,
+                public_key,
+                Some(expected_revision),
+                DurableOperationPhase::Finalized,
+                OperationPriorState::new(Some(public_key), None),
+                FixedClock.now(),
+                None,
+                Some(DurableOperationReceipt::new(
+                    request.clone(),
+                    public_key,
+                    DurableTerminalOutcome::Completed,
+                    Some(expected_revision + 1),
+                    FixedClock.now(),
+                )),
+            );
+            Self {
+                core,
+                identities,
+                secrets,
+                operations: TestDurableRepository::new(operation),
+                original,
+                candidate,
+                request,
+                expected_revision,
+            }
+        }
+
+        fn canonical_secret(&self) -> SecretKeyInput {
+            self.core
+                .key_material()
+                .import(SecretKeyInput::parse(ADMISSION_SECRET.to_owned()).expect("secret"))
+                .expect("key material")
+                .into_parts()
+                .2
+        }
+
+        async fn attempt(
+            &self,
+            kind: DurableOperationKind,
+            expected_revision: u64,
+            secret: SecretKeyInput,
+        ) -> Result<NostrIdentity, SafeError> {
+            self.core
+                .persist_identity_durable(
+                    &self.request,
+                    kind,
+                    expected_revision,
+                    &self.candidate,
+                    secret,
+                    None,
+                    &self.identities,
+                    &self.identities,
+                    &self.secrets,
+                    &self.operations,
+                    &FixedClock,
+                )
+                .await
+        }
+    }
+
+    #[tokio::test]
+    async fn completed_admission_race_verifies_original_binding_and_identity_without_mutation() {
+        let fixture = CompletedAdmissionFixture::new().await;
+        let before_operation = fixture.operations.operation().clone();
+        let before_state = fixture.core.snapshot();
+        let before_identities = fixture
+            .identities
+            .list_identities()
+            .await
+            .expect("identities");
+        let before_selection = fixture
+            .identities
+            .load_selected_identity()
+            .await
+            .expect("selection");
+        let exact = fixture
+            .attempt(
+                DurableOperationKind::Import,
+                fixture.expected_revision,
+                fixture.canonical_secret(),
+            )
+            .await;
+        let changed_kind = fixture
+            .attempt(
+                DurableOperationKind::Repair,
+                fixture.expected_revision,
+                fixture.canonical_secret(),
+            )
+            .await
+            .expect_err("original kind required");
+        let changed_revision = fixture
+            .attempt(
+                DurableOperationKind::Import,
+                fixture.expected_revision + 1,
+                fixture.canonical_secret(),
+            )
+            .await
+            .expect_err("original revision required");
+        let changed_secret = fixture
+            .attempt(
+                DurableOperationKind::Import,
+                fixture.expected_revision,
+                SecretKeyInput::parse(
+                    "0000000000000000000000000000000000000000000000000000000000000001".to_owned(),
+                )
+                .expect("different secret"),
+            )
+            .await
+            .expect_err("full secret required");
+        let after_operation = fixture.operations.operation().clone();
+        let after_state = fixture.core.snapshot();
+        let after_identities = fixture
+            .identities
+            .list_identities()
+            .await
+            .expect("identities");
+        let after_selection = fixture
+            .identities
+            .load_selected_identity()
+            .await
+            .expect("selection");
+        let retained = fixture
+            .secrets
+            .load(fixture.original.public_key())
+            .await
+            .expect("credential");
+        let mutations = fixture
+            .secrets
+            .calls()
+            .into_iter()
+            .filter(|call| {
+                matches!(
+                    call.operation(),
+                    SecretStoreOperation::Put | SecretStoreOperation::Delete,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(exact.expect("exact completed admission"), fixture.original);
+        assert_ne!(fixture.candidate, fixture.original);
+        assert_eq!(changed_kind.code(), SafeErrorCode::InvalidApplicationState);
+        assert_eq!(
+            changed_revision.code(),
+            SafeErrorCode::InvalidApplicationState
+        );
+        assert_eq!(
+            changed_secret.code(),
+            SafeErrorCode::InvalidApplicationState
+        );
+        assert_eq!(before_operation, after_operation);
+        assert_eq!(before_state, after_state);
+        assert_eq!(before_identities, after_identities);
+        assert_eq!(before_selection, after_selection);
+        assert_eq!(mutations.len(), 1);
+        assert_eq!(mutations[0].operation(), SecretStoreOperation::Put);
+        assert!(retained.with_exposed_secret(|value| {
+            fixture
+                .canonical_secret()
+                .with_exposed_secret(|expected| value == expected)
+        }));
+        assert!(
+            !format!("{changed_kind:?} {changed_revision:?} {changed_secret:?}")
+                .contains(ADMISSION_SECRET)
+        );
+    }
+
+    #[tokio::test]
+    async fn completed_admission_race_rejects_missing_and_rebound_custody_without_mutation() {
+        for rebound in [false, true] {
+            let fixture = CompletedAdmissionFixture::new().await;
+            fixture
+                .secrets
+                .delete(&fixture.request, fixture.original.public_key())
+                .await
+                .expect("remove custody");
+            let another_request = DurableRequestId::new_v7();
+            if rebound {
+                fixture
+                    .secrets
+                    .put(
+                        &another_request,
+                        fixture.original.public_key(),
+                        fixture.canonical_secret(),
+                    )
+                    .await
+                    .expect("replacement custody");
+            }
+            let before_operation = fixture.operations.operation().clone();
+            let before_state = fixture.core.snapshot();
+            let before_identities = fixture
+                .identities
+                .list_identities()
+                .await
+                .expect("identities");
+            let before_selection = fixture
+                .identities
+                .load_selected_identity()
+                .await
+                .expect("selection");
+            let before_mutations = fixture
+                .secrets
+                .calls()
+                .into_iter()
+                .filter(|call| {
+                    matches!(
+                        call.operation(),
+                        SecretStoreOperation::Put | SecretStoreOperation::Delete,
+                    )
+                })
+                .collect::<Vec<_>>();
+            let error = fixture
+                .attempt(
+                    DurableOperationKind::Import,
+                    fixture.expected_revision,
+                    fixture.canonical_secret(),
+                )
+                .await
+                .expect_err("unbound custody must fail");
+            let after_operation = fixture.operations.operation().clone();
+            let after_state = fixture.core.snapshot();
+            let after_identities = fixture
+                .identities
+                .list_identities()
+                .await
+                .expect("identities");
+            let after_selection = fixture
+                .identities
+                .load_selected_identity()
+                .await
+                .expect("selection");
+            let after_mutations = fixture
+                .secrets
+                .calls()
+                .into_iter()
+                .filter(|call| {
+                    matches!(
+                        call.operation(),
+                        SecretStoreOperation::Put | SecretStoreOperation::Delete,
+                    )
+                })
+                .collect::<Vec<_>>();
+            let present = fixture
+                .secrets
+                .contains(fixture.original.public_key())
+                .await
+                .expect("availability");
+            let replacement_binding = if rebound {
+                fixture
+                    .secrets
+                    .verify(
+                        &another_request,
+                        fixture.original.public_key(),
+                        fixture.canonical_secret(),
+                    )
+                    .await
+            } else {
+                Ok(())
+            };
+            assert_eq!(
+                error.code(),
+                if rebound {
+                    SafeErrorCode::InvalidApplicationState
+                } else {
+                    SafeErrorCode::CredentialMissing
+                }
+            );
+            assert_eq!(before_operation, after_operation);
+            assert_eq!(before_state, after_state);
+            assert_eq!(before_identities, after_identities);
+            assert_eq!(before_selection, after_selection);
+            assert_eq!(before_mutations, after_mutations);
+            assert_eq!(present, rebound);
+            assert!(replacement_binding.is_ok());
+            assert!(!format!("{error:?}").contains(ADMISSION_SECRET));
+        }
     }
 
     #[tokio::test]
