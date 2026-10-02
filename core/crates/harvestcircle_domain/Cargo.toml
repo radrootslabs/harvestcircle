@@ -14,6 +14,7 @@ include = ["src/**", "Cargo.toml"]
 [dependencies]
 bech32 = "=0.11.1"
 radroots_event.workspace = true
+radroots_event_codec = { workspace = true, features = ["json"] }
 radroots_identity.workspace = true
 secrecy = "=0.10.3"
 zeroize = "=1.9.0"

@@ -992,6 +992,7 @@ version = "0.1.0-alpha"
 dependencies = [
  "bech32",
  "radroots_event",
+ "radroots_event_codec",
  "radroots_identity",
  "secrecy",
  "zeroize",

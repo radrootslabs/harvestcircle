@@ -7,7 +7,11 @@ pub mod key;
 pub mod profile;
 pub mod time;
 
-pub use availability::{AvailabilityEventVersion, AvailabilityListingCoordinate, PublicPublisher};
+pub use availability::{
+    AvailabilityEventVersion, AvailabilityHeadState, AvailabilityHeadView,
+    AvailabilityListingCoordinate, AvailabilityObservation, AvailabilityUnsupportedReason,
+    AvailabilityVersionView, PublicPublisher,
+};
 pub use error::{SafeError, SafeErrorCode, SafeMessage};
 pub use identity::{
     IdentityCreatedAt, IdentityLabel, LocalKeyringBinding, NostrIdentity, NostrIdentityReference,
