@@ -43,12 +43,14 @@ harvestcircle_runtime = { path = "crates/harvestcircle_runtime", version = "=0.1
 harvestcircle_storage = { path = "crates/harvestcircle_storage", version = "=0.1.0-alpha" }
 harvestcircle_test_bridge = { path = "crates/harvestcircle_test_bridge", version = "=0.1.0-alpha" }
 harvestcircle_uniffi_bindgen = { path = "crates/harvestcircle_uniffi_bindgen", version = "=0.1.0-alpha" }
-radroots_identity = { git = "https://github.com/radrootslabs/lib", rev = "ad17b7d3455a7147cfa303d976fc5c70c3a4c0cb", version = "=0.1.0-alpha", default-features = false }
-radroots_runtime_paths = { git = "https://github.com/radrootslabs/lib", rev = "ad17b7d3455a7147cfa303d976fc5c70c3a4c0cb", version = "=0.1.0-alpha", default-features = false }
-radroots_service_sqlite = { git = "https://github.com/radrootslabs/lib", rev = "ad17b7d3455a7147cfa303d976fc5c70c3a4c0cb", version = "=0.1.0-alpha", default-features = false }
-radroots_storage = { git = "https://github.com/radrootslabs/lib", rev = "ad17b7d3455a7147cfa303d976fc5c70c3a4c0cb", version = "=0.1.0-alpha", default-features = false }
-radroots_transport = { git = "https://github.com/radrootslabs/lib", rev = "ad17b7d3455a7147cfa303d976fc5c70c3a4c0cb", version = "=0.1.0-alpha", default-features = false }
-radroots_transport_nostr = { git = "https://github.com/radrootslabs/lib", rev = "ad17b7d3455a7147cfa303d976fc5c70c3a4c0cb", version = "=0.1.0-alpha", default-features = false }
+radroots_event = { git = "https://github.com/radrootslabs/lib", rev = "189c49b74b4bafc142b00b76b296477931139e72", version = "=0.1.0-alpha", default-features = false }
+radroots_event_codec = { git = "https://github.com/radrootslabs/lib", rev = "189c49b74b4bafc142b00b76b296477931139e72", version = "=0.1.0-alpha", default-features = false }
+radroots_identity = { git = "https://github.com/radrootslabs/lib", rev = "189c49b74b4bafc142b00b76b296477931139e72", version = "=0.1.0-alpha", default-features = false }
+radroots_runtime_paths = { git = "https://github.com/radrootslabs/lib", rev = "189c49b74b4bafc142b00b76b296477931139e72", version = "=0.1.0-alpha", default-features = false }
+radroots_service_sqlite = { git = "https://github.com/radrootslabs/lib", rev = "189c49b74b4bafc142b00b76b296477931139e72", version = "=0.1.0-alpha", default-features = false }
+radroots_storage = { git = "https://github.com/radrootslabs/lib", rev = "189c49b74b4bafc142b00b76b296477931139e72", version = "=0.1.0-alpha", default-features = false }
+radroots_transport = { git = "https://github.com/radrootslabs/lib", rev = "189c49b74b4bafc142b00b76b296477931139e72", version = "=0.1.0-alpha", default-features = false }
+radroots_transport_nostr = { git = "https://github.com/radrootslabs/lib", rev = "189c49b74b4bafc142b00b76b296477931139e72", version = "=0.1.0-alpha", default-features = false }
 getrandom = { version = "0.2", default-features = false }
 quote = { version = "1" }
 sha2 = { version = "0.10", default-features = false }

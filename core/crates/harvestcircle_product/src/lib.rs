@@ -140,7 +140,7 @@ mod tests {
         let expected = provenance::digest(&source).expect("canonical provenance digest");
         assert_eq!(
             expected,
-            "40b9eccd486026128f92de8d55d002a9030f235a35f9b754c98c0b0d387bd8c0"
+            "6cc524ffa028e7958dabc7d721302b967b7895fb2531f2e1cb6a7efca47bbe3b"
         );
         assert_eq!(
             provenance::digest(&source.replace('\n', "\r\n")).unwrap(),

@@ -1036,7 +1036,7 @@ fn development_integration_policy(root: &Path, findings: &mut Vec<String>) {
 }
 
 fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
-    const LIB_REVISION: &str = "ad17b7d3455a7147cfa303d976fc5c70c3a4c0cb";
+    const LIB_REVISION: &str = "189c49b74b4bafc142b00b76b296477931139e72";
     const PROVENANCE_PATH: &str = "core/provenance/harvestcircle-v1.toml";
     const SOURCE_LOCK_PATH: &str = "radroots.lib.source-lock.v1.toml";
     const MAX_SOURCE_LOCK_BYTES: u64 = 1024 * 1024;
@@ -1044,6 +1044,12 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
     let cargo = read_text(root, "core/Cargo.toml");
     for authority in [
         "repository = \"https://github.com/radrootslabs/harvestcircle\"".to_owned(),
+        format!(
+            "radroots_event = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
+        ),
+        format!(
+            "radroots_event_codec = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
+        ),
         format!(
             "radroots_identity = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
         ),
@@ -1089,13 +1095,13 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
     let expected_source_lock = concat!(
         "schema = \"radroots.lib.source-lock.v1\"\n",
         "repository = \"https://github.com/radrootslabs/lib\"\n",
-        "revision = \"ad17b7d3455a7147cfa303d976fc5c70c3a4c0cb\"\n",
+        "revision = \"189c49b74b4bafc142b00b76b296477931139e72\"\n",
         "architecture = \"radroots.crates.release.v2\"\n",
-        "workspace_catalog_sha256 = \"deca0c080deae187ff8186c0708903e42f41ea57f77c5f91581e23aa561164a4\"\n",
+        "workspace_catalog_sha256 = \"ee295f2352e2577a4052d980624415aec9871197d4fc9910a4c21c83a9179200\"\n",
         "version = \"0.1.0-alpha\"\n",
-        "source_archive_sha256 = \"2cf12c24ed649c3c8dd48cebcb8583996646e116fc2472539a55748c803584db\"\n",
+        "source_archive_sha256 = \"c648a3ab993d10253b9073e7e86db7b8970863bdf1d394d9fc30d66825695240\"\n",
         "lockfile = \"core/Cargo.lock\"\n",
-        "lockfile_sha256 = \"d4454a053e5f5d1810170fe9987e0f2a1d365de7de3eb9c71599029e46a03fc3\"\n",
+        "lockfile_sha256 = \"648040384ae6978d255be3794f3a69bb37287fd929bb4b9bb8c1cb15e8f34976\"\n",
     );
     let source_lock_bytes =
         match bounded_no_follow_bytes(root, Path::new(SOURCE_LOCK_PATH), MAX_SOURCE_LOCK_BYTES) {
@@ -2363,13 +2369,13 @@ mod tests {
             concat!(
                 "schema = \"radroots.lib.source-lock.v1\"\n",
                 "repository = \"https://github.com/radrootslabs/lib\"\n",
-                "revision = \"ad17b7d3455a7147cfa303d976fc5c70c3a4c0cb\"\n",
+                "revision = \"189c49b74b4bafc142b00b76b296477931139e72\"\n",
                 "architecture = \"radroots.crates.release.v2\"\n",
-                "workspace_catalog_sha256 = \"deca0c080deae187ff8186c0708903e42f41ea57f77c5f91581e23aa561164a4\"\n",
+                "workspace_catalog_sha256 = \"ee295f2352e2577a4052d980624415aec9871197d4fc9910a4c21c83a9179200\"\n",
                 "version = \"0.1.0-alpha\"\n",
-                "source_archive_sha256 = \"2cf12c24ed649c3c8dd48cebcb8583996646e116fc2472539a55748c803584db\"\n",
+                "source_archive_sha256 = \"c648a3ab993d10253b9073e7e86db7b8970863bdf1d394d9fc30d66825695240\"\n",
                 "lockfile = \"core/Cargo.lock\"\n",
-                "lockfile_sha256 = \"d4454a053e5f5d1810170fe9987e0f2a1d365de7de3eb9c71599029e46a03fc3\"\n",
+                "lockfile_sha256 = \"648040384ae6978d255be3794f3a69bb37287fd929bb4b9bb8c1cb15e8f34976\"\n",
             ),
         );
         write(&root, "core/Cargo.toml", "");
