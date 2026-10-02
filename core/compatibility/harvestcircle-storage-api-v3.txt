@@ -1,0 +1,90 @@
+pub mod harvestcircle_storage
+pub enum harvestcircle_storage::HarvestCircleStorageContractError
+pub harvestcircle_storage::HarvestCircleStorageContractError::CanonicalPaths
+pub harvestcircle_storage::HarvestCircleStorageContractError::ContextIdentity
+pub harvestcircle_storage::HarvestCircleStorageContractError::MigrationCatalog
+pub harvestcircle_storage::HarvestCircleStorageContractError::SchemaCatalog
+impl core::error::Error for harvestcircle_storage::HarvestCircleStorageContractError
+impl core::fmt::Display for harvestcircle_storage::HarvestCircleStorageContractError
+pub fn harvestcircle_storage::HarvestCircleStorageContractError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct harvestcircle_storage::Database
+impl harvestcircle_storage::Database
+pub async fn harvestcircle_storage::Database::capture_online_backup(&self, &std::path::Path, radroots_service_sqlite::backup::manifest::BackupCreatedAtUnixMs) -> core::result::Result<radroots_service_sqlite::backup::manifest::ServiceBackupManifest, harvestcircle_domain::error::SafeError>
+pub async fn harvestcircle_storage::Database::restore_verified_backup(&mut self, &radroots_runtime_paths::context::RuntimeContext, harvestcircle_storage::VerifiedHarvestCircleBackup, u64, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<(), harvestcircle_domain::error::SafeError>
+impl harvestcircle_storage::Database
+pub async fn harvestcircle_storage::Database::close(&self) -> core::result::Result<(), harvestcircle_domain::error::SafeError>
+pub const fn harvestcircle_storage::Database::metadata(&self) -> &radroots_service_sqlite::metadata::ServiceDatabaseMetadata
+pub async fn harvestcircle_storage::Database::open(&radroots_runtime_paths::context::RuntimeContext, u64, u64, &radroots_service_sqlite::migration::MigrationBuildIdentity) -> core::result::Result<Self, harvestcircle_domain::error::SafeError>
+impl harvestcircle_storage::Database
+pub async fn harvestcircle_storage::Database::initialize_installation_id(&self, &str) -> core::result::Result<alloc::string::String, harvestcircle_domain::error::SafeError>
+pub async fn harvestcircle_storage::Database::load_installation_id(&self) -> core::result::Result<core::option::Option<alloc::string::String>, harvestcircle_domain::error::SafeError>
+impl harvestcircle_storage::Database
+pub async fn harvestcircle_storage::Database::load_availability_version(&self, harvestcircle_domain::availability::identity::AvailabilityEventVersion) -> core::result::Result<core::option::Option<harvestcircle_domain::availability::projection::AvailabilityVersionView>, harvestcircle_domain::error::SafeError>
+pub async fn harvestcircle_storage::Database::retain_availability_version(&self, harvestcircle_domain::availability::projection::AvailabilityVersionView) -> core::result::Result<(), harvestcircle_domain::error::SafeError>
+impl harvestcircle_application::ports::AppStateRepository for harvestcircle_storage::Database
+pub fn harvestcircle_storage::Database::load_selected_identity(&self) -> harvestcircle_application::ports::BoxFuture<'_, core::result::Result<core::option::Option<harvestcircle_domain::key::PublicKey>, harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::Database::save_selected_identity(&self, core::option::Option<harvestcircle_domain::key::PublicKey>) -> harvestcircle_application::ports::BoxFuture<'_, core::result::Result<(), harvestcircle_domain::error::SafeError>>
+impl harvestcircle_application::ports::DurableOperationRepository for harvestcircle_storage::Database
+pub fn harvestcircle_storage::Database::advance_durable_operation<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_application::ports::DurableOperationPhase, harvestcircle_application::ports::DurableOperationPhase, harvestcircle_domain::time::UnixTimestamp, core::option::Option<harvestcircle_application::ports::OperationDiagnostic>) -> harvestcircle_application::ports::BoxFuture<'a, core::result::Result<harvestcircle_application::ports::DurableIdentityOperation, harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::Database::begin_durable_operation<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_application::ports::DurableOperationKind, harvestcircle_domain::key::PublicKey, core::option::Option<u64>, harvestcircle_application::ports::OperationPriorState, harvestcircle_domain::time::UnixTimestamp) -> harvestcircle_application::ports::BoxFuture<'a, core::result::Result<harvestcircle_application::ports::DurableOperationStart, harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::Database::finalize_durable_operation<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_application::ports::DurableOperationPhase, harvestcircle_application::ports::DurableTerminalOutcome, core::option::Option<u64>, harvestcircle_domain::time::UnixTimestamp) -> harvestcircle_application::ports::BoxFuture<'a, core::result::Result<harvestcircle_application::ports::DurableOperationReceipt, harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::Database::list_unfinished_durable_operations(&self) -> harvestcircle_application::ports::BoxFuture<'_, core::result::Result<alloc::vec::Vec<harvestcircle_application::ports::DurableIdentityOperation>, harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::Database::load_durable_operation<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId) -> harvestcircle_application::ports::BoxFuture<'a, core::result::Result<core::option::Option<harvestcircle_application::ports::DurableIdentityOperation>, harvestcircle_domain::error::SafeError>>
+impl harvestcircle_application::ports::IdentityNamespaceRepository for harvestcircle_storage::Database
+pub fn harvestcircle_storage::Database::clear_owner(&self, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture<'_, core::result::Result<(), harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::Database::get_value<'a>(&'a self, harvestcircle_domain::key::PublicKey, harvestcircle_application::ports::IdentityPreferenceKey) -> harvestcircle_application::ports::BoxFuture<'a, core::result::Result<core::option::Option<alloc::string::String>, harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::Database::set_value<'a>(&'a self, harvestcircle_domain::key::PublicKey, harvestcircle_application::ports::IdentityPreferenceKey, &'a str) -> harvestcircle_application::ports::BoxFuture<'a, core::result::Result<(), harvestcircle_domain::error::SafeError>>
+impl harvestcircle_application::ports::IdentityRepository for harvestcircle_storage::Database
+pub fn harvestcircle_storage::Database::find_identity(&self, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture<'_, core::result::Result<core::option::Option<harvestcircle_domain::identity::NostrIdentity>, harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::Database::insert_identity<'a>(&'a self, &'a harvestcircle_domain::identity::NostrIdentity) -> harvestcircle_application::ports::BoxFuture<'a, core::result::Result<(), harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::Database::list_identities(&self) -> harvestcircle_application::ports::BoxFuture<'_, core::result::Result<alloc::vec::Vec<harvestcircle_domain::identity::NostrIdentity>, harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::Database::remove_identity(&self, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture<'_, core::result::Result<(), harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::Database::update_identity<'a>(&'a self, &'a harvestcircle_domain::identity::NostrIdentity) -> harvestcircle_application::ports::BoxFuture<'a, core::result::Result<(), harvestcircle_domain::error::SafeError>>
+impl harvestcircle_application::ports::ProfileRepository for harvestcircle_storage::Database
+pub fn harvestcircle_storage::Database::load_profile(&self, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture<'_, core::result::Result<core::option::Option<harvestcircle_application::ports::CachedProfile>, harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::Database::record_refresh_status<'a>(&'a self, harvestcircle_domain::key::PublicKey, harvestcircle_domain::time::UnixTimestamp, harvestcircle_application::ports::ProfileRefreshStatus) -> harvestcircle_application::ports::BoxFuture<'a, core::result::Result<(), harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::Database::remove_profile(&self, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture<'_, core::result::Result<(), harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::Database::save_profile<'a>(&'a self, &'a harvestcircle_application::ports::CachedProfile) -> harvestcircle_application::ports::BoxFuture<'a, core::result::Result<(), harvestcircle_domain::error::SafeError>>
+pub struct harvestcircle_storage::HarvestCircleStorageContract
+impl harvestcircle_storage::HarvestCircleStorageContract
+pub fn harvestcircle_storage::HarvestCircleStorageContract::application_id(&self) -> radroots_service_sqlite::metadata::ServiceSqliteApplicationId
+pub fn harvestcircle_storage::HarvestCircleStorageContract::from_runtime_context(&radroots_runtime_paths::context::RuntimeContext) -> core::result::Result<Self, harvestcircle_storage::HarvestCircleStorageContractError>
+pub const fn harvestcircle_storage::HarvestCircleStorageContract::migrations(&self) -> &radroots_service_sqlite::migration::MigrationCatalog
+pub const fn harvestcircle_storage::HarvestCircleStorageContract::paths(&self) -> &radroots_service_sqlite::open::ServiceSqlitePaths
+pub const fn harvestcircle_storage::HarvestCircleStorageContract::schema(&self) -> &radroots_service_sqlite::integrity::catalog::SchemaCatalog
+pub const fn harvestcircle_storage::HarvestCircleStorageContract::state_schema_version(&self) -> core::num::nonzero::NonZeroU32
+impl core::fmt::Debug for harvestcircle_storage::HarvestCircleStorageContract
+pub fn harvestcircle_storage::HarvestCircleStorageContract::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct harvestcircle_storage::OsKeyringSecretStore
+impl harvestcircle_application::secrets::SecretStore for harvestcircle_storage::OsKeyringSecretStore
+pub fn harvestcircle_storage::OsKeyringSecretStore::contains(&self, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture<'_, core::result::Result<bool, harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::OsKeyringSecretStore::delete<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture<'a, core::result::Result<(), harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::OsKeyringSecretStore::load(&self, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture<'_, core::result::Result<harvestcircle_domain::key::SecretKeyInput, harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::OsKeyringSecretStore::put<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_domain::key::PublicKey, harvestcircle_domain::key::SecretKeyInput) -> harvestcircle_application::ports::BoxFuture<'a, core::result::Result<(), harvestcircle_domain::error::SafeError>>
+pub fn harvestcircle_storage::OsKeyringSecretStore::verify<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_domain::key::PublicKey, harvestcircle_domain::key::SecretKeyInput) -> harvestcircle_application::ports::BoxFuture<'a, core::result::Result<(), harvestcircle_domain::error::SafeError>>
+pub struct harvestcircle_storage::VerifiedHarvestCircleBackup
+impl core::fmt::Debug for harvestcircle_storage::VerifiedHarvestCircleBackup
+pub fn harvestcircle_storage::VerifiedHarvestCircleBackup::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const harvestcircle_storage::CREDENTIAL_SERVICE: &str
+pub const harvestcircle_storage::CURRENT_SCHEMA_VERSION: u32
+pub const harvestcircle_storage::HARVESTCIRCLE_ACTOR_MAILBOX_CAPACITY: usize
+pub const harvestcircle_storage::HARVESTCIRCLE_APPLICATION_ID: u32
+pub const harvestcircle_storage::HARVESTCIRCLE_COMMAND_DEADLINE_MAX_MS: u64
+pub const harvestcircle_storage::HARVESTCIRCLE_COMMAND_DEADLINE_MIN_MS: u64
+pub const harvestcircle_storage::HARVESTCIRCLE_DURABLE_OPERATION_CAPACITY: usize
+pub const harvestcircle_storage::HARVESTCIRCLE_DURABLE_OPERATION_CLEANUP_BATCH: usize
+pub const harvestcircle_storage::HARVESTCIRCLE_EVENTS_PER_RELAY_CAPACITY: usize
+pub const harvestcircle_storage::HARVESTCIRCLE_EVENTS_TOTAL_CAPACITY: usize
+pub const harvestcircle_storage::HARVESTCIRCLE_IDENTITY_CAPACITY: usize
+pub const harvestcircle_storage::HARVESTCIRCLE_INSTANCE_ID: &str
+pub const harvestcircle_storage::HARVESTCIRCLE_OBSERVER_CAPACITY: usize
+pub const harvestcircle_storage::HARVESTCIRCLE_PREFERENCE_VALUE_UTF8_BYTES: usize
+pub const harvestcircle_storage::HARVESTCIRCLE_RELAY_ENDPOINT_CAPACITY: usize
+pub const harvestcircle_storage::HARVESTCIRCLE_RELAY_URL_UTF8_BYTES: usize
+pub const harvestcircle_storage::HARVESTCIRCLE_SERVICE_ID: &str
+pub const harvestcircle_storage::HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32
+pub const harvestcircle_storage::HARVESTCIRCLE_TERMINAL_RECEIPT_RETENTION_SECONDS: i64
+pub const harvestcircle_storage::HARVESTCIRCLE_UNFINISHED_DURABLE_OPERATION_CAPACITY: usize
+pub fn harvestcircle_storage::harvestcircle_migration_catalog() -> core::result::Result<radroots_service_sqlite::migration::MigrationCatalog, harvestcircle_storage::HarvestCircleStorageContractError>
+pub fn harvestcircle_storage::harvestcircle_schema_catalog() -> core::result::Result<radroots_service_sqlite::integrity::catalog::SchemaCatalog, harvestcircle_storage::HarvestCircleStorageContractError>
+pub fn harvestcircle_storage::verify_harvestcircle_backup(&[u8], radroots_service_sqlite::backup::manifest::BackupManifestSha256, &std::path::Path, &radroots_service_sqlite::metadata::ServiceDatabaseIdentity, core::num::nonzero::NonZeroU64) -> core::result::Result<harvestcircle_storage::VerifiedHarvestCircleBackup, harvestcircle_domain::error::SafeError>

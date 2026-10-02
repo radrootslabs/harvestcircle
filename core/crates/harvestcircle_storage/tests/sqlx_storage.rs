@@ -185,7 +185,7 @@ async fn utf8_boundary_identity_and_profile_metadata_round_trip_through_governed
         .await
         .expect("close before final assertions");
 
-    assert_eq!(schema_version, 2);
+    assert_eq!(schema_version, 3);
     assert_eq!(
         all_identities.expect("persisted identities").len(),
         fixtures.len()
@@ -344,7 +344,7 @@ async fn canonical_database_preserves_legacy_state_and_enforces_identity_capacit
         .await
         .expect("database");
     let generation = database.metadata().source_generation();
-    assert_eq!(database.metadata().state_schema_version().get(), 2);
+    assert_eq!(database.metadata().state_schema_version().get(), 3);
 
     let first_identity = identity(0);
     database
@@ -388,7 +388,7 @@ async fn canonical_database_preserves_legacy_state_and_enforces_identity_capacit
         .await
         .expect("reopen");
     assert_eq!(reopened.metadata().source_generation(), generation);
-    assert_eq!(reopened.metadata().state_schema_version().get(), 2);
+    assert_eq!(reopened.metadata().state_schema_version().get(), 3);
     assert_eq!(
         reopened
             .list_identities()

@@ -14,9 +14,10 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
     let root_source = read(&crate_root.join("src/lib.rs"));
     let contract_source = read(&crate_root.join("src/contract.rs"));
     let database_source = read(&crate_root.join("src/db.rs"));
+    let evidence_source = read(&crate_root.join("src/availability_evidence.rs"));
     let journal_source = read(&crate_root.join("src/journal.rs"));
     let keyring_source = read(&crate_root.join("src/os_keyring.rs"));
-    let api = read(&workspace_root.join("compatibility/harvestcircle-storage-api-v2.txt"));
+    let api = read(&workspace_root.join("compatibility/harvestcircle-storage-api-v3.txt"));
 
     for forbidden in ["rusqlite", "refinery", "hmac", "rustix"] {
         assert!(
@@ -25,6 +26,12 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
         );
     }
     assert!(manifest.contains("radroots_service_sqlite.workspace = true"));
+    assert!(manifest.contains("radroots_event = { workspace = true, features = [\"std\"] }"));
+    assert!(
+        manifest.contains(
+            "radroots_event_codec = { workspace = true, features = [\"std\", \"json\"] }"
+        )
+    );
     assert!(manifest.contains("sqlx.workspace = true"));
     assert!(!manifest.contains("\nkeyring ="));
     assert!(manifest.contains(
@@ -42,6 +49,7 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
     }
 
     for module in [
+        "availability_evidence",
         "backup",
         "contract",
         "db",
@@ -106,11 +114,31 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
     }
     assert!(!database_source.contains("pub fn host"));
     assert!(!database_source.contains("pub const fn host"));
+    for forbidden in [
+        "SqlitePool",
+        "SqliteConnection",
+        "DELETE FROM availability_versions",
+        "DELETE FROM public_payload_usage",
+        "SecretKey",
+        "OsKeyringSecretStore",
+        "account_identities",
+        "local_signer_bindings",
+        "profile_cache",
+    ] {
+        assert!(
+            !evidence_source.contains(forbidden),
+            "public evidence crossed authority through {forbidden}"
+        );
+    }
+    assert!(evidence_source.contains("verify_nip01_event("));
+    assert!(evidence_source.contains("Nip01EventWire::parse_json_unverified("));
 
     for required in [
         "pub struct harvestcircle_storage::Database",
         "pub async fn harvestcircle_storage::Database::open",
         "pub async fn harvestcircle_storage::Database::close",
+        "pub async fn harvestcircle_storage::Database::retain_availability_version",
+        "pub async fn harvestcircle_storage::Database::load_availability_version",
         "pub async fn harvestcircle_storage::Database::capture_online_backup",
         "pub async fn harvestcircle_storage::Database::restore_verified_backup",
         "pub struct harvestcircle_storage::VerifiedHarvestCircleBackup",
@@ -135,6 +163,10 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
         "sqlx::",
         "OperationJournal",
         "harvestcircle_initial_schema_sql",
+        "SELECT_AVAILABILITY_VERSION_SQL",
+        "decode_availability_row",
+        "retain_availability_version_on",
+        "ServiceSqliteTransaction",
         "VerifiedServiceBackup",
         "StagedServiceRestore",
         "verify_backup_bundle",
@@ -150,7 +182,7 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
     }
 
     for required in [
-        "pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 2;",
+        "pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 3;",
         "pub const HARVESTCIRCLE_UNFINISHED_DURABLE_OPERATION_CAPACITY: usize = 1_024;",
         "pub const HARVESTCIRCLE_DURABLE_OPERATION_CAPACITY: usize = 4_096;",
         "pub const HARVESTCIRCLE_DURABLE_OPERATION_CLEANUP_BATCH: usize = 256;",
@@ -159,6 +191,9 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
         "completed_at_unix_s",
         "durable_operations_receipt_insert_guard",
         "durable_operations_receipt_update_guard",
+        "add_verified_listing_evidence",
+        "CREATE TABLE availability_versions",
+        "CREATE TABLE public_payload_usage",
     ] {
         assert!(
             contract_source.contains(required),

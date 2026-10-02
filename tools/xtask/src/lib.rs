@@ -1159,7 +1159,7 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
         "version = \"0.1.0-alpha\"\n",
         "source_archive_sha256 = \"c648a3ab993d10253b9073e7e86db7b8970863bdf1d394d9fc30d66825695240\"\n",
         "lockfile = \"core/Cargo.lock\"\n",
-        "lockfile_sha256 = \"3adc3bd3370fcb21821fd7e9be45554258e89088a791781a798fc39a4bdfcc31\"\n",
+        "lockfile_sha256 = \"6a32d1de0105771158647c65116fe797dfa7db7c42db515c63047d6601b846a3\"\n",
     );
     let source_lock_bytes =
         match bounded_no_follow_bytes(root, Path::new(SOURCE_LOCK_PATH), MAX_SOURCE_LOCK_BYTES) {
@@ -1274,7 +1274,7 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
     {
         findings.push("app/shared/build.gradle.kts: shared KMP target boundary changed".to_owned());
     }
-    const STORAGE_API_BASELINE: &str = "core/compatibility/harvestcircle-storage-api-v2.txt";
+    const STORAGE_API_BASELINE: &str = "core/compatibility/harvestcircle-storage-api-v3.txt";
     let storage_api = read_text(root, STORAGE_API_BASELINE);
     for required in [
         "pub struct harvestcircle_storage::HarvestCircleStorageContract",
@@ -1283,6 +1283,8 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
         "pub struct harvestcircle_storage::Database",
         "pub async fn harvestcircle_storage::Database::open",
         "pub async fn harvestcircle_storage::Database::close",
+        "pub async fn harvestcircle_storage::Database::retain_availability_version",
+        "pub async fn harvestcircle_storage::Database::load_availability_version",
         "pub async fn harvestcircle_storage::Database::capture_online_backup",
         "pub async fn harvestcircle_storage::Database::restore_verified_backup",
         "pub struct harvestcircle_storage::VerifiedHarvestCircleBackup",
@@ -1301,6 +1303,10 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
         "sqlx::",
         "OperationJournal",
         "harvestcircle_initial_schema_sql",
+        "SELECT_AVAILABILITY_VERSION_SQL",
+        "decode_availability_row",
+        "retain_availability_version_on",
+        "ServiceSqliteTransaction",
         "VerifiedServiceBackup",
         "StagedServiceRestore",
         "verify_backup_bundle",
@@ -2434,7 +2440,7 @@ mod tests {
                 "version = \"0.1.0-alpha\"\n",
                 "source_archive_sha256 = \"c648a3ab993d10253b9073e7e86db7b8970863bdf1d394d9fc30d66825695240\"\n",
                 "lockfile = \"core/Cargo.lock\"\n",
-                "lockfile_sha256 = \"3adc3bd3370fcb21821fd7e9be45554258e89088a791781a798fc39a4bdfcc31\"\n",
+                "lockfile_sha256 = \"6a32d1de0105771158647c65116fe797dfa7db7c42db515c63047d6601b846a3\"\n",
             ),
         );
         write(&root, "core/Cargo.toml", "");

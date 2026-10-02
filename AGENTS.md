@@ -79,8 +79,14 @@ substitute.
 - Product state is bound only through `radroots_runtime_paths::RuntimeContext`
   for service `harvestcircle` and instance `desktop`; the canonical database
   and lock names are `state.sqlite` and `state.lock`. Fresh state initializes
-  at schema v1 and is migrated through the pinned current schema v2 before host
+  at schema v1 and is migrated through the pinned current schema v3 before host
   exposure; `radroots_service_sqlite` owns the governed SQLite mechanics.
+- Public listing-version evidence retains exact verified original wire and first
+  named provenance independently of installed accounts or local signing custody.
+  The global public payload meter admits at most 4,096 versions and 120 MiB of
+  ordinary growth within its 128 MiB total; 8 MiB remains reserved for recovery.
+  Charges are logical payload bytes. Duplicate IDs preserve first evidence
+  without growth; no automatic eviction or recovery bypass is exposed.
 - The durable-operation journal records terminal completion time, retains
   terminal receipts for exactly seven days, admits at most 1,024 unfinished
   operations and 4,096 total rows, and deletes no more than 256 expired terminal

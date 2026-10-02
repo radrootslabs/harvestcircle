@@ -1,6 +1,7 @@
 #![doc = "HarvestCircle persistence adapters."]
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
+mod availability_evidence;
 mod backup;
 mod contract;
 mod db;

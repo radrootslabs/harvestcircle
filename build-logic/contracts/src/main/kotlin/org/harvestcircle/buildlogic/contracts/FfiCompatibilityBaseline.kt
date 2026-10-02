@@ -47,10 +47,10 @@ public class FfiCompatibilityBaseline private constructor(
             require(values.getValue("schema") == "harvestcircle.ffi.v4")
             require(values.getValue("contract.id") == "harvestcircle-desktop-ffi-v4")
             require(values.getValue("contract.major") == "4")
-            require(values.getValue("contract.minor") == "4")
+            require(values.getValue("contract.minor") == "5")
             require(values.getValue("snapshot.schema") == "1")
             require(values.getValue("storage.schema.minimum") == "1")
-            require(values.getValue("storage.schema.current") == "2")
+            require(values.getValue("storage.schema.current") == "3")
             listOf("contract.hash", "product.coordinate_digest", "source.provenance_digest").forEach { key ->
                 require(values.getValue(key).isCanonicalHex(64))
             }

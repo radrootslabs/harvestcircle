@@ -101,13 +101,23 @@ envelope matches; another operation conflicts and never overwrites the existing
 credential. No compatibility path reads the former plaintext credential shape.
 
 The state database initializes at schema v1 and applies the pinned schema-v2
-operation-journal migration before the host is exposed. Terminal receipts carry
-an explicit completion time and remain replayable for exactly seven days.
+operation-journal and schema-v3 public evidence migrations before host exposure.
+Terminal receipts carry an explicit completion time and remain replayable for
+exactly seven days.
 Admission caps unfinished operations at 1,024 and all journal rows at 4,096,
 deletes at most 256 expired terminal receipts in one transaction, reserves each
 accepted operation's terminal row in place, and never evicts an in-window
-receipt. The migration, resulting table and guards, and both schema snapshots
-are checksum-pinned; invalid legacy rows roll the migration back atomically.
+receipt. The migrations, resulting tables and guards, and all three schema
+snapshots are checksum-pinned. Invalid legacy state is refused without replacement;
+failed migration transactions roll back atomically.
+
+Public listing versions retain their exact signed wire, full unsigned event
+timestamps, tolerant admission result, and first named provenance without
+installing an account or local signer. Loads re-verify bounded original wire.
+One durable public payload meter admits at most 4,096 versions and 120 MiB of
+ordinary logical payload within a 128 MiB total, preserving an 8 MiB recovery
+reserve. Exact-ID duplicates consume no additional capacity; no automatic
+eviction or recovery bypass is exposed.
 
 ## Project documentation
 

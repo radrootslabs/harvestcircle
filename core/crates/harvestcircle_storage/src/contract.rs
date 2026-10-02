@@ -14,7 +14,7 @@ pub const HARVESTCIRCLE_SERVICE_ID: &str = "harvestcircle";
 pub const HARVESTCIRCLE_INSTANCE_ID: &str = "desktop";
 pub const HARVESTCIRCLE_APPLICATION_ID: u32 = 0x4843_5231;
 pub(crate) const HARVESTCIRCLE_INITIAL_STATE_SCHEMA_VERSION: u32 = 1;
-pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 2;
+pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 3;
 pub const HARVESTCIRCLE_IDENTITY_CAPACITY: usize = 256;
 pub const HARVESTCIRCLE_UNFINISHED_DURABLE_OPERATION_CAPACITY: usize = 1_024;
 pub const HARVESTCIRCLE_DURABLE_OPERATION_CAPACITY: usize = 4_096;
@@ -278,6 +278,52 @@ pub(crate) const CREATE_INSTALLATION_IDENTITY_SQL: &str = r#"CREATE TABLE instal
     installation_id BLOB NOT NULL CHECK (length(installation_id) = 16)
 ) STRICT"#;
 
+pub(crate) const MIGRATE_AVAILABILITY_EVIDENCE_V3_SQL: &str = r#"UPDATE account_preferences SET preference_value = preference_value;
+CREATE TABLE availability_versions (
+    event_id BLOB NOT NULL PRIMARY KEY CHECK (length(event_id) = 32),
+    author BLOB NOT NULL CHECK (length(author) = 32),
+    kind INTEGER NOT NULL CHECK (kind = 30402),
+    raw_d TEXT NOT NULL CHECK (length(CAST(raw_d AS BLOB)) BETWEEN 0 AND 4096),
+    signed_at BLOB NOT NULL CHECK (length(signed_at) = 8),
+    published_at BLOB CHECK (published_at IS NULL OR length(published_at) = 8),
+    original_json TEXT NOT NULL CHECK (
+        length(CAST(original_json AS BLOB)) BETWEEN 1 AND 262144
+    ),
+    admission_label TEXT NOT NULL CHECK (admission_label IN (
+        'focused', 'excluded_focused', 'excluded_operational', 'excluded_generic',
+        'excluded_ambiguous', 'projection_rejected'
+    )),
+    rejection_code TEXT CHECK (
+        rejection_code IS NULL OR (
+            length(CAST(rejection_code AS BLOB)) BETWEEN 1 AND 64
+            AND rejection_code NOT GLOB '*[^ -~]*'
+        )
+    ),
+    source TEXT NOT NULL CHECK (length(CAST(source AS BLOB)) BETWEEN 1 AND 2048),
+    observed_at_unix_s INTEGER NOT NULL CHECK (observed_at_unix_s >= 0),
+    payload_bytes INTEGER NOT NULL CHECK (
+        payload_bytes = 92 + length(CAST(original_json AS BLOB))
+            + length(CAST(raw_d AS BLOB)) + length(CAST(source AS BLOB))
+            + length(CAST(admission_label AS BLOB))
+            + coalesce(length(CAST(rejection_code AS BLOB)), 0)
+    ),
+    CHECK (
+        (admission_label = 'focused' AND rejection_code IS NULL AND published_at IS NOT NULL)
+        OR
+        (admission_label IN (
+            'excluded_focused', 'excluded_operational', 'excluded_generic', 'excluded_ambiguous'
+        ) AND rejection_code IS NULL AND published_at IS NULL)
+        OR
+        (admission_label = 'projection_rejected' AND rejection_code IS NOT NULL AND published_at IS NULL)
+    )
+) STRICT;
+CREATE TABLE public_payload_usage (
+    singleton INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 1),
+    version_count INTEGER NOT NULL CHECK (version_count BETWEEN 0 AND 4096),
+    payload_bytes INTEGER NOT NULL CHECK (payload_bytes BETWEEN 0 AND 134217728)
+) STRICT;
+INSERT INTO public_payload_usage (singleton, version_count, payload_bytes) VALUES (1, 0, 0)"#;
+
 pub(crate) const CREATE_INSTALLATION_IDENTITY_NO_UPDATE_SQL: &str = r#"CREATE TRIGGER installation_identity_no_update
 BEFORE UPDATE ON installation_identity
 BEGIN
@@ -364,6 +410,24 @@ const DURABLE_OPERATIONS_V2_MIGRATION_CHECKSUM: MigrationChecksum =
     MigrationChecksum::from_bytes([
         107, 95, 237, 250, 255, 0, 44, 110, 142, 194, 92, 163, 84, 27, 96, 31, 210, 37, 151, 186,
         210, 83, 137, 114, 251, 20, 30, 31, 11, 136, 207, 168,
+    ]);
+
+const AVAILABILITY_VERSIONS_DIGEST: [u8; 32] = [
+    250, 239, 225, 0, 53, 126, 33, 150, 232, 105, 102, 35, 26, 221, 78, 156, 137, 219, 66, 240, 10,
+    18, 96, 99, 102, 199, 219, 253, 8, 45, 171, 52,
+];
+const PUBLIC_PAYLOAD_USAGE_DIGEST: [u8; 32] = [
+    36, 83, 232, 46, 105, 160, 105, 237, 4, 189, 147, 119, 164, 56, 77, 154, 100, 122, 111, 62,
+    246, 160, 0, 206, 10, 136, 76, 189, 81, 68, 10, 26,
+];
+const VERSION_THREE_DIGEST: [u8; 32] = [
+    53, 128, 250, 106, 143, 97, 51, 33, 195, 227, 254, 35, 19, 135, 136, 171, 229, 241, 204, 234,
+    158, 180, 204, 19, 113, 95, 73, 250, 135, 241, 51, 88,
+];
+const AVAILABILITY_EVIDENCE_V3_MIGRATION_CHECKSUM: MigrationChecksum =
+    MigrationChecksum::from_bytes([
+        254, 36, 47, 105, 27, 136, 68, 240, 103, 108, 27, 205, 97, 203, 221, 84, 234, 64, 5, 123,
+        229, 227, 10, 199, 30, 127, 170, 170, 11, 2, 78, 81,
     ]);
 
 /// A sealed binding between one HarvestCircle runtime context and the governed state catalogs.
@@ -483,7 +547,14 @@ pub fn harvestcircle_migration_catalog()
         DURABLE_OPERATIONS_V2_MIGRATION_CHECKSUM,
     )
     .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)?;
-    MigrationCatalog::new([migration])
+    let evidence = MigrationDescriptor::sql(
+        3,
+        "add_verified_listing_evidence",
+        MIGRATE_AVAILABILITY_EVIDENCE_V3_SQL,
+        AVAILABILITY_EVIDENCE_V3_MIGRATION_CHECKSUM,
+    )
+    .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)?;
+    MigrationCatalog::new([migration, evidence])
         .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)
 }
 
@@ -503,12 +574,42 @@ fn schema_catalog_for(
     .map_err(schema_error)?;
     let version_two_objects = schema_objects(CREATE_DURABLE_OPERATIONS_V2_SQL)?;
     let version_two = SchemaVersionCatalog::new(
-        HARVESTCIRCLE_STATE_SCHEMA_VERSION,
+        2,
         version_two_objects,
         SchemaDigest::from_bytes(VERSION_TWO_DIGEST),
     )
     .map_err(schema_error)?;
-    SchemaCatalog::new(migrations, [version_one, version_two]).map_err(schema_error)
+    let version_three = SchemaVersionCatalog::new(
+        3,
+        schema_objects_v3()?,
+        SchemaDigest::from_bytes(VERSION_THREE_DIGEST),
+    )
+    .map_err(schema_error)?;
+    SchemaCatalog::new(migrations, [version_one, version_two, version_three]).map_err(schema_error)
+}
+
+fn schema_objects_v3() -> Result<Vec<SchemaObject>, HarvestCircleStorageContractError> {
+    let mut objects = schema_objects(CREATE_DURABLE_OPERATIONS_V2_SQL)?;
+    let mut statements = MIGRATE_AVAILABILITY_EVIDENCE_V3_SQL.split(";\n").skip(1);
+    for (name, digest) in [
+        ("availability_versions", AVAILABILITY_VERSIONS_DIGEST),
+        ("public_payload_usage", PUBLIC_PAYLOAD_USAGE_DIGEST),
+    ] {
+        let sql = statements
+            .next()
+            .ok_or(HarvestCircleStorageContractError::SchemaCatalog)?;
+        objects.push(
+            SchemaObject::new(
+                SchemaObjectKind::Table,
+                name,
+                name,
+                sql,
+                SchemaDigest::from_bytes(digest),
+            )
+            .map_err(schema_error)?,
+        );
+    }
+    Ok(objects)
 }
 
 fn schema_objects(
@@ -610,6 +711,10 @@ const fn schema_error(_: SchemaCatalogContractError) -> HarvestCircleStorageCont
 }
 
 #[cfg(test)]
+#[path = "availability_evidence_tests.rs"]
+mod availability_evidence_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use radroots_runtime_paths::{
@@ -647,10 +752,10 @@ mod tests {
             contract.application_id().get(),
             HARVESTCIRCLE_APPLICATION_ID
         );
-        assert_eq!(contract.state_schema_version().get(), 2);
-        assert_eq!(contract.migrations().current_version(), 2);
-        assert_eq!(contract.migrations().descriptors().len(), 1);
-        assert_eq!(contract.schema().versions().len(), 2);
+        assert_eq!(contract.state_schema_version().get(), 3);
+        assert_eq!(contract.migrations().current_version(), 3);
+        assert_eq!(contract.migrations().descriptors().len(), 2);
+        assert_eq!(contract.schema().versions().len(), 3);
         assert_eq!(harvestcircle_initial_schema_sql().len(), 9);
     }
 

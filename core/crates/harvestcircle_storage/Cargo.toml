@@ -15,6 +15,8 @@ include = ["src/**", "tests/**", "Cargo.toml"]
 harvestcircle_application.workspace = true
 harvestcircle_domain.workspace = true
 harvestcircle_product.workspace = true
+radroots_event = { workspace = true, features = ["std"] }
+radroots_event_codec = { workspace = true, features = ["std", "json"] }
 radroots_runtime_paths.workspace = true
 radroots_service_sqlite.workspace = true
 radroots_storage.workspace = true
@@ -31,6 +33,7 @@ security-framework-sys = "=2.17.0"
 
 [dev-dependencies]
 harvestcircle_nostr.workspace = true
+nostr = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr" }
 tempfile = "=3.23.0"
 tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread"] }
 
