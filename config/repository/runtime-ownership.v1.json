@@ -1,0 +1,380 @@
+{
+  "schema_version": 1,
+  "owners": [
+    "native",
+    "web",
+    "interop",
+    "governance"
+  ],
+  "inputs": [
+    {
+      "path": "app",
+      "kind": "prefix",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "core",
+      "kind": "prefix",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "gradle",
+      "kind": "prefix",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "build-logic",
+      "kind": "prefix",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "tools/design_catalog",
+      "kind": "prefix",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "build.gradle.kts",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "settings.gradle.kts",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "gradle.properties",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "gradlew",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "gradlew.bat",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "radroots.lib.source-lock.v1.toml",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "config/design/harvestcircle-v1.toml",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "config/detekt/detekt.yml",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "config/licenses/allowed-licenses.json",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "config/product/harvestcircle-v1.properties",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "config/verification/lanes-v3.properties",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "contracts/release/harvestcircle-artifact-contract.v3.json",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "contracts/rshr-201-step-gates.v1.json",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "tools/rshr_201_step_gate.py",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "tools/run-linux-x86_64-development-check.sh",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "tools/test-build-logic-stability.sh",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "tools/test-build-modes.sh",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "tools/verify-storage-api.sh",
+      "kind": "exact",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "tools/xtask",
+      "kind": "prefix",
+      "owners": [
+        "native",
+        "governance"
+      ]
+    },
+    {
+      "path": "web",
+      "kind": "prefix",
+      "owners": [
+        "web"
+      ]
+    },
+    {
+      "path": "contracts/interop",
+      "kind": "prefix",
+      "owners": [
+        "native",
+        "web",
+        "interop"
+      ]
+    },
+    {
+      "path": "tools/interop",
+      "kind": "prefix",
+      "owners": [
+        "native",
+        "web",
+        "interop"
+      ]
+    },
+    {
+      "path": "Makefile",
+      "kind": "exact",
+      "owners": [
+        "native",
+        "web",
+        "interop",
+        "governance"
+      ]
+    },
+    {
+      "path": "AGENTS.md",
+      "kind": "exact",
+      "owners": [
+        "native",
+        "web",
+        "interop",
+        "governance"
+      ]
+    },
+    {
+      "path": "README.md",
+      "kind": "exact",
+      "owners": [
+        "native",
+        "web",
+        "interop",
+        "governance"
+      ]
+    },
+    {
+      "path": "NOTICE",
+      "kind": "exact",
+      "owners": [
+        "native",
+        "web",
+        "interop",
+        "governance"
+      ]
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "kind": "exact",
+      "owners": [
+        "native",
+        "web",
+        "interop",
+        "governance"
+      ]
+    },
+    {
+      "path": "SECURITY.md",
+      "kind": "exact",
+      "owners": [
+        "native",
+        "web",
+        "interop",
+        "governance"
+      ]
+    },
+    {
+      "path": "LICENSE",
+      "kind": "exact",
+      "owners": [
+        "native",
+        "web",
+        "interop",
+        "governance"
+      ]
+    },
+    {
+      "path": "LICENSES",
+      "kind": "prefix",
+      "owners": [
+        "native",
+        "web",
+        "interop",
+        "governance"
+      ]
+    },
+    {
+      "path": ".gitignore",
+      "kind": "exact",
+      "owners": [
+        "native",
+        "web",
+        "interop",
+        "governance"
+      ]
+    },
+    {
+      "path": ".gitattributes",
+      "kind": "exact",
+      "owners": [
+        "native",
+        "web",
+        "interop",
+        "governance"
+      ]
+    },
+    {
+      "path": "config/repository/runtime-ownership.v1.json",
+      "kind": "exact",
+      "owners": [
+        "native",
+        "web",
+        "interop",
+        "governance"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "path": "build",
+      "kind": "prefix",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "core/target",
+      "kind": "prefix",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "tools/xtask/target",
+      "kind": "prefix",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "app/design_system/build",
+      "kind": "prefix",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "app/shared/build",
+      "kind": "prefix",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "app/desktop/build",
+      "kind": "prefix",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "build-logic/contracts/build",
+      "kind": "prefix",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "build-logic/plugins/build",
+      "kind": "prefix",
+      "owners": [
+        "native"
+      ]
+    },
+    {
+      "path": "tools/design_catalog/build",
+      "kind": "prefix",
+      "owners": [
+        "native"
+      ]
+    }
+  ]
+}

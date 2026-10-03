@@ -1,3 +1,5 @@
+pub mod runtime_ownership;
+
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
@@ -292,9 +294,22 @@ fn repo_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
             }
         }
     }
+    runtime_ownership_audit(root, inventory, findings);
     runtime_guidance_audit(root, findings);
     git_source_policy(root, findings);
     native_runtime_boundary(root, findings);
+}
+
+fn runtime_ownership_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
+    let result = bounded_no_follow_bytes(root, Path::new(runtime_ownership::MAP_PATH), 64 * 1024)
+        .and_then(|bytes| {
+            String::from_utf8(bytes).map_err(|error| format!("invalid ownership UTF-8: {error}"))
+        })
+        .and_then(|source| runtime_ownership::OwnershipMap::parse(&source))
+        .and_then(|map| map.validate_native_inputs(&inventory.paths));
+    if let Err(error) = result {
+        findings.push(format!("{}: {error}", runtime_ownership::MAP_PATH));
+    }
 }
 
 // These small text contracts guard instruction scope, not runtime ownership or
