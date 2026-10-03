@@ -12,6 +12,14 @@ their tests. The Rust workspace under `core/**` owns HarvestCircle application,
 domain, runtime, persistence, Nostr-adapter, preference, native FFI, and UniFFI
 binding-generator implementation.
 
+The repository also authorizes an isolated browser runtime under `web/**`.
+Its implementation is planned; this guidance does not establish a working
+browser application or new commands. Browser source, dependencies, storage,
+sessions, and extension signing belong only to that subtree, governed by
+`web/AGENTS.md`. Native-specific guidance below continues to govern the
+desktop runtime; it does not make browser state use the native database,
+keyring, UniFFI boundary, or native transport implementation.
+
 HarvestCircle remains a client of canonical public Radroots library packages.
 It does not own shared Radroots identity, transport, signing, wire-contract, or
 other reusable library policy. Product-specific Rust code must live in this
@@ -73,6 +81,29 @@ the local canonical Rust producer contract/generator first, regenerate into
 the active Gradle and Cargo build locations, and inspect the result. Never
 hand-edit or check in generated bindings or native binaries as a source
 substitute.
+
+## Isolated browser source boundary
+
+Use SvelteKit with strict TypeScript and static output under `web/**`, with
+one web-owned pnpm lockfile and pinned toolchain and package inputs. Do not add
+a root JavaScript workspace, aggregate Cargo workspace, shared UI, hosted
+backend, or browser dependency on native binaries or WASM. Existing native
+Make targets, Gradle inputs, both Cargo graphs, product/install identities,
+persisted paths, schema v3, storage API v3, FFI v4.5, snapshot v1, custody,
+and the exact Radroots source pin remain unchanged by browser work unless a
+separate change is explicitly authorized.
+
+Browser storage and sessions are separate from native state. Browser identity
+and signing use explicit extension interaction without raw private-key custody.
+Generic browser Nostr implementation uses Applesauce in `web/src/lib/nostr`;
+pure Radroots contract adapters must conform to the exact pinned public Rust
+oracle rather than invent shared policy. Public interop vectors belong under
+`contracts/interop/**`; they do not introduce a runtime dependency on Rust or
+the parent tree. Browser build and test inputs remain standalone, subject to
+the same forbidden document roots and private-dependency rules as native
+source. Planned web command surfaces must be implemented and verified before
+being advertised as available. HCAV-021 and later desktop availability work
+remain paused; authorizing `web/**` does not resume them.
 
 ## Application and security boundaries
 

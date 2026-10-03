@@ -25,6 +25,21 @@ The MVP is designed to work without a managed HarvestCircle account or API.
 Future work adds canonical Radroots collective-market contracts, private buyer
 commitments, a selectable open reference authority, pickup, and proof.
 
+## Planned browser prototype
+
+An isolated browser prototype is planned under `web/`, using SvelteKit,
+strict TypeScript, and static output. The prototype is not implemented and
+has no browser build or run commands yet. It will use separate browser
+storage and sessions, explicit extension identity and signing, and Applesauce
+for generic Nostr behavior. Shared Radroots contracts must conform to the
+exact pinned public Rust oracle without requiring native binaries or the
+consuming monorepo to build the browser application.
+
+The desktop runtime retains its Kotlin/Compose/Rust implementation, native
+commands, database/schema/API, operating-system keyring custody, and exact
+Radroots dependency pin. Desktop availability work beyond HCAV-020 remains
+paused. See `web/AGENTS.md` for the browser source boundary.
+
 ## Build
 
 Prerequisites include JDK 21, Rust 1.97.1, and platform packaging tools.
