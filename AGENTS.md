@@ -5,8 +5,9 @@ A more specific `AGENTS.md` may refine them for its subtree.
 
 ## Repository role and source boundary
 
-This repository owns the public HarvestCircle desktop product: the
-Kotlin/Compose presentation shell, desktop lifecycle, client-side state,
+This repository owns the public HarvestCircle product with separate native
+and browser runtimes. The native runtime owns the Kotlin/Compose presentation
+shell, desktop lifecycle, client-side state,
 generated UniFFI integration, host packaging, product-specific Rust core, and
 their tests. The Rust workspace under `core/**` owns HarvestCircle application,
 domain, runtime, persistence, Nostr-adapter, preference, native FFI, and UniFFI
@@ -105,7 +106,19 @@ source. Planned web command surfaces must be implemented and verified before
 being advertised as available. HCAV-021 and later desktop availability work
 remain paused; authorizing `web/**` does not resume them.
 
-## Application and security boundaries
+## Common application and security boundaries
+
+Both runtimes preserve protocol fidelity, bounded resource use, explicit
+user-authorized effects, and independent buildability. Keep secret material
+out of logs, crash text, analytics, filenames, public caches, and long-lived
+presentation state. Keep lifecycle work structured, cancelable, and scoped;
+never infer external mutation from environment state. Presentation code is
+client orchestration, not domain or shared-library authority. Tests and
+qualification records must identify actual checked inputs and executed lanes.
+Browser custody and persistence follow `web/AGENTS.md`; native storage, OS
+custody, transport, and ABI rules below apply only to the native runtime.
+
+## Native runtime boundaries
 
 - Product state is bound only through `radroots_runtime_paths::RuntimeContext`
   for service `harvestcircle` and instance `desktop`; the canonical database
@@ -190,6 +203,14 @@ configuration before editing. Make one coherent, reviewable change at a time;
 keep implementation, tests, generated outputs, dependency evidence, and public
 behavior aligned while preserving unrelated work.
 
+The currently implemented root Make and Gradle commands below qualify the
+native runtime only. They do not qualify a browser application. Browser checks
+follow `web/AGENTS.md` once their actual standalone scripts exist; do not wire
+browser dependencies into native commands or require native tools for ordinary
+browser install, check, or build. Root guidance and audit changes require fresh
+affected native and repository checks. Browser evidence must be reported as
+unimplemented until the corresponding real checks exist and run.
+
 The root `Makefile` is the standalone command surface and its durable behavior
 belongs in Gradle or public producer tools. Standalone targets never invoke or
 probe extbuild, even when it is installed. Explicit `governed-*` targets run a
@@ -228,7 +249,7 @@ Do not reset, discard, rewrite, push, tag, sign, publish, deploy, package for
 distribution, change signing/notarization identities, or rotate credentials
 without the corresponding explicit authority.
 
-The change is complete only when it is implemented at the correct desktop or
+The change is complete only when it is implemented at the correct runtime or
 public producer boundary, the relevant standalone lanes are green, locks and
 generated evidence are fresh, forbidden roots remain absent, and final review
 finds no secret exposure, private dependency, stale native artifact, hidden

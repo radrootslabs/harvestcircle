@@ -292,8 +292,67 @@ fn repo_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
             }
         }
     }
+    runtime_guidance_audit(root, findings);
     git_source_policy(root, findings);
     native_runtime_boundary(root, findings);
+}
+
+// These small text contracts guard instruction scope, not runtime ownership or
+// product implementation. Keep the existing native/source checks independent.
+fn runtime_guidance_audit(root: &Path, findings: &mut Vec<String>) {
+    let contracts: &[(&str, &[&str])] = &[
+        (
+            "AGENTS.md",
+            &[
+                "public HarvestCircle product with separate native and browser runtimes",
+                "## Common application and security boundaries",
+                "## Native runtime boundaries",
+                "native storage, OS custody, transport, and ABI rules below apply only to the native runtime",
+                "SQLx is the only high-level SQLite library.",
+                "schema v3, storage API v3, FFI v4.5, snapshot v1, custody, and the exact Radroots source pin remain unchanged",
+                "Private keys and signing operations remain behind the generated native boundary.",
+                "platform/ABI",
+                "must not depend on private parent code",
+                "All `docs/**`, `spec/**`, `.github/**`, and `.act/**` paths are forbidden here.",
+                "HCAV-021 and later desktop availability work remain paused",
+                "do not wire browser dependencies into native commands or require native tools for ordinary browser install, check, or build",
+            ],
+        ),
+        (
+            "web/AGENTS.md",
+            &[
+                "instructions apply only to `web/**`",
+                "guidance alone is not an implemented application or a passing qualification",
+                "Browser persistence uses bounded IndexedDB",
+                "desktop SQLx database, operating-system keyring, and UniFFI implementation",
+                "Identity and signing require explicit extension interaction",
+                "Generic Nostr belongs in `src/lib/nostr`, using qualified Applesauce",
+                "WASM launch dependency",
+                "dependency on parent documentation",
+                "Do not introduce `docs/**`, `spec/**`, `.github/**`, or `.act/**` anywhere in this standalone repository.",
+                "do not invent commands or claim an absent web suite passed",
+            ],
+        ),
+    ];
+    for (path, markers) in contracts {
+        let source = match bounded_no_follow_bytes(root, Path::new(path), 64 * 1024)
+            .and_then(|bytes| String::from_utf8(bytes).map_err(|error| error.to_string()))
+        {
+            Ok(source) => source,
+            Err(error) => {
+                findings.push(format!("{path}: unable to read runtime guidance: {error}"));
+                continue;
+            }
+        };
+        let text = source.split_whitespace().collect::<Vec<_>>().join(" ");
+        for marker in *markers {
+            if !text.contains(marker) {
+                findings.push(format!(
+                    "{path}: required runtime guidance is missing: {marker}"
+                ));
+            }
+        }
+    }
 }
 
 fn native_runtime_boundary(root: &Path, findings: &mut Vec<String>) {
@@ -1768,6 +1827,136 @@ fn relative(root: &Path, path: &Path) -> Result<String, String> {
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    const ROOT_GUIDANCE: &str = include_str!("../../../AGENTS.md");
+    const WEB_GUIDANCE: &str = include_str!("../../../web/AGENTS.md");
+
+    fn guidance_findings(root_source: &str, web_source: &str) -> Vec<String> {
+        let root = fixture("runtime-guidance");
+        write(&root, "AGENTS.md", root_source);
+        write(&root, "web/AGENTS.md", web_source);
+        let inventory = Inventory::load(&root).expect("guidance inventory");
+        let mut findings = Vec::new();
+        repo_audit(&root, &inventory, &mut findings);
+        fs::remove_dir_all(root).expect("remove guidance fixture");
+        findings
+            .into_iter()
+            .filter(|finding| finding.contains("guidance"))
+            .collect()
+    }
+
+    #[test]
+    fn current_runtime_guidance_preserves_separate_boundaries() {
+        let findings = guidance_findings(ROOT_GUIDANCE, WEB_GUIDANCE);
+        assert!(findings.is_empty(), "{findings:#?}");
+        assert!(ROOT_GUIDANCE.contains("## Native runtime boundaries"));
+        assert!(WEB_GUIDANCE.contains("IndexedDB"));
+    }
+
+    #[test]
+    fn runtime_guidance_accepts_wrapping_and_rejects_missing_or_invalid_text() {
+        assert!(
+            guidance_findings(
+                &ROOT_GUIDANCE
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                &WEB_GUIDANCE
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )
+            .is_empty()
+        );
+        let root = fixture("invalid-guidance");
+        write(&root, "AGENTS.md", ROOT_GUIDANCE);
+        let mut findings = Vec::new();
+        runtime_guidance_audit(&root, &mut findings);
+        assert!(
+            findings.iter().any(
+                |finding| finding.starts_with("web/AGENTS.md: unable to read runtime guidance")
+            )
+        );
+        write(&root, "web/AGENTS.md", WEB_GUIDANCE);
+        fs::write(root.join("AGENTS.md"), [0xff]).expect("invalid UTF-8 guidance");
+        findings.clear();
+        runtime_guidance_audit(&root, &mut findings);
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.starts_with("AGENTS.md: unable to read runtime guidance"))
+        );
+        fs::remove_dir_all(root).expect("remove invalid guidance fixture");
+    }
+
+    #[test]
+    fn runtime_guidance_rejects_lost_native_boundaries() {
+        for marker in [
+            "SQLx is the only high-level SQLite library.",
+            "schema v3, storage API v3, FFI v4.5, snapshot v1, custody,",
+            "exact Radroots source pin",
+            "platform/ABI",
+            "Private keys and signing operations remain behind the generated native",
+        ] {
+            assert!(ROOT_GUIDANCE.contains(marker), "fixture marker: {marker}");
+            let altered = ROOT_GUIDANCE.replace(marker, "native boundary removed");
+            assert!(
+                !guidance_findings(&altered, WEB_GUIDANCE).is_empty(),
+                "accepted lost native rule: {marker}"
+            );
+        }
+    }
+
+    #[test]
+    fn runtime_guidance_rejects_lost_browser_boundaries() {
+        for marker in [
+            "IndexedDB",
+            "explicit\n  extension interaction",
+            "Applesauce",
+            "operating-system keyring",
+            "UniFFI implementation",
+            "do not invent commands or claim an absent web suite passed",
+        ] {
+            assert!(WEB_GUIDANCE.contains(marker), "fixture marker: {marker}");
+            let altered = WEB_GUIDANCE.replace(marker, "browser boundary removed");
+            assert!(
+                !guidance_findings(ROOT_GUIDANCE, &altered).is_empty(),
+                "accepted lost browser rule: {marker}"
+            );
+        }
+    }
+
+    #[test]
+    fn runtime_guidance_rejects_relaxed_source_and_product_scope() {
+        for marker in [
+            "All `docs/**`,",
+            "`.github/**`",
+            "`.act/**`",
+            "must not depend on private parent code",
+            "HCAV-021",
+        ] {
+            assert!(ROOT_GUIDANCE.contains(marker), "fixture marker: {marker}");
+            let altered = ROOT_GUIDANCE.replace(marker, "permitted");
+            assert!(
+                !guidance_findings(&altered, WEB_GUIDANCE).is_empty(),
+                "accepted relaxed root rule: {marker}"
+            );
+        }
+        for marker in [
+            "Do not introduce `docs/**`",
+            "`.github/**`",
+            "`.act/**`",
+            "dependency on parent documentation",
+            "WASM launch dependency",
+        ] {
+            assert!(WEB_GUIDANCE.contains(marker), "fixture marker: {marker}");
+            let altered = WEB_GUIDANCE.replace(marker, "permitted");
+            assert!(
+                !guidance_findings(ROOT_GUIDANCE, &altered).is_empty(),
+                "accepted relaxed subtree rule: {marker}"
+            );
+        }
+    }
 
     #[test]
     fn commands_are_exact_and_unknown_values_fail_closed() {

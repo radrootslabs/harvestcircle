@@ -14,6 +14,10 @@ guidance alone is not an implemented application or a passing qualification.
 - Preserve native source, commands, manifests, locks, generated inputs,
   schema/API, runtime paths, custody, and exact public Radroots source pin.
   Native build integration requires its own explicit authorized step.
+- Browser persistence uses bounded IndexedDB under the approved browser
+  resource contracts. Public drafts are strings; private unsent plaintext
+  stays memory-only. Native schema, quotas, and backup/restore wrappers do
+  not govern browser storage.
 - Keep browser storage and sessions separate from the desktop SQLx database,
   operating-system keyring, and UniFFI implementation. No shared UI, hidden
   backend, native binary, WASM launch dependency, private artifact, implicit
