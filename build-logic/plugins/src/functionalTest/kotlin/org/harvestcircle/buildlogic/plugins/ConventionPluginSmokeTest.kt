@@ -511,33 +511,62 @@ class ConventionPluginSmokeTest {
     }
 
     @Test
+    fun linuxPackagingTasksCanBeListedWithReusableStrictConfigurationCache() {
+        val fixture = createTempDirectory("harvestcircle-linux-packaging-tasks-")
+        preparePackagingBuild(fixture, "exit 0")
+        val runner =
+            GradleRunner.create()
+                .withProjectDir(fixture.toFile())
+                .withPluginClasspath()
+                .withArguments(
+                    "tasks",
+                    "-PnativeOs=Linux",
+                    "-PnativeArch=amd64",
+                    "--configuration-cache",
+                    "--configuration-cache-problems=fail",
+                    "--stacktrace",
+                )
+
+        val first = runner.build()
+        assertTrue(first.output.contains("BUILD SUCCESSFUL"), first.output)
+        val second = runner.build()
+        assertTrue(second.output.contains("Reusing configuration cache"), second.output)
+        assertTrue(second.output.contains("BUILD SUCCESSFUL"), second.output)
+    }
+
+    @Test
     fun unsignedReleaseReadinessRejectsEveryNonContractPlatformDuringConfiguration() {
         listOf(
             Triple("linux", "Linux", "aarch64"),
+            Triple("linux-amd64", "Linux", "amd64"),
             Triple("macos-x86", "Mac OS X", "x86_64"),
         ).forEach { (caseName, osName, architecture) ->
             val fixture = createTempDirectory("harvestcircle-unsigned-release-$caseName-")
             preparePackagingBuild(fixture, "exit 0")
 
-            val result =
-                GradleRunner.create()
-                    .withProjectDir(fixture.toFile())
-                    .withPluginClasspath()
-                    .withArguments(
-                        ":app:desktop:unsignedReleaseReadiness",
-                        "-PnativeOs=$osName",
-                        "-PnativeArch=$architecture",
-                        "--dry-run",
-                        "--stacktrace",
-                    ).buildAndFail()
+            listOf("unsignedReleaseReadiness", "releaseReadiness").forEach { selectedTask ->
+                val result =
+                    GradleRunner.create()
+                        .withProjectDir(fixture.toFile())
+                        .withPluginClasspath()
+                        .withArguments(
+                            ":app:desktop:$selectedTask",
+                            "-PnativeOs=$osName",
+                            "-PnativeArch=$architecture",
+                            "--dry-run",
+                            "--configuration-cache",
+                            "--configuration-cache-problems=fail",
+                            "--stacktrace",
+                        ).buildAndFail()
 
-            assertTrue(
-                result.output.contains(
-                    "Unsigned release contract requires macOS/aarch64, not $osName/$architecture",
-                ),
-                result.output,
-            )
-            assertTrue(result.tasks.none { it.path.startsWith(":app:desktop:") }, result.output)
+                assertTrue(
+                    result.output.contains(
+                        "Unsigned release contract requires macOS/aarch64, not $osName/$architecture",
+                    ),
+                    result.output,
+                )
+                assertTrue(result.tasks.isEmpty(), result.output)
+            }
         }
     }
 

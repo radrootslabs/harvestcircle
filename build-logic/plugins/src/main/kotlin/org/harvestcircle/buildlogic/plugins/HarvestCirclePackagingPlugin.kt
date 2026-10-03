@@ -253,17 +253,22 @@ public class HarvestCirclePackagingPlugin : Plugin<Project> {
         val notarizationReadiness = target.tasks.register("notarizationReadiness") { it.dependsOn(verifyNotarization) }
         val unsignedReleaseReadiness = target.tasks.register("unsignedReleaseReadiness") { task ->
             if (!isGovernedMacOsTarget) {
-                throw GradleException(
-                    "Unsigned release contract requires macOS/aarch64, not $nativeOsName/$nativeArchitecture",
+                task.dependsOn(
+                    target.providers.provider<List<String>> {
+                        throw GradleException(
+                            "Unsigned release contract requires macOS/aarch64, not $nativeOsName/$nativeArchitecture",
+                        )
+                    },
+                )
+            } else {
+                task.dependsOn(
+                    "checkLicense",
+                    sourceReadiness,
+                    packageReadiness,
+                    "packageDmg",
+                    "verifyMacOsPackage",
                 )
             }
-            task.dependsOn(
-                "checkLicense",
-                sourceReadiness,
-                packageReadiness,
-                "packageDmg",
-                "verifyMacOsPackage",
-            )
         }
         target.tasks.register("releaseReadiness") { task ->
             task.dependsOn(
