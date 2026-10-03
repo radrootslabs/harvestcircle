@@ -22,6 +22,7 @@ tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "sync", 
 uuid.workspace = true
 
 [dev-dependencies]
+tokio = { version = "=1.47.1", features = ["test-util"] }
 nostr = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr" }
 nostr-relay-builder = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr-relay-builder" }
 nostr-sdk = { git = "https://github.com/rust-nostr/nostr.git", rev = "5bba5163eb77107f82c4a8262cf29d7f33a73219", package = "nostr-sdk" }

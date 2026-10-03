@@ -150,10 +150,7 @@ impl AppCore {
             }
             Err(error) => {
                 let status = refresh_status(error);
-                profiles
-                    .record_refresh_status(plan.public_key(), clock.now(), status)
-                    .await?;
-                self.apply_transition(StateTransition::UpdateActiveIdentity {
+                let snapshot = self.apply_transition(StateTransition::UpdateActiveIdentity {
                     expected: plan.public_key(),
                     active_identity: Box::new(ActiveIdentitySnapshot::new(
                         current_active.identity().clone(),
@@ -162,7 +159,11 @@ impl AppCore {
                         current_active.profile().cloned(),
                     )),
                     problem: Some(error),
-                })
+                })?;
+                profiles
+                    .record_refresh_status(plan.public_key(), clock.now(), status)
+                    .await?;
+                Ok(snapshot)
             }
         }
     }
@@ -326,6 +327,88 @@ mod tests {
                 *self.0.lock().expect("profiles") = None;
                 Ok(())
             })
+        }
+    }
+
+    struct UnavailableAuditProfiles {
+        cached: MemoryProfiles,
+        pending: bool,
+        started: tokio::sync::Semaphore,
+    }
+
+    impl ProfileRepository for UnavailableAuditProfiles {
+        fn load_profile(
+            &self,
+            public_key: PublicKey,
+        ) -> BoxFuture<'_, Result<Option<CachedProfile>, SafeError>> {
+            self.cached.load_profile(public_key)
+        }
+        fn save_profile<'a>(
+            &'a self,
+            profile: &'a CachedProfile,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            self.cached.save_profile(profile)
+        }
+        fn record_refresh_status<'a>(
+            &'a self,
+            _public_key: PublicKey,
+            _at: UnixTimestamp,
+            _status: ProfileRefreshStatus,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(async move {
+                self.started.add_permits(1);
+                if self.pending {
+                    std::future::pending::<()>().await;
+                }
+                Err(SafeError::new(
+                    SafeErrorCode::ProfileRefreshFailed,
+                    SafeMessage::new("Audit unavailable."),
+                ))
+            })
+        }
+        fn remove_profile(&self, public_key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
+            self.cached.remove_profile(public_key)
+        }
+    }
+
+    #[tokio::test]
+    async fn nr001_failure_state_precedes_pending_or_failed_audit_persistence() {
+        for pending in [true, false] {
+            let profiles = UnavailableAuditProfiles {
+                cached: MemoryProfiles::default(),
+                pending,
+                started: tokio::sync::Semaphore::new(0),
+            };
+            let (core, _) = active_core(&profiles.cached, Some("Cached")).await;
+            let plan = core
+                .begin_profile_refresh()
+                .expect("begin")
+                .expect("active");
+            let error = SafeError::new(
+                SafeErrorCode::RelayConnectionFailed,
+                SafeMessage::new("Relay unavailable."),
+            );
+            let completion =
+                core.complete_profile_refresh(&plan, Err(error), &profiles, &FixedClock);
+            tokio::pin!(completion);
+            tokio::select! {
+                result = &mut completion => { assert!(!pending); assert!(result.is_err()); }
+                permit = profiles.started.acquire(), if pending => { permit.expect("audit entered").forget(); }
+            }
+            let snapshot = core.snapshot();
+            assert_eq!(
+                snapshot.active_identity().expect("active").profile_state(),
+                ProfileLoadState::Error(error)
+            );
+            assert_eq!(
+                snapshot
+                    .active_identity()
+                    .expect("active")
+                    .profile()
+                    .and_then(ProfileMetadata::name),
+                Some("Cached")
+            );
+            assert_eq!(snapshot.recoverable_problem(), Some(error));
         }
     }
 

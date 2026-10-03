@@ -32,6 +32,7 @@ use crate::{InstallationIdentity, InstallationIdentitySource, PersistentAppCore}
 
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_TASK_CAPACITY: usize = 64;
+const MAX_OUTSTANDING_PROFILE_TASKS: usize = 64;
 
 enum RuntimeCommand {
     Snapshot,
@@ -862,11 +863,50 @@ impl RuntimeActor {
                 | RuntimeCommand::ConfirmIdentityRemoval { .. }
         );
         let begins_generated_recovery = matches!(&command, RuntimeCommand::BeginGeneratedKeyStage);
-        let result = self.execute_command(context, command).await;
-        if begins_generated_recovery && matches!(&result, CommandResult::Completed(_)) {
+        if begins_generated_recovery {
+            let foreground = match self.published_foreground_session.lock() {
+                Ok(foreground) => foreground.clone(),
+                Err(_) => {
+                    self.fail_lifecycle(runtime_state_unavailable());
+                    let _ = reply.send(CommandReceipt::new(
+                        context.request_id(),
+                        CommandResult::Failed(runtime_state_unavailable()),
+                    ));
+                    return true;
+                }
+            };
+            let current = self.adapter.core().snapshot();
+            if let Some(task) = self.profile_tasks.values().find(|task| {
+                task.correlation.session_generation() == self.session_generation
+                    && foreground.as_ref().is_some_and(|binding| {
+                        binding.generation() == task.correlation.session_generation()
+                            && binding.identity().public_key() == task.correlation.identity()
+                            && binding.signer_binding() == task.correlation.binding()
+                    })
+                    && current.active_identity().is_some_and(|active| {
+                        active.identity().public_key() == task.correlation.identity()
+                            && active.profile_state()
+                                == harvestcircle_application::ProfileLoadState::Loading
+                    })
+            }) {
+                // Interruption settles before stage creation, so the recovery
+                // stage captures the settled revision for acknowledgement.
+                let _ = tokio::time::timeout_at(
+                    tokio::time::Instant::now(),
+                    self.adapter.core().complete_profile_refresh(
+                        &task.plan,
+                        Err(command_unavailable()),
+                        self.adapter.database(),
+                        self.clock.as_ref(),
+                    ),
+                )
+                .await;
+            }
             let snapshot = self.adapter.core().snapshot();
             self.cancel_profile_tasks(Some(&snapshot)).await;
+            self.changes.publish(snapshot);
         }
+        let result = self.execute_command(context, command).await;
         if changes_session && matches!(result, CommandResult::Completed(_)) {
             self.advance_session_generation().await;
             self.synchronize_foreground_session();
@@ -1119,6 +1159,31 @@ impl RuntimeActor {
                 return;
             }
         };
+        let current = self.adapter.core().snapshot();
+        let Some(active) = current.active_identity() else {
+            let _ = reply.send(CommandReceipt::new(
+                context.request_id(),
+                CommandResult::Completed(RuntimeCommandValue::Snapshot(Box::new(current))),
+            ));
+            return;
+        };
+        let Some(foreground) = foreground.filter(|binding| {
+            binding.identity().public_key() == active.identity().public_key()
+                && binding.generation() == self.session_generation
+        }) else {
+            let _ = reply.send(CommandReceipt::new(
+                context.request_id(),
+                CommandResult::Failed(stale_profile_binding()),
+            ));
+            return;
+        };
+        if self.profile_tasks.len() >= MAX_OUTSTANDING_PROFILE_TASKS {
+            let _ = reply.send(CommandReceipt::new(
+                context.request_id(),
+                CommandResult::Failed(command_rejected()),
+            ));
+            return;
+        }
         let plan = match self.adapter.core().begin_profile_refresh() {
             Ok(Some(plan)) => plan,
             Ok(None) => {
@@ -1138,16 +1203,6 @@ impl RuntimeActor {
                 return;
             }
         };
-        let Some(foreground) = foreground.filter(|binding| {
-            binding.identity().public_key() == plan.public_key()
-                && binding.generation() == self.session_generation
-        }) else {
-            let _ = reply.send(CommandReceipt::new(
-                context.request_id(),
-                CommandResult::Failed(stale_profile_binding()),
-            ));
-            return;
-        };
         let correlation = TaskCorrelation::new(
             context.request_id(),
             plan.public_key(),
@@ -1159,9 +1214,19 @@ impl RuntimeActor {
         let relays = plan.relays().to_vec();
         let request_id = context.request_id();
         let handle = self.runtime.spawn(async move {
-            let result = client
-                .fetch_profile(correlation.identity(), &relays, context.deadline())
-                .await;
+            let deadline = tokio::time::Instant::from_std(context.deadline());
+            let result = tokio::time::timeout_at(
+                deadline,
+                client.fetch_profile(correlation.identity(), &relays, context.deadline()),
+            )
+            .await
+            .unwrap_or_else(|_| Err(command_timed_out()));
+            // Tokio polls ready work before its timer; expired success cannot apply.
+            let result = if tokio::time::Instant::now() >= deadline {
+                Err(command_timed_out())
+            } else {
+                result
+            };
             let _ = completion_sender
                 .send(ProfileCompletion { request_id, result })
                 .await;
@@ -1248,29 +1313,69 @@ impl RuntimeActor {
                 active.identity().public_key() == task.correlation.identity()
             });
         let result = if correlated {
-            let plan = task.plan.clone();
-            let completed = self
-                .run_async(task.deadline, move |adapter, _, clock| async move {
-                    adapter
-                        .core()
-                        .complete_profile_refresh(
-                            &plan,
-                            completion.result,
-                            adapter.database(),
-                            clock.as_ref(),
-                        )
-                        .await
-                        .map(Box::new)
-                        .map(RuntimeCommandValue::Snapshot)
-                })
+            let expired =
+                tokio::time::Instant::now() >= tokio::time::Instant::from_std(task.deadline);
+            let fetched = if expired {
+                Err(command_timed_out())
+            } else {
+                completion.result
+            };
+            let deadline = tokio::time::Instant::from_std(task.deadline);
+            let fetch_succeeded = fetched.is_ok();
+            let complete = self.adapter.core().complete_profile_refresh(
+                &task.plan,
+                fetched,
+                self.adapter.database(),
+                self.clock.as_ref(),
+            );
+            // For successful fetches, check the timer first so ready persistence
+            // at the deadline cannot install a late success. Failure completion
+            // must poll its synchronous state transition before its audit await.
+            let completed = if fetch_succeeded {
+                complete_profile_before_deadline(deadline, complete).await
+            } else {
+                tokio::time::timeout_at(deadline, complete)
+                    .await
+                    .map_err(|_| command_timed_out())
+                    .and_then(|result| result)
+            }
+            .map(Box::new)
+            .map(RuntimeCommandValue::Snapshot);
+            let completed = if expired || tokio::time::Instant::now() >= deadline {
+                Err(command_timed_out())
+            } else {
+                completed
+            };
+            if let Err(error) = completed
+                && self
+                    .adapter
+                    .core()
+                    .snapshot()
+                    .active_identity()
+                    .is_some_and(|active| {
+                        active.profile_state()
+                            == harvestcircle_application::ProfileLoadState::Loading
+                    })
+            {
+                // Tokio 1.47.1 polls the future before checking the timer. The
+                // failure transition precedes audit persistence, so even an
+                // already-expired timeout settles Loading without extra time.
+                let _ = tokio::time::timeout_at(
+                    deadline,
+                    self.adapter.core().complete_profile_refresh(
+                        &task.plan,
+                        Err(error),
+                        self.adapter.database(),
+                        self.clock.as_ref(),
+                    ),
+                )
                 .await;
+            }
             completed.map_or_else(CommandResult::Failed, CommandResult::Completed)
         } else {
             CommandResult::Completed(RuntimeCommandValue::Snapshot(Box::new(current)))
         };
-        if matches!(result, CommandResult::Completed(_)) {
-            self.changes.publish(self.adapter.core().snapshot());
-        }
+        self.changes.publish(self.adapter.core().snapshot());
         let _ = task
             .reply
             .send(CommandReceipt::new(task.correlation.request_id(), result));
@@ -1335,6 +1440,25 @@ impl RuntimeActor {
                 receipt_result,
             ));
         }
+    }
+}
+
+async fn complete_profile_before_deadline(
+    deadline: tokio::time::Instant,
+    complete: impl Future<Output = Result<AppSnapshot, SafeError>>,
+) -> Result<AppSnapshot, SafeError> {
+    tokio::pin!(complete);
+    let guarded = std::future::poll_fn(|context| {
+        if tokio::time::Instant::now() >= deadline {
+            std::task::Poll::Ready(Err(command_timed_out()))
+        } else {
+            complete.as_mut().poll(context)
+        }
+    });
+    tokio::select! {
+        biased;
+        _ = tokio::time::sleep_until(deadline) => Err(command_timed_out()),
+        result = guarded => result,
     }
 }
 
@@ -1665,6 +1789,556 @@ mod tests {
         .await
         .expect("actor");
         (actor, secrets)
+    }
+
+    async fn profile_owner(client: Arc<dyn NostrClient>) -> (RuntimeActor, RuntimeActorHandle) {
+        let (handle, secrets) = actor().await;
+        let imported = handle
+            .import_secret_key_test(secret(
+                "7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7",
+            ))
+            .await
+            .expect("import");
+        handle
+            .activate_identity(imported.identity().public_key())
+            .await
+            .expect("activate");
+        let owner = RuntimeActor {
+            adapter: Arc::clone(&handle.adapter),
+            secrets,
+            clock: Arc::new(FixedClock),
+            nostr: client,
+            lifecycle: Arc::clone(&handle.lifecycle),
+            runtime: tokio::runtime::Handle::current(),
+            session_generation: handle.session_generation(),
+            published_session_generation: Arc::clone(&handle.session_generation),
+            profile_tasks: std::collections::BTreeMap::new(),
+            changes: OrderedSnapshotChanges::new(handle.snapshot()),
+            published_foreground_session: Arc::clone(&handle.foreground_session),
+            generated_key_stage: GeneratedKeyStage::default(),
+        };
+        (owner, handle)
+    }
+
+    #[tokio::test]
+    async fn nr001_admission_is_bounded_before_state_or_network_mutation() {
+        let client = Arc::new(BlockingNostr::new());
+        let (mut owner, handle) = profile_owner(client.clone()).await;
+        let (sender, mut completed) = tokio::sync::mpsc::channel(64);
+        let before = owner.adapter.core().snapshot();
+        let generation = owner.session_generation;
+        owner.session_generation = generation.next().expect("next generation");
+        let (reply, mut stale) = tokio::sync::oneshot::channel();
+        owner
+            .start_profile_task(
+                CommandContext::new(
+                    RequestId::new(100).expect("id"),
+                    None,
+                    Instant::now() + DEFAULT_COMMAND_TIMEOUT,
+                ),
+                reply,
+                sender.clone(),
+            )
+            .await;
+        assert!(
+            matches!(stale.try_recv().expect("stale preflight").result(),
+            harvestcircle_application::CommandResult::Failed(error) if *error == super::stale_profile_binding())
+        );
+        assert_eq!(owner.adapter.core().snapshot(), before);
+        assert!(owner.profile_tasks.is_empty());
+        owner.session_generation = generation;
+        let mut receipts = Vec::new();
+        for id in 1..=64 {
+            let (reply, receipt) = tokio::sync::oneshot::channel();
+            owner
+                .start_profile_task(
+                    CommandContext::new(
+                        RequestId::new(id).expect("id"),
+                        None,
+                        Instant::now() + DEFAULT_COMMAND_TIMEOUT,
+                    ),
+                    reply,
+                    sender.clone(),
+                )
+                .await;
+            receipts.push(receipt);
+        }
+        let started = client
+            .started
+            .acquire_many(64)
+            .await
+            .expect("all admitted tasks start");
+        started.forget();
+        let before = owner.adapter.core().snapshot();
+        let (reply, mut rejected) = tokio::sync::oneshot::channel();
+        owner
+            .start_profile_task(
+                CommandContext::new(
+                    RequestId::new(65).expect("id"),
+                    None,
+                    Instant::now() + DEFAULT_COMMAND_TIMEOUT,
+                ),
+                reply,
+                sender.clone(),
+            )
+            .await;
+        assert_eq!(
+            owner.profile_tasks.len(),
+            64,
+            "65th task must not be admitted"
+        );
+        assert_eq!(
+            owner.adapter.core().snapshot(),
+            before,
+            "rejection must not change revision or Loading"
+        );
+        assert!(
+            matches!(rejected.try_recv().expect("immediate rejection").result(),
+            harvestcircle_application::CommandResult::Failed(error) if *error == super::command_rejected())
+        );
+        assert_eq!(client.started.available_permits(), 0);
+        client.release.add_permits(1);
+        owner
+            .complete_profile_task(completed.recv().await.expect("one completion"))
+            .await;
+        assert_eq!(owner.profile_tasks.len(), 63);
+        let (reply, readmitted) = tokio::sync::oneshot::channel();
+        owner
+            .start_profile_task(
+                CommandContext::new(
+                    RequestId::new(66).expect("id"),
+                    None,
+                    Instant::now() + DEFAULT_COMMAND_TIMEOUT,
+                ),
+                reply,
+                sender.clone(),
+            )
+            .await;
+        assert_eq!(owner.profile_tasks.len(), 64);
+        owner.adapter.core().sign_out().expect("sign out");
+        let signed_out = owner.adapter.core().snapshot();
+        let (reply, mut no_op) = tokio::sync::oneshot::channel();
+        owner
+            .start_profile_task(
+                CommandContext::new(
+                    RequestId::new(67).expect("id"),
+                    None,
+                    Instant::now() + DEFAULT_COMMAND_TIMEOUT,
+                ),
+                reply,
+                sender,
+            )
+            .await;
+        assert!(matches!(
+            no_op.try_recv().expect("signed-out no-op").result(),
+            harvestcircle_application::CommandResult::Completed(_)
+        ));
+        assert_eq!(owner.adapter.core().snapshot(), signed_out);
+        owner.cancel_profile_tasks(Some(&signed_out)).await;
+        for receipt in receipts {
+            receipt.await.expect("receipt settled exactly once");
+        }
+        readmitted.await.expect("readmitted cancellation receipt");
+        assert!(owner.profile_tasks.is_empty());
+        handle.close().await.expect("close");
+    }
+
+    #[tokio::test]
+    async fn nr001_stalled_client_expires_and_releases_loading_and_capacity() {
+        let client = Arc::new(BlockingNostr::new());
+        let (mut owner, handle) = profile_owner(client.clone()).await;
+        let (_, mut changes) = owner
+            .changes
+            .subscribe(NonZeroUsize::new(4).expect("capacity"))
+            .expect("subscribe");
+        changes.receive().await.expect("initial");
+        tokio::time::pause();
+        let (sender, mut completed) = tokio::sync::mpsc::channel(64);
+        let (reply, mut receipt) = tokio::sync::oneshot::channel();
+        let deadline = (tokio::time::Instant::now() + Duration::from_secs(5)).into_std();
+        owner
+            .start_profile_task(
+                CommandContext::new(RequestId::new(1).expect("id"), None, deadline),
+                reply,
+                sender.clone(),
+            )
+            .await;
+        client.started.acquire().await.expect("started").forget();
+        tokio::time::advance(Duration::from_secs(5)).await;
+        tokio::task::yield_now().await;
+        let completion = tokio::time::timeout(Duration::from_secs(1), completed.recv())
+            .await
+            .expect("actor must enforce the client's ignored deadline")
+            .expect("completion");
+        owner.complete_profile_task(completion).await;
+        assert!(owner.profile_tasks.is_empty());
+        let change = changes.receive().await.expect("timeout state published");
+        assert_eq!(change.snapshot(), &owner.adapter.core().snapshot());
+
+        assert!(
+            matches!(receipt.try_recv().expect("timeout receipt").result(),
+            harvestcircle_application::CommandResult::Failed(error) if *error == super::command_timed_out())
+        );
+        assert!(
+            matches!(owner.adapter.core().snapshot().active_identity().expect("active").profile_state(),
+            harvestcircle_application::ProfileLoadState::Error(error) if error == super::command_timed_out())
+        );
+        let (reply, readmitted) = tokio::sync::oneshot::channel();
+        owner
+            .start_profile_task(
+                CommandContext::new(
+                    RequestId::new(2).expect("id"),
+                    None,
+                    (tokio::time::Instant::now() + Duration::from_secs(5)).into_std(),
+                ),
+                reply,
+                sender,
+            )
+            .await;
+        assert_eq!(owner.profile_tasks.len(), 1);
+        owner.cancel_profile_tasks(None).await;
+        assert!(matches!(
+            readmitted.await.expect("close receipt").result(),
+            harvestcircle_application::CommandResult::Closed
+        ));
+        tokio::time::resume();
+        handle.close().await.expect("close");
+    }
+
+    #[tokio::test]
+    async fn nr001_failed_audit_still_publishes_settled_profile_state() {
+        let client = Arc::new(BlockingNostr::new());
+        let (mut owner, handle) = profile_owner(client.clone()).await;
+        let (_, mut changes) = owner
+            .changes
+            .subscribe(NonZeroUsize::new(4).expect("capacity"))
+            .expect("subscribe");
+        changes.receive().await.expect("initial");
+        let (sender, mut completed) = tokio::sync::mpsc::channel(64);
+        let (reply, receipt) = tokio::sync::oneshot::channel();
+        owner
+            .start_profile_task(
+                CommandContext::new(
+                    RequestId::new(1).expect("id"),
+                    None,
+                    Instant::now() + DEFAULT_COMMAND_TIMEOUT,
+                ),
+                reply,
+                sender,
+            )
+            .await;
+        client.started.acquire().await.expect("started").forget();
+        owner
+            .adapter
+            .database()
+            .close()
+            .await
+            .expect("inject unavailable persistence");
+        client.release.add_permits(1);
+        let mut completion = completed.recv().await.expect("fetch completion");
+        let error = super::command_timed_out();
+        completion.result = Err(error);
+        owner.complete_profile_task(completion).await;
+        assert!(matches!(
+            receipt.await.expect("receipt").result(),
+            harvestcircle_application::CommandResult::Failed(_)
+        ));
+        assert!(owner.profile_tasks.is_empty());
+        let change = changes.receive().await.expect("failure must publish state");
+        assert!(matches!(
+            change
+                .snapshot()
+                .active_identity()
+                .expect("active")
+                .profile_state(),
+            harvestcircle_application::ProfileLoadState::Error(_)
+        ));
+        handle.close().await.expect("idempotent close");
+    }
+
+    #[tokio::test]
+    async fn nr001_late_success_is_timeout_and_queued_old_generation_is_harmless() {
+        let client = Arc::new(BlockingNostr::new());
+        let (mut owner, handle) = profile_owner(client.clone()).await;
+        tokio::time::pause();
+        let (sender, mut completed) = tokio::sync::mpsc::channel(64);
+        let (reply, receipt) = tokio::sync::oneshot::channel();
+        owner
+            .start_profile_task(
+                CommandContext::new(
+                    RequestId::new(1).expect("id"),
+                    None,
+                    (tokio::time::Instant::now() + Duration::from_secs(5)).into_std(),
+                ),
+                reply,
+                sender.clone(),
+            )
+            .await;
+        client.started.acquire().await.expect("started").forget();
+        client.release.add_permits(1);
+        let completion = completed.recv().await.expect("ready success queued");
+        assert!(completion.result.is_ok());
+        tokio::time::advance(Duration::from_secs(5)).await;
+        owner.complete_profile_task(completion).await;
+        assert!(matches!(receipt.await.expect("expired receipt").result(),
+            harvestcircle_application::CommandResult::Failed(error) if *error == super::command_timed_out()));
+        let (reply, receipt) = tokio::sync::oneshot::channel();
+        owner
+            .start_profile_task(
+                CommandContext::new(
+                    RequestId::new(2).expect("id"),
+                    None,
+                    (tokio::time::Instant::now() + Duration::from_secs(5)).into_std(),
+                ),
+                reply,
+                sender,
+            )
+            .await;
+        client
+            .started
+            .acquire()
+            .await
+            .expect("second start")
+            .forget();
+        client.release.add_permits(1);
+        let old_completion = completed.recv().await.expect("queued old generation");
+        let public_key = owner
+            .adapter
+            .core()
+            .snapshot()
+            .active_identity()
+            .expect("active")
+            .identity()
+            .public_key();
+        owner.adapter.core().sign_out().expect("logout");
+        owner.advance_session_generation().await;
+        assert!(matches!(
+            receipt.await.expect("cancelled receipt").result(),
+            harvestcircle_application::CommandResult::Completed(_)
+        ));
+        tokio::time::resume();
+        handle
+            .activate_identity(public_key)
+            .await
+            .expect("switch back to same identity");
+        let before = owner.adapter.core().snapshot();
+        owner.complete_profile_task(old_completion).await;
+        assert_eq!(owner.adapter.core().snapshot(), before);
+        assert!(owner.profile_tasks.is_empty());
+        handle.close().await.expect("close");
+    }
+
+    #[tokio::test]
+    async fn nr001_generated_recovery_cancellation_releases_capacity_and_settles_loading() {
+        let client = Arc::new(BlockingNostr::new());
+        let (mut owner, handle) = profile_owner(client.clone()).await;
+        let (sender, _completed) = tokio::sync::mpsc::channel(64);
+        let (reply, receipt) = tokio::sync::oneshot::channel();
+        owner
+            .start_profile_task(
+                CommandContext::new(
+                    RequestId::new(100).expect("id"),
+                    None,
+                    Instant::now() + DEFAULT_COMMAND_TIMEOUT,
+                ),
+                reply,
+                sender.clone(),
+            )
+            .await;
+        client.started.acquire().await.expect("started").forget();
+        let (mailbox, mut receiver) = ActorMailbox::bounded(NonZeroUsize::MIN);
+        let context = CommandContext::new(
+            RequestId::new(101).expect("id"),
+            None,
+            Instant::now() + DEFAULT_COMMAND_TIMEOUT,
+        );
+        let ticket = match mailbox.submit(context, RuntimeCommand::BeginGeneratedKeyStage) {
+            CommandSubmission::Accepted(ticket) => ticket,
+            CommandSubmission::Rejected(_) => panic!("admit recovery"),
+        };
+        assert!(
+            owner
+                .handle_command(receiver.recv().await.expect("recovery command"), &sender)
+                .await
+        );
+        let recovery_id = match ticket.receipt().await.into_result() {
+            harvestcircle_application::CommandResult::Completed(
+                super::RuntimeCommandValue::GeneratedKeyStage(stage),
+            ) => stage.id(),
+            _ => panic!("recovery must begin"),
+        };
+        let cancelled = receipt.await.expect("cancelled receipt exactly once");
+        assert!(matches!(
+            cancelled.result(),
+            harvestcircle_application::CommandResult::Completed(_)
+        ));
+        assert!(owner.profile_tasks.is_empty());
+        assert_ne!(
+            owner
+                .adapter
+                .core()
+                .snapshot()
+                .active_identity()
+                .expect("active")
+                .profile_state(),
+            harvestcircle_application::ProfileLoadState::Loading
+        );
+        let before_commit = owner.adapter.core().snapshot().identities().len();
+        let context = CommandContext::new(
+            RequestId::new(102).expect("id"),
+            None,
+            Instant::now() + DEFAULT_COMMAND_TIMEOUT,
+        );
+        let ticket = match mailbox.submit(
+            context,
+            RuntimeCommand::AcknowledgeGeneratedKeyStage {
+                id: recovery_id,
+                durable_request: DurableRequestId::parse("01890f3e-7b1c-7000-8000-000000005003")
+                    .expect("durable request"),
+            },
+        ) {
+            CommandSubmission::Accepted(ticket) => ticket,
+            CommandSubmission::Rejected(_) => panic!("admit acknowledgement"),
+        };
+        assert!(
+            owner
+                .handle_command(receiver.recv().await.expect("acknowledgement"), &sender)
+                .await
+        );
+        assert!(
+            matches!(
+                ticket.receipt().await.result(),
+                harvestcircle_application::CommandResult::Completed(_)
+            ),
+            "settling Loading must not invalidate staged expected revision"
+        );
+        assert_eq!(
+            owner.adapter.core().snapshot().identities().len(),
+            before_commit + 1
+        );
+        handle.close().await.expect("close");
+    }
+
+    struct PendingProfilePersistence {
+        started: tokio::sync::Semaphore,
+        release: tokio::sync::Semaphore,
+    }
+
+    impl harvestcircle_application::ProfileRepository for PendingProfilePersistence {
+        fn load_profile(
+            &self,
+            _key: PublicKey,
+        ) -> BoxFuture<'_, Result<Option<harvestcircle_application::CachedProfile>, SafeError>>
+        {
+            Box::pin(async { Ok(None) })
+        }
+        fn save_profile<'a>(
+            &'a self,
+            _profile: &'a harvestcircle_application::CachedProfile,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(async move {
+                self.started.add_permits(1);
+                self.release
+                    .acquire()
+                    .await
+                    .expect("release persistence")
+                    .forget();
+                Ok(())
+            })
+        }
+        fn record_refresh_status<'a>(
+            &'a self,
+            _key: PublicKey,
+            _at: UnixTimestamp,
+            _status: harvestcircle_application::ProfileRefreshStatus,
+        ) -> BoxFuture<'a, Result<(), SafeError>> {
+            Box::pin(std::future::pending())
+        }
+        fn remove_profile(&self, _key: PublicKey) -> BoxFuture<'_, Result<(), SafeError>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn nr001_ready_persistence_at_expiry_cannot_install_success_and_cancelled_audit_settles_loading()
+     {
+        let (owner, handle) = profile_owner(Arc::new(OfflineNostr)).await;
+        let core = owner.adapter.core();
+        let plan = core
+            .begin_profile_refresh()
+            .expect("begin")
+            .expect("active");
+        let profiles = PendingProfilePersistence {
+            started: tokio::sync::Semaphore::new(0),
+            release: tokio::sync::Semaphore::new(0),
+        };
+        let candidate = harvestcircle_domain::Kind0ProfileCandidate::new(
+            harvestcircle_domain::EventId::from_bytes([20; 32]),
+            plan.public_key(),
+            UnixTimestamp::from_seconds(20).expect("time"),
+            harvestcircle_domain::ProfileMetadata::new(
+                Some("Late".to_owned()),
+                None,
+                None,
+                None,
+                None,
+            )
+            .expect("metadata"),
+        );
+        tokio::time::pause();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let completion = super::complete_profile_before_deadline(
+            deadline,
+            core.complete_profile_refresh(
+                &plan,
+                Ok(ProfileFetchResult::complete(Some(candidate))),
+                &profiles,
+                &FixedClock,
+            ),
+        );
+        tokio::pin!(completion);
+        tokio::select! {
+            result = &mut completion => panic!("persistence must block: {result:?}"),
+            permit = profiles.started.acquire() => permit.expect("persistence started").forget(),
+        }
+        tokio::time::advance(Duration::from_secs(5)).await;
+        profiles.release.add_permits(1);
+        assert_eq!(
+            completion
+                .await
+                .expect_err("timer must beat ready persistence"),
+            super::command_timed_out()
+        );
+        assert!(
+            core.snapshot()
+                .active_identity()
+                .expect("active")
+                .profile()
+                .is_none()
+        );
+        let cleanup = tokio::time::timeout_at(
+            deadline,
+            core.complete_profile_refresh(
+                &plan,
+                Err(super::command_timed_out()),
+                &profiles,
+                &FixedClock,
+            ),
+        )
+        .await;
+        assert!(
+            cleanup.is_err(),
+            "audit stays pending and is cancelled at the original deadline"
+        );
+        assert_eq!(
+            core.snapshot()
+                .active_identity()
+                .expect("active")
+                .profile_state(),
+            harvestcircle_application::ProfileLoadState::Error(super::command_timed_out())
+        );
+        tokio::time::resume();
+        handle.close().await.expect("close");
     }
 
     struct ThreadWake(Thread);
