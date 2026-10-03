@@ -17,16 +17,22 @@ impl Fixture {
     }
 
     fn with_nonce(nonce: u128) -> Self {
+        Self::in_directory(&std::env::temp_dir(), nonce)
+    }
+
+    fn in_directory(directory: &Path, nonce: u128) -> Self {
         loop {
             let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-            let root = std::env::temp_dir().join(format!(
+            let root = directory.join(format!(
                 "harvestcircle root fixture {} {nonce} {sequence}",
                 std::process::id()
             ));
             match fs::create_dir(&root) {
                 Ok(()) => return Self(root),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(error) => panic!("unable to create exclusive fixture {root:?}: {error}"),
+                Err(error) => panic!(
+                    "unable to create exclusive fixture {root:?}; fixture filesystem must exist and have sufficient writable capacity: {error}"
+                ),
             }
         }
     }
@@ -314,10 +320,22 @@ fn full_archive_rejects_native_symlink_parent_and_invalid_path_bytes() {
     // Linux supports non-UTF-8 filenames; macOS rejects their creation with EILSEQ.
     #[cfg(target_os = "linux")]
     {
-        use std::os::unix::ffi::OsStringExt;
-        let invalid = capsule.join(std::ffi::OsString::from_vec(vec![b'x', 0xff]));
-        fs::write(&invalid, "source").unwrap();
-        let output = cli(&capsule, "qualification-report");
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        // Container bind-mounted temporary directories may normalize invalid
+        // filename bytes; native Linux tmpfs is required for this case.
+        let native_fixture = Fixture::in_directory(Path::new("/dev/shm"), 0);
+        let native_capsule = native_fixture.0.join("capsule");
+        copy_source(&native_capsule);
+        let invalid_name = std::ffi::OsString::from_vec(vec![b'x', 0xff]);
+        fs::write(native_capsule.join(&invalid_name), "source")
+            .expect("native Linux tmpfs must admit invalid filename bytes and have capacity");
+        assert!(
+            fs::read_dir(&native_capsule)
+                .unwrap()
+                .any(|entry| { entry.unwrap().file_name().as_bytes() == invalid_name.as_bytes() }),
+            "native Linux fixture filesystem must preserve exact invalid filename bytes"
+        );
+        let output = cli(&native_capsule, "qualification-report");
         assert!(!output.status.success());
         assert!(String::from_utf8(output.stderr).unwrap().contains("UTF-8"));
     }
