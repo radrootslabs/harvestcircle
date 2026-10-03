@@ -36,6 +36,8 @@ impl FromStr for Command {
 }
 
 pub fn run(root: &Path, command: Command) -> Result<String, Vec<String>> {
+    let root = validate_product_root(root).map_err(|finding| vec![finding])?;
+    let root = root.as_path();
     let build_mode =
         std::env::var("HARVESTCIRCLE_BUILD_MODE").unwrap_or_else(|_| "standalone".to_owned());
     if command == Command::QualificationReport
@@ -88,6 +90,99 @@ pub fn run(root: &Path, command: Command) -> Result<String, Vec<String>> {
     }
 }
 
+fn validate_product_root(root: &Path) -> Result<PathBuf, String> {
+    let metadata = fs::symlink_metadata(root)
+        .map_err(|error| format!("HarvestCircle product root cannot be inspected: {error}"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(
+            "HarvestCircle product root must be a directory, not a symbolic link".to_owned(),
+        );
+    }
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("HarvestCircle product root cannot be resolved: {error}"))?;
+    for marker in [
+        "Makefile",
+        "settings.gradle.kts",
+        "build.gradle.kts",
+        "gradlew",
+        "config/product/harvestcircle-v1.properties",
+        "radroots.lib.source-lock.v1.toml",
+        "core/Cargo.toml",
+        "core/Cargo.lock",
+        "core/rust-toolchain.toml",
+        "tools/xtask/Cargo.toml",
+        "tools/xtask/Cargo.lock",
+        "core/crates/harvestcircle_domain/Cargo.toml",
+        "core/crates/harvestcircle_domain/src/lib.rs",
+        "contracts/rshr-201-step-gates.v1.json",
+        "contracts/release/harvestcircle-artifact-contract.v3.json",
+    ] {
+        validate_git_inventory_path(&root, Path::new(marker))
+            .map_err(|finding| format!("invalid HarvestCircle product root: {finding}"))?;
+    }
+    for (manifest, identity) in [
+        (
+            "core/crates/harvestcircle_domain/Cargo.toml",
+            "harvestcircle_domain",
+        ),
+        ("tools/xtask/Cargo.toml", "harvestcircle_xtask"),
+    ] {
+        let source = bounded_no_follow_bytes(&root, Path::new(manifest), 1024 * 1024)
+            .map_err(|finding| format!("invalid HarvestCircle product root: {finding}"))?;
+        let source = std::str::from_utf8(&source)
+            .map_err(|_| format!("invalid HarvestCircle product root: {manifest} is not UTF-8"))?;
+        if !source
+            .lines()
+            .any(|line| line.trim() == format!("name = \"{identity}\""))
+        {
+            return Err(format!(
+                "invalid HarvestCircle product root: {manifest} has the wrong product identity"
+            ));
+        }
+    }
+    Ok(root)
+}
+
+fn git_command(root: &Path) -> ProcessCommand {
+    let mut command = ProcessCommand::new("git");
+    command.arg("-C").arg(root);
+    for variable in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    ] {
+        command.env_remove(variable);
+    }
+    command
+}
+
+fn has_git_context(root: &Path) -> Result<bool, String> {
+    for directory in root.ancestors() {
+        match fs::symlink_metadata(directory.join(".git")) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() || !(metadata.is_file() || metadata.is_dir()) {
+                    return Err("Git metadata is not a regular file or directory".to_owned());
+                }
+                let output = git_command(root)
+                    .args(["rev-parse", "--is-inside-work-tree"])
+                    .output()
+                    .map_err(|error| format!("unable to inspect Git context: {error}"))?;
+                if !output.status.success() || output.stdout != b"true\n" {
+                    return Err("invalid Git metadata for HarvestCircle inventory".to_owned());
+                }
+                return Ok(true);
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("unable to inspect Git metadata: {error}")),
+        }
+    }
+    Ok(false)
+}
+
 #[derive(Debug)]
 struct Inventory {
     paths: Vec<String>,
@@ -96,16 +191,16 @@ struct Inventory {
 
 impl Inventory {
     fn load(root: &Path) -> Result<Self, String> {
-        if root.join(".git").exists() {
-            let output = ProcessCommand::new("git")
+        if has_git_context(root)? {
+            let output = git_command(root)
                 .args([
-                    "-C",
-                    &root.to_string_lossy(),
                     "ls-files",
                     "--cached",
                     "--others",
                     "--exclude-standard",
                     "-z",
+                    "--",
+                    ".",
                 ])
                 .output()
                 .map_err(|error| {
@@ -220,13 +315,24 @@ fn archive_paths(root: &Path, directory: &Path, paths: &mut Vec<String>) -> Resu
         {
             continue;
         }
-        paths.push(relative);
-        if entry
+        let file_type = entry
             .file_type()
-            .map_err(|error| format!("unable to classify archive entry: {error}"))?
-            .is_dir()
-        {
+            .map_err(|error| format!("unable to classify archive entry: {error}"))?;
+        if file_type.is_symlink() {
+            return Err(format!(
+                "{relative}: archive inventory traverses a symbolic link"
+            ));
+        }
+        if !file_type.is_dir() && !file_type.is_file() {
+            return Err(format!(
+                "{relative}: archive inventory path is not a regular file"
+            ));
+        }
+        paths.push(relative.clone());
+        if file_type.is_dir() {
             archive_paths(root, &path, paths)?;
+        } else {
+            validate_git_inventory_path(root, Path::new(&relative))?;
         }
     }
     Ok(())
@@ -1874,9 +1980,20 @@ fn bounded_no_follow_bytes(root: &Path, relative: &Path, maximum: u64) -> Result
 }
 
 fn relative(root: &Path, path: &Path) -> Result<String, String> {
-    path.strip_prefix(root)
-        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
-        .map_err(|error| format!("{} is outside {}: {error}", path.display(), root.display()))
+    let relative = path
+        .strip_prefix(root)
+        .map_err(|error| format!("{} is outside {}: {error}", path.display(), root.display()))?;
+    relative
+        .components()
+        .map(|component| match component {
+            Component::Normal(value) => value
+                .to_str()
+                .map(str::to_owned)
+                .ok_or_else(|| "archive inventory path is not valid UTF-8".to_owned()),
+            _ => Err("archive inventory path must be normalized and relative".to_owned()),
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(|parts| parts.join("/"))
 }
 
 #[cfg(test)]
@@ -1886,6 +2003,103 @@ mod tests {
 
     const ROOT_GUIDANCE: &str = include_str!("../../../AGENTS.md");
     const WEB_GUIDANCE: &str = include_str!("../../../web/AGENTS.md");
+
+    #[test]
+    fn root_validation_rejects_wrong_cwd_for_every_command() {
+        let root = fixture("wrong root with spaces");
+        for command in [
+            Command::DesignSourceAudit,
+            Command::RepoAudit,
+            Command::NamespaceAudit,
+            Command::ProvenanceCheck,
+            Command::QualificationReport,
+        ] {
+            let findings = run(&root, command).expect_err("wrong root must fail");
+            assert!(
+                findings
+                    .iter()
+                    .any(|finding| finding.contains("product root")),
+                "{findings:?}"
+            );
+        }
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn archive_inventory_preserves_literal_backslash_identity() {
+        let root = fixture("archive literal path");
+        write(&root, "web\\node_modules\\unsafe.ts", "source");
+        let inventory = Inventory::load(&root).expect("literal archive path");
+        assert!(
+            inventory
+                .paths
+                .iter()
+                .any(|path| path == "web\\node_modules\\unsafe.ts")
+        );
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn archive_relative_paths_reject_invalid_utf8_and_escape() {
+        use std::os::unix::ffi::OsStringExt;
+        let root = fixture("archive path identity");
+        let invalid = root.join(std::ffi::OsString::from_vec(vec![0xff]));
+        assert!(
+            relative(&root, &invalid)
+                .expect_err("invalid UTF-8")
+                .contains("UTF-8")
+        );
+        assert!(relative(&root, &root.join("../escape.rs")).is_err());
+        assert!(relative(&root, Path::new("/unrelated/escape.rs")).is_err());
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn archive_inventory_rejects_symlinks_and_fifo_before_audits() {
+        let root = fixture("unsafe archive");
+        std::os::unix::fs::symlink("/does-not-exist", root.join("unsafe.rs")).expect("symlink");
+        assert!(
+            Inventory::load(&root)
+                .expect_err("symlink must fail")
+                .contains("symbolic link")
+        );
+        fs::remove_file(root.join("unsafe.rs")).expect("remove symlink");
+        assert!(
+            ProcessCommand::new("mkfifo")
+                .arg(root.join("unsafe.rs"))
+                .status()
+                .expect("fifo")
+                .success()
+        );
+        assert!(
+            Inventory::load(&root)
+                .expect_err("FIFO must fail")
+                .contains("regular file")
+        );
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn nested_parent_inventory_is_confined_to_capsule() {
+        let parent = fixture("parent with spaces");
+        initialize_git_fixture(&parent);
+        write(&parent, "private.rs", "not capsule source");
+        write(&parent, "oss/capsule/source.rs", "capsule source");
+        let inventory = Inventory::load(&parent.join("oss/capsule")).expect("nested Git inventory");
+        assert!(inventory.git_aware);
+        assert_eq!(inventory.paths, ["source.rs"]);
+        fs::remove_dir_all(parent).expect("remove fixture");
+    }
+
+    #[test]
+    fn malformed_git_metadata_never_falls_back_to_archive() {
+        let root = fixture("broken git");
+        write(&root, ".git", "not a gitdir\n");
+        assert!(Inventory::load(&root).is_err());
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
 
     fn guidance_findings(root_source: &str, web_source: &str) -> Vec<String> {
         let root = fixture("runtime-guidance");
@@ -2362,6 +2576,15 @@ mod tests {
         #[cfg(unix)]
         std::os::unix::fs::symlink("/does-not-exist", root.join("link.css"))
             .expect("source symlink");
+        #[cfg(unix)]
+        {
+            assert!(
+                Inventory::load(&root)
+                    .expect_err("archive symlink must fail before audits")
+                    .contains("symbolic link")
+            );
+            fs::remove_file(root.join("link.css")).expect("remove source symlink");
+        }
         let inventory = Inventory::load(&root).expect("archive inventory");
         let mut findings = Vec::new();
         repo_audit(&root, &inventory, &mut findings);
@@ -2376,13 +2599,6 @@ mod tests {
                 .iter()
                 .any(|finding| finding.starts_with("directory.js:")
                     && finding.contains("regular file")),
-            "{findings:#?}"
-        );
-        #[cfg(unix)]
-        assert!(
-            findings.iter().any(
-                |finding| finding.starts_with("link.css:") && finding.contains("symbolic link")
-            ),
             "{findings:#?}"
         );
         fs::remove_dir_all(root).expect("remove fixture");
@@ -2732,13 +2948,10 @@ mod tests {
         write(&root, "outside.txt", "outside\n");
         fs::create_dir_all(root.join("app")).expect("create app");
         symlink(root.join("outside.txt"), root.join("app/escape.txt")).expect("create symlink");
-        let inventory = Inventory::load(&root).expect("archive inventory");
-        let mut findings = Vec::new();
-        repo_audit(&root, &inventory, &mut findings);
         assert!(
-            findings
-                .iter()
-                .any(|finding| finding.contains("symbolic links"))
+            Inventory::load(&root)
+                .expect_err("symlink fails before audit dispatch")
+                .contains("symbolic link")
         );
         fs::remove_dir_all(root).expect("remove fixture");
     }
