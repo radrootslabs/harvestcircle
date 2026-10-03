@@ -184,6 +184,134 @@ fn assert_pass(root: &Path, kind: &str) {
 }
 
 #[test]
+fn ownership_dispatch_keeps_global_safety_and_native_guards_active() {
+    let fixture = Fixture::new();
+    let capsule = fixture.0.join("capsule");
+    copy_source(&capsule);
+    fs::create_dir_all(capsule.join("web/src")).unwrap();
+    // These are native implementation rules, not browser product policy.
+    fs::write(
+        capsule.join("web/src/ordinary.json"),
+        [
+            "{\"example\":\"",
+            "stu",
+            "dio",
+            " org.",
+            "radroots.",
+            "harvestcircle use_",
+            "radroots_dns\"}",
+        ]
+        .concat(),
+    )
+    .unwrap();
+    assert_pass(&capsule, "archive");
+    for command in [
+        "design-source-audit",
+        "repo-audit",
+        "namespace-audit",
+        "provenance-check",
+        "qualification-report",
+    ] {
+        fs::write(
+            capsule.join("web/src/unsafe.ts"),
+            ["-----BEGIN ", "PRIVATE KEY-----"].concat(),
+        )
+        .unwrap();
+        let output = cli(&capsule, command);
+        assert!(!output.status.success(), "{command} skipped global safety");
+        assert!(
+            String::from_utf8(output.stderr)
+                .unwrap()
+                .contains("unsafe.ts")
+        );
+        fs::remove_file(capsule.join("web/src/unsafe.ts")).unwrap();
+    }
+    fs::write(
+        capsule.join("core/crates/harvestcircle_domain/src/relay.rs"),
+        "// forbidden second policy",
+    )
+    .unwrap();
+    let output = cli(&capsule, "qualification-report");
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("duplicate relay")
+    );
+}
+
+#[test]
+fn invalid_native_source_and_required_license_cannot_pass() {
+    let fixture = Fixture::new();
+    let capsule = fixture.0.join("capsule");
+    copy_source(&capsule);
+    for path in [
+        "core/crates/harvestcircle_domain/src/lib.rs",
+        "LICENSES/GPL-3.0-only.txt",
+    ] {
+        let saved = fs::read(capsule.join(path)).unwrap();
+        fs::write(capsule.join(path), [0xff]).unwrap();
+        let output = cli(&capsule, "qualification-report");
+        assert!(!output.status.success(), "accepted invalid {path}");
+        assert!(String::from_utf8(output.stderr).unwrap().contains(path));
+        fs::write(capsule.join(path), saved).unwrap();
+    }
+}
+
+#[test]
+fn git_global_artifacts_fail_each_command_and_unknown_inputs_retain_native_rules() {
+    let fixture = Fixture::new();
+    let capsule = fixture.0.join("capsule");
+    copy_source(&capsule);
+    git(&capsule, &["init", "--quiet"]);
+    git(&capsule, &["add", "--", "."]);
+    fs::create_dir_all(capsule.join("web/build")).unwrap();
+    fs::write(capsule.join("web/build/index.html"), "generated").unwrap();
+    git(&capsule, &["add", "--force", "--", "web/build/index.html"]);
+    for command in [
+        "design-source-audit",
+        "repo-audit",
+        "namespace-audit",
+        "provenance-check",
+        "qualification-report",
+    ] {
+        let output = cli(&capsule, command);
+        assert!(!output.status.success());
+        assert!(
+            String::from_utf8(output.stderr)
+                .unwrap()
+                .contains("generated build output")
+        );
+    }
+    git(&capsule, &["rm", "--force", "--", "web/build/index.html"]);
+    fs::write(
+        capsule.join("unknown.json"),
+        ["org.", "radroots.", "harvestcircle"].concat(),
+    )
+    .unwrap();
+    let output = cli(&capsule, "namespace-audit");
+    assert!(
+        !output.status.success(),
+        "unknown input bypassed native rules"
+    );
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("unknown.json: temporary product namespace")
+    );
+    fs::write(capsule.join("unknown.json"), "{}").unwrap();
+    let output = cli(&capsule, "qualification-report");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report = String::from_utf8(output.stdout).unwrap();
+    assert!(report.contains("ownership_reason=unclassified input unknown.json"));
+    assert!(report.contains("web_qualification=unclaimed"));
+}
+
+#[test]
 fn complete_archive_checkout_nested_parent_and_linked_worktree_pass() {
     let fixture = Fixture::new();
     let capsule = fixture.0.join("public capsule");

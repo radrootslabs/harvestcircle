@@ -49,17 +49,44 @@ pub fn run(root: &Path, command: Command) -> Result<String, Vec<String>> {
     }
     let inventory = Inventory::load(root).map_err(|finding| vec![finding])?;
     let mut findings = Vec::new();
+    let ownership = load_ownership(root).map_err(|finding| vec![finding])?;
+    ownership
+        .validate_native_inputs(&inventory.paths)
+        .map_err(|finding| vec![finding])?;
+    let mut native_paths = Vec::new();
+    let mut ownership_reasons = Vec::new();
+    for path in &inventory.paths {
+        let classification = ownership.classify(path).map_err(|finding| vec![finding])?;
+        if classification
+            .owners
+            .contains(&runtime_ownership::Owner::Native)
+        {
+            native_paths.push(path.clone());
+        }
+        if let Some(reason) = classification.reason {
+            ownership_reasons.push(reason);
+        }
+    }
+    let native_inventory = Inventory {
+        paths: native_paths,
+        git_aware: inventory.git_aware,
+    };
+    // Every command retains global safety. Only native-owned inputs enter the
+    // existing native implementation rules; unknown inputs widen conservatively.
+    if !matches!(command, Command::RepoAudit | Command::QualificationReport) {
+        global_source_audit(root, &inventory, &mut findings);
+    }
     match command {
-        Command::DesignSourceAudit => design_source_audit(root, &inventory, &mut findings),
+        Command::DesignSourceAudit => design_source_audit(root, &native_inventory, &mut findings),
         Command::RepoAudit => repo_audit(root, &inventory, &mut findings),
-        Command::NamespaceAudit => namespace_audit(root, &inventory, &mut findings),
-        Command::ProvenanceCheck => provenance_check(root, &inventory, &mut findings),
+        Command::NamespaceAudit => namespace_audit(root, &native_inventory, &mut findings),
+        Command::ProvenanceCheck => provenance_check(root, &native_inventory, &mut findings),
         Command::QualificationReport => {
             repo_audit(root, &inventory, &mut findings);
-            namespace_audit(root, &inventory, &mut findings);
-            provenance_check(root, &inventory, &mut findings);
-            design_source_audit(root, &inventory, &mut findings);
-            product_shell_audit(root, &inventory, &mut findings);
+            namespace_audit(root, &native_inventory, &mut findings);
+            provenance_check(root, &native_inventory, &mut findings);
+            design_source_audit(root, &native_inventory, &mut findings);
+            product_shell_audit(root, &native_inventory, &mut findings);
         }
     }
     findings.sort();
@@ -83,7 +110,12 @@ pub fn run(root: &Path, command: Command) -> Result<String, Vec<String>> {
             String::new()
         };
         Ok(format!(
-            "harvestcircle.xtask.command={command_name}\nharvestcircle.xtask.inventory={inventory_kind}\n{mode}harvestcircle.xtask.result=pass\n"
+            "harvestcircle.xtask.command={command_name}\nharvestcircle.xtask.inventory={inventory_kind}\n{mode}harvestcircle.xtask.global_source_safety=checked\nharvestcircle.xtask.native_inputs={}\nharvestcircle.xtask.web_qualification=unclaimed\n{}harvestcircle.xtask.result=pass\n",
+            native_inventory.paths.len(),
+            ownership_reasons
+                .into_iter()
+                .map(|reason| format!("harvestcircle.xtask.ownership_reason={reason}\n"))
+                .collect::<String>()
         ))
     } else {
         Err(findings)
@@ -339,6 +371,14 @@ fn archive_paths(root: &Path, directory: &Path, paths: &mut Vec<String>) -> Resu
 }
 
 fn repo_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
+    global_source_audit(root, inventory, findings);
+    runtime_ownership_audit(root, inventory, findings);
+    runtime_guidance_audit(root, findings);
+    git_source_policy(root, inventory, findings);
+    native_runtime_boundary(root, findings);
+}
+
+fn global_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
     let required = [
         "README.md",
         "NOTICE",
@@ -352,6 +392,11 @@ fn repo_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
         if !inventory.paths.iter().any(|path| path == required_path) {
             findings.push(format!(
                 "{required_path}: required public repository file is missing"
+            ));
+        }
+        if read_text(root, required_path, findings).trim().is_empty() {
+            findings.push(format!(
+                "{required_path}: required public repository text is empty"
             ));
         }
     }
@@ -409,10 +454,6 @@ fn repo_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
             }
         }
     }
-    runtime_ownership_audit(root, inventory, findings);
-    runtime_guidance_audit(root, findings);
-    git_source_policy(root, findings);
-    native_runtime_boundary(root, findings);
 }
 
 fn is_web_output_path(path: &str) -> bool {
@@ -436,15 +477,18 @@ fn is_generated_output_path(path: &str) -> bool {
 }
 
 fn runtime_ownership_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
-    let result = bounded_no_follow_bytes(root, Path::new(runtime_ownership::MAP_PATH), 64 * 1024)
+    let result = load_ownership(root).and_then(|map| map.validate_native_inputs(&inventory.paths));
+    if let Err(error) = result {
+        findings.push(format!("{}: {error}", runtime_ownership::MAP_PATH));
+    }
+}
+
+fn load_ownership(root: &Path) -> Result<runtime_ownership::OwnershipMap, String> {
+    bounded_no_follow_bytes(root, Path::new(runtime_ownership::MAP_PATH), 64 * 1024)
         .and_then(|bytes| {
             String::from_utf8(bytes).map_err(|error| format!("invalid ownership UTF-8: {error}"))
         })
         .and_then(|source| runtime_ownership::OwnershipMap::parse(&source))
-        .and_then(|map| map.validate_native_inputs(&inventory.paths));
-    if let Err(error) = result {
-        findings.push(format!("{}: {error}", runtime_ownership::MAP_PATH));
-    }
 }
 
 // These small text contracts guard instruction scope, not runtime ownership or
@@ -506,21 +550,21 @@ fn runtime_guidance_audit(root: &Path, findings: &mut Vec<String>) {
 }
 
 fn native_runtime_boundary(root: &Path, findings: &mut Vec<String>) {
-    let domain_lib = root.join("core/crates/harvestcircle_domain/src/lib.rs");
-    if !domain_lib.is_file() {
-        return;
-    }
-
     if root
         .join("core/crates/harvestcircle_domain/src/relay.rs")
         .exists()
-        || read_text(root, "core/crates/harvestcircle_domain/src/lib.rs").contains("mod relay")
+        || read_text(
+            root,
+            "core/crates/harvestcircle_domain/src/lib.rs",
+            findings,
+        )
+        .contains("mod relay")
     {
         findings
             .push("harvestcircle_domain: duplicate relay policy surface is forbidden".to_owned());
     }
 
-    let nostr_manifest = read_text(root, "core/crates/harvestcircle_nostr/Cargo.toml");
+    let nostr_manifest = read_text(root, "core/crates/harvestcircle_nostr/Cargo.toml", findings);
     let production_manifest = nostr_manifest
         .split_once("[dev-dependencies]")
         .map_or(nostr_manifest.as_str(), |(production, _)| production);
@@ -530,7 +574,11 @@ fn native_runtime_boundary(root: &Path, findings: &mut Vec<String>) {
                 .to_owned(),
         );
     }
-    let nostr_client = read_text(root, "core/crates/harvestcircle_nostr/src/client.rs");
+    let nostr_client = read_text(
+        root,
+        "core/crates/harvestcircle_nostr/src/client.rs",
+        findings,
+    );
     for required in [
         "radroots_transport_nostr::{Config, NostrTransport, RelayEndpoint, RelayProfile}",
         "parse_verified_kind0",
@@ -566,13 +614,21 @@ fn native_runtime_boundary(root: &Path, findings: &mut Vec<String>) {
             "PoisonError::into_inner",
         ),
     ] {
-        if read_text(root, path).contains(forbidden) {
+        if read_text(root, path, findings).contains(forbidden) {
             findings.push(format!("{path}: forbidden runtime boundary {forbidden}"));
         }
     }
 
-    let runtime = read_text(root, "core/crates/harvestcircle_ffi/src/host_runtime.rs");
-    let keyring = read_text(root, "core/crates/harvestcircle_ffi/src/keyring_worker.rs");
+    let runtime = read_text(
+        root,
+        "core/crates/harvestcircle_ffi/src/host_runtime.rs",
+        findings,
+    );
+    let keyring = read_text(
+        root,
+        "core/crates/harvestcircle_ffi/src/keyring_worker.rs",
+        findings,
+    );
     for (source, required, owner) in [
         (&runtime, "pub(crate) struct HostRuntime", "host runtime"),
         (&runtime, "pub(crate) async fn shutdown", "host runtime"),
@@ -615,7 +671,11 @@ fn native_runtime_boundary(root: &Path, findings: &mut Vec<String>) {
     if keyring.contains("std::sync::mpsc::Receiver") {
         findings.push("harvestcircle_ffi: keyring response exposes a blocking receiver".to_owned());
     }
-    let native_keyring = read_text(root, "core/crates/harvestcircle_storage/src/os_keyring.rs");
+    let native_keyring = read_text(
+        root,
+        "core/crates/harvestcircle_storage/src/os_keyring.rs",
+        findings,
+    );
     let native_verify = native_keyring
         .split_once("    fn verify<'a>(")
         .and_then(|(_, source)| source.split_once("\n    fn load("))
@@ -710,7 +770,7 @@ fn namespace_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String
         if !is_text(path) {
             continue;
         }
-        let source = read_text(root, path);
+        let source = read_text(root, path, findings);
         if source.to_ascii_lowercase().contains(&legacy) {
             findings.push(format!("{path}: legacy product name in source text"));
         }
@@ -844,7 +904,7 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         ),
     ];
     for (path, markers) in regression_matrix {
-        let source = read_text(root, path);
+        let source = read_text(root, path, findings);
         for marker in *markers {
             if !source.contains(marker) {
                 findings.push(format!(
@@ -900,7 +960,7 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         ),
     ];
     for (path, markers) in closure_source_contract {
-        let source = read_text(root, path);
+        let source = read_text(root, path, findings);
         for marker in *markers {
             if !source.contains(marker) {
                 findings.push(format!(
@@ -912,6 +972,7 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
     let presenter_tests = read_text(
         root,
         "app/shared/src/commonTest/kotlin/org/harvestcircle/application/HarvestCirclePresenterTest.kt",
+        findings,
     );
     for forbidden in ["Thread.sleep", "kotlinx.coroutines.delay("] {
         if presenter_tests.contains(forbidden) {
@@ -923,6 +984,7 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
     let bootstrap_entry = read_text(
         root,
         "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/BootstrapIdentityEntry.kt",
+        findings,
     );
     let retired_copy = [
         "The secret is sent directly to the local native runtime ",
@@ -973,7 +1035,7 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         ),
     ];
     for (path, expected) in locked_copy {
-        let source = read_text(root, path);
+        let source = read_text(root, path, findings);
         for text in expected {
             if !source.contains(text) {
                 findings.push(format!(
@@ -986,7 +1048,7 @@ fn product_shell_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         if !is_production_kotlin(path) {
             continue;
         }
-        let source = read_text(root, path);
+        let source = read_text(root, path, findings);
         let normalized_path = path.to_ascii_lowercase();
         let compact = source
             .chars()
@@ -1207,7 +1269,7 @@ fn manifest_declares_dependency(source: &str, dependency: &str) -> bool {
 }
 
 fn sqlite_dependency_topology(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
-    let cargo_lock = read_text(root, "core/Cargo.lock");
+    let cargo_lock = read_text(root, "core/Cargo.lock", findings);
     let package_count = |name: &str| {
         let marker = format!("name = \"{name}\"");
         cargo_lock
@@ -1230,7 +1292,7 @@ fn sqlite_dependency_topology(root: &Path, inventory: &Inventory, findings: &mut
         .iter()
         .filter(|path| path.starts_with("core/") && path.ends_with("Cargo.toml"))
     {
-        let manifest = read_text(root, path);
+        let manifest = read_text(root, path, findings);
         if ["rusqlite", "refinery", "libsqlite3-sys"]
             .iter()
             .any(|dependency| manifest_declares_dependency(&manifest, dependency))
@@ -1243,7 +1305,7 @@ fn sqlite_dependency_topology(root: &Path, inventory: &Inventory, findings: &mut
 }
 
 fn development_integration_policy(root: &Path, findings: &mut Vec<String>) {
-    let makefile = read_text(root, "Makefile");
+    let makefile = read_text(root, "Makefile", findings);
     for required in [
         "override CARGO := cargo +1.97.1",
         "api-check: doctor",
@@ -1263,7 +1325,11 @@ fn development_integration_policy(root: &Path, findings: &mut Vec<String>) {
         }
     }
 
-    let runner = read_text(root, "tools/run-linux-x86_64-development-check.sh");
+    let runner = read_text(
+        root,
+        "tools/run-linux-x86_64-development-check.sh",
+        findings,
+    );
     for required in [
         "rust:1.97.1-slim-trixie@sha256:fc0648ac2962539be80bd424729a20fd80f7b64bfba7e90bbd642aed6c697c5a",
         "--platform linux/amd64",
@@ -1308,7 +1374,7 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
     const SOURCE_LOCK_PATH: &str = "radroots.lib.source-lock.v1.toml";
     const MAX_SOURCE_LOCK_BYTES: u64 = 1024 * 1024;
     const MAX_CARGO_LOCK_BYTES: u64 = 32 * 1024 * 1024;
-    let cargo = read_text(root, "core/Cargo.toml");
+    let cargo = read_text(root, "core/Cargo.toml", findings);
     for authority in [
         "repository = \"https://github.com/radrootslabs/harvestcircle\"".to_owned(),
         format!(
@@ -1347,7 +1413,7 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
             ));
         }
     }
-    let provenance = read_text(root, PROVENANCE_PATH);
+    let provenance = read_text(root, PROVENANCE_PATH, findings);
     if !provenance.contains("source_product = \"HarvestCircle\"")
         || !provenance
             .contains("source_repository = \"https://github.com/radrootslabs/harvestcircle\"")
@@ -1403,10 +1469,16 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
             .unwrap_or("lockfile_sha256 assignment is missing or duplicated");
         findings.push(format!("{SOURCE_LOCK_PATH}: {error}"));
     }
-    let cargo_lock = cargo_lock_bytes
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .unwrap_or_default();
+    let cargo_lock = match cargo_lock_bytes {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(source) => source,
+            Err(error) => {
+                findings.push(format!("core/Cargo.lock: invalid source UTF-8: {error}"));
+                String::new()
+            }
+        },
+        Err(_) => String::new(), // The bounded-read failure was recorded above.
+    };
     if !cargo_lock.contains(&format!(
         "source = \"git+https://github.com/radrootslabs/lib?rev={LIB_REVISION}#{LIB_REVISION}\""
     )) {
@@ -1417,6 +1489,7 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
     let coordinates = properties(&read_text(
         root,
         "config/product/harvestcircle-v1.properties",
+        findings,
     ));
     for (key, expected) in [
         ("storage.service_id", "harvestcircle"),
@@ -1449,7 +1522,7 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
             ));
         }
     }
-    let uniffi = read_text(root, "core/crates/harvestcircle_ffi/uniffi.toml");
+    let uniffi = read_text(root, "core/crates/harvestcircle_ffi/uniffi.toml", findings);
     let ffi_package = coordinates
         .get("ffi.kotlin_package")
         .map(String::as_str)
@@ -1466,7 +1539,11 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
             "core/crates/harvestcircle_ffi/uniffi.toml: final FFI identity changed".to_owned(),
         );
     }
-    let baseline = read_text(root, "core/compatibility/harvestcircle-ffi-v4.properties");
+    let baseline = read_text(
+        root,
+        "core/compatibility/harvestcircle-ffi-v4.properties",
+        findings,
+    );
     if !baseline.contains("contract.id=harvestcircle-desktop-ffi-v4")
         || !baseline.contains("contract.major=4")
     {
@@ -1475,7 +1552,7 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
                 .to_owned(),
         );
     }
-    let shared_build = read_text(root, "app/shared/build.gradle.kts");
+    let shared_build = read_text(root, "app/shared/build.gradle.kts", findings);
     if !shared_build.contains("id(\"org.harvestcircle.build.kmp-shared\")")
         || ["androidTarget", "iosArm", "iosX", "js(", "wasm"]
             .iter()
@@ -1484,7 +1561,7 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
         findings.push("app/shared/build.gradle.kts: shared KMP target boundary changed".to_owned());
     }
     const STORAGE_API_BASELINE: &str = "core/compatibility/harvestcircle-storage-api-v3.txt";
-    let storage_api = read_text(root, STORAGE_API_BASELINE);
+    let storage_api = read_text(root, STORAGE_API_BASELINE, findings);
     for required in [
         "pub struct harvestcircle_storage::HarvestCircleStorageContract",
         "pub const harvestcircle_storage::HARVESTCIRCLE_APPLICATION_ID: u32",
@@ -1550,7 +1627,7 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         findings.push(format!("{PATH}: design contract is missing"));
         return;
     }
-    let source = read_text(root, PATH);
+    let source = read_text(root, PATH, findings);
     let required_scalars = [
         "schema = \"harvestcircle.design.v1\"",
         "repository = \"https://github.com/radrootslabs/harvestcircle\"",
@@ -1590,7 +1667,7 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             findings.push(format!("{PATH}: {key} must match the governed golden"));
         }
         if !inventory.paths.iter().any(|candidate| candidate == path)
-            || sha256_file(&root.join(path)).as_deref() != Some(sha256)
+            || sha256_file(root, path, findings).as_deref() != Some(sha256)
         {
             findings.push(format!("{path}: macOS golden is missing or changed"));
         }
@@ -1598,6 +1675,7 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
     let golden_test = read_text(
         root,
         "app/shared/src/desktopTest/kotlin/org/harvestcircle/ui/shell/HarvestCircleMacGoldenTest.kt",
+        findings,
     );
     if !golden_test.contains("HarvestCircleShell(")
         || !golden_test.contains("liveTodayState(")
@@ -1608,7 +1686,7 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
                 .to_owned(),
         );
     }
-    let catalog = read_text(root, "gradle/libs.versions.toml");
+    let catalog = read_text(root, "gradle/libs.versions.toml", findings);
     for required in [
         "compose-animation = { module = \"org.jetbrains.compose.animation:animation\", version.ref = \"compose\" }",
         "compose-components-resources = { module = \"org.jetbrains.compose.components:components-resources\", version.ref = \"compose\" }",
@@ -1627,10 +1705,13 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         }
     }
     for path in &inventory.paths {
-        if !path.starts_with("app/design_system/") && !path.starts_with("tools/design_catalog/") {
+        if !is_text(path)
+            || (!path.starts_with("app/design_system/")
+                && !path.starts_with("tools/design_catalog/"))
+        {
             continue;
         }
-        let lowercase = read_text(root, path).to_ascii_lowercase();
+        let lowercase = read_text(root, path, findings).to_ascii_lowercase();
         for forbidden in [
             "androidx.compose.material3".to_owned(),
             "io.github.kdroidfilter.platformtools".to_owned(),
@@ -1661,24 +1742,25 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             "78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3",
         ),
     ] {
-        if sha256_file(&root.join(path)).as_deref() != Some(sha256) {
+        if sha256_file(root, path, findings).as_deref() != Some(sha256) {
             findings.push(format!(
                 "{path}: Inter font digest differs from the baseline"
             ));
         }
     }
-    let font_license = read_text(root, "LICENSES/OFL-1.1.txt");
+    let font_license = read_text(root, "LICENSES/OFL-1.1.txt", findings);
     let packaged_font_license = read_text(
         root,
         "app/design_system/src/commonMain/composeResources/files/licenses/inter-OFL-1.1.txt",
+        findings,
     );
     if font_license.is_empty() || packaged_font_license != font_license {
         findings.push("Inter font licence is missing or differs in packaged resources".to_owned());
     }
 }
 
-fn git_source_policy(root: &Path, findings: &mut Vec<String>) {
-    let deny = read_text(root, "core/deny.toml");
+fn git_source_policy(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
+    let deny = read_text(root, "core/deny.toml", findings);
     if !deny
         .lines()
         .any(|line| line.trim() == "required-git-spec = \"rev\"")
@@ -1691,8 +1773,11 @@ fn git_source_policy(root: &Path, findings: &mut Vec<String>) {
         findings.push("core/deny.toml: cargo-deny Git allowlist is empty".to_owned());
     }
     let mut inspected = false;
-    for manifest in cargo_manifests(root.join("core")) {
-        let source = fs::read_to_string(&manifest).unwrap_or_default();
+    for relative_path in inventory.paths.iter().filter(|path| {
+        path.as_str() == "core/Cargo.toml"
+            || (path.starts_with("core/crates/") && path.ends_with("/Cargo.toml"))
+    }) {
+        let source = read_text(root, relative_path, findings);
         for (index, line) in source
             .lines()
             .enumerate()
@@ -1702,8 +1787,6 @@ fn git_source_policy(root: &Path, findings: &mut Vec<String>) {
                 continue;
             };
             inspected = true;
-            let relative_path =
-                relative(root, &manifest).unwrap_or_else(|_| manifest.display().to_string());
             if !allowed_git.contains(&git) {
                 findings.push(format!(
                     "{relative_path}:{}: Git dependency source is not allowlisted",
@@ -1733,7 +1816,7 @@ fn git_source_policy(root: &Path, findings: &mut Vec<String>) {
     if !inspected {
         findings.push("core: no revision-pinned Git dependencies were inspected".to_owned());
     }
-    for line in read_text(root, "core/Cargo.lock")
+    for line in read_text(root, "core/Cargo.lock", findings)
         .lines()
         .filter(|line| line.starts_with("source = \"git+"))
     {
@@ -1750,20 +1833,6 @@ fn git_source_policy(root: &Path, findings: &mut Vec<String>) {
             ));
         }
     }
-}
-
-fn cargo_manifests(core: PathBuf) -> Vec<PathBuf> {
-    let mut manifests = vec![core.join("Cargo.toml")];
-    if let Ok(entries) = fs::read_dir(core.join("crates")) {
-        for entry in entries.flatten() {
-            let manifest = entry.path().join("Cargo.toml");
-            if manifest.is_file() {
-                manifests.push(manifest);
-            }
-        }
-    }
-    manifests.sort();
-    manifests
 }
 
 fn properties(source: &str) -> std::collections::BTreeMap<String, String> {
@@ -1860,13 +1929,31 @@ fn is_text(relative: &str) -> bool {
         .contains(&name)
 }
 
-fn read_text(root: &Path, relative: &str) -> String {
-    fs::read_to_string(root.join(relative)).unwrap_or_default()
+fn read_text(root: &Path, relative: &str, findings: &mut Vec<String>) -> String {
+    match bounded_no_follow_bytes(root, Path::new(relative), 8 * 1024 * 1024).and_then(|bytes| {
+        String::from_utf8(bytes).map_err(|error| format!("invalid source UTF-8: {error}"))
+    }) {
+        Ok(source) => source,
+        Err(error) => {
+            findings.push(format!(
+                "{relative}: unable to inspect required source text: {error}"
+            ));
+            // The finding is retained even when a caller only tests absence of a marker.
+            String::new()
+        }
+    }
 }
 
-fn sha256_file(path: &Path) -> Option<String> {
-    let bytes = fs::read(path).ok()?;
-    Some(format!("{:x}", Sha256::digest(bytes)))
+fn sha256_file(root: &Path, relative: &str, findings: &mut Vec<String>) -> Option<String> {
+    match bounded_no_follow_bytes(root, Path::new(relative), 8 * 1024 * 1024) {
+        Ok(bytes) => Some(format!("{:x}", Sha256::digest(bytes))),
+        Err(error) => {
+            findings.push(format!(
+                "{relative}: unable to inspect required digest input: {error}"
+            ));
+            None
+        }
+    }
 }
 
 fn exact_string_assignment(source: &str, key: &str) -> Option<String> {
@@ -1925,7 +2012,7 @@ fn bounded_no_follow_bytes(root: &Path, relative: &Path, maximum: u64) -> Result
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
-    options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
     let mut file = options.open(&path).map_err(|error| {
         format!(
             "unable to open {} without following links: {error}",
@@ -2003,6 +2090,58 @@ mod tests {
 
     const ROOT_GUIDANCE: &str = include_str!("../../../AGENTS.md");
     const WEB_GUIDANCE: &str = include_str!("../../../web/AGENTS.md");
+
+    #[test]
+    fn shared_required_readers_report_failures_instead_of_passing_absent_markers() {
+        let root = fixture("required readers");
+        write(&root, "invalid.rs", "temporary");
+        fs::write(root.join("invalid.rs"), [0xff]).unwrap();
+        fs::create_dir(root.join("directory.rs")).unwrap();
+        write(&root, "large.rs", "");
+        OpenOptions::new()
+            .write(true)
+            .open(root.join("large.rs"))
+            .unwrap()
+            .set_len(8 * 1024 * 1024 + 1)
+            .unwrap();
+        for path in [
+            "absent.rs",
+            "invalid.rs",
+            "directory.rs",
+            "large.rs",
+            "../outside.rs",
+        ] {
+            let mut findings = Vec::new();
+            let source = read_text(&root, path, &mut findings);
+            assert!(!source.contains("forbidden marker"));
+            assert!(
+                !findings.is_empty(),
+                "absent forbidden marker must not mean PASS: {path}"
+            );
+        }
+        for path in ["absent.bin", "directory.rs", "large.rs", "../outside.bin"] {
+            let mut findings = Vec::new();
+            assert!(sha256_file(&root, path, &mut findings).is_none());
+            assert!(
+                !findings.is_empty(),
+                "missing digest must carry a finding: {path}"
+            );
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink("invalid.rs", root.join("link.rs")).unwrap();
+            let mut findings = Vec::new();
+            read_text(&root, "link.rs", &mut findings);
+            sha256_file(&root, "link.rs", &mut findings);
+            assert_eq!(findings.len(), 2);
+            assert!(
+                findings
+                    .iter()
+                    .all(|finding| finding.contains("symbolic link"))
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn root_validation_rejects_wrong_cwd_for_every_command() {
@@ -3097,7 +3236,7 @@ mod tests {
         );
         write(&root, "core/Cargo.lock", "");
         let mut findings = Vec::new();
-        git_source_policy(&root, &mut findings);
+        git_source_policy(&root, &Inventory::load(&root).unwrap(), &mut findings);
         assert!(
             findings
                 .iter()
