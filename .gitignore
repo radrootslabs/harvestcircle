@@ -10,6 +10,14 @@ local.properties
 .DS_Store
 Thumbs.db
 
+# Browser dependency, compiler, coverage and test output only
+/web/**/node_modules/
+/web/.svelte-kit/
+/web/build/
+/web/coverage/
+/web/test-results/
+/web/playwright-report/
+
 # Local environment files
 .env
 .env.*

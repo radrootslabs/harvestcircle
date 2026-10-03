@@ -213,9 +213,10 @@ fn archive_paths(root: &Path, directory: &Path, paths: &mut Vec<String>) -> Resu
         if matches!(
             first,
             ".git" | ".gradle" | ".kotlin" | ".idea" | "build" | "target" | "out"
-        ) || relative
-            .split('/')
-            .any(|part| matches!(part, "build" | "target" | "out"))
+        ) || is_web_output_path(&relative)
+            || relative
+                .split('/')
+                .any(|part| matches!(part, "build" | "target" | "out"))
         {
             continue;
         }
@@ -253,34 +254,42 @@ fn repo_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
         if is_forbidden_documentation_or_workflow_path(&normalized) {
             findings.push(format!("{path}: forbidden repository root"));
         }
-        if fs::symlink_metadata(root.join(path))
-            .is_ok_and(|metadata| metadata.file_type().is_symlink())
-        {
+        let symbolic_link = fs::symlink_metadata(root.join(path))
+            .is_ok_and(|metadata| metadata.file_type().is_symlink());
+        if symbolic_link {
             findings.push(format!(
                 "{path}: symbolic links are not allowed in public sources"
             ));
         }
-        if normalized.starts_with("core/target/")
-            || normalized.contains("/build/")
-            || normalized.contains("/generated/")
-            || normalized.contains("generated/uniffi")
-            || [".dylib", ".so", ".dll", ".class"]
-                .iter()
-                .any(|suffix| normalized.ends_with(suffix))
-        {
+        let generated_output = is_generated_output_path(&normalized);
+        if generated_output {
             findings.push(format!(
                 "{path}: generated build output must not be source controlled"
             ));
         }
-        if [".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".env"]
-            .iter()
-            .any(|suffix| normalized.ends_with(suffix))
-            || normalized.contains("/credentials/")
-        {
+        let secret_path = normalized
+            .split('/')
+            .any(|part| part == ".env" || part.starts_with(".env."))
+            || [".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".env"]
+                .iter()
+                .any(|suffix| normalized.ends_with(suffix))
+            || normalized.contains("/credentials/");
+        if secret_path {
             findings.push(format!("{path}: credential or secret-shaped source path"));
         }
-        if is_text(path) {
-            let source = read_text(root, path);
+        // Output and secret-shaped paths fail by identity; do not inspect their contents.
+        if is_source_safety_text(path) && !symbolic_link && !generated_output && !secret_path {
+            let source = match bounded_no_follow_bytes(root, Path::new(path), 8 * 1024 * 1024)
+                .and_then(|bytes| {
+                    String::from_utf8(bytes)
+                        .map_err(|error| format!("invalid source UTF-8: {error}"))
+                }) {
+                Ok(source) => source,
+                Err(error) => {
+                    findings.push(format!("{path}: unable to inspect source text: {error}"));
+                    continue;
+                }
+            };
             let markers = [
                 ["-----BEGIN ", "PRIVATE KEY-----"].concat(),
                 ["AWS_", "SECRET_ACCESS_KEY="].concat(),
@@ -298,6 +307,26 @@ fn repo_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
     runtime_guidance_audit(root, findings);
     git_source_policy(root, findings);
     native_runtime_boundary(root, findings);
+}
+
+fn is_web_output_path(path: &str) -> bool {
+    path.starts_with("web/")
+        && (path.split('/').any(|part| part == "node_modules")
+            || matches!(
+                path.split('/').nth(1),
+                Some(".svelte-kit" | "build" | "coverage" | "test-results" | "playwright-report")
+            ))
+}
+
+fn is_generated_output_path(path: &str) -> bool {
+    path.split('/')
+        .any(|part| matches!(part, "node_modules" | ".svelte-kit" | "build" | "target"))
+        || is_web_output_path(path)
+        || path.contains("/generated/")
+        || path.contains("generated/uniffi")
+        || [".dylib", ".so", ".dll", ".class", ".wasm", ".node"]
+            .iter()
+            .any(|suffix| path.ends_with(suffix))
 }
 
 fn runtime_ownership_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
@@ -1674,6 +1703,18 @@ fn is_lower_hex(value: &str, length: usize) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+fn is_source_safety_text(relative: &str) -> bool {
+    let normalized = relative.to_ascii_lowercase();
+    is_text(relative)
+        || is_text(&normalized)
+        || Path::new(&normalized)
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|extension| {
+                ["svelte", "ts", "js", "css", "html", "sh", "py"].contains(&extension)
+            })
+}
+
 fn is_text(relative: &str) -> bool {
     let name = Path::new(relative)
         .file_name()
@@ -2101,6 +2142,248 @@ mod tests {
                 .paths
                 .iter()
                 .any(|path| path.contains("target/") || path.contains("/build/"))
+        );
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn web_policy_git_ignored_outputs_are_not_traversed_but_forced_inputs_fail() {
+        let root = fixture("web-git-policy");
+        initialize_git_fixture(&root);
+        write(&root, ".gitignore", include_str!("../../../.gitignore"));
+        let outputs = [
+            "node_modules",
+            ".svelte-kit",
+            "build",
+            "coverage",
+            "test-results",
+            "playwright-report",
+        ];
+        for output in outputs {
+            write(
+                &root,
+                &format!("web/{output}/nested/dependency.ts"),
+                "ignored output",
+            );
+        }
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("/does-not-exist", root.join("web/node_modules/external"))
+            .expect("ignored dependency symlink");
+        let inventory = Inventory::load(&root).expect("ignored outputs are not inspected");
+        assert_eq!(inventory.paths, vec![".gitignore"]);
+        let forbidden = [
+            "node_modules/dependency.ts",
+            "web/node_modules/dependency.ts",
+            "web/.svelte-kit/output.js",
+            "web/build/index.html",
+            "web/coverage/report.json",
+            "web/test-results/report.json",
+            "web/playwright-report/index.html",
+            "web/src/module.wasm",
+            "web/src/addon.node",
+            "web/.env.local",
+            "web/.env.example",
+            "config/.env.production",
+        ];
+        for path in forbidden {
+            write(&root, path, "forced source");
+            assert!(
+                ProcessCommand::new("git")
+                    .arg("-C")
+                    .arg(&root)
+                    .args(["add", "--force", "--", path])
+                    .status()
+                    .expect("force index")
+                    .success()
+            );
+        }
+        let inventory = Inventory::load(&root).expect("forced regular sources inventoried");
+        let mut findings = Vec::new();
+        repo_audit(&root, &inventory, &mut findings);
+        for path in forbidden {
+            assert!(
+                findings
+                    .iter()
+                    .any(|finding| finding.starts_with(&format!("{path}:"))
+                        && (finding.contains("generated build output")
+                            || finding.contains("secret-shaped"))),
+                "{path}: {findings:#?}"
+            );
+        }
+        #[cfg(unix)]
+        {
+            assert!(
+                ProcessCommand::new("git")
+                    .arg("-C")
+                    .arg(&root)
+                    .args(["add", "--force", "--", "web/node_modules/external"])
+                    .status()
+                    .expect("force index dependency symlink")
+                    .success()
+            );
+            assert!(
+                Inventory::load(&root)
+                    .expect_err("tracked dependency symlink must fail")
+                    .contains("symbolic link")
+            );
+        }
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn web_policy_archive_outputs_are_excluded_and_global_source_is_inspected() {
+        let root = fixture("web-archive-policy");
+        for output in [
+            "node_modules",
+            ".svelte-kit",
+            "build",
+            "coverage",
+            "test-results",
+            "playwright-report",
+        ] {
+            write(
+                &root,
+                &format!("web/{output}/nested/dependency.ts"),
+                "ignored output",
+            );
+        }
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("/does-not-exist", root.join("web/node_modules/external"))
+            .expect("archive dependency symlink");
+        let marker = ["-----BEGIN ", "PRIVATE KEY-----"].concat();
+        let mut sources = Vec::new();
+        for owner in ["web/src", "tools", "app"] {
+            for extension in ["svelte", "ts", "js", "css", "html", "sh", "py", "json"] {
+                let path = format!("{owner}/ordinary.{extension}");
+                write(&root, &path, &marker);
+                sources.push(path);
+            }
+        }
+        for path in [
+            "web/src/unsafe.TS",
+            "web/src/unsafe.Svelte",
+            "web/src/unsafe.JSON",
+            "web/src/coverage/handler.ts",
+            "web/coverage-extra/handler.ts",
+        ] {
+            write(&root, path, &marker);
+            sources.push(path.to_owned());
+        }
+        let inventory = Inventory::load(&root).expect("archive inventory");
+        assert!(
+            inventory
+                .paths
+                .iter()
+                .all(|path| !path.contains("dependency") && !path.contains("external"))
+        );
+        let mut findings = Vec::new();
+        repo_audit(&root, &inventory, &mut findings);
+        for path in sources {
+            assert!(
+                findings.iter().any(|finding| finding
+                    == &format!("{path}: credential or private-key material in source text")),
+                "{findings:#?}"
+            );
+        }
+        fs::remove_dir_all(root).expect("remove fixture");
+        // Use a separate fixture so this assertion also works on case-insensitive hosts.
+        let root = fixture("web-archive-case");
+        write(
+            &root,
+            "WEB/coverage/unsafe.ts",
+            "case-sensitive archive source",
+        );
+        let inventory = Inventory::load(&root).expect("uppercase archive source");
+        assert!(
+            inventory
+                .paths
+                .contains(&"WEB/coverage/unsafe.ts".to_owned())
+        );
+        fs::remove_dir_all(root).expect("remove case fixture");
+    }
+
+    #[test]
+    fn web_policy_preserves_ordinary_sources_and_native_binary_inputs() {
+        let root = fixture("web-policy-preserved-inputs");
+        let sources = [
+            "web/src/coverage/handler.ts",
+            "web/coverage-extra/handler.ts",
+            "web/src/ordinary.svelte",
+            "web/src/ordinary.ts",
+            "web/src/ordinary.js",
+            "web/src/ordinary.css",
+            "web/src/ordinary.html",
+            "web/scripts/ordinary.sh",
+            "tools/ordinary.py",
+            "web/package.json",
+            "web/src/coverage_rules.ts",
+            "web/.svelte-kit.config.ts",
+        ];
+        let assets = [
+            "gradle/wrapper/gradle-wrapper.jar",
+            "app/design_system/src/commonMain/resources/font/font.ttf",
+            "app/desktop/src/main/resources/icon.png",
+        ];
+        write(&root, ".gitignore", include_str!("../../../.gitignore"));
+        for path in sources {
+            write(&root, path, "ordinary source");
+        }
+        for path in assets {
+            let target = root.join(path);
+            fs::create_dir_all(target.parent().expect("asset parent")).expect("asset directory");
+            fs::write(target, [0xff, 0x00]).expect("binary input");
+        }
+        for git_aware in [false, true] {
+            if git_aware {
+                initialize_git_fixture(&root);
+            }
+            let inventory = Inventory::load(&root).expect("ordinary inventory");
+            assert_eq!(inventory.git_aware, git_aware);
+            let mut findings = Vec::new();
+            repo_audit(&root, &inventory, &mut findings);
+            for path in sources.into_iter().chain(assets) {
+                assert!(inventory.paths.iter().any(|value| value == path), "{path}");
+                assert!(
+                    !findings
+                        .iter()
+                        .any(|finding| finding.starts_with(&format!("{path}:"))),
+                    "{findings:#?}"
+                );
+            }
+        }
+        fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn web_policy_rejects_invalid_text_without_reading_symlinks_or_directories() {
+        let root = fixture("web-invalid-text");
+        fs::write(root.join("invalid.ts"), [0xff]).expect("invalid text");
+        fs::create_dir(root.join("directory.js")).expect("source-shaped directory");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("/does-not-exist", root.join("link.css"))
+            .expect("source symlink");
+        let inventory = Inventory::load(&root).expect("archive inventory");
+        let mut findings = Vec::new();
+        repo_audit(&root, &inventory, &mut findings);
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.starts_with("invalid.ts:") && finding.contains("UTF-8")),
+            "{findings:#?}"
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.starts_with("directory.js:")
+                    && finding.contains("regular file")),
+            "{findings:#?}"
+        );
+        #[cfg(unix)]
+        assert!(
+            findings.iter().any(
+                |finding| finding.starts_with("link.css:") && finding.contains("symbolic link")
+            ),
+            "{findings:#?}"
         );
         fs::remove_dir_all(root).expect("remove fixture");
     }
