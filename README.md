@@ -30,8 +30,8 @@ commitments, a selectable open reference authority, pickup, and proof.
 An isolated browser prototype is planned under `web/`, using SvelteKit,
 strict TypeScript, and static output. The prototype is not implemented and
 has no browser build or run commands yet. It will use separate browser
-storage and sessions, explicit extension identity and signing, and Applesauce
-for generic Nostr behavior. Shared Radroots contracts must conform to the
+IndexedDB storage and sessions, explicit extension identity and signing without
+raw private-key custody, and Applesauce for generic Nostr behavior. Shared Radroots contracts must conform to the
 exact pinned public Rust oracle without requiring native binaries or the
 consuming monorepo to build the browser application.
 
@@ -40,27 +40,76 @@ commands, database/schema/API, operating-system keyring custody, and exact
 Radroots dependency pin. Desktop availability work beyond HCAV-020 remains
 paused. See `web/AGENTS.md` for the browser source boundary.
 
-## Build
+## Contributor entry points
 
-Prerequisites include JDK 21, Rust 1.97.1, and platform packaging tools.
+Run commands from the standalone HarvestCircle repository root.
+
+| | Native desktop (implemented) | Browser (planned) |
+|---|---|---|
+| Source | Kotlin/Compose in `app/`, product Rust in `core/`, root Gradle inputs | SvelteKit with strict TypeScript and static output in `web/` |
+| State and custody | SQLx service database, OS keyring, generated UniFFI boundary | Separate IndexedDB and sessions; explicit extension identity/signing without raw private-key custody |
+| Start | `make native-doctor`, then `make native-dev` | Read `web/AGENTS.md`; no browser install, run, build, or check commands are implemented yet |
+| Check/build | `make native-check`, `make native-build` | Working standalone commands will be documented after implementation and verification |
+
+Native prerequisites include JDK 21, Rust 1.97.1, and platform packaging tools.
+Node is not a native prerequisite. The `native-*` targets are recipe-free
+aliases of the existing native targets:
+
+| Alias | Existing target |
+|---|---|
+| `native-doctor` | `doctor` |
+| `native-dev` | `dev` |
+| `native-check` | `check` |
+| `native-build` | `build` |
+| `native-package-check` | `package-check` |
+
+Unqualified `doctor`, `dev`, `check`, `build`, and `package-check` retain their
+native meanings. The default `BUILD_MODE=standalone` lane runs without
+extbuild or a private parent checkout. For example:
 
 ```sh
-make doctor
-make check
-make build
-make governed-development-check
+make native-doctor
+make native-check
+make native-build
 ```
 
-These commands always use the standalone contributor lane. Use
-`make governed-check` or `make governed-integration-check` when a narrower
-extbuild-governed lane is required. The full active development milestone uses
+For an extbuild-governed lane, run the diagnostic before mutating checks and
+select `BUILD_MODE=governed`; aliases inherit the selected mode:
+
+```sh
+cargo extbuild doctor
+make BUILD_MODE=governed native-check
+```
+
+`make governed-check` and `make governed-integration-check` also select governed
+mode for their existing native checks. The active development milestone uses
 `make governed-development-check` on macOS aarch64 and
-`make governed-linux-x86_64-development-check` for Linux x86_64. It verifies
-source, runtime, generated bindings, the public storage API, the exact Radroots
-source lock, the single SQLx-selected SQLite linkage, and offline license/source
-policy. Network advisory services, package assembly, release evidence, signing,
-notarization, Nix, and OCI qualification remain deferred and unclaimed until a
-release candidate is declared with fresh authority.
+`make governed-linux-x86_64-development-check` for Linux x86_64. These targets
+route their build/check commands through extbuild and verify source, runtime,
+generated bindings, the public storage API, the exact Radroots source lock,
+the single SQLx-selected SQLite linkage, and offline license/source policy.
+
+`native-package-check` retains the full existing package-check prerequisites
+and clean-candidate evidence rules; it is not a routine development check.
+Package assembly, production source archives, release evidence, network
+advisory services, signing, notarization, Nix, and OCI qualification remain
+deferred and unclaimed until a release candidate is declared with fresh
+authority. Listing a target does not authorize its deferred effects.
+
+## Conformance and source provenance
+
+Planned public test vectors under `contracts/interop/` will compare browser
+Radroots adapters with the exact pinned public Rust oracle. Ordinary browser
+conformance will use checked vectors without invoking native tools; explicit
+interop qualification will execute both real consumers. These browser and
+interop lanes are not implemented or qualified yet.
+
+The native artifact contract v3 requires an exact clean Git-revision tree
+source archive, including newly tracked `web/` files. A native-only filtered
+bundle cannot satisfy that whole-tree contract. Source archives are distinct
+from compiled desktop packages and future static website output. A new source
+revision changes provenance even when native runtime inputs are unchanged;
+it does not imply byte-identical binaries or production archive qualification.
 
 ## Development branch
 
@@ -139,7 +188,11 @@ eviction or recovery bypass is exposed.
 The consuming Radroots monorepo owns normative HarvestCircle specifications,
 decisions, handoffs, reviews, and qualification evidence under
 `docs/oss/harvestcircle/`. This standalone source tree remains independently
-buildable and testable without that documentation tree.
+cloneable, buildable, testable, and packageable without private parent code,
+contracts, documentation, unpublished artifacts, sibling checkouts, or absolute
+host paths. Parent orchestration is optional integration evidence and must
+invoke the capsule's standalone commands; it does not replace them. Do not add
+`docs/`, `spec/`, `.github/`, or `.act/` roots inside this repository.
 
 ## Security
 
