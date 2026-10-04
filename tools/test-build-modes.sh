@@ -168,6 +168,7 @@ case "$1" in
     *) exit 92 ;;
 esac
 EOF
+chmod +x "$dispatch_bin/git"
 cat > "$fixture/dispatch-tool" <<'EOF'
 #!/bin/sh
 tool=${0##*/}
@@ -195,12 +196,14 @@ esac
 EOF
 for tool in cargo java node npm pnpm npx corepack; do
     cp "$fixture/dispatch-tool" "$dispatch_bin/$tool"
+    chmod +x "$dispatch_bin/$tool"
 done
 cp "$fixture/dispatch-tool" "$dispatch_root/gradlew"
+chmod +x "$dispatch_root/gradlew"
 for tool in test-build-modes.sh verify-storage-api.sh; do
     cp "$fixture/dispatch-tool" "$dispatch_root/tools/$tool"
+    chmod +x "$dispatch_root/tools/$tool"
 done
-chmod +x "$dispatch_bin/"* "$dispatch_root/gradlew" "$dispatch_root/tools/"*
 
 run_dispatch() {
     dispatch_mode=$1
