@@ -25,11 +25,10 @@ The MVP is designed to work without a managed HarvestCircle account or API.
 Future work adds canonical Radroots collective-market contracts, private buyer
 commitments, a selectable open reference authority, pickup, and proof.
 
-## Planned browser prototype
+## Browser prototype bootstrap
 
-An isolated browser prototype is planned under `web/`, using SvelteKit,
-strict TypeScript, and static output. The prototype is not implemented and
-has no browser build or run commands yet. It will use separate browser
+The isolated bootstrap under `web/` uses SvelteKit, strict TypeScript, and
+static output. Product controllers remain planned. It will use separate browser
 IndexedDB storage and sessions, explicit extension identity and signing without
 raw private-key custody, and Applesauce for generic Nostr behavior. Shared Radroots contracts must conform to the
 exact pinned public Rust oracle without requiring native binaries or the
@@ -44,12 +43,22 @@ paused. See `web/AGENTS.md` for the browser source boundary.
 
 Run commands from the standalone HarvestCircle repository root.
 
-| | Native desktop (implemented) | Browser (planned) |
+| | Native desktop (implemented) | Browser bootstrap |
 |---|---|---|
 | Source | Kotlin/Compose in `app/`, product Rust in `core/`, root Gradle inputs | SvelteKit with strict TypeScript and static output in `web/` |
 | State and custody | SQLx service database, OS keyring, generated UniFFI boundary | Separate IndexedDB and sessions; explicit extension identity/signing without raw private-key custody |
-| Start | `make native-doctor`, then `make native-dev` | Read `web/AGENTS.md`; no browser install, run, build, or check commands are implemented yet |
-| Check/build | `make native-check`, `make native-build` | Working standalone commands will be documented after implementation and verification |
+| Start | `make native-doctor`, then `make native-dev` | `make web-doctor`, `make web-install`, then `make web-dev` |
+| Check/build | `make native-check`, `make native-build` | `make web-check`, `make web-build` |
+
+Browser commands require Node 24.21.0, Corepack with pnpm 12.9.1 available,
+Make, Git for build provenance, and standard Unix shell/`mkfifo` utilities for
+the provenance tests. The doctor checks exact selected versions
+without downloading tooling; install uses the frozen web lock. Check runs the
+actual type/Svelte, lint/style/import, unit/provenance, and static-conformance
+assertions. It requires no Rust, Java, Gradle, or browser installation.
+Controlled browser tests remain separate web package scripts requiring a
+qualified Playwright browser. Browser commands use the web directory before
+Corepack resolves its package manager; no root JavaScript workspace is added.
 
 Native prerequisites include JDK 21, Rust 1.97.1, and platform packaging tools.
 Node is not a native prerequisite. The `native-*` targets are recipe-free
@@ -101,8 +110,9 @@ authority. Listing a target does not authorize its deferred effects.
 Planned public test vectors under `contracts/interop/` will compare browser
 Radroots adapters with the exact pinned public Rust oracle. Ordinary browser
 conformance will use checked vectors without invoking native tools; explicit
-interop qualification will execute both real consumers. These browser and
-interop lanes are not implemented or qualified yet.
+interop qualification will execute both real consumers. Food/Message interop
+remains unimplemented; the current Node-only conformance script checks the
+actual bootstrap static output.
 
 The native artifact contract v3 requires an exact clean Git-revision tree
 source archive, including newly tracked `web/` files. A native-only filtered

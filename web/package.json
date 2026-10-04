@@ -10,13 +10,14 @@
     "pnpm": "12.9.1"
   },
   "scripts": {
+    "dev": "node tools/check-source.mjs && vite",
     "build": "node tools/check-source.mjs && node tools/build-info.mjs && vite build",
     "check": "node tools/check-source.mjs && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "lint": "node tools/check-source.mjs && svelte-kit sync && eslint . --max-warnings 0 && prettier --check .",
     "test:unit": "node tools/check-source.mjs && svelte-kit sync && vitest run --config vitest.config.ts && node --test --test-timeout=10000 tests/provenance/*.test.mjs",
-    "test:conformance": "pnpm build && node --test tests/conformance/*.test.ts",
-    "test:integration": "pnpm build && node --test --test-timeout=10000 tests/integration/*.test.ts",
-    "test:e2e": "pnpm build && playwright test"
+    "test:conformance": "corepack pnpm build && node --test tests/conformance/*.test.ts",
+    "test:integration": "corepack pnpm build && node --test --test-timeout=10000 tests/integration/*.test.ts",
+    "test:e2e": "corepack pnpm build && playwright test"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

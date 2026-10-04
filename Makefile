@@ -19,6 +19,29 @@ endif
 
 .PHONY: help doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-provenance-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check unsigned-release-check _unsigned-release-check signing-check _signing-check notarization-check _notarization-check release-check _release-check clean
 .PHONY: native-doctor native-dev native-check native-build native-package-check
+.PHONY: web-doctor web-install web-dev web-check web-build
+
+web-doctor:
+	cd web && $(BUILD_RUNNER) node tools/doctor.mjs
+
+ifeq ($(BUILD_MODE),governed)
+web-doctor: governed-doctor
+endif
+
+web-install: web-doctor
+	cd web && $(BUILD_RUNNER) corepack pnpm install --frozen-lockfile
+
+web-dev: web-doctor
+	cd web && $(BUILD_RUNNER) corepack pnpm run dev
+
+web-check: web-doctor
+	cd web && $(BUILD_RUNNER) corepack pnpm run check
+	cd web && $(BUILD_RUNNER) corepack pnpm run lint
+	cd web && $(BUILD_RUNNER) corepack pnpm run test:unit
+	cd web && $(BUILD_RUNNER) corepack pnpm run test:conformance
+
+web-build: web-doctor
+	cd web && $(BUILD_RUNNER) corepack pnpm run build
 
 native-doctor: doctor
 native-dev: dev
@@ -27,6 +50,7 @@ native-build: build
 native-package-check: package-check
 
 help:
+	@printf '%s\n' 'Unqualified targets below retain native meaning.' 'Browser: web-doctor web-install web-dev web-check web-build'
 	@printf '%s\n' doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check unsigned-release-check signing-check notarization-check release-check clean
 
 design-source-check: doctor

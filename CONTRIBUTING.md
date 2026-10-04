@@ -14,17 +14,19 @@ native signing and OS keyring orchestration belong in `core/`. Root Gradle and
 native configuration retain their existing ownership. Keep generated UniFFI
 bindings derived from the canonical Rust producer.
 
-The browser runtime is planned in `web/` with SvelteKit, strict TypeScript,
+The browser bootstrap exists in `web/` with SvelteKit, strict TypeScript,
 static output, and web-owned package inputs. Its IndexedDB, sessions, explicit
 extension signing, and Applesauce Nostr adapters are separate from native
-storage, custody, and FFI. No browser build or check lane exists yet. Follow
-`web/AGENTS.md` before implementing it; ordinary browser work must not depend
+storage, custody, and FFI. Use Node 24.21.0 and Corepack with pnpm 12.9.1,
+then `make web-doctor`, `make web-install`, `make web-check`, and
+`make web-build`; `make web-dev` starts the guarded Vite server. Follow
+`web/AGENTS.md`; ordinary browser work must not depend
 on Cargo, Gradle, native binaries, or parent artifacts.
 
 Shared public conformance vectors are planned under `contracts/interop/`.
 They test the exact pinned Radroots semantics rather than establish new shared
-protocol policy. Browser and interop qualification remain pending real runners
-and assertions.
+protocol policy. Current static-shell conformance runs through `web-check`;
+Food/Message interop and real extension/relay qualification remain pending.
 
 ## Development flow
 
