@@ -150,4 +150,129 @@ if [ "$governed_unsigned_gate_count" -ne 1 ]; then
     exit 1
 fi
 
+# Run the real Make graph with only controlled native tools. The disposable
+# dispatcher fixture deliberately has spaces, no ambient tool PATH, and finite
+# stand-ins for hotRun, package checks, and the mode-check script itself.
+dispatch_root="$(CDPATH= cd -- "$fixture" && pwd -P)/checkout with spaces"
+dispatch_bin="$fixture/native tools"
+mkdir -p "$dispatch_root/tools" "$dispatch_bin"
+cp "$repository_root/Makefile" "$dispatch_root/Makefile"
+cp "$repository_root/radroots.lib.source-lock.v1.toml" "$dispatch_root/"
+ln -s "$(command -v sed)" "$dispatch_bin/sed"
+cat > "$dispatch_bin/git" <<'EOF'
+#!/bin/sh
+case "$1" in
+    rev-parse) printf '%040d\n' 1 ;;
+    status) : ;;
+    show) printf '%s\n' 1 ;;
+    *) exit 92 ;;
+esac
+EOF
+cat > "$fixture/dispatch-tool" <<'EOF'
+#!/bin/sh
+tool=${0##*/}
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' "$tool" "$PWD" "${HCR_TEST_ROUTED:-no}" "${HARVESTCIRCLE_BUILD_SOURCE_COMMIT:-}" "${HARVESTCIRCLE_BUILD_SOURCE_DIRTY:-}" "${HARVESTCIRCLE_BUILD_RADROOTS_REVISION:-}" "${SOURCE_DATE_EPOCH:-}" >> "$HCR_TEST_LOG"
+printf '\t%s' "$@" >> "$HCR_TEST_LOG"
+printf '\n' >> "$HCR_TEST_LOG"
+case "$tool" in
+    node|npm|pnpm|npx|corepack) exit 94 ;;
+    cargo)
+        if [ "${1:-}" = +1.97.1 ]; then shift; fi
+        if [ "${1:-}" = extbuild ]; then
+            case "${2:-}" in
+                doctor) exit 0 ;;
+                run)
+                    [ "${3:-}" = -- ] || exit 92
+                    shift 3
+                    export HCR_TEST_ROUTED=yes
+                    exec "$@"
+                    ;;
+                *) exit 92 ;;
+            esac
+        fi
+        ;;
+esac
+EOF
+for tool in cargo java node npm pnpm npx corepack; do
+    cp "$fixture/dispatch-tool" "$dispatch_bin/$tool"
+done
+cp "$fixture/dispatch-tool" "$dispatch_root/gradlew"
+for tool in test-build-modes.sh verify-storage-api.sh; do
+    cp "$fixture/dispatch-tool" "$dispatch_root/tools/$tool"
+done
+chmod +x "$dispatch_bin/"* "$dispatch_root/gradlew" "$dispatch_root/tools/"*
+
+run_dispatch() {
+    dispatch_mode=$1
+    dispatch_target=$2
+    dispatch_log=$3
+    : > "$dispatch_log"
+    # Start outside the checkout: Make must establish the recipe cwd with -C.
+    (cd "$fixture" && PATH="$dispatch_bin" MAKEFLAGS= MFLAGS= HCR_TEST_LOG="$dispatch_log" HCR_TEST_ROUTED=no \
+        "$make_command" --no-print-directory -C "$dispatch_root" BUILD_MODE="$dispatch_mode" GRADLE=./gradlew "$dispatch_target")
+}
+
+for mode in standalone governed; do
+    default_output=$("$make_command" --no-print-directory -C "$dispatch_root" BUILD_MODE="$mode")
+    help_output=$("$make_command" --no-print-directory -C "$dispatch_root" BUILD_MODE="$mode" help)
+    if [ "$default_output" != "$help_output" ]; then
+        printf '%s\n' "default goal changed from help in $mode mode" >&2
+        exit 1
+    fi
+    for target in doctor dev check build package-check; do
+        alias="native-$target"
+        original_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$repository_root" "$target")
+        alias_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$repository_root" "$alias")
+        if [ "$original_output" != "$alias_output" ]; then
+            printf '%s\n' "$alias changed or duplicated the $target command graph in $mode mode" >&2
+            exit 1
+        fi
+        run_dispatch "$mode" "$target" "$fixture/original-dispatch.log" > "$fixture/original-output.log" 2>&1
+        run_dispatch "$mode" "$alias" "$fixture/alias-dispatch.log" > "$fixture/alias-output.log" 2>&1
+        if ! cmp -s "$fixture/original-dispatch.log" "$fixture/alias-dispatch.log" || \
+            ! cmp -s "$fixture/original-output.log" "$fixture/alias-output.log"; then
+            printf '%s\n' "$alias changed controlled execution of $target in $mode mode" >&2
+            exit 1
+        fi
+        if [ ! -s "$fixture/alias-dispatch.log" ] || \
+            grep -Eq '^(node|npm|pnpm|npx|corepack)[[:space:]]' "$fixture/alias-dispatch.log"; then
+            printf '%s\n' "$alias did not execute native tools exclusively in $mode mode" >&2
+            exit 1
+        fi
+        if [ "$(grep -c '^java[[:space:]]' "$fixture/alias-dispatch.log")" -ne 1 ]; then
+            printf '%s\n' "$alias must execute its doctor once in $mode mode" >&2
+            exit 1
+        fi
+        while IFS="$(printf '\t')" read -r tool cwd details; do
+            if [ "$cwd" != "$dispatch_root" ]; then
+                printf '%s\n' "$alias invoked $tool outside the checkout in $mode mode" >&2
+                exit 1
+            fi
+        done < "$fixture/alias-dispatch.log"
+        for missing in java cargo gradlew; do
+            missing_path="$dispatch_bin/$missing"
+            if [ "$missing" = gradlew ]; then missing_path="$dispatch_root/gradlew"; fi
+            mv "$missing_path" "$fixture/missing-tool"
+            if run_dispatch "$mode" "$alias" "$fixture/missing-dispatch.log" > "$fixture/missing-output.log" 2>&1; then
+                printf '%s\n' "$alias succeeded without $missing in $mode mode" >&2
+                exit 1
+            fi
+            mv "$fixture/missing-tool" "$missing_path"
+            grep -Eq '(not found|No such file)' "$fixture/missing-output.log"
+        done
+        if [ "$mode" = governed ]; then
+            mv "$dispatch_bin/cargo" "$fixture/available-cargo"
+            cp "$fixture/cargo" "$dispatch_bin/cargo"
+            if run_dispatch "$mode" "$alias" "$fixture/missing-dispatch.log" > "$fixture/missing-output.log" 2>&1; then
+                printf '%s\n' "$alias succeeded without extbuild" >&2
+                exit 1
+            fi
+            grep -q 'cargo-extbuild unavailable' "$fixture/missing-output.log"
+            mv "$fixture/available-cargo" "$dispatch_bin/cargo"
+        fi
+        printf '%s\n' "harvestcircle.native-alias.$mode.$alias=dry-run,execution,cwd,no-node,missing-tools:pass"
+    done
+done
+
+printf '%s\n' 'harvestcircle.native-alias-contract=pass'
 printf '%s\n' 'harvestcircle.build-mode-contract=pass'
