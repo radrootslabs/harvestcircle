@@ -8,7 +8,15 @@ const svelteConfig = (await loadConfig('./', { traverse: false }))?.config;
 if (!svelteConfig) throw new Error('Missing Svelte configuration');
 
 export default defineConfig(
-  { ignores: ['node_modules/**', '.svelte-kit/**', 'build/**'] },
+  {
+    ignores: [
+      'node_modules/**',
+      '.svelte-kit/**',
+      'build/**',
+      'test-results/**',
+      'playwright-report/**'
+    ]
+  },
   js.configs.recommended,
   ts.configs.recommended,
   {
