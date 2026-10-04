@@ -1,0 +1,25 @@
+{
+  "name": "harvestcircle_web",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "packageManager": "pnpm@12.9.1",
+  "engines": {
+    "node": "24.21.0",
+    "pnpm": "12.9.1"
+  },
+  "scripts": {
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "@opentelemetry/api": "1.9.1",
+    "@sveltejs/adapter-static": "4.0.0",
+    "@sveltejs/kit": "3.0.0",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@types/node": "24.19.1",
+    "svelte": "5.57.1",
+    "typescript": "6.0.3",
+    "vite": "8.3.2"
+  }
+}
