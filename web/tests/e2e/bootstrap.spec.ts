@@ -3,6 +3,74 @@ import { createRelayHarness } from '../integration/harness/relay.ts';
 import { createStaticHarness } from '../integration/harness/static.ts';
 import { installControlledProvider } from './harness/provider.ts';
 
+test('copied nested navigation and refresh boot the real shell without fabricating a product', async ({
+  browser
+}) => {
+  const server = await createStaticHarness();
+  const context = await browser.newContext();
+  const withoutJavaScript = await browser.newContext({
+    javaScriptEnabled: false
+  });
+  try {
+    for (const owned of [context, withoutJavaScript]) {
+      await owned.route('**/*', (route) =>
+        new URL(route.request().url()).origin === server.url
+          ? route.continue()
+          : route.abort()
+      );
+    }
+    const copiedPath = '/products/unsupported-coordinate';
+    const staticPage = await withoutJavaScript.newPage();
+    await staticPage.goto(server.url);
+    await expect(
+      staticPage.getByRole('heading', { name: 'HarvestCircle' })
+    ).toBeVisible();
+    await expect(staticPage).toHaveTitle('HarvestCircle');
+    const fallback = await staticPage.goto(server.url + copiedPath);
+    expect(fallback?.status()).toBe(200);
+    // The separate SPA document has no prerendered product or browser state.
+    await expect(
+      staticPage.getByRole('heading', { name: 'HarvestCircle' })
+    ).toHaveCount(0);
+
+    const page = await context.newPage();
+    const failures: string[] = [];
+    page.on('pageerror', (error) => failures.push(error.message));
+    for (const navigate of [
+      () => page.goto(server.url + copiedPath),
+      () => page.reload()
+    ]) {
+      const result = await navigate();
+      expect(result?.status()).toBe(200);
+      await expect(
+        page.getByRole('heading', { name: 'HarvestCircle' })
+      ).toBeVisible();
+      // Future product route controllers remain unimplemented in this slice.
+      await expect(
+        page.getByRole('heading', { name: '404', exact: true })
+      ).toBeVisible();
+      await expect(page.getByText('Not Found', { exact: true })).toBeVisible();
+      expect(new URL(page.url()).pathname).toBe(copiedPath);
+      expect(await page.evaluate(() => 'nostr' in window)).toBe(false);
+    }
+    expect(failures).toEqual([]);
+    for (const asset of ['/missing.js', '/missing.css', '/_app/missing.png']) {
+      const response = await context.request.get(server.url + asset, {
+        headers: { accept: 'text/html' }
+      });
+      expect(response.status()).toBe(404);
+      expect(await response.text()).toBe('');
+    }
+  } finally {
+    await context.close();
+    await withoutJavaScript.close();
+    await server.close();
+  }
+  expect(context.pages()).toHaveLength(0);
+  expect(withoutJavaScript.pages()).toHaveLength(0);
+  expect(server.state()).toEqual({ listening: false, childProcesses: 0 });
+});
+
 test('actual browser loads guest shell without an extension', async ({
   browser
 }) => {

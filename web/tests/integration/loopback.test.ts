@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { request } from 'node:http';
+import { readFile } from 'node:fs/promises';
 import WebSocket from 'ws';
 import { createRelayHarness } from './harness/relay.ts';
 import { createStaticHarness } from './harness/static.ts';
@@ -31,6 +33,118 @@ await test('real loopback REQ/CLOSE and active teardown release owned resources'
     childProcesses: 0
   });
   assert.equal(socket.readyState, WebSocket.CLOSED);
+});
+
+await test('navigation fallback serves actual separate output and preserves missing assets', async () => {
+  const server = await createStaticHarness();
+  const fallback = await readFile(
+    new URL('../../build/200.html', import.meta.url),
+    'utf8'
+  );
+  const document = { accept: 'text/html', 'sec-fetch-dest': 'document' };
+  try {
+    for (const pathname of [
+      '/search?q=food',
+      '/sell',
+      '/selling',
+      '/messages',
+      '/about',
+      '/privacy',
+      '/products/unsupported-coordinate',
+      '/products/unsupported-coordinate/edit',
+      '/selling/drafts/unknown-draft',
+      '/messages/unknown-conversation'
+    ]) {
+      const result = await fetch(server.url + pathname, { headers: document });
+      assert.equal(result.status, 200, pathname);
+      assert.equal(result.headers.get('content-type'), 'text/html');
+      assert.equal(await result.text(), fallback);
+    }
+    for (const pathname of [
+      '/missing.js',
+      '/missing.css',
+      '/missing.json',
+      '/missing.png',
+      '/_app/missing',
+      '/assets/missing',
+      '/products/missing.js',
+      '/unowned',
+      '/products/',
+      '/products/a/extra',
+      '/products/a.b'
+    ]) {
+      const result = await fetch(server.url + pathname, { headers: document });
+      assert.equal(result.status, 404, pathname);
+      assert.doesNotMatch(result.headers.get('content-type') ?? '', /html/);
+      assert.equal(await result.text(), '');
+    }
+    const rejectedHeaders: Record<string, string>[] = [
+      { accept: '*/*' },
+      { accept: 'application/json' },
+      { accept: 'text/html;q=0' },
+      { accept: 'text/html', 'sec-fetch-dest': 'script' }
+    ];
+    for (const headers of rejectedHeaders) {
+      assert.equal(
+        (await fetch(server.url + '/products/a', { headers })).status,
+        404
+      );
+    }
+    assert.equal(
+      (
+        await fetch(server.url + '/products/a', {
+          method: 'POST',
+          headers: document
+        })
+      ).status,
+      405
+    );
+    // node:http retains raw paths that URL/fetch would normalize before sending.
+    for (const pathname of [
+      '/../index.html',
+      '/products/../index.html',
+      '/%2e%2e/index.html',
+      '/products%2fa',
+      '/products/%252e%252e',
+      '/products/%5cfoo',
+      '/products/%00',
+      '/products/%zz',
+      '/products/' + 'a'.repeat(2048)
+    ]) {
+      const status = await new Promise<number | undefined>(
+        (resolve, reject) => {
+          const req = request(
+            server.url,
+            { path: pathname, headers: document },
+            (response) => {
+              response.resume();
+              response.on('end', () => resolve(response.statusCode));
+            }
+          );
+          req.on('error', reject);
+          req.end();
+        }
+      );
+      assert.equal(status, 404, pathname);
+    }
+    const metadata = await fetch(server.url + '/build-info.json', {
+      headers: document
+    });
+    assert.equal(metadata.status, 200);
+    assert.equal(metadata.headers.get('content-type'), 'application/json');
+    assert.deepEqual(
+      await metadata.json(),
+      JSON.parse(
+        await readFile(
+          new URL('../../build/build-info.json', import.meta.url),
+          'utf8'
+        )
+      )
+    );
+  } finally {
+    await server.close();
+  }
+  assert.deepEqual(server.state(), { listening: false, childProcesses: 0 });
 });
 
 await test('loopback static fixture serves actual output and closes its listener', async () => {
