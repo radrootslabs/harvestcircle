@@ -4,3 +4,4 @@ build/
 test-results/
 playwright-report/
 AGENTS.md
+static/build-info.json

@@ -12,6 +12,21 @@ await test('actual static shell is prerendered and excludes controlled harness c
   const html = await readFile(new URL('index.html', root), 'utf8');
   assert.match(html, /<h1>HarvestCircle<\/h1>/);
   assert.match(html, /<title>HarvestCircle<\/title>/);
+  const metadata = await readFile(new URL('build-info.json', root), 'utf8');
+  assert.equal(
+    metadata,
+    await readFile(
+      new URL('../../static/build-info.json', import.meta.url),
+      'utf8'
+    )
+  );
+  const provenance: unknown = JSON.parse(metadata);
+  assert.ok(provenance && typeof provenance === 'object');
+  assert.deepEqual(Object.keys(provenance), [
+    'web_source',
+    'radroots_oracle',
+    'dependency_locks'
+  ]);
   for (const entry of files) {
     if (!entry.isFile()) continue;
     const content = await readFile(`${entry.parentPath}/${entry.name}`, 'utf8');
