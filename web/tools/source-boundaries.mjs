@@ -1456,6 +1456,12 @@ export async function auditSource(root) {
         .replace(/\/\*[\s\S]*?\*\//g, '');
       if (/@import\b|url\s*\(/i.test(css))
         complain(file, 'CSS import/url loading is forbidden');
+      if (
+        /@(?:tailwind|apply|theme|utility|variant|custom-variant|config|plugin|source|reference)\b/i.test(
+          css
+        )
+      )
+        complain(file, 'Tailwind CSS directives are forbidden');
     }
     const html = name === 'src/app.html';
     if (!codeExtension.test(file) && !html) continue;

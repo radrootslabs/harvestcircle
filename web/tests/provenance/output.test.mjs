@@ -101,7 +101,16 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
     async (t) => {
       const f = await fixture(t);
       const files = await f.audit();
-      assert.equal(files.length, 15);
+      // The once-imported theme/compositions add one actual compiled CSS asset.
+      assert.equal(files.length, 16);
+      assert.equal(files.filter((name) => name.endsWith('.css')).length, 1);
+      assert.ok(
+        files.some((name) =>
+          /^_app\/immutable\/assets\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.css$/.test(
+            name
+          )
+        )
+      );
       assert.ok(files.includes('200.html'));
       const pkg = JSON.parse(
         await readFile(path.join(f.web, 'package.json'), 'utf8')
