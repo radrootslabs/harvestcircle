@@ -78,7 +78,7 @@ function selectedOracle(bytes) {
 }
 
 /** @param {string} webDirectory */
-export async function generateBuildInfo(webDirectory) {
+export async function deriveBuildInfo(webDirectory) {
   const web = await realpath(webDirectory);
   if (path.basename(web) !== 'web')
     throw new Error('Build provenance requires the owned web directory');
@@ -172,6 +172,14 @@ export async function generateBuildInfo(webDirectory) {
       oracle_cargo_sha256: oracleLockDigest
     }
   };
+  return metadata;
+}
+
+/** @param {string} webDirectory */
+export async function generateBuildInfo(webDirectory) {
+  const metadata = await deriveBuildInfo(webDirectory);
+  const web = await realpath(webDirectory);
+  const root = await realpath(path.dirname(web));
   const directory = path.join(web, 'static');
   await mkdir(directory, { recursive: true });
   if (!(await lstat(directory)).isDirectory())
