@@ -1,0 +1,3222 @@
+{
+  "contract_version": "1.0.0",
+  "suite": "food_availability_profile",
+  "vectors": [
+    {
+      "id": "food_authored_unit_g_001",
+      "kind": "food_availability.build_authored_draft.valid",
+      "input": {
+        "details": {
+          "content": {
+            "value": "Microgreens available from a Victoria-area farm."
+          },
+          "identifier": "microgreens",
+          "title": "Microgreens",
+          "summary": "Local microgreens",
+          "published_at": 1700000000,
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "120",
+            "currency": "CAD",
+            "unit": "g"
+          },
+          "quantity": {
+            "amount": "250",
+            "unit": "g"
+          },
+          "status": "active",
+          "images": []
+        },
+        "created_at": 1700000060
+      },
+      "expected": {
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Microgreens available from a Victoria-area farm.",
+          "tags": [
+            [
+              "d",
+              "microgreens"
+            ],
+            [
+              "title",
+              "Microgreens"
+            ],
+            [
+              "summary",
+              "Local microgreens"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "120",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "g"
+            ],
+            [
+              "radroots:quantity",
+              "250",
+              "g"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "food_authored_unit_kg_002",
+      "kind": "food_availability.build_authored_draft.valid",
+      "input": {
+        "details": {
+          "content": {
+            "value": "Yukon Gold Potatoes available from a Victoria-area farm."
+          },
+          "identifier": "yukon-gold-potatoes",
+          "title": "Yukon Gold Potatoes",
+          "summary": "Local yukon gold potatoes",
+          "published_at": 1700000000,
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "5.5",
+            "currency": "CAD",
+            "unit": "kg"
+          },
+          "quantity": {
+            "amount": "18",
+            "unit": "kg"
+          },
+          "status": "active",
+          "images": []
+        },
+        "created_at": 1700000060
+      },
+      "expected": {
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Yukon Gold Potatoes available from a Victoria-area farm.",
+          "tags": [
+            [
+              "d",
+              "yukon-gold-potatoes"
+            ],
+            [
+              "title",
+              "Yukon Gold Potatoes"
+            ],
+            [
+              "summary",
+              "Local yukon gold potatoes"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "5.5",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "kg"
+            ],
+            [
+              "radroots:quantity",
+              "18",
+              "kg"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "food_authored_unit_lb_003",
+      "kind": "food_availability.build_authored_draft.valid",
+      "input": {
+        "details": {
+          "content": {
+            "value": "Nantes Carrots available from a Victoria-area farm."
+          },
+          "identifier": "nantes-carrots",
+          "title": "Nantes Carrots",
+          "summary": "Local nantes carrots",
+          "published_at": 1700000000,
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "3.5",
+            "currency": "CAD",
+            "unit": "lb"
+          },
+          "quantity": {
+            "amount": "24",
+            "unit": "lb"
+          },
+          "status": "active",
+          "images": []
+        },
+        "created_at": 1700000060
+      },
+      "expected": {
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Nantes Carrots available from a Victoria-area farm.",
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Local nantes carrots"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3.5",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "food_authored_unit_oz_004",
+      "kind": "food_availability.build_authored_draft.valid",
+      "input": {
+        "details": {
+          "content": {
+            "value": "Fresh Basil available from a Victoria-area farm."
+          },
+          "identifier": "fresh-basil",
+          "title": "Fresh Basil",
+          "summary": "Local fresh basil",
+          "published_at": 1700000000,
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "2.25",
+            "currency": "CAD",
+            "unit": "oz"
+          },
+          "quantity": {
+            "amount": "16",
+            "unit": "oz"
+          },
+          "status": "active",
+          "images": []
+        },
+        "created_at": 1700000060
+      },
+      "expected": {
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Fresh Basil available from a Victoria-area farm.",
+          "tags": [
+            [
+              "d",
+              "fresh-basil"
+            ],
+            [
+              "title",
+              "Fresh Basil"
+            ],
+            [
+              "summary",
+              "Local fresh basil"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "2.25",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "oz"
+            ],
+            [
+              "radroots:quantity",
+              "16",
+              "oz"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "food_authored_unit_each_005",
+      "kind": "food_availability.build_authored_draft.valid",
+      "input": {
+        "details": {
+          "content": {
+            "value": "Delicata Squash available from a Victoria-area farm."
+          },
+          "identifier": "delicata-squash",
+          "title": "Delicata Squash",
+          "summary": "Local delicata squash",
+          "published_at": 1700000000,
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "4",
+            "currency": "CAD",
+            "unit": "each"
+          },
+          "quantity": {
+            "amount": "12",
+            "unit": "each"
+          },
+          "status": "active",
+          "images": []
+        },
+        "created_at": 1700000060
+      },
+      "expected": {
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Delicata Squash available from a Victoria-area farm.",
+          "tags": [
+            [
+              "d",
+              "delicata-squash"
+            ],
+            [
+              "title",
+              "Delicata Squash"
+            ],
+            [
+              "summary",
+              "Local delicata squash"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "4",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "each"
+            ],
+            [
+              "radroots:quantity",
+              "12",
+              "each"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "food_authored_unit_dozen_006",
+      "kind": "food_availability.build_authored_draft.valid",
+      "input": {
+        "details": {
+          "content": {
+            "value": "Pasture Eggs available from a Victoria-area farm."
+          },
+          "identifier": "pasture-eggs",
+          "title": "Pasture Eggs",
+          "summary": "Local pasture eggs",
+          "published_at": 1700000000,
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "8",
+            "currency": "CAD",
+            "unit": "dozen"
+          },
+          "quantity": {
+            "amount": "6",
+            "unit": "dozen"
+          },
+          "status": "sold",
+          "images": []
+        },
+        "created_at": 1700000060
+      },
+      "expected": {
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Pasture Eggs available from a Victoria-area farm.",
+          "tags": [
+            [
+              "d",
+              "pasture-eggs"
+            ],
+            [
+              "title",
+              "Pasture Eggs"
+            ],
+            [
+              "summary",
+              "Local pasture eggs"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "8",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "dozen"
+            ],
+            [
+              "radroots:quantity",
+              "6",
+              "dozen"
+            ],
+            [
+              "status",
+              "sold"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "food_authored_unit_bunch_007",
+      "kind": "food_availability.build_authored_draft.valid",
+      "input": {
+        "details": {
+          "content": {
+            "value": "Lacinato Kale available from a Victoria-area farm."
+          },
+          "identifier": "lacinato-kale",
+          "title": "Lacinato Kale",
+          "summary": "Local lacinato kale",
+          "published_at": 1700000000,
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "4.5",
+            "currency": "CAD",
+            "unit": "bunch"
+          },
+          "quantity": {
+            "amount": "10",
+            "unit": "bunch"
+          },
+          "status": "active",
+          "images": [
+            {
+              "bytes_utf8": "radroots-food-image-one",
+              "url": "https://blossom.victoria.example/85ccc876a2fe359a2f8dd491bbc6c1f5674af8f0e94d11b556a069f8176e303d.webp",
+              "media_type": "image/webp",
+              "uploaded_at": 1700000000,
+              "dimensions": "1200x800"
+            },
+            {
+              "bytes_utf8": "radroots-food-image-two",
+              "url": "https://blossom.victoria.example/e3d093fc5e999bd2eb6eb476d24fd421accb134efa8dc750bd87d22a7e49fb22.webp",
+              "media_type": "image/webp",
+              "uploaded_at": 1700000000,
+              "dimensions": "800x800"
+            }
+          ]
+        },
+        "created_at": 1700000060
+      },
+      "expected": {
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Lacinato Kale available from a Victoria-area farm.",
+          "tags": [
+            [
+              "d",
+              "lacinato-kale"
+            ],
+            [
+              "title",
+              "Lacinato Kale"
+            ],
+            [
+              "summary",
+              "Local lacinato kale"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "4.5",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "bunch"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "bunch"
+            ],
+            [
+              "status",
+              "active"
+            ],
+            [
+              "image",
+              "https://blossom.victoria.example/85ccc876a2fe359a2f8dd491bbc6c1f5674af8f0e94d11b556a069f8176e303d.webp",
+              "1200x800"
+            ],
+            [
+              "image",
+              "https://blossom.victoria.example/e3d093fc5e999bd2eb6eb476d24fd421accb134efa8dc750bd87d22a7e49fb22.webp",
+              "800x800"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "food_authored_unit_punnet_008",
+      "kind": "food_availability.build_authored_draft.valid",
+      "input": {
+        "details": {
+          "content": {
+            "value": "June Strawberries available from a Victoria-area farm."
+          },
+          "identifier": "june-strawberries",
+          "title": "June Strawberries",
+          "summary": "Local june strawberries",
+          "published_at": 1700000000,
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "7",
+            "currency": "CAD",
+            "unit": "punnet"
+          },
+          "quantity": {
+            "amount": "20",
+            "unit": "punnet"
+          },
+          "status": "active",
+          "images": []
+        },
+        "created_at": 1700000060
+      },
+      "expected": {
+        "wire_parts": {
+          "kind": 30402,
+          "content": "June Strawberries available from a Victoria-area farm.",
+          "tags": [
+            [
+              "d",
+              "june-strawberries"
+            ],
+            [
+              "title",
+              "June Strawberries"
+            ],
+            [
+              "summary",
+              "Local june strawberries"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "7",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "punnet"
+            ],
+            [
+              "radroots:quantity",
+              "20",
+              "punnet"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "food_authored_unit_bag_009",
+      "kind": "food_availability.build_authored_draft.valid",
+      "input": {
+        "details": {
+          "content": {
+            "value": "Gravenstein Apples available from a Victoria-area farm."
+          },
+          "identifier": "gravenstein-apples",
+          "title": "Gravenstein Apples",
+          "summary": "Local gravenstein apples",
+          "published_at": 1700000000,
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "9",
+            "currency": "CAD",
+            "unit": "bag"
+          },
+          "quantity": null,
+          "status": "active",
+          "images": []
+        },
+        "created_at": 1700000060
+      },
+      "expected": {
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Gravenstein Apples available from a Victoria-area farm.",
+          "tags": [
+            [
+              "d",
+              "gravenstein-apples"
+            ],
+            [
+              "title",
+              "Gravenstein Apples"
+            ],
+            [
+              "summary",
+              "Local gravenstein apples"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "9",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "bag"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "food_authored_unit_basket_010",
+      "kind": "food_availability.build_authored_draft.valid",
+      "input": {
+        "details": {
+          "content": {
+            "value": "Cherry Tomatoes available from a Victoria-area farm."
+          },
+          "identifier": "cherry-tomatoes",
+          "title": "Cherry Tomatoes",
+          "summary": "Local cherry tomatoes",
+          "published_at": 1700000000,
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "12",
+            "currency": "CAD",
+            "unit": "basket"
+          },
+          "quantity": {
+            "amount": "8",
+            "unit": "basket"
+          },
+          "status": "active",
+          "images": []
+        },
+        "created_at": 1700000060
+      },
+      "expected": {
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Cherry Tomatoes available from a Victoria-area farm.",
+          "tags": [
+            [
+              "d",
+              "cherry-tomatoes"
+            ],
+            [
+              "title",
+              "Cherry Tomatoes"
+            ],
+            [
+              "summary",
+              "Local cherry tomatoes"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "12",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "basket"
+            ],
+            [
+              "radroots:quantity",
+              "8",
+              "basket"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "food_authored_wire_budget_ascii_max_011",
+      "kind": "food_availability.build_authored_draft.valid",
+      "input": {
+        "details": {
+          "content": {
+            "repeat": "x",
+            "count": 131072
+          },
+          "identifier": "wire-budget-pass",
+          "title": "Wire Budget Pass",
+          "summary": "Maximum ASCII content",
+          "published_at": 1700000000,
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "1",
+            "currency": "CAD",
+            "unit": "each"
+          },
+          "quantity": null,
+          "status": "active",
+          "images": []
+        },
+        "created_at": 1700000060
+      },
+      "expected": {
+        "wire_parts": {
+          "kind": 30402,
+          "content_length": 131072,
+          "tags": [
+            [
+              "d",
+              "wire-budget-pass"
+            ],
+            [
+              "title",
+              "Wire Budget Pass"
+            ],
+            [
+              "summary",
+              "Maximum ASCII content"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "1",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "each"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "food_authored_wire_budget_escaped_overflow_012",
+      "kind": "food_availability.build_authored_draft.invalid",
+      "input": {
+        "details": {
+          "content": {
+            "repeat": "\u0000",
+            "count": 65536
+          },
+          "identifier": "wire-budget-overflow",
+          "title": "Wire Budget Overflow",
+          "summary": "Escaped JSON expansion",
+          "published_at": 1700000000,
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "1",
+            "currency": "CAD",
+            "unit": "each"
+          },
+          "quantity": null,
+          "status": "active",
+          "images": []
+        },
+        "created_at": 1700000060
+      },
+      "expected": {
+        "error": {
+          "code": "food_event_wire_too_large",
+          "message": "FoodAvailability canonical signed event would be 393796 bytes; max is 262144",
+          "max": 262144,
+          "actual": 393796
+        }
+      }
+    },
+    {
+      "id": "food_authored_future_published_at_013",
+      "kind": "food_availability.build_authored_draft.invalid",
+      "input": {
+        "details": {
+          "content": {
+            "value": "Future publication"
+          },
+          "identifier": "future-publication",
+          "title": "Future Publication",
+          "summary": "Invalid publication time",
+          "published_at": 1700000000,
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "1",
+            "currency": "CAD",
+            "unit": "each"
+          },
+          "quantity": null,
+          "status": "active",
+          "images": []
+        },
+        "created_at": 1699999999
+      },
+      "expected": {
+        "error": {
+          "code": "food_published_at_future",
+          "message": "FoodAvailability published_at 1700000000 exceeds created_at 1699999999",
+          "published_at": 1700000000,
+          "created_at": 1699999999
+        }
+      }
+    },
+    {
+      "id": "food_admission_normalizes_decimal_currency_014",
+      "kind": "food_availability.project_verified_event.valid",
+      "input": {
+        "event": {
+          "id": "20adf6026a55207a21111ac0617c212a2abb8fd15e39f3042991d85da287c74f",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "0003.5000",
+              "cad"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "0010.00",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "94b1b19946890a42cff0b6c08c55f855291c18a7bf89ebc2f0e92af5fa486da207d1c80edd1c166367e63c573a3cfade38f10514cc4cd3b64d67f1ee42540077"
+        }
+      },
+      "expected": {
+        "outcome": "focused",
+        "event_id": "20adf6026a55207a21111ac0617c212a2abb8fd15e39f3042991d85da287c74f",
+        "projection": {
+          "content": "Carrots available this week.",
+          "identifier": "nantes-carrots",
+          "title": "Nantes Carrots",
+          "summary": "Fresh bunches",
+          "published_at": 1700000000,
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "3.5",
+            "currency": "CAD",
+            "unit": "lb"
+          },
+          "quantity": {
+            "amount": "10",
+            "unit": "lb"
+          },
+          "status": "active",
+          "images": [],
+          "diagnostics": []
+        }
+      }
+    },
+    {
+      "id": "food_admission_optional_standard_tags_015",
+      "kind": "food_availability.verify_and_admit_event.valid",
+      "input": {
+        "event": {
+          "id": "794251d2341134908ee28526447cb8a54bdd608917166fd3678f65e578fbb8c7",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ],
+            [
+              "t",
+              "vegetables"
+            ],
+            [
+              "g",
+              "c28hr"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "b9d0da50b69689fdd71adc0d698b3e2d04e53c94ec31e23496b4d2fdb96bc1719c5d626881f407682f287f2a5d2bc57159f70a8cd3d1aaae96bd1394c5b1ea0a"
+        }
+      },
+      "expected": {
+        "outcome": "admitted",
+        "event_id": "794251d2341134908ee28526447cb8a54bdd608917166fd3678f65e578fbb8c7",
+        "projection": {
+          "content": "Carrots available this week.",
+          "identifier": "nantes-carrots",
+          "title": "Nantes Carrots",
+          "summary": "Fresh bunches",
+          "published_at": 1700000000,
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "3",
+            "currency": "CAD",
+            "unit": "lb"
+          },
+          "quantity": null,
+          "status": "active",
+          "images": [],
+          "diagnostics": []
+        }
+      }
+    },
+    {
+      "id": "food_admission_excludes_operational_before_validation_016",
+      "kind": "food_availability.project_verified_event.valid",
+      "input": {
+        "event": {
+          "id": "c9e41f7d91b036e21fdce11ab88a5eda6cc19c93875f160f7632b1a844a59d40",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "radroots:bin"
+            ],
+            [
+              "delivery"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "1fc38e6183061bb64f2337941b96a6cc75067b85aa46b4780bd395f62961b54569872c51090bec9f97185add686e3e6e11a1aa0c593d63266c433a614f2d90af"
+        }
+      },
+      "expected": {
+        "outcome": "excluded",
+        "event_id": "c9e41f7d91b036e21fdce11ab88a5eda6cc19c93875f160f7632b1a844a59d40",
+        "partition": "operational_listing"
+      }
+    },
+    {
+      "id": "food_admission_excludes_generic_nip99_017",
+      "kind": "food_availability.project_verified_event.valid",
+      "input": {
+        "event": {
+          "id": "0d65719b6e73a64f55d95c38ba46e25e222a893d4ec0cdfe83747b1269118d3d",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "generic-offer"
+            ],
+            [
+              "title",
+              "Generic Offer"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "e533df401a4c6ddfd7dcfd2b3525e9fb8938748dcdc9492aa617ec50d966554511853704929b88b7fe791f3a36659f341b20245182574dd5e5353fa80f57d441"
+        }
+      },
+      "expected": {
+        "outcome": "excluded",
+        "event_id": "0d65719b6e73a64f55d95c38ba46e25e222a893d4ec0cdfe83747b1269118d3d",
+        "partition": "generic_nip99"
+      }
+    },
+    {
+      "id": "food_admission_rejects_ambiguous_markers_018",
+      "kind": "food_availability.project_verified_event.invalid",
+      "input": {
+        "event": {
+          "id": "1e40dd34180c85871cc1a7369290876e004d56890ebca9a619f4c1f61e46d866",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "radroots:price_unit"
+            ],
+            [
+              "radroots:price"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "1da60ee3d831adae2aeb61df60c2e14f7168b696cf50a9362f326119d5c4d5a03dd8d6da1c9b10a29c3dd4ffbbfbe76404d758ee149bb56b13e2fe14eece385f"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "food_profile_ambiguous",
+          "message": "classified listing mixes focused and operational markers"
+        }
+      }
+    },
+    {
+      "id": "food_admission_rejects_wrong_kind_019",
+      "kind": "food_availability.project_verified_event.invalid",
+      "input": {
+        "event": {
+          "id": "2cdc1807110058f1732d68e5de00b0f1cb3dd9e067aa36af835a3823f522a6d2",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 1,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "957d64ffbe2f7dd94c785aa2111e6b0e6e3d6220bd2a756ff75aeb44dc1663d08a23345ad4a1729c0d6aaf1cf35f8f22021262f9131a15364e303d774eb2b2f6"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "invalid_kind",
+          "message": "FoodAvailability event kind must be 30402, got 1"
+        }
+      }
+    },
+    {
+      "id": "food_admission_rejects_core_tag_shape_020",
+      "kind": "food_availability.project_verified_event.invalid",
+      "input": {
+        "event": {
+          "id": "c9902f6f65bbd890fc5b89119aeae481ae66359ed1c5f8b763a72cb11e89a75c",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "radroots:price_unit"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "0d2fe687930c908410b667b025dbf2630790a06b957473aabfeecd93467b8ec4e9ec52dee83807c68c06bfab12efe89e4b039c751bd07d6618a4b2e7fc339f83"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "food_tag_invalid",
+          "message": "FoodAvailability core tag shape is invalid"
+        }
+      }
+    },
+    {
+      "id": "food_admission_rejects_prohibited_delivery_021",
+      "kind": "food_availability.project_verified_event.invalid",
+      "input": {
+        "event": {
+          "id": "da2bee62ff0c998eaebe8e881c1e1388b2e5f8922d8973fce908fc21d24f7868",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ],
+            [
+              "delivery",
+              "tomorrow"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "73534923e2a0cb6f37dfeaf1947c32da2cea110f48d642366b18eaed501c9b4227eb11c86bc83433fc0f03054d89260e860d3fb055c3c3a8ef70238f77dac2d5"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "prohibited_capability",
+          "message": "FoodAvailability tag `delivery` is a prohibited capability"
+        }
+      }
+    },
+    {
+      "id": "food_admission_rejects_price_frequency_022",
+      "kind": "food_availability.project_verified_event.invalid",
+      "input": {
+        "event": {
+          "id": "d376ad9ac9446dcca0285ab284d72662a8fba02a71f5f7501ba40299fdbc5041",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD",
+              "week"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "d5dd7a9864e78c374b7213b0460fdb142c4fd54dba4b7795781bc348095438852b3535ff64d8eb692baf1c572ee5c254e759b93293d27e0885e7ef0bb53af35b"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "price_frequency_forbidden",
+          "message": "FoodAvailability price frequency is forbidden"
+        }
+      }
+    },
+    {
+      "id": "food_admission_requires_price_unit_023",
+      "kind": "food_availability.project_verified_event.invalid",
+      "input": {
+        "event": {
+          "id": "6317ed3da993b973aed902dd6c1e3b12f2bc70523a91de034f735e10b89b7255",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "a318aaae549bb91eaf7a1c5c042972c7e70fa26282a705df8d0414557aa2a41bca87ad88d7f1fef7c2edba05ce9562db46be90028aa5f40d66b82af0fd837c4e"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "price_unit_missing",
+          "message": "FoodAvailability price unit is missing"
+        }
+      }
+    },
+    {
+      "id": "food_admission_bounds_raw_decimal_digits_024",
+      "kind": "food_availability.project_verified_event.invalid",
+      "input": {
+        "event": {
+          "id": "dd884aeb7c7cd3f8e7b29c6992fdc44e6f9d8ebf0cd964708acd1bc334b1d238",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "00000000000000000000000000003",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "eae8efa71b884818173ba4a5c41615be10e111cb221117feccd43fc69281517480188644e08921d608c03d7fbbcdc1875796de8d2013a85d23cf537c0fa28cda"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "price_invalid",
+          "message": "FoodAvailability price must be a canonical unsigned decimal with at most 28 digits"
+        }
+      }
+    },
+    {
+      "id": "food_admission_rejects_malformed_price_unit_025",
+      "kind": "food_availability.project_verified_event.invalid",
+      "input": {
+        "event": {
+          "id": "9ae38292772927c1e92e65505e280f8e93e997d90bb4528fffff2f1fa350e10d",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "e276e8dfd4cc4e5b11b9981fd20ca165a9537180b2919e20cdbd43652d0806c4e3f17cc4966e4b35aa86eb82a3bc9fcb07ecb44a49cee27e24aec64d0bcaa457"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "price_unit_invalid",
+          "message": "FoodAvailability price unit is not governed"
+        }
+      }
+    },
+    {
+      "id": "food_admission_rejects_quantity_unit_mismatch_026",
+      "kind": "food_availability.project_verified_event.invalid",
+      "input": {
+        "event": {
+          "id": "7c861cdfd2275445c756bd8d136d340df3e1133a7c480d9e2c91df06cef58d44",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "kg"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "7f7524cc5170a6076fed95a6f53e6d597c94c6a3373f56a062740f915258f93bc2ff1116776479736804023ca8059d0e13b790f60a98429cca318262256bbec1"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "quantity_invalid",
+          "message": "FoodAvailability quantity must be canonical and use the price unit"
+        }
+      }
+    },
+    {
+      "id": "food_admission_rejects_status_027",
+      "kind": "food_availability.project_verified_event.invalid",
+      "input": {
+        "event": {
+          "id": "22e22dba9ea96a763a296633438a2b7a18b0358324677519cc16636d280518b5",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "status",
+              "paused"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "5728cd88796dc4beed1d293db77a9e5a9297bb9e3d7d56b9ee108f3c6d3ad2fd5468b359d1fba09a4eeca7539d678d2e373c8bd151969e19feaceb9aebaca917"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "food_status_invalid",
+          "message": "FoodAvailability status must be active or sold"
+        }
+      }
+    },
+    {
+      "id": "food_admission_rejects_future_published_at_028",
+      "kind": "food_availability.project_verified_event.invalid",
+      "input": {
+        "event": {
+          "id": "6f21223ebac44a2888abe98e4aefcc7368f1150fa8eac379b964f33657ec2f0b",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000061"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "71256286f982d6daa7e2253f4b5f33c7f65aaa02a36182401629f0bc771cf613ad17544be1d820cfba1484c83251c17f87769fa44ee35b12ceee4327cec455db"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "food_published_at_future",
+          "message": "FoodAvailability published_at 1700000061 exceeds created_at 1700000060"
+        }
+      }
+    },
+    {
+      "id": "food_admission_preserves_ordered_image_diagnostics_029",
+      "kind": "food_availability.project_verified_event.valid",
+      "input": {
+        "event": {
+          "id": "96b4a10932919010172a00667ccebb8684a89e7cc3c4c51202d2870fd8b5acfe",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ],
+            [
+              "image",
+              "https://media.example/2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824.webp"
+            ],
+            [
+              "image",
+              "https://media.example/2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824.webp",
+              "0x600",
+              "extra"
+            ],
+            [
+              "image",
+              "not-a-url",
+              "800x600"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "1d5eb699944bc1eba93c85071ad1d94878f1c767015391e200b45f1a2066558675a382ede737fb15307a944598687843618c067accf6608f53daad377683c2c9"
+        }
+      },
+      "expected": {
+        "outcome": "focused",
+        "event_id": "96b4a10932919010172a00667ccebb8684a89e7cc3c4c51202d2870fd8b5acfe",
+        "projection": {
+          "content": "Carrots available this week.",
+          "identifier": "nantes-carrots",
+          "title": "Nantes Carrots",
+          "summary": "Fresh bunches",
+          "published_at": 1700000000,
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "3",
+            "currency": "CAD",
+            "unit": "lb"
+          },
+          "quantity": null,
+          "status": "active",
+          "images": [
+            {
+              "raw_tag": [
+                "image",
+                "https://media.example/2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824.webp"
+              ],
+              "url": "https://media.example/2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824.webp",
+              "dimensions": null,
+              "diagnostics": [
+                "food_image_shape_invalid",
+                "food_image_dimensions_missing"
+              ],
+              "qualifies": false
+            },
+            {
+              "raw_tag": [
+                "image",
+                "https://media.example/2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824.webp",
+                "0x600",
+                "extra"
+              ],
+              "url": "https://media.example/2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824.webp",
+              "dimensions": null,
+              "diagnostics": [
+                "food_image_shape_invalid",
+                "food_image_dimensions_invalid",
+                "food_image_duplicate_url",
+                "food_image_duplicate_digest"
+              ],
+              "qualifies": false
+            },
+            {
+              "raw_tag": [
+                "image",
+                "not-a-url",
+                "800x600"
+              ],
+              "url": null,
+              "dimensions": {
+                "width": 800,
+                "height": 600
+              },
+              "diagnostics": [
+                "food_image_url_invalid"
+              ],
+              "qualifies": false
+            }
+          ],
+          "diagnostics": [
+            "food_image_shape_invalid",
+            "food_image_dimensions_missing",
+            "food_image_shape_invalid",
+            "food_image_dimensions_invalid",
+            "food_image_duplicate_url",
+            "food_image_duplicate_digest",
+            "food_image_url_invalid"
+          ]
+        }
+      }
+    },
+    {
+      "id": "food_admission_bounds_image_projection_030",
+      "kind": "food_availability.project_verified_event.valid",
+      "input": {
+        "event": {
+          "id": "ac3b37c0368816b8d707e0e2e194c39291ea47fa7bb22dd998fa526b03609280",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000000.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000001.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000002.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000003.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000004.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000005.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000006.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000007.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000008.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000009.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000000a.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000000b.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000000c.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000000d.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000000e.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000000f.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000010.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000011.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000012.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000013.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000014.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000015.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000016.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000017.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000018.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000019.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000001a.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000001b.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000001c.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000001d.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000001e.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000001f.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000020.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000021.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000022.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000023.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000024.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000025.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000026.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000027.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000028.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000029.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000002a.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000002b.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000002c.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000002d.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000002e.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000002f.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000030.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000031.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000032.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000033.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000034.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000035.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000036.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000037.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000038.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000039.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000003a.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000003b.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000003c.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000003d.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000003e.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/000000000000000000000000000000000000000000000000000000000000003f.webp",
+              "800x600"
+            ],
+            [
+              "image",
+              "https://media.example/0000000000000000000000000000000000000000000000000000000000000040.webp",
+              "800x600"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "28775630afde6c73e412d47a1d36227fae11057595186655ceab5a6d96a60f25289a0f5b27c680025152f121b322c35e0bb248f9392567af946dc881f08eb6b5"
+        }
+      },
+      "expected": {
+        "outcome": "focused",
+        "event_id": "ac3b37c0368816b8d707e0e2e194c39291ea47fa7bb22dd998fa526b03609280",
+        "image_count": 64,
+        "diagnostics": [
+          "food_image_count_exceeded"
+        ],
+        "first_raw_tag": [
+          "image",
+          "https://media.example/0000000000000000000000000000000000000000000000000000000000000000.webp",
+          "800x600"
+        ],
+        "last_raw_tag": [
+          "image",
+          "https://media.example/000000000000000000000000000000000000000000000000000000000000003f.webp",
+          "800x600"
+        ]
+      }
+    },
+    {
+      "id": "food_admission_rejects_invalid_signature_031",
+      "kind": "food_availability.verify_and_admit_event.invalid",
+      "input": {
+        "event": {
+          "id": "f600337abfe4a2482225a369852c9899784c71d9221635b5ac34bca52a06d2d1",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "94b1b19946890a42cff0b6c08c55f855291c18a7bf89ebc2f0e92af5fa486da207d1c80edd1c166367e63c573a3cfade38f10514cc4cd3b64d67f1ee42540077"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "signature_invalid",
+          "message": "invalid NIP-01 event signature"
+        }
+      }
+    },
+    {
+      "id": "food_revision_accepts_later_created_at_032",
+      "kind": "food_availability.validate_revision.valid",
+      "input": {
+        "previous": {
+          "id": "5ce3afebae58643462c935730292791d178a3332686cc4d4e65b3196160209ae",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "11dba7311bf10b63f7913463f6537ff1607d6242787a6c091ece6a4969b74b75d5b286005970fb7fae5de9187438d9b7436ffa2f3057d18ae9b2748843964567"
+        },
+        "current": {
+          "id": "78304e7b25d60f037f3c65556ecc31075e724394f7ee7c7f94081a4e083432a9",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000061,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Updated carrots",
+          "sig": "deea0e868afa659aad33572c0c45aecc6d59756e05c442f268d5c7d85ffe319136b3696cbd894546587ea0e0c7090b185a585e236ecbd9050e66c8fc0422106a"
+        }
+      },
+      "expected": {
+        "result": "accepted",
+        "current_event_id": "78304e7b25d60f037f3c65556ecc31075e724394f7ee7c7f94081a4e083432a9"
+      }
+    },
+    {
+      "id": "food_revision_rejects_invalid_previous_033",
+      "kind": "food_availability.validate_revision.invalid",
+      "input": {
+        "previous": {
+          "id": "7d097fd38c0b5a74f7e415178415d8a119607e2338b600fe136829f1dcec8a43",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "46780ae06e1968be9e1031e84a25539a1b120dc70468fda0401078b627ab7fb264f5bbe19aaebe8f32b696aa829564dee58b740cf2f22595b3c1e5fa530dbd38"
+        },
+        "current": {
+          "id": "46e2c8f4db3621330939318af101b8fc55b5b65ca7bc9e3ea4d498b4627c634c",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000061,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "65be312cd60c3c6ec5722bd947375640b9eb32f9dee2692ef25853e2c7ec64b4620aab142d0ad2b8ad6138d8948c962aac6c373ace60a6c99ebad1627b6a1cde"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "food_revision_previous_invalid",
+          "message": "previous FoodAvailability revision is invalid: FoodAvailability core tag shape is invalid"
+        }
+      }
+    },
+    {
+      "id": "food_revision_rejects_invalid_current_034",
+      "kind": "food_availability.validate_revision.invalid",
+      "input": {
+        "previous": {
+          "id": "5ce3afebae58643462c935730292791d178a3332686cc4d4e65b3196160209ae",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "11dba7311bf10b63f7913463f6537ff1607d6242787a6c091ece6a4969b74b75d5b286005970fb7fae5de9187438d9b7436ffa2f3057d18ae9b2748843964567"
+        },
+        "current": {
+          "id": "b694c47d68fe69f79794420a5b3409866f0e9208bab1ee2738299477fac0bdf7",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000061,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "03.00",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "416dca196142e25a38b63600ec258d85221d1220192ea80e2c61c0f828837e4887690130e3460fb53bbbe2ad0f6fe80c143212ed7c1f4e898c0249b06c0236f1"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "food_revision_current_invalid",
+          "message": "current FoodAvailability revision is invalid: FoodAvailability price must be a canonical unsigned decimal with at most 28 digits"
+        }
+      }
+    },
+    {
+      "id": "food_revision_rejects_identifier_coordinate_change_035",
+      "kind": "food_availability.validate_revision.invalid",
+      "input": {
+        "previous": {
+          "id": "5ce3afebae58643462c935730292791d178a3332686cc4d4e65b3196160209ae",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "11dba7311bf10b63f7913463f6537ff1607d6242787a6c091ece6a4969b74b75d5b286005970fb7fae5de9187438d9b7436ffa2f3057d18ae9b2748843964567"
+        },
+        "current": {
+          "id": "16b893630a9b737ff4d05bbbc627ec68ad60c76498dbe75a3ebb1857042d5e08",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000061,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "golden-beets"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "efd2572f098034f6d653fd6b8bce4486db2b6e366f4ea7832917328ddbacb286a47ad5b45c74b15323e2e271441371543f413e49fd03debe5332cc4f769b4565"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "food_coordinate_changed",
+          "message": "FoodAvailability revision coordinate changed"
+        }
+      }
+    },
+    {
+      "id": "food_revision_rejects_author_coordinate_change_036",
+      "kind": "food_availability.validate_revision.invalid",
+      "input": {
+        "previous": {
+          "id": "5ce3afebae58643462c935730292791d178a3332686cc4d4e65b3196160209ae",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "11dba7311bf10b63f7913463f6537ff1607d6242787a6c091ece6a4969b74b75d5b286005970fb7fae5de9187438d9b7436ffa2f3057d18ae9b2748843964567"
+        },
+        "current": {
+          "id": "a72f1b05cc4398de9eb9f21389ceadc2d49035667304125855099b86b009e6e1",
+          "pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+          "created_at": 1700000061,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "fa3b264c55e767d3a1720439eef1c000659143004fbb22fa43ea15ad7b45c79ad4d59dfdbbbab368447ca345c426382f3c92b8377d6362d65e6f5b8b3d2a33e3"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "food_coordinate_changed",
+          "message": "FoodAvailability revision coordinate changed"
+        }
+      }
+    },
+    {
+      "id": "food_revision_rejects_published_at_change_037",
+      "kind": "food_availability.validate_revision.invalid",
+      "input": {
+        "previous": {
+          "id": "5ce3afebae58643462c935730292791d178a3332686cc4d4e65b3196160209ae",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "11dba7311bf10b63f7913463f6537ff1607d6242787a6c091ece6a4969b74b75d5b286005970fb7fae5de9187438d9b7436ffa2f3057d18ae9b2748843964567"
+        },
+        "current": {
+          "id": "fd0d610781437790e0ec242e3b3d0dd136b75c02c01533b98affd3566e09f54c",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000061,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000001"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "4e4076d3a0a6b770df87208e54e93962eaa031c57d5168c425f0fb27526aa841a0878873035e75aa9ef98b0dfd654c718afeb02bebe28e590c9b870eb5a8c063"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "food_published_at_changed",
+          "message": "FoodAvailability revision published_at changed"
+        }
+      }
+    },
+    {
+      "id": "food_revision_rejects_older_created_at_038",
+      "kind": "food_availability.validate_revision.invalid",
+      "input": {
+        "previous": {
+          "id": "5ce3afebae58643462c935730292791d178a3332686cc4d4e65b3196160209ae",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Carrots available this week.",
+          "sig": "11dba7311bf10b63f7913463f6537ff1607d6242787a6c091ece6a4969b74b75d5b286005970fb7fae5de9187438d9b7436ffa2f3057d18ae9b2748843964567"
+        },
+        "current": {
+          "id": "4617873052bca26d7b39cdbc26a8134f759de807ba92d2052f96ecf07ab8d6ab",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000059,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Older candidate",
+          "sig": "eaa553976301cb71ea22446651909e20fc09bb736b72489ca434e2fd0184be2070fb259c0dd3b93bb8eda195a677eb977c2bc42da3c0b37062b23e908191de4c"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "food_revision_not_newer",
+          "message": "FoodAvailability revision does not win NIP-01 ordering"
+        }
+      }
+    },
+    {
+      "id": "food_revision_equal_time_a_current_039",
+      "kind": "food_availability.validate_revision.invalid",
+      "input": {
+        "previous": {
+          "id": "6e3a51de252e123bee2b94da38d2796406e518abffe52c8295cde473b75e16d4",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Equal-time B",
+          "sig": "9f99d5fa61b0d9661590602ce8260bf9e9a2f022de1eb30bf22ccf29c253c6b66d08dab79048bc97a39dd062757bc2219bf1f9fc4aef1ec2c426282d73d8d6ff"
+        },
+        "current": {
+          "id": "8ed82f79ffc5e3ca5c6feba18822d0d8ed4da0fe37baf5352b492c45bc28c3d3",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Equal-time A",
+          "sig": "0ca47b54a0f4e534f49a5373d56a803ea9abaed24fe412fde6be71995ebdaa930395533f934101782fa199404976b17caa00303a6a93463d138c4b76a39becb9"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "food_revision_not_newer",
+          "message": "FoodAvailability revision does not win NIP-01 ordering"
+        }
+      }
+    },
+    {
+      "id": "food_revision_equal_time_b_current_040",
+      "kind": "food_availability.validate_revision.valid",
+      "input": {
+        "previous": {
+          "id": "8ed82f79ffc5e3ca5c6feba18822d0d8ed4da0fe37baf5352b492c45bc28c3d3",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Equal-time A",
+          "sig": "0ca47b54a0f4e534f49a5373d56a803ea9abaed24fe412fde6be71995ebdaa930395533f934101782fa199404976b17caa00303a6a93463d138c4b76a39becb9"
+        },
+        "current": {
+          "id": "6e3a51de252e123bee2b94da38d2796406e518abffe52c8295cde473b75e16d4",
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "created_at": 1700000060,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Fresh bunches"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ],
+          "content": "Equal-time B",
+          "sig": "9f99d5fa61b0d9661590602ce8260bf9e9a2f022de1eb30bf22ccf29c253c6b66d08dab79048bc97a39dd062757bc2219bf1f9fc4aef1ec2c426282d73d8d6ff"
+        }
+      },
+      "expected": {
+        "result": "accepted",
+        "current_event_id": "6e3a51de252e123bee2b94da38d2796406e518abffe52c8295cde473b75e16d4"
+      }
+    }
+  ]
+}

@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "public_source": {
+    "repository": "https://github.com/radrootslabs/lib",
+    "revision": "189c49b74b4bafc142b00b76b296477931139e72",
+    "path": "contracts/conformance/vectors/food_availability/profile.v1.json",
+    "sha256": "dede1eb1f682ecd548e8cd3ccb251d298762e504e2588a73528e5f7a5b9eff21",
+    "bytes": 90099
+  },
+  "source_copy": {
+    "path": "source_profile.v1.json",
+    "sha256": "dede1eb1f682ecd548e8cd3ccb251d298762e504e2588a73528e5f7a5b9eff21",
+    "bytes": 90099
+  },
+  "corpus": {
+    "path": "corpus.v1.json",
+    "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+    "bytes": 265507
+  },
+  "producer": {
+    "package": "harvestcircle_food_fixture_oracle",
+    "rust_toolchain": "1.97.1",
+    "files": [
+      {
+        "path": "oracle/Cargo.toml",
+        "sha256": "5a9a3891ab81af1b82c3f7fb054f25019b41390d84348466993fb158ddc183fe",
+        "bytes": 693
+      },
+      {
+        "path": "oracle/Cargo.lock",
+        "sha256": "a0a888bea579a00cbfb85592104381ddd4995352b00742cd788f2436edd859cd",
+        "bytes": 21648
+      },
+      {
+        "path": "oracle/rust-toolchain.toml",
+        "sha256": "279d77167cec5426fa80f457cd066dc74a360fbe4e2816f4f3fa01487a918fdc",
+        "bytes": 86
+      },
+      {
+        "path": "oracle/src/main.rs",
+        "sha256": "27fb65604b2608af700b09862d6845be967c9a70e75196cc29d98a07e54f6c3d",
+        "bytes": 16278
+      }
+    ],
+    "workspace": "isolated; immutable public Git dependencies; no sibling/private/native runtime dependency",
+    "source_api_reference": "https://github.com/radrootslabs/lib/blob/189c49b74b4bafc142b00b76b296477931139e72/crates/event_codec/tests/food_availability_conformance.rs"
+  },
+  "rights": {
+    "public_source": "MIT OR Apache-2.0; Radroots public Lib canonical contract vectors",
+    "producer": "GPL-3.0-only; API readback adapted from the attributed pinned public conformance executor"
+  },
+  "protocol_references": [
+    {
+      "nip": "01",
+      "repository": "https://github.com/nostr-protocol/nips",
+      "revision": "0046368a747c5c25ae2bec28bae0e537744c8f10",
+      "path": "01.md",
+      "url": "https://raw.githubusercontent.com/nostr-protocol/nips/0046368a747c5c25ae2bec28bae0e537744c8f10/01.md",
+      "sha256": "6cd76682e7ec2d635f1f46b3660f621cdad1193d9174d316674b91f8d683af26",
+      "bytes": 13894
+    },
+    {
+      "nip": "07",
+      "repository": "https://github.com/nostr-protocol/nips",
+      "revision": "0046368a747c5c25ae2bec28bae0e537744c8f10",
+      "path": "07.md",
+      "url": "https://raw.githubusercontent.com/nostr-protocol/nips/0046368a747c5c25ae2bec28bae0e537744c8f10/07.md",
+      "sha256": "79c747c1c63b4c4acd3f7221b67bf0d13bd05cd137515a0bf79f78c944d5ec41",
+      "bytes": 1524
+    },
+    {
+      "nip": "09",
+      "repository": "https://github.com/nostr-protocol/nips",
+      "revision": "0046368a747c5c25ae2bec28bae0e537744c8f10",
+      "path": "09.md",
+      "url": "https://raw.githubusercontent.com/nostr-protocol/nips/0046368a747c5c25ae2bec28bae0e537744c8f10/09.md",
+      "sha256": "365b39e602bf7acf51e86cfe7ea414a9504d0422bb4ee0498d2aae5e613e9586",
+      "bytes": 2963
+    },
+    {
+      "nip": "17",
+      "repository": "https://github.com/nostr-protocol/nips",
+      "revision": "0046368a747c5c25ae2bec28bae0e537744c8f10",
+      "path": "17.md",
+      "url": "https://raw.githubusercontent.com/nostr-protocol/nips/0046368a747c5c25ae2bec28bae0e537744c8f10/17.md",
+      "sha256": "7aa9c3a9c0458a9552c4be2f3bf17f7ec60a4afe88bce7977f03500a7873a64c",
+      "bytes": 12439
+    },
+    {
+      "nip": "19",
+      "repository": "https://github.com/nostr-protocol/nips",
+      "revision": "0046368a747c5c25ae2bec28bae0e537744c8f10",
+      "path": "19.md",
+      "url": "https://raw.githubusercontent.com/nostr-protocol/nips/0046368a747c5c25ae2bec28bae0e537744c8f10/19.md",
+      "sha256": "5b53c98637ae0cb8e6d99e1570e32da2c5842154ba898393439f334f1fd90aad",
+      "bytes": 3952
+    },
+    {
+      "nip": "42",
+      "repository": "https://github.com/nostr-protocol/nips",
+      "revision": "0046368a747c5c25ae2bec28bae0e537744c8f10",
+      "path": "42.md",
+      "url": "https://raw.githubusercontent.com/nostr-protocol/nips/0046368a747c5c25ae2bec28bae0e537744c8f10/42.md",
+      "sha256": "176458314bb0cd3b9c673b43b6bf05e4cb2354f5d56880d8d6627713d6fd4f87",
+      "bytes": 5355
+    },
+    {
+      "nip": "44",
+      "repository": "https://github.com/nostr-protocol/nips",
+      "revision": "0046368a747c5c25ae2bec28bae0e537744c8f10",
+      "path": "44.md",
+      "url": "https://raw.githubusercontent.com/nostr-protocol/nips/0046368a747c5c25ae2bec28bae0e537744c8f10/44.md",
+      "sha256": "b5f89374e4e1dbdee7881e8573b4313b6a89430a9c8d518471599ae0660cf0e2",
+      "bytes": 19610
+    },
+    {
+      "nip": "50",
+      "repository": "https://github.com/nostr-protocol/nips",
+      "revision": "0046368a747c5c25ae2bec28bae0e537744c8f10",
+      "path": "50.md",
+      "url": "https://raw.githubusercontent.com/nostr-protocol/nips/0046368a747c5c25ae2bec28bae0e537744c8f10/50.md",
+      "sha256": "64c393e0146f11564505ba8dd73e4798a34762b0d35a02663dd678a98941240e",
+      "bytes": 2643
+    },
+    {
+      "nip": "59",
+      "repository": "https://github.com/nostr-protocol/nips",
+      "revision": "0046368a747c5c25ae2bec28bae0e537744c8f10",
+      "path": "59.md",
+      "url": "https://raw.githubusercontent.com/nostr-protocol/nips/0046368a747c5c25ae2bec28bae0e537744c8f10/59.md",
+      "sha256": "b46b078ff5b219fd4ab33a53b479b49d4cbd604b88be46d6b978d53d8f8b43a0",
+      "bytes": 13188
+    },
+    {
+      "nip": "99",
+      "repository": "https://github.com/nostr-protocol/nips",
+      "revision": "0046368a747c5c25ae2bec28bae0e537744c8f10",
+      "path": "99.md",
+      "url": "https://raw.githubusercontent.com/nostr-protocol/nips/0046368a747c5c25ae2bec28bae0e537744c8f10/99.md",
+      "sha256": "7d1fe1a4f27fe4596e4525c062211ae21b1c3d9f3d01dd9a26e20117b61b4142",
+      "bytes": 4413
+    }
+  ],
+  "coverage": {
+    "vectors": 40,
+    "signed_wire_instances": 36,
+    "unsigned_outputs": 11,
+    "partitions": [
+      "focused_food_availability",
+      "operational_listing",
+      "generic_nip99",
+      "ambiguous"
+    ],
+    "invalid_signature_controls": 1,
+    "revision_cases": 9
+  },
+  "key_policy": "No private key input, generation, signing or persistence; existing public signed vectors verified by pinned Rust and Applesauce",
+  "qualification_scope": "Shared contract corpus only. Public image fixture semantics are not a prototype image pipeline; prototype outgoing images remain absent. TS Food adapters/template and bidirectional runtime consumer acceptance belong to HCP023\u2013026. No real relay/extension/operator/client/deployment/native qualification."
+}

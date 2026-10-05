@@ -1,0 +1,16 @@
+[package]
+name = "harvestcircle_food_fixture_oracle"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.97.1"
+license = "GPL-3.0-only"
+publish = false
+
+[workspace]
+
+[dependencies]
+radroots_blossom = { git = "https://github.com/radrootslabs/lib", rev = "189c49b74b4bafc142b00b76b296477931139e72", version = "=0.1.0-alpha" }
+radroots_event = { git = "https://github.com/radrootslabs/lib", rev = "189c49b74b4bafc142b00b76b296477931139e72", version = "=0.1.0-alpha" }
+radroots_event_codec = { git = "https://github.com/radrootslabs/lib", rev = "189c49b74b4bafc142b00b76b296477931139e72", version = "=0.1.0-alpha" }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.151"
