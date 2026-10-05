@@ -1,6 +1,6 @@
 import { decodePointer, naddrEncode } from 'applesauce-core/helpers/pointers';
 import { bech32 } from '@scure/base';
-import { canonicalPublicKey } from '../contracts/public-key';
+import { canonicalPublicKey } from '../contracts/public-key.ts';
 
 const maximumRouteBytes = 2048;
 const encoder = new TextEncoder();

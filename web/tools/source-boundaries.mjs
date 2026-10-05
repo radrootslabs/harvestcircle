@@ -1159,6 +1159,34 @@ export async function auditSource(root) {
   await inventory(sourceRoot);
   const { pkg, aliases } = await configuration(root);
   const dependencies = { ...pkg.dependencies, ...pkg.devDependencies };
+  // Kit3 params is an import-only export; validate the installed, confined
+  // exact package declaration without using parent or CommonJS fallbacks.
+  let kitParamsFile;
+  if (files.has(path.join(root, 'src/params.ts'))) {
+    try {
+      const packageFile = createRequire(
+        path.join(root, 'package.json')
+      ).resolve('@sveltejs/kit/package.json');
+      if (!inside(path.join(root, 'node_modules'), packageFile))
+        throw new Error('outside web dependencies');
+      const installed = JSON.parse(await readSource(packageFile));
+      if (
+        installed.version !== dependencies['@sveltejs/kit'] ||
+        installed.exports?.['./params']?.import !==
+          './src/exports/params/index.js'
+      )
+        throw new Error('unqualified Kit params export');
+      const target = path.join(
+        path.dirname(packageFile),
+        'src/exports/params/index.js'
+      );
+      await readSource(target);
+      kitParamsFile = target;
+    } catch {
+      // A consumed import below reports unresolved admission, never passes.
+    }
+  }
+
   const cssImports = [];
   function local(file, target, specifier) {
     if (
@@ -1323,7 +1351,7 @@ export async function auditSource(root) {
         import: '@scure/base',
         file: 'src/lib/nostr/references.ts',
         sha256:
-          'b417864961a184cab732bebab4fb35089034dbb6a742068d2742f7b353525d80'
+          '94077cc85e443a8df1fcd24726bcd8d084fae22de7aea7e1341e1acd7cadce9c'
       }
     };
     const primitive = Object.hasOwn(primitiveAdmissions, actualName)
@@ -1338,7 +1366,11 @@ export async function auditSource(root) {
         primitive.sha256;
     if (
       (actualName === '@sveltejs/kit' &&
-        !['@sveltejs/kit', '@sveltejs/kit/hooks'].includes(actualImport)) ||
+        !['@sveltejs/kit', '@sveltejs/kit/hooks'].includes(actualImport) &&
+        !(
+          actualImport === '@sveltejs/kit/params' &&
+          relative(root, file) === 'src/params.ts'
+        )) ||
       (actualName === 'svelte' &&
         /^(svelte\/(compiler|internal|server|attachments|package\.json))/.test(
           actualImport
@@ -1365,9 +1397,12 @@ export async function auditSource(root) {
     // Direct package imports must be exported by the installed, pinned package;
     // never search parent node_modules or fall back to a sibling workspace.
     try {
-      const resolved = createRequire(path.join(root, 'package.json')).resolve(
-        specifier
-      );
+      const resolved =
+        actualImport === '@sveltejs/kit/params' &&
+        relative(root, file) === 'src/params.ts'
+          ? kitParamsFile
+          : createRequire(path.join(root, 'package.json')).resolve(specifier);
+      if (typeof resolved !== 'string') throw new Error('unresolved export');
       if (!inside(path.join(root, 'node_modules'), resolved))
         throw new Error('outside web dependencies');
     } catch {

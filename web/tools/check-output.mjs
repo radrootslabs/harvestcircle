@@ -210,6 +210,49 @@ export async function auditOutput(webDirectory) {
     if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT'))
       throw error;
   }
+  const fullRouteSources = [
+    'sell/+page.svelte',
+    'selling/+page.svelte',
+    'selling/drafts/[draftId=local_id]/+page.svelte',
+    'products/[naddr=naddr]/+page.svelte',
+    'products/[naddr=naddr]/edit/+page.svelte',
+    'messages/+page.svelte',
+    'messages/[conversationId=local_id]/+page.svelte',
+    'about/+page.svelte',
+    'privacy/+page.svelte'
+  ];
+  let presentRoutes = 0;
+  for (const name of fullRouteSources) {
+    try {
+      await readOwned(web, 'src/routes/' + name);
+      presentRoutes++;
+    } catch (error) {
+      if (!(
+        error instanceof Error &&
+        'code' in error &&
+        error.code === 'ENOENT'
+      ))
+        throw error;
+    }
+  }
+  const hasFullRoutes = presentRoutes !== 0;
+  if (hasFullRoutes) {
+    if (presentRoutes !== fullRouteSources.length || !hasSearch)
+      throw new Error('Undeclared compiler module: incomplete route source');
+    for (const name of [
+      'products/[naddr=naddr]/+page.ts',
+      'products/[naddr=naddr]/edit/+page.ts',
+      'selling/drafts/[draftId=local_id]/+page.ts',
+      'messages/[conversationId=local_id]/+page.ts'
+    ])
+      await readOwned(web, 'src/routes/' + name);
+    for (const name of [
+      'src/params.ts',
+      'src/routes/+error.svelte',
+      'src/lib/components/AccountGate.svelte'
+    ])
+      await readOwned(web, name);
+  }
   // Admit compiler-owned module identities, not arbitrary extensions/copy roots.
   const names = new Set([
     'entry/app',
@@ -230,6 +273,17 @@ export async function auditOutput(webDirectory) {
     names.add('nodes/3');
     names.add('routes');
   }
+  if (hasFullRoutes) {
+    for (let index = 4; index <= 12; index++) names.add('nodes/' + index);
+    for (const name of [
+      'AccountGate',
+      'references',
+      'legacy',
+      'rolldown-runtime',
+      'shared-errors'
+    ])
+      names.add(name);
+  }
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();
   for (const [key, record] of Object.entries(manifest)) {
@@ -246,9 +300,11 @@ export async function auditOutput(webDirectory) {
     if (!names.has(record.name) || seen.has(record.name))
       throw new Error('Undeclared compiler module');
     seen.add(record.name);
-    const generatedModule = hasSearch
-      ? /^\.svelte-kit\/generated\/build\/(?:client-optimized\/(?:app|nodes\/[0123])|shared\/error-template)\.js$/
-      : /^\.svelte-kit\/generated\/build\/(?:client-optimized\/(?:app|nodes\/[012])|shared\/error-template)\.js$/;
+    const generatedModule = hasFullRoutes
+      ? /^\.svelte-kit\/generated\/build\/(?:client-optimized\/(?:app|nodes\/(?:[0-9]|1[012]))|shared\/error-template)\.js$/
+      : hasSearch
+        ? /^\.svelte-kit\/generated\/build\/(?:client-optimized\/(?:app|nodes\/[0123])|shared\/error-template)\.js$/
+        : /^\.svelte-kit\/generated\/build\/(?:client-optimized\/(?:app|nodes\/[012])|shared\/error-template)\.js$/;
     const frameworkModule =
       /^node_modules\/\.pnpm\/[^/]+\/node_modules\/@sveltejs\/kit\/src\/runtime\/client\/(?:client-entry|entry|payload)\.js$/;
     if (!(
@@ -306,6 +362,16 @@ export async function auditOutput(webDirectory) {
     }
   }
   equal([...seen].sort(), [...names].sort(), 'Incomplete compiler modules');
+  if (hasFullRoutes) {
+    const robots = await readOwned(web, 'static/robots.txt');
+    publicText(robots);
+    equal(
+      client.get('robots.txt'),
+      robots,
+      'Robots differs from owned static source'
+    );
+    admitted.set('robots.txt', robots);
+  }
   const versionBytes = client.get('_app/version.json');
   if (!versionBytes) throw new Error('Missing compiler version');
   const version = parse(publicText(versionBytes));
@@ -326,10 +392,24 @@ export async function auditOutput(webDirectory) {
     expectedMetadata,
     'Compiler provenance mismatch'
   );
-  const expectedPages = hasSearch
-    ? ['index.html', 'search.html']
-    : ['index.html'];
-  equal([...pages.keys()], expectedPages, 'Undeclared prerendered pages');
+  const expectedPages = hasFullRoutes
+    ? [
+        'about.html',
+        'index.html',
+        'messages.html',
+        'privacy.html',
+        'search.html',
+        'sell.html',
+        'selling.html'
+      ]
+    : hasSearch
+      ? ['index.html', 'search.html']
+      : ['index.html'];
+  equal(
+    [...pages.keys()].sort(),
+    expectedPages,
+    'Undeclared prerendered pages'
+  );
   for (const name of expectedPages) admitted.set(name, pages.get(name));
   // Adapter fallback has no separate disk input. Reconstruct the exact current
   // compiler bootstrap shell from the actual index/manifest/version and source

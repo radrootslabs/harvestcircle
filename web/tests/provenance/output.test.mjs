@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { generateBuildInfo } from '../../tools/build-info.mjs';
 import { auditOutput } from '../../tools/check-output.mjs';
 
-// Allow bounded setup/copy time for all 73 checks and two real compilations.
+// Allow bounded setup/copy time for all 83 checks and two real compilations.
 // Admission checks get 10 seconds; cold compiler work gets 60 seconds.
 await test('actual output qualification', { timeout: 180000 }, async (t) => {
   /** @param {string} name @param {(context: import('node:test').TestContext) => Promise<void>} run @param {number} [timeout] */
@@ -114,8 +114,8 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
     async (t) => {
       const f = await fixture(t);
       const files = await f.audit();
-      // Exact new search node/shared routes chunk/page; CSS stays once-imported.
-      assert.equal(files.length, 21);
+      // Exact eleven-route module/page/static admission; CSS stays once-imported.
+      assert.equal(files.length, 41);
       assert.ok(files.includes('search.html'));
       assert.equal(files.filter((name) => name.endsWith('.css')).length, 1);
       assert.ok(
@@ -135,27 +135,29 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       );
     }
   );
-  await check(
-    'search route admission requires its owned source and exact module/page counterparts',
-    async (t) => {
-      const f = await fixture(t);
-      const source = path.join(f.web, 'src/routes/search/+page.svelte');
-      const original = await readFile(source);
-      await rm(source);
-      git(f.root, 'add', '--', 'web/src/routes/search/+page.svelte');
-      await generateBuildInfo(f.web);
-      const metadata = await readFile(
-        path.join(f.web, 'static/build-info.json')
-      );
-      await writeFile(path.join(f.web, 'build/build-info.json'), metadata);
-      await writeFile(
-        path.join(f.web, '.svelte-kit/output/client/build-info.json'),
-        metadata
-      );
-      await assert.rejects(f.audit, /Undeclared compiler module/);
-      await writeFile(source, original);
-    }
-  );
+  for (const routeSource of ['search/+page.svelte', 'messages/+page.svelte'])
+    await check(
+      routeSource +
+        ' admission requires its owned source and exact module/page counterparts',
+      async (t) => {
+        const f = await fixture(t);
+        const source = path.join(f.web, 'src/routes', routeSource);
+        const original = await readFile(source);
+        await rm(source);
+        git(f.root, 'add', '--', 'web/src/routes/' + routeSource);
+        await generateBuildInfo(f.web);
+        const metadata = await readFile(
+          path.join(f.web, 'static/build-info.json')
+        );
+        await writeFile(path.join(f.web, 'build/build-info.json'), metadata);
+        await writeFile(
+          path.join(f.web, '.svelte-kit/output/client/build-info.json'),
+          metadata
+        );
+        await assert.rejects(f.audit, /Undeclared compiler module/);
+        await writeFile(source, original);
+      }
+    );
   for (const mutation of [
     'unknown-name',
     'duplicate',
@@ -192,6 +194,33 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       }
     );
   }
+  for (const mutation of ['missing', 'changed']) {
+    await check('full-route static robots rejects ' + mutation, async (t) => {
+      const f = await fixture(t);
+      const target = path.join(f.web, 'build/robots.txt');
+      if (mutation === 'missing') await rm(target);
+      else await writeFile(target, 'User-agent: *\nAllow: /\n');
+      await assert.rejects(f.audit);
+    });
+  }
+  await check(
+    'full-route compiler rejects an unowned thirteenth node',
+    async (t) => {
+      const f = await fixture(t);
+      const file = path.join(
+        f.web,
+        '.svelte-kit/output/client/.vite/manifest.json'
+      );
+      const manifest = JSON.parse(await readFile(file, 'utf8'));
+      const entry = Object.entries(manifest).find(
+        ([, record]) => record.name === 'nodes/12'
+      );
+      assert.ok(entry);
+      entry[1].name = 'nodes/13';
+      await writeFile(file, JSON.stringify(manifest));
+      await assert.rejects(f.audit, /Undeclared compiler module/);
+    }
+  );
   await check(
     'actual route-state compiler module has an owned client counterpart',
     async (t) => {
@@ -520,7 +549,9 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
     '.svelte-kit/output/client/.vite/manifest.json',
     '.svelte-kit/output/prerendered/pages/index.html',
     '.svelte-kit/output/prerendered/pages/search.html',
-    'src/routes/search/+page.svelte'
+    'src/routes/search/+page.svelte',
+    'static/robots.txt',
+    '.svelte-kit/output/prerendered/pages/messages.html'
   ]) {
     for (const kind of ['fifo', 'symlink', 'hardlink']) {
       await check(

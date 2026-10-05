@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /sell
+Disallow: /selling
+Disallow: /messages
+Disallow: /products/*/edit

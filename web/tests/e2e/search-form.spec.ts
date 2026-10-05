@@ -32,6 +32,8 @@ test.beforeAll(async () => {
       checkout
     ]);
     for (const relative of [
+      'web/src',
+      'web/tools/source-boundaries.mjs',
       'web/src/lib/components/AppShell.svelte',
       'web/src/app.css',
       'web/src/routes/+layout.svelte',

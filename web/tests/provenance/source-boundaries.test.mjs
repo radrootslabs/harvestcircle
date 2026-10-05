@@ -1808,3 +1808,49 @@ for (const command of ['check', 'lint', 'build', 'test:unit', 'dev'])
         /svelte-check found|vite v.*building|RUN\s+v/
       );
     }));
+
+test('HCP020 admits the pinned Kit3 consolidated parameter module at its exact source location', async () => {
+  await fixture(async ({ directory, put, execute }) => {
+    await confineSvelte(directory);
+    for (const name of ['package.json', 'src/exports/params/index.js']) {
+      await put(
+        'node_modules/@sveltejs/kit/' + name,
+        await readFile(path.join(root, 'node_modules/@sveltejs/kit', name))
+      );
+    }
+    await put(
+      'src/params.ts',
+      "import { defineParams } from '@sveltejs/kit/params'; export const params = defineParams({ local_id: (value: string) => value === 'known' ? value : undefined });"
+    );
+    await put(
+      'src/routes/+page.ts',
+      "import { params } from '../params'; export const value = params;"
+    );
+    const result = execute();
+    assert.equal(result.status, 0, result.stderr);
+  });
+});
+for (const [name, specifier] of [
+  ['src/routes/+page.ts', '@sveltejs/kit/params'],
+  ['src/params.ts', '@sveltejs/kit/params/unknown']
+]) {
+  test(
+    'HCP020 rejects unrelated Kit3 parameter import ' + name + ' ' + specifier,
+    async () => {
+      await fixture(async ({ put, execute }) => {
+        await put(
+          name,
+          "import { defineParams } from '" +
+            specifier +
+            "'; export const value = defineParams;"
+        );
+        if (name === 'src/params.ts')
+          await put(
+            'src/routes/+page.ts',
+            "import { value } from '../params'; export { value };"
+          );
+        reject(execute(), /forbidden production import/);
+      });
+    }
+  );
+}

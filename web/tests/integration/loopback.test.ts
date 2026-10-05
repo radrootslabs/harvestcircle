@@ -45,6 +45,30 @@ await test('navigation fallback serves actual separate output and preserves miss
     new URL('../../build/search.html', import.meta.url),
     'utf8'
   );
+  const prerendered = new Map([['/search', search]]);
+  for (const pathname of [
+    '/sell',
+    '/selling',
+    '/messages',
+    '/about',
+    '/privacy'
+  ]) {
+    prerendered.set(
+      pathname,
+      await readFile(
+        new URL('../../build' + pathname + '.html', import.meta.url),
+        'utf8'
+      )
+    );
+  }
+  for (const pathname of ['/sell', '/selling', '/messages']) {
+    const html = prerendered.get(pathname);
+    assert.ok(html);
+    assert.match(html, /<title>HarvestCircle<\/title>/);
+    assert.match(html, /name="robots" content="noindex"/);
+    assert.match(html, /Account access is unavailable during development/);
+    assert.doesNotMatch(html, /<form|<input|<textarea/);
+  }
   assert.notEqual(search, fallback);
   assert.match(search, /<title>Search food — HarvestCircle<\/title>/);
   assert.match(search, /Search data is unavailable during development\./);
@@ -67,7 +91,7 @@ await test('navigation fallback serves actual separate output and preserves miss
       assert.equal(result.headers.get('content-type'), 'text/html');
       assert.equal(
         await result.text(),
-        pathname === '/search?q=food' ? search : fallback
+        prerendered.get(new URL(pathname, server.url).pathname) ?? fallback
       );
     }
     for (const pathname of [

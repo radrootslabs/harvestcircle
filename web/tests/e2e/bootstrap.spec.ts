@@ -131,7 +131,7 @@ test('actual browser loads guest shell without an extension', async ({
     ).toBeVisible();
     await expect(
       page.getByRole('link', { name: 'Search', exact: true })
-    ).toHaveCount(0);
+    ).toHaveCount(1);
     await page.keyboard.press('Tab');
     await expect(
       page.getByRole('link', { name: 'Skip to main content' })

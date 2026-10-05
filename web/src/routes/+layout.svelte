@@ -8,6 +8,16 @@
   let { children }: { children: Snippet } = $props();
 </script>
 
-<AppShell currentPath={page.url.pathname}>
+<AppShell
+  currentPath={page.url.pathname}
+  availableRoutes={[
+    '/search',
+    '/sell',
+    '/selling',
+    '/messages',
+    '/about',
+    '/privacy'
+  ]}
+>
   {@render children()}
 </AppShell>
