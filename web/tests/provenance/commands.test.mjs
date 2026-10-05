@@ -31,10 +31,11 @@ async function fixture(t) {
     );
   await symlink(process.execPath, path.join(root, 'bin/node'));
   const log = path.join(root, 'calls.frames');
+  await symlink('/bin/sh', path.join(root, 'bin/corepack'));
   await writeFile(
-    path.join(root, 'bin/corepack'),
+    path.join(root, 'web/pnpm'),
     `#!/bin/sh
-printf '%s\\0' "$PWD" "\${COREPACK_ENABLE_NETWORK-}" "$#" "$@" >> "$HC_COMMAND_LOG"
+printf '%s\\0' "$PWD" "\${COREPACK_ENABLE_NETWORK-}" "$(( $# + 1 ))" "$0" "$@" >> "$HC_COMMAND_LOG"
 version=false
 failed=false
 for argument do
@@ -47,7 +48,7 @@ elif [ "$failed" = true ]; then
   exit 37
 fi
 `,
-    { mode: 0o755 }
+    { mode: 0o644 }
   );
   const env = {
     ...process.env,
