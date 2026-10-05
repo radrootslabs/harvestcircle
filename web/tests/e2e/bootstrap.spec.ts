@@ -23,14 +23,14 @@ test('copied nested navigation and refresh boot the real shell without fabricati
     const staticPage = await withoutJavaScript.newPage();
     await staticPage.goto(server.url);
     await expect(
-      staticPage.getByRole('heading', { name: 'HarvestCircle' })
+      staticPage.getByRole('link', { name: 'HarvestCircle', exact: true })
     ).toBeVisible();
     await expect(staticPage).toHaveTitle('HarvestCircle');
     const fallback = await staticPage.goto(server.url + copiedPath);
     expect(fallback?.status()).toBe(200);
     // The separate SPA document has no prerendered product or browser state.
     await expect(
-      staticPage.getByRole('heading', { name: 'HarvestCircle' })
+      staticPage.getByRole('link', { name: 'HarvestCircle', exact: true })
     ).toHaveCount(0);
 
     const page = await context.newPage();
@@ -43,7 +43,7 @@ test('copied nested navigation and refresh boot the real shell without fabricati
       const result = await navigate();
       expect(result?.status()).toBe(200);
       await expect(
-        page.getByRole('heading', { name: 'HarvestCircle' })
+        page.getByRole('link', { name: 'HarvestCircle', exact: true })
       ).toBeVisible();
       // Future product route controllers remain unimplemented in this slice.
       await expect(
@@ -85,9 +85,30 @@ test('actual browser loads guest shell without an extension', async ({
     const page = await context.newPage();
     await page.goto(server.url);
     await expect(
-      page.getByRole('heading', { name: 'HarvestCircle' })
+      page.getByRole('link', { name: 'HarvestCircle', exact: true })
     ).toBeVisible();
     await expect(page).toHaveTitle('HarvestCircle');
+    await expect(page.getByRole('main')).toHaveCount(1);
+    await expect(
+      page.getByRole('navigation', { name: 'Primary', exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Connect extension' })
+    ).toBeDisabled();
+    await expect(
+      page.getByText(
+        'Unavailable during development: disabled navigation and actions.'
+      )
+    ).toBeVisible();
+    await expect(
+      page.getByRole('link', { name: 'Search', exact: true })
+    ).toHaveCount(0);
+    await page.keyboard.press('Tab');
+    await expect(
+      page.getByRole('link', { name: 'Skip to main content' })
+    ).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('main')).toBeFocused();
     expect(await page.evaluate(() => 'nostr' in window)).toBe(false);
     console.log(`Controlled browser version: ${browser.version()}`);
   } finally {
@@ -114,7 +135,7 @@ test('controlled provider and actual loopback socket are isolated and torn down'
     const page = await context.newPage();
     await page.goto(server.url);
     await expect(
-      page.getByRole('heading', { name: 'HarvestCircle' })
+      page.getByRole('link', { name: 'HarvestCircle', exact: true })
     ).toBeVisible();
     const result = await page.evaluate(async (url) => {
       const provider = (

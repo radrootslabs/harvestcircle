@@ -212,7 +212,8 @@ export async function auditOutput(webDirectory) {
     'preload-helper',
     'client',
     'client.svelte',
-    'client-entry'
+    'client-entry',
+    'state'
   ]);
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();

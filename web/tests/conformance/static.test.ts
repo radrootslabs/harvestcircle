@@ -10,11 +10,11 @@ await test('actual static shell is prerendered and excludes controlled harness c
     files.some((entry) => entry.isFile() && entry.name === 'index.html')
   );
   const html = await readFile(new URL('index.html', root), 'utf8');
-  assert.match(html, /<h1>HarvestCircle<\/h1>/);
+  assert.match(html, /<a[^>]*href="\/"[^>]*>HarvestCircle<\/a>/);
   assert.match(html, /<title>HarvestCircle<\/title>/);
   const fallback = await readFile(new URL('200.html', root), 'utf8');
   assert.notEqual(fallback, html);
-  assert.doesNotMatch(fallback, /<h1>HarvestCircle<\/h1>/);
+  assert.doesNotMatch(fallback, /<a[^>]*href="\/"[^>]*>HarvestCircle<\/a>/);
   assert.match(fallback, /<script[\s\S]*_app\/immutable/);
   for (const document of [html, fallback]) {
     assert.doesNotMatch(

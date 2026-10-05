@@ -297,3 +297,24 @@
     border: 0;
   }
 }
+
+@layer components {
+  .shell-link {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: var(--control-min-height);
+    max-inline-size: 100%;
+    padding-block: var(--space-2);
+    overflow-wrap: anywhere;
+  }
+  .shell-link[aria-current='page'] {
+    font-weight: var(--font-weight-emphasis);
+    text-decoration: underline;
+  }
+  .skip-link:focus-visible {
+    display: block;
+    min-block-size: var(--control-min-height);
+    padding: var(--space-3) var(--space-4);
+    background: var(--color-surface);
+  }
+}

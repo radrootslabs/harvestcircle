@@ -152,7 +152,10 @@ await test('loopback static fixture serves actual output and closes its listener
   try {
     const result = await fetch(server.url);
     assert.equal(result.status, 200);
-    assert.match(await result.text(), /<h1>HarvestCircle<\/h1>/);
+    assert.match(
+      await result.text(),
+      /<a[^>]*href="\/"[^>]*>HarvestCircle<\/a>/
+    );
     assert.equal((await fetch(`${server.url}/missing.js`)).status, 404);
   } finally {
     await server.close();

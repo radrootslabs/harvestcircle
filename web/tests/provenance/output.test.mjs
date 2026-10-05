@@ -101,8 +101,8 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
     async (t) => {
       const f = await fixture(t);
       const files = await f.audit();
-      // The once-imported theme/compositions add one actual compiled CSS asset.
-      assert.equal(files.length, 16);
+      // The route-state import adds one compiler-owned state chunk; CSS stays once-imported.
+      assert.equal(files.length, 17);
       assert.equal(files.filter((name) => name.endsWith('.css')).length, 1);
       assert.ok(
         files.some((name) =>
@@ -121,6 +121,79 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
       );
     }
   );
+  await t.test(
+    'actual route-state compiler module has an owned client counterpart',
+    async (t) => {
+      const f = await fixture(t);
+      const manifest = JSON.parse(
+        await readFile(
+          path.join(f.web, '.svelte-kit/output/client/.vite/manifest.json'),
+          'utf8'
+        )
+      );
+      const entries = Object.entries(manifest).filter(
+        ([, record]) => record.name === 'state'
+      );
+      assert.equal(entries.length, 1);
+      const [key, state] = entries[0];
+      assert.match(key, /^_[A-Za-z0-9_-]+\.js$/);
+      assert.ok(
+        state.imports.some(
+          /** @param {string} dependency */
+          (dependency) => manifest[dependency].name === 'client.svelte'
+        )
+      );
+      assert.deepEqual(
+        await readFile(path.join(f.web, 'build', state.file)),
+        await readFile(
+          path.join(f.web, '.svelte-kit/output/client', state.file)
+        )
+      );
+      assert.ok((await f.audit()).includes(state.file));
+    }
+  );
+  for (const mutation of [
+    'unknown-name',
+    'duplicate-state',
+    'missing-counterpart',
+    'changed-counterpart'
+  ]) {
+    await t.test('state module fails closed: ' + mutation, async (t) => {
+      const f = await fixture(t);
+      const file = path.join(
+        f.web,
+        '.svelte-kit/output/client/.vite/manifest.json'
+      );
+      const manifest = JSON.parse(await readFile(file, 'utf8'));
+      const state = Object.values(manifest).find(
+        (record) => record.name === 'state'
+      );
+      assert.ok(
+        state,
+        'The actual route-state module must exist before mutation'
+      );
+      if (mutation === 'unknown-name') state.name = 'state-unapproved';
+      if (mutation === 'duplicate-state')
+        manifest['_HCduplicate.js'] = { ...state };
+      if (mutation === 'missing-counterpart')
+        await rm(path.join(f.web, 'build', state.file));
+      if (mutation === 'changed-counterpart')
+        await writeFile(
+          path.join(f.web, 'build', state.file),
+          Buffer.concat([
+            await readFile(path.join(f.web, 'build', state.file)),
+            Buffer.from('changed counterpart')
+          ])
+        );
+      await writeFile(file, JSON.stringify(manifest));
+      await assert.rejects(
+        f.audit,
+        mutation.endsWith('name') || mutation === 'duplicate-state'
+          ? /Undeclared compiler module/
+          : /Static output inventory mismatch|Static output differs from owned compiler input/
+      );
+    });
+  }
   for (const name of [
     'notes.txt',
     '_app/immutable/chunks/innocent.ABC12345.js',
