@@ -3,6 +3,23 @@ import { describe, expect, it } from 'vitest';
 import SearchForm from '../../../src/lib/components/SearchForm.svelte';
 
 describe('shared labelled search form SSR', () => {
+  it('renders a public URL query and linked field error without invoking navigation', () => {
+    const html = render(SearchForm, {
+      props: {
+        initialValue: 'carrots',
+        error: 'Use at most 12 words.',
+        onsubmit: () => {
+          throw new Error('SSR navigation');
+        }
+      }
+    }).body;
+    expect(html).toContain('carrots');
+    expect(html).toContain('Use at most 12 words.');
+    expect(html).toContain('aria-invalid="true"');
+    const id = html.match(/<textarea[^>]* id="([^"]+)"/)?.[1];
+    expect(html).toContain(`id="${id}-error"`);
+    expect(html).toContain(`aria-describedby="${id}-hint ${id}-error"`);
+  });
   it('renders one two-row textarea, visible associated label and example hint', () => {
     const html = render(SearchForm).body;
     expect(html.match(/<textarea\b/g)).toHaveLength(1);

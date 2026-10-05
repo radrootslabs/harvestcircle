@@ -200,6 +200,16 @@ export async function auditOutput(webDirectory) {
   if (!manifestBytes) throw new Error('Missing compiler manifest');
   const manifest = parse(publicText(manifestBytes));
   objectKeys(manifest, Object.keys(manifest));
+  // Exact source-owned search route admission; root-only controlled consumers
+  // retain their original compiler shape. Source ancestry/link bounds also apply.
+  let hasSearch = false;
+  try {
+    await readOwned(web, 'src/routes/search/+page.svelte');
+    hasSearch = true;
+  } catch (error) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT'))
+      throw error;
+  }
   // Admit compiler-owned module identities, not arbitrary extensions/copy roots.
   const names = new Set([
     'entry/app',
@@ -216,6 +226,10 @@ export async function auditOutput(webDirectory) {
     'state',
     'Button'
   ]);
+  if (hasSearch) {
+    names.add('nodes/3');
+    names.add('routes');
+  }
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();
   for (const [key, record] of Object.entries(manifest)) {
@@ -232,8 +246,9 @@ export async function auditOutput(webDirectory) {
     if (!names.has(record.name) || seen.has(record.name))
       throw new Error('Undeclared compiler module');
     seen.add(record.name);
-    const generatedModule =
-      /^\.svelte-kit\/generated\/build\/(?:client-optimized\/(?:app|nodes\/[012])|shared\/error-template)\.js$/;
+    const generatedModule = hasSearch
+      ? /^\.svelte-kit\/generated\/build\/(?:client-optimized\/(?:app|nodes\/[0123])|shared\/error-template)\.js$/
+      : /^\.svelte-kit\/generated\/build\/(?:client-optimized\/(?:app|nodes\/[012])|shared\/error-template)\.js$/;
     const frameworkModule =
       /^node_modules\/\.pnpm\/[^/]+\/node_modules\/@sveltejs\/kit\/src\/runtime\/client\/(?:client-entry|entry|payload)\.js$/;
     if (!(
@@ -311,8 +326,11 @@ export async function auditOutput(webDirectory) {
     expectedMetadata,
     'Compiler provenance mismatch'
   );
-  equal([...pages.keys()], ['index.html'], 'Undeclared prerendered pages');
-  admitted.set('index.html', pages.get('index.html'));
+  const expectedPages = hasSearch
+    ? ['index.html', 'search.html']
+    : ['index.html'];
+  equal([...pages.keys()], expectedPages, 'Undeclared prerendered pages');
+  for (const name of expectedPages) admitted.set(name, pages.get(name));
   // Adapter fallback has no separate disk input. Reconstruct the exact current
   // compiler bootstrap shell from the actual index/manifest/version and source
   // template; future framework/resource shapes require scoped tested admission.
@@ -325,17 +343,28 @@ export async function auditOutput(webDirectory) {
   const app = Object.values(manifest).find(
     (record) => record.name === 'entry/app'
   ).file;
+  const fallbackModules = new Set();
+  const moduleVisited = new Set();
+  /** @param {string} key */
+  function collectModules(key) {
+    if (moduleVisited.has(key)) return;
+    moduleVisited.add(key);
+    const record = manifest[key];
+    fallbackModules.add(record.file);
+    for (const dependency of record.imports ?? []) collectModules(dependency);
+  }
+  for (const [key, record] of Object.entries(manifest))
+    if (
+      ['entry/start', 'entry/app', 'nodes/0', 'client-entry'].includes(
+        record.name
+      )
+    )
+      collectModules(key);
   const preload = [
     ...index.matchAll(/<link href="\.\/([^"<>]+)" rel="modulepreload">/g)
   ]
     .map((match) => match[1])
-    .filter(
-      (file) =>
-        !file.startsWith('_app/immutable/nodes/') ||
-        file ===
-          Object.values(manifest).find((record) => record.name === 'nodes/0')
-            .file
-    );
+    .filter((file) => fallbackModules.has(file));
   if (!preload.length || preload.some((file) => !admitted.has(file)))
     throw new Error('Invalid compiler preloads');
   const fallbackCSS = new Set();

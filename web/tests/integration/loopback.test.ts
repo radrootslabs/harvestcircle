@@ -41,6 +41,13 @@ await test('navigation fallback serves actual separate output and preserves miss
     new URL('../../build/200.html', import.meta.url),
     'utf8'
   );
+  const search = await readFile(
+    new URL('../../build/search.html', import.meta.url),
+    'utf8'
+  );
+  assert.notEqual(search, fallback);
+  assert.match(search, /<title>Search food — HarvestCircle<\/title>/);
+  assert.match(search, /Search data is unavailable during development\./);
   const document = { accept: 'text/html', 'sec-fetch-dest': 'document' };
   try {
     for (const pathname of [
@@ -58,7 +65,10 @@ await test('navigation fallback serves actual separate output and preserves miss
       const result = await fetch(server.url + pathname, { headers: document });
       assert.equal(result.status, 200, pathname);
       assert.equal(result.headers.get('content-type'), 'text/html');
-      assert.equal(await result.text(), fallback);
+      assert.equal(
+        await result.text(),
+        pathname === '/search?q=food' ? search : fallback
+      );
     }
     for (const pathname of [
       '/missing.js',

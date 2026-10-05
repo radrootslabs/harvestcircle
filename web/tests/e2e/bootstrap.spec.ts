@@ -98,10 +98,10 @@ test('actual browser loads guest shell without an extension', async ({
     ).toBeVisible();
     await expect(
       page.getByRole('button', { name: 'Search', exact: true })
-    ).toBeDisabled();
+    ).toBeEnabled();
     await expect(
       page.getByText('Search is unavailable during development.')
-    ).toBeVisible();
+    ).toHaveCount(0);
     await query.fill('carrots');
     await query.press('Enter');
     await expect(query).toHaveValue('carrots\n');
@@ -111,9 +111,10 @@ test('actual browser loads guest shell without an extension', async ({
         cancelable: true
       });
       if (form.dispatchEvent(event))
-        throw new Error('Unavailable submit was not prevented');
+        throw new Error('Native search submit was not prevented');
     });
-    expect(new URL(page.url()).pathname).toBe('/');
+    await expect(page).toHaveURL(server.url + '/search?q=carrots');
+    await page.goto(server.url);
     // Start the existing skip-link keyboard check from the document again.
     await page.reload();
     await expect(page.getByRole('main')).toHaveCount(1);

@@ -3,13 +3,17 @@
   import Button from './primitives/Button.svelte';
   let {
     onsubmit,
+    initialValue = '',
+    error,
     disabled = false
   }: {
     onsubmit?: (input: string) => void;
+    initialValue?: string;
+    error?: string;
     disabled?: boolean;
   } = $props();
   const id = $props.id();
-  let input = $state('');
+  let input = $derived(initialValue);
   let composing = $state(false);
   const unavailable = $derived(disabled || !onsubmit);
   function submit(event: SubmitEvent) {
@@ -27,6 +31,7 @@
     {id}
     label="What are you looking for?"
     hint="For example, carrots or carrots Victoria."
+    {error}
   >
     {#snippet control({ id, describedby, invalid })}
       <textarea

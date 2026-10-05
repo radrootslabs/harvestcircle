@@ -27,14 +27,16 @@ describe('static guest shell', () => {
     expect(prerender).toBe(true);
     expect(ssr).toBe(true);
   });
-  it('renders the shared anonymous form exactly once with honest unavailable submission', () => {
+  it('renders the shared anonymous form exactly once with an explicit search caller', () => {
     const html = render(Shell).body;
     expect(html.match(/<textarea\b/g)).toHaveLength(1);
     expect(html).toContain('What are you looking for?');
     expect(html).toContain('For example, carrots or carrots Victoria.');
     expect(html).toContain('rows="2"');
-    expect(html).toMatch(/<button[^>]*type="submit"[^>]*disabled[^>]*>Search/);
-    expect(html).toContain('Search is unavailable during development.');
+    expect(html).not.toMatch(
+      /<button[^>]*type="submit"[^>]*disabled[^>]*>Search/
+    );
+    expect(html).not.toContain('Search is unavailable during development.');
     expect(html).not.toContain('<h1>');
   });
   it('composes the actual shared shell and preserves the route body without a global h1', () => {

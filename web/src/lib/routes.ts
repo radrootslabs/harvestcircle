@@ -1,6 +1,17 @@
 import { decodeProductReference } from './nostr/references';
 import { internalHref } from './navigation-url';
 import { canonicalLocalId } from './private-handles';
+import { normalizePublicQuery, readPublicQuery } from './catalog/query-input';
+
+export function searchHref(input: unknown): string | undefined {
+  const query = normalizePublicQuery(input);
+  if (!query.ok) return undefined;
+  const params = new URLSearchParams();
+  if (query.text !== '') params.set('q', query.text);
+  return internalHref(
+    params.size === 0 ? '/search' : `/search?${params.toString()}`
+  );
+}
 
 export function staticHref(input: unknown): string | undefined {
   switch (input) {
@@ -28,6 +39,21 @@ export function conversationHref(input: unknown): string | undefined {
 }
 
 export function safeContextBack(input: unknown): string | undefined {
+  if (
+    typeof input === 'string' &&
+    input.length <= 8192 &&
+    input.startsWith('/search?') &&
+    !input.includes('#')
+  ) {
+    try {
+      const query = readPublicQuery(
+        new URL(input, 'https://navigation.invalid')
+      );
+      return query.ok ? searchHref(query.text) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
   if (input === '/search' || input === '/selling' || input === '/messages')
     return internalHref(input);
   if (

@@ -20,7 +20,11 @@ import { fileURLToPath } from 'node:url';
 import { generateBuildInfo } from '../../tools/build-info.mjs';
 import { auditOutput } from '../../tools/check-output.mjs';
 
-await test('actual output qualification', { timeout: 30000 }, async (t) => {
+// Allow bounded setup/copy time for all 73 checks and two real compilations.
+// Admission checks get 10 seconds; cold compiler work gets 60 seconds.
+await test('actual output qualification', { timeout: 180000 }, async (t) => {
+  /** @param {string} name @param {(context: import('node:test').TestContext) => Promise<void>} run @param {number} [timeout] */
+  const check = (name, run, timeout = 10000) => t.test(name, { timeout }, run);
   const source = fileURLToPath(new URL('../../../', import.meta.url));
   const base = await mkdtemp(path.join(os.tmpdir(), 'hc actual output '));
   t.after(() => rm(base, { recursive: true, force: true }));
@@ -80,7 +84,7 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
   execFileSync(
     process.execPath,
     [path.join(source, 'web/node_modules/vite/bin/vite.js'), 'build'],
-    { cwd: path.join(base, 'web'), stdio: 'pipe', timeout: 10000 }
+    { cwd: path.join(base, 'web'), stdio: 'pipe', timeout: 60000 }
   );
 
   /** @param {import('node:test').TestContext} t */
@@ -89,20 +93,30 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
       await mkdtemp(path.join(os.tmpdir(), 'hc output mutation '))
     );
     t.after(() => rm(root, { recursive: true, force: true }));
+    // Audit consumers use actual client/prerendered/build bytes and all source
+    // inputs. Server output and generated development/type caches are not audit
+    // inputs; avoid copying them for every mutation under the fixed deadline.
+    const excluded = new Set([
+      path.join(base, 'web/node_modules'),
+      path.join(base, 'web/.svelte-kit/output/server'),
+      path.join(base, 'web/.svelte-kit/generated'),
+      path.join(base, 'web/.svelte-kit/types')
+    ]);
     await cp(base, root, {
       recursive: true,
-      filter: (name) => name !== path.join(base, 'web/node_modules')
+      filter: (name) => !excluded.has(name)
     });
     const web = path.join(root, 'web');
     return { root, web, audit: () => auditOutput(web) };
   }
-  await t.test(
+  await check(
     'actual compiled payload passes and build dispatch invokes the guard last',
     async (t) => {
       const f = await fixture(t);
       const files = await f.audit();
-      // Shared unchanged Button now serves both shell and form; CSS stays once-imported.
-      assert.equal(files.length, 18);
+      // Exact new search node/shared routes chunk/page; CSS stays once-imported.
+      assert.equal(files.length, 21);
+      assert.ok(files.includes('search.html'));
       assert.equal(files.filter((name) => name.endsWith('.css')).length, 1);
       assert.ok(
         files.some((name) =>
@@ -121,7 +135,64 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
       );
     }
   );
-  await t.test(
+  await check(
+    'search route admission requires its owned source and exact module/page counterparts',
+    async (t) => {
+      const f = await fixture(t);
+      const source = path.join(f.web, 'src/routes/search/+page.svelte');
+      const original = await readFile(source);
+      await rm(source);
+      git(f.root, 'add', '--', 'web/src/routes/search/+page.svelte');
+      await generateBuildInfo(f.web);
+      const metadata = await readFile(
+        path.join(f.web, 'static/build-info.json')
+      );
+      await writeFile(path.join(f.web, 'build/build-info.json'), metadata);
+      await writeFile(
+        path.join(f.web, '.svelte-kit/output/client/build-info.json'),
+        metadata
+      );
+      await assert.rejects(f.audit, /Undeclared compiler module/);
+      await writeFile(source, original);
+    }
+  );
+  for (const mutation of [
+    'unknown-name',
+    'duplicate',
+    'missing-module',
+    'missing-page',
+    'changed-page'
+  ]) {
+    await check(
+      'exact search compiler admission rejects ' + mutation,
+      async (t) => {
+        const f = await fixture(t);
+        const file = path.join(
+          f.web,
+          '.svelte-kit/output/client/.vite/manifest.json'
+        );
+        const manifest = JSON.parse(await readFile(file, 'utf8'));
+        const entry = Object.entries(manifest).find(
+          ([, record]) => record.name === 'routes'
+        );
+        assert.ok(entry, 'The actual shared routes module must exist');
+        const [key, module] = entry;
+        if (mutation === 'unknown-name') module.name = 'unapproved-routes';
+        if (mutation === 'duplicate') manifest.duplicate = { ...module };
+        if (mutation === 'missing-module') delete manifest[key];
+        if (mutation === 'missing-page')
+          await rm(path.join(f.web, 'build/search.html'));
+        if (mutation === 'changed-page')
+          await writeFile(
+            path.join(f.web, 'build/search.html'),
+            '<h1>Different source</h1>'
+          );
+        await writeFile(file, JSON.stringify(manifest));
+        await assert.rejects(f.audit);
+      }
+    );
+  }
+  await check(
     'actual route-state compiler module has an owned client counterpart',
     async (t) => {
       const f = await fixture(t);
@@ -158,7 +229,7 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
     'missing-counterpart',
     'changed-counterpart'
   ]) {
-    await t.test('state module fails closed: ' + mutation, async (t) => {
+    await check('state module fails closed: ' + mutation, async (t) => {
       const f = await fixture(t);
       const file = path.join(
         f.web,
@@ -194,7 +265,7 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
       );
     });
   }
-  await t.test(
+  await check(
     'actual shared Button compiler module has an owned client counterpart',
     async (t) => {
       const f = await fixture(t);
@@ -238,7 +309,7 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
     'missing-counterpart',
     'changed-counterpart'
   ]) {
-    await t.test('Button module fails closed: ' + mutation, async (t) => {
+    await check('Button module fails closed: ' + mutation, async (t) => {
       const f = await fixture(t);
       const file = path.join(
         f.web,
@@ -282,7 +353,7 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
     'source.map',
     'contracts/vector.json'
   ]) {
-    await t.test(`undeclared copied output is rejected: ${name}`, async (t) => {
+    await check(`undeclared copied output is rejected: ${name}`, async (t) => {
       const f = await fixture(t);
       const file = path.join(f.web, 'build', name);
       await mkdir(path.dirname(file), { recursive: true });
@@ -303,7 +374,7 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
     Buffer.from('private_transcript: controlled disclosure'),
     Buffer.from('class TestSigner {}')
   ]) {
-    await t.test(
+    await check(
       `manifest-admitted contamination ${payload.subarray(0, 18).toString('hex')}`,
       async (t) => {
         const f = await fixture(t);
@@ -329,7 +400,7 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
     '_app/version.json',
     'build-info.json'
   ]) {
-    await t.test(`missing/tampered owned output: ${name}`, async (t) => {
+    await check(`missing/tampered owned output: ${name}`, async (t) => {
       const f = await fixture(t);
       const file = path.join(f.web, 'build', name);
       const original = await readFile(file);
@@ -349,7 +420,7 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
     'source',
     'generated'
   ]) {
-    await t.test(`provenance fails closed: ${mutation}`, async (t) => {
+    await check(`provenance fails closed: ${mutation}`, async (t) => {
       const f = await fixture(t);
       const metadata = JSON.parse(
         await readFile(path.join(f.web, 'build/build-info.json'), 'utf8')
@@ -391,7 +462,7 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
     'oversize',
     'parent'
   ]) {
-    await t.test(`unsafe output refuses ${kind} promptly`, async (t) => {
+    await check(`unsafe output refuses ${kind} promptly`, async (t) => {
       const f = await fixture(t);
       const file = path.join(f.web, 'build/index.html');
       await rm(file);
@@ -409,7 +480,7 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
       await assert.rejects(f.audit);
     });
   }
-  await t.test(
+  await check(
     'compiler manifest cannot authorize arbitrary resources, escapes or unresolved imports',
     async (t) => {
       const f = await fixture(t);
@@ -435,7 +506,7 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
     }
   );
 
-  await t.test(
+  await check(
     'generated provenance must remain ignored even when freshly regenerated',
     async (t) => {
       const f = await fixture(t);
@@ -447,10 +518,12 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
   for (const name of [
     'static/build-info.json',
     '.svelte-kit/output/client/.vite/manifest.json',
-    '.svelte-kit/output/prerendered/pages/index.html'
+    '.svelte-kit/output/prerendered/pages/index.html',
+    '.svelte-kit/output/prerendered/pages/search.html',
+    'src/routes/search/+page.svelte'
   ]) {
     for (const kind of ['fifo', 'symlink', 'hardlink']) {
-      await t.test(
+      await check(
         `unsafe compiler/static counterpart ${name}: ${kind}`,
         async (t) => {
           const f = await fixture(t);
@@ -466,7 +539,7 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
       );
     }
   }
-  await t.test(
+  await check(
     'empty output directory and excessive depth are rejected',
     async (t) => {
       const f = await fixture(t);
@@ -479,7 +552,7 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
       await assert.rejects(f.audit);
     }
   );
-  await t.test(
+  await check(
     'forged public output failures do not echo private poisoned bytes',
     async (t) => {
       const f = await fixture(t);
@@ -489,7 +562,7 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
       await assert.rejects(f.audit, (error) => !String(error).includes(marker));
     }
   );
-  await t.test(
+  await check(
     'output entry and aggregate-byte bounds reject oversized inventories',
     async (t) => {
       const f = await fixture(t);
@@ -520,7 +593,7 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
       await assert.rejects(f.audit, /Unbounded output bytes/);
     }
   );
-  await t.test(
+  await check(
     'actual compiler admits nonempty approved theme/app CSS',
     async () => {
       const layout = path.join(base, 'web/src/routes/+layout.svelte');
@@ -542,11 +615,12 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
       await generateBuildInfo(path.join(base, 'web'));
       execFileSync(
         process.execPath,
-        [path.join(base, 'web/node_modules/vite/bin/vite.js'), 'build'],
-        { cwd: path.join(base, 'web'), stdio: 'pipe', timeout: 10000 }
+        [path.join(source, 'web/node_modules/vite/bin/vite.js'), 'build'],
+        { cwd: path.join(base, 'web'), stdio: 'pipe', timeout: 60000 }
       );
       const files = await auditOutput(await realpath(path.join(base, 'web')));
       assert.ok(files.some((name) => name.endsWith('.css')));
-    }
+    },
+    60000
   );
 });
