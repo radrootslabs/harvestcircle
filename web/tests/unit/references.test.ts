@@ -29,6 +29,32 @@ const wrap = (data: Uint8Array) =>
   bech32.encode('naddr', bech32.toWords(data), 2048);
 
 describe('bounded exact product references', () => {
+  it('ignores extra relay hints when encoding the same raw coordinate', () => {
+    const coordinate = { kind: 30402, pubkey, identifier: 'Carrots:菜' };
+    const subtype = {
+      ...coordinate,
+      relays: ['wss://example.invalid/' + 'x'.repeat(2500)]
+    };
+    expect(encodeProductReference(subtype)).toBe(
+      pointers.naddrEncode(coordinate)
+    );
+  });
+  it('never reads extra relay getters during coordinate encoding', () => {
+    const coordinate = { kind: 30402, pubkey, identifier: 'Carrots:菜' };
+    const read = vi.fn(() => {
+      throw new Error('Extra relay field read');
+    });
+    const subtype = {
+      ...coordinate,
+      get relays() {
+        return read();
+      }
+    };
+    expect(encodeProductReference(subtype)).toBe(
+      pointers.naddrEncode(coordinate)
+    );
+    expect(read).not.toHaveBeenCalled();
+  });
   for (const row of oracle.coordinate_cases)
     it(`Rust raw identifier ${JSON.stringify(row.identifier)}`, () => {
       const input = encode(row.identifier);

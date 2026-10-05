@@ -1323,7 +1323,7 @@ export async function auditSource(root) {
         import: '@scure/base',
         file: 'src/lib/nostr/references.ts',
         sha256:
-          'b6a2ee32e89b60410bd84f5bbf2adc464d4f9d4d29b6a067e75927540b006ac4'
+          'b417864961a184cab732bebab4fb35089034dbb6a742068d2742f7b353525d80'
       }
     };
     const primitive = Object.hasOwn(primitiveAdmissions, actualName)

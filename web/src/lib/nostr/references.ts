@@ -88,19 +88,20 @@ export function decodeProductReference(
 export function encodeProductReference(
   value: Readonly<{ kind: number; pubkey: string; identifier: string }>
 ): string | undefined {
+  const { kind, pubkey, identifier } = value;
   if (
-    value.kind !== 30402 ||
-    canonicalPublicKey(value.pubkey) === undefined ||
-    typeof value.identifier !== 'string' ||
-    !value.identifier.isWellFormed() ||
-    value.identifier.length > 255 ||
-    encoder.encode(value.identifier).length > 255
+    kind !== 30402 ||
+    canonicalPublicKey(pubkey) === undefined ||
+    typeof identifier !== 'string' ||
+    !identifier.isWellFormed() ||
+    identifier.length > 255 ||
+    encoder.encode(identifier).length > 255
   )
     return undefined;
   try {
-    const encoded = naddrEncode(value);
+    const encoded = naddrEncode({ kind: 30402, pubkey, identifier });
     const decoded = decodeProductReference(encoded);
-    return decoded?.identifier === value.identifier ? decoded.naddr : undefined;
+    return decoded?.identifier === identifier ? decoded.naddr : undefined;
   } catch {
     return undefined;
   }
