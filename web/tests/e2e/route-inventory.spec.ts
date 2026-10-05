@@ -10,6 +10,83 @@ const naddr = encodeProductReference({
 });
 if (!naddr) throw new Error('Qualified coordinate could not be encoded');
 const handle = '12345678-1234-4234-8234-123456789abc';
+// Current-source applicability only: public shipment history remains unknown.
+test('current source has no revision-one aliases or query-driven redirects', async ({
+  browser
+}) => {
+  const server = await createStaticHarness();
+  const context = await browser.newContext();
+  const external: string[] = [];
+  const errors: string[] = [];
+  try {
+    await context.route('**/*', (route) => {
+      if (new URL(route.request().url()).origin === server.url)
+        return route.continue();
+      external.push(route.request().url());
+      return route.abort();
+    });
+    await context.addInitScript(() => {
+      for (const name of ['indexedDB', 'nostr', 'WebSocket'])
+        Object.defineProperty(window, name, {
+          configurable: true,
+          get() {
+            throw new Error('Guest attempted ' + name);
+          }
+        });
+    });
+    for (const pathname of [
+      '/products',
+      '/products?q=carrots',
+      '/my-listings'
+    ]) {
+      const response = await context.request.get(server.url + pathname, {
+        headers: { accept: 'text/html' },
+        maxRedirects: 0
+      });
+      expect(response.status()).toBe(404);
+      expect(response.headers().location).toBeUndefined();
+      expect(await response.text()).toBe('');
+    }
+    const page = await context.newPage();
+    page.on('pageerror', (error) => errors.push(error.message));
+    for (const query of [
+      new URLSearchParams({ draft: handle }),
+      new URLSearchParams({ edit: naddr }),
+      new URLSearchParams({
+        draft: handle,
+        edit: naddr,
+        returnTo: 'https://outside.invalid/'
+      })
+    ]) {
+      const target = server.url + '/sell?' + query.toString();
+      expect((await page.goto(target))?.status()).toBe(200);
+      await expect(
+        page.getByRole('heading', { name: 'Connect or unlock', exact: true })
+      ).toBeVisible();
+      expect(page.url()).toBe(target);
+      // Exercise the real initialized client and Back, rather than SSR alone.
+      await page.getByRole('link', { name: 'Search', exact: true }).click();
+      await expect(page.getByLabel('What are you looking for?')).toBeEnabled();
+      await page.goBack();
+      await expect(
+        page.getByRole('heading', { name: 'Connect or unlock', exact: true })
+      ).toBeVisible();
+      expect(page.url()).toBe(target);
+      await expect(
+        page.locator('main input, main textarea, main form')
+      ).toHaveCount(0);
+      expect(await page.locator('main').textContent()).not.toContain(handle);
+      expect(await page.locator('main').textContent()).not.toContain(naddr);
+    }
+    expect(external).toEqual([]);
+    expect(errors).toEqual([]);
+  } finally {
+    await context.close();
+    await server.close();
+  }
+  expect(context.pages()).toHaveLength(0);
+  expect(server.state()).toEqual({ listening: false, childProcesses: 0 });
+});
 const cases = [
   { path: '/', title: 'HarvestCircle', private: false },
   { path: '/search', title: 'Search food — HarvestCircle', private: false },
