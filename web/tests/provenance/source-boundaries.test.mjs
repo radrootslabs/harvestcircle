@@ -310,6 +310,97 @@ for (const [name, content, diagnostic] of [
       reject(execute(), diagnostic);
     });
   });
+for (const themePresent of [false, true])
+  test(`HCP011 admits ${themePresent ? 'unimported theme primitives' : 'bootstrap without CSS'}`, async () => {
+    await fixture(async ({ put, execute }) => {
+      if (themePresent)
+        await put('src/theme.css', ':root { --color-page: #ffffff; }');
+      await put('src/routes/+layout.svelte', '<p>shell</p>');
+      const result = execute();
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+    });
+  });
+
+for (const [name, themePresent, appPresent, owner, imports, diagnostic] of [
+  ['app only', false, true, '+layout.svelte', '', /exactly once/],
+  [
+    'theme imported without app',
+    true,
+    false,
+    '+layout.svelte',
+    'import "../theme.css";',
+    /exactly once/
+  ],
+  [
+    'app imported without theme',
+    false,
+    true,
+    '+layout.svelte',
+    'import "../app.css";',
+    /exactly once/
+  ],
+  ['both missing imports', true, true, '+layout.svelte', '', /exactly once/],
+  [
+    'theme-only partial import',
+    true,
+    true,
+    '+layout.svelte',
+    'import "../theme.css";',
+    /exactly once/
+  ],
+  [
+    'app-only partial import',
+    true,
+    true,
+    '+layout.svelte',
+    'import "../app.css";',
+    /exactly once/
+  ],
+  [
+    'duplicate import',
+    true,
+    true,
+    '+layout.svelte',
+    'import "../theme.css"; import "../theme.css"; import "../app.css";',
+    /exactly once/
+  ],
+  [
+    'reversed import',
+    true,
+    true,
+    '+layout.svelte',
+    'import "../app.css"; import "../theme.css";',
+    /exactly once/
+  ],
+  [
+    'wrong owner',
+    true,
+    true,
+    '+page.svelte',
+    'import "../theme.css"; import "../app.css";',
+    /root layout/
+  ]
+])
+  test(`HCP011 rejects CSS lifecycle ${name}`, async () => {
+    await fixture(async ({ put, execute }) => {
+      if (
+        typeof owner !== 'string' ||
+        typeof imports !== 'string' ||
+        !(diagnostic instanceof RegExp)
+      )
+        throw new Error('Invalid CSS lifecycle case');
+      if (themePresent)
+        await put('src/theme.css', ':root { --color-page: #ffffff; }');
+      if (appPresent)
+        await put('src/app.css', 'p { color: var(--color-page); }');
+      await put(
+        `src/routes/${owner}`,
+        `<script>${imports}</script><p>shell</p>`
+      );
+      reject(execute(), diagnostic);
+    });
+  });
+
 test('two CSS paths must be imported once in order by root layout', async () => {
   await fixture(async ({ put, execute }) => {
     await put('src/theme.css', ':root { --color: black }');

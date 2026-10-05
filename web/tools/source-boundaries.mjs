@@ -2066,8 +2066,14 @@ export async function auditSource(root) {
   const presentCss = [...allowedCss].filter((file) =>
     files.has(path.join(root, file))
   );
+  // Primitives may precede compositions; importing either file activates the complete pair contract.
+  const unimportedTheme =
+    presentCss.length === 1 &&
+    presentCss[0] === 'src/theme.css' &&
+    cssImports.length === 0;
   if (
     presentCss.length &&
+    !unimportedTheme &&
     (presentCss.length !== 2 ||
       cssImports.join(',') !== 'src/theme.css,src/app.css')
   )
