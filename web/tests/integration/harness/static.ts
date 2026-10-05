@@ -42,9 +42,12 @@ function acceptsHtml(accept: string) {
   });
 }
 
-export async function createStaticHarness() {
+export async function createStaticHarness(
+  options: { buildRoot?: string } = {}
+) {
   const root = await realpath(
-    fileURLToPath(new URL('../../../build/', import.meta.url))
+    options.buildRoot ??
+      fileURLToPath(new URL('../../../build/', import.meta.url))
   );
   const server = createServer((request, response) => {
     void (async () => {
