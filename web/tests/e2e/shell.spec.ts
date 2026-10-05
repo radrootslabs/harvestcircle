@@ -242,6 +242,9 @@ for (const width of [320, 1024]) {
       const page = await context.newPage();
       await page.goto(server.url);
       const skip = page.getByRole('link', { name: 'Skip to main content' });
+      await expect(
+        page.getByRole('button', { name: 'Connect extension' })
+      ).toBeEnabled();
       await page.keyboard.press('Tab');
       await expect(skip).toBeFocused();
       await expect(skip).toBeVisible();
@@ -267,7 +270,11 @@ for (const width of [320, 1024]) {
         'List food',
         'Connect extension'
       ]);
-      await page.getByRole('button', { name: 'Connect extension' }).focus();
+      const guestConnect = page.getByRole('button', {
+        name: 'Connect extension'
+      });
+      await guestConnect.focus();
+      await expect(guestConnect).toBeFocused();
       await page.keyboard.press('Enter');
       await expect(page.getByRole('status')).toHaveText('Commands: 1');
       await expect(primary).toContainText(
@@ -320,6 +327,7 @@ for (const width of [320, 1024]) {
         .getByRole('button', { name: 'Toggle command availability' })
         .click();
       await disconnect.focus();
+      await expect(disconnect).toBeFocused();
       await page.keyboard.press('Enter');
       await expect(page.getByRole('status')).toHaveText('Commands: 2');
       await page
@@ -341,3 +349,58 @@ for (const width of [320, 1024]) {
     expect(context.pages()).toHaveLength(0);
   });
 }
+
+test('controlled shell callbacks become available only after actual hydration', async ({
+  browser
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 320, height: 900 }
+  });
+  let releaseScripts!: () => void;
+  const scriptsReady = new Promise<void>((resolve) => {
+    releaseScripts = resolve;
+  });
+  let delayedScripts = 0;
+  const external: string[] = [];
+  try {
+    await context.route('**/*', async (route) => {
+      if (new URL(route.request().url()).origin !== server.url) {
+        external.push(route.request().url());
+        return route.abort();
+      }
+      if (new URL(route.request().url()).pathname.endsWith('.js')) {
+        delayedScripts++;
+        await scriptsReady;
+      }
+      return route.continue();
+    });
+    const page = await context.newPage();
+    await page.goto(server.url, { waitUntil: 'commit' });
+    const connect = page.getByRole('button', { name: 'Connect extension' });
+    await expect(
+      page.getByRole('heading', { name: 'HC_TEST_ONLY_SHELL' })
+    ).toBeVisible();
+    await expect.poll(() => delayedScripts).toBeGreaterThan(0);
+    await expect(connect).toBeDisabled();
+    await expect(page.getByRole('status')).toHaveText('Commands: 0');
+    releaseScripts();
+    await expect(connect).toBeEnabled();
+    await connect.focus();
+    await expect(connect).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('status')).toHaveText('Commands: 1');
+    const identity = page.locator('summary');
+    await identity.focus();
+    await expect(identity).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('details')).toHaveAttribute('open', '');
+    await expect(
+      page.getByRole('button', { name: 'Disconnect', exact: true })
+    ).toBeEnabled();
+    expect(external).toEqual([]);
+  } finally {
+    releaseScripts();
+    await context.close();
+  }
+  expect(context.pages()).toHaveLength(0);
+});

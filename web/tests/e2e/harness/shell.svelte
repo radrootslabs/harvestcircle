@@ -1,8 +1,13 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import AppShell from '../../../src/lib/components/AppShell.svelte';
   let connected = $state(false);
   let commands = $state(0);
   let enabled = $state(true);
+  let ready = $state(false);
+  onMount(() => {
+    ready = true;
+  });
   const publicKey = 'HC_TEST_ONLY_PUBLIC_KEY_' + 'a'.repeat(64);
   function connect() {
     commands++;
@@ -21,9 +26,9 @@
     ? {
         kind: 'connected',
         publicKey,
-        ondisconnect: enabled ? disconnect : undefined
+        ondisconnect: ready && enabled ? disconnect : undefined
       }
-    : { kind: 'guest', onconnect: enabled ? connect : undefined }}
+    : { kind: 'guest', onconnect: ready && enabled ? connect : undefined }}
 >
   <h1>HC_TEST_ONLY_SHELL</h1>
   <p role="status">Commands: {commands}</p>
