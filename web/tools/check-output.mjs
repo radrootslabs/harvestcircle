@@ -213,7 +213,8 @@ export async function auditOutput(webDirectory) {
     'client',
     'client.svelte',
     'client-entry',
-    'state'
+    'state',
+    'Button'
   ]);
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();

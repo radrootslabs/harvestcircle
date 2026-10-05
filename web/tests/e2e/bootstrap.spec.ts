@@ -88,6 +88,34 @@ test('actual browser loads guest shell without an extension', async ({
       page.getByRole('link', { name: 'HarvestCircle', exact: true })
     ).toBeVisible();
     await expect(page).toHaveTitle('HarvestCircle');
+    const query = page.getByRole('textbox', {
+      name: 'What are you looking for?'
+    });
+    await expect(query).toHaveCount(1);
+    await expect(query).toHaveAttribute('rows', '2');
+    await expect(
+      page.getByText('For example, carrots or carrots Victoria.')
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Search', exact: true })
+    ).toBeDisabled();
+    await expect(
+      page.getByText('Search is unavailable during development.')
+    ).toBeVisible();
+    await query.fill('carrots');
+    await query.press('Enter');
+    await expect(query).toHaveValue('carrots\n');
+    await page.locator('form').evaluate((form) => {
+      const event = new SubmitEvent('submit', {
+        bubbles: true,
+        cancelable: true
+      });
+      if (form.dispatchEvent(event))
+        throw new Error('Unavailable submit was not prevented');
+    });
+    expect(new URL(page.url()).pathname).toBe('/');
+    // Start the existing skip-link keyboard check from the document again.
+    await page.reload();
     await expect(page.getByRole('main')).toHaveCount(1);
     await expect(
       page.getByRole('navigation', { name: 'Primary', exact: true })

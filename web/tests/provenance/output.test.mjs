@@ -101,8 +101,8 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
     async (t) => {
       const f = await fixture(t);
       const files = await f.audit();
-      // The route-state import adds one compiler-owned state chunk; CSS stays once-imported.
-      assert.equal(files.length, 17);
+      // Shared unchanged Button now serves both shell and form; CSS stays once-imported.
+      assert.equal(files.length, 18);
       assert.equal(files.filter((name) => name.endsWith('.css')).length, 1);
       assert.ok(
         files.some((name) =>
@@ -189,6 +189,86 @@ await test('actual output qualification', { timeout: 30000 }, async (t) => {
       await assert.rejects(
         f.audit,
         mutation.endsWith('name') || mutation === 'duplicate-state'
+          ? /Undeclared compiler module/
+          : /Static output inventory mismatch|Static output differs from owned compiler input/
+      );
+    });
+  }
+  await t.test(
+    'actual shared Button compiler module has an owned client counterpart',
+    async (t) => {
+      const f = await fixture(t);
+      const manifest = JSON.parse(
+        await readFile(
+          path.join(f.web, '.svelte-kit/output/client/.vite/manifest.json'),
+          'utf8'
+        )
+      );
+      const entries = Object.entries(manifest).filter(
+        ([, record]) => record.name === 'Button'
+      );
+      assert.equal(entries.length, 1);
+      const [key, button] = entries[0];
+      assert.match(key, /^_[A-Za-z0-9_-]+\.js$/);
+      assert.ok(
+        button.imports.some(
+          /** @param {string} dependency */
+          (dependency) => manifest[dependency].name === 'client'
+        )
+      );
+      for (const consumer of ['nodes/0', 'nodes/2']) {
+        assert.ok(
+          Object.values(manifest).some(
+            (record) => record.name === consumer && record.imports.includes(key)
+          )
+        );
+      }
+      assert.deepEqual(
+        await readFile(path.join(f.web, 'build', button.file)),
+        await readFile(
+          path.join(f.web, '.svelte-kit/output/client', button.file)
+        )
+      );
+      assert.ok((await f.audit()).includes(button.file));
+    }
+  );
+  for (const mutation of [
+    'unknown-name',
+    'duplicate-Button',
+    'missing-counterpart',
+    'changed-counterpart'
+  ]) {
+    await t.test('Button module fails closed: ' + mutation, async (t) => {
+      const f = await fixture(t);
+      const file = path.join(
+        f.web,
+        '.svelte-kit/output/client/.vite/manifest.json'
+      );
+      const manifest = JSON.parse(await readFile(file, 'utf8'));
+      const state = Object.values(manifest).find(
+        (record) => record.name === 'Button'
+      );
+      assert.ok(
+        state,
+        'The actual shared Button module must exist before mutation'
+      );
+      if (mutation === 'unknown-name') state.name = 'Button-unapproved';
+      if (mutation === 'duplicate-Button')
+        manifest['_HCduplicate.js'] = { ...state };
+      if (mutation === 'missing-counterpart')
+        await rm(path.join(f.web, 'build', state.file));
+      if (mutation === 'changed-counterpart')
+        await writeFile(
+          path.join(f.web, 'build', state.file),
+          Buffer.concat([
+            await readFile(path.join(f.web, 'build', state.file)),
+            Buffer.from('changed counterpart')
+          ])
+        );
+      await writeFile(file, JSON.stringify(manifest));
+      await assert.rejects(
+        f.audit,
+        mutation.endsWith('name') || mutation === 'duplicate-Button'
           ? /Undeclared compiler module/
           : /Static output inventory mismatch|Static output differs from owned compiler input/
       );
