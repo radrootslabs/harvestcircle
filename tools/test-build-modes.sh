@@ -175,8 +175,19 @@ tool=${0##*/}
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' "$tool" "$PWD" "${HCR_TEST_ROUTED:-no}" "${HARVESTCIRCLE_BUILD_SOURCE_COMMIT:-}" "${HARVESTCIRCLE_BUILD_SOURCE_DIRTY:-}" "${HARVESTCIRCLE_BUILD_RADROOTS_REVISION:-}" "${SOURCE_DATE_EPOCH:-}" >> "$HCR_TEST_LOG"
 printf '\t%s' "$@" >> "$HCR_TEST_LOG"
 printf '\n' >> "$HCR_TEST_LOG"
+if [ "$tool" = "${HCR_TEST_FAIL_TOOL:-}" ]; then
+    case " $* " in
+        *" ${HCR_TEST_FAIL_ARGUMENT:-} "*) exit 91 ;;
+    esac
+fi
 case "$tool" in
-    node|npm|pnpm|npx|corepack) exit 94 ;;
+    node|corepack)
+        [ "${HCR_TEST_RUNTIME:-native}" = web ] || exit 94
+        ;;
+    java|gradlew)
+        [ "${HCR_TEST_RUNTIME:-native}" = native ] || exit 94
+        ;;
+    npm|pnpm|npx) exit 94 ;;
     cargo)
         if [ "${1:-}" = +1.97.1 ]; then shift; fi
         if [ "${1:-}" = extbuild ]; then
@@ -191,8 +202,19 @@ case "$tool" in
                 *) exit 92 ;;
             esac
         fi
+        [ "${HCR_TEST_RUNTIME:-native}" = native ] || exit 94
         ;;
 esac
+# These are disposable build-output stand-ins, never primary build caches.
+if [ "${HCR_TEST_CLEAN:-no}" = yes ]; then
+    [ "$PWD" = "$HCR_TEST_CHECKOUT" ] || exit 92
+    case "$tool:$*" in
+        'cargo:clean --manifest-path core/Cargo.toml') rm -rf core/target ;;
+        'cargo:clean --manifest-path tools/xtask/Cargo.toml') rm -rf tools/xtask/target ;;
+        'gradlew:--no-daemon clean') rm -rf build app/shared/build app/desktop/build ;;
+        'gradlew:--no-daemon -p build-logic clean') rm -rf build-logic/build ;;
+    esac
+fi
 EOF
 for tool in cargo java node npm pnpm npx corepack; do
     cp "$fixture/dispatch-tool" "$dispatch_bin/$tool"
@@ -275,6 +297,158 @@ for mode in standalone governed; do
         fi
         printf '%s\n' "harvestcircle.native-alias.$mode.$alias=dry-run,execution,cwd,no-node,missing-tools:pass"
     done
+done
+
+# Execute browser recipes with only their own tools available. The governed
+# variant also needs the explicit extbuild router; it must not invoke native
+# Cargo, Java or Gradle. These stand-ins qualify command boundaries only.
+web_bin="$fixture/web tools"
+mkdir -p "$web_bin" "$dispatch_root/web"
+for tool in node corepack; do
+    cp "$fixture/dispatch-tool" "$web_bin/$tool"
+    chmod +x "$web_bin/$tool"
+done
+run_web_dispatch() {
+    if [ "$mode" = standalone ]; then
+        rm -f "$web_bin/cargo"
+    else
+        cp "$dispatch_bin/cargo" "$web_bin/cargo"
+    fi
+    : > "$fixture/web-dispatch.log"
+    (cd "$fixture" && PATH="$web_bin" MAKEFLAGS= MFLAGS= \
+        HCR_TEST_LOG="$fixture/web-dispatch.log" HCR_TEST_ROUTED=no HCR_TEST_RUNTIME=web \
+        HARVESTCIRCLE_BUILD_SOURCE_COMMIT="$web_source_commit" \
+        HARVESTCIRCLE_BUILD_SOURCE_DIRTY="$web_source_dirty" \
+        HARVESTCIRCLE_BUILD_RADROOTS_REVISION="$web_source_revision" SOURCE_DATE_EPOCH="$web_source_epoch" \
+        "$make_command" --no-print-directory -C "$dispatch_root" BUILD_MODE="$mode" "$target")
+}
+for metadata in empty populated; do
+    web_source_commit=
+    web_source_dirty=
+    web_source_revision=
+    web_source_epoch=
+    if [ "$metadata" = populated ]; then
+        web_source_commit=1111111111111111111111111111111111111111
+        web_source_dirty=true
+        web_source_revision=2222222222222222222222222222222222222222
+        web_source_epoch=1234567890
+    fi
+for mode in standalone governed; do
+    for target in web-doctor web-install web-dev web-check web-build; do
+        run_web_dispatch > "$fixture/web-output.log" 2>&1
+        # Tabs delimit seven metadata fields before argv. Shell read collapses
+        # empty IFS whitespace fields; awk preserves their positional identity.
+        awk -F '\t' -v root="$dispatch_root" -v mode="$mode" \
+            -v commit="$web_source_commit" -v dirty="$web_source_dirty" \
+            -v revision="$web_source_revision" -v epoch="$web_source_epoch" '
+            ("@" $4) != ("@" commit) || ("@" $5) != ("@" dirty) || ("@" $6) != ("@" revision) || ("@" $7) != ("@" epoch) {
+                print "web dispatch changed source provenance"; exit 1
+            }
+            $1 == "cargo" {
+                if (mode == "governed" && $3 == "no") {
+                    if ($2 == root && $8 == "+1.97.1" && $9 == "extbuild" && $10 == "doctor" && NF == 10) next
+                    if ($2 == root "/web" && $8 == "extbuild" && $9 == "run" && $10 == "--" && ($11 == "node" || $11 == "corepack")) next
+                }
+                print "web dispatch invoked unexpected Cargo argv or routing"; exit 1
+            }
+            $1 == "node" || $1 == "corepack" {
+                if ($2 == root "/web" && $3 == (mode == "governed" ? "yes" : "no")) next
+                print "web dispatch changed checkout cwd or routing"; exit 1
+            }
+            { print "web dispatch invoked unexpected tool " $1; exit 1 }
+        ' "$fixture/web-dispatch.log"
+        # Compare the actual ordered package invocations, including frozen
+        # installation and all four ordinary web-check constituents.
+        awk -F '\t' '$1 == "corepack" { for (i = 8; i <= NF; i++) printf "%s%s", $i, (i == NF ? "\n" : " ") }' "$fixture/web-dispatch.log" > "$fixture/web-actual.log"
+        case "$target" in
+            web-doctor) : > "$fixture/web-expected.log" ;;
+            web-install) printf '%s\n' 'pnpm install --frozen-lockfile' > "$fixture/web-expected.log" ;;
+            web-dev) printf '%s\n' 'pnpm run dev' > "$fixture/web-expected.log" ;;
+            web-build) printf '%s\n' 'pnpm run build' > "$fixture/web-expected.log" ;;
+            web-check) printf '%s\n' 'pnpm run check' 'pnpm run lint' 'pnpm run test:unit' 'pnpm run test:conformance' > "$fixture/web-expected.log" ;;
+        esac
+        cmp "$fixture/web-expected.log" "$fixture/web-actual.log"
+        [ "$(grep -c '^node[[:space:]]' "$fixture/web-dispatch.log")" -eq 1 ]
+        for missing in node corepack; do
+            if [ "$missing" = corepack ] && [ "$target" = web-doctor ]; then continue; fi
+            mv "$web_bin/$missing" "$fixture/missing-web-tool"
+            if run_web_dispatch > "$fixture/web-missing.log" 2>&1; then
+                printf '%s\n' "$target accepted missing $missing in $mode mode" >&2
+                exit 1
+            fi
+            mv "$fixture/missing-web-tool" "$web_bin/$missing"
+            grep -Eq '(not found|No such file)' "$fixture/web-missing.log"
+        done
+        printf '%s\n' "harvestcircle.web-dispatch.$mode.$target.$metadata=cwd,provenance,ordered-dispatch,tool-isolation,missing-tools:pass"
+    done
+done
+done
+
+# Fail each selected command rather than silently accepting a partial graph.
+for mode in standalone governed; do
+    for target in dev check build clean; do
+        if HCR_TEST_FAIL_TOOL=gradlew HCR_TEST_FAIL_ARGUMENT=--version \
+            run_dispatch "$mode" "$target" "$fixture/native-failure.log" > "$fixture/native-failure-output.log" 2>&1; then
+            printf '%s\n' "$target ignored native doctor failure" >&2; exit 1
+        fi
+        grep -q 'Error 91' "$fixture/native-failure-output.log"
+        [ "$(grep -c '^gradlew[[:space:]]' "$fixture/native-failure.log")" -eq 1 ]
+        failure_tool=cargo
+        failure_argument=$target
+        case "$target" in
+            dev) failure_tool=gradlew; failure_argument=:app:desktop:hotRun ;;
+            check) failure_argument=fmt ;;
+        esac
+        if HCR_TEST_FAIL_TOOL="$failure_tool" HCR_TEST_FAIL_ARGUMENT="$failure_argument" \
+            run_dispatch "$mode" "$target" "$fixture/native-failure.log" > "$fixture/native-failure-output.log" 2>&1; then
+            printf '%s\n' "$target ignored failed $failure_argument" >&2; exit 1
+        fi
+        grep -q 'Error 91' "$fixture/native-failure-output.log"
+        tail -n 1 "$fixture/native-failure.log" | grep -q "$(printf '\t')$failure_argument\($(printf '\t')\|\$\)"
+    done
+    for argument in install dev check lint test:unit test:conformance build; do
+        target=web-check
+        case "$argument" in install) target=web-install ;; dev) target=web-dev ;; build) target=web-build ;; esac
+        if HCR_TEST_FAIL_TOOL=corepack HCR_TEST_FAIL_ARGUMENT="$argument" \
+            run_web_dispatch > "$fixture/web-failure-output.log" 2>&1; then
+            printf '%s\n' "$target ignored failed $argument" >&2; exit 1
+        fi
+        grep -q 'Error 91' "$fixture/web-failure-output.log"
+        tail -n 1 "$fixture/web-dispatch.log" | grep -q "$(printf '\t')$argument\($(printf '\t')\|\$\)"
+    done
+    printf '%s\n' "harvestcircle.dispatch-failure.$mode=native-doctor,native-command,web-command,stop-on-failure:pass"
+done
+
+# Clean executes only in the owned fixture. Preserve browser caches/state,
+# dirty unrelated source, sibling source and desktop user-state sentinels.
+ln -s "$(command -v rm)" "$dispatch_bin/rm"
+for mode in standalone governed; do
+    for path in core/target tools/xtask/target build app/shared/build app/desktop/build build-logic/build; do
+        mkdir -p "$dispatch_root/$path"
+        printf '%s\n' disposable > "$dispatch_root/$path/output"
+    done
+    for path in web/node_modules web/build web/.svelte-kit web/local-state unrelated-source; do
+        mkdir -p "$dispatch_root/$path"
+        printf '%s\n' "preserve:$path" > "$dispatch_root/$path/sentinel"
+    done
+    for path in 'sibling checkout' 'desktop user state'; do
+        mkdir -p "$fixture/$path"
+        printf '%s\n' "preserve:$path" > "$fixture/$path/sentinel"
+    done
+    HCR_TEST_CLEAN=yes HCR_TEST_CHECKOUT="$dispatch_root" \
+        run_dispatch "$mode" clean "$fixture/clean-dispatch.log" > "$fixture/clean-output.log" 2>&1
+    clean_count=$(awk -F '\t' '($1 == "cargo" && $9 == "clean") || ($1 == "gradlew" && ($9 == "clean" || $11 == "clean")) { n++ } END { print n+0 }' "$fixture/clean-dispatch.log")
+    [ "$clean_count" -eq 4 ]
+    for path in core/target tools/xtask/target build app/shared/build app/desktop/build build-logic/build; do
+        [ ! -e "$dispatch_root/$path" ] || exit 1
+    done
+    for path in web/node_modules web/build web/.svelte-kit web/local-state unrelated-source; do
+        [ "$(cat "$dispatch_root/$path/sentinel")" = "preserve:$path" ] || exit 1
+    done
+    for path in 'sibling checkout' 'desktop user state'; do
+        [ "$(cat "$fixture/$path/sentinel")" = "preserve:$path" ] || exit 1
+    done
+    printf '%s\n' "harvestcircle.clean.$mode=owned-output-removal,sentinel-preservation:pass"
 done
 
 printf '%s\n' 'harvestcircle.native-alias-contract=pass'

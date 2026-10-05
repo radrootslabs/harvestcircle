@@ -28,6 +28,42 @@ They test the exact pinned Radroots semantics rather than establish new shared
 protocol policy. Current static-shell conformance runs through `web-check`;
 Food/Message interop and real extension/relay qualification remain pending.
 
+Run commands from this checkout's root, including when the path contains
+spaces; from elsewhere use `make -C "/path/to/HarvestCircle" <target>`.
+Native commands require Rust 1.97.1, the pinned JDK/Gradle wrapper and the
+supported host's native prerequisites described in README. They do not require
+Node or pnpm. Browser commands require the pinned Node/Corepack/pnpm inputs,
+Make and ordinary shell/Git utilities; they do not require Rust, Java or Gradle
+in standalone mode. Governed browser execution additionally requires extbuild.
+Install tooling explicitly before diagnosis; `web-doctor` checks selected
+versions without fetching a missing package manager, and `web-install` is the
+explicit frozen dependency installation step.
+
+`web-check` runs check, lint, unit/provenance and static conformance scripts;
+conformance also builds the static output. Integration and browser suites are
+separate existing package scripts: from `web/`, run `corepack pnpm run
+test:integration` and `corepack pnpm run test:e2e`. The browser suite requires
+its qualified Playwright browser. `web-dev` and `native-dev` start their
+respective runtime; neither installs the other runtime's dependencies.
+
+Unqualified `dev`, `check`, `build`, `package-check` and `clean` retain native
+meaning. `clean` removes native Cargo output for both Rust graphs and Gradle
+output for the root and included build; it is not part of routine verification.
+It does not request deletion of browser dependencies, static output, local
+browser state, sibling source or desktop user data. There is no root web-clean,
+check-all, repo-check, interop-check or web-integration-check target currently;
+do not substitute an absent target for an executed check. To verify both
+runtimes, select the existing native and browser lanes explicitly and supply
+all their prerequisites. Package/release qualification retains its separate
+authority and does not follow implicitly from development checks.
+
+`make mode-check` executes disposable command-boundary fixtures for both
+modes, including tool isolation, checkout cwd, missing tools, failures and
+bounded clean effects. The tools in those fixtures are stand-ins: passing them
+does not qualify product execution or prove the workstation lacks a toolchain.
+Changes to root dispatch or its tests require fresh affected native and browser
+checks; unchanged-native evidence cannot be reused for such changes.
+
 ## Development flow
 
 1. Use the current development branch policy and work from this capsule root.
