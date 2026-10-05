@@ -1307,6 +1307,35 @@ export async function auditSource(root) {
         'unrestricted Svelte raw-render module access is forbidden'
       );
     const actualImport = actualName + specifier.slice(packageName.length);
+    // These upstream primitives have no blanket runtime-package admission.
+    // Only the exact reviewed pure adapters and exact package exports/pins may
+    // use them. Source changes require a new independent review of this scope.
+    const primitiveAdmissions = {
+      '@noble/curves': {
+        version: '1.2.0',
+        import: '@noble/curves/secp256k1',
+        file: 'src/lib/contracts/public-key.ts',
+        sha256:
+          'd36d4001c2f4835e24d50f00460a35c9cf9fa6b86cc3b4a6937d8b4e10afdeb9'
+      },
+      '@scure/base': {
+        version: '1.1.1',
+        import: '@scure/base',
+        file: 'src/lib/nostr/references.ts',
+        sha256:
+          'b6a2ee32e89b60410bd84f5bbf2adc464d4f9d4d29b6a067e75927540b006ac4'
+      }
+    };
+    const primitive = Object.hasOwn(primitiveAdmissions, actualName)
+      ? primitiveAdmissions[actualName]
+      : undefined;
+    const admittedPrimitive =
+      primitive !== undefined &&
+      declared === primitive.version &&
+      actualImport === primitive.import &&
+      relative(root, file) === primitive.file &&
+      createHash('sha256').update(files.get(file)).digest('hex') ===
+        primitive.sha256;
     if (
       (actualName === '@sveltejs/kit' &&
         !['@sveltejs/kit', '@sveltejs/kit/hooks'].includes(actualImport)) ||
@@ -1322,7 +1351,7 @@ export async function auditSource(root) {
     )
       complain(file, 'Applesauce imports belong in lib/nostr');
     if (
-      !runtimePackages.has(actualName) ||
+      (!runtimePackages.has(actualName) && !admittedPrimitive) ||
       typeof declared !== 'string' ||
       /^(file:|link:|workspace:|git|https?:|\.\.?\/)/.test(declared)
     )

@@ -1,0 +1,116 @@
+{
+  "coordinate_cases": [
+    {
+      "canonical": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:",
+      "identifier": "",
+      "input": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:",
+      "kind": 30402,
+      "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+    },
+    {
+      "canonical": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:Carrots:菜",
+      "identifier": "Carrots:菜",
+      "input": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:Carrots:菜",
+      "kind": 30402,
+      "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+    },
+    {
+      "canonical": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:CARROTS:菜",
+      "identifier": "CARROTS:菜",
+      "input": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:CARROTS:菜",
+      "kind": 30402,
+      "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+    },
+    {
+      "canonical": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:café",
+      "identifier": "café",
+      "input": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:café",
+      "kind": 30402,
+      "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+    },
+    {
+      "canonical": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:café",
+      "identifier": "café",
+      "input": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:café",
+      "kind": 30402,
+      "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+    },
+    {
+      "canonical": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:﻿Carrots:菜",
+      "identifier": "﻿Carrots:菜",
+      "input": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:﻿Carrots:菜",
+      "kind": 30402,
+      "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+    },
+    {
+      "canonical": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:﻿﻿Carrots:菜",
+      "identifier": "﻿﻿Carrots:菜",
+      "input": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:﻿﻿Carrots:菜",
+      "kind": 30402,
+      "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+    },
+    {
+      "canonical": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:�",
+      "identifier": "�",
+      "input": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:�",
+      "kind": 30402,
+      "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+    },
+    {
+      "canonical": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798: white space ",
+      "identifier": " white space ",
+      "input": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798: white space ",
+      "kind": 30402,
+      "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+    },
+    {
+      "canonical": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:\u0000",
+      "identifier": "\u0000",
+      "input": "30402:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:\u0000",
+      "kind": 30402,
+      "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+    }
+  ],
+  "key_cases": [
+    {
+      "accepted": true,
+      "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+    },
+    {
+      "accepted": false,
+      "pubkey": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "accepted": false,
+      "pubkey": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "accepted": true,
+      "pubkey": "0000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "accepted": true,
+      "pubkey": "0000000000000000000000000000000000000000000000000000000000000002"
+    },
+    {
+      "accepted": true,
+      "pubkey": "0000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "accepted": false,
+      "pubkey": "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f"
+    },
+    {
+      "accepted": false,
+      "pubkey": "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2e"
+    }
+  ],
+  "oracle": {
+    "apis": [
+      "radroots_identity::PublicKey::from_hex",
+      "radroots_event::id::Nip01Coordinate::parse"
+    ],
+    "repository": "https://github.com/radrootslabs/lib",
+    "revision": "189c49b74b4bafc142b00b76b296477931139e72"
+  }
+}

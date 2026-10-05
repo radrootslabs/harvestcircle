@@ -96,6 +96,73 @@ const reject = (result, diagnostic) => {
   assert.match(result.stderr, diagnostic);
 };
 
+test('admits only exact public-key and reference primitive consumers', async () => {
+  await fixture(async ({ directory, put, execute }) => {
+    await confineSvelte(directory);
+    const { cp } = await import('node:fs/promises');
+    for (const name of ['@noble/curves', '@scure/base', 'applesauce-core']) {
+      const destination = path.join(directory, 'node_modules', name);
+      await mkdir(path.dirname(destination), { recursive: true });
+      await cp(
+        await realpath(path.join(root, 'node_modules', name)),
+        destination,
+        {
+          recursive: true
+        }
+      );
+    }
+    for (const name of [
+      'src/lib/contracts/public-key.ts',
+      'src/lib/nostr/references.ts'
+    ])
+      await put(name, await readFile(path.join(root, name), 'utf8'));
+    const result = execute();
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  });
+});
+
+for (const [name, content] of [
+  [
+    'src/lib/other.ts',
+    "import { secp256k1 } from '@noble/curves/secp256k1'; export const value = secp256k1;"
+  ],
+  [
+    'src/lib/nostr/other.ts',
+    "import { bech32 } from '@scure/base'; export const value = bech32;"
+  ],
+  [
+    'src/lib/contracts/public-key.ts',
+    "import { secp256k1 } from '@noble/curves/secp256k1'; export const value = secp256k1;"
+  ],
+  [
+    'src/lib/contracts/public-key.ts',
+    "import { schnorr } from '@noble/curves/secp256k1'; export const value = schnorr;"
+  ],
+  [
+    'src/lib/nostr/references.ts',
+    "import { base64 } from '@scure/base'; export const value = base64;"
+  ]
+])
+  test(`rejects broad or altered primitive access ${name} ${content}`, async () => {
+    await fixture(async ({ put, execute }) => {
+      await put(name, content);
+      reject(execute(), /forbidden production import/);
+    });
+  });
+
+test('rejects primitive pin drift at the reviewed consumer', async () => {
+  await fixture(async ({ put, execute, pkg }) => {
+    await put(
+      'src/lib/contracts/public-key.ts',
+      await readFile(path.join(root, 'src/lib/contracts/public-key.ts'), 'utf8')
+    );
+    /** @type {Record<string, string>} */ (pkg.dependencies)['@noble/curves'] =
+      '1.1.0';
+    await put('package.json', JSON.stringify(pkg));
+    reject(execute(), /forbidden production import/);
+  });
+});
+
 for (const [name, content, diagnostic] of [
   [
     'native extension import',
