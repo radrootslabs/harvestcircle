@@ -89,3 +89,59 @@ test('real search preserves rejected input and does not navigate or execute exce
   }
   expect(server.state()).toEqual({ listening: false, childProcesses: 0 });
 });
+
+test('search editing waits for real hydration and query restoration when scripts are delayed', async ({
+  browser
+}) => {
+  const server = await createStaticHarness();
+  const context = await browser.newContext();
+  const external: string[] = [];
+  let releaseScripts!: () => void;
+  const scriptsReady = new Promise<void>((resolve) => {
+    releaseScripts = resolve;
+  });
+  let delayedScripts = 0;
+  try {
+    await context.route('**/*', async (route) => {
+      if (new URL(route.request().url()).origin !== server.url) {
+        external.push(route.request().url());
+        return route.abort();
+      }
+      if (new URL(route.request().url()).pathname.endsWith('.js')) {
+        delayedScripts++;
+        await scriptsReady;
+      }
+      return route.continue();
+    });
+    const page = await context.newPage();
+    await page.goto(server.url + '/search?q=turnips', { waitUntil: 'commit' });
+    const input = page.getByRole('textbox', {
+      name: 'What are you looking for?'
+    });
+    const submit = page.getByRole('button', { name: 'Search', exact: true });
+    await expect(
+      page.getByRole('heading', { name: 'Search food' })
+    ).toBeVisible();
+    await expect.poll(() => delayedScripts).toBeGreaterThan(0);
+    await expect(input).toBeDisabled();
+    await expect(submit).toBeDisabled();
+    releaseScripts();
+    await expect(input).toBeEnabled();
+    await expect(input).toHaveValue('turnips');
+    await expect(submit).toBeEnabled();
+    await input.fill('  ＣＡＲＲＯＴＳ\nVICTORIA 菜  ');
+    await submit.click();
+    await expect(page).toHaveURL(
+      server.url + '/search?q=carrots+victoria+%E8%8F%9C'
+    );
+    await expect(input).toBeEnabled();
+    await expect(input).toHaveValue('carrots victoria 菜');
+    expect(external).toEqual([]);
+  } finally {
+    releaseScripts();
+    await context.close();
+    await server.close();
+  }
+  expect(context.pages()).toHaveLength(0);
+  expect(server.state()).toEqual({ listening: false, childProcesses: 0 });
+});

@@ -33,9 +33,8 @@ describe('static guest shell', () => {
     expect(html).toContain('What are you looking for?');
     expect(html).toContain('For example, carrots or carrots Victoria.');
     expect(html).toContain('rows="2"');
-    expect(html).not.toMatch(
-      /<button[^>]*type="submit"[^>]*disabled[^>]*>Search/
-    );
+    expect(html).toMatch(/<button[^>]*type="submit"[^>]*disabled[^>]*>Search/);
+    expect(html).toMatch(/<textarea[^>]*disabled/);
     expect(html).not.toContain('Search is unavailable during development.');
     expect(html).not.toContain('<h1>');
   });

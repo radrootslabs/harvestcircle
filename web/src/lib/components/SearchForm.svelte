@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import FormField from './primitives/FormField.svelte';
   import Button from './primitives/Button.svelte';
   let {
@@ -15,10 +16,14 @@
   const id = $props.id();
   let input = $derived(initialValue);
   let composing = $state(false);
+  let ready = $state(false);
+  onMount(() => {
+    ready = true;
+  });
   const unavailable = $derived(disabled || !onsubmit);
   function submit(event: SubmitEvent) {
     event.preventDefault();
-    if (!unavailable && !composing) onsubmit?.(input);
+    if (ready && !unavailable && !composing) onsubmit?.(input);
   }
 </script>
 
@@ -38,6 +43,7 @@
         {id}
         class="input textarea"
         rows="2"
+        disabled={!ready}
         aria-describedby={describedby}
         aria-invalid={invalid}
         value={input}
@@ -57,7 +63,7 @@
       label="Search"
       type="submit"
       variant="primary"
-      disabled={unavailable}
+      disabled={unavailable || !ready}
     />
   </div>
   {#if unavailable}

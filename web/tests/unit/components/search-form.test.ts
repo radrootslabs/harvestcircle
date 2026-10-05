@@ -39,7 +39,7 @@ describe('shared labelled search form SSR', () => {
     expect(html).toContain('Search is unavailable during development.');
     expect(html).not.toMatch(/action=|placeholder=|maxlength=|required/);
   });
-  it('enables an explicit typed caller without invoking it during SSR', () => {
+  it('retains an explicit typed caller but waits for client initialization before enabling controls', () => {
     const html = render(SearchForm, {
       props: {
         onsubmit: (input: string) => {
@@ -47,7 +47,8 @@ describe('shared labelled search form SSR', () => {
         }
       }
     }).body;
-    expect(html).not.toMatch(/<button[^>]*disabled/);
+    expect(html).toMatch(/<button[^>]*disabled/);
+    expect(html).toMatch(/<textarea[^>]*disabled/);
     expect(html).not.toContain('Search is unavailable');
   });
   it('honors explicit disabled even with a caller', () => {

@@ -1,3 +1,4 @@
+import SearchForm from '../../src/lib/components/SearchForm.svelte';
 import { prerender as editPrerender } from '../../src/routes/products/[naddr=naddr]/edit/+page';
 import { params } from '../../src/params';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -135,4 +136,19 @@ it('the pinned Kit3 consolidated matcher adapter preserves existing bounded synt
   expect(
     await params.naddr['~standard'].validate('unsupported-coordinate')
   ).toHaveProperty('issues');
+});
+
+it('public search SSR cannot accept input or submit before client initialization', () => {
+  const output = render(SearchForm, {
+    props: {
+      onsubmit: () => {
+        throw new Error('SSR must not submit');
+      }
+    }
+  });
+  expect(output.body).toMatch(/<textarea[^>]*disabled/);
+  expect(output.body).toMatch(/<button[^>]*disabled/);
+  expect(output.body).not.toContain(
+    'Search is unavailable during development.'
+  );
 });
