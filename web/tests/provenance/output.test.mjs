@@ -114,7 +114,7 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       const f = await fixture(t);
       const files = await f.audit();
       // Exact eleven-route module/page/static admission; CSS stays once-imported.
-      assert.equal(files.length, 44);
+      assert.equal(files.length, 45);
       // The actual SDK payload crosses the reader scratch boundary; a reused
       // scratch buffer must still preserve every compiler/static byte exactly.
       const sizes = await Promise.all(
@@ -170,7 +170,7 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       assert.ok(Buffer.byteLength(expanded) > 64 * 1024);
       await writeFile(file, expanded);
       await refresh(f);
-      assert.equal((await f.audit()).length, 44);
+      assert.equal((await f.audit()).length, 45);
     }
   );
   const sdkKey =
@@ -431,6 +431,90 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       await assert.rejects(f.audit, /Undeclared compiler module/);
     }
   );
+  await check(
+    'actual shared budgets chunk has owned consumers and counterpart',
+    async (t) => {
+      const f = await fixture(t);
+      const manifest = JSON.parse(
+        await readFile(
+          path.join(f.web, '.svelte-kit/output/client/.vite/manifest.json'),
+          'utf8'
+        )
+      );
+      const entries = Object.entries(manifest).filter(
+        ([, record]) => record.name === 'budgets'
+      );
+      assert.equal(entries.length, 1);
+      const [key, budget] = entries[0];
+      assert.deepEqual(Object.keys(budget).sort(), ['file', 'name']);
+      for (const name of ['nodes/0', 'routes'])
+        assert.ok(
+          Object.values(manifest)
+            .find((record) => record.name === name)
+            .imports.includes(key)
+        );
+      assert.deepEqual(
+        await readFile(path.join(f.web, 'build', budget.file)),
+        await readFile(
+          path.join(f.web, '.svelte-kit/output/client', budget.file)
+        )
+      );
+      assert.ok((await f.audit()).includes(budget.file));
+    }
+  );
+  for (const mutation of [
+    'unknown-name',
+    'duplicate',
+    'missing-module',
+    'extra-field',
+    'missing-root-edge',
+    'missing-routes-edge',
+    'missing-counterpart',
+    'changed-counterpart'
+  ]) {
+    await check('budgets module fails closed: ' + mutation, async (t) => {
+      const f = await fixture(t);
+      const file = path.join(
+        f.web,
+        '.svelte-kit/output/client/.vite/manifest.json'
+      );
+      const manifest = JSON.parse(await readFile(file, 'utf8'));
+      const entry = Object.entries(manifest).find(
+        ([, record]) => record.name === 'budgets'
+      );
+      assert.ok(entry);
+      const [key, budget] = entry;
+      if (mutation === 'unknown-name') budget.name = 'unapproved-budgets';
+      if (mutation === 'duplicate') manifest['_HCduplicate.js'] = { ...budget };
+      if (mutation === 'missing-module') delete manifest[key];
+      if (mutation === 'extra-field') budget.imports = [];
+      if (
+        mutation === 'missing-root-edge' ||
+        mutation === 'missing-routes-edge'
+      ) {
+        const name = mutation === 'missing-root-edge' ? 'nodes/0' : 'routes';
+        const consumer = Object.values(manifest).find(
+          (record) => record.name === name
+        );
+        consumer.imports = consumer.imports.filter(
+          /** @param {string} dependency */
+          (dependency) => dependency !== key
+        );
+      }
+      if (mutation === 'missing-counterpart')
+        await rm(path.join(f.web, 'build', budget.file));
+      if (mutation === 'changed-counterpart')
+        await writeFile(
+          path.join(f.web, 'build', budget.file),
+          'changed counterpart'
+        );
+      await writeFile(file, JSON.stringify(manifest));
+      await assert.rejects(
+        f.audit,
+        /Undeclared compiler module|Unresolved compiler import|Invalid owned budgets compiler|Static output inventory mismatch|Static output differs from owned compiler input/
+      );
+    });
+  }
   await check(
     'actual route-state compiler module has an owned client counterpart',
     async (t) => {

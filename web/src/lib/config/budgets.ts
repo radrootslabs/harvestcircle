@@ -30,3 +30,9 @@ export const PUBLIC_QUERY_BUDGETS = Object.freeze({
 export const PUBLIC_RETENTION_BUDGETS = Object.freeze({
   payloadBytes: 33554432
 });
+
+// Query text is public input. Bound both original and normalized UTF-8 copies.
+export const PUBLIC_SEARCH_BUDGETS = Object.freeze({
+  queryBytes: 512,
+  terms: 12
+});

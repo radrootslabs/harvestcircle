@@ -1,3 +1,5 @@
+import { PUBLIC_SEARCH_BUDGETS } from '../config/budgets.ts';
+
 export type PublicQuery =
   | {
       readonly ok: true;
@@ -13,20 +15,22 @@ const encoder = new TextEncoder();
 
 export function normalizePublicQuery(input: unknown): PublicQuery {
   if (typeof input !== 'string') return { ok: false, error: 'invalid_query' };
-  if (input.length > 512) return { ok: false, error: 'query_too_long' };
+  if (input.length > PUBLIC_SEARCH_BUDGETS.queryBytes)
+    return { ok: false, error: 'query_too_long' };
   if (!input.isWellFormed()) return { ok: false, error: 'invalid_query' };
   for (const character of input) {
     const code = character.charCodeAt(0);
     if (code <= 8 || (code >= 14 && code <= 31) || (code >= 127 && code <= 159))
       return { ok: false, error: 'invalid_query' };
   }
-  if (encoder.encode(input).length > 512)
+  if (encoder.encode(input).length > PUBLIC_SEARCH_BUDGETS.queryBytes)
     return { ok: false, error: 'query_too_long' };
   const normalized = input.normalize('NFKC').toLowerCase().trim();
   const terms = normalized === '' ? [] : normalized.split(/\s+/u);
-  if (terms.length > 12) return { ok: false, error: 'too_many_terms' };
+  if (terms.length > PUBLIC_SEARCH_BUDGETS.terms)
+    return { ok: false, error: 'too_many_terms' };
   const text = terms.join(' ');
-  if (encoder.encode(text).length > 512)
+  if (encoder.encode(text).length > PUBLIC_SEARCH_BUDGETS.queryBytes)
     return { ok: false, error: 'query_too_long' };
   return { ok: true, text, terms };
 }

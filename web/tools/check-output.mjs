@@ -423,7 +423,8 @@ export async function auditOutput(webDirectory) {
       names.add(name);
   }
   if (hasPublicRuntime)
-    for (const name of ['public-key', 'dist', 'negentropy']) names.add(name);
+    for (const name of ['public-key', 'dist', 'negentropy', 'budgets'])
+      names.add(name);
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();
   for (const [key, record] of Object.entries(manifest)) {
@@ -517,6 +518,16 @@ export async function auditOutput(webDirectory) {
     }
     const dist = requiredRecord('dist');
     const root = requiredRecord('nodes/0')[1];
+    const [budgetKey, budget] = requiredRecord('budgets');
+    if (
+      !/^_[A-Za-z0-9_-]+\.js$/.test(budgetKey) ||
+      Object.keys(budget).some((field) => !['file', 'name'].includes(field))
+    )
+      throw new Error('Invalid owned budgets compiler identity');
+    for (const consumer of ['nodes/0', 'routes']) {
+      if (!requiredRecord(consumer)[1].imports?.includes(budgetKey))
+        throw new Error('Invalid owned budgets compiler edge');
+    }
     const sdk = manifest[sdkNegentropy];
     if (
       !sdk ||
