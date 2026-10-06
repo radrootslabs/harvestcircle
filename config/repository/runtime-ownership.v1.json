@@ -319,6 +319,16 @@
         "interop",
         "governance"
       ]
+    },
+    {
+      "path": "tools/check-all.sh",
+      "kind": "exact",
+      "owners": [
+        "native",
+        "web",
+        "interop",
+        "governance"
+      ]
     }
   ],
   "outputs": [

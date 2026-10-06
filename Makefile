@@ -5,6 +5,9 @@ override CARGO := cargo +1.97.1
 CARGO_MANIFEST := core/Cargo.toml
 XTASK_MANIFEST := tools/xtask/Cargo.toml
 BUILD_MODE ?= standalone
+# Recipes use this mode explicitly. Standalone fixture Make processes must not
+# inherit it as an environment default; recursive governed targets pass it.
+unexport BUILD_MODE
 VALID_BUILD_MODES := standalone governed
 
 ifeq ($(filter $(BUILD_MODE),$(VALID_BUILD_MODES)),)
@@ -21,6 +24,26 @@ endif
 .PHONY: native-doctor native-dev native-check native-build native-package-check
 .PHONY: web-doctor web-install web-dev web-check web-build
 .PHONY: interop-check
+.PHONY: repo-check web-integration-check check-all affected-check
+
+repo-check:
+	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- repo-audit
+
+# Missing BASE deliberately widens selection; this diagnostic executes no lane.
+affected-check: export HARVESTCIRCLE_AFFECTED_BASE = $(BASE)
+affected-check:
+	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- affected-report
+
+web-integration-check: web-doctor
+	cd web && $(BUILD_RUNNER) corepack pnpm run test:integration
+	cd web && $(BUILD_RUNNER) corepack pnpm run test:e2e
+
+check-all:
+	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) tools/check-all.sh
+
+ifeq ($(BUILD_MODE),governed)
+repo-check affected-check check-all: governed-doctor
+endif
 
 interop-check:
 	$(BUILD_RUNNER) tools/check-interop.sh
@@ -60,6 +83,7 @@ native-package-check: package-check
 help:
 	@printf '%s\n' 'Unqualified targets below retain native meaning.' 'Browser: web-doctor web-install web-dev web-check web-build'
 	@printf '%s\n' 'Explicit cross-runtime fixture gate: interop-check'
+	@printf '%s\n' 'Repository: repo-check affected-check BASE=<commit>' 'Browser integration: web-integration-check' 'Explicit all-runtime source aggregate: check-all'
 	@printf '%s\n' doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check unsigned-release-check signing-check notarization-check release-check clean
 
 design-source-check: doctor

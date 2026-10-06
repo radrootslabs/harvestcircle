@@ -1,11 +1,13 @@
 package org.harvestcircle.buildlogic.plugins
 
 import org.gradle.testkit.runner.GradleRunner
+import org.gradle.testkit.runner.TaskOutcome
 import org.gradle.testkit.runner.UnexpectedBuildFailure
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -248,6 +250,103 @@ class ConventionPluginSmokeTest {
                 .buildAndFail()
 
         assertTrue(result.output.contains("Unsupported native desktop host: plan9/mips"), result.output)
+    }
+
+    @Test
+    fun nativeLibraryBytesInvalidateOnlyTheirActualTestConsumers() {
+        val fixture = createTempDirectory("harvestcircle-native-test-inputs-")
+        prepareRustBuild(
+            fixture,
+            """
+            // Synthetic library files exercise the real Test engine and input cache.
+            // Native producers are disabled; this fixture never executes Cargo.
+            tasks.matching {
+                it.name in setOf(
+                    "buildRustCoreDebug", "buildRustCoreRelease", "buildRustTestBridgeDebug",
+                    "generateUniFfiKotlin", "generateTestBridgeUniFfiKotlin",
+                    "generateCompatibilityExpectations", "verifyTestBridgeIsolation",
+                    "ktlintIntegrationTestSourceSetCheck", "detektIntegrationTest",
+                )
+            }.configureEach { enabled = false }
+            val fixtureJUnit = configurations.create("fixtureJUnit")
+            dependencies.add(fixtureJUnit.name, "junit:junit:4.13.2")
+            listOf("test", "integrationTest").forEach { testName ->
+                val compileFixture = tasks.register<org.gradle.api.tasks.compile.JavaCompile>("compileFixture" + testName) {
+                    source(fileTree("src/" + testName + "/java"))
+                    classpath = fixtureJUnit
+                    destinationDirectory.set(layout.buildDirectory.dir("fixture-classes/" + testName))
+                    options.release.set(21)
+                }
+                tasks.named<org.gradle.api.tasks.testing.Test>(testName) {
+                    testClassesDirs = files(compileFixture.flatMap { it.destinationDirectory })
+                    classpath = testClassesDirs + fixtureJUnit
+                }
+            }
+            tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+                systemProperty("fixture.production", rootProject.file("core/target/debug/libharvestcircle_ffi.so"))
+                systemProperty("fixture.bridge", rootProject.file("core/target/debug/libharvestcircle_test_bridge.so"))
+            }
+            """.trimIndent(),
+        )
+        val libraries = fixture.resolve("core/target/debug").createDirectories()
+        val production = libraries.resolve("libharvestcircle_ffi.so")
+        val bridge = libraries.resolve("libharvestcircle_test_bridge.so")
+        production.writeText("production-one")
+        bridge.writeText("bridge-one")
+        listOf("test" to false, "integrationTest" to true).forEach { (sourceSet, includesBridge) ->
+            val bridgeAssertion =
+                if (includesBridge) {
+                    """assertTrue(Files.readString(Path.of(System.getProperty("fixture.bridge"))).startsWith("bridge-"));"""
+                } else {
+                    ""
+                }
+            fixture.resolve("app/desktop/src/$sourceSet/java").createDirectories()
+                .resolve("NativeInputTest.java").writeText(
+                    """
+                    import java.nio.file.Files;
+                    import java.nio.file.Path;
+                    import org.junit.Test;
+                    import static org.junit.Assert.assertTrue;
+                    public class NativeInputTest {
+                        @Test public void consumesDeclaredLibraries() throws Exception {
+                            assertTrue(Files.readString(Path.of(System.getProperty("fixture.production"))).startsWith("production-"));
+                            $bridgeAssertion
+                        }
+                    }
+                    """.trimIndent(),
+                )
+        }
+        val runner =
+            GradleRunner.create()
+                .withProjectDir(fixture.toFile())
+                .withPluginClasspath()
+                // No Cargo runs; keep synthetic libraries inside this owned fixture.
+                .withEnvironment(
+                    (System.getenv() - "CARGO_TARGET_DIR") +
+                        ("EXT_BUILD_GRADLE_BUILD_DIR" to fixture.resolve("fixture-build-output").toString()),
+                )
+                .withArguments(
+                    ":app:desktop:test", ":app:desktop:integrationTest",
+                    "-PnativeOs=Linux", "-PnativeArch=amd64", "--no-build-cache", "--stacktrace",
+                    "-x", ":app:desktop:verifyTestBridgeIsolation",
+                    "-x", ":app:desktop:ktlintIntegrationTestSourceSetCheck",
+                    "-x", ":app:desktop:detektIntegrationTest",
+                )
+        fun outcomes(unit: TaskOutcome, integration: TaskOutcome) {
+            val result = runner.build()
+            println("native-input outcomes: unit=" + result.task(":app:desktop:test")?.outcome +
+                "; integration=" + result.task(":app:desktop:integrationTest")?.outcome)
+            assertEquals(unit, result.task(":app:desktop:test")?.outcome, result.output)
+            assertEquals(integration, result.task(":app:desktop:integrationTest")?.outcome, result.output)
+        }
+        outcomes(TaskOutcome.SUCCESS, TaskOutcome.SUCCESS)
+        outcomes(TaskOutcome.UP_TO_DATE, TaskOutcome.UP_TO_DATE)
+        production.writeText("production-two")
+        outcomes(TaskOutcome.SUCCESS, TaskOutcome.SUCCESS)
+        outcomes(TaskOutcome.UP_TO_DATE, TaskOutcome.UP_TO_DATE)
+        bridge.writeText("bridge-two")
+        outcomes(TaskOutcome.UP_TO_DATE, TaskOutcome.SUCCESS)
+        outcomes(TaskOutcome.UP_TO_DATE, TaskOutcome.UP_TO_DATE)
     }
 
     @Test

@@ -6,6 +6,7 @@ import org.gradle.api.artifacts.VersionCatalogsExtension
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.JavaExec
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.tasks.Jar
 import org.harvestcircle.buildlogic.contracts.FfiCompatibilityBaseline
@@ -246,10 +247,16 @@ public class HarvestCircleRustFfiPlugin : Plugin<Project> {
         }
         target.tasks.named("integrationTest", Test::class.java) { task ->
             task.dependsOn(verifyTestIsolation)
+            task.inputs.file(testBridgeLibraryFile)
+                .withPropertyName("integrationBridgeNativeLibrary")
+                .withPathSensitivity(PathSensitivity.NONE)
             task.systemProperty("jna.library.path", testBridgeLibraryFile.parentFile.absolutePath)
         }
         target.tasks.withType(Test::class.java).configureEach { task ->
             task.dependsOn(buildDebug)
+            task.inputs.file(debugLibraryFile)
+                .withPropertyName("productionNativeLibrary")
+                .withPathSensitivity(PathSensitivity.NONE)
             val nativeTestData = target.layout.buildDirectory.dir("native-test-data").get().asFile.absolutePath
             task.environment(productEnvironment("DEVELOPMENT_DATA_DIR"), nativeTestData)
             task.systemProperty("${productCoordinates["product.slug"]}.development.data.dir", nativeTestData)

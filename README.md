@@ -107,12 +107,31 @@ authority. Listing a target does not authorize its deferred effects.
 
 ## Conformance and source provenance
 
-Planned public test vectors under `contracts/interop/` will compare browser
-Radroots adapters with the exact pinned public Rust oracle. Ordinary browser
-conformance will use checked vectors without invoking native tools; explicit
-interop qualification will execute both real consumers. Food/Message interop
-remains unimplemented; the current Node-only conformance script checks the
-actual bootstrap static output.
+Checked Food fixtures under `contracts/interop/` exercise the exact pinned
+public Rust codec and browser adapters. `make interop-check` runs both actual
+consumers and reports unsupported browser cases explicitly. Ordinary browser
+conformance uses checked vectors without invoking native tools. This is source
+conformance evidence; Message interoperability and independent-client, relay,
+extension and deployed Tera qualification remain pending.
+
+`make repo-check` runs fresh repository source policy without Node.
+`make web-integration-check` runs web integration and browser tests without
+native tooling. `make check-all` explicitly requires both toolchains and runs
+repository, native, web, browser integration and interop checks; an unavailable
+tool or failed lane fails the aggregate. It does not install dependencies.
+Existing unqualified `check`, `build`, `dev` and `package-check` retain their
+native meanings.
+
+`make affected-check BASE=<commit>` reports the actual Git merge-base diff,
+dirty inputs, runtime selection and complete input fingerprints. Renames,
+deletions, unknown paths, shallow or missing history widen selection to all
+runtimes. It always runs fresh source policy. The report records source HEAD
+separately from runtime input identity; selection and equal fingerprints do
+not mean runtime checks executed or qualify reuse of old artifact provenance.
+Missing tools are explicit, and the diagnostic never installs them.
+Fingerprints cover default repository source checks. Custom compiler wrappers,
+external build configuration or additional command arguments require separate
+evidence; the diagnostic never qualifies their artifacts or automatic reuse.
 
 The native artifact contract v3 requires an exact clean Git-revision tree
 source archive, including newly tracked `web/` files. A native-only filtered
