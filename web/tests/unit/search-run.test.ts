@@ -33,7 +33,7 @@ const corpus = JSON.parse(
 const base = JSON.parse(
   corpus.vectors.find((v) => v.id.endsWith('_032'))!.signed_wires.previous
 ) as { tags: string[][]; content: string; created_at: number };
-async function fixture(nip50 = false) {
+async function fixture(nip50 = false, sourceCount = 1) {
   const { RelayPool } = await import('applesauce-relay/pool');
   const { validateRelayPolicy } =
     await import('../../src/lib/config/relays.ts');
@@ -71,7 +71,12 @@ async function fixture(nip50 = false) {
   const policy = validateRelayPolicy(
     JSON.stringify({
       schemaVersion: 1,
-      public: [{ origin, read: true, write: false, nip50 }],
+      public: Array.from({ length: sourceCount }, (_, n) => ({
+        origin: n === 0 ? origin : `wss://source${n}.example.org`,
+        read: true,
+        write: false,
+        nip50
+      })),
       inbox: [],
       postingEnabled: false,
       messagingEnabled: false,
@@ -139,6 +144,12 @@ async function fixture(nip50 = false) {
   const emit = (i: number, event: ReturnType<typeof wire>) =>
     channels[i].emit({ type: 'EVENT', id: 'fixture', from: origin, event });
   return {
+    eose: (i: number) => {
+      const selected = provider.mock.calls[i][0];
+      if (!Array.isArray(selected)) throw new Error('fixture source array');
+      for (const source of selected)
+        channels[i].emit({ type: 'EOSE', id: 'fixture', from: String(source) });
+    },
     coordinator,
     view,
     wallClock,
@@ -163,6 +174,101 @@ async function fixture(nip50 = false) {
   };
 }
 describe('finite food search coordination (isolated SDK provider, not qualification)', () => {
+  it('reserves at most two chronological windows even after clean EOSE', async () => {
+    const f = await fixture(),
+      token = f.begin('');
+    for (let n = 0; n < 2; n++) {
+      search.subscribeFoodSearch(token, [{ kinds: [30402], limit: 200 }]);
+      f.channels[n].emit({ type: 'EOSE', id: 'fixture', from: f.origin });
+    }
+    expect(() =>
+      search.subscribeFoodSearch(token, [{ kinds: [30402], limit: 200 }])
+    ).toThrow('food_search_chronological_window_limit');
+    expect(f.provider).toHaveBeenCalledTimes(2);
+    expect(f.snapshot().definitiveAbsence).toBe(false);
+  });
+
+  it('keeps a saturated source boundary even when another readable source returns an older head', async () => {
+    const f = await fixture(false, 2),
+      token = f.begin('carrots');
+    search.subscribeFoodSearch(token, [{ kinds: [30402], limit: 200 }]);
+    const item = f.wire('Carrots', 'saturated', base.created_at),
+      older = f.wire('Carrots', 'other', base.created_at - 1);
+    for (let n = 0; n < 200; n++) f.emit(0, item);
+    f.channels[0].emit({
+      type: 'EVENT',
+      id: 'fixture',
+      from: 'wss://source1.example.org',
+      event: older
+    });
+    f.eose(0);
+    expect(f.snapshot().continuation.until).toBe(base.created_at);
+    search.chronologicalFoodSearch(token);
+    expect(f.provider.mock.calls.at(-1)![1]).toEqual([
+      { kinds: [30402], limit: 200, until: base.created_at }
+    ]);
+  });
+  it('uses only chronological verified times for the inclusive cursor despite earlier relevance samples', async () => {
+    const f = await fixture(true),
+      token = f.begin('carrots');
+    search.sampleFoodSearch(token);
+    f.emit(0, f.wire('Carrots', 'sample', base.created_at - 100));
+    f.channels[0].emit({ type: 'EOSE', id: 'sample', from: f.origin });
+    const request = search.chronologicalFoodSearch(token);
+    f.emit(1, f.wire('Carrots', 'chronological', base.created_at));
+    f.channels[1].emit({ type: 'EOSE', id: 'chronological', from: f.origin });
+    expect(requests.publicRequestScopeSnapshot(request).state).toBe('eose');
+    expect(f.snapshot().continuation.until).toBe(base.created_at);
+    search.chronologicalFoodSearch(token);
+    expect(f.provider.mock.calls.at(-1)![1]).toEqual([
+      { kinds: [30402], limit: 200, until: base.created_at }
+    ]);
+    expect(() =>
+      search.subscribeFoodSearch(token, [
+        { kinds: [30402], limit: 200, until: base.created_at - 1 }
+      ])
+    ).toThrow('food_search_chronological_filter');
+  });
+  it('shows another local20row page without opening a source and keeps the current generation', async () => {
+    const f = await fixture(),
+      heads = Array.from({ length: 26 }, (_, n) =>
+        f.head(f.wire('Carrots', String(n)))
+      );
+    const token = f.begin('carrots', heads),
+      first = f.snapshot();
+    expect(first.rows).toHaveLength(20);
+    expect(first.hasMore).toBe(true);
+    const count = f.provider.mock.calls.length;
+    search.showMoreFoodSearch(token);
+    expect(f.provider).toHaveBeenCalledTimes(count);
+    const next = f.snapshot();
+    expect(next.generation).toBe(token);
+    expect(next.rows).toHaveLength(26);
+    expect(next.hasMore).toBe(false);
+  });
+  it('starts an explicit older successor run at the same inclusive boundary and preserves known results', async () => {
+    const f = await fixture(),
+      token = f.begin('carrots');
+    search.chronologicalFoodSearch(token);
+    f.emit(0, f.wire());
+    f.channels[0].emit({ type: 'EOSE', id: 'chronological', from: f.origin });
+    const first = f.snapshot();
+    expect(first.continuation.until).toBe(base.created_at);
+    const older = search.searchOlderFoodSearch(f.coordinator);
+    expect(older).not.toBe(token);
+    expect(() => search.showMoreFoodSearch(token)).toThrow(
+      'food_search_superseded'
+    );
+    expect(f.provider.mock.calls.at(-1)![1]).toEqual([
+      { kinds: [30402], limit: 200, until: base.created_at }
+    ]);
+    expect(f.snapshot()).toMatchObject({
+      query: 'carrots',
+      generation: older,
+      definitiveAbsence: false
+    });
+    expect(f.snapshot().rows).toHaveLength(1);
+  });
   it('requires the one-round sampler for relevance filters even after a completed sample', async () => {
     const f = await fixture(true),
       token = f.begin('carrots');
@@ -267,35 +373,37 @@ describe('finite food search coordination (isolated SDK provider, not qualificat
       })
     ).toThrow('food_search_clock_changed');
   });
-  it('bounds primary scope history to the approved source-round and chronological-window maximum', async () => {
-    const f = await fixture(),
-      token = f.begin('');
-    for (let i = 0; i < 5; i++) {
-      search.subscribeFoodSearch(token, [{ kinds: [30402], limit: 200 }]);
-      f.channels[i].emit({ type: 'EOSE', id: 'fixture', from: f.origin });
+  it('bounds primary scope history to one three-source sample round plus two chronological windows', async () => {
+    const f = await fixture(true, 3),
+      token = f.begin('carrots');
+    search.sampleFoodSearch(token);
+    for (let i = 0; i < 3; i++) f.eose(i);
+    for (let i = 0; i < 2; i++) {
+      search.chronologicalFoodSearch(token);
+      f.eose(i + 3);
     }
-    expect(() =>
-      search.subscribeFoodSearch(token, [{ kinds: [30402], limit: 200 }])
-    ).toThrow('food_search_primary_limit');
+    expect(() => search.chronologicalFoodSearch(token)).toThrow(
+      'food_search_chronological_window_limit'
+    );
     expect(f.channels).toHaveLength(5);
     expect(f.snapshot().scopes).toHaveLength(5);
     expect(f.snapshot().refresh).toBe('limit');
   });
-  it('charges failed primary attempts before provider effects without unlimited retries', async () => {
-    const f = await fixture(),
-      token = f.begin('');
+  it('charges failed sample and chronological attempts before provider effects without unlimited retries', async () => {
+    const f = await fixture(true, 3),
+      token = f.begin('carrots');
     f.provider.mockImplementation(() => {
       throw new Error('isolated provider failure');
     });
-    for (let i = 0; i < 5; i++) {
-      expect(() =>
-        search.subscribeFoodSearch(token, [{ kinds: [30402], limit: 200 }])
-      ).toThrow('food_search_request_failed');
-    }
+    expect(search.sampleFoodSearch(token)).toEqual([]);
+    for (let i = 0; i < 2; i++)
+      expect(() => search.chronologicalFoodSearch(token)).toThrow(
+        'food_search_request_failed'
+      );
     expect(f.provider).toHaveBeenCalledTimes(5);
-    expect(() =>
-      search.subscribeFoodSearch(token, [{ kinds: [30402], limit: 200 }])
-    ).toThrow('food_search_primary_limit');
+    expect(() => search.chronologicalFoodSearch(token)).toThrow(
+      'food_search_chronological_window_limit'
+    );
     expect(f.provider).toHaveBeenCalledTimes(5);
     expect(f.channels).toHaveLength(0);
     expect(f.snapshot().scopes).toHaveLength(0);
@@ -365,14 +473,14 @@ describe('finite food search coordination (isolated SDK provider, not qualificat
     expect(f.snapshot().query).toBe('celery');
   });
   it('shares all six scope slots with cached latest and deletion lookups', async () => {
-    const f = await fixture(),
-      token = f.begin('', [f.head()]);
-    for (let i = 0; i < 4; i++)
-      search.subscribeFoodSearch(token, [{ kinds: [30402], limit: 200 }]);
+    const f = await fixture(true, 3),
+      token = f.begin('carrots', [f.head()]);
+    search.sampleFoodSearch(token);
+    search.chronologicalFoodSearch(token);
     expect(f.snapshot().run?.activeRequests).toBe(6);
     expect(() =>
       search.subscribeFoodSearch(token, [{ kinds: [30402], limit: 200 }])
-    ).toThrow('food_search_request_failed');
+    ).toThrow('food_search_chronological_pending');
     expect(f.snapshot().run?.activeRequests).toBe(6);
     search.cancelFoodSearch(token);
     expect(f.channels.every((c) => c.stopped())).toBe(true);

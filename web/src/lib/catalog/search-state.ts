@@ -1,3 +1,4 @@
+import type { ChronologicalProgress } from './continuation.ts';
 import type {
   publicRunSnapshot,
   publicRequestScopeSnapshot
@@ -20,6 +21,8 @@ export type SearchSnapshot<Generation> = Readonly<{
   refresh: SearchRefresh;
   available: boolean;
   rows: readonly HeadResolution[];
+  hasMore: boolean;
+  continuation: ChronologicalProgress;
   scopes: readonly SearchScope[];
   run: ReturnType<typeof publicRunSnapshot> | undefined;
   definitiveAbsence: false;

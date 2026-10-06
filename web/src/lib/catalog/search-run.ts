@@ -1,11 +1,13 @@
 import {
   PUBLIC_QUERY_BUDGETS,
+  PUBLIC_SEARCH_BUDGETS,
   PUBLIC_SEARCH_RUN_BUDGETS
 } from '../config/budgets.ts';
 import type { PublicFilter } from '../nostr/exports.ts';
 import { headResolutionQueries } from '../nostr/product-queries.ts';
 import {
   publicRunSnapshot,
+  publicRunObservations,
   publicRequestScopeSnapshot,
   closePublicRequest,
   cancelPublicRun,
@@ -44,6 +46,16 @@ import {
 } from './search-state.ts';
 import type { WallClock } from './clock-policy.ts';
 import { nip50SearchQuery } from '../nostr/search-query.ts';
+import {
+  chronologicalSearchQuery,
+  requireChronologicalSearchQuery
+} from '../nostr/chronological-query.ts';
+import {
+  createChronologicalContinuation,
+  localSearchPage,
+  type ChronologicalContinuation,
+  type ChronologicalWindow
+} from './continuation.ts';
 declare const coordinatorBrand: unique symbol;
 declare const generationBrand: unique symbol;
 export type FoodSearchCoordinator = Readonly<{
@@ -70,6 +82,18 @@ interface Session {
   readonly track: (request: PublicRequest) => void;
   readonly reserveSource: () => void;
   readonly reserveSample: () => void;
+  readonly continuation: () => ChronologicalContinuation;
+  readonly bindContinuation: (value: ChronologicalContinuation) => void;
+  readonly chronological: () => readonly (readonly [
+    PublicRequest,
+    ChronologicalWindow
+  ])[];
+  readonly trackChronological: (
+    request: PublicRequest,
+    window: ChronologicalWindow
+  ) => void;
+  readonly pages: () => number;
+  readonly showMore: () => void;
   readonly run: () => PublicRun | undefined;
   readonly bindRun: (run: PublicRun) => void;
   readonly model: () => HeadResolver | undefined;
@@ -79,6 +103,7 @@ interface Session {
     failed: boolean;
     capped: boolean;
   }>;
+  readonly cap: () => void;
   readonly fail: () => void;
   readonly cancel: () => void;
 }
@@ -126,6 +151,9 @@ function createSession(
     capped = false;
   let attempts = 0;
   let sampleRounds = 0;
+  let chronological = createChronologicalContinuation(),
+    pages = 1;
+  const windows = new Map<PublicRequest, ChronologicalWindow>();
   return {
     coordinator,
     token,
@@ -166,6 +194,24 @@ function createSession(
         throw new Error('food_search_sample_round_limit');
       sampleRounds++;
     },
+    continuation: () => chronological,
+    bindContinuation: (value) => {
+      chronological = value;
+    },
+    chronological: () => Array.from(windows.entries()),
+    trackChronological: (request, window) => {
+      windows.set(request, window);
+    },
+    pages: () => pages,
+    showMore: () => {
+      pages = Math.min(
+        Math.ceil(
+          PUBLIC_QUERY_BUDGETS.coordinatesPerRun /
+            PUBLIC_SEARCH_BUDGETS.pageRows
+        ),
+        pages + 1
+      );
+    },
     run: () => run,
     bindRun: (value) => {
       run = value;
@@ -175,6 +221,9 @@ function createSession(
       model = value;
     },
     flags: () => ({ cancelled, failed, capped }),
+    cap: () => {
+      capped = true;
+    },
     fail: () => {
       failed = true;
     },
@@ -293,12 +342,39 @@ export function subscribeFoodSearch(
 ): PublicRequest {
   if (filters.some((filter) => 'search' in filter))
     throw new Error('food_search_sample_required');
-  return subscribeSearchSource(token, filters);
+  const session = sessionOf(token);
+  requireCurrent(session);
+  refreshChronological(session);
+  requireCurrent(session);
+  const selected = requireChronologicalSearchQuery(
+    filters,
+    session.continuation().snapshot().until
+  );
+  let window: ChronologicalWindow;
+  try {
+    window = session.continuation().begin();
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === 'food_search_chronological_window_limit'
+    )
+      session.cap();
+    throw error;
+  }
+  try {
+    const request = subscribeSearchSource(token, selected, undefined, window);
+    session.trackChronological(request, window);
+    return request;
+  } catch (error) {
+    window.finish(false, 'partial');
+    throw error;
+  }
 }
 function subscribeSearchSource(
   token: FoodSearchRun,
   filters: readonly PublicFilter[],
-  sampleSource?: string
+  sampleSource?: string,
+  chronologicalWindow?: ChronologicalWindow
 ): PublicRequest {
   const session = sessionOf(token),
     run = foodSearchRequestOwner(token);
@@ -315,6 +391,7 @@ function subscribeSearchSource(
         if (!current(session)) return;
         const head = createPublicHeadCandidate(proof);
         if (!head || publicHeadSnapshot(head).kind !== 30402) return;
+        chronologicalWindow?.observe(head);
         if (!session.remember(head)) cancelPublicRun(run);
       },
       sampleSource
@@ -354,6 +431,60 @@ export function sampleFoodSearch(
   }
   return Array.from(samples.keys());
 }
+function refreshChronological(session: Session): void {
+  for (const [request, window] of session.chronological()) {
+    const scope = publicRequestScopeSnapshot(request);
+    if (scope.state === 'active') continue;
+    window.finish(
+      scope.result.sources.some(
+        (source) => source.candidates >= PUBLIC_QUERY_BUDGETS.requestedPerRelay
+      ),
+      scope.state === 'eose' && scope.result.coverage === 'bounded-eose'
+        ? 'bounded-eose'
+        : 'partial',
+      scope.result.sources.map((source) => ({
+        source: source.source,
+        saturated: source.candidates >= PUBLIC_QUERY_BUDGETS.requestedPerRelay,
+        eventIds: publicRunObservations(session.run()!, request)
+          .filter((row) => row.source === source.source && row.kind === 30402)
+          .map((row) => row.eventId)
+      }))
+    );
+  }
+}
+export function chronologicalFoodSearch(token: FoodSearchRun): PublicRequest {
+  const session = sessionOf(token);
+  requireCurrent(session);
+  refreshChronological(session);
+  requireCurrent(session);
+  return subscribeFoodSearch(
+    token,
+    chronologicalSearchQuery(session.continuation().snapshot().until)
+  );
+}
+export function showMoreFoodSearch(token: FoodSearchRun): void {
+  const session = sessionOf(token);
+  requireCurrent(session);
+  session.showMore();
+}
+export function searchOlderFoodSearch(
+  coordinator: FoodSearchCoordinator
+): FoodSearchRun {
+  const owner = coordinatorOf(coordinator),
+    previous = owner.current();
+  if (!previous || owner.closed()) throw new Error('food_search_inactive');
+  const session = sessionOf(previous);
+  const snapshot = foodSearchSnapshot(coordinator);
+  requireCurrent(session);
+  if (!snapshot?.available) throw new Error('food_search_unavailable');
+  const next = session.continuation().restart();
+  const token = beginFoodSearch(coordinator, session.query);
+  const successor = sessionOf(token);
+  requireCurrent(successor);
+  successor.bindContinuation(next);
+  chronologicalFoodSearch(token);
+  return token;
+}
 export function foodSearchSnapshot(
   coordinator: FoodSearchCoordinator
 ): SearchSnapshot<FoodSearchRun> | undefined {
@@ -377,6 +508,7 @@ export function foodSearchSnapshot(
       }
     }
   }
+  refreshChronological(session);
   const raw = model ? headResolutionSnapshot(model) : [];
   const matched = model ? searchResolvedFood(model, session.query) : undefined;
   const scopes = new Map<object, SearchScope>();
@@ -395,19 +527,28 @@ export function foodSearchSnapshot(
   if (!current(session)) return undefined;
   const sources = Array.from(scopes.values()),
     flags = session.flags();
+  const refresh = searchRefreshState(
+    available,
+    run,
+    sources,
+    flags.cancelled,
+    flags.failed,
+    flags.capped
+  );
+  const continuation = session.continuation().snapshot(),
+    page = localSearchPage(
+      available && matched?.ok ? matched.rows : [],
+      session.pages()
+    );
   return {
     generation: token,
     query: session.query,
-    refresh: searchRefreshState(
-      available,
-      run,
-      sources,
-      flags.cancelled,
-      flags.failed,
-      flags.capped
-    ),
+    refresh:
+      continuation.gap && refresh === 'bounded-eose' ? 'partial' : refresh,
     available,
-    rows: available && matched?.ok ? matched.rows : [],
+    rows: page.rows,
+    hasMore: page.hasMore,
+    continuation,
     scopes: sources,
     run,
     definitiveAbsence: false

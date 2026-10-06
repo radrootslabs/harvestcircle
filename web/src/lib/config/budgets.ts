@@ -38,7 +38,8 @@ export const PUBLIC_RETENTION_BUDGETS = Object.freeze({
 // Query text is public input. Bound both original and normalized UTF-8 copies.
 export const PUBLIC_SEARCH_BUDGETS = Object.freeze({
   queryBytes: 512,
-  terms: 12
+  terms: 12,
+  pageRows: 20
 });
 
 // One NIP-50 round may select each of the three qualified sources separately;
