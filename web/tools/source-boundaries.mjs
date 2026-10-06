@@ -343,6 +343,39 @@ function mutationAdmission(ast, report, identity = () => null) {
       return null;
     return { node: decl.initializer, seen: new Set([...seen, decl]) };
   }
+  // The pinned EventStore is a model receiver, not a DOM collection. Admit
+  // only its direct one-argument add on an immutable actual imported instance;
+  // aliases, shadowed imports, rebound receivers and escaped methods stay red.
+  function eventStoreAdd(node) {
+    if (
+      !ts.isPropertyAccessExpression(node) ||
+      node.name.text !== 'add' ||
+      !ts.isCallExpression(node.parent) ||
+      node.parent.expression !== node ||
+      node.parent.arguments.length !== 1 ||
+      ts.isSpreadElement(node.parent.arguments[0])
+    )
+      return false;
+    const receiver = immutable(node.expression);
+    const initializer = receiver && unwrap(receiver.node);
+    if (
+      !initializer ||
+      !ts.isNewExpression(initializer) ||
+      !ts.isIdentifier(initializer.expression)
+    )
+      return false;
+    const importedClass = declaration(initializer.expression);
+    return (
+      !!importedClass &&
+      ts.isImportSpecifier(importedClass) &&
+      !importedClass.isTypeOnly &&
+      !importedClass.parent.parent.isTypeOnly &&
+      (importedClass.propertyName ?? importedClass.name).text ===
+        'EventStore' &&
+      importedClass.parent.parent.parent.moduleSpecifier.text ===
+        'applesauce-core'
+    );
+  }
   // Reject writes and namespace escapes independently from successful sink
   // resolution, so losing a binding's trust can never hide its capability.
   function capabilityBinding(node) {
@@ -854,6 +887,7 @@ function mutationAdmission(ast, report, identity = () => null) {
       if (
         methods.has(name) &&
         !primitiveMethod(node) &&
+        !eventStoreAdd(node) &&
         !locationMethod &&
         !(
           animationMethods.has(name) &&

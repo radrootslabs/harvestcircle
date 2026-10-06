@@ -1855,6 +1855,59 @@ for (const [name, specifier] of [
   );
 }
 
+test('HCP030 admits a direct add on an immutable actual EventStore instance', async () => {
+  await fixture(async ({ directory, put, execute }) => {
+    await confineSvelte(directory);
+    const { cp } = await import('node:fs/promises');
+    await cp(
+      await realpath(path.join(root, 'node_modules/applesauce-core')),
+      path.join(directory, 'node_modules/applesauce-core'),
+      { recursive: true }
+    );
+    await put(
+      'src/lib/nostr/store.ts',
+      "import { EventStore } from 'applesauce-core'; const sdk = new EventStore({keepOldVersions:true}); export function admit(event:unknown){return sdk.add(event);}"
+    );
+    await put(
+      'src/routes/+page.ts',
+      "export { admit } from '../lib/nostr/store';"
+    );
+    const result = execute();
+    assert.equal(result.status, 0, result.stderr);
+  });
+});
+for (const source of [
+  'export function admit(sdk:{add:(value:unknown)=>unknown},event:unknown){return sdk.add(event);}',
+  'class EventStore { add(value:unknown){return value;} } const sdk = new EventStore(); export function admit(event:unknown){return sdk.add(event);}',
+  "import { EventStore } from 'applesauce-core'; const sdk = new EventStore(); const add=sdk.add; export function admit(event:unknown){return add(event);}",
+  "import { EventStore } from 'applesauce-core'; const sdk = new EventStore(); export function admit(event:unknown){return sdk['add'](event);}",
+  "import { EventStore } from 'applesauce-core'; let sdk = new EventStore(); export function admit(event:unknown){return sdk.add(event);}",
+  "import { EventStore } from 'applesauce-core'; const sdk = new EventStore(); sdk=opaque; export function admit(event:unknown){return sdk.add(event);}",
+  "import { EventStore } from 'applesauce-core'; EventStore=opaque; const sdk = new EventStore(); export function admit(event:unknown){return sdk.add(event);}",
+  "import { EventStore } from 'applesauce-core'; const sdk = new EventStore(); export function admit(){return sdk.add();}",
+  "import { EventStore } from 'applesauce-core'; const sdk = new EventStore(); export function admit(event:unknown){return sdk.add(event,event);}",
+  "import { EventStore } from 'applesauce-core'; const Constructor=EventStore; const sdk = new Constructor(); export function admit(event:unknown){return sdk.add(event);}",
+  "import { EventStore } from 'applesauce-core'; const sdk = new EventStore(); sdk.add=opaque; export function admit(event:unknown){return sdk.add(event);}",
+  "import { EventStore } from 'applesauce-core'; const sdk = new EventStore(); export function admit(event:unknown){return sdk.add.call(sdk,event);}"
+])
+  test(`HCP030 rejects unqualified or escaped EventStore mutation: ${source}`, async () => {
+    await fixture(async ({ directory, put, execute }) => {
+      await confineSvelte(directory);
+      const { cp } = await import('node:fs/promises');
+      await cp(
+        await realpath(path.join(root, 'node_modules/applesauce-core')),
+        path.join(directory, 'node_modules/applesauce-core'),
+        { recursive: true }
+      );
+      await put('src/lib/nostr/store.ts', source);
+      await put(
+        'src/routes/+page.ts',
+        "export { admit } from '../lib/nostr/store';"
+      );
+      reject(execute(), /mutation|owned|prototype/);
+    });
+  });
+
 test('HCP029 admits direct read-only descriptor inspection of unknown data', async () => {
   await fixture(async ({ put, execute }) => {
     await put(
