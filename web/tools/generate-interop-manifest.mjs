@@ -73,7 +73,8 @@ console.log(
     website_cases: 16,
     signed_reader_cases: 18,
     revision: manifest.oracle.revision,
-    native_consumer: 'PENDING_HCR014',
+    native_consumer: 'REQUIRED_NATIVE_TEST',
+    boundary_cases: 10,
     qualification: manifest.qualification,
     action: args[0] === '--write' ? 'EXPLICIT_GENERATION' : 'CHECK_ONLY'
   })

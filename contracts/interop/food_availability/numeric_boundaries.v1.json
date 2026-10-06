@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "profile": "food_availability_profile",
+  "contract_version": "1.0.0",
+  "revision": "189c49b74b4bafc142b00b76b296477931139e72",
+  "provenance": "Synthetic reviewed boundary recipes from actual pinned FoodPublishedAt/FoodIdentifier constructors and unsigned Food codec; no signed events, keys, operator data or independent protocol policy.",
+  "vectors": [
+    {
+      "id": "food_timestamp_zero_hcr014",
+      "kind": "timestamp",
+      "value": "0",
+      "expected": {
+        "native": {
+          "result": "rejected",
+          "code": "food_published_at_invalid"
+        },
+        "typescript": {
+          "result": "rejected",
+          "code": "timestamp_invalid"
+        }
+      }
+    },
+    {
+      "id": "food_timestamp_one_hcr014",
+      "kind": "timestamp",
+      "value": "1",
+      "expected": {
+        "native": {
+          "result": "accepted",
+          "timestamp": "1",
+          "encoded_published_at": "1"
+        },
+        "typescript": {
+          "result": "accepted",
+          "timestamp": "1",
+          "encoded_published_at": "1"
+        }
+      }
+    },
+    {
+      "id": "food_timestamp_safe_minus_one_hcr014",
+      "kind": "timestamp",
+      "value": "9007199254740990",
+      "expected": {
+        "native": {
+          "result": "accepted",
+          "timestamp": "9007199254740990",
+          "encoded_published_at": "9007199254740990"
+        },
+        "typescript": {
+          "result": "accepted",
+          "timestamp": "9007199254740990",
+          "encoded_published_at": "9007199254740990"
+        }
+      }
+    },
+    {
+      "id": "food_timestamp_safe_max_hcr014",
+      "kind": "timestamp",
+      "value": "9007199254740991",
+      "expected": {
+        "native": {
+          "result": "accepted",
+          "timestamp": "9007199254740991",
+          "encoded_published_at": "9007199254740991"
+        },
+        "typescript": {
+          "result": "accepted",
+          "timestamp": "9007199254740991",
+          "encoded_published_at": "9007199254740991"
+        }
+      }
+    },
+    {
+      "id": "food_timestamp_unsafe_first_hcr014",
+      "kind": "timestamp",
+      "value": "9007199254740992",
+      "expected": {
+        "native": {
+          "result": "accepted",
+          "timestamp": "9007199254740992",
+          "encoded_published_at": "9007199254740992"
+        },
+        "typescript": {
+          "result": "unsupported",
+          "reason": "Canonical timestamp exceeds Number.MAX_SAFE_INTEGER; current JavaScript adapter must reject it without rounding."
+        }
+      }
+    },
+    {
+      "id": "food_timestamp_unsafe_next_hcr014",
+      "kind": "timestamp",
+      "value": "9007199254740993",
+      "expected": {
+        "native": {
+          "result": "accepted",
+          "timestamp": "9007199254740993",
+          "encoded_published_at": "9007199254740993"
+        },
+        "typescript": {
+          "result": "unsupported",
+          "reason": "Canonical timestamp exceeds Number.MAX_SAFE_INTEGER; current JavaScript adapter must reject it without rounding."
+        }
+      }
+    },
+    {
+      "id": "food_timestamp_u64_max_hcr014",
+      "kind": "timestamp",
+      "value": "18446744073709551615",
+      "expected": {
+        "native": {
+          "result": "accepted",
+          "timestamp": "18446744073709551615",
+          "encoded_published_at": "18446744073709551615"
+        },
+        "typescript": {
+          "result": "unsupported",
+          "reason": "Canonical timestamp exceeds Number.MAX_SAFE_INTEGER; current JavaScript adapter must reject it without rounding."
+        }
+      }
+    },
+    {
+      "id": "food_timestamp_u64_overflow_hcr014",
+      "kind": "timestamp",
+      "value": "18446744073709551616",
+      "expected": {
+        "native": {
+          "result": "rejected",
+          "code": "food_published_at_invalid"
+        },
+        "typescript": {
+          "result": "unsupported",
+          "reason": "Canonical timestamp exceeds Number.MAX_SAFE_INTEGER; current JavaScript adapter must reject it without rounding."
+        }
+      }
+    },
+    {
+      "id": "food_raw_identifier_nfc_hcr014",
+      "kind": "identifier",
+      "value": "é",
+      "expected": {
+        "native": {
+          "result": "accepted",
+          "identifier": "é"
+        },
+        "typescript": {
+          "result": "accepted",
+          "identifier": "é"
+        }
+      }
+    },
+    {
+      "id": "food_raw_identifier_nfd_hcr014",
+      "kind": "identifier",
+      "value": "é",
+      "expected": {
+        "native": {
+          "result": "accepted",
+          "identifier": "é"
+        },
+        "typescript": {
+          "result": "accepted",
+          "identifier": "é"
+        }
+      }
+    }
+  ]
+}

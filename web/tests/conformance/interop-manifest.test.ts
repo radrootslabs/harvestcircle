@@ -34,9 +34,9 @@ const manifest = JSON.parse(
     };
   }[];
 };
-void test('one manifest binds actual forty public cases and sixteen website outputs to the pinned oracle', () => {
+void test('one manifest binds forty public cases, sixteen website outputs and ten native boundaries to the pinned oracle', () => {
   validateInteropManifest(manifest, inputs, webTemplates);
-  assert.equal(manifest.cases.length, 56);
+  assert.equal(manifest.cases.length, 66);
   assert.equal(
     manifest.cases.filter(
       (row) => row.participation.typescript === 'food_reader'

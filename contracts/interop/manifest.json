@@ -46,6 +46,21 @@
       "path": "contracts/interop/food_availability/web_templates.v1.json",
       "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
       "bytes": 33805
+    },
+    {
+      "path": "contracts/interop/food_availability/numeric_boundaries.v1.json",
+      "sha256": "9789690d06e0453c6f5e85e5f9df57f01fb95cb4872f9dd420081cbeb313a105",
+      "bytes": 4741
+    },
+    {
+      "path": "contracts/interop/food_availability/oracle/tests/native_manifest.rs",
+      "sha256": "61b8ad6ee64bedd2f72705f7050e244abf744453bfb4305aa2032781baf85d5d",
+      "bytes": 15785
+    },
+    {
+      "path": "contracts/interop/food_availability/oracle/tests/support/mod.rs",
+      "sha256": "3ae2b0cebc224e5094c3c6a64a4941d88540f8a9a867c18dcdd62b279dc49262",
+      "bytes": 17427
     }
   ],
   "fixture_authority": {
@@ -54,9 +69,7 @@
     "manifest": "Derived metadata and expectations, not a second editable protocol policy."
   },
   "pending_checks": [
-    "native_consumer_HCR014",
     "combined_orchestration_HCR015",
-    "native_full_u64_vs_unsafe_js_common_boundary_HCR014",
     "Message_adapters_HCP071_HCP130",
     "deployed_Tera_qualification"
   ],
@@ -123,7 +136,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
       }
@@ -190,7 +203,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
       }
@@ -257,7 +270,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
       }
@@ -324,7 +337,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
       }
@@ -391,7 +404,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
       }
@@ -458,7 +471,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
       }
@@ -535,7 +548,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
       }
@@ -602,7 +615,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
       }
@@ -664,7 +677,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
       }
@@ -731,7 +744,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
       }
@@ -793,7 +806,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
       }
@@ -822,7 +835,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
       }
@@ -851,7 +864,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
       }
@@ -896,7 +909,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -938,7 +951,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -964,7 +977,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -990,7 +1003,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -1017,7 +1030,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -1044,7 +1057,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -1071,7 +1084,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -1098,7 +1111,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -1125,7 +1138,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -1152,7 +1165,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -1179,7 +1192,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -1206,7 +1219,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -1233,7 +1246,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -1260,7 +1273,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -1287,7 +1300,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -1384,7 +1397,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -1423,7 +1436,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -1450,7 +1463,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_reader",
         "unsupported_reason": null
       }
@@ -1475,7 +1488,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
       }
@@ -1502,7 +1515,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
       }
@@ -1529,7 +1542,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
       }
@@ -1556,7 +1569,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
       }
@@ -1583,7 +1596,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
       }
@@ -1610,7 +1623,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
       }
@@ -1637,7 +1650,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
       }
@@ -1664,7 +1677,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
       }
@@ -1689,7 +1702,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
         "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
       }
@@ -1757,7 +1770,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_writer",
         "unsupported_reason": null
       }
@@ -1825,7 +1838,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_writer",
         "unsupported_reason": null
       }
@@ -1893,7 +1906,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_writer",
         "unsupported_reason": null
       }
@@ -1961,7 +1974,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_writer",
         "unsupported_reason": null
       }
@@ -2029,7 +2042,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_writer",
         "unsupported_reason": null
       }
@@ -2097,7 +2110,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_writer",
         "unsupported_reason": null
       }
@@ -2165,7 +2178,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_writer",
         "unsupported_reason": null
       }
@@ -2233,7 +2246,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_writer",
         "unsupported_reason": null
       }
@@ -2301,7 +2314,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_writer",
         "unsupported_reason": null
       }
@@ -2369,7 +2382,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_writer",
         "unsupported_reason": null
       }
@@ -2432,7 +2445,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_writer",
         "unsupported_reason": null
       }
@@ -2500,7 +2513,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_writer",
         "unsupported_reason": null
       }
@@ -2568,7 +2581,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_writer",
         "unsupported_reason": null
       }
@@ -2636,7 +2649,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_writer",
         "unsupported_reason": null
       }
@@ -2704,7 +2717,7 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_writer",
         "unsupported_reason": null
       }
@@ -2772,8 +2785,327 @@
       },
       "participation": {
         "rust_oracle": "REQUIRED",
-        "native_consumer": "PENDING_HCR014",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
         "typescript": "food_writer",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_timestamp_zero_hcr014",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/numeric_boundaries.v1.json",
+        "sha256": "9789690d06e0453c6f5e85e5f9df57f01fb95cb4872f9dd420081cbeb313a105",
+        "bytes": 4741,
+        "case_index": 0,
+        "case_id": "food_timestamp_zero_hcr014"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "native": {
+          "result": "rejected",
+          "code": "food_published_at_invalid"
+        },
+        "typescript": {
+          "result": "rejected",
+          "code": "timestamp_invalid"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
+        "typescript": "food_boundary",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_timestamp_one_hcr014",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/numeric_boundaries.v1.json",
+        "sha256": "9789690d06e0453c6f5e85e5f9df57f01fb95cb4872f9dd420081cbeb313a105",
+        "bytes": 4741,
+        "case_index": 1,
+        "case_id": "food_timestamp_one_hcr014"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "native": {
+          "result": "accepted",
+          "timestamp": "1",
+          "encoded_published_at": "1"
+        },
+        "typescript": {
+          "result": "accepted",
+          "timestamp": "1",
+          "encoded_published_at": "1"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
+        "typescript": "food_boundary",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_timestamp_safe_minus_one_hcr014",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/numeric_boundaries.v1.json",
+        "sha256": "9789690d06e0453c6f5e85e5f9df57f01fb95cb4872f9dd420081cbeb313a105",
+        "bytes": 4741,
+        "case_index": 2,
+        "case_id": "food_timestamp_safe_minus_one_hcr014"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "native": {
+          "result": "accepted",
+          "timestamp": "9007199254740990",
+          "encoded_published_at": "9007199254740990"
+        },
+        "typescript": {
+          "result": "accepted",
+          "timestamp": "9007199254740990",
+          "encoded_published_at": "9007199254740990"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
+        "typescript": "food_boundary",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_timestamp_safe_max_hcr014",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/numeric_boundaries.v1.json",
+        "sha256": "9789690d06e0453c6f5e85e5f9df57f01fb95cb4872f9dd420081cbeb313a105",
+        "bytes": 4741,
+        "case_index": 3,
+        "case_id": "food_timestamp_safe_max_hcr014"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "native": {
+          "result": "accepted",
+          "timestamp": "9007199254740991",
+          "encoded_published_at": "9007199254740991"
+        },
+        "typescript": {
+          "result": "accepted",
+          "timestamp": "9007199254740991",
+          "encoded_published_at": "9007199254740991"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
+        "typescript": "food_boundary",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_timestamp_unsafe_first_hcr014",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/numeric_boundaries.v1.json",
+        "sha256": "9789690d06e0453c6f5e85e5f9df57f01fb95cb4872f9dd420081cbeb313a105",
+        "bytes": 4741,
+        "case_index": 4,
+        "case_id": "food_timestamp_unsafe_first_hcr014"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "native": {
+          "result": "accepted",
+          "timestamp": "9007199254740992",
+          "encoded_published_at": "9007199254740992"
+        },
+        "typescript": {
+          "result": "unsupported",
+          "reason": "Canonical timestamp exceeds Number.MAX_SAFE_INTEGER; current JavaScript adapter must reject it without rounding."
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
+        "typescript": "UNSUPPORTED_JAVASCRIPT_U64",
+        "unsupported_reason": "Canonical timestamp exceeds Number.MAX_SAFE_INTEGER; current JavaScript adapter must reject it without rounding."
+      }
+    },
+    {
+      "id": "food_timestamp_unsafe_next_hcr014",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/numeric_boundaries.v1.json",
+        "sha256": "9789690d06e0453c6f5e85e5f9df57f01fb95cb4872f9dd420081cbeb313a105",
+        "bytes": 4741,
+        "case_index": 5,
+        "case_id": "food_timestamp_unsafe_next_hcr014"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "native": {
+          "result": "accepted",
+          "timestamp": "9007199254740993",
+          "encoded_published_at": "9007199254740993"
+        },
+        "typescript": {
+          "result": "unsupported",
+          "reason": "Canonical timestamp exceeds Number.MAX_SAFE_INTEGER; current JavaScript adapter must reject it without rounding."
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
+        "typescript": "UNSUPPORTED_JAVASCRIPT_U64",
+        "unsupported_reason": "Canonical timestamp exceeds Number.MAX_SAFE_INTEGER; current JavaScript adapter must reject it without rounding."
+      }
+    },
+    {
+      "id": "food_timestamp_u64_max_hcr014",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/numeric_boundaries.v1.json",
+        "sha256": "9789690d06e0453c6f5e85e5f9df57f01fb95cb4872f9dd420081cbeb313a105",
+        "bytes": 4741,
+        "case_index": 6,
+        "case_id": "food_timestamp_u64_max_hcr014"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "native": {
+          "result": "accepted",
+          "timestamp": "18446744073709551615",
+          "encoded_published_at": "18446744073709551615"
+        },
+        "typescript": {
+          "result": "unsupported",
+          "reason": "Canonical timestamp exceeds Number.MAX_SAFE_INTEGER; current JavaScript adapter must reject it without rounding."
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
+        "typescript": "UNSUPPORTED_JAVASCRIPT_U64",
+        "unsupported_reason": "Canonical timestamp exceeds Number.MAX_SAFE_INTEGER; current JavaScript adapter must reject it without rounding."
+      }
+    },
+    {
+      "id": "food_timestamp_u64_overflow_hcr014",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/numeric_boundaries.v1.json",
+        "sha256": "9789690d06e0453c6f5e85e5f9df57f01fb95cb4872f9dd420081cbeb313a105",
+        "bytes": 4741,
+        "case_index": 7,
+        "case_id": "food_timestamp_u64_overflow_hcr014"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "native": {
+          "result": "rejected",
+          "code": "food_published_at_invalid"
+        },
+        "typescript": {
+          "result": "unsupported",
+          "reason": "Canonical timestamp exceeds Number.MAX_SAFE_INTEGER; current JavaScript adapter must reject it without rounding."
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
+        "typescript": "UNSUPPORTED_JAVASCRIPT_U64",
+        "unsupported_reason": "Canonical timestamp exceeds Number.MAX_SAFE_INTEGER; current JavaScript adapter must reject it without rounding."
+      }
+    },
+    {
+      "id": "food_raw_identifier_nfc_hcr014",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/numeric_boundaries.v1.json",
+        "sha256": "9789690d06e0453c6f5e85e5f9df57f01fb95cb4872f9dd420081cbeb313a105",
+        "bytes": 4741,
+        "case_index": 8,
+        "case_id": "food_raw_identifier_nfc_hcr014"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "native": {
+          "result": "accepted",
+          "identifier": "é"
+        },
+        "typescript": {
+          "result": "accepted",
+          "identifier": "é"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
+        "typescript": "food_boundary",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_raw_identifier_nfd_hcr014",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/numeric_boundaries.v1.json",
+        "sha256": "9789690d06e0453c6f5e85e5f9df57f01fb95cb4872f9dd420081cbeb313a105",
+        "bytes": 4741,
+        "case_index": 9,
+        "case_id": "food_raw_identifier_nfd_hcr014"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "native": {
+          "result": "accepted",
+          "identifier": "é"
+        },
+        "typescript": {
+          "result": "accepted",
+          "identifier": "é"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "REQUIRED_NATIVE_TEST",
+        "typescript": "food_boundary",
         "unsupported_reason": null
       }
     }

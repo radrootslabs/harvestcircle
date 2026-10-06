@@ -14,7 +14,10 @@ export const interopInputPaths = [
   `${food}oracle/Cargo.toml`,
   'radroots.lib.source-lock.v1.toml',
   'web/tests/conformance/food-writer-rust.v1.json',
-  `${food}web_templates.v1.json`
+  `${food}web_templates.v1.json`,
+  `${food}numeric_boundaries.v1.json`,
+  `${food}oracle/tests/native_manifest.rs`,
+  `${food}oracle/tests/support/mod.rs`
 ] as const;
 const hash = (bytes: Uint8Array) =>
   createHash('sha256').update(bytes).digest('hex');
@@ -30,6 +33,15 @@ interface Corpus {
   revision: string;
   source_sha256: string;
   vectors: Vector[];
+}
+interface Boundary {
+  id: string;
+  kind: 'timestamp' | 'identifier';
+  value: string;
+  expected: {
+    native: Record<string, unknown>;
+    typescript: { result: string; reason?: string };
+  };
 }
 export function buildInteropManifest(
   inputs: InteropInputs,
@@ -114,6 +126,18 @@ export function buildInteropManifest(
     JSON.stringify(templates, null, 2) + '\n'
   );
   assert.deepEqual(bytes(`${food}web_templates.v1.json`), templateBytes);
+  const boundaries = JSON.parse(text(`${food}numeric_boundaries.v1.json`)) as {
+    schema_version: number;
+    profile: string;
+    contract_version: string;
+    revision: string;
+    vectors: Boundary[];
+  };
+  assert.equal(boundaries.schema_version, 1);
+  assert.equal(boundaries.profile, profile.suite);
+  assert.equal(boundaries.contract_version, profile.contract_version);
+  assert.equal(boundaries.revision, revision);
+  assert.equal(boundaries.vectors.length, 10);
   const fixture = (path: string, caseIndex: number, caseId: string) => ({
     ...descriptor(path),
     case_index: caseIndex,
@@ -132,7 +156,7 @@ export function buildInteropManifest(
       expected: row.expected,
       participation: {
         rust_oracle: 'REQUIRED',
-        native_consumer: 'PENDING_HCR014',
+        native_consumer: 'REQUIRED_NATIVE_TEST',
         typescript: reader ? 'food_reader' : 'UNSUPPORTED_CURRENT_ADAPTER',
         unsupported_reason: reader
           ? null
@@ -153,13 +177,32 @@ export function buildInteropManifest(
     expected: { result: 'accepted', wire_parts: row.wire_parts },
     participation: {
       rust_oracle: 'REQUIRED',
-      native_consumer: 'PENDING_HCR014',
+      native_consumer: 'REQUIRED_NATIVE_TEST',
       typescript: 'food_writer',
       unsupported_reason: null
     }
   }));
-  const cases = [...publicCases, ...writers];
-  assert.equal(cases.length, 56);
+  const boundaryCases = boundaries.vectors.map((row, index) => ({
+    id: row.id,
+    protocol: {
+      profile: profile.suite,
+      contract_version: profile.contract_version
+    },
+    fixture: fixture(`${food}numeric_boundaries.v1.json`, index, row.id),
+    oracle_revision: revision,
+    expected: row.expected,
+    participation: {
+      rust_oracle: 'REQUIRED',
+      native_consumer: 'REQUIRED_NATIVE_TEST',
+      typescript:
+        row.expected.typescript.result === 'unsupported'
+          ? 'UNSUPPORTED_JAVASCRIPT_U64'
+          : 'food_boundary',
+      unsupported_reason: row.expected.typescript.reason ?? null
+    }
+  }));
+  const cases = [...publicCases, ...writers, ...boundaryCases];
+  assert.equal(cases.length, 66);
   assert.equal(new Set(cases.map((row) => row.id)).size, cases.length);
   assert.equal(
     publicCases.filter((row) => row.participation.typescript === 'food_reader')
@@ -181,9 +224,7 @@ export function buildInteropManifest(
         'Derived metadata and expectations, not a second editable protocol policy.'
     },
     pending_checks: [
-      'native_consumer_HCR014',
       'combined_orchestration_HCR015',
-      'native_full_u64_vs_unsafe_js_common_boundary_HCR014',
       'Message_adapters_HCP071_HCP130',
       'deployed_Tera_qualification'
     ],
