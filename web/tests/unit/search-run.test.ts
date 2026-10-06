@@ -174,6 +174,66 @@ async function fixture(nip50 = false, sourceCount = 1) {
   };
 }
 describe('finite food search coordination (isolated SDK provider, not qualification)', () => {
+  it('enforces twenty publisher admissions per page across row reordering', async () => {
+    const f = await fixture();
+    const values = Array.from({ length: 21 }, (_, n) => {
+      const key = crypto.getRandomValues(new Uint8Array(32));
+      keys.push(key);
+      return finalizeEvent(
+        {
+          kind: 30402,
+          created_at: base.created_at + (n === 20 ? 1 : 0),
+          content: base.content,
+          tags: base.tags.map((t) =>
+            t[0] === 'd' ? ['d', `page_${n}`] : [...t]
+          )
+        },
+        key
+      );
+    });
+    const token = f.begin(
+      '',
+      values.slice(0, 20).map((v) => f.head(v))
+    );
+    f.eose(0);
+    f.eose(1);
+    search.resolveFoodSearchPublishers(token);
+    f.eose(2);
+    search.chronologicalFoodSearch(token);
+    f.emit(3, values[20]);
+    f.snapshot();
+    f.eose(4);
+    f.eose(5);
+    f.eose(3);
+    expect(f.snapshot().rows[0].state.head.id).toBe(values[20].id);
+    expect(search.resolveFoodSearchPublishers(token)).toEqual([]);
+    const profiles = f.provider.mock.calls.flatMap(([, input]) =>
+      Array.isArray(input) && input[0].kinds?.[0] === 0 ? [input[0]] : []
+    );
+    expect(profiles).toHaveLength(1);
+    expect(profiles[0].authors).toHaveLength(20);
+    expect(f.snapshot().listings[0].publisher).toEqual({
+      pubkey: values[20].pubkey,
+      label: values[20].pubkey,
+      assertedName: false
+    });
+  });
+  it('orders final verified revisions before selecting the first twenty rows', async () => {
+    const f = await fixture();
+    const values = Array.from({ length: 26 }, (_, n) =>
+      f.wire('Carrots', `ordered_${n}`, base.created_at - 26 + n)
+    );
+    f.begin(
+      'carrots',
+      values.map((value) => f.head(value))
+    );
+    expect(f.snapshot().rows.map((row) => row.state.head.id)).toEqual(
+      values
+        .toReversed()
+        .slice(0, 20)
+        .map((value) => value.id)
+    );
+  });
   it('reserves at most two chronological windows even after clean EOSE', async () => {
     const f = await fixture(),
       token = f.begin('');

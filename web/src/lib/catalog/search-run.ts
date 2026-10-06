@@ -1,4 +1,15 @@
 import {
+  orderFoodRows,
+  listingView,
+  type ListingView
+} from './listing-view.ts';
+import {
+  createPublisherViews,
+  readPublisherPage,
+  publisherSnapshot,
+  type PublisherViews
+} from './publishers.ts';
+import {
   PUBLIC_QUERY_BUDGETS,
   PUBLIC_SEARCH_BUDGETS,
   PUBLIC_SEARCH_RUN_BUDGETS
@@ -64,6 +75,7 @@ export type FoodSearchCoordinator = Readonly<{
 export type FoodSearchRun = Readonly<{ readonly [generationBrand]: true }>;
 interface Coordinator {
   readonly view: PublicView;
+  readonly publishers: PublisherViews;
   readonly clock: WallClock;
   readonly current: () => FoodSearchRun | undefined;
   readonly reserve: (token: FoodSearchRun) => void;
@@ -250,6 +262,7 @@ export function createFoodSearchCoordinator(
     closed = false;
   coordinators.set(token, {
     view,
+    publishers: createPublisherViews(view, clock),
     clock,
     current: () => generation,
     reserve: (value) => {
@@ -537,9 +550,18 @@ export function foodSearchSnapshot(
   );
   const continuation = session.continuation().snapshot(),
     page = localSearchPage(
-      available && matched?.ok ? matched.rows : [],
+      available && matched?.ok ? orderFoodRows(matched.rows) : [],
       session.pages()
     );
+  const listings = new Map<string, ListingView>();
+  for (const row of page.rows) {
+    const value = listingView(
+      row,
+      publisherSnapshot(owner.publishers, row.state.head.pubkey)
+    );
+    if (value) listings.set(value.eventId, value);
+  }
+  if (!current(session)) return undefined;
   return {
     generation: token,
     query: session.query,
@@ -547,12 +569,45 @@ export function foodSearchSnapshot(
       continuation.gap && refresh === 'bounded-eose' ? 'partial' : refresh,
     available,
     rows: page.rows,
+    listings: Array.from(listings.values()),
     hasMore: page.hasMore,
     continuation,
     scopes: sources,
     run,
     definitiveAbsence: false
   };
+}
+// Explicit auxiliary work for the current local page. Show more itself stays
+// local; snapshots never schedule profile transport or prompt a signer.
+export function resolveFoodSearchPublishers(
+  token: FoodSearchRun
+): readonly PublicRequest[] {
+  const session = sessionOf(token);
+  requireCurrent(session);
+  const snapshot = foodSearchSnapshot(
+    viewCoordinators.get(session.coordinator.view)!.token
+  );
+  requireCurrent(session);
+  if (!snapshot?.available) throw new Error('food_search_unavailable');
+  const run = foodSearchRequestOwner(token);
+  const page = snapshot.rows.slice(
+    (session.pages() - 1) * PUBLIC_SEARCH_BUDGETS.pageRows,
+    session.pages() * PUBLIC_SEARCH_BUDGETS.pageRows
+  );
+  try {
+    const requests = readPublisherPage(
+      session.coordinator.publishers,
+      run,
+      page.map((row) => row.state.head.pubkey),
+      session.pages()
+    );
+    for (const request of requests) session.track(request);
+    requireCurrent(session);
+    return requests;
+  } catch (error) {
+    if (current(session)) session.fail();
+    throw error;
+  }
 }
 export function cancelFoodSearch(token: FoodSearchRun): void {
   const session = sessionOf(token);

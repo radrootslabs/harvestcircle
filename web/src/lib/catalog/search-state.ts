@@ -1,3 +1,4 @@
+import type { ListingView } from './listing-view.ts';
 import type { ChronologicalProgress } from './continuation.ts';
 import type {
   publicRunSnapshot,
@@ -21,6 +22,7 @@ export type SearchSnapshot<Generation> = Readonly<{
   refresh: SearchRefresh;
   available: boolean;
   rows: readonly HeadResolution[];
+  listings: readonly ListingView[];
   hasMore: boolean;
   continuation: ChronologicalProgress;
   scopes: readonly SearchScope[];
