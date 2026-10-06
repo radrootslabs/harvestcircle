@@ -1,0 +1,2781 @@
+{
+  "schema_version": 1,
+  "qualification": "FIXTURE_ONLY_NOT_DEPLOYED_TERA",
+  "signing": "NOT_RUN_NO_KEYS",
+  "oracle": {
+    "repository": "https://github.com/radrootslabs/lib",
+    "revision": "189c49b74b4bafc142b00b76b296477931139e72"
+  },
+  "inputs": [
+    {
+      "path": "contracts/interop/food_availability/corpus.v1.json",
+      "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+      "bytes": 265507
+    },
+    {
+      "path": "contracts/interop/food_availability/source_profile.v1.json",
+      "sha256": "dede1eb1f682ecd548e8cd3ccb251d298762e504e2588a73528e5f7a5b9eff21",
+      "bytes": 90099
+    },
+    {
+      "path": "contracts/interop/food_availability/provenance.v1.json",
+      "sha256": "4de4a1c7dade633562599cefdabb96993b6b830bb5acd92c9b74c112cbc2c03e",
+      "bytes": 6756
+    },
+    {
+      "path": "contracts/interop/food_availability/oracle/src/main.rs",
+      "sha256": "fd2ea8f79c72c17a682e9f27fe020e91933475c2a7218937da60fbb2d42e2432",
+      "bytes": 21448
+    },
+    {
+      "path": "contracts/interop/food_availability/oracle/Cargo.toml",
+      "sha256": "5a9a3891ab81af1b82c3f7fb054f25019b41390d84348466993fb158ddc183fe",
+      "bytes": 693
+    },
+    {
+      "path": "radroots.lib.source-lock.v1.toml",
+      "sha256": "27de73ec96a4764c493afc1f03c15ad9d89cf0dc8ddd07680af24a66487eaffc",
+      "bytes": 511
+    },
+    {
+      "path": "web/tests/conformance/food-writer-rust.v1.json",
+      "sha256": "6c95f997724ee995861c2402c57f6ab29b5facd12aa15097822592993b9bfe19",
+      "bytes": 29382
+    },
+    {
+      "path": "contracts/interop/food_availability/web_templates.v1.json",
+      "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
+      "bytes": 33805
+    }
+  ],
+  "fixture_authority": {
+    "public_corpus": "Existing pinned public corpus/profile/provenance and producer remain immutable.",
+    "website_templates": "Derived from actual source-controlled Food builder recipes; regenerate only by explicit reviewed generate-interop-manifest.mjs --write. No real user data.",
+    "manifest": "Derived metadata and expectations, not a second editable protocol policy."
+  },
+  "pending_checks": [
+    "native_consumer_HCR014",
+    "combined_orchestration_HCR015",
+    "native_full_u64_vs_unsafe_js_common_boundary_HCR014",
+    "Message_adapters_HCP071_HCP130",
+    "deployed_Tera_qualification"
+  ],
+  "cases": [
+    {
+      "id": "food_authored_unit_g_001",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 0,
+        "case_id": "food_authored_unit_g_001"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "wire_parts": {
+          "content": "Microgreens available from a Victoria-area farm.",
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "microgreens"
+            ],
+            [
+              "title",
+              "Microgreens"
+            ],
+            [
+              "summary",
+              "Local microgreens"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "120",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "g"
+            ],
+            [
+              "radroots:quantity",
+              "250",
+              "g"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
+      }
+    },
+    {
+      "id": "food_authored_unit_kg_002",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 1,
+        "case_id": "food_authored_unit_kg_002"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "wire_parts": {
+          "content": "Yukon Gold Potatoes available from a Victoria-area farm.",
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "yukon-gold-potatoes"
+            ],
+            [
+              "title",
+              "Yukon Gold Potatoes"
+            ],
+            [
+              "summary",
+              "Local yukon gold potatoes"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "5.5",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "kg"
+            ],
+            [
+              "radroots:quantity",
+              "18",
+              "kg"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
+      }
+    },
+    {
+      "id": "food_authored_unit_lb_003",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 2,
+        "case_id": "food_authored_unit_lb_003"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "wire_parts": {
+          "content": "Nantes Carrots available from a Victoria-area farm.",
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "nantes-carrots"
+            ],
+            [
+              "title",
+              "Nantes Carrots"
+            ],
+            [
+              "summary",
+              "Local nantes carrots"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "3.5",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "24",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
+      }
+    },
+    {
+      "id": "food_authored_unit_oz_004",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 3,
+        "case_id": "food_authored_unit_oz_004"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "wire_parts": {
+          "content": "Fresh Basil available from a Victoria-area farm.",
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "fresh-basil"
+            ],
+            [
+              "title",
+              "Fresh Basil"
+            ],
+            [
+              "summary",
+              "Local fresh basil"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "2.25",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "oz"
+            ],
+            [
+              "radroots:quantity",
+              "16",
+              "oz"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
+      }
+    },
+    {
+      "id": "food_authored_unit_each_005",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 4,
+        "case_id": "food_authored_unit_each_005"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "wire_parts": {
+          "content": "Delicata Squash available from a Victoria-area farm.",
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "delicata-squash"
+            ],
+            [
+              "title",
+              "Delicata Squash"
+            ],
+            [
+              "summary",
+              "Local delicata squash"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "4",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "each"
+            ],
+            [
+              "radroots:quantity",
+              "12",
+              "each"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
+      }
+    },
+    {
+      "id": "food_authored_unit_dozen_006",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 5,
+        "case_id": "food_authored_unit_dozen_006"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "wire_parts": {
+          "content": "Pasture Eggs available from a Victoria-area farm.",
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "pasture-eggs"
+            ],
+            [
+              "title",
+              "Pasture Eggs"
+            ],
+            [
+              "summary",
+              "Local pasture eggs"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "8",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "dozen"
+            ],
+            [
+              "radroots:quantity",
+              "6",
+              "dozen"
+            ],
+            [
+              "status",
+              "sold"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
+      }
+    },
+    {
+      "id": "food_authored_unit_bunch_007",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 6,
+        "case_id": "food_authored_unit_bunch_007"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "wire_parts": {
+          "content": "Lacinato Kale available from a Victoria-area farm.",
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "lacinato-kale"
+            ],
+            [
+              "title",
+              "Lacinato Kale"
+            ],
+            [
+              "summary",
+              "Local lacinato kale"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "4.5",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "bunch"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "bunch"
+            ],
+            [
+              "status",
+              "active"
+            ],
+            [
+              "image",
+              "https://blossom.victoria.example/85ccc876a2fe359a2f8dd491bbc6c1f5674af8f0e94d11b556a069f8176e303d.webp",
+              "1200x800"
+            ],
+            [
+              "image",
+              "https://blossom.victoria.example/e3d093fc5e999bd2eb6eb476d24fd421accb134efa8dc750bd87d22a7e49fb22.webp",
+              "800x800"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
+      }
+    },
+    {
+      "id": "food_authored_unit_punnet_008",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 7,
+        "case_id": "food_authored_unit_punnet_008"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "wire_parts": {
+          "content": "June Strawberries available from a Victoria-area farm.",
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "june-strawberries"
+            ],
+            [
+              "title",
+              "June Strawberries"
+            ],
+            [
+              "summary",
+              "Local june strawberries"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "7",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "punnet"
+            ],
+            [
+              "radroots:quantity",
+              "20",
+              "punnet"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
+      }
+    },
+    {
+      "id": "food_authored_unit_bag_009",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 8,
+        "case_id": "food_authored_unit_bag_009"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "wire_parts": {
+          "content": "Gravenstein Apples available from a Victoria-area farm.",
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "gravenstein-apples"
+            ],
+            [
+              "title",
+              "Gravenstein Apples"
+            ],
+            [
+              "summary",
+              "Local gravenstein apples"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "9",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "bag"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
+      }
+    },
+    {
+      "id": "food_authored_unit_basket_010",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 9,
+        "case_id": "food_authored_unit_basket_010"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "wire_parts": {
+          "content": "Cherry Tomatoes available from a Victoria-area farm.",
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "cherry-tomatoes"
+            ],
+            [
+              "title",
+              "Cherry Tomatoes"
+            ],
+            [
+              "summary",
+              "Local cherry tomatoes"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "12",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "basket"
+            ],
+            [
+              "radroots:quantity",
+              "8",
+              "basket"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
+      }
+    },
+    {
+      "id": "food_authored_wire_budget_ascii_max_011",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 10,
+        "case_id": "food_authored_wire_budget_ascii_max_011"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "wire_parts": {
+          "content_length": 131072,
+          "kind": 30402,
+          "tags": [
+            [
+              "d",
+              "wire-budget-pass"
+            ],
+            [
+              "title",
+              "Wire Budget Pass"
+            ],
+            [
+              "summary",
+              "Maximum ASCII content"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Central Saanich, BC"
+            ],
+            [
+              "price",
+              "1",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "each"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
+      }
+    },
+    {
+      "id": "food_authored_wire_budget_escaped_overflow_012",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 11,
+        "case_id": "food_authored_wire_budget_escaped_overflow_012"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "actual": 393796,
+          "code": "food_event_wire_too_large",
+          "max": 262144,
+          "message": "FoodAvailability canonical signed event would be 393796 bytes; max is 262144"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
+      }
+    },
+    {
+      "id": "food_authored_future_published_at_013",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 12,
+        "case_id": "food_authored_future_published_at_013"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "food_published_at_future",
+          "created_at": 1699999999,
+          "message": "FoodAvailability published_at 1700000000 exceeds created_at 1699999999",
+          "published_at": 1700000000
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Public authored-details recipes include profile capabilities beyond the strict text-only prototype builder; its separate sixteen actual outputs are shared below."
+      }
+    },
+    {
+      "id": "food_admission_normalizes_decimal_currency_014",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 13,
+        "case_id": "food_admission_normalizes_decimal_currency_014"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "event_id": "20adf6026a55207a21111ac0617c212a2abb8fd15e39f3042991d85da287c74f",
+        "outcome": "focused",
+        "projection": {
+          "content": "Carrots available this week.",
+          "diagnostics": [],
+          "identifier": "nantes-carrots",
+          "images": [],
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "3.5",
+            "currency": "CAD",
+            "unit": "lb"
+          },
+          "published_at": 1700000000,
+          "quantity": {
+            "amount": "10",
+            "unit": "lb"
+          },
+          "status": "active",
+          "summary": "Fresh bunches",
+          "title": "Nantes Carrots"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_admission_optional_standard_tags_015",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 14,
+        "case_id": "food_admission_optional_standard_tags_015"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "event_id": "794251d2341134908ee28526447cb8a54bdd608917166fd3678f65e578fbb8c7",
+        "outcome": "admitted",
+        "projection": {
+          "content": "Carrots available this week.",
+          "diagnostics": [],
+          "identifier": "nantes-carrots",
+          "images": [],
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "3",
+            "currency": "CAD",
+            "unit": "lb"
+          },
+          "published_at": 1700000000,
+          "quantity": null,
+          "status": "active",
+          "summary": "Fresh bunches",
+          "title": "Nantes Carrots"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_admission_excludes_operational_before_validation_016",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 15,
+        "case_id": "food_admission_excludes_operational_before_validation_016"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "event_id": "c9e41f7d91b036e21fdce11ab88a5eda6cc19c93875f160f7632b1a844a59d40",
+        "outcome": "excluded",
+        "partition": "operational_listing"
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_admission_excludes_generic_nip99_017",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 16,
+        "case_id": "food_admission_excludes_generic_nip99_017"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "event_id": "0d65719b6e73a64f55d95c38ba46e25e222a893d4ec0cdfe83747b1269118d3d",
+        "outcome": "excluded",
+        "partition": "generic_nip99"
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_admission_rejects_ambiguous_markers_018",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 17,
+        "case_id": "food_admission_rejects_ambiguous_markers_018"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "food_profile_ambiguous",
+          "message": "classified listing mixes focused and operational markers"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_admission_rejects_wrong_kind_019",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 18,
+        "case_id": "food_admission_rejects_wrong_kind_019"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "invalid_kind",
+          "message": "FoodAvailability event kind must be 30402, got 1"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_admission_rejects_core_tag_shape_020",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 19,
+        "case_id": "food_admission_rejects_core_tag_shape_020"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "food_tag_invalid",
+          "message": "FoodAvailability core tag shape is invalid"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_admission_rejects_prohibited_delivery_021",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 20,
+        "case_id": "food_admission_rejects_prohibited_delivery_021"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "prohibited_capability",
+          "message": "FoodAvailability tag `delivery` is a prohibited capability"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_admission_rejects_price_frequency_022",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 21,
+        "case_id": "food_admission_rejects_price_frequency_022"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "price_frequency_forbidden",
+          "message": "FoodAvailability price frequency is forbidden"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_admission_requires_price_unit_023",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 22,
+        "case_id": "food_admission_requires_price_unit_023"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "price_unit_missing",
+          "message": "FoodAvailability price unit is missing"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_admission_bounds_raw_decimal_digits_024",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 23,
+        "case_id": "food_admission_bounds_raw_decimal_digits_024"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "price_invalid",
+          "message": "FoodAvailability price must be a canonical unsigned decimal with at most 28 digits"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_admission_rejects_malformed_price_unit_025",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 24,
+        "case_id": "food_admission_rejects_malformed_price_unit_025"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "price_unit_invalid",
+          "message": "FoodAvailability price unit is not governed"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_admission_rejects_quantity_unit_mismatch_026",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 25,
+        "case_id": "food_admission_rejects_quantity_unit_mismatch_026"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "quantity_invalid",
+          "message": "FoodAvailability quantity must be canonical and use the price unit"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_admission_rejects_status_027",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 26,
+        "case_id": "food_admission_rejects_status_027"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "food_status_invalid",
+          "message": "FoodAvailability status must be active or sold"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_admission_rejects_future_published_at_028",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 27,
+        "case_id": "food_admission_rejects_future_published_at_028"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "food_published_at_future",
+          "message": "FoodAvailability published_at 1700000061 exceeds created_at 1700000060"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_admission_preserves_ordered_image_diagnostics_029",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 28,
+        "case_id": "food_admission_preserves_ordered_image_diagnostics_029"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "event_id": "96b4a10932919010172a00667ccebb8684a89e7cc3c4c51202d2870fd8b5acfe",
+        "outcome": "focused",
+        "projection": {
+          "content": "Carrots available this week.",
+          "diagnostics": [
+            "food_image_shape_invalid",
+            "food_image_dimensions_missing",
+            "food_image_shape_invalid",
+            "food_image_dimensions_invalid",
+            "food_image_duplicate_url",
+            "food_image_duplicate_digest",
+            "food_image_url_invalid"
+          ],
+          "identifier": "nantes-carrots",
+          "images": [
+            {
+              "diagnostics": [
+                "food_image_shape_invalid",
+                "food_image_dimensions_missing"
+              ],
+              "dimensions": null,
+              "qualifies": false,
+              "raw_tag": [
+                "image",
+                "https://media.example/2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824.webp"
+              ],
+              "url": "https://media.example/2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824.webp"
+            },
+            {
+              "diagnostics": [
+                "food_image_shape_invalid",
+                "food_image_dimensions_invalid",
+                "food_image_duplicate_url",
+                "food_image_duplicate_digest"
+              ],
+              "dimensions": null,
+              "qualifies": false,
+              "raw_tag": [
+                "image",
+                "https://media.example/2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824.webp",
+                "0x600",
+                "extra"
+              ],
+              "url": "https://media.example/2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824.webp"
+            },
+            {
+              "diagnostics": [
+                "food_image_url_invalid"
+              ],
+              "dimensions": {
+                "height": 600,
+                "width": 800
+              },
+              "qualifies": false,
+              "raw_tag": [
+                "image",
+                "not-a-url",
+                "800x600"
+              ],
+              "url": null
+            }
+          ],
+          "location": "Central Saanich, BC",
+          "price": {
+            "amount": "3",
+            "currency": "CAD",
+            "unit": "lb"
+          },
+          "published_at": 1700000000,
+          "quantity": null,
+          "status": "active",
+          "summary": "Fresh bunches",
+          "title": "Nantes Carrots"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_admission_bounds_image_projection_030",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 29,
+        "case_id": "food_admission_bounds_image_projection_030"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "diagnostics": [
+          "food_image_count_exceeded"
+        ],
+        "event_id": "ac3b37c0368816b8d707e0e2e194c39291ea47fa7bb22dd998fa526b03609280",
+        "first_raw_tag": [
+          "image",
+          "https://media.example/0000000000000000000000000000000000000000000000000000000000000000.webp",
+          "800x600"
+        ],
+        "image_count": 64,
+        "last_raw_tag": [
+          "image",
+          "https://media.example/000000000000000000000000000000000000000000000000000000000000003f.webp",
+          "800x600"
+        ],
+        "outcome": "focused"
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_admission_rejects_invalid_signature_031",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 30,
+        "case_id": "food_admission_rejects_invalid_signature_031"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "signature_invalid",
+          "message": "invalid NIP-01 event signature"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_reader",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "food_revision_accepts_later_created_at_032",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 31,
+        "case_id": "food_revision_accepts_later_created_at_032"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "current_event_id": "78304e7b25d60f037f3c65556ecc31075e724394f7ee7c7f94081a4e083432a9",
+        "result": "accepted"
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
+      }
+    },
+    {
+      "id": "food_revision_rejects_invalid_previous_033",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 32,
+        "case_id": "food_revision_rejects_invalid_previous_033"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "food_revision_previous_invalid",
+          "message": "previous FoodAvailability revision is invalid: FoodAvailability core tag shape is invalid"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
+      }
+    },
+    {
+      "id": "food_revision_rejects_invalid_current_034",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 33,
+        "case_id": "food_revision_rejects_invalid_current_034"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "food_revision_current_invalid",
+          "message": "current FoodAvailability revision is invalid: FoodAvailability price must be a canonical unsigned decimal with at most 28 digits"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
+      }
+    },
+    {
+      "id": "food_revision_rejects_identifier_coordinate_change_035",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 34,
+        "case_id": "food_revision_rejects_identifier_coordinate_change_035"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "food_coordinate_changed",
+          "message": "FoodAvailability revision coordinate changed"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
+      }
+    },
+    {
+      "id": "food_revision_rejects_author_coordinate_change_036",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 35,
+        "case_id": "food_revision_rejects_author_coordinate_change_036"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "food_coordinate_changed",
+          "message": "FoodAvailability revision coordinate changed"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
+      }
+    },
+    {
+      "id": "food_revision_rejects_published_at_change_037",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 36,
+        "case_id": "food_revision_rejects_published_at_change_037"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "food_published_at_changed",
+          "message": "FoodAvailability revision published_at changed"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
+      }
+    },
+    {
+      "id": "food_revision_rejects_older_created_at_038",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 37,
+        "case_id": "food_revision_rejects_older_created_at_038"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "food_revision_not_newer",
+          "message": "FoodAvailability revision does not win NIP-01 ordering"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
+      }
+    },
+    {
+      "id": "food_revision_equal_time_a_current_039",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 38,
+        "case_id": "food_revision_equal_time_a_current_039"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "error": {
+          "code": "food_revision_not_newer",
+          "message": "FoodAvailability revision does not win NIP-01 ordering"
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
+      }
+    },
+    {
+      "id": "food_revision_equal_time_b_current_040",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/corpus.v1.json",
+        "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682",
+        "bytes": 265507,
+        "case_index": 39,
+        "case_id": "food_revision_equal_time_b_current_040"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "current_event_id": "6e3a51de252e123bee2b94da38d2796406e518abffe52c8295cde473b75e16d4",
+        "result": "accepted"
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "UNSUPPORTED_CURRENT_ADAPTER",
+        "unsupported_reason": "Current website reader is not a revision-transition adapter; original head-selection checkpoints retain this obligation."
+      }
+    },
+    {
+      "id": "web_writer_000",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/web_templates.v1.json",
+        "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
+        "bytes": 33805,
+        "case_index": 0,
+        "case_id": "web_writer_000"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "result": "accepted",
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Fresh food available locally.",
+          "tags": [
+            [
+              "d",
+              "writer-g"
+            ],
+            [
+              "title",
+              "Fresh food"
+            ],
+            [
+              "summary",
+              "Fresh food available locally."
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Victoria"
+            ],
+            [
+              "price",
+              "9999999999999999999999999999",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "g"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "g"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_writer",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "web_writer_001",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/web_templates.v1.json",
+        "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
+        "bytes": 33805,
+        "case_index": 1,
+        "case_id": "web_writer_001"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "result": "accepted",
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Fresh food available locally.",
+          "tags": [
+            [
+              "d",
+              "writer-kg"
+            ],
+            [
+              "title",
+              "Fresh food"
+            ],
+            [
+              "summary",
+              "Fresh food available locally."
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Victoria"
+            ],
+            [
+              "price",
+              "9999999999999999999999999999",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "kg"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "kg"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_writer",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "web_writer_002",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/web_templates.v1.json",
+        "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
+        "bytes": 33805,
+        "case_index": 2,
+        "case_id": "web_writer_002"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "result": "accepted",
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Fresh food available locally.",
+          "tags": [
+            [
+              "d",
+              "writer-lb"
+            ],
+            [
+              "title",
+              "Fresh food"
+            ],
+            [
+              "summary",
+              "Fresh food available locally."
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Victoria"
+            ],
+            [
+              "price",
+              "9999999999999999999999999999",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "lb"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "lb"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_writer",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "web_writer_003",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/web_templates.v1.json",
+        "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
+        "bytes": 33805,
+        "case_index": 3,
+        "case_id": "web_writer_003"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "result": "accepted",
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Fresh food available locally.",
+          "tags": [
+            [
+              "d",
+              "writer-oz"
+            ],
+            [
+              "title",
+              "Fresh food"
+            ],
+            [
+              "summary",
+              "Fresh food available locally."
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Victoria"
+            ],
+            [
+              "price",
+              "9999999999999999999999999999",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "oz"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "oz"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_writer",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "web_writer_004",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/web_templates.v1.json",
+        "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
+        "bytes": 33805,
+        "case_index": 4,
+        "case_id": "web_writer_004"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "result": "accepted",
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Fresh food available locally.",
+          "tags": [
+            [
+              "d",
+              "writer-each"
+            ],
+            [
+              "title",
+              "Fresh food"
+            ],
+            [
+              "summary",
+              "Fresh food available locally."
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Victoria"
+            ],
+            [
+              "price",
+              "9999999999999999999999999999",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "each"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "each"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_writer",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "web_writer_005",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/web_templates.v1.json",
+        "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
+        "bytes": 33805,
+        "case_index": 5,
+        "case_id": "web_writer_005"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "result": "accepted",
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Fresh food available locally.",
+          "tags": [
+            [
+              "d",
+              "writer-dozen"
+            ],
+            [
+              "title",
+              "Fresh food"
+            ],
+            [
+              "summary",
+              "Fresh food available locally."
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Victoria"
+            ],
+            [
+              "price",
+              "9999999999999999999999999999",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "dozen"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "dozen"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_writer",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "web_writer_006",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/web_templates.v1.json",
+        "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
+        "bytes": 33805,
+        "case_index": 6,
+        "case_id": "web_writer_006"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "result": "accepted",
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Fresh food available locally.",
+          "tags": [
+            [
+              "d",
+              "writer-bunch"
+            ],
+            [
+              "title",
+              "Fresh food"
+            ],
+            [
+              "summary",
+              "Fresh food available locally."
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Victoria"
+            ],
+            [
+              "price",
+              "9999999999999999999999999999",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "bunch"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "bunch"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_writer",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "web_writer_007",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/web_templates.v1.json",
+        "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
+        "bytes": 33805,
+        "case_index": 7,
+        "case_id": "web_writer_007"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "result": "accepted",
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Fresh food available locally.",
+          "tags": [
+            [
+              "d",
+              "writer-punnet"
+            ],
+            [
+              "title",
+              "Fresh food"
+            ],
+            [
+              "summary",
+              "Fresh food available locally."
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Victoria"
+            ],
+            [
+              "price",
+              "9999999999999999999999999999",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "punnet"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "punnet"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_writer",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "web_writer_008",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/web_templates.v1.json",
+        "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
+        "bytes": 33805,
+        "case_index": 8,
+        "case_id": "web_writer_008"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "result": "accepted",
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Fresh food available locally.",
+          "tags": [
+            [
+              "d",
+              "writer-bag"
+            ],
+            [
+              "title",
+              "Fresh food"
+            ],
+            [
+              "summary",
+              "Fresh food available locally."
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Victoria"
+            ],
+            [
+              "price",
+              "9999999999999999999999999999",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "bag"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "bag"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_writer",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "web_writer_009",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/web_templates.v1.json",
+        "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
+        "bytes": 33805,
+        "case_index": 9,
+        "case_id": "web_writer_009"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "result": "accepted",
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Fresh food available locally.",
+          "tags": [
+            [
+              "d",
+              "writer-basket"
+            ],
+            [
+              "title",
+              "Fresh food"
+            ],
+            [
+              "summary",
+              "Fresh food available locally."
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Victoria"
+            ],
+            [
+              "price",
+              "9999999999999999999999999999",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "basket"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "basket"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_writer",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "web_writer_010",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/web_templates.v1.json",
+        "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
+        "bytes": 33805,
+        "case_index": 10,
+        "case_id": "web_writer_010"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "result": "accepted",
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Fresh food available locally.",
+          "tags": [
+            [
+              "d",
+              "writer-free-unspecified"
+            ],
+            [
+              "title",
+              "Fresh food"
+            ],
+            [
+              "summary",
+              "Fresh food available locally."
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Victoria"
+            ],
+            [
+              "price",
+              "0",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "g"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_writer",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "web_writer_011",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/web_templates.v1.json",
+        "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
+        "bytes": 33805,
+        "case_index": 11,
+        "case_id": "web_writer_011"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "result": "accepted",
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Fresh food available locally.",
+          "tags": [
+            [
+              "d",
+              "writer-sold"
+            ],
+            [
+              "title",
+              "Fresh food"
+            ],
+            [
+              "summary",
+              "Fresh food available locally."
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Victoria"
+            ],
+            [
+              "price",
+              "9999999999999999999999999999",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "g"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "g"
+            ],
+            [
+              "status",
+              "sold"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_writer",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "web_writer_012",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/web_templates.v1.json",
+        "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
+        "bytes": 33805,
+        "case_index": 12,
+        "case_id": "web_writer_012"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "result": "accepted",
+        "wire_parts": {
+          "kind": 30402,
+          "content": "🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕\n\nPublic contact: https://farm.example/contact",
+          "tags": [
+            [
+              "d",
+              "writer-unicode"
+            ],
+            [
+              "title",
+              "🥕"
+            ],
+            [
+              "summary",
+              "🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Victoria"
+            ],
+            [
+              "price",
+              "9999999999999999999999999999",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "g"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "g"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_writer",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "web_writer_013",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/web_templates.v1.json",
+        "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
+        "bytes": 33805,
+        "case_index": 13,
+        "case_id": "web_writer_013"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "result": "accepted",
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Fresh food available locally.\n\nPublic contact: mailto:seller@example.com",
+          "tags": [
+            [
+              "d",
+              "writer-email"
+            ],
+            [
+              "title",
+              "Fresh food"
+            ],
+            [
+              "summary",
+              "Fresh food available locally."
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Victoria"
+            ],
+            [
+              "price",
+              "9999999999999999999999999999",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "g"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "g"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_writer",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "web_writer_014",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/web_templates.v1.json",
+        "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
+        "bytes": 33805,
+        "case_index": 14,
+        "case_id": "web_writer_014"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "result": "accepted",
+        "wire_parts": {
+          "kind": 30402,
+          "content": "Fresh food available locally.\n\nPublic contact: tel:+12505550123",
+          "tags": [
+            [
+              "d",
+              "writer-phone"
+            ],
+            [
+              "title",
+              "Fresh food"
+            ],
+            [
+              "summary",
+              "Fresh food available locally."
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Victoria"
+            ],
+            [
+              "price",
+              "9999999999999999999999999999",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "g"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "g"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_writer",
+        "unsupported_reason": null
+      }
+    },
+    {
+      "id": "web_writer_015",
+      "protocol": {
+        "profile": "food_availability_profile",
+        "contract_version": "1.0.0"
+      },
+      "fixture": {
+        "path": "contracts/interop/food_availability/web_templates.v1.json",
+        "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0",
+        "bytes": 33805,
+        "case_index": 15,
+        "case_id": "web_writer_015"
+      },
+      "oracle_revision": "189c49b74b4bafc142b00b76b296477931139e72",
+      "expected": {
+        "result": "accepted",
+        "wire_parts": {
+          "kind": 30402,
+          "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "tags": [
+            [
+              "d",
+              "writer-max-content"
+            ],
+            [
+              "title",
+              "Fresh food"
+            ],
+            [
+              "summary",
+              "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            ],
+            [
+              "published_at",
+              "1700000000"
+            ],
+            [
+              "location",
+              "Victoria"
+            ],
+            [
+              "price",
+              "9999999999999999999999999999",
+              "CAD"
+            ],
+            [
+              "radroots:price_unit",
+              "g"
+            ],
+            [
+              "radroots:quantity",
+              "10",
+              "g"
+            ],
+            [
+              "status",
+              "active"
+            ]
+          ]
+        }
+      },
+      "participation": {
+        "rust_oracle": "REQUIRED",
+        "native_consumer": "PENDING_HCR014",
+        "typescript": "food_writer",
+        "unsupported_reason": null
+      }
+    }
+  ]
+}
