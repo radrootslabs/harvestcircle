@@ -54,9 +54,21 @@ test.beforeAll(async () => {
     );
     // Runtime store metadata is volume-specific; install the exact locked graph
     // into this disposable clone without a network or lock-repair fallback.
+    const sourceStore = execFileSync('corepack', ['pnpm', 'store', 'path'], {
+      cwd: path.join(capsule, 'web')
+    })
+      .toString()
+      .trim();
     const installed = execFileSync(
       'corepack',
-      ['pnpm', 'install', '--offline', '--frozen-lockfile'],
+      [
+        'pnpm',
+        'install',
+        '--offline',
+        '--frozen-lockfile',
+        '--store-dir',
+        path.dirname(sourceStore)
+      ],
       { cwd: path.join(checkout, 'web'), stdio: 'pipe', timeout: 90_000 }
     );
     const fixtureLayout =
@@ -150,6 +162,7 @@ test.beforeAll(async () => {
         compiledLayout: fixtureLayout,
         derivedTargets,
         payload: await payload(path.join(checkout, 'web/build')),
+        sourceStore,
         installed: installed.toString(),
         compiled: compiled.toString(),
         metadata: JSON.parse(
