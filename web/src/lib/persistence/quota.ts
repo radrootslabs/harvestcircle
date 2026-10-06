@@ -22,6 +22,13 @@ import {
   type PublicInventoryRow
 } from './local-inventory.ts';
 
+import {
+  publicTransitionIdentity,
+  publicTransitionSnapshot,
+  type PublicOperationTransition
+} from './artifact-records.ts';
+import { decideFrozenTransition } from './operation-transactions.ts';
+
 declare const repositoryBrand: unique symbol;
 declare const inventoryBrand: unique symbol;
 declare const cleanupBrand: unique symbol;
@@ -392,4 +399,88 @@ export function commitPublicCleanup(
       active.objectStore(row.store).delete([scope.owner, row.record.id]);
     return { ok: true, value: Array.from(cleanup.selected) };
   });
+}
+
+// No signer/network await exists inside this transaction. It consumes only a
+// genuine immutable typed transition captured before storage acquisition.
+export function commitPublicOperationTransition(
+  repository: PublicQuotaRepository,
+  handle: PublicOperationTransition
+): Promise<PublicQuotaResult<Readonly<{ id: string; revision: number }>>> {
+  const scope = scopeOf(repository);
+  if (!scope) return Promise.resolve(failed('invalid_scope'));
+  const identity = publicTransitionIdentity(handle);
+  const command =
+    identity && publicTransitionSnapshot(handle, scope.owner, identity.id);
+  if (!command) return Promise.resolve(failed('invalid_record'));
+  const store: Store =
+    command.family === 'public_operation'
+      ? 'public_operations'
+      : 'preference_operations';
+  return transaction(scope, 'readwrite', (rows, active, refuse) => {
+    const previous = rows.find(
+      (row) => row.store === store && row.record.id === command.id
+    );
+    const decision = decideFrozenTransition(
+      previous?.wire,
+      command.baseWire,
+      command.nextWire
+    );
+    if (decision === 'conflict') {
+      refuse('conflict');
+      return;
+    }
+    if (decision === 'committed')
+      return {
+        ok: true,
+        value: { id: command.id, revision: command.revision }
+      };
+    const operations = rows.filter(
+      (row) => row.record.family !== 'public_draft'
+    );
+    const bytes =
+      operations.reduce((sum, row) => sum + row.bytes, 0) -
+      (previous?.bytes ?? 0) +
+      new TextEncoder().encode(command.nextWire).length;
+    if (bytes > LOCAL_PERSISTENCE_BUDGETS.publicOperationBytes) {
+      refuse('capacity');
+      return;
+    }
+    active
+      .objectStore(store)
+      .put({ owner: scope.owner, id: command.id, wire: command.nextWire });
+    return { ok: true, value: { id: command.id, revision: command.revision } };
+  });
+}
+export async function observePublicOperationTransition(
+  repository: PublicQuotaRepository,
+  handle: PublicOperationTransition
+): Promise<
+  | Readonly<{ state: 'committed'; id: string; revision: number }>
+  | Readonly<{ state: 'base_observed' | 'conflict' | 'unavailable' }>
+> {
+  const scope = scopeOf(repository),
+    identity = publicTransitionIdentity(handle);
+  const command =
+    scope &&
+    identity &&
+    publicTransitionSnapshot(handle, scope.owner, identity.id);
+  if (!scope || !command) return { state: 'unavailable' };
+  const store: Store =
+    command.family === 'public_operation'
+      ? 'public_operations'
+      : 'preference_operations';
+  const read = await transaction(scope, 'readonly', (rows) => ({
+    ok: true,
+    value: decideFrozenTransition(
+      rows.find((row) => row.store === store && row.record.id === command.id)
+        ?.wire,
+      command.baseWire,
+      command.nextWire
+    )
+  }));
+  if (!read.ok || !scopeOf(repository)) return { state: 'unavailable' };
+  return read.value === 'committed'
+    ? { state: 'committed', id: command.id, revision: command.revision }
+    : { state: read.value };
 }
