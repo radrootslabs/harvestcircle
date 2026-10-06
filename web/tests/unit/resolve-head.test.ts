@@ -15,16 +15,25 @@ import {
 } from '../../src/lib/nostr/request-scope.ts';
 import {
   createPublicHeadCandidate,
+  publicHeadEnvelope,
+  publicHeadSnapshot,
   publicHeadKey
 } from '../../src/lib/catalog/heads.ts';
 import { headResolutionQueries } from '../../src/lib/nostr/product-queries.ts';
 import {
   createHeadResolver,
   resolveHeads,
+  resolveKnownHeads,
   headResolutionSnapshot,
   closeHeadResolver,
   type HeadSubscriber
 } from '../../src/lib/catalog/resolve-head.ts';
+import {
+  createPublicRetention,
+  retainPublicEnvelope,
+  publicRetentionEnvelope,
+  publicRetentionKnown
+} from '../../src/lib/catalog/retention.ts';
 
 const corpus = JSON.parse(
   readFileSync(
@@ -140,6 +149,89 @@ function fixture() {
   };
 }
 describe('bounded exact-coordinate head resolution', () => {
+  it('materializes already retained heads after the run ends without opening a new request', () => {
+    const f = fixture(),
+      retention = createPublicRetention();
+    retainPublicEnvelope(retention, publicHeadEnvelope(f.initial));
+    let opened = 0;
+    const known = createHeadResolver(
+      f.run,
+      () => {
+        opened++;
+        throw Error('inactive request');
+      },
+      { nowSeconds: () => base.created_at + 10 },
+      {
+        retain: (heads) => {
+          if (
+            heads.some(
+              (h) =>
+                !publicRetentionEnvelope(retention, publicHeadSnapshot(h).id)
+            )
+          )
+            throw Error('cache_missing');
+          return true;
+        },
+        read: (h) => publicRetentionKnown(retention, h),
+        available: () => true
+      }
+    );
+    f.advance(15000);
+    resolveKnownHeads(known, [f.initial]);
+    expect(headResolutionSnapshot(known)[0]).toMatchObject({
+      lastKnown: true,
+      coverage: 'partial',
+      definitiveAbsence: false
+    });
+    expect(headResolutionSnapshot(known)[0].state.food).toBeDefined();
+    const target = publicHeadSnapshot(f.initial).id;
+    const deletion = f.proof(f.event(base.created_at, [['e', target]], '', 5));
+    retainPublicEnvelope(retention, deletion);
+    expect(headResolutionSnapshot(known)[0].deletion.outcome).toBe(
+      'suppressed'
+    );
+    expect(headResolutionSnapshot(known)[0].state.food).toBeUndefined();
+    expect(opened).toBe(0);
+  });
+  it('denies unretained proof in an inactive projection before changing its known rows', () => {
+    const f = fixture(),
+      retention = createPublicRetention();
+    retainPublicEnvelope(retention, publicHeadEnvelope(f.initial));
+    const known = createHeadResolver(
+      f.run,
+      () => {
+        throw Error('inactive request');
+      },
+      { nowSeconds: () => base.created_at + 10 },
+      {
+        retain: (heads) => {
+          if (
+            heads.some(
+              (h) =>
+                !publicRetentionEnvelope(retention, publicHeadSnapshot(h).id)
+            )
+          )
+            throw Error('cache_missing');
+          return true;
+        },
+        read: (h) => publicRetentionKnown(retention, h),
+        available: () => true
+      }
+    );
+    expect(() => resolveKnownHeads(known, [f.initial])).toThrow(
+      'head_resolver_still_active'
+    );
+    f.advance(15000);
+    resolveKnownHeads(known, [f.initial]);
+    const other = f.head(
+      f.event(
+        base.created_at,
+        base.tags.map((t) => (t[0] === 'd' ? ['d', 'uncached'] : [...t]))
+      )
+    );
+    expect(() => resolveKnownHeads(known, [other])).toThrow('cache_missing');
+    expect(headResolutionSnapshot(known)).toHaveLength(1);
+  });
   it('batches unique exact coordinates and author deletion lookups without keyword constraints', () => {
     const f = fixture(),
       other = f.head(

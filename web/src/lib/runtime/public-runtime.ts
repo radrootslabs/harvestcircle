@@ -12,6 +12,7 @@ import {
   closePublicStore,
   publicStoreRetention,
   publicStoreKnownEvidence,
+  publicStoreEnvelope,
   type PublicStore
 } from '../nostr/public-store.ts';
 import {
@@ -28,7 +29,11 @@ import {
   type RequestClock
 } from '../nostr/request-scope.ts';
 import type { PublicFilter } from '../nostr/exports.ts';
-import { publicHeadEnvelope, type PublicHead } from '../catalog/heads.ts';
+import {
+  publicHeadEnvelope,
+  publicHeadSnapshot,
+  type PublicHead
+} from '../catalog/heads.ts';
 import type { KnownPublicEvidence } from '../catalog/retention.ts';
 import type { VerifiedEnvelope } from '../nostr/verified-envelope.ts';
 declare const contextBrand: unique symbol;
@@ -260,7 +265,19 @@ export function createPublicView(runtime: PublicRuntime): PublicView {
         !shared.projectionValid()
       )
         throw new Error('public_view_run_superseded');
-      run = createPublicRun(shared.scheduler, shared.policy);
+      const candidate = createPublicRun(shared.scheduler, shared.policy);
+      // Run creation samples the injected clock. It may synchronously start a
+      // newer view generation before returning; never overwrite that owner.
+      if (
+        operation !== generation ||
+        disposed ||
+        shared.closed() ||
+        !shared.projectionValid()
+      ) {
+        disposePublicRun(candidate);
+        throw new Error('public_view_run_superseded');
+      }
+      run = candidate;
       return run;
     },
     settling: () => settling,
@@ -357,8 +374,20 @@ export function retainPublicViewHeads(
   heads: readonly PublicHead[]
 ): boolean {
   const owner = viewOf(view);
-  if (!publicViewRunCurrent(view, run) || !owner.runtime.projectionValid())
-    return false;
+  if (!owner.current(run) || !owner.runtime.projectionValid()) return false;
+  const active = publicRunSnapshot(run).active;
+  if (!owner.current(run) || !owner.runtime.projectionValid()) return false;
+  if (!active) {
+    // Inactive materialization cannot install or charge another event. Require
+    // every genuine head to have already passed the shared retained cache.
+    for (const head of heads) {
+      if (
+        !publicStoreEnvelope(owner.runtime.store, publicHeadSnapshot(head).id)
+      )
+        throw new Error('public_view_uncached_head');
+    }
+    return owner.current(run) && owner.runtime.projectionValid();
+  }
   for (const head of heads) {
     const result = insertPublicEnvelope(
       owner.runtime.store,

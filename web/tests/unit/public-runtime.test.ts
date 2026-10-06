@@ -10,6 +10,33 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('root public runtime context', () => {
+  it('reserves the view generation across synchronous run-creation clock reentry', () => {
+    vi.stubGlobal('window', {});
+    const context = runtime.createPublicRuntimeContext();
+    let armed = false;
+    let inner: ReturnType<typeof runtime.beginPublicViewRun> | undefined;
+    const owner = runtime.mountPublicRuntime(context, undefined, {
+      now: () => {
+        if (armed) {
+          armed = false;
+          inner = runtime.beginPublicViewRun(view);
+        }
+        return 0;
+      },
+      schedule: () => () => {}
+    })!;
+    const view = runtime.createPublicView(owner);
+    armed = true;
+    try {
+      expect(() => runtime.beginPublicViewRun(view)).toThrow(
+        'public_view_run_superseded'
+      );
+      expect(inner).toBeDefined();
+      expect(runtime.publicViewRunCurrent(view, inner!)).toBe(true);
+    } finally {
+      runtime.closePublicRuntime(context);
+    }
+  });
   it('creates an inert SSR context without acquiring browser capabilities', () => {
     vi.stubGlobal('window', undefined);
     const context = runtime.createPublicRuntimeContext();

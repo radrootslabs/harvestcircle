@@ -75,7 +75,7 @@ export interface KnownHeadSource {
 }
 interface Owner {
   readonly available: () => boolean;
-  readonly resolve: (heads: readonly PublicHead[]) => void;
+  readonly resolve: (heads: readonly PublicHead[], lookup: boolean) => void;
   readonly snapshot: () => readonly HeadResolution[];
   readonly close: () => void;
 }
@@ -243,8 +243,11 @@ export function createHeadResolver(
   }
   owners.set(token, {
     available: retained,
-    resolve(heads) {
-      if (!active()) throw new Error('head_resolver_inactive');
+    resolve(heads, lookup) {
+      if (closed || (lookup && !active()))
+        throw new Error('head_resolver_inactive');
+      if (!lookup && active()) throw new Error('head_resolver_still_active');
+      if (!lookup && !known) throw new Error('head_resolver_known_required');
       // Validate the complete batch and total coordinate admission before any
       // external clock/request callback. Repeated coordinates never reset work.
       headResolutionQueries(heads);
@@ -281,7 +284,7 @@ export function createHeadResolver(
             publicHeadEnvelope(mergeKnown(head))
           );
       }
-      if (group && active()) group.open();
+      if (lookup && group && active()) group.open();
     },
     snapshot() {
       if (!retained()) {
@@ -379,7 +382,15 @@ export function resolveHeads(
   resolver: HeadResolver,
   heads: readonly PublicHead[]
 ): void {
-  ownerOf(resolver).resolve(heads);
+  ownerOf(resolver).resolve(heads, true);
+}
+// Only previously retained proof may seed an ended run's partial projection.
+// The known-source admission owner validates the complete batch before changes.
+export function resolveKnownHeads(
+  resolver: HeadResolver,
+  heads: readonly PublicHead[]
+): void {
+  ownerOf(resolver).resolve(heads, false);
 }
 export function headResolutionSnapshot(
   resolver: HeadResolver
