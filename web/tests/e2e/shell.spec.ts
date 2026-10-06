@@ -52,10 +52,12 @@ test.beforeAll(async () => {
       path.join(checkout, 'web/src/routes/+page.svelte'),
       fixture.replaceAll('../../../src/lib/', '../lib/')
     );
-    await cp(
-      path.join(capsule, 'web/node_modules'),
-      path.join(checkout, 'web/node_modules'),
-      { recursive: true, verbatimSymlinks: true }
+    // Runtime store metadata is volume-specific; install the exact locked graph
+    // into this disposable clone without a network or lock-repair fallback.
+    const installed = execFileSync(
+      'corepack',
+      ['pnpm', 'install', '--offline', '--frozen-lockfile'],
+      { cwd: path.join(checkout, 'web'), stdio: 'pipe', timeout: 90_000 }
     );
     const fixtureLayout =
       '<script lang="ts">import "../theme.css"; import "../app.css"; import type { Snippet } from "svelte"; let { children }: { children: Snippet } = $props();</script>{@render children()}';
@@ -102,8 +104,8 @@ test.beforeAll(async () => {
       cwd: path.join(checkout, 'web')
     });
     const compiled = execFileSync(
-      'corepack',
-      ['pnpm', 'exec', 'vite', 'build'],
+      process.execPath,
+      ['node_modules/vite/bin/vite.js', 'build'],
       {
         cwd: path.join(checkout, 'web'),
         stdio: 'pipe',
@@ -148,6 +150,7 @@ test.beforeAll(async () => {
         compiledLayout: fixtureLayout,
         derivedTargets,
         payload: await payload(path.join(checkout, 'web/build')),
+        installed: installed.toString(),
         compiled: compiled.toString(),
         metadata: JSON.parse(
           await readFile(

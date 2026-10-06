@@ -340,6 +340,128 @@ fn encoded() -> String {
     serde_json::to_string_pretty(&generate()).unwrap() + "\n"
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WebTemplate {
+    id: String,
+    created_at: u64,
+    wire_parts: WebParts,
+    summary: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WebParts {
+    kind: u32,
+    content: String,
+    tags: Vec<Vec<String>>,
+}
+
+fn consume_template(template: &WebTemplate) -> Result<Value, String> {
+    if template.id.is_empty()
+        || template.id.len() > 128
+        || template.created_at > 9_007_199_254_740_991
+        || template.wire_parts.kind != 30402
+        || template.wire_parts.content.len() > 16 * 1024
+        || template.wire_parts.tags.len() > 9
+    {
+        return Err("unsupported bounded website template".into());
+    }
+    let value = |name: &str| -> Result<&str, String> {
+        let tags = template
+            .wire_parts
+            .tags
+            .iter()
+            .filter(|tag| tag.first().is_some_and(|key| key == name))
+            .collect::<Vec<_>>();
+        match tags.as_slice() {
+            [tag] if tag.len() == 2 => Ok(tag[1].as_str()),
+            _ => Err("invalid website singleton tag".into()),
+        }
+    };
+    let price_tags = template
+        .wire_parts
+        .tags
+        .iter()
+        .filter(|tag| tag.first().is_some_and(|key| key == "price"))
+        .collect::<Vec<_>>();
+    let price = match price_tags.as_slice() {
+        [tag] if tag.len() == 3 => *tag,
+        _ => return Err("invalid website price tag".into()),
+    };
+    let quantity_tags = template
+        .wire_parts
+        .tags
+        .iter()
+        .filter(|tag| tag.first().is_some_and(|key| key == "radroots:quantity"))
+        .collect::<Vec<_>>();
+    let quantity = match quantity_tags.as_slice() {
+        [] => None,
+        [tag] if tag.len() == 3 => Some(
+            FoodQuantity::new(
+                &tag[1],
+                FoodUnit::parse(&tag[2]).map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?,
+        ),
+        _ => return Err("invalid website quantity tag".into()),
+    };
+    if value("summary")? != template.summary {
+        return Err("website review summary differs from public template".into());
+    }
+    // Actual pinned public constructors and codec consume the website fields.
+    // No synthetic signature, signer, native runtime or private key is involved.
+    let details = FoodAvailabilityDetails::new(FoodAvailabilityDetailsParts {
+        content: FoodContent::new(&template.wire_parts.content)
+            .map_err(|error| error.to_string())?,
+        identifier: FoodIdentifier::parse(value("d")?).map_err(|error| error.to_string())?,
+        title: FoodText::new(value("title")?).map_err(|error| error.to_string())?,
+        summary: FoodText::new(value("summary")?).map_err(|error| error.to_string())?,
+        published_at: FoodPublishedAt::parse(value("published_at")?)
+            .map_err(|error| error.to_string())?,
+        location: FoodText::new(value("location")?).map_err(|error| error.to_string())?,
+        price: FoodPrice::new(
+            &price[1],
+            FoodCurrency::parse(&price[2]).map_err(|error| error.to_string())?,
+            FoodUnit::parse(value("radroots:price_unit")?).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?,
+        quantity,
+        status: FoodAvailabilityStatus::parse(value("status")?)
+            .map_err(|error| error.to_string())?,
+        images: Vec::new(),
+    })
+    .map_err(|error| error.to_string())?;
+    let actual = authored_food_availability_to_wire_parts(&details, template.created_at)
+        .map_err(|error| error.to_string())?;
+    if actual.kind != template.wire_parts.kind
+        || actual.content != template.wire_parts.content
+        || actual.tags != template.wire_parts.tags
+    {
+        return Err("website wire parts differ from actual pinned Rust codec".into());
+    }
+    Ok(
+        json!({"id":template.id,"result":"accepted","wire_parts":{"kind":actual.kind,"content":actual.content,"tags":actual.tags}}),
+    )
+}
+
+fn consume_templates(path: &Path) -> Value {
+    let metadata = fs::symlink_metadata(path).expect("website input metadata");
+    assert!(metadata.file_type().is_file() && metadata.len() <= 1024 * 1024);
+    let raw = fs::read(path).expect("website input read");
+    assert_eq!(u64::try_from(raw.len()).unwrap(), metadata.len());
+    let templates: Vec<WebTemplate> =
+        serde_json::from_slice(&raw).expect("website template schema");
+    assert!(!templates.is_empty() && templates.len() <= 32);
+    let results = templates
+        .iter()
+        .map(|template| {
+            consume_template(template)
+                .unwrap_or_else(|error| panic!("website template rejected: {error}"))
+        })
+        .collect::<Vec<_>>();
+    json!({"revision":REVISION,"source":"actual_public_food_constructors_and_unsigned_codec","signing":"NOT_RUN_NO_KEYS","templates":results})
+}
+
 fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
     match args.as_slice() {
@@ -351,7 +473,13 @@ fn main() {
             assert_eq!(encoded(), expected, "checked corpus is stale");
             println!("PASS40 pinned public Rust vectors and exact generated bytes; no signing");
         }
-        _ => panic!("expected exactly --emit or --check"),
+        [mode, path] if mode == "--consume-web" => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&consume_templates(Path::new(path))).unwrap()
+            );
+        }
+        _ => panic!("expected --emit, --check or --consume-web <bounded-json-file>"),
     }
 }
 

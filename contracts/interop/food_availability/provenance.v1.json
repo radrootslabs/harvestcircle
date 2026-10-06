@@ -38,8 +38,8 @@
       },
       {
         "path": "oracle/src/main.rs",
-        "sha256": "27fb65604b2608af700b09862d6845be967c9a70e75196cc29d98a07e54f6c3d",
-        "bytes": 16278
+        "sha256": "fd2ea8f79c72c17a682e9f27fe020e91933475c2a7218937da60fbb2d42e2432",
+        "bytes": 21448
       }
     ],
     "workspace": "isolated; immutable public Git dependencies; no sibling/private/native runtime dependency",
