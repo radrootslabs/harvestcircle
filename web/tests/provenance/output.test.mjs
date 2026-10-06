@@ -15,12 +15,11 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { setInterval, clearInterval } from 'node:timers';
 import { fileURLToPath } from 'node:url';
 import { generateBuildInfo } from '../../tools/build-info.mjs';
 import { auditOutput } from '../../tools/check-output.mjs';
 
-// Allow bounded setup/copy time for all 83 checks and two real compilations.
+// Allow bounded setup/copy time for 123 checks and two real compilations.
 // Admission checks get 10 seconds; cold compiler work gets 60 seconds.
 await test('actual output qualification', { timeout: 180000 }, async (t) => {
   /** @param {string} name @param {(context: import('node:test').TestContext) => Promise<void>} run @param {number} [timeout] */
@@ -115,7 +114,17 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       const f = await fixture(t);
       const files = await f.audit();
       // Exact eleven-route module/page/static admission; CSS stays once-imported.
-      assert.equal(files.length, 41);
+      assert.equal(files.length, 44);
+      // The actual SDK payload crosses the reader scratch boundary; a reused
+      // scratch buffer must still preserve every compiler/static byte exactly.
+      const sizes = await Promise.all(
+        files
+          .filter((name) => name.endsWith('.js'))
+          .map(
+            async (name) => (await lstat(path.join(f.web, 'build', name))).size
+          )
+      );
+      assert.ok(sizes.some((bytes) => bytes > 64 * 1024));
       assert.ok(files.includes('search.html'));
       assert.equal(files.filter((name) => name.endsWith('.css')).length, 1);
       assert.ok(
@@ -135,6 +144,207 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       );
     }
   );
+  /** @param {{root: string, web: string}} f */
+  async function refresh(f) {
+    git(f.root, 'add', '--', 'web/src');
+    await generateBuildInfo(f.web);
+    const bytes = await readFile(path.join(f.web, 'static/build-info.json'));
+    for (const name of [
+      'build/build-info.json',
+      '.svelte-kit/output/client/build-info.json'
+    ])
+      await writeFile(path.join(f.web, name), bytes);
+  }
+  await check(
+    'owned root preserves its lifecycle across a 64 KiB read boundary',
+    async (t) => {
+      const f = await fixture(t);
+      const file = path.join(f.web, 'src/routes/+layout.svelte');
+      const layout = await readFile(file, 'utf8');
+      // A large harmless comment after the real lifecycle must not overwrite its
+      // first read chunk when the file reader reuses a scratch buffer.
+      const expanded = layout.replace(
+        '</script>',
+        '/*' + 'owned reader boundary '.repeat(4000) + '*/\n</script>'
+      );
+      assert.ok(Buffer.byteLength(expanded) > 64 * 1024);
+      await writeFile(file, expanded);
+      await refresh(f);
+      assert.equal((await f.audit()).length, 44);
+    }
+  );
+  const sdkKey =
+    'node_modules/.pnpm/applesauce-relay@6.2.1_typescript@6.0.3/node_modules/applesauce-relay/dist/negentropy.js';
+  for (const mutation of [
+    'unknown-name',
+    'missing-public-key',
+    'missing-dist',
+    'missing-negentropy',
+    'missing-root-edge',
+    'random-key',
+    'wrong-src',
+    'wrong-version',
+    'wrong-peer',
+    'wrong-basename',
+    'wrong-dynamic-flag',
+    'entry-flag',
+    'css',
+    'wrong-import',
+    'chunk-src',
+    'chunk-entry'
+  ])
+    await check(
+      'owned root SDK compiler admission rejects ' + mutation,
+      async (t) => {
+        const f = await fixture(t);
+        const file = path.join(
+          f.web,
+          '.svelte-kit/output/client/.vite/manifest.json'
+        );
+        const m = JSON.parse(await readFile(file, 'utf8'));
+        const root = Object.values(m).find((v) => v.name === 'nodes/0');
+        const dist = Object.entries(m).find(([, v]) => v.name === 'dist');
+        assert.ok(m[sdkKey] && root && dist, 'Actual successor SDK identities');
+        if (mutation === 'unknown-name') m[sdkKey].name = 'unapproved-sdk';
+        if (
+          mutation.startsWith('missing-') &&
+          mutation !== 'missing-root-edge'
+        ) {
+          const entry = Object.entries(m).find(
+            ([, v]) => v.name === mutation.slice(8)
+          );
+          assert.ok(entry);
+          delete m[entry[0]];
+        }
+        if (mutation === 'missing-root-edge') root.dynamicImports = [];
+        if (
+          [
+            'random-key',
+            'wrong-version',
+            'wrong-peer',
+            'wrong-basename'
+          ].includes(mutation)
+        ) {
+          const next =
+            mutation === 'random-key'
+              ? '_HCrandom.js'
+              : sdkKey.replace(
+                  mutation === 'wrong-version'
+                    ? '6.2.1'
+                    : mutation === 'wrong-peer'
+                      ? '6.0.3'
+                      : 'negentropy.js',
+                  mutation === 'wrong-basename' ? 'other.js' : '0.0.0'
+                );
+          m[next] = m[sdkKey];
+          delete m[sdkKey];
+          m[next].src = next;
+          root.dynamicImports = root.dynamicImports.map(
+            (/** @type {string} */ k) => (k === sdkKey ? next : k)
+          );
+        }
+        if (mutation === 'wrong-src') m[sdkKey].src = '_HCwrong.js';
+        if (mutation === 'wrong-dynamic-flag') m[sdkKey].isDynamicEntry = false;
+        if (mutation === 'entry-flag') m[sdkKey].isEntry = false;
+        if (mutation === 'css') m[sdkKey].css = [];
+        if (mutation === 'wrong-import')
+          m[sdkKey].imports = [
+            Object.keys(m).find((k) => m[k].name === 'public-key')
+          ];
+        if (mutation === 'chunk-src') dist[1].src = dist[0];
+        if (mutation === 'chunk-entry') dist[1].isEntry = false;
+        await writeFile(file, JSON.stringify(m));
+        await assert.rejects(f.audit, /compiler|runtime/i);
+      }
+    );
+  for (const mutation of [
+    'copied-files-only',
+    'comment-only',
+    'string-only',
+    'shadowed',
+    'rebound',
+    'aliased',
+    'missing-cleanup',
+    'missing-context',
+    'wrong-context'
+  ])
+    await check('root runtime activation rejects ' + mutation, async (t) => {
+      const f = await fixture(t);
+      const file = path.join(f.web, 'src/routes/+layout.svelte');
+      let layout = await readFile(file, 'utf8');
+      if (
+        ['copied-files-only', 'comment-only', 'string-only'].includes(mutation)
+      ) {
+        const script = layout.slice(
+          layout.indexOf('>') + 1,
+          layout.indexOf('</script>')
+        );
+        layout =
+          '<script lang="ts">' +
+          (mutation === 'comment-only'
+            ? '/*' + script + '*/'
+            : mutation === 'string-only'
+              ? 'const text = ' + JSON.stringify(script) + ';'
+              : '') +
+          '</script><main>Controlled root</main>';
+      }
+      if (mutation === 'shadowed')
+        layout = layout.replace(
+          'onMount(() => {',
+          'onMount((publicContext) => {'
+        );
+      if (mutation === 'rebound')
+        layout = layout.replace('const publicContext', 'let publicContext');
+      if (mutation === 'aliased')
+        layout = layout
+          .replace(
+            '    mountPublicRuntime,',
+            '    mountPublicRuntime as otherMount,'
+          )
+          .replace(
+            'mountPublicRuntime(publicContext)',
+            'otherMount(publicContext)'
+          );
+      if (mutation === 'missing-cleanup')
+        layout = layout.replace(
+          'return () => closePublicRuntime(publicContext);',
+          'return () => {};'
+        );
+      if (mutation === 'missing-context')
+        layout = layout.replace(
+          'setContext(PUBLIC_RUNTIME_CONTEXT, publicContext);',
+          ''
+        );
+      if (mutation === 'wrong-context')
+        layout = layout.replace(
+          'closePublicRuntime(publicContext)',
+          'closePublicRuntime({})'
+        );
+      await writeFile(file, layout);
+      await refresh(f);
+      await assert.rejects(f.audit, /compiler|runtime/i);
+    });
+  for (const name of [
+    'runtime/public-runtime.ts',
+    'nostr/request-scope.ts',
+    'nostr/public-pool.ts',
+    'nostr/public-store.ts',
+    'nostr/request-result.ts',
+    'nostr/ingress.ts',
+    'nostr/verified-envelope.ts',
+    'nostr/envelope-bounds.ts',
+    'nostr/exports.ts',
+    'catalog/observations.ts',
+    'config/budgets.ts',
+    'config/relays.ts',
+    'config/deployment-relays.ts'
+  ])
+    await check('root runtime admission requires owned ' + name, async (t) => {
+      const f = await fixture(t);
+      await rm(path.join(f.web, 'src/lib', name));
+      await refresh(f);
+      await assert.rejects(f.audit);
+    });
   for (const routeSource of ['search/+page.svelte', 'messages/+page.svelte'])
     await check(
       routeSource +
@@ -599,21 +809,52 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       const f = await fixture(t);
       for (let i = 0; i < 513; i++)
         await writeFile(path.join(f.web, 'build', `tiny-${i}.js`), 'x');
-      const baseline = process.memoryUsage().arrayBuffers;
-      let peak = baseline;
-      const timer = setInterval(() => {
-        peak = Math.max(peak, process.memoryUsage().arrayBuffers);
-      }, 1);
-      try {
-        await assert.rejects(f.audit, /Unbounded output inventory/);
-      } finally {
-        clearInterval(timer);
-      }
-      assert.ok(
-        peak - baseline < 64 * 1024 * 1024,
-        'Tiny files must not retain a maximum-sized buffer per entry'
+      // Confine the actual audit's allocation measurement to a fresh child;
+      // prior source/output fixture copies must not enter this baseline/peak.
+      const measurement = JSON.parse(
+        execFileSync(
+          process.execPath,
+          [
+            '--input-type=module',
+            '-e',
+            `
+          const { auditOutput } = await import(process.argv[2]);
+          const baseline = process.memoryUsage().arrayBuffers;
+          let peak = baseline, rejection;
+          const sample = () => { peak = Math.max(peak, process.memoryUsage().arrayBuffers); };
+          const timer = setInterval(sample, 1);
+          try { await auditOutput(process.argv[1]); }
+          catch (error) { rejection = error instanceof Error ? error.message : 'unexpected'; }
+          finally { sample(); clearInterval(timer); }
+          if (rejection !== 'Unbounded output inventory') throw new Error('Unexpected inventory measurement rejection');
+          process.stdout.write(JSON.stringify({ baseline, peak, growth: peak - baseline, rejection }));
+        `,
+            f.web,
+            new URL('../../tools/check-output.mjs', import.meta.url).href
+          ],
+          { cwd: f.web, encoding: 'utf8', timeout: 8000, maxBuffer: 4096 }
+        )
       );
-      t.diagnostic(`many-small-entry buffer growth: ${peak - baseline} bytes`);
+      assert.deepEqual(Object.keys(measurement).sort(), [
+        'baseline',
+        'growth',
+        'peak',
+        'rejection'
+      ]);
+      assert.equal(measurement.rejection, 'Unbounded output inventory');
+      for (const name of ['baseline', 'peak', 'growth'])
+        assert.ok(
+          Number.isSafeInteger(measurement[name]) && measurement[name] >= 0
+        );
+      assert.equal(measurement.growth, measurement.peak - measurement.baseline);
+      t.diagnostic(
+        'isolated actual inventory buffers: ' + JSON.stringify(measurement)
+      );
+      assert.ok(
+        measurement.growth < 64 * 1024 * 1024,
+        'Tiny files must not retain a maximum-sized buffer per entry: ' +
+          JSON.stringify(measurement)
+      );
       for (let i = 0; i < 513; i++)
         await rm(path.join(f.web, 'build', `tiny-${i}.js`));
       for (let i = 0; i < 33; i++)

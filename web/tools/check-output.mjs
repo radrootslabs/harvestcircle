@@ -5,6 +5,8 @@ import { lstat, open, opendir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deriveBuildInfo } from './build-info.mjs';
+import ts from 'typescript';
+import { parse as parseSvelte } from 'svelte/compiler';
 
 /** @param {unknown} actual @param {unknown} expected @param {string} [message] */
 function equal(actual, expected, message = 'Invalid public output shape') {
@@ -67,13 +69,13 @@ async function readOwned(root, name) {
       throw new Error('Unsafe output entry');
     const chunks = [];
     let size = 0;
+    const buffer = Buffer.alloc(64 * 1024);
     for (;;) {
-      const buffer = Buffer.alloc(64 * 1024);
       const { bytesRead } = await handle.read(buffer);
       if (!bytesRead) break;
       size += bytesRead;
       if (size > maxBytes) throw new Error('Oversized output entry');
-      chunks.push(buffer.subarray(0, bytesRead));
+      chunks.push(Buffer.from(buffer.subarray(0, bytesRead)));
     }
     return Buffer.concat(chunks);
   } finally {
@@ -160,6 +162,139 @@ function objectKeys(value, keys) {
     throw new Error('Invalid compiler object');
   if (Object.keys(value).some((key) => !keys.includes(key)))
     throw new Error('Unknown compiler field');
+}
+const sdkNegentropy =
+  'node_modules/.pnpm/applesauce-relay@6.2.1_typescript@6.0.3/node_modules/applesauce-relay/dist/negentropy.js';
+// Compiler admission follows actual root bindings, never copied files or text
+// matches. This is the deliberately fixed lifecycle shape owned by HCP032.
+/** @param {string} web */
+async function hasOwnedPublicRuntime(web) {
+  const layout = publicText(await readOwned(web, 'src/routes/+layout.svelte'));
+  const component = parseSvelte(layout);
+  if (!component.instance) return false;
+  const script = layout.slice(
+    component.instance.content.start,
+    component.instance.content.end
+  );
+  const source = ts.createSourceFile(
+    'root.ts',
+    script,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  const runtimePath = '../lib/runtime/public-runtime.ts';
+  const imports = source.statements.filter(ts.isImportDeclaration);
+  const runtimeImports = imports.filter(
+    (node) =>
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      node.moduleSpecifier.text === runtimePath
+  );
+  if (!runtimeImports.length) return false;
+  /** @returns {never} */
+  function fail() {
+    throw new Error('Invalid owned root runtime activation');
+  }
+  if (runtimeImports.length !== 1 || component.module) fail();
+  const required = new Map([
+    [
+      runtimePath,
+      [
+        'createPublicRuntimeContext',
+        'mountPublicRuntime',
+        'closePublicRuntime',
+        'PUBLIC_RUNTIME_CONTEXT'
+      ]
+    ],
+    ['svelte', ['onMount', 'setContext']]
+  ]);
+  const allowedImports = new Set();
+  for (const [module, names] of required) {
+    const declarations = imports.filter(
+      (node) =>
+        ts.isStringLiteral(node.moduleSpecifier) &&
+        node.moduleSpecifier.text === module
+    );
+    if (declarations.length !== 1) fail();
+    const clause = declarations[0].importClause;
+    if (
+      !clause ||
+      clause.isTypeOnly ||
+      clause.name ||
+      !clause.namedBindings ||
+      !ts.isNamedImports(clause.namedBindings)
+    )
+      fail();
+    const elements = clause.namedBindings.elements;
+    for (const name of names) {
+      const bindings = elements.filter((node) => node.name.text === name);
+      if (
+        bindings.length !== 1 ||
+        bindings[0].propertyName ||
+        bindings[0].isTypeOnly
+      )
+        fail();
+    }
+    if (module === runtimePath && elements.length !== names.length) fail();
+    allowedImports.add(declarations[0]);
+  }
+  const printer = ts.createPrinter({ removeComments: true });
+  /** @param {import("typescript").Node} node @param {import("typescript").SourceFile} file */
+  const print = (node, file) =>
+    printer.printNode(ts.EmitHint.Unspecified, node, file);
+  const expected = ts.createSourceFile(
+    'expected.ts',
+    `
+    const publicContext = createPublicRuntimeContext();
+    setContext(PUBLIC_RUNTIME_CONTEXT, publicContext);
+    onMount(() => {
+      mountPublicRuntime(publicContext);
+      return () => closePublicRuntime(publicContext);
+    });`,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  const shapes = expected.statements.map((node) => print(node, expected));
+  const lifecycle = source.statements.filter((node) =>
+    shapes.includes(print(node, source))
+  );
+  if (
+    lifecycle.length !== shapes.length ||
+    lifecycle.some((node, i) => print(node, source) !== shapes[i])
+  )
+    fail();
+  // Reject duplicate, shadowed, reassigned, or extra uses of these bindings in
+  // any other statement, including nested closures. Canonical callbacks have
+  // no parameters and therefore cannot hide a second context binding.
+  const bindings = new Set(['publicContext', ...[...required.values()].flat()]);
+  for (const statement of source.statements) {
+    if (allowedImports.has(statement) || lifecycle.includes(statement))
+      continue;
+    /** @param {import("typescript").Node} node */
+    const visit = (node) => {
+      if (ts.isIdentifier(node) && bindings.has(node.text)) fail();
+      ts.forEachChild(node, visit);
+    };
+    visit(statement);
+  }
+  for (const name of [
+    'runtime/public-runtime.ts',
+    'nostr/request-scope.ts',
+    'nostr/public-pool.ts',
+    'nostr/public-store.ts',
+    'nostr/request-result.ts',
+    'nostr/ingress.ts',
+    'nostr/verified-envelope.ts',
+    'nostr/envelope-bounds.ts',
+    'nostr/exports.ts',
+    'catalog/observations.ts',
+    'config/budgets.ts',
+    'config/relays.ts',
+    'config/deployment-relays.ts'
+  ])
+    publicText(await readOwned(web, 'src/lib/' + name));
+  return true;
 }
 /** @param {string} webDirectory */
 export async function auditOutput(webDirectory) {
@@ -253,6 +388,9 @@ export async function auditOutput(webDirectory) {
     ])
       await readOwned(web, name);
   }
+  const hasPublicRuntime = await hasOwnedPublicRuntime(web);
+  if (hasPublicRuntime && !hasFullRoutes)
+    throw new Error('Incomplete owned root runtime routes');
   // Admit compiler-owned module identities, not arbitrary extensions/copy roots.
   const names = new Set([
     'entry/app',
@@ -284,6 +422,8 @@ export async function auditOutput(webDirectory) {
     ])
       names.add(name);
   }
+  if (hasPublicRuntime)
+    for (const name of ['public-key', 'dist', 'negentropy']) names.add(name);
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();
   for (const [key, record] of Object.entries(manifest)) {
@@ -308,6 +448,7 @@ export async function auditOutput(webDirectory) {
     const frameworkModule =
       /^node_modules\/\.pnpm\/[^/]+\/node_modules\/@sveltejs\/kit\/src\/runtime\/client\/(?:client-entry|entry|payload)\.js$/;
     if (!(
+      (hasPublicRuntime && key === sdkNegentropy) ||
       generatedModule.test(key) ||
       frameworkModule.test(key) ||
       /^_[A-Za-z0-9_-]+\.js$/.test(key)
@@ -316,7 +457,11 @@ export async function auditOutput(webDirectory) {
     if (
       record.src !== undefined &&
       (record.src !== key ||
-        !(generatedModule.test(key) || frameworkModule.test(key)))
+        !(
+          generatedModule.test(key) ||
+          frameworkModule.test(key) ||
+          (hasPublicRuntime && key === sdkNegentropy)
+        ))
     )
       throw new Error('Invalid compiler source');
     if (
@@ -362,6 +507,45 @@ export async function auditOutput(webDirectory) {
     }
   }
   equal([...seen].sort(), [...names].sort(), 'Incomplete compiler modules');
+  if (hasPublicRuntime) {
+    const records = Object.entries(manifest);
+    /** @param {string} name */
+    function requiredRecord(name) {
+      const entry = records.find(([, record]) => record.name === name);
+      if (!entry) throw new Error('Incomplete owned SDK compiler module');
+      return entry;
+    }
+    const dist = requiredRecord('dist');
+    const root = requiredRecord('nodes/0')[1];
+    const sdk = manifest[sdkNegentropy];
+    if (
+      !sdk ||
+      sdk.name !== 'negentropy' ||
+      sdk.src !== sdkNegentropy ||
+      sdk.isDynamicEntry !== true ||
+      sdk.isEntry !== undefined ||
+      sdk.css !== undefined ||
+      sdk.dynamicImports !== undefined
+    )
+      throw new Error('Invalid owned SDK compiler identity');
+    equal(sdk.imports, [dist[0]], 'Invalid owned SDK compiler dependency');
+    equal(
+      root.dynamicImports,
+      [sdkNegentropy],
+      'Invalid owned root compiler edge'
+    );
+    for (const name of ['dist', 'public-key']) {
+      const [key, record] = requiredRecord(name);
+      if (
+        !/^_[A-Za-z0-9_-]+\.js$/.test(key) ||
+        record.src !== undefined ||
+        record.isEntry !== undefined ||
+        record.isDynamicEntry !== undefined ||
+        record.css !== undefined
+      )
+        throw new Error('Invalid owned SDK compiler chunk');
+    }
+  }
   if (hasFullRoutes) {
     const robots = await readOwned(web, 'static/robots.txt');
     publicText(robots);
