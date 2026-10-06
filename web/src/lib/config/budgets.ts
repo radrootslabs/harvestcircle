@@ -49,3 +49,10 @@ export const PUBLIC_SEARCH_RUN_BUDGETS = Object.freeze({
   chronologicalWindows: publicChronologicalWindows,
   primaryScopes: publicRelayLimit + publicChronologicalWindows
 });
+
+// Optional relevance sample: requested count and actual candidate work per source.
+// The shared run meter still charges duplicates, rejects and every auxiliary.
+export const PUBLIC_NIP50_BUDGETS = Object.freeze({
+  requestedPerRelay: 100,
+  candidatesPerSource: 100
+});

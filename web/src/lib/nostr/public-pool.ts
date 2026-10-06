@@ -6,6 +6,7 @@ import {
   type RelayPolicy
 } from '../config/relays.ts';
 import type { PublicFilter, PublicPoolMessage } from './exports.ts';
+import { requireNip50Source } from './search-sources.ts';
 
 declare const ownedPool: unique symbol;
 export type PublicPool = Readonly<{ readonly [ownedPool]: true }>;
@@ -16,7 +17,8 @@ interface Owner {
   readonly closed: () => boolean;
   readonly subscribe: (
     filters: readonly PublicFilter[],
-    onMessage: (message: PublicPoolMessage) => void
+    onMessage: (message: PublicPoolMessage) => void,
+    sampleSource?: string
   ) => () => void;
   readonly close: () => void;
 }
@@ -52,15 +54,21 @@ export function getPublicPool(
     token,
     origins,
     closed: () => closed,
-    subscribe(filters, onMessage) {
+    subscribe(filters, onMessage, sampleSource) {
       if (closed) throw new Error('public_pool_closed');
       let release = () => {};
       const subscription = sdk
-        .req([...origins], [...filters], {
-          waitForAuth: false,
-          reconnect: false,
-          resubscribe: false
-        })
+        .req(
+          sampleSource === undefined
+            ? [...origins]
+            : [requireNip50Source(policy, sampleSource)],
+          [...filters],
+          {
+            waitForAuth: false,
+            reconnect: false,
+            resubscribe: false
+          }
+        )
         .subscribe({
           next: (message) => {
             if (!closed) onMessage(message);
@@ -120,7 +128,8 @@ export function publicPoolOrigins(token: PublicPool): readonly string[] {
 export function subscribePublicPool(
   token: PublicPool,
   filters: readonly PublicFilter[],
-  onMessage: (message: PublicPoolMessage) => void
+  onMessage: (message: PublicPoolMessage) => void,
+  sampleSource?: string
 ): () => void {
   const owner = ownerOf(token);
   if (owner.closed()) throw new Error('public_pool_closed');
@@ -132,7 +141,14 @@ export function subscribePublicPool(
     )
   )
     throw new Error('public_pool_filters_invalid');
-  return owner.subscribe(filters, onMessage);
+  if (sampleSource !== undefined)
+    requireNip50Source(owner.policy, sampleSource);
+  if (
+    sampleSource === undefined &&
+    filters.some((filter) => 'search' in filter)
+  )
+    throw new Error('public_pool_search_requires_source');
+  return owner.subscribe(filters, onMessage, sampleSource);
 }
 
 // Terminal browser-lifetime shutdown: cancel request controls before closing the

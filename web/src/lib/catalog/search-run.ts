@@ -16,6 +16,7 @@ import {
   beginPublicViewRun,
   publicViewRunCurrent,
   publicViewProjectionAvailable,
+  publicViewNip50Sources,
   subscribePublicView,
   disposePublicView,
   type PublicView
@@ -42,6 +43,7 @@ import {
   type SearchSnapshot
 } from './search-state.ts';
 import type { WallClock } from './clock-policy.ts';
+import { nip50SearchQuery } from '../nostr/search-query.ts';
 declare const coordinatorBrand: unique symbol;
 declare const generationBrand: unique symbol;
 export type FoodSearchCoordinator = Readonly<{
@@ -67,6 +69,7 @@ interface Session {
   readonly requests: () => readonly PublicRequest[];
   readonly track: (request: PublicRequest) => void;
   readonly reserveSource: () => void;
+  readonly reserveSample: () => void;
   readonly run: () => PublicRun | undefined;
   readonly bindRun: (run: PublicRun) => void;
   readonly model: () => HeadResolver | undefined;
@@ -122,6 +125,7 @@ function createSession(
     failed = false,
     capped = false;
   let attempts = 0;
+  let sampleRounds = 0;
   return {
     coordinator,
     token,
@@ -156,6 +160,11 @@ function createSession(
         throw new Error('food_search_primary_limit');
       }
       attempts++;
+    },
+    reserveSample() {
+      if (sampleRounds >= PUBLIC_SEARCH_RUN_BUDGETS.nip50Rounds)
+        throw new Error('food_search_sample_round_limit');
+      sampleRounds++;
     },
     run: () => run,
     bindRun: (value) => {
@@ -282,6 +291,15 @@ export function subscribeFoodSearch(
   token: FoodSearchRun,
   filters: readonly PublicFilter[]
 ): PublicRequest {
+  if (filters.some((filter) => 'search' in filter))
+    throw new Error('food_search_sample_required');
+  return subscribeSearchSource(token, filters);
+}
+function subscribeSearchSource(
+  token: FoodSearchRun,
+  filters: readonly PublicFilter[],
+  sampleSource?: string
+): PublicRequest {
   const session = sessionOf(token),
     run = foodSearchRequestOwner(token);
   session.reserveSource(); // Reservation precedes SDK effects and never refunds.
@@ -298,7 +316,8 @@ export function subscribeFoodSearch(
         const head = createPublicHeadCandidate(proof);
         if (!head || publicHeadSnapshot(head).kind !== 30402) return;
         if (!session.remember(head)) cancelPublicRun(run);
-      }
+      },
+      sampleSource
     );
   } catch {
     if (current(session)) session.fail();
@@ -310,6 +329,30 @@ export function subscribeFoodSearch(
     throw new Error('food_search_superseded');
   }
   return request;
+}
+
+export function sampleFoodSearch(
+  token: FoodSearchRun
+): readonly PublicRequest[] {
+  const session = sessionOf(token);
+  requireCurrent(session);
+  const filters = nip50SearchQuery(session.query);
+  if (!filters.length) return [];
+  const sources = publicViewNip50Sources(session.coordinator.view);
+  if (!sources.length) return [];
+  session.reserveSample(); // Failed attempts cannot recreate the relevance round.
+  const samples = new Map<PublicRequest, true>();
+  for (const source of sources) {
+    requireCurrent(session);
+    try {
+      samples.set(subscribeSearchSource(token, filters, source), true);
+    } catch {
+      // A refused/failed source cannot discard other candidates or the fallback.
+      requireCurrent(session);
+      session.fail();
+    }
+  }
+  return Array.from(samples.keys());
 }
 export function foodSearchSnapshot(
   coordinator: FoodSearchCoordinator

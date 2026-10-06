@@ -1,5 +1,6 @@
 import { PUBLIC_REQUEST_BUDGETS } from '../config/budgets.ts';
 import type { RelayPolicy } from '../config/relays.ts';
+import { requireNip50Source } from './search-sources.ts';
 import {
   createPublicIngress,
   publicIngressStats,
@@ -63,7 +64,8 @@ interface RunOwner {
   readonly open: (
     kind: RequestKind,
     open: (next: (message: PublicPoolMessage) => void) => () => void,
-    onVerified: (event: VerifiedEnvelope) => void
+    onVerified: (event: VerifiedEnvelope) => void,
+    sampleSource?: string
   ) => PublicRequest;
   readonly active: () => boolean;
   readonly snapshot: () => Readonly<{
@@ -206,7 +208,11 @@ export function createPublicRun(
     }),
     cancel,
     dispose,
-    open(kind, open, onVerified) {
+    open(kind, open, onVerified, sampleSource) {
+      if (sampleSource !== undefined) {
+        if (kind !== 'search') throw new Error('nip50_request_kind');
+        requireNip50Source(policy, sampleSource);
+      }
       shared.available();
       if (!owner.active()) throw new Error('public_run_inactive');
       if (!['search', 'head', 'deletion', 'profile'].includes(kind))
@@ -227,7 +233,12 @@ export function createPublicRun(
       shared.reserve(request, () => finish('cancelled'));
       let result: PublicRequestResult;
       try {
-        result = createPublicRequestResult(policy, ingress, journal);
+        result = createPublicRequestResult(
+          policy,
+          ingress,
+          journal,
+          sampleSource
+        );
       } catch {
         shared.release(request);
         throw new Error('public_request_prepare_failed');
@@ -357,9 +368,10 @@ export function openPublicRequest(
   run: PublicRun,
   kind: RequestKind,
   open: (next: (message: PublicPoolMessage) => void) => () => void,
-  onVerified: (event: VerifiedEnvelope) => void
+  onVerified: (event: VerifiedEnvelope) => void,
+  sampleSource?: string
 ): PublicRequest {
-  return runOf(run).open(kind, open, onVerified);
+  return runOf(run).open(kind, open, onVerified, sampleSource);
 }
 export function closePublicRequest(request: PublicRequest): void {
   if (!requestOf(request).close())

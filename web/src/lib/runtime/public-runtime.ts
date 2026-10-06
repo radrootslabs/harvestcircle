@@ -1,5 +1,6 @@
 import { deploymentRelayPolicy } from '../config/deployment-relays.ts';
 import type { RelayPolicy } from '../config/relays.ts';
+import { qualifiedNip50Sources } from '../nostr/search-sources.ts';
 import {
   getPublicPool,
   subscribePublicPool,
@@ -324,7 +325,8 @@ export function subscribePublicView(
   run: PublicRun,
   kind: RequestKind,
   filters: readonly PublicFilter[],
-  onVerified: (event: VerifiedEnvelope) => void
+  onVerified: (event: VerifiedEnvelope) => void,
+  sampleSource?: string
 ): PublicRequest {
   const owner = viewOf(view);
   if (!owner.current(run)) throw new Error('public_view_run_inactive');
@@ -338,7 +340,8 @@ export function subscribePublicView(
       subscribePublicPool(
         owner.runtime.pool,
         JSON.parse(frozen) as PublicFilter[],
-        next
+        next,
+        sampleSource
       ),
     (event) => {
       if (!owner.current(run)) return;
@@ -352,8 +355,13 @@ export function subscribePublicView(
         owner.current(run)
       )
         onVerified(event);
-    }
+    },
+    sampleSource
   );
+}
+
+export function publicViewNip50Sources(view: PublicView): readonly string[] {
+  return qualifiedNip50Sources(viewOf(view).runtime.policy);
 }
 
 // Capacity invalidation differs from ordinary teardown: last-known snapshots

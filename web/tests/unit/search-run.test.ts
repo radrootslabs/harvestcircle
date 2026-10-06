@@ -33,7 +33,7 @@ const corpus = JSON.parse(
 const base = JSON.parse(
   corpus.vectors.find((v) => v.id.endsWith('_032'))!.signed_wires.previous
 ) as { tags: string[][]; content: string; created_at: number };
-async function fixture() {
+async function fixture(nip50 = false) {
   const { RelayPool } = await import('applesauce-relay/pool');
   const { validateRelayPolicy } =
     await import('../../src/lib/config/relays.ts');
@@ -71,7 +71,7 @@ async function fixture() {
   const policy = validateRelayPolicy(
     JSON.stringify({
       schemaVersion: 1,
-      public: [{ origin, read: true, write: false, nip50: false }],
+      public: [{ origin, read: true, write: false, nip50 }],
       inbox: [],
       postingEnabled: false,
       messagingEnabled: false,
@@ -80,12 +80,17 @@ async function fixture() {
   )!;
   const key = crypto.getRandomValues(new Uint8Array(32));
   keys.push(key);
-  const wire = (title = 'Carrots', d?: string, time = base.created_at) =>
+  const wire = (
+    title = 'Carrots',
+    d?: string,
+    time = base.created_at,
+    content = base.content
+  ) =>
     finalizeEvent(
       {
         kind: 30402,
         created_at: time,
-        content: base.content,
+        content,
         tags: base.tags.map((tag) =>
           tag[0] === 'title'
             ? ['title', title]
@@ -158,6 +163,99 @@ async function fixture() {
   };
 }
 describe('finite food search coordination (isolated SDK provider, not qualification)', () => {
+  it('requires the one-round sampler for relevance filters even after a completed sample', async () => {
+    const f = await fixture(true),
+      token = f.begin('carrots');
+    search.sampleFoodSearch(token);
+    f.channels[0].emit({ type: 'EOSE', id: 'sample', from: f.origin });
+    // A JavaScript caller can supply extra arguments despite the public type.
+    const unsafeSubscribe = search.subscribeFoodSearch as unknown as (
+      run: typeof token,
+      filters: Parameters<typeof search.subscribeFoodSearch>[1],
+      source: string
+    ) => unknown;
+    expect(() =>
+      unsafeSubscribe(
+        token,
+        [{ kinds: [30402], search: 'carrots', limit: 100 }],
+        f.origin
+      )
+    ).toThrow('food_search_sample_required');
+    expect(f.provider).toHaveBeenCalledTimes(1);
+  });
+  it('locally rejects irrelevant or ignored relevance matches and accepts matching fallback evidence', async () => {
+    const f = await fixture(true),
+      token = f.begin('carrots');
+    search.sampleFoodSearch(token);
+    f.emit(
+      0,
+      f.wire('Celery', 'irrelevant', base.created_at, 'Celery available')
+    );
+    f.channels[0].emit({ type: 'EOSE', id: 'sample', from: f.origin });
+    expect(f.snapshot().rows).toHaveLength(0);
+    const fallback = search.subscribeFoodSearch(token, [
+      { kinds: [30402], limit: 200 }
+    ]);
+    expect(requests.publicRequestScopeSnapshot(fallback).state).toBe('active');
+    f.emit(f.channels.length - 1, f.wire('Carrots', 'wanted'));
+    const snapshot = f.snapshot();
+    expect(snapshot.rows).toHaveLength(1);
+    expect(snapshot.rows[0].state.food?.title).toBe('Carrots');
+    expect(snapshot.rows[0].lastKnown).toBe(true);
+    expect(snapshot.definitiveAbsence).toBe(false);
+    expect('olderCursor' in snapshot).toBe(false);
+  });
+
+  it('samples a qualified source once and leaves ordinary fallback available', async () => {
+    const f = await fixture(true),
+      token = f.begin(' ＣＡＲＲＯＴＳ ');
+    const samples = search.sampleFoodSearch(token);
+    expect(samples).toHaveLength(1);
+    expect(f.provider.mock.calls[0][0]).toEqual([f.origin]);
+    expect(f.provider.mock.calls[0][1]).toEqual([
+      { kinds: [30402], search: 'carrots', limit: 100 }
+    ]);
+    f.channels[0].emit({ type: 'EOSE', id: 'sample', from: f.origin });
+    expect(f.snapshot()).toMatchObject({
+      refresh: 'bounded-eose',
+      definitiveAbsence: false,
+      rows: []
+    });
+    expect(() => search.sampleFoodSearch(token)).toThrow(
+      'food_search_sample_round_limit'
+    );
+    search.subscribeFoodSearch(token, [{ kinds: [30402], limit: 200 }]);
+    expect(f.provider.mock.calls[1][1]).toEqual([
+      { kinds: [30402], limit: 200 }
+    ]);
+    expect(f.snapshot().run?.activeRequests).toBe(1);
+  });
+  it('skips sampling for empty queries and unqualified sources without preventing fallback', async () => {
+    const f = await fixture(false),
+      token = f.begin('carrots');
+    expect(search.sampleFoodSearch(token)).toEqual([]);
+    expect(f.provider).not.toHaveBeenCalled();
+    const browse = f.begin('');
+    expect(search.sampleFoodSearch(browse)).toEqual([]);
+    search.subscribeFoodSearch(browse, [{ kinds: [30402], limit: 200 }]);
+    expect(f.provider).toHaveBeenCalledTimes(1);
+  });
+  it('records sample provider failure and still permits ordinary chronological discovery', async () => {
+    const f = await fixture(true),
+      token = f.begin('carrots');
+    f.provider.mockImplementationOnce(() => {
+      throw new Error('isolated sample refused');
+    });
+    expect(search.sampleFoodSearch(token)).toEqual([]);
+    expect(f.snapshot()).toMatchObject({
+      refresh: 'error',
+      definitiveAbsence: false
+    });
+    search.subscribeFoodSearch(token, [{ kinds: [30402], limit: 200 }]);
+    expect(f.channels).toHaveLength(1);
+    expect(f.snapshot().run?.activeRequests).toBe(1);
+  });
+
   it('uses one coordinator per genuine view and refuses a changed clock owner', async () => {
     const f = await fixture();
     expect(search.createFoodSearchCoordinator(f.view, f.wallClock)).toBe(

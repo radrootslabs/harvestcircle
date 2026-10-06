@@ -440,3 +440,96 @@ describe('owned public request scopes', () => {
     closePublicScheduler(f.scheduler);
   });
 });
+
+describe('per-source optional sample admission', () => {
+  const samplePolicy = validateRelayPolicy(
+    JSON.stringify({
+      schemaVersion: 1,
+      public: [
+        { origin, read: true, write: false, nip50: true },
+        {
+          origin: 'wss://two.example.org',
+          read: true,
+          write: false,
+          nip50: false
+        }
+      ],
+      inbox: [],
+      postingEnabled: false,
+      messagingEnabled: false,
+      operatorDenylist: []
+    })
+  )!;
+  it('stops only the sample at100 including duplicate and rejected deliveries, leaving fallback alive', () => {
+    const f = fixture(),
+      run = createPublicRun(f.scheduler, samplePolicy),
+      sample = channel(),
+      fallback = channel();
+    let accepted = 0;
+    const request = openPublicRequest(
+      run,
+      'search',
+      sample.open,
+      () => {
+        accepted++;
+      },
+      origin
+    );
+    const other = openPublicRequest(run, 'search', fallback.open, () => {});
+    for (let i = 0; i < 99; i++)
+      sample.emit({
+        type: 'EVENT',
+        id: 'sample',
+        from: origin,
+        event: i % 2 === 0 ? event() : { ...event(), id: '0'.repeat(64) }
+      });
+    expect(publicRequestScopeSnapshot(request).state).toBe('active');
+    sample.emit({ type: 'EVENT', id: 'sample', from: origin, event: event() });
+    expect(accepted).toBe(51);
+    expect(publicRequestScopeSnapshot(request).state).toBe('partial');
+    expect(publicRequestScopeSnapshot(request).result.sources).toHaveLength(1);
+    expect(publicRequestScopeSnapshot(request).result.sources[0]).toMatchObject(
+      { state: 'limit', candidates: 100, rejected: 49 }
+    );
+    expect(publicRunSnapshot(run)).toMatchObject({
+      active: true,
+      activeRequests: 1,
+      ingress: { deliveries: 100 }
+    });
+    sample.emit({ type: 'EVENT', id: 'sample', from: origin, event: event() });
+    expect(publicRunSnapshot(run).ingress.deliveries).toBe(100);
+    fallback.emit({
+      type: 'EVENT',
+      id: 'fallback',
+      from: origin,
+      event: event()
+    });
+    expect(publicRunSnapshot(run).ingress.deliveries).toBe(101);
+    expect(publicRequestScopeSnapshot(other).state).toBe('active');
+    cancelPublicRun(run);
+    closePublicScheduler(f.scheduler);
+  });
+  it('denies unqualified sample destinations and auxiliary sample misuse before provider acquisition', () => {
+    const f = fixture(),
+      run = createPublicRun(f.scheduler, samplePolicy),
+      provider = channel();
+    expect(() =>
+      openPublicRequest(
+        run,
+        'search',
+        provider.open,
+        () => {},
+        'wss://two.example.org'
+      )
+    ).toThrow('nip50_source_unqualified');
+    expect(() =>
+      openPublicRequest(run, 'head', provider.open, () => {}, origin)
+    ).toThrow('nip50_request_kind');
+    expect(publicRunSnapshot(run)).toMatchObject({
+      activeRequests: 0,
+      ingress: { deliveries: 0 }
+    });
+    cancelPublicRun(run);
+    closePublicScheduler(f.scheduler);
+  });
+});

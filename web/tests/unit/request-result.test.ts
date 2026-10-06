@@ -400,3 +400,61 @@ describe('exact public source observations', () => {
     );
   });
 });
+
+describe('qualified sample observation scope', () => {
+  const samplePolicy = validateRelayPolicy(
+    JSON.stringify({
+      schemaVersion: 1,
+      public: origins.map((origin, index) => ({
+        origin,
+        read: true,
+        write: false,
+        nip50: index === 0
+      })),
+      inbox: [],
+      postingEnabled: false,
+      messagingEnabled: false,
+      operatorDenylist: []
+    })
+  )!;
+  it('bounds observations to the selected qualified source while charging unexpected deliveries', () => {
+    const journal = createObservationJournal(samplePolicy),
+      ingress = createPublicIngress();
+    const result = createPublicRequestResult(
+      samplePolicy,
+      ingress,
+      journal,
+      origins[0]
+    );
+    expect(
+      handlePublicRequestMessage(result, {
+        type: 'EVENT',
+        id: 'sample',
+        from: origins[1],
+        event: currentEvent()
+      }).status
+    ).toBe('source_unknown');
+    expect(publicIngressStats(ingress).deliveries).toBe(1);
+    expect(publicRequestSnapshot(result).sources).toHaveLength(1);
+    expect(observationJournalStats(journal).rows).toBe(0);
+    handlePublicRequestMessage(result, {
+      type: 'EOSE',
+      id: 'sample',
+      from: origins[0]
+    });
+    expect(publicRequestSnapshot(result).coverage).toBe('bounded-eose');
+    disposePublicRequestResult(result);
+    closeObservationJournal(journal);
+  });
+  it('rejects an unqualified source before observation context allocation', () => {
+    const journal = createObservationJournal(samplePolicy),
+      ingress = createPublicIngress(),
+      before = observationJournalStats(journal);
+    expect(() =>
+      createPublicRequestResult(samplePolicy, ingress, journal, origins[1])
+    ).toThrow('nip50_source_unqualified');
+    expect(observationJournalStats(journal)).toEqual(before);
+    expect(publicIngressStats(ingress).deliveries).toBe(0);
+    closeObservationJournal(journal);
+  });
+});

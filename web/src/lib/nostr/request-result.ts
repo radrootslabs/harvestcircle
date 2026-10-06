@@ -1,4 +1,8 @@
-import { PUBLIC_INGRESS_BUDGETS } from '../config/budgets.ts';
+import {
+  PUBLIC_INGRESS_BUDGETS,
+  PUBLIC_NIP50_BUDGETS
+} from '../config/budgets.ts';
+import { requireNip50Source } from './search-sources.ts';
 import { publicRelayTargets, type RelayPolicy } from '../config/relays.ts';
 import {
   createObservationContext,
@@ -102,16 +106,21 @@ function sourceOwner(source: string) {
 export function createPublicRequestResult(
   policy: RelayPolicy,
   ingress: PublicIngress,
-  journal: ObservationJournal
+  journal: ObservationJournal,
+  sampleSource?: string
 ): PublicRequestResult {
   publicIngressStats(ingress);
-  const origins = publicRelayTargets(policy, 'read');
+  const allOrigins = publicRelayTargets(policy, 'read');
   const expected = observationSourceOrigins(journal);
   if (
-    origins.length !== expected.length ||
-    !origins.every((origin, index) => origin === expected[index])
+    allOrigins.length !== expected.length ||
+    !allOrigins.every((origin, index) => origin === expected[index])
   )
     throw new Error('request_observation_policy_changed');
+  const origins =
+    sampleSource === undefined
+      ? allOrigins
+      : [requireNip50Source(policy, sampleSource)];
   const priorIngress = runIngress.get(journal);
   if (priorIngress && priorIngress !== ingress)
     throw new Error('public_request_ingress_changed');
@@ -133,7 +142,16 @@ export function createPublicRequestResult(
         const admitted = admitPublicEvent(ingress, message.event);
         if (!source || origin === undefined)
           return { status: 'source_unknown' };
+        const pending = source.state() === 'pending';
         source.candidate();
+        // Preserve the inclusive100th admitted delivery, then settle this sample
+        // alone. Global ingress overflow retains its existing run-wide semantics.
+        if (
+          sampleSource !== undefined &&
+          source.snapshot().candidates >=
+            PUBLIC_NIP50_BUDGETS.candidatesPerSource
+        )
+          source.control('limit');
         if (admitted.status === 'limit') {
           source.control('limit');
           return { status: 'limit' };
@@ -142,7 +160,7 @@ export function createPublicRequestResult(
           source.reject();
           return { status: 'rejected' };
         }
-        if (source.state() !== 'pending') {
+        if (!pending) {
           source.reject();
           return { status: 'inactive' };
         }
