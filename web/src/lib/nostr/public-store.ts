@@ -5,6 +5,19 @@ import {
   type VerifiedEnvelope
 } from './verified-envelope.ts';
 import type { NostrEvent } from 'applesauce-core/helpers';
+import { isPublicEnvelopeKind } from './public-kinds.ts';
+export { isPublicEnvelopeKind } from './public-kinds.ts';
+import {
+  createPublicRetention,
+  retainPublicEnvelope,
+  publicRetentionEnvelope,
+  publicRetentionSnapshot,
+  publicRetentionKnown,
+  closePublicRetention,
+  type RetentionSnapshot,
+  type KnownPublicEvidence
+} from '../catalog/retention.ts';
+import type { PublicHead } from '../catalog/heads.ts';
 
 declare const ownedStore: unique symbol;
 export type PublicStore = Readonly<{ readonly [ownedStore]: true }>;
@@ -12,24 +25,20 @@ interface Owner {
   readonly closed: () => boolean;
   readonly insert: (
     token: VerifiedEnvelope
-  ) => 'accepted' | 'duplicate' | 'not_public' | 'rejected' | 'closed';
+  ) =>
+    'accepted' | 'duplicate' | 'not_public' | 'rejected' | 'limit' | 'closed';
   readonly envelope: (id: string) => VerifiedEnvelope | undefined;
   readonly versions: (
     kind: number,
     pubkey: string,
     identifier: string
   ) => readonly VerifiedEnvelope[];
+  readonly retention: () => RetentionSnapshot;
+  readonly known: (head: PublicHead) => KnownPublicEvidence;
   readonly close: () => void;
 }
 const owners = new WeakMap<PublicStore, Owner>();
 let lifetime: PublicStore | undefined;
-const disposedOwner: Owner = {
-  closed: () => true,
-  insert: () => 'closed',
-  envelope: () => undefined,
-  versions: () => [],
-  close: () => undefined
-};
 
 function signedFields(event: NostrEvent): NostrEvent {
   return {
@@ -55,11 +64,6 @@ const options: Readonly<EventStoreOptions> & {
   keepExpired: true,
   verifyEvent: verifyStoredEvent
 };
-// The same approved inventory gates public source observations and storage.
-export function isPublicEnvelopeKind(kind: unknown): kind is number {
-  return typeof kind === 'number' && [0, 5, 10050, 30402].includes(kind);
-}
-
 // Import/SSR is inert. The private SDK instance and mutable verifier setter are
 // never exposed; acquisition accepts no caller options or private session state.
 export function getPublicStore(): PublicStore | undefined {
@@ -69,7 +73,7 @@ export function getPublicStore(): PublicStore | undefined {
     return lifetime;
   }
   const sdk = new EventStore(options);
-  const proofs = new Map<string, VerifiedEnvelope>();
+  const retention = createPublicRetention();
   let closed = false;
   const owner: Owner = {
     closed: () => closed,
@@ -83,39 +87,47 @@ export function getPublicStore(): PublicStore | undefined {
       const event = signedFields(snapshot);
       const sanitized = verifyEnvelope(JSON.stringify(event));
       if (!sanitized.ok) return 'rejected';
-      if (proofs.has(event.id)) return 'duplicate';
-      // Pinned core6.2.0 handles deletion and some replacement paths before
-      // verifyEvent. Outer genuine proof/fresh verification precedes every SDK
-      // branch. Kind5 stays exact evidence without activating DeleteManager.
-      // keepOldVersions/keepExpired preserve verified incompatible/old heads;
-      // SDK filtered queries are never product lifecycle authority. HCP033-037
-      // own head/deletion/display-expiry/working-set disposal policy.
-      if (event.kind !== 5 && sdk.add(event) === null) return 'rejected';
-      proofs.set(event.id, sanitized.value);
-      return 'accepted';
+      // Kind5 is retained proof without activating SDK DeleteManager.
+      // Admission reserves bounded coherent evidence BEFORE SDK installation.
+      return retainPublicEnvelope(
+        retention,
+        sanitized.value,
+        () => event.kind === 5 || sdk.add(event) !== null
+      );
     },
     envelope(id) {
-      return closed ? undefined : proofs.get(id);
+      return closed ? undefined : publicRetentionEnvelope(retention, id);
     },
     versions(kind, pubkey, identifier) {
-      if (closed) return [];
+      if (closed || publicRetentionSnapshot(retention).stopped) return [];
       return (
         sdk.getReplaceableHistory(kind, pubkey, identifier) ?? []
       ).flatMap((event) => {
-        const proof = proofs.get(event.id);
+        const proof = publicRetentionEnvelope(retention, event.id);
         return proof ? [proof] : [];
       });
     },
+    retention: () => publicRetentionSnapshot(retention),
+    known: (head) => publicRetentionKnown(retention, head),
     close() {
       if (closed) return;
       closed = true;
-      proofs.clear();
+      closePublicRetention(retention);
       try {
         sdk.dispose();
       } finally {
         // Remove the owner's closures retaining the SDK and its signed data.
         // Terminal disposal is not a JavaScript secure-memory-erasure claim.
-        owners.set(token, disposedOwner);
+        const final = publicRetentionSnapshot(retention);
+        owners.set(token, {
+          closed: () => true,
+          insert: () => 'closed',
+          envelope: () => undefined,
+          versions: () => [],
+          retention: () => ({ ...final }),
+          known: (head) => ({ head, requests: [] }),
+          close: () => undefined
+        });
       }
     }
   };
@@ -151,4 +163,14 @@ export function publicStoreVersions(
 }
 export function closePublicStore(owner: PublicStore): void {
   ownerOf(owner).close();
+}
+
+export function publicStoreRetention(owner: PublicStore): RetentionSnapshot {
+  return ownerOf(owner).retention();
+}
+export function publicStoreKnownEvidence(
+  owner: PublicStore,
+  head: PublicHead
+): KnownPublicEvidence {
+  return ownerOf(owner).known(head);
 }

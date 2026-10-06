@@ -10,6 +10,8 @@ import {
   getPublicStore,
   insertPublicEnvelope,
   closePublicStore,
+  publicStoreRetention,
+  publicStoreKnownEvidence,
   type PublicStore
 } from '../nostr/public-store.ts';
 import {
@@ -26,6 +28,8 @@ import {
   type RequestClock
 } from '../nostr/request-scope.ts';
 import type { PublicFilter } from '../nostr/exports.ts';
+import { publicHeadEnvelope, type PublicHead } from '../catalog/heads.ts';
+import type { KnownPublicEvidence } from '../catalog/retention.ts';
 import type { VerifiedEnvelope } from '../nostr/verified-envelope.ts';
 declare const contextBrand: unique symbol;
 declare const runtimeBrand: unique symbol;
@@ -41,6 +45,8 @@ interface RuntimeOwner {
   readonly policy: RelayPolicy;
   readonly views: Map<PublicView, () => boolean>;
   readonly closed: () => boolean;
+  readonly projectionValid: (retry?: boolean) => boolean;
+  readonly invalidateProjection: () => void;
   readonly close: () => void;
 }
 interface ContextOwner {
@@ -56,6 +62,8 @@ interface ViewOwner {
   readonly runtime: RuntimeOwner;
   readonly begin: () => PublicRun;
   readonly current: (run: PublicRun) => boolean;
+  readonly settling: () => boolean;
+  readonly settleWith: (refresh: () => void) => void;
   readonly dispose: () => boolean;
 }
 const contexts = new WeakMap<PublicRuntimeContext, ContextOwner>(),
@@ -109,7 +117,9 @@ export function createPublicRuntimeContext(): PublicRuntimeContext {
       if (!pool || !store) return undefined;
       const scheduler = createPublicScheduler(clock),
         registered = new Map<PublicView, () => boolean>();
-      let terminal = false;
+      let terminal = false,
+        invalidated = false,
+        invalidating = false;
       const token = Object.freeze({}) as PublicRuntime;
       const runtime: RuntimeOwner = {
         pool,
@@ -118,11 +128,36 @@ export function createPublicRuntimeContext(): PublicRuntimeContext {
         policy,
         views: registered,
         closed: () => terminal,
+        projectionValid(retry = true) {
+          const retained = publicStoreRetention(store);
+          if (retained.stopped || (!terminal && retained.closed))
+            invalidated = true;
+          // A settler reads the terminal flag without recursively retrying its
+          // own disposal. The outer cleanup loop keeps failed controls live.
+          if (invalidated && retry) runtime.invalidateProjection();
+          return !invalidated;
+        },
+        invalidateProjection() {
+          invalidated = true;
+          if (invalidating) return;
+          invalidating = true;
+          let failed = false;
+          try {
+            for (const dispose of registered.values())
+              if (!dispose()) failed = true;
+          } finally {
+            invalidating = false;
+          }
+          if (failed) throw new Error('public_projection_close_failed');
+        },
         close() {
           terminal = true;
           let failed = false;
           for (const dispose of registered.values())
             if (!dispose()) failed = true;
+          // Reentrant or failed settlement cannot preserve a coherent projection
+          // across store teardown. Terminal uncertainty clears every view.
+          if (failed) invalidated = true;
           try {
             closePublicScheduler(scheduler);
           } catch {
@@ -182,24 +217,67 @@ export function closePublicRuntime(context: PublicRuntimeContext): void {
   contextOf(context).close();
 }
 export function createPublicView(runtime: PublicRuntime): PublicView {
-  const shared = runtimeOf(runtime),
-    token = Object.freeze({}) as PublicView;
+  const shared = runtimeOf(runtime);
+  if (!shared.projectionValid())
+    throw new Error('public_projection_unavailable');
+  const token = Object.freeze({}) as PublicView;
   let run: PublicRun | undefined,
     disposed = false;
+  let generation = 0,
+    settler: (() => void) | undefined,
+    settling = false;
+  function settle() {
+    const refresh = settler;
+    settler = undefined; // Detach before any caller-controlled clock reentry.
+    if (!refresh) return;
+    settling = true;
+    try {
+      refresh?.();
+    } catch (error) {
+      if (!settler) settler = refresh;
+      throw error;
+    } finally {
+      settling = false;
+    }
+  }
   const owner: ViewOwner = {
     runtime: shared,
     begin() {
-      if (disposed || shared.closed()) throw new Error('public_view_closed');
-      if (run) disposePublicRun(run);
+      if (disposed || shared.closed() || !shared.projectionValid())
+        throw new Error('public_view_closed');
+      const operation = ++generation,
+        previous = run;
+      // Generation reserves the transition; keep failed old controls retryable.
+      try {
+        settle();
+      } finally {
+        if (previous) disposePublicRun(previous);
+      }
+      if (
+        operation !== generation ||
+        disposed ||
+        shared.closed() ||
+        !shared.projectionValid()
+      )
+        throw new Error('public_view_run_superseded');
       run = createPublicRun(shared.scheduler, shared.policy);
       return run;
+    },
+    settling: () => settling,
+    settleWith(refresh) {
+      const previous = settler;
+      settler = refresh;
+      previous?.();
     },
     current(candidate) {
       return !disposed && !shared.closed() && run === candidate;
     },
     dispose() {
       disposed = true;
+      generation++;
+      if (settling) return false;
       try {
+        settle();
         if (run) disposePublicRun(run);
         shared.views.delete(token);
         return true;
@@ -247,8 +325,58 @@ export function subscribePublicView(
       ),
     (event) => {
       if (!owner.current(run)) return;
-      insertPublicEnvelope(owner.runtime.store, event);
-      if (owner.current(run)) onVerified(event);
+      const result = insertPublicEnvelope(owner.runtime.store, event);
+      if (result === 'limit' || result === 'rejected' || result === 'closed') {
+        owner.runtime.invalidateProjection();
+        return;
+      }
+      if (
+        (result === 'accepted' || result === 'duplicate') &&
+        owner.current(run)
+      )
+        onVerified(event);
     }
   );
+}
+
+// Capacity invalidation differs from ordinary teardown: last-known snapshots
+// remain available on normal close, while a breached working set clears all views.
+export function publicViewProjectionAvailable(view: PublicView): boolean {
+  const owner = viewOf(view);
+  return owner.runtime.projectionValid(!owner.settling());
+}
+export function publicViewKnownEvidence(
+  view: PublicView,
+  head: PublicHead
+): KnownPublicEvidence {
+  return publicStoreKnownEvidence(viewOf(view).runtime.store, head);
+}
+export function retainPublicViewHeads(
+  view: PublicView,
+  run: PublicRun,
+  heads: readonly PublicHead[]
+): boolean {
+  const owner = viewOf(view);
+  if (!publicViewRunCurrent(view, run) || !owner.runtime.projectionValid())
+    return false;
+  for (const head of heads) {
+    const result = insertPublicEnvelope(
+      owner.runtime.store,
+      publicHeadEnvelope(head)
+    );
+    if (result !== 'accepted' && result !== 'duplicate') {
+      owner.runtime.invalidateProjection();
+      return false;
+    }
+  }
+  return owner.runtime.projectionValid();
+}
+
+// Trusted model binding holds only the current projection for this view.
+// Replacement/disposal settles it while retained shared lifecycle proof is live.
+export function settlePublicViewProjection(
+  view: PublicView,
+  refresh: () => void
+): void {
+  viewOf(view).settleWith(refresh);
 }

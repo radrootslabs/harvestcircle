@@ -25,3 +25,8 @@ export const PUBLIC_QUERY_BUDGETS = Object.freeze({
   requestedPerRelay: 200,
   coordinatesPerRun: publicDeliveryLimit
 });
+
+// Shared logical retained public-event payload across every view and run.
+export const PUBLIC_RETENTION_BUDGETS = Object.freeze({
+  payloadBytes: 33554432
+});

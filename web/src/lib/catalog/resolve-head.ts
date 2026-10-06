@@ -22,6 +22,10 @@ import {
 import {
   subscribePublicView,
   publicViewRunCurrent,
+  publicViewProjectionAvailable,
+  publicViewKnownEvidence,
+  retainPublicViewHeads,
+  settlePublicViewProjection,
   type PublicView
 } from '../runtime/public-runtime.ts';
 import {
@@ -40,6 +44,7 @@ import {
   type FoodHeadState
 } from './head-state.ts';
 import { evaluatePublicHeadDeletion } from './deletions.ts';
+import type { KnownPublicEvidence } from './retention.ts';
 import type { WallClock } from './clock-policy.ts';
 
 declare const resolverBrand: unique symbol;
@@ -63,7 +68,13 @@ interface Entry {
   readonly state: FoodHeadState;
   readonly group: Group;
 }
+export interface KnownHeadSource {
+  readonly retain: (heads: readonly PublicHead[]) => boolean;
+  readonly read: (head: PublicHead) => KnownPublicEvidence;
+  readonly available: () => boolean;
+}
 interface Owner {
+  readonly available: () => boolean;
   readonly resolve: (heads: readonly PublicHead[]) => void;
   readonly snapshot: () => readonly HeadResolution[];
   readonly close: () => void;
@@ -91,7 +102,8 @@ function emptyRows<T>(): readonly T[] {
 export function createHeadResolver(
   run: PublicRun,
   subscribe: HeadSubscriber,
-  clock: WallClock
+  clock: WallClock,
+  known?: KnownHeadSource
 ): HeadResolver {
   publicRunSnapshot(run);
   const readClock = clock.nowSeconds;
@@ -103,6 +115,30 @@ export function createHeadResolver(
   let groups = emptyRows<Group>();
   let closed = false;
   const active = () => !closed && publicRunSnapshot(run).active;
+  function mergeKnown(head: PublicHead): PublicHead {
+    const row = known?.read(head);
+    if (!row) return head;
+    for (const request of row.requests) {
+      const snapshot = deletionRequestSnapshot(request);
+      if (snapshot) evidence.set(snapshot.id, request);
+    }
+    return row.head;
+  }
+  function clearProjection() {
+    entries.clear();
+    evidence.clear();
+    const pending = groups;
+    groups = emptyRows<Group>();
+    for (const group of pending) {
+      try {
+        group.close();
+      } catch {
+        groups = groups.concat(group);
+      }
+    }
+    if (groups.length) throw new Error('head_resolver_close_failed');
+  }
+  const retained = () => known?.available() ?? true;
   function groupFor(heads: readonly PublicHead[]): Group {
     const queries = headResolutionQueries(heads),
       keys = new Map(heads.map((h) => [publicHeadKey(h), true]));
@@ -169,7 +205,11 @@ export function createHeadResolver(
               return;
             }
             const entry = entries.get(key);
-            if (entry) advanceFoodHeadState(entry.state, proof);
+            if (entry && candidate)
+              advanceFoodHeadState(
+                entry.state,
+                publicHeadEnvelope(mergeKnown(candidate))
+              );
           });
           if (!active()) {
             incomplete = true;
@@ -202,6 +242,7 @@ export function createHeadResolver(
     };
   }
   owners.set(token, {
+    available: retained,
     resolve(heads) {
       if (!active()) throw new Error('head_resolver_inactive');
       // Validate the complete batch and total coordinate admission before any
@@ -214,13 +255,17 @@ export function createHeadResolver(
       );
       if (entries.size + fresh.length > PUBLIC_QUERY_BUDGETS.coordinatesPerRun)
         throw new Error('head_resolver_coordinate_limit');
+      if (!retained() || (known && !known.retain(heads))) {
+        clearProjection();
+        return;
+      }
       const group = fresh.length === 0 ? undefined : groupFor(fresh);
       if (group) groups = groups.concat(group);
       // Reserve every coordinate before caller-controlled clocks or openers.
       let prepared = false;
       let created = emptyRows<FoodHeadState>();
       for (const head of fresh) {
-        const state = createFoodHeadState(head, {
+        const state = createFoodHeadState(mergeKnown(head), {
           nowSeconds: () => (prepared ? readClock() : NaN)
         });
         entries.set(publicHeadKey(head), { state, group: group! });
@@ -230,37 +275,57 @@ export function createHeadResolver(
       for (const state of created) refreshFoodHeadState(state);
       for (const head of heads) {
         const entry = entries.get(publicHeadKey(head));
-        if (entry) advanceFoodHeadState(entry.state, publicHeadEnvelope(head));
+        if (entry)
+          advanceFoodHeadState(
+            entry.state,
+            publicHeadEnvelope(mergeKnown(head))
+          );
       }
       if (group && active()) group.open();
     },
     snapshot() {
+      if (!retained()) {
+        clearProjection();
+        return [];
+      }
       const available = active();
-      return Array.from(entries, ([key, entry]) => {
-        const deletion = evaluatePublicHeadDeletion(
-          foodHeadStateHead(entry.state),
-          Array.from(evidence.values())
-        );
-        const state = foodHeadStateSnapshot(entry.state);
-        const complete = available && entry.group.complete();
-        return {
-          key,
-          state: {
-            ...state,
-            food: deletion.outcome === 'suppressed' ? undefined : state.food
-          },
-          deletion,
-          deletionProofs: Array.from(evidence.values()).flatMap((r) => {
-            const proof = deletionRequestEnvelope(r);
-            return proof === undefined ? [] : [proof];
-          }),
-          headSources: entry.group.head(),
-          deletionSources: entry.group.deletion(),
-          coverage: complete ? 'bounded-eose' : 'partial',
-          lastKnown: !complete,
-          definitiveAbsence: false
-        };
-      });
+      const rows: readonly HeadResolution[] = Array.from(
+        entries,
+        ([key, entry]) => {
+          advanceFoodHeadState(
+            entry.state,
+            publicHeadEnvelope(mergeKnown(foodHeadStateHead(entry.state)))
+          );
+          const deletion = evaluatePublicHeadDeletion(
+            foodHeadStateHead(entry.state),
+            Array.from(evidence.values())
+          );
+          const state = foodHeadStateSnapshot(entry.state);
+          const complete = available && entry.group.complete();
+          return {
+            key,
+            state: {
+              ...state,
+              food: deletion.outcome === 'suppressed' ? undefined : state.food
+            },
+            deletion,
+            deletionProofs: Array.from(evidence.values()).flatMap((r) => {
+              const proof = deletionRequestEnvelope(r);
+              return proof === undefined ? [] : [proof];
+            }),
+            headSources: entry.group.head(),
+            deletionSources: entry.group.deletion(),
+            coverage: complete ? 'bounded-eose' : 'partial',
+            lastKnown: !complete,
+            definitiveAbsence: false
+          };
+        }
+      );
+      if (!retained()) {
+        clearProjection();
+        return [];
+      }
+      return rows;
     },
     close() {
       closed = true;
@@ -297,9 +362,17 @@ export function createPublicViewHeadResolver(
     run,
     (kind, filters, next) =>
       subscribePublicView(view, run, kind, filters, next),
-    clock
+    clock,
+    {
+      retain: (heads) => retainPublicViewHeads(view, run, heads),
+      read: (head) => publicViewKnownEvidence(view, head),
+      available: () => publicViewProjectionAvailable(view)
+    }
   );
   viewResolvers.set(run, { view, resolver });
+  settlePublicViewProjection(view, () => {
+    headResolutionSnapshot(resolver);
+  });
   return resolver;
 }
 export function resolveHeads(
@@ -315,4 +388,10 @@ export function headResolutionSnapshot(
 }
 export function closeHeadResolver(resolver: HeadResolver): void {
   ownerOf(resolver).close();
+}
+
+export function headResolverRetentionState(
+  resolver: HeadResolver
+): Readonly<{ available: boolean; definitiveAbsence: false }> {
+  return { available: ownerOf(resolver).available(), definitiveAbsence: false };
 }
