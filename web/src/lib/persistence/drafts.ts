@@ -2,7 +2,8 @@ import { boundedUtf8 } from '../contracts/food-availability-v1/text.ts';
 import { canonicalPublicKey } from '../contracts/public-key.ts';
 import {
   exactLocalFields,
-  type PublicDraftRecord
+  type PublicDraftRecord,
+  type PublicDraftForm
 } from '../contracts/local-records.ts';
 import { canonicalLocalId, newLocalId } from '../private-handles.ts';
 import { safeUnsignedInteger } from '../nostr/envelope-bounds.ts';
@@ -63,12 +64,16 @@ export function createPublicDraftRepository(
     return undefined;
   }
 }
-function proposed(
-  owner: string,
-  id: string,
-  revision: number,
+export function publicDraftRepositoryOwner(
+  repository: PublicDraftRepository
+): string | undefined {
+  return scopeOf(repository)?.owner;
+}
+
+// This copy is form admission only: no ID/time capture, storage or effect.
+export function publicDraftFormSnapshot(
   form: unknown
-): PublicDraftRecord | undefined {
+): PublicDraftForm | undefined {
   try {
     if (
       !exactLocalFields(form, [
@@ -84,9 +89,7 @@ function proposed(
       ])
     )
       return undefined;
-    // Capture each caller field once before validating that captured value.
-    // Even a changing Proxy cannot substitute a coercible object after a check.
-    const captured = {
+    const copy = {
       title: form.title,
       description: form.description,
       location: form.location,
@@ -98,33 +101,62 @@ function proposed(
       contactValue: form.contactValue
     };
     if (
-      captured.contactType !== '' &&
-      captured.contactType !== 'email' &&
-      captured.contactType !== 'phone' &&
-      captured.contactType !== 'https'
+      typeof copy.title !== 'string' ||
+      typeof copy.description !== 'string' ||
+      typeof copy.location !== 'string' ||
+      typeof copy.amount !== 'string' ||
+      typeof copy.currency !== 'string' ||
+      typeof copy.unit !== 'string' ||
+      typeof copy.quantity !== 'string' ||
+      typeof copy.contactValue !== 'string' ||
+      (copy.contactType !== '' &&
+        copy.contactType !== 'email' &&
+        copy.contactType !== 'phone' &&
+        copy.contactType !== 'https')
     )
       return undefined;
-    let composedBytes = 0;
+    let bytes = 0;
     for (const text of [
-      captured.title,
-      captured.description,
-      captured.location,
-      captured.amount,
-      captured.currency,
-      captured.unit,
-      captured.quantity,
-      captured.contactType,
-      captured.contactValue
+      copy.title,
+      copy.description,
+      copy.location,
+      copy.amount,
+      copy.currency,
+      copy.unit,
+      copy.quantity,
+      copy.contactType,
+      copy.contactValue
     ]) {
-      if (
-        typeof text !== 'string' ||
-        !boundedUtf8(text, LOCAL_PERSISTENCE_BUDGETS.draftComposedBytes)
-      )
+      if (!boundedUtf8(text, LOCAL_PERSISTENCE_BUDGETS.draftComposedBytes))
         return undefined;
-      composedBytes += new TextEncoder().encode(text).length;
-      if (composedBytes > LOCAL_PERSISTENCE_BUDGETS.draftComposedBytes)
+      bytes += new TextEncoder().encode(text).length;
+      if (bytes > LOCAL_PERSISTENCE_BUDGETS.draftComposedBytes)
         return undefined;
     }
+    return {
+      title: copy.title,
+      description: copy.description,
+      location: copy.location,
+      amount: copy.amount,
+      currency: copy.currency,
+      unit: copy.unit,
+      quantity: copy.quantity,
+      contactType: copy.contactType,
+      contactValue: copy.contactValue
+    };
+  } catch {
+    return undefined;
+  }
+}
+function proposed(
+  owner: string,
+  id: string,
+  revision: number,
+  form: unknown
+): PublicDraftRecord | undefined {
+  try {
+    const captured = publicDraftFormSnapshot(form);
+    if (!captured) return undefined;
     const row = {
       schema: 1,
       family: 'public_draft',
@@ -212,36 +244,10 @@ export function createPublicDraft(
   repository: PublicDraftRepository,
   form: unknown
 ): Promise<DraftResult<PublicDraftRecord>> {
-  const scope = scopeOf(repository);
-  if (!scope) return Promise.resolve(failed('invalid_scope'));
-  const id = newLocalId();
-  if (!id) return Promise.resolve(failed('invalid_id'));
-  const row = proposed(scope.owner, id, 0, form);
-  if (!row) return Promise.resolve(failed('invalid_form'));
-  return transaction(scope, 'readwrite', (store, decide, refuse) => {
-    const collision = store.get([scope.owner, id]);
-    collision.addEventListener('success', () => {
-      if (collision.result !== undefined) {
-        refuse('conflict');
-        return;
-      }
-      const count = store
-        .index('by_owner')
-        .count(IDBKeyRange.only(scope.owner));
-      count.addEventListener('success', () => {
-        if (count.result >= LOCAL_PERSISTENCE_BUDGETS.publicDrafts) {
-          refuse('cap_reached');
-          return;
-        }
-        const put = store.put({
-          owner: scope.owner,
-          id,
-          wire: JSON.stringify(row)
-        });
-        put.addEventListener('success', () => decide({ ok: true, value: row }));
-      });
-    });
-  });
+  const captured = capturePublicDraftCreate(repository, form);
+  return captured.ok
+    ? commitPublicDraftWrite(repository, captured.value)
+    : Promise.resolve(captured);
 }
 export function readPublicDraft(
   repository: PublicDraftRepository,
@@ -273,39 +279,15 @@ export function savePublicDraft(
   expectedRevision: unknown,
   form: unknown
 ): Promise<DraftResult<PublicDraftRecord>> {
-  const scope = scopeOf(repository),
-    id = canonicalLocalId(expectedId);
-  if (!scope) return Promise.resolve(failed('invalid_scope'));
-  if (!id) return Promise.resolve(failed('invalid_id'));
-  const revision = safeUnsignedInteger(expectedRevision);
-  if (revision === undefined || revision === Number.MAX_SAFE_INTEGER)
-    return Promise.resolve(failed('invalid_revision'));
-  const row = proposed(scope.owner, id, revision + 1, form);
-  if (!row) return Promise.resolve(failed('invalid_form'));
-  return transaction(scope, 'readwrite', (store, decide, refuse) => {
-    const request = store.get([scope.owner, id]);
-    request.addEventListener('success', () => {
-      if (request.result === undefined) {
-        refuse('not_found');
-        return;
-      }
-      const previous = stored(request.result, scope.owner, id);
-      if (!previous) {
-        refuse('corrupt_record');
-        return;
-      }
-      if (previous.revision !== revision) {
-        refuse('conflict');
-        return;
-      }
-      const put = store.put({
-        owner: scope.owner,
-        id,
-        wire: JSON.stringify(row)
-      });
-      put.addEventListener('success', () => decide({ ok: true, value: row }));
-    });
-  });
+  const captured = capturePublicDraftSave(
+    repository,
+    expectedId,
+    expectedRevision,
+    form
+  );
+  return captured.ok
+    ? commitPublicDraftWrite(repository, captured.value)
+    : Promise.resolve(captured);
 }
 export function listPublicDrafts(
   repository: PublicDraftRepository
@@ -342,4 +324,157 @@ export function listPublicDrafts(
       cursor.continue();
     });
   });
+}
+
+// Immutable attempted local writes retain their original ID, revision, time and
+// full form. They authorize only this repository's bounded local transaction.
+declare const writeBrand: unique symbol;
+export type PublicDraftWrite = Readonly<{ [writeBrand]: true }>;
+type Write = Readonly<{
+  repository: PublicDraftRepository;
+  wire: string;
+  expectedRevision: number | null;
+}>;
+const writes = new WeakMap<PublicDraftWrite, Write>();
+function capture(
+  repository: PublicDraftRepository,
+  id: string,
+  expectedRevision: number | null,
+  form: unknown
+): DraftResult<PublicDraftWrite> {
+  const scope = scopeOf(repository);
+  if (!scope) return failed('invalid_scope');
+  const row = proposed(
+    scope.owner,
+    id,
+    expectedRevision === null ? 0 : expectedRevision + 1,
+    form
+  );
+  if (!row) return failed('invalid_form');
+  const handle = Object.freeze({}) as PublicDraftWrite;
+  writes.set(handle, {
+    repository,
+    wire: JSON.stringify(row),
+    expectedRevision
+  });
+  return { ok: true, value: handle };
+}
+export function capturePublicDraftCreate(
+  repository: PublicDraftRepository,
+  form: unknown
+): DraftResult<PublicDraftWrite> {
+  if (!scopeOf(repository)) return failed('invalid_scope');
+  const id = newLocalId();
+  return id ? capture(repository, id, null, form) : failed('invalid_id');
+}
+export function capturePublicDraftSave(
+  repository: PublicDraftRepository,
+  expectedId: unknown,
+  expectedRevision: unknown,
+  form: unknown
+): DraftResult<PublicDraftWrite> {
+  if (!scopeOf(repository)) return failed('invalid_scope');
+  const id = canonicalLocalId(expectedId),
+    revision = safeUnsignedInteger(expectedRevision);
+  if (!id) return failed('invalid_id');
+  if (revision === undefined || revision === Number.MAX_SAFE_INTEGER)
+    return failed('invalid_revision');
+  return capture(repository, id, revision, form);
+}
+function writeOf(
+  repository: PublicDraftRepository,
+  handle: PublicDraftWrite
+): Write | undefined {
+  const write = writes.get(handle);
+  return scopeOf(repository) && write?.repository === repository
+    ? write
+    : undefined;
+}
+export function publicDraftWriteSnapshot(
+  repository: PublicDraftRepository,
+  handle: PublicDraftWrite
+): PublicDraftRecord | undefined {
+  const write = writeOf(repository, handle);
+  return write ? (JSON.parse(write.wire) as PublicDraftRecord) : undefined;
+}
+export function commitPublicDraftWrite(
+  repository: PublicDraftRepository,
+  handle: PublicDraftWrite
+): Promise<DraftResult<PublicDraftRecord>> {
+  const write = writeOf(repository, handle),
+    scope = scopeOf(repository);
+  if (!write || !scope) return Promise.resolve(failed('invalid_scope'));
+  const row = JSON.parse(write.wire) as PublicDraftRecord;
+  return transaction(scope, 'readwrite', (store, decide, refuse) => {
+    const request = store.get([scope.owner, row.id]);
+    request.addEventListener('success', () => {
+      if (request.result !== undefined) {
+        const previous = stored(request.result, scope.owner, row.id);
+        if (!previous) {
+          refuse('corrupt_record');
+          return;
+        }
+        if (JSON.stringify(previous) === write.wire) {
+          decide({ ok: true, value: row });
+          return;
+        }
+        if (
+          write.expectedRevision === null ||
+          previous.revision !== write.expectedRevision
+        ) {
+          refuse('conflict');
+          return;
+        }
+        const put = store.put({
+          owner: scope.owner,
+          id: row.id,
+          wire: write.wire
+        });
+        put.addEventListener('success', () => decide({ ok: true, value: row }));
+        return;
+      }
+      if (write.expectedRevision !== null) {
+        refuse('not_found');
+        return;
+      }
+      const count = store
+        .index('by_owner')
+        .count(IDBKeyRange.only(scope.owner));
+      count.addEventListener('success', () => {
+        if (count.result >= LOCAL_PERSISTENCE_BUDGETS.publicDrafts) {
+          refuse('cap_reached');
+          return;
+        }
+        const put = store.put({
+          owner: scope.owner,
+          id: row.id,
+          wire: write.wire
+        });
+        put.addEventListener('success', () => decide({ ok: true, value: row }));
+      });
+    });
+  });
+}
+export type DraftWriteObservation =
+  | Readonly<{ state: 'committed'; value: PublicDraftRecord }>
+  | Readonly<{ state: 'base_observed' }>
+  | Readonly<{ state: 'conflict' }>
+  | Readonly<{ state: 'unavailable'; reason: DraftFailure }>;
+export async function observePublicDraftWrite(
+  repository: PublicDraftRepository,
+  handle: PublicDraftWrite
+): Promise<DraftWriteObservation> {
+  const write = writeOf(repository, handle);
+  if (!write) return { state: 'unavailable', reason: 'invalid_scope' };
+  const expected = JSON.parse(write.wire) as PublicDraftRecord;
+  const read = await readPublicDraft(repository, expected.id);
+  if (!read.ok)
+    return read.reason === 'not_found' && write.expectedRevision === null
+      ? { state: 'base_observed' }
+      : { state: 'unavailable', reason: read.reason };
+  if (JSON.stringify(read.value) === write.wire)
+    return { state: 'committed', value: read.value };
+  return read.value.revision === write.expectedRevision
+    ? { state: 'base_observed' }
+    : { state: 'conflict' };
 }
