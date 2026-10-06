@@ -17,7 +17,8 @@
     "test:unit": "node tools/check-source.mjs && svelte-kit sync && vitest run --config vitest.config.ts && node --test --test-concurrency=1 --test-timeout=10000 tests/provenance/*.test.mjs",
     "test:conformance": "corepack pnpm build && node --test tests/conformance/*.test.ts",
     "test:integration": "corepack pnpm build && node --test --test-timeout=10000 tests/integration/*.test.ts",
-    "test:e2e": "corepack pnpm build && playwright test"
+    "test:e2e": "corepack pnpm build && playwright test",
+    "test:conformance:oracle": "node tools/check-food-interop.mjs"
   },
   "dependencies": {
     "@noble/curves": "1.2.0",

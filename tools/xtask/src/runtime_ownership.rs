@@ -47,11 +47,23 @@ fn validate_path(path: &str) -> Result<(), String> {
     if path.is_empty()
         || path
             .chars()
-            .any(|c| c.is_control() || matches!(c, '\\' | ':' | '%' | '*' | '?' | '[' | ']'))
+            .any(|c| c.is_control() || matches!(c, '\\' | ':' | '%' | '*' | '?'))
         || path.split('/').any(|part| matches!(part, "" | "." | ".."))
     {
         return Err(format!(
             "invalid repository-relative ownership path: {path:?}"
+        ));
+    }
+    Ok(())
+}
+
+// Ownership declarations forbid glob syntax. Inventory paths are literal file
+// identities: brackets in Svelte routes are never interpreted as patterns.
+fn validate_declaration_path(path: &str) -> Result<(), String> {
+    validate_path(path)?;
+    if path.contains(['[', ']']) {
+        return Err(format!(
+            "invalid repository-relative ownership declaration: {path:?}"
         ));
     }
     Ok(())
@@ -88,7 +100,7 @@ impl OwnershipMap {
                 return Err("ownership rule list is empty".to_owned());
             }
             for (index, rule) in rules.iter().enumerate() {
-                validate_path(&rule.path)?;
+                validate_declaration_path(&rule.path)?;
                 if rule.owners.is_empty()
                     || rule.owners.iter().copied().collect::<BTreeSet<_>>().len()
                         != rule.owners.len()
@@ -314,6 +326,42 @@ mod tests {
                 .reason
                 .is_some()
         );
+    }
+
+    #[test]
+    fn literal_svelte_route_inputs_are_classified_without_glob_declarations() {
+        let map = OwnershipMap::parse(MAP).unwrap();
+        for path in [
+            "web/src/routes/messages/[conversationId=local_id]/+page.svelte",
+            "web/src/routes/my/listings/[listingId=local_id]/+page.svelte",
+            "web/src/routes/[id]/+page.svelte",
+        ] {
+            let result = map.classify(path).unwrap();
+            assert_eq!(result.owners, vec![Owner::Web]);
+            assert!(result.reason.is_none());
+        }
+        let literal = "new_runtime/[literal].rs";
+        let unknown = map.classify(literal).unwrap();
+        assert_eq!(unknown.owners.len(), 4);
+        assert!(unknown.reason.unwrap().contains(literal));
+        for declaration in ["app/[id]", "app/[[optional]]", "app/[a-z]"] {
+            let source = MAP.replacen("\"app\"", &format!("\"{declaration}\""), 1);
+            assert!(
+                OwnershipMap::parse(&source).is_err(),
+                "accepted {declaration}"
+            );
+        }
+        for hostile in [
+            "web/../[id]",
+            "web//[id]",
+            "/web/[id]",
+            "web/[id]\\child",
+            "web/[id]%2fchild",
+            "web/[id]*",
+            "web/[id]?",
+        ] {
+            assert!(map.classify(hostile).is_err(), "accepted {hostile}");
+        }
     }
 
     #[test]
