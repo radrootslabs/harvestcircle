@@ -3,6 +3,7 @@ import {
   verifyEvent,
   type NostrEvent
 } from 'applesauce-core/helpers';
+import { PUBLIC_INGRESS_BUDGETS } from '../config/budgets.ts';
 import { boundedEnvelopeNumbers } from './envelope-bounds.ts';
 import { boundedUtf8 } from '../contracts/food-availability-v1/text.ts';
 
@@ -49,7 +50,10 @@ export function verifyEnvelope(
 ):
   | Readonly<{ ok: true; value: VerifiedEnvelope }>
   | Readonly<{ ok: false; error: EnvelopeFailure }> {
-  if (typeof raw !== 'string' || !boundedUtf8(raw, 262144))
+  if (
+    typeof raw !== 'string' ||
+    !boundedUtf8(raw, PUBLIC_INGRESS_BUDGETS.eventBytes)
+  )
     return { ok: false, error: invalid };
   try {
     // Parse a fresh bounded JSON object: caller getters and cached SDK symbols

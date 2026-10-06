@@ -1854,3 +1854,32 @@ for (const [name, specifier] of [
     }
   );
 }
+
+test('HCP029 admits direct read-only descriptor inspection of unknown data', async () => {
+  await fixture(async ({ put, execute }) => {
+    await put(
+      'src/routes/+page.ts',
+      'export function read(value: object, key: string) { const descriptor = Object.getOwnPropertyDescriptor(value, key); return descriptor && "value" in descriptor ? descriptor.value : undefined; }'
+    );
+    const result = execute();
+    assert.equal(result.status, 0, result.stderr);
+  });
+});
+for (const source of [
+  'const read = Object.getOwnPropertyDescriptor; export function inspect(value: object) { return read(value, "content"); }',
+  'export function inspect(value: object) { return Object["getOwnPropertyDescriptor"](value, "content"); }',
+  'export function inspect(value: object) { return Object.getOwnPropertyDescriptor.call(Object, value, "content"); }',
+  'export function inspect(value: object, Object: { getOwnPropertyDescriptor: (value: object, key: string) => unknown }) { return Object.getOwnPropertyDescriptor(value, "content"); }',
+  'declare const fake: typeof Object; Object = fake; export function inspect(value: object) { return Object.getOwnPropertyDescriptor(value, "content"); }',
+  'export function inspect(value: object) { return Reflect.getOwnPropertyDescriptor(value, "content"); }',
+  'export function inspect(value: object) { return Object.getOwnPropertyDescriptors(value); }',
+  'export function inspect(value: object) { return Object.defineProperty(value, "content", { value: "untrusted" }); }',
+  'export function inspect(value: object) { const descriptor = Object.getOwnPropertyDescriptor(value, "content"); if (descriptor) descriptor.value = "untrusted"; }',
+  'export function inspect() { return Object.getOwnPropertyDescriptor(); }'
+])
+  test(`HCP029 descriptor admission rejects escaped, shadowed or mutating operation: ${source}`, async () => {
+    await fixture(async ({ put, execute }) => {
+      await put('src/routes/+page.ts', source);
+      reject(execute(), /descriptor|reflection|mutation|owned/);
+    });
+  });

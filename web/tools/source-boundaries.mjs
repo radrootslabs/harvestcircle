@@ -610,6 +610,21 @@ function mutationAdmission(ast, report, identity = () => null) {
       !!strings(node.arguments[1])
     );
   }
+  // HCP029: single-property descriptor reads do not mutate their receiver.
+  // Admit only the actual builtin's direct call; never an escaped/shadowed
+  // reader or a descriptor write. Other reflection keeps owned-data rules.
+  function descriptorRead(node) {
+    return (
+      ts.isPropertyAccessExpression(node) &&
+      node.name.text === 'getOwnPropertyDescriptor' &&
+      global(node.expression, ['Object']) &&
+      !globalWrites.has('Object') &&
+      ts.isCallExpression(node.parent) &&
+      node.parent.expression === node &&
+      node.parent.arguments.length === 2 &&
+      pure(node.parent.arguments[1])
+    );
+  }
   function primitiveMethod(node) {
     const call = node.parent;
     if (
@@ -801,6 +816,15 @@ function mutationAdmission(ast, report, identity = () => null) {
         !navigatorLeaf(node)
       )
         report('opaque navigator capabilities cannot expose worker loaders');
+      if (
+        name === 'getOwnPropertyDescriptor' &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === 'Object' &&
+        !descriptorRead(node)
+      )
+        report(
+          'descriptor inspection requires a direct unshadowed builtin read'
+        );
       if (['constructor', 'prototype', '__proto__'].includes(name))
         report(
           'prototype capability access is outside the admitted DOM/model grammar'
@@ -969,7 +993,8 @@ function mutationAdmission(ast, report, identity = () => null) {
             parent.expression !== node ||
             !ts.isCallExpression(parent.parent) ||
             parent.parent.expression !== parent ||
-            !parent.parent.arguments.every((argument) => pure(argument))
+            (!descriptorRead(parent) &&
+              !parent.parent.arguments.every((argument) => pure(argument)))
           )
             report(
               'reflection/bulk operations require direct calls over owned plain data'
