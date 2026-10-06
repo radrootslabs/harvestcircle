@@ -25,7 +25,8 @@
     "@noble/curves": "1.2.0",
     "@scure/base": "1.1.1",
     "applesauce-core": "6.2.0",
-    "applesauce-relay": "6.2.1"
+    "applesauce-relay": "6.2.1",
+    "applesauce-signers": "6.2.3"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

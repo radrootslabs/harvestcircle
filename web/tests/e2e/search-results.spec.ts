@@ -42,9 +42,10 @@ test.beforeAll(async () => {
       capsule,
       checkout
     ]);
-    await cp(path.join(capsule, 'web/src'), path.join(web, 'src'), {
-      recursive: true
-    });
+    for (const relative of ['package.json', 'pnpm-lock.yaml', 'src'])
+      await cp(path.join(capsule, 'web', relative), path.join(web, relative), {
+        recursive: true
+      });
     const identities: { path: string; sha256: string }[] = [];
     async function identify(dir: string, prefix = '') {
       for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -77,9 +78,21 @@ test.beforeAll(async () => {
       path.join(web, 'src/lib/config/deployment-relays.ts'),
       policy
     );
+    const sourceStore = execFileSync('corepack', ['pnpm', 'store', 'path'], {
+      cwd: path.join(capsule, 'web')
+    })
+      .toString()
+      .trim();
     const installed = execFileSync(
       'corepack',
-      ['pnpm', 'install', '--offline', '--frozen-lockfile'],
+      [
+        'pnpm',
+        'install',
+        '--offline',
+        '--frozen-lockfile',
+        '--store-dir',
+        path.dirname(sourceStore)
+      ],
       { cwd: web, timeout: 90000 }
     ).toString();
     const sourceAudit = execFileSync(
@@ -99,6 +112,7 @@ test.beforeAll(async () => {
         identities,
         policy,
         policySha256: createHash('sha256').update(policy).digest('hex'),
+        sourceStore,
         installed,
         sourceAudit,
         compiled
