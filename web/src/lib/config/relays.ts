@@ -76,6 +76,7 @@ function publicAddress(host: string): boolean {
     !/(?:^|\.)(?:localhost|local|internal|invalid|test|example|onion)$/.test(
       host
     ) &&
+    host !== 'home.arpa' &&
     !host.endsWith('.home.arpa')
   );
 }

@@ -66,6 +66,7 @@ describe('fixed relay policy', () => {
     'wss://sub.localhost',
     'wss://relay.local',
     'wss://relay.internal',
+    'wss://home.arpa',
     'wss://relay.home.arpa',
     'wss://relay.test',
     'wss://127.0.0.1',
