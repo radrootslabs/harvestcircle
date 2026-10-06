@@ -58,3 +58,23 @@ export const PUBLIC_NIP50_BUDGETS = Object.freeze({
   requestedPerRelay: 100,
   candidatesPerSource: 100
 });
+
+// Browser-local logical admission, independent of desktop SQLite and the public
+// memory store. Repository transactions enforce aggregate counts/bytes later.
+export const LOCAL_PERSISTENCE_BUDGETS = Object.freeze({
+  publicDrafts: 20,
+  draftComposedBytes: 16384,
+  publicOperations: 100,
+  publicOperationBytes: 8388608,
+  unfinishedPrivateSends: 100,
+  privateSendBytes: 8388608,
+  receivedEnvelopes: 2000,
+  receivedCiphertextBytes: 50331648
+});
+
+// Approved explicit public publication action; user approval time is separate
+// from this future network scheduler bound. Codecs validate attempt metadata.
+export const PUBLIC_PUBLICATION_BUDGETS = Object.freeze({
+  attemptsPerTargetAction: 3,
+  networkActionMilliseconds: 45000
+});
