@@ -32,6 +32,8 @@ test.beforeAll(async () => {
       checkout
     ]);
     for (const relative of [
+      'web/package.json',
+      'web/pnpm-lock.yaml',
       'web/src',
       'web/tools/source-boundaries.mjs',
       'web/src/lib/components/AppShell.svelte',
