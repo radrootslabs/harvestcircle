@@ -317,6 +317,11 @@ export function publicViewRunCurrent(
 ): boolean {
   return viewOf(view).current(run) && publicRunSnapshot(run).active;
 }
+// Ownership survives an ordinary deadline so a foreground owner can publish
+// its terminal result once. Supersession/disposal/shared closure revoke it.
+export function publicViewOwnsRun(view: PublicView, run: PublicRun): boolean {
+  return viewOf(view).current(run);
+}
 export function disposePublicView(view: PublicView): void {
   if (!viewOf(view).dispose()) throw new Error('public_view_close_failed');
 }

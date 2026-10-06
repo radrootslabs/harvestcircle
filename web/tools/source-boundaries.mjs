@@ -117,7 +117,8 @@ function mutationAdmission(
   ast,
   report,
   identity = () => null,
-  reviewedScroll = false
+  reviewedScroll = false,
+  reviewedCopy = false
 ) {
   // Bind this admitted AST only, without libs, module resolution, file reads,
   // config loading or evaluation. Symbols distinguish aliases and shadowing.
@@ -839,6 +840,35 @@ function mutationAdmission(
         !(ts.isCallExpression(node.parent) && node.parent.expression === node)
       )
         report('escaped goto capability is forbidden');
+      if (
+        name === 'clipboard' &&
+        (global(node.expression, ['navigator']) ||
+          ((ts.isPropertyAccessExpression(node.expression) ||
+            ts.isElementAccessExpression(node.expression)) &&
+            member(node.expression) === 'navigator' &&
+            ts.isIdentifier(node.expression.expression) &&
+            ['window', 'globalThis', 'self'].includes(
+              node.expression.expression.text
+            ) &&
+            !checker.getSymbolAtLocation(node.expression.expression)
+              ?.declarations?.length))
+      ) {
+        const action = node.parent;
+        const call = action.parent;
+        if (
+          !reviewedCopy ||
+          !global(node.expression, ['navigator']) ||
+          !ts.isPropertyAccessExpression(action) ||
+          action.expression !== node ||
+          action.name.text !== 'writeText' ||
+          !ts.isCallExpression(call) ||
+          call.expression !== action ||
+          call.arguments.length !== 1
+        )
+          report(
+            'clipboard capability requires the exact reviewed public copy action'
+          );
+      }
       if (location(node) && !locationUse(node))
         report('opaque Location capability is forbidden');
       if (
@@ -1487,6 +1517,16 @@ export async function auditSource(root) {
       complain(file, `unresolved production import ${specifier}`);
     }
   }
+  const copyFile = path.join(root, 'src/lib/navigation-copy.ts');
+  const copyTrusted =
+    files.has(copyFile) &&
+    createHash('sha256').update(files.get(copyFile)).digest('hex') ===
+      '1a17eac4b355d8a3fb2b55b3fe1bc856cc3b3bce07434836d708b68407686f20';
+  if (files.has(copyFile) && !copyTrusted)
+    complain(
+      copyFile,
+      'copy helper source identity does not match reviewed pin'
+    );
   const scrollFile = path.join(root, 'src/lib/navigation-scroll.ts');
   const scrollTrusted =
     files.has(scrollFile) &&
@@ -1990,7 +2030,8 @@ export async function auditSource(root) {
               : null
             : exportIdentity(target, exported);
         },
-        file === scrollFile && scrollTrusted
+        file === scrollFile && scrollTrusted,
+        file === copyFile && copyTrusted
       );
       if (ast.referencedFiles.length || ast.typeReferenceDirectives.length)
         complain(file, 'source reference directives are forbidden');

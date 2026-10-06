@@ -16,6 +16,55 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
+test('HCP044 clipboard access is confined to the exact public copy producer', async () => {
+  await fixture(async ({ directory, put, execute }) => {
+    await confineSvelte(directory);
+    const { cp } = await import('node:fs/promises');
+    for (const name of ['@noble/curves', '@scure/base', 'applesauce-core']) {
+      const destination = path.join(directory, 'node_modules', name);
+      await mkdir(path.dirname(destination), { recursive: true });
+      await cp(
+        await realpath(path.join(root, 'node_modules', name)),
+        destination,
+        { recursive: true }
+      );
+    }
+    for (const name of [
+      'src/lib/contracts/public-key.ts',
+      'src/lib/nostr/references.ts',
+      'src/lib/navigation-copy.ts'
+    ])
+      await put(name, await readFile(path.join(root, name), 'utf8'));
+    assert.equal(execute().status, 0);
+    for (const code of [
+      "navigator.clipboard.writeText('bad');",
+      'const clipboard=navigator.clipboard;clipboard.writeText("bad");',
+      'navigator.clipboard.readText();',
+      'navigator["clipboard"].writeText("bad");',
+      'const owner=navigator;owner.clipboard.writeText("bad");',
+      'globalThis.navigator.clipboard.writeText("bad");',
+      'globalThis["navigator"].clipboard.writeText("bad");',
+      'window.navigator.clipboard.writeText("bad");'
+    ]) {
+      await put('src/routes/+page.ts', code);
+      assert.notEqual(execute().status, 0, code);
+    }
+    await put('src/routes/+page.ts', 'export const value=1;');
+    const helper = await readFile(
+      path.join(root, 'src/lib/navigation-copy.ts'),
+      'utf8'
+    );
+    await put(
+      'src/lib/navigation-copy.ts',
+      helper + '\n navigator.clipboard.readText();'
+    );
+    assert.notEqual(execute().status, 0);
+    await put('src/lib/navigation-copy.ts', helper);
+    await put('src/lib/copied.ts', helper);
+    assert.notEqual(execute().status, 0);
+  });
+});
+
 const root = fileURLToPath(new URL('../../', import.meta.url));
 /** @typedef {{directory: string, put: (name: string, content: string | Uint8Array) => Promise<void>, execute: (args?: string[]) => import('node:child_process').SpawnSyncReturns<string>, pkg: Record<string, unknown>}} Fixture */
 /** @param {(context: Fixture) => Promise<void>} run */
@@ -985,7 +1034,7 @@ test('approved navigator capabilities and plain model flags remain admitted', as
   await fixture(async ({ put, execute }) => {
     await put(
       'src/routes/+page.ts',
-      'const model = { serviceWorker: false }; export const disabled = model.serviceWorker; export function online() { return navigator.onLine; } export function estimate() { return navigator.storage.estimate(); } export function copy(value: string) { return window.navigator.clipboard.writeText(value); }'
+      'const model = { serviceWorker: false }; export const disabled = model.serviceWorker; export function online() { return navigator.onLine; } export function estimate() { return navigator.storage.estimate(); }'
     );
     const result = execute();
     assert.equal(result.status, 0, result.stderr);

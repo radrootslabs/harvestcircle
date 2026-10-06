@@ -297,6 +297,40 @@ async function hasOwnedPublicRuntime(web) {
     publicText(await readOwned(web, 'src/lib/' + name));
   return true;
 }
+/** @param {string} web */
+async function productPresentationAdmission(web) {
+  const route = publicText(
+    await readOwned(web, 'src/routes/products/[naddr=naddr]/+page.svelte')
+  );
+  if (!route.includes('../../../lib/catalog/product-view.ts')) return false;
+  const producers = {
+    'src/routes/products/[naddr=naddr]/+page.svelte':
+      '1869d4dc32ea794d5ee5c1d6cc6b4aac94483482d18cff0562c0cb10087b5278',
+    'src/lib/catalog/product-view.ts':
+      'e3739170e3c700246a80c1358c7b96541a5cbf1e4c26905e6ca60537adfce9cf',
+    'src/lib/components/ListingFacts.svelte':
+      '65d009b4940e7ced61347919689877da9473a2a66a44f61cc5e7bd0b2d217215',
+    'src/lib/components/PublisherIdentity.svelte':
+      '90b156e2401d40079ee559d65ce66ec09ecc4246bc80cfdfc5def0e21e8ce9ff',
+    'src/lib/contracts/food-availability-v1/contact-read.ts':
+      '18f812812c15858768223d929bcea9d7eae5154612747016ccd17864c229420a',
+    'src/lib/navigation-copy.ts':
+      '1a17eac4b355d8a3fb2b55b3fe1bc856cc3b3bce07434836d708b68407686f20',
+    'src/lib/runtime/public-runtime.ts':
+      'f1b1b7b58fdd33d844831e05f5ee84f7195b7ab097d6fdd3934847e697814f90',
+    'src/lib/catalog/publishers.ts':
+      'a6795a35ebbf97246e22235df1ca868432e2cccfb26a38f0ebdf4524911192e6',
+    'src/lib/catalog/resolve-head.ts':
+      '4f1c9f144164580da038d127ab463f9f8ba6b20e882fc31151cb29850782d633'
+  };
+  for (const [name, pin] of Object.entries(producers)) {
+    const bytes = await readOwned(web, name);
+    publicText(bytes);
+    if (createHash('sha256').update(bytes).digest('hex') !== pin)
+      throw new Error('Invalid owned product presentation source');
+  }
+  return true;
+}
 // This exact reviewed producer set owns the shared presentation/runtime split.
 // A successor changes these identities only with new compiler qualification.
 /** @param {string} web */
@@ -424,6 +458,10 @@ export async function auditOutput(webDirectory) {
     throw new Error('Incomplete owned root runtime routes');
   const hasSearchPresentation =
     hasSearch && hasPublicRuntime && (await searchPresentationAdmission(web));
+  const hasProductPresentation =
+    hasFullRoutes &&
+    hasPublicRuntime &&
+    (await productPresentationAdmission(web));
   // Admit compiler-owned module identities, not arbitrary extensions/copy roots.
   const names = new Set([
     'entry/app',
@@ -463,6 +501,7 @@ export async function auditOutput(webDirectory) {
       'budgets'
     ])
       names.add(name);
+  if (hasProductPresentation) names.add('publishers');
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();
   for (const [key, record] of Object.entries(manifest)) {
@@ -563,7 +602,12 @@ export async function auditOutput(webDirectory) {
     )
       throw new Error('Invalid owned budgets compiler identity');
     for (const consumer of hasSearchPresentation
-      ? ['Disclosure', 'nodes/9', 'routes']
+      ? [
+          'Disclosure',
+          'nodes/9',
+          'routes',
+          ...(hasProductPresentation ? ['nodes/7', 'publishers'] : [])
+        ]
       : ['nodes/0', 'routes']) {
       if (!requiredRecord(consumer)[1].imports?.includes(budgetKey))
         throw new Error('Invalid owned budgets compiler edge');
@@ -639,6 +683,63 @@ export async function auditOutput(webDirectory) {
       )
         throw new Error('Invalid owned SDK compiler chunk');
     }
+  }
+  if (hasProductPresentation) {
+    const records = Object.entries(manifest);
+    const entry = (/** @type {string} */ name) => {
+      const row = records.find(([, r]) => r.name === name);
+      if (!row) throw new Error('Missing product compiler module');
+      return row;
+    };
+    const [publisherKey, publisher] = entry('publishers');
+    if (
+      !/^_[A-Za-z0-9_-]+\.js$/.test(publisherKey) ||
+      Object.keys(publisher).some(
+        (field) => !['file', 'name', 'imports'].includes(field)
+      )
+    )
+      throw new Error('Invalid owned product compiler identity');
+    equal(
+      publisher.imports,
+      ['public-key', 'Disclosure', 'budgets'].map((name) => entry(name)[0]),
+      'Invalid owned product publisher compiler dependencies'
+    );
+    equal(
+      entry('nodes/7')[1].imports,
+      [
+        'rolldown-runtime',
+        'references',
+        'Disclosure',
+        'client',
+        'budgets',
+        'client.svelte',
+        'state',
+        'Button',
+        'publishers'
+      ].map((name) => entry(name)[0]),
+      'Invalid owned product compiler dependencies'
+    );
+    equal(
+      entry('nodes/9')[1].imports,
+      [
+        'references',
+        'Disclosure',
+        'client',
+        'budgets',
+        'client.svelte',
+        'navigation',
+        'state',
+        'Button',
+        'routes',
+        'publishers'
+      ].map((name) => entry(name)[0]),
+      'Invalid owned search product compiler dependencies'
+    );
+    if (
+      entry('nodes/7')[1].dynamicImports !== undefined ||
+      entry('nodes/9')[1].dynamicImports !== undefined
+    )
+      throw new Error('Invalid owned product compiler dynamic imports');
   }
   if (hasFullRoutes) {
     const robots = await readOwned(web, 'static/robots.txt');

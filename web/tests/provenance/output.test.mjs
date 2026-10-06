@@ -25,6 +25,9 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
   /** @param {string} name @param {(context: import('node:test').TestContext) => Promise<void>} run @param {number} [timeout] */
   const check = (name, run, timeout = 10000) => t.test(name, { timeout }, run);
   const source = fileURLToPath(new URL('../../../', import.meta.url));
+  // Exact HCP043 product shell bytes, immutable compatibility evidence only.
+  const historicalProduct =
+    '<svelte:head><title>Food — HarvestCircle</title></svelte:head>\n<div class="page page--reading stack">\n  <h1>Food</h1>\n  <p class="notice">Food details are unavailable during development.</p>\n</div>\n';
   const base = await mkdtemp(path.join(os.tmpdir(), 'hc actual output '));
   t.after(() => rm(base, { recursive: true, force: true }));
   /** @param {string} root @param {string[]} args */
@@ -114,7 +117,7 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       const f = await fixture(t);
       const files = await f.audit();
       // Exact eleven-route module/page/static admission; CSS stays once-imported.
-      assert.equal(files.length, 46);
+      assert.equal(files.length, 47);
       // The actual SDK payload crosses the reader scratch boundary; a reused
       // scratch buffer must still preserve every compiler/static byte exactly.
       const sizes = await Promise.all(
@@ -170,7 +173,7 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       assert.ok(Buffer.byteLength(expanded) > 64 * 1024);
       await writeFile(file, expanded);
       await refresh(f);
-      assert.equal((await f.audit()).length, 46);
+      assert.equal((await f.audit()).length, 47);
     }
   );
   const sdkKey =
@@ -185,6 +188,10 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       await writeFile(
         path.join(f.web, 'src/routes/search/+page.svelte'),
         historical
+      );
+      await writeFile(
+        path.join(f.web, 'src/routes/products/[naddr=naddr]/+page.svelte'),
+        historicalProduct
       );
       await refresh(f);
       await cp(
@@ -213,6 +220,29 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
         )
       );
       assert.equal((await f.audit()).length, 45);
+    },
+    60000
+  );
+  await check(
+    'HCP043 search graph remains qualified with the exact historical product shell',
+    async (t) => {
+      const f = await fixture(t);
+      await writeFile(
+        path.join(f.web, 'src/routes/products/[naddr=naddr]/+page.svelte'),
+        historicalProduct
+      );
+      await refresh(f);
+      await cp(
+        path.join(base, 'web/node_modules'),
+        path.join(f.web, 'node_modules'),
+        { recursive: true, verbatimSymlinks: true }
+      );
+      execFileSync(
+        process.execPath,
+        [path.join(source, 'web/node_modules/vite/bin/vite.js'), 'build'],
+        { cwd: f.web, stdio: 'pipe', timeout: 60000 }
+      );
+      assert.equal((await f.audit()).length, 46);
     },
     60000
   );
@@ -505,6 +535,89 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       assert.ok((await f.audit()).includes(budget.file));
     }
   );
+  for (const producer of [
+    'src/routes/products/[naddr=naddr]/+page.svelte',
+    'src/lib/catalog/product-view.ts',
+    'src/lib/components/ListingFacts.svelte',
+    'src/lib/components/PublisherIdentity.svelte',
+    'src/lib/contracts/food-availability-v1/contact-read.ts',
+    'src/lib/navigation-copy.ts',
+    'src/lib/runtime/public-runtime.ts',
+    'src/lib/catalog/publishers.ts',
+    'src/lib/catalog/resolve-head.ts'
+  ]) {
+    await check(
+      'real product compiler rejects changed owned producer ' + producer,
+      async (t) => {
+        const f = await fixture(t);
+        await writeFile(
+          path.join(f.web, producer),
+          (await readFile(path.join(f.web, producer), 'utf8')) +
+            '\n// source mutation\n'
+        );
+        await refresh(f);
+        await assert.rejects(
+          f.audit,
+          /Invalid owned product presentation source/
+        );
+      }
+    );
+  }
+  for (const mutation of [
+    'missing-publishers',
+    'publisher-budget',
+    'publisher-shared',
+    'publisher-dynamic',
+    'product-shared',
+    'product-publisher',
+    'product-budget',
+    'product-dynamic',
+    'search-publisher'
+  ]) {
+    await check('real product compiler rejects ' + mutation, async (t) => {
+      const f = await fixture(t),
+        file = path.join(
+          f.web,
+          '.svelte-kit/output/client/.vite/manifest.json'
+        );
+      const manifest = JSON.parse(await readFile(file, 'utf8'));
+      const records = Object.entries(manifest);
+      const find = (/** @type {string} */ name) => {
+        const row = records.find(([, v]) => v.name === name);
+        assert.ok(row);
+        return row;
+      };
+      const [publisherKey, publisher] = find('publishers');
+      if (mutation === 'missing-publishers') delete manifest[publisherKey];
+      else if (mutation === 'publisher-dynamic')
+        publisher.dynamicImports = [find('client-entry')[0]];
+      else if (mutation === 'product-dynamic')
+        find('nodes/7')[1].dynamicImports = [find('client-entry')[0]];
+      else if (
+        mutation === 'publisher-budget' ||
+        mutation === 'publisher-shared'
+      )
+        publisher.imports = publisher.imports.filter(
+          (/** @type {string} */ key) =>
+            key !==
+            find(mutation === 'publisher-budget' ? 'budgets' : 'Disclosure')[0]
+        );
+      else {
+        const target = mutation === 'search-publisher' ? 'nodes/9' : 'nodes/7';
+        const dependency =
+          mutation === 'product-shared'
+            ? 'Disclosure'
+            : mutation === 'product-budget'
+              ? 'budgets'
+              : 'publishers';
+        find(target)[1].imports = find(target)[1].imports.filter(
+          (/** @type {string} */ key) => key !== find(dependency)[0]
+        );
+      }
+      await writeFile(file, JSON.stringify(manifest));
+      await assert.rejects(f.audit, /compiler|budgets/);
+    });
+  }
   for (const producer of [
     'src/routes/search/+page.svelte',
     'src/lib/catalog/search-view.ts',

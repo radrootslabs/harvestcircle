@@ -22,7 +22,8 @@ import { prerender as conversationPrerender } from '../../src/routes/messages/[c
 
 const errorState = vi.hoisted(() => ({
   status: 404,
-  error: { message: 'PRIVATE_TEST_ONLY' }
+  error: { message: 'PRIVATE_TEST_ONLY' },
+  params: { naddr: 'invalid-reference' }
 }));
 vi.mock('$app/state', () => ({ page: errorState }));
 
@@ -91,13 +92,16 @@ describe('thin protected route SSR', () => {
     ]).toEqual([false, false, false, false]);
   });
   it('public shells honestly disclose unavailable content without invented listings or support', () => {
-    for (const component of [Product, About, Privacy]) {
+    for (const component of [About, Privacy]) {
       const output = render(component);
       expect(output.body).toContain('unavailable during development.');
       expect(output.body).not.toMatch(/<form|<textarea|<input|mailto:|tel:/);
       expect(output.head).not.toContain('noindex');
     }
     expect(render(About).body).toContain('id="help"');
+    const details = render(Product);
+    expect(details.body).toContain('This food reference is invalid.');
+    expect(details.body).not.toMatch(/<form|<textarea|<input|mailto:|tel:/);
   });
   for (const status of [404, 500]) {
     it(

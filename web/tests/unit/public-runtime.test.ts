@@ -10,6 +10,31 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('root public runtime context', () => {
+  it('keeps terminal run ownership separate from activity and revokes superseded or disposed ownership', () => {
+    vi.stubGlobal('window', {});
+    let now = 0;
+    const context = runtime.createPublicRuntimeContext();
+    const owner = runtime.mountPublicRuntime(context, undefined, {
+      now: () => now,
+      schedule: () => () => {}
+    })!;
+    const view = runtime.createPublicView(owner),
+      other = runtime.createPublicView(owner),
+      run = runtime.beginPublicViewRun(view);
+    try {
+      now = 16000;
+      expect(runtime.publicViewRunCurrent(view, run)).toBe(false);
+      expect(runtime.publicViewOwnsRun(view, run)).toBe(true);
+      expect(runtime.publicViewOwnsRun(other, run)).toBe(false);
+      const next = runtime.beginPublicViewRun(view);
+      expect(runtime.publicViewOwnsRun(view, run)).toBe(false);
+      expect(runtime.publicViewOwnsRun(view, next)).toBe(true);
+      runtime.disposePublicView(view);
+      expect(runtime.publicViewOwnsRun(view, next)).toBe(false);
+    } finally {
+      runtime.closePublicRuntime(context);
+    }
+  });
   it('reserves the view generation across synchronous run-creation clock reentry', () => {
     vi.stubGlobal('window', {});
     const context = runtime.createPublicRuntimeContext();
