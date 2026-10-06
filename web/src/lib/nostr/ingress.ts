@@ -10,8 +10,8 @@ import {
 declare const ingressOwner: unique symbol;
 export type PublicIngress = Readonly<{ readonly [ingressOwner]: true }>;
 export type IngressResult =
-  | Readonly<{ status: 'accepted'; value: VerifiedEnvelope }>
-  | Readonly<{ status: 'duplicate' | 'rejected' | 'limit' }>;
+  | Readonly<{ status: 'accepted' | 'duplicate'; value: VerifiedEnvelope }>
+  | Readonly<{ status: 'rejected' | 'limit' }>;
 export type IngressStats = Readonly<{
   deliveries: number;
   chargedBytes: number;
@@ -182,7 +182,9 @@ export function createPublicIngress(): PublicIngress {
         if (!result.ok) return { status: 'rejected' };
         const event = verifiedEnvelopeSnapshot(result.value);
         if (!event) return { status: 'rejected' };
-        if (seen.has(event.id)) return { status: 'duplicate' };
+        // Dedup does not erase freshly verified per-source observation proof.
+        if (seen.has(event.id))
+          return { status: 'duplicate', value: result.value };
         seen.set(event.id, true);
         return { status: 'accepted', value: result.value };
       } finally {

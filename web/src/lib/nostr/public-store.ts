@@ -55,6 +55,10 @@ const options: Readonly<EventStoreOptions> & {
   keepExpired: true,
   verifyEvent: verifyStoredEvent
 };
+// The same approved inventory gates public source observations and storage.
+export function isPublicEnvelopeKind(kind: unknown): kind is number {
+  return typeof kind === 'number' && [0, 5, 10050, 30402].includes(kind);
+}
 
 // Import/SSR is inert. The private SDK instance and mutable verifier setter are
 // never exposed; acquisition accepts no caller options or private session state.
@@ -75,7 +79,7 @@ export function getPublicStore(): PublicStore | undefined {
       if (!snapshot) return 'rejected';
       // This application's approved public inventory. Private wrappers, inner
       // plaintext and connection AUTH belong to separate owners, never here.
-      if (![0, 5, 10050, 30402].includes(snapshot.kind)) return 'not_public';
+      if (!isPublicEnvelopeKind(snapshot.kind)) return 'not_public';
       const event = signedFields(snapshot);
       const sanitized = verifyEnvelope(JSON.stringify(event));
       if (!sanitized.ok) return 'rejected';
