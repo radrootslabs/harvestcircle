@@ -20,6 +20,14 @@ endif
 .PHONY: help doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-provenance-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check unsigned-release-check _unsigned-release-check signing-check _signing-check notarization-check _notarization-check release-check _release-check clean
 .PHONY: native-doctor native-dev native-check native-build native-package-check
 .PHONY: web-doctor web-install web-dev web-check web-build
+.PHONY: interop-check
+
+interop-check:
+	$(BUILD_RUNNER) tools/check-interop.sh
+
+ifeq ($(BUILD_MODE),governed)
+interop-check: governed-doctor
+endif
 
 web-doctor:
 	cd web && $(BUILD_RUNNER) node tools/doctor.mjs
@@ -51,6 +59,7 @@ native-package-check: package-check
 
 help:
 	@printf '%s\n' 'Unqualified targets below retain native meaning.' 'Browser: web-doctor web-install web-dev web-check web-build'
+	@printf '%s\n' 'Explicit cross-runtime fixture gate: interop-check'
 	@printf '%s\n' doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check unsigned-release-check signing-check notarization-check release-check clean
 
 design-source-check: doctor

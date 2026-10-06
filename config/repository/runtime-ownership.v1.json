@@ -193,6 +193,15 @@
       ]
     },
     {
+      "path": "tools/check-interop.sh",
+      "kind": "exact",
+      "owners": [
+        "native",
+        "web",
+        "interop"
+      ]
+    },
+    {
       "path": "tools/interop",
       "kind": "prefix",
       "owners": [

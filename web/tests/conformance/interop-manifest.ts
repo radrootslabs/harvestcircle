@@ -224,7 +224,6 @@ export function buildInteropManifest(
         'Derived metadata and expectations, not a second editable protocol policy.'
     },
     pending_checks: [
-      'combined_orchestration_HCR015',
       'Message_adapters_HCP071_HCP130',
       'deployed_Tera_qualification'
     ],
