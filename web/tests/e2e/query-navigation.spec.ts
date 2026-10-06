@@ -28,7 +28,7 @@ test('real public query navigation normalizes copies and restores Back/Forward s
     );
     await expect(input).toHaveValue('carrots victoria 菜');
     await expect(
-      page.getByText('Search data is unavailable during development.')
+      page.getByText('Search sources are unavailable.')
     ).toBeVisible();
     await input.fill('Turnips');
     await page.getByRole('button', { name: 'Search', exact: true }).click();

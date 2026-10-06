@@ -1936,3 +1936,78 @@ for (const source of [
       reject(execute(), /descriptor|reflection|mutation|owned/);
     });
   });
+
+test('only the exact reviewed scroll owner admits scalar history restoration', async () => {
+  await fixture(async ({ put, execute }) => {
+    const helper = await readFile(
+      path.join(root, 'src/lib/navigation-scroll.ts'),
+      'utf8'
+    );
+    await put('src/lib/navigation-scroll.ts', helper);
+    await put(
+      'src/routes/+page.ts',
+      "import {captureSearchScroll,restoreSearchScroll} from '../lib/navigation-scroll.ts'; export function restore(){restoreSearchScroll(captureSearchScroll());}"
+    );
+    assert.equal(execute().status, 0);
+    for (const extra of [
+      'window.scrollTo(0,1);',
+      'const scroll=window.scrollTo; scroll(0,1);',
+      "window['scrollTo'](0,1);",
+      'const owner=window; owner.scrollTo(0,1);',
+      'window.scrollTo(0,Infinity);',
+      'window.scrollTo(0,-1);',
+      'export const escaped=window;',
+      'window.document.body.innerHTML="changed";'
+    ]) {
+      await put('src/lib/navigation-scroll.ts', helper + '\n' + extra);
+      assert.notEqual(execute().status, 0, extra);
+    }
+    await put('src/lib/navigation-scroll.ts', helper);
+    await put('src/routes/+page.ts', 'export const position=window.scrollY;');
+    assert.notEqual(execute().status, 0);
+    await put('src/routes/+page.ts', 'window.scrollTo(0,1);');
+    assert.notEqual(execute().status, 0);
+    await put('src/routes/+page.ts', 'export const value=1;');
+    await put('src/lib/copied-scroll.ts', helper);
+    assert.notEqual(execute().status, 0);
+  });
+});
+
+test('history scroll owner rejects malformed values without coercion or SSR effects', async () => {
+  const { captureSearchScroll, restoreSearchScroll } =
+    await import('../../src/lib/navigation-scroll.ts');
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  /** @type {number[][]} */
+  const calls = [];
+  try {
+    Reflect.deleteProperty(globalThis, 'window');
+    assert.equal(captureSearchScroll(), undefined);
+    restoreSearchScroll(42);
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        scrollY: 2317,
+        scrollTo: (/** @type {number[]} */ ...args) => calls.push(args)
+      }
+    });
+    assert.equal(captureSearchScroll(), 2317);
+    for (const value of [
+      NaN,
+      Infinity,
+      -1,
+      '42',
+      {},
+      null,
+      Number.MAX_SAFE_INTEGER + 1
+    ])
+      restoreSearchScroll(value);
+    assert.equal(calls.length, 0);
+    restoreSearchScroll(2317);
+    assert.deepEqual(calls, [[0, 2317]]);
+    globalThis.window.scrollY = Infinity;
+    assert.equal(captureSearchScroll(), undefined);
+  } finally {
+    if (previous) Object.defineProperty(globalThis, 'window', previous);
+    else Reflect.deleteProperty(globalThis, 'window');
+  }
+});

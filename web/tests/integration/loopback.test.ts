@@ -36,7 +36,6 @@ await test('real loopback REQ/CLOSE and active teardown release owned resources'
 });
 
 await test('navigation fallback serves actual separate output and preserves missing assets', async () => {
-  const server = await createStaticHarness();
   const fallback = await readFile(
     new URL('../../build/200.html', import.meta.url),
     'utf8'
@@ -71,8 +70,9 @@ await test('navigation fallback serves actual separate output and preserves miss
   }
   assert.notEqual(search, fallback);
   assert.match(search, /<title>Search food — HarvestCircle<\/title>/);
-  assert.match(search, /Search data is unavailable during development\./);
+  assert.match(search, /Search sources are unavailable\./);
   const document = { accept: 'text/html', 'sec-fetch-dest': 'document' };
+  const server = await createStaticHarness();
   try {
     for (const pathname of [
       '/search?q=food',

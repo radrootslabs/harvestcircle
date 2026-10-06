@@ -113,7 +113,12 @@ function sourceAst(file, text) {
 // DOM updates. Mutable application data must be locally owned plain data, with
 // pure values and lexical aliases. Future imperative UI work needs explicit
 // admission and negative tests rather than a type cast or an ignored diagnostic.
-function mutationAdmission(ast, report, identity = () => null) {
+function mutationAdmission(
+  ast,
+  report,
+  identity = () => null,
+  reviewedScroll = false
+) {
   // Bind this admitted AST only, without libs, module resolution, file reads,
   // config loading or evaluation. Symbols distinguish aliases and shadowing.
   const options = {
@@ -890,6 +895,11 @@ function mutationAdmission(ast, report, identity = () => null) {
         !eventStoreAdd(node) &&
         !locationMethod &&
         !(
+          reviewedScroll &&
+          name === 'scrollTo' &&
+          global(node.expression, ['window'])
+        ) &&
+        !(
           animationMethods.has(name) &&
           owned(node.expression) &&
           !ts.isCallExpression(node.parent)
@@ -1007,9 +1017,18 @@ function mutationAdmission(ast, report, identity = () => null) {
           if (
             !ts.isPropertyAccessExpression(parent) ||
             parent.expression !== node ||
-            !['nostr', 'indexedDB', 'crypto', 'navigator', 'location'].includes(
-              parent.name.text
-            )
+            (![
+              'nostr',
+              'indexedDB',
+              'crypto',
+              'navigator',
+              'location'
+            ].includes(parent.name.text) &&
+              !(
+                reviewedScroll &&
+                node.text === 'window' &&
+                ['scrollY', 'scrollTo'].includes(parent.name.text)
+              ))
           )
             report('opaque browser/DOM global capability access is forbidden');
         }
@@ -1468,6 +1487,16 @@ export async function auditSource(root) {
       complain(file, `unresolved production import ${specifier}`);
     }
   }
+  const scrollFile = path.join(root, 'src/lib/navigation-scroll.ts');
+  const scrollTrusted =
+    files.has(scrollFile) &&
+    createHash('sha256').update(files.get(scrollFile)).digest('hex') ===
+      '9a3dcd9bbde8bcdb18d8962816fa062262505bc3e8ad34d88c78d18dba3a8398';
+  if (files.has(scrollFile) && !scrollTrusted)
+    complain(
+      scrollFile,
+      'scroll helper source identity does not match reviewed pin'
+    );
   const helperFile = path.join(root, 'src/lib/navigation-url.ts');
   const helperPin =
     '4ce96334d7cf57ccba518132078278b71d3bf70f519202e491a5f6a8840f7b19';
@@ -1960,7 +1989,8 @@ export async function auditSource(root) {
               ? 'goto'
               : null
             : exportIdentity(target, exported);
-        }
+        },
+        file === scrollFile && scrollTrusted
       );
       if (ast.referencedFiles.length || ast.typeReferenceDirectives.length)
         complain(file, 'source reference directives are forbidden');

@@ -114,7 +114,7 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       const f = await fixture(t);
       const files = await f.audit();
       // Exact eleven-route module/page/static admission; CSS stays once-imported.
-      assert.equal(files.length, 45);
+      assert.equal(files.length, 46);
       // The actual SDK payload crosses the reader scratch boundary; a reused
       // scratch buffer must still preserve every compiler/static byte exactly.
       const sizes = await Promise.all(
@@ -170,11 +170,52 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       assert.ok(Buffer.byteLength(expanded) > 64 * 1024);
       await writeFile(file, expanded);
       await refresh(f);
-      assert.equal((await f.audit()).length, 45);
+      assert.equal((await f.audit()).length, 46);
     }
   );
   const sdkKey =
     'node_modules/.pnpm/applesauce-relay@6.2.1_typescript@6.0.3/node_modules/applesauce-relay/dist/negentropy.js';
+  await check(
+    'predecessor SDK graph remains qualified with the historical search form fixture',
+    async (t) => {
+      const f = await fixture(t);
+      // Immutable former route bytes are a labelled verification variant only.
+      const historical =
+        "<script lang=\"ts\">\n  import { page } from '$app/state';\n  import SearchForm from '../../lib/components/SearchForm.svelte';\n  import {\n    normalizePublicQuery,\n    queryErrorMessage,\n    readPublicQuery\n  } from '../../lib/catalog/query-input';\n  import type { PublicQuery } from '../../lib/catalog/query-input';\n  import { searchHref } from '../../lib/routes';\n  import { internalHref } from '../../lib/navigation-url';\n  let query = $state<PublicQuery>(normalizePublicQuery(''));\n  let error = $state<string | undefined>();\n  $effect(() => {\n    query = readPublicQuery(page.url);\n    error = undefined;\n  });\n  function search(input: string) {\n    const next = normalizePublicQuery(input);\n    if (!next.ok) {\n      error = queryErrorMessage(next.error);\n      return;\n    }\n    error = undefined;\n    const target = internalHref(searchHref(next.text));\n    if (target === undefined) {\n      error = queryErrorMessage('invalid_query');\n      return;\n    }\n    globalThis.location.assign(target);\n  }\n</script>\n\n<svelte:head><title>Search food \u2014 HarvestCircle</title></svelte:head>\n<div class=\"page page--reading stack\">\n  <h1>Search food</h1>\n  <SearchForm\n    onsubmit={search}\n    initialValue={query.ok ? query.text : ''}\n    error={error ?? (query.ok ? undefined : queryErrorMessage(query.error))}\n  />\n  <p class=\"notice\">Search data is unavailable during development.</p>\n</div>\n";
+      await writeFile(
+        path.join(f.web, 'src/routes/search/+page.svelte'),
+        historical
+      );
+      await refresh(f);
+      await cp(
+        path.join(base, 'web/node_modules'),
+        path.join(f.web, 'node_modules'),
+        { recursive: true, verbatimSymlinks: true }
+      );
+      execFileSync(
+        process.execPath,
+        [path.join(source, 'web/node_modules/vite/bin/vite.js'), 'build'],
+        { cwd: f.web, stdio: 'pipe', timeout: 60000 }
+      );
+      const manifest = JSON.parse(
+        await readFile(
+          path.join(f.web, '.svelte-kit/output/client/.vite/manifest.json'),
+          'utf8'
+        )
+      );
+      assert.ok(
+        Object.values(manifest).some((record) => record.name === 'dist')
+      );
+      assert.ok(
+        !Object.values(manifest).some(
+          (record) =>
+            record.name === 'Disclosure' || record.name === 'navigation'
+        )
+      );
+      assert.equal((await f.audit()).length, 45);
+    },
+    60000
+  );
   for (const mutation of [
     'unknown-name',
     'missing-public-key',
@@ -203,7 +244,7 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
         );
         const m = JSON.parse(await readFile(file, 'utf8'));
         const root = Object.values(m).find((v) => v.name === 'nodes/0');
-        const dist = Object.entries(m).find(([, v]) => v.name === 'dist');
+        const dist = Object.entries(m).find(([, v]) => v.name === 'Disclosure');
         assert.ok(m[sdkKey] && root && dist, 'Actual successor SDK identities');
         if (mutation === 'unknown-name') m[sdkKey].name = 'unapproved-sdk';
         if (
@@ -211,12 +252,14 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
           mutation !== 'missing-root-edge'
         ) {
           const entry = Object.entries(m).find(
-            ([, v]) => v.name === mutation.slice(8)
+            ([, v]) =>
+              v.name ===
+              (mutation === 'missing-dist' ? 'Disclosure' : mutation.slice(8))
           );
           assert.ok(entry);
           delete m[entry[0]];
         }
-        if (mutation === 'missing-root-edge') root.dynamicImports = [];
+        if (mutation === 'missing-root-edge') dist[1].dynamicImports = [];
         if (
           [
             'random-key',
@@ -239,7 +282,7 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
           m[next] = m[sdkKey];
           delete m[sdkKey];
           m[next].src = next;
-          root.dynamicImports = root.dynamicImports.map(
+          dist[1].dynamicImports = dist[1].dynamicImports.map(
             (/** @type {string} */ k) => (k === sdkKey ? next : k)
           );
         }
@@ -447,7 +490,7 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       assert.equal(entries.length, 1);
       const [key, budget] = entries[0];
       assert.deepEqual(Object.keys(budget).sort(), ['file', 'name']);
-      for (const name of ['nodes/0', 'routes'])
+      for (const name of ['Disclosure', 'nodes/9', 'routes'])
         assert.ok(
           Object.values(manifest)
             .find((record) => record.name === name)
@@ -462,6 +505,92 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       assert.ok((await f.audit()).includes(budget.file));
     }
   );
+  for (const producer of [
+    'src/routes/search/+page.svelte',
+    'src/lib/catalog/search-view.ts',
+    'src/lib/components/ListingRow.svelte',
+    'src/lib/components/SourceStatus.svelte',
+    'src/lib/navigation-scroll.ts',
+    'src/lib/components/primitives/Disclosure.svelte'
+  ]) {
+    await check(
+      'real search compiler rejects changed owned producer ' + producer,
+      async (t) => {
+        const f = await fixture(t);
+        await writeFile(
+          path.join(f.web, producer),
+          (await readFile(path.join(f.web, producer), 'utf8')) +
+            '\n// source mutation\n'
+        );
+        await refresh(f);
+        await assert.rejects(
+          f.audit,
+          /Invalid owned search presentation source/
+        );
+      }
+    );
+  }
+  for (const mutation of [
+    'missing-shared',
+    'missing-navigation',
+    'root-edge',
+    'search-edge',
+    'budget-edge',
+    'negentropy-edge',
+    'sdk-backedge',
+    'navigation-edge',
+    'navigation-import',
+    'navigation-dynamic',
+    'shared-import'
+  ]) {
+    await check('real search compiler rejects ' + mutation, async (t) => {
+      const f = await fixture(t);
+      const file = path.join(
+        f.web,
+        '.svelte-kit/output/client/.vite/manifest.json'
+      );
+      const manifest = JSON.parse(await readFile(file, 'utf8'));
+      const records = Object.entries(manifest);
+      const find = (/** @type {string} */ name) => {
+        const entry = records.find(([, v]) => v.name === name);
+        assert.ok(entry, 'Missing actual compiler record ' + name);
+        return entry;
+      };
+      const [sharedKey, shared] = find('Disclosure');
+      const [budgetKey] = find('budgets');
+      if (mutation === 'missing-shared') delete manifest[sharedKey];
+      else if (mutation === 'missing-navigation')
+        delete manifest[find('navigation')[0]];
+      else if (mutation === 'root-edge')
+        find('nodes/0')[1].imports = find('nodes/0')[1].imports.filter(
+          (/** @type {string} */ k) => k !== sharedKey
+        );
+      else if (mutation === 'search-edge')
+        find('nodes/9')[1].imports = find('nodes/9')[1].imports.filter(
+          (/** @type {string} */ k) => k !== sharedKey
+        );
+      else if (mutation === 'budget-edge')
+        shared.imports = shared.imports.filter(
+          (/** @type {string} */ k) => k !== budgetKey
+        );
+      else if (mutation === 'sdk-backedge') find('negentropy')[1].imports = [];
+      else if (mutation === 'navigation-edge')
+        find('nodes/9')[1].imports = find('nodes/9')[1].imports.filter(
+          (/** @type {string} */ k) => k !== find('navigation')[0]
+        );
+      else if (mutation === 'navigation-import')
+        find('navigation')[1].imports = [find('client')[0]];
+      else if (mutation === 'navigation-dynamic')
+        find('navigation')[1].dynamicImports = [find('client-entry')[0]];
+      else if (mutation === 'shared-import')
+        shared.imports = shared.imports.filter(
+          (/** @type {string} */ k) => k !== find('public-key')[0]
+        );
+      else shared.dynamicImports = [];
+      await writeFile(file, JSON.stringify(manifest));
+      await assert.rejects(f.audit, /compiler|SDK|budgets/);
+    });
+  }
   for (const mutation of [
     'unknown-name',
     'duplicate',
@@ -492,7 +621,7 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
         mutation === 'missing-root-edge' ||
         mutation === 'missing-routes-edge'
       ) {
-        const name = mutation === 'missing-root-edge' ? 'nodes/0' : 'routes';
+        const name = mutation === 'missing-root-edge' ? 'nodes/9' : 'routes';
         const consumer = Object.values(manifest).find(
           (record) => record.name === name
         );

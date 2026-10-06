@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { constants } from 'node:fs';
 import { lstat, open, opendir, realpath } from 'node:fs/promises';
@@ -296,6 +297,36 @@ async function hasOwnedPublicRuntime(web) {
     publicText(await readOwned(web, 'src/lib/' + name));
   return true;
 }
+// This exact reviewed producer set owns the shared presentation/runtime split.
+// A successor changes these identities only with new compiler qualification.
+/** @param {string} web */
+async function searchPresentationAdmission(web) {
+  const route = publicText(
+    await readOwned(web, 'src/routes/search/+page.svelte')
+  );
+  if (!route.includes('../../lib/catalog/search-view.ts')) return false;
+  const producers = {
+    'src/routes/search/+page.svelte':
+      '0dea04fc5a5a41599774215c9157d8eb2076eb3fa4fe6355184a9a467a9cc72a',
+    'src/lib/catalog/search-view.ts':
+      '398cc2db59fb78d33df8cb8ce59d4e10a84feb3842709f2a7047033424798768',
+    'src/lib/components/ListingRow.svelte':
+      '48c6ab9b5fe887206b77a27bd0de697d346133ecb44d8ba973c8ffacc0cf5f03',
+    'src/lib/components/SourceStatus.svelte':
+      'd3cdb173fdeb4e7783f4b3b909a90c32ae4a66a5d87cba6a2766e718317775de',
+    'src/lib/navigation-scroll.ts':
+      '9a3dcd9bbde8bcdb18d8962816fa062262505bc3e8ad34d88c78d18dba3a8398',
+    'src/lib/components/primitives/Disclosure.svelte':
+      'c6d8361f31218644ac487a3d43412627cb8cc50906a921b95cf053047ce32bf3'
+  };
+  for (const [name, pin] of Object.entries(producers)) {
+    const bytes = await readOwned(web, name);
+    publicText(bytes);
+    if (createHash('sha256').update(bytes).digest('hex') !== pin)
+      throw new Error('Invalid owned search presentation source');
+  }
+  return true;
+}
 /** @param {string} webDirectory */
 export async function auditOutput(webDirectory) {
   const web = path.resolve(webDirectory);
@@ -391,6 +422,8 @@ export async function auditOutput(webDirectory) {
   const hasPublicRuntime = await hasOwnedPublicRuntime(web);
   if (hasPublicRuntime && !hasFullRoutes)
     throw new Error('Incomplete owned root runtime routes');
+  const hasSearchPresentation =
+    hasSearch && hasPublicRuntime && (await searchPresentationAdmission(web));
   // Admit compiler-owned module identities, not arbitrary extensions/copy roots.
   const names = new Set([
     'entry/app',
@@ -423,7 +456,12 @@ export async function auditOutput(webDirectory) {
       names.add(name);
   }
   if (hasPublicRuntime)
-    for (const name of ['public-key', 'dist', 'negentropy', 'budgets'])
+    for (const name of [
+      'public-key',
+      ...(hasSearchPresentation ? ['Disclosure', 'navigation'] : ['dist']),
+      'negentropy',
+      'budgets'
+    ])
       names.add(name);
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();
@@ -516,7 +554,7 @@ export async function auditOutput(webDirectory) {
       if (!entry) throw new Error('Incomplete owned SDK compiler module');
       return entry;
     }
-    const dist = requiredRecord('dist');
+    const dist = requiredRecord(hasSearchPresentation ? 'Disclosure' : 'dist');
     const root = requiredRecord('nodes/0')[1];
     const [budgetKey, budget] = requiredRecord('budgets');
     if (
@@ -524,7 +562,9 @@ export async function auditOutput(webDirectory) {
       Object.keys(budget).some((field) => !['file', 'name'].includes(field))
     )
       throw new Error('Invalid owned budgets compiler identity');
-    for (const consumer of ['nodes/0', 'routes']) {
+    for (const consumer of hasSearchPresentation
+      ? ['Disclosure', 'nodes/9', 'routes']
+      : ['nodes/0', 'routes']) {
       if (!requiredRecord(consumer)[1].imports?.includes(budgetKey))
         throw new Error('Invalid owned budgets compiler edge');
     }
@@ -541,11 +581,54 @@ export async function auditOutput(webDirectory) {
       throw new Error('Invalid owned SDK compiler identity');
     equal(sdk.imports, [dist[0]], 'Invalid owned SDK compiler dependency');
     equal(
-      root.dynamicImports,
+      hasSearchPresentation ? dist[1].dynamicImports : root.dynamicImports,
       [sdkNegentropy],
       'Invalid owned root compiler edge'
     );
-    for (const name of ['dist', 'public-key']) {
+    if (hasSearchPresentation) {
+      if (
+        root.dynamicImports !== undefined ||
+        !root.imports?.includes(dist[0]) ||
+        !requiredRecord('nodes/9')[1].imports?.includes(dist[0])
+      )
+        throw new Error('Invalid owned shared compiler edge');
+      const navigation = requiredRecord('navigation');
+      if (!requiredRecord('nodes/9')[1].imports?.includes(navigation[0]))
+        throw new Error('Invalid owned navigation compiler edge');
+      equal(
+        navigation[1].imports,
+        ['entry/payload', 'shared-errors', 'client', 'client.svelte'].map(
+          (name) => requiredRecord(name)[0]
+        ),
+        'Invalid owned navigation compiler dependencies'
+      );
+      if (navigation[1].dynamicImports !== undefined)
+        throw new Error('Invalid owned navigation compiler dynamic imports');
+      equal(
+        dist[1].imports,
+        [
+          'rolldown-runtime',
+          'preload-helper',
+          'public-key',
+          'client',
+          'budgets'
+        ].map((name) => requiredRecord(name)[0]),
+        'Invalid owned shared compiler dependencies'
+      );
+      for (const [key, record] of [dist, navigation]) {
+        if (
+          !/^_[A-Za-z0-9_-]+\.js$/.test(key) ||
+          record.src !== undefined ||
+          record.isEntry !== undefined ||
+          record.isDynamicEntry !== undefined ||
+          record.css !== undefined
+        )
+          throw new Error('Invalid owned search compiler chunk');
+      }
+    }
+    for (const name of hasSearchPresentation
+      ? ['public-key']
+      : ['dist', 'public-key']) {
       const [key, record] = requiredRecord(name);
       if (
         !/^_[A-Za-z0-9_-]+\.js$/.test(key) ||
