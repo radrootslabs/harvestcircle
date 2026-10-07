@@ -6,8 +6,30 @@ import {
   disconnectIdentity,
   recheckIdentityOwner,
   probeIdentityMessaging,
+  captureIdentityPublicOperation,
+  identityPublicOperationOwnership,
+  invalidateIdentityOperations,
+  type IdentityPublicOperation,
   type IdentitySession
 } from '../../src/lib/runtime/identity-session.ts';
+it('forged or disconnected original operation cannot acquire a session ownership context', () => {
+  const session = createIdentitySession();
+  expect(
+    captureIdentityPublicOperation(
+      session,
+      {} as never,
+      '',
+      'reviewed_captured_operation'
+    )
+  ).toBeUndefined();
+  expect(
+    identityPublicOperationOwnership(session, {} as IdentityPublicOperation)
+  ).toBeUndefined();
+  invalidateIdentityOperations(session);
+  expect(
+    identityPublicOperationOwnership(session, {} as IdentityPublicOperation)
+  ).toBeUndefined();
+});
 it('new session is disconnected guest and exports no signer or key custody', () => {
   const session = createIdentitySession();
   expect(identitySessionSnapshot(session)).toEqual({

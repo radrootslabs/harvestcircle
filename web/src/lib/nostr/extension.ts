@@ -13,6 +13,10 @@ import {
 } from './approved-signing.ts';
 import type { CapturedArtifact } from '../persistence/artifact-records.ts';
 import {
+  bindLatePublicResponse,
+  type LatePublicArtifact
+} from '../runtime/late-results.ts';
+import {
   callOwnedExtension,
   publicEffectLeaseCurrent,
   publicEffectSnapshot,
@@ -23,11 +27,11 @@ import {
 
 export type ApprovedSignResult =
   | Readonly<{ status: 'signed'; artifact: CapturedArtifact }>
+  | Readonly<{ status: 'unknown'; late?: LatePublicArtifact }>
   | Readonly<{
       status:
         | 'invalid_approval'
         | 'invalid_ownership'
-        | 'unknown'
         | 'unavailable'
         | 'busy'
         | 'stale'
@@ -39,6 +43,7 @@ import {
   browserExtensionScheduler,
   runExtensionAction,
   callExtension,
+  markExtensionWaitExpired,
   type ExtensionAction,
   type ExtensionCallKind
 } from './extension-scheduler.ts';
@@ -76,6 +81,7 @@ type Controller = {
   recheck(): Promise<ExtensionSnapshot>;
   probe(review: unknown): Promise<ExtensionSnapshot>;
   capture(): PublicEffectCapture | undefined;
+  expire(approval: ApprovedPublicSigning, lease: PublicEffectLease): void;
   sign(
     approval: ApprovedPublicSigning,
     lease: PublicEffectLease
@@ -137,6 +143,11 @@ export function createExtensionAdapter(): ExtensionAdapter {
   let reason: ExtensionGuestReason = 'disconnected';
   let pending: 'connect' | 'recheck' | 'probe' | null = null;
   let signing = false;
+  let activeSigning: Readonly<{
+    approval: ApprovedPublicSigning;
+    lease: PublicEffectLease;
+    action: ExtensionAction;
+  }> | null = null;
   let generation = Symbol(),
     cancelled = false;
   function snapshot(): ExtensionSnapshot {
@@ -146,6 +157,9 @@ export function createExtensionAdapter(): ExtensionAdapter {
       : { state: 'guest', reason };
   }
   function guest(nextReason: ExtensionGuestReason) {
+    // An observed account loss cannot later revive an old capture, including
+    // a reconnect to the same key. Rotate before clearing the observed owner.
+    if (key !== null) generation = Symbol();
     key = null;
     signingCandidate = false;
     messaging = 'not_probed';
@@ -396,6 +410,12 @@ export function createExtensionAdapter(): ExtensionAdapter {
       key === owner &&
       publicEffectLeaseCurrent(lease, authority);
     signing = true;
+    let late: LatePublicArtifact | undefined;
+    function lost(): ApprovedSignResult {
+      return publicEffectSnapshot(lease)?.state === 'unknown'
+        ? { status: 'unknown', ...(late ? { late } : {}) }
+        : { status: 'stale' };
+    }
     try {
       const owned = await callOwnedExtension(
         lease,
@@ -408,6 +428,7 @@ export function createExtensionAdapter(): ExtensionAdapter {
             { owner, session: original, operation: Symbol() },
             current,
             async (action): Promise<ApprovedSignResult> => {
+              activeSigning = { approval, lease, action };
               const before = await freshKey(current, action);
               if (!current()) return { status: 'stale' };
               if (before !== owner) {
@@ -422,7 +443,14 @@ export function createExtensionAdapter(): ExtensionAdapter {
               const response: unknown = await invokeExtension(
                 action,
                 'sign',
-                () => signer.signEvent(disposable)
+                async () => {
+                  const raw: unknown = await signer.signEvent(disposable);
+                  // Retain only bounded independently verified original public
+                  // fields inside the actual admitted SDK callback, even after
+                  // its owner/view/wait generation was invalidated. No new call.
+                  late = bindLatePublicResponse(approval, raw, original);
+                  return raw;
+                }
               );
               if (!current()) return { status: 'stale' };
               const artifact = bindApprovedResponse(approval, response);
@@ -444,14 +472,9 @@ export function createExtensionAdapter(): ExtensionAdapter {
         }
       );
       if (owned.status === 'settled')
-        return owned.current
-          ? owned.value
-          : {
-              status:
-                publicEffectSnapshot(lease)?.state === 'unknown'
-                  ? 'unknown'
-                  : 'stale'
-            };
+        return owned.current ? owned.value : lost();
+      if (owned.status === 'unknown')
+        return { status: 'unknown', ...(late ? { late } : {}) };
       return {
         status:
           owned.status === 'invalid'
@@ -461,8 +484,9 @@ export function createExtensionAdapter(): ExtensionAdapter {
               : owned.status
       };
     } catch {
-      return { status: current() ? 'refused' : 'stale' };
+      return current() ? { status: 'refused' } : lost();
     } finally {
+      activeSigning = null;
       signing = false;
     }
   }
@@ -483,7 +507,11 @@ export function createExtensionAdapter(): ExtensionAdapter {
         current: () => generation === original && !cancelled && key === owner
       };
     },
-    sign
+    sign,
+    expire(approval, lease) {
+      if (activeSigning?.approval === approval && activeSigning.lease === lease)
+        markExtensionWaitExpired(activeSigning.action);
+    }
   });
   return adapter;
 }
@@ -544,4 +572,13 @@ export function extensionOwnershipCapture(
   adapter: ExtensionAdapter
 ): PublicEffectCapture | undefined {
   return adapters.get(adapter)?.capture();
+}
+// Internal exact original operation port. Expiry pauses the real scheduler;
+// neither this method nor a UI timeout pretends to cancel the SDK promise.
+export function markApprovedSigningWaitExpired(
+  adapter: ExtensionAdapter,
+  approval: ApprovedPublicSigning,
+  lease: PublicEffectLease
+): void {
+  adapters.get(adapter)?.expire(approval, lease);
 }
