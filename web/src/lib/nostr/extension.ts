@@ -5,6 +5,25 @@ import {
 import { canonicalPublicKey } from '../contracts/public-key.ts';
 import { boundedUtf8 } from '../contracts/food-availability-v1/text.ts';
 import { PUBLIC_INGRESS_BUDGETS } from '../config/budgets.ts';
+import {
+  approvedSigningIdentity,
+  disposableApprovedTemplate,
+  bindApprovedResponse,
+  type ApprovedPublicSigning
+} from './approved-signing.ts';
+import type { CapturedArtifact } from '../persistence/artifact-records.ts';
+
+export type ApprovedSignResult =
+  | Readonly<{ status: 'signed'; artifact: CapturedArtifact }>
+  | Readonly<{
+      status:
+        | 'invalid_approval'
+        | 'unavailable'
+        | 'busy'
+        | 'stale'
+        | 'refused'
+        | 'mismatch';
+    }>;
 
 import {
   browserExtensionScheduler,
@@ -46,6 +65,7 @@ type Controller = {
   connect(): Promise<ExtensionSnapshot>;
   recheck(): Promise<ExtensionSnapshot>;
   probe(review: unknown): Promise<ExtensionSnapshot>;
+  sign(approval: ApprovedPublicSigning): Promise<ApprovedSignResult>;
 };
 const adapters = new WeakMap<ExtensionAdapter, Controller>();
 function present(): Readonly<{ signingCandidate: boolean }> | undefined {
@@ -102,6 +122,7 @@ export function createExtensionAdapter(): ExtensionAdapter {
     'not_probed';
   let reason: ExtensionGuestReason = 'disconnected';
   let pending: 'connect' | 'recheck' | 'probe' | null = null;
+  let signing = false;
   let generation = Symbol(),
     cancelled = false;
   function snapshot(): ExtensionSnapshot {
@@ -130,7 +151,7 @@ export function createExtensionAdapter(): ExtensionAdapter {
       action: ExtensionAction | undefined
     ) => Promise<void>
   ): Promise<ExtensionSnapshot> {
-    if (pending) return { ...snapshot(), admission: 'busy' };
+    if (pending || signing) return { ...snapshot(), admission: 'busy' };
     let busy = false;
     const original = generation;
     pending = action;
@@ -331,8 +352,76 @@ export function createExtensionAdapter(): ExtensionAdapter {
       messaging = 'capable';
     });
   }
+  async function sign(
+    approval: ApprovedPublicSigning
+  ): Promise<ApprovedSignResult> {
+    const captured = approvedSigningIdentity(approval);
+    if (!captured) return { status: 'invalid_approval' };
+    if (pending || signing) return { status: 'busy' };
+    if (
+      !key ||
+      key !== captured.owner ||
+      !signingCandidate ||
+      typeof window === 'undefined'
+    )
+      return { status: 'unavailable' };
+    const original = generation,
+      owner = key;
+    const current = () =>
+      generation === original && !cancelled && key === owner;
+    signing = true;
+    try {
+      const scheduler = browserExtensionScheduler();
+      if (!scheduler) return { status: 'unavailable' };
+      const admitted = await runExtensionAction(
+        scheduler,
+        { owner, session: original, operation: Symbol() },
+        current,
+        async (action): Promise<ApprovedSignResult> => {
+          const before = await freshKey(current, action);
+          if (!current()) return { status: 'stale' };
+          if (before !== owner) {
+            guest(before ? 'changed_key' : 'invalid_key');
+            return { status: 'stale' };
+          }
+          const disposable = disposableApprovedTemplate(approval);
+          if (!disposable) return { status: 'invalid_approval' };
+          const signer = new ExtensionSigner();
+          const response: unknown = await invokeExtension(action, 'sign', () =>
+            signer.signEvent(disposable)
+          );
+          if (!current()) return { status: 'stale' };
+          const artifact = bindApprovedResponse(approval, response);
+          if (!artifact) return { status: 'mismatch' };
+          const after = await freshKey(current, action);
+          if (!current()) return { status: 'stale' };
+          if (after !== owner) {
+            guest(after ? 'changed_key' : 'invalid_key');
+            return { status: 'stale' };
+          }
+          return { status: 'signed', artifact };
+        }
+      );
+      if (admitted.status === 'busy') return { status: 'busy' };
+      if (!current()) return { status: 'stale' };
+      return 'value' in admitted && admitted.value
+        ? admitted.value
+        : { status: admitted.status === 'denied' ? 'refused' : 'stale' };
+    } catch {
+      return { status: current() ? 'refused' : 'stale' };
+    } finally {
+      signing = false;
+    }
+  }
   const adapter = Object.freeze({}) as ExtensionAdapter;
-  adapters.set(adapter, { snapshot, disconnect, connect, recheck, probe });
+  adapters.set(adapter, {
+    snapshot,
+    disconnect,
+    connect,
+    recheck,
+    probe,
+    sign
+  });
   return adapter;
 }
 export function extensionSnapshot(
@@ -374,5 +463,16 @@ export function probeExtensionAdapter(
   return (
     adapters.get(adapter)?.probe(review) ??
     Promise.resolve({ state: 'guest', reason: 'unavailable' })
+  );
+}
+// Internal operation capability only. UI identity sessions do not expose this
+// adapter or an unrestricted raw-event signing/publishing function.
+export function signApprovedExtensionAdapter(
+  adapter: ExtensionAdapter,
+  approval: ApprovedPublicSigning
+): Promise<ApprovedSignResult> {
+  return (
+    adapters.get(adapter)?.sign(approval) ??
+    Promise.resolve({ status: 'unavailable' })
   );
 }
