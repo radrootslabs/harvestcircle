@@ -45,6 +45,7 @@ const browserClock: RequestClock = {
 };
 interface SchedulerOwner {
   readonly now: () => number;
+  readonly sampledNow: () => number;
   readonly schedule: RequestClock['schedule'];
   readonly available: () => void;
   readonly reserve: (token: PublicRequest, close: () => boolean) => void;
@@ -71,6 +72,7 @@ interface RunOwner {
     inboxAuthor?: string
   ) => PublicRequest;
   readonly active: () => boolean;
+  readonly currentAfterSample: () => boolean;
   readonly snapshot: () => Readonly<{
     deadline: number;
     active: boolean;
@@ -125,6 +127,7 @@ export function createPublicScheduler(
       last = Math.max(last, value);
       return last;
     },
+    sampledNow: () => last,
     schedule: (callback, delay) => clock.schedule(callback, delay),
     available() {
       if (closed) throw new Error('public_scheduler_closed');
@@ -198,6 +201,12 @@ export function createPublicRun(
       if (row.run !== token) throw new Error('public_request_run_changed');
       return row.result;
     },
+    currentAfterSample: () =>
+      !cancelled &&
+      !disposed &&
+      !shared.snapshot().closed &&
+      shared.sampledNow() < deadline &&
+      !publicIngressStats(ingress).stopped,
     active: () =>
       !cancelled &&
       !disposed &&
@@ -405,6 +414,11 @@ export function closePublicScheduler(scheduler: PublicScheduler): void {
 }
 export function publicSchedulerSnapshot(scheduler: PublicScheduler) {
   return schedulerOf(scheduler).snapshot();
+}
+// Final fence after callers sample their relevant clocks. No external clock
+// call or fresh wall-time promise: cached monotonic sample plus actual owners.
+export function publicRunCurrentAfterSample(run: PublicRun): boolean {
+  return runOf(run).currentAfterSample();
 }
 export function publicRunSnapshot(run: PublicRun) {
   return runOf(run).snapshot();

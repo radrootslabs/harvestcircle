@@ -13,6 +13,7 @@ import {
   publicRequestScopeSnapshot,
   publicRunObservations,
   publicRunSnapshot,
+  publicRunCurrentAfterSample,
   type PublicRun,
   type PublicRequest
 } from '../nostr/request-scope.ts';
@@ -44,6 +45,7 @@ export type InboxResolution = Readonly<{
 interface Owner {
   readonly snapshot: () => InboxResolution;
   readonly close: () => void;
+  readonly currentAfterSample: () => boolean;
 }
 const owners = new WeakMap<InboxResolver, Owner>();
 function ownerOf(token: InboxResolver): Owner {
@@ -141,6 +143,10 @@ export function createInboxResolver(
         wireProvenance: 'decoded-sdk-json'
       };
     },
+    // The trusted generation observer is a pure owner read, like the production
+    // view port. This final fence deliberately never samples an injected clock.
+    currentAfterSample: () =>
+      !closed && current() && publicRunCurrentAfterSample(run),
     close() {
       closed = true;
       closePublicRequest(request);
@@ -190,4 +196,8 @@ export function inboxResolutionSnapshot(token: InboxResolver): InboxResolution {
 }
 export function closeInboxResolver(token: InboxResolver): void {
   ownerOf(token).close();
+}
+
+export function inboxResolverCurrentAfterSample(token: InboxResolver): boolean {
+  return ownerOf(token).currentAfterSample();
 }
