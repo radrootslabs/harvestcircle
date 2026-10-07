@@ -187,6 +187,7 @@ function sameFact(a: PublicTargetReceipt, b: PublicTargetReceipt): boolean {
   return (
     a.actionId === b.actionId &&
     a.origin === b.origin &&
+    a.readbackOrigin === b.readbackOrigin &&
     a.role === b.role &&
     a.attempt === b.attempt &&
     a.eventId === b.eventId &&
@@ -215,16 +216,30 @@ export function preparePublicReceiptTransition(
     const fact: unknown = JSON.parse(receiptWire);
     if (
       JSON.stringify(fact) !== receiptWire ||
-      !exactLocalFields(fact, [
-        'actionId',
-        'origin',
-        'role',
-        'attempt',
-        'eventId',
-        'status',
-        'observedAtMilliseconds',
-        'readbackWire'
-      ])
+      !(
+        exactLocalFields(fact, [
+          'actionId',
+          'origin',
+          'role',
+          'attempt',
+          'eventId',
+          'status',
+          'observedAtMilliseconds',
+          'readbackWire'
+        ]) ||
+        (base.row.family === 'preference_operation' &&
+          exactLocalFields(fact, [
+            'actionId',
+            'origin',
+            'role',
+            'attempt',
+            'eventId',
+            'status',
+            'observedAtMilliseconds',
+            'readbackWire',
+            'readbackOrigin'
+          ]))
+      )
     )
       return failed('invalid_record');
     // Validate the proposed fact through the existing complete typed codec before

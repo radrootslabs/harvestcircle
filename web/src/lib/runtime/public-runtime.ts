@@ -377,7 +377,7 @@ export function subscribeInboxPreference(
   view: PublicView,
   run: PublicRun,
   author: unknown,
-  onVerified: (event: VerifiedEnvelope) => void
+  onVerified: (event: VerifiedEnvelope, inboxSource?: string) => void
 ): PublicRequest {
   const owner = viewOf(view),
     filters = inboxPreferenceQueries(author);
@@ -386,8 +386,8 @@ export function subscribeInboxPreference(
     run,
     author,
     (next) => subscribePublicPool(owner.runtime.pool, filters, next),
-    (event) => {
-      if (owner.current(run)) onVerified(event);
+    (event, inboxSource) => {
+      if (owner.current(run)) onVerified(event, inboxSource);
     }
   );
 }

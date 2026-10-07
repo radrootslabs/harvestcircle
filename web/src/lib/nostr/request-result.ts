@@ -51,7 +51,11 @@ export type InboxSourceHead = Readonly<{
   createdAt: number;
 }>;
 export type RequestMessageResult =
-  | Readonly<{ status: 'accepted' | 'duplicate'; value: VerifiedEnvelope }>
+  | Readonly<{
+      status: 'accepted' | 'duplicate';
+      value: VerifiedEnvelope;
+      inboxSource?: string;
+    }>
   | Readonly<{
       status:
         | 'rejected'
@@ -238,7 +242,9 @@ function createResult(
         source.admit(admitted.status === 'duplicate');
         // Record exact source evidence BEFORE any caller inserts/deduplicates into
         // EventStore. Only verified proof leaves this boundary, never SDK metadata.
-        return admitted;
+        return inboxAuthor === undefined
+          ? admitted
+          : { ...admitted, inboxSource: origin };
       }
       if (!source) return { status: 'source_unknown' };
       if (message.type === 'EOSE') source.control('eose');

@@ -415,7 +415,7 @@ async function productPresentationAdmission(web) {
     'src/lib/navigation-copy.ts':
       '1a17eac4b355d8a3fb2b55b3fe1bc856cc3b3bce07434836d708b68407686f20',
     'src/lib/runtime/public-runtime.ts':
-      '7098e5333fc25b6c6238676d177e2f38d7862c679f52b16926aace7cbff367b8',
+      'fa2e27d72b82b6bef73693cf93f19614e61ea51ebd11eb40d8ca4ec723f0c14e',
     'src/lib/catalog/publishers.ts':
       'a6795a35ebbf97246e22235df1ca868432e2cccfb26a38f0ebdf4524911192e6',
     'src/lib/catalog/resolve-head.ts':

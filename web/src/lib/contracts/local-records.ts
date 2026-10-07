@@ -72,6 +72,9 @@ export type PublicTargetReceipt = Readonly<{
   status: 'accepted' | 'refused' | 'timed_out' | 'unknown' | 'stopped';
   observedAtMilliseconds: number;
   readbackWire: string | null;
+  // Preference-only actual discovery source; origin remains the ACK write target.
+  // Absence is legacy metadata, never an inferred cross-source observation.
+  readbackOrigin?: string;
 }>;
 export type PublicOperationRecord = Readonly<{
   schema: 1;

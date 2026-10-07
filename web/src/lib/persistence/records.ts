@@ -244,16 +244,35 @@ function operation(row: Record<string, unknown>): boolean {
     return false;
   for (const receipt of row.receipts as unknown[]) {
     if (
-      !exact(receipt, [
-        'actionId',
-        'origin',
-        'role',
-        'attempt',
-        'eventId',
-        'status',
-        'observedAtMilliseconds',
-        'readbackWire'
-      ]) ||
+      !(
+        exact(receipt, [
+          'actionId',
+          'origin',
+          'role',
+          'attempt',
+          'eventId',
+          'status',
+          'observedAtMilliseconds',
+          'readbackWire'
+        ]) ||
+        (preference &&
+          exact(receipt, [
+            'actionId',
+            'origin',
+            'role',
+            'attempt',
+            'eventId',
+            'status',
+            'observedAtMilliseconds',
+            'readbackWire',
+            'readbackOrigin'
+          ]))
+      ) ||
+      ('readbackOrigin' in receipt &&
+        (receipt.readbackWire === null ||
+          typeof receipt.readbackOrigin !== 'string' ||
+          canonicalRelayOrigin(receipt.readbackOrigin) !==
+            receipt.readbackOrigin)) ||
       !canonicalLocalId(receipt.actionId) ||
       receipt.role !== (preference ? 'preference' : 'publication') ||
       !(prepared.targets as unknown[]).includes(receipt.origin) ||

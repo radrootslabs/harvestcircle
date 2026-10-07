@@ -67,7 +67,7 @@ interface RunOwner {
   readonly open: (
     kind: RequestKind,
     open: (next: (message: PublicPoolMessage) => void) => () => void,
-    onVerified: (event: VerifiedEnvelope) => void,
+    onVerified: (event: VerifiedEnvelope, inboxSource?: string) => void,
     sampleSource?: string,
     inboxAuthor?: string
   ) => PublicRequest;
@@ -320,7 +320,8 @@ export function createPublicRun(
         let callbackFailed = false;
         if (outcome.status === 'accepted' || outcome.status === 'duplicate') {
           try {
-            onVerified(outcome.value);
+            if (outcome.inboxSource === undefined) onVerified(outcome.value);
+            else onVerified(outcome.value, outcome.inboxSource);
           } catch {
             finish('error');
             callbackFailed = true;
@@ -397,7 +398,7 @@ export function openInboxRequest(
   run: PublicRun,
   author: unknown,
   open: (next: (message: PublicPoolMessage) => void) => () => void,
-  onVerified: (event: VerifiedEnvelope) => void
+  onVerified: (event: VerifiedEnvelope, inboxSource?: string) => void
 ): PublicRequest {
   const key = canonicalPublicKey(author);
   if (!key) throw new Error('inbox_author_invalid');
