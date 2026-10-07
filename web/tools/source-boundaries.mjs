@@ -1547,6 +1547,20 @@ export async function auditSource(root) {
       complain(file, `unresolved production import ${specifier}`);
     }
   }
+  // Sole protocol-key exception: the complete independently reviewed wrapper
+  // source is byte-pinned, not merely whitelisted by filename. Any key escape,
+  // altered import/role/tag/lifetime or copied producer fails closed until a
+  // successor explicitly requalifies the changed implementation and this pin.
+  const giftwrapFile = path.join(root, 'src/lib/nostr/giftwrap-builder.ts');
+  const giftwrapTrusted =
+    files.has(giftwrapFile) &&
+    createHash('sha256').update(files.get(giftwrapFile)).digest('hex') ===
+      '7f22b02cc21bb2cfaca4d984ea3fe94ed92420aad8235901d1819880396fe245';
+  if (files.has(giftwrapFile) && !giftwrapTrusted)
+    complain(
+      giftwrapFile,
+      'gift-wrap construction source identity does not match reviewed pin'
+    );
   const visibilityFile = path.join(root, 'src/lib/runtime/dispose.ts');
   const visibilityTrusted =
     files.has(visibilityFile) &&
@@ -2159,7 +2173,12 @@ export async function auditSource(root) {
             'mockSigner',
             'testProvider',
             'mockProvider'
-          ].includes(node.text)
+          ].includes(node.text) &&
+          !(
+            node.text === 'generateSecretKey' &&
+            file === giftwrapFile &&
+            giftwrapTrusted
+          )
         )
           complain(
             file,
@@ -2287,6 +2306,35 @@ export async function auditSource(root) {
           )
             complain(file, 'raw markup document writers are forbidden');
         }
+        if (
+          ts.isBindingElement(node) &&
+          node.propertyName &&
+          (() => {
+            const computed = ts.isComputedPropertyName(node.propertyName);
+            const name = computed
+              ? node.propertyName.expression
+              : node.propertyName;
+            return (
+              (computed && !ts.isStringLiteralLike(name)) ||
+              (ts.isStringLiteralLike(name) &&
+                ['generateSecretKey', 'getSecretKey', 'setSecretKey'].includes(
+                  name.text
+                ))
+            );
+          })()
+        )
+          complain(
+            file,
+            'indirect production credential API binding is forbidden'
+          );
+        if (
+          ts.isElementAccessExpression(node) &&
+          ts.isStringLiteralLike(node.argumentExpression) &&
+          ['generateSecretKey', 'getSecretKey', 'setSecretKey'].includes(
+            node.argumentExpression.text
+          )
+        )
+          complain(file, 'indirect production credential API is forbidden');
         const accessedMethod = ts.isPropertyAccessExpression(node)
           ? node.name.text
           : ts.isElementAccessExpression(node) &&

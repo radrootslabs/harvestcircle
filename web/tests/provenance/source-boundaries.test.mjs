@@ -2098,3 +2098,95 @@ test('history scroll owner rejects malformed values without coercion or SSR effe
     else Reflect.deleteProperty(globalThis, 'window');
   }
 });
+
+test(
+  'HCP076 allows only the byte-pinned disposable gift-wrap producer and rejects key escape or copied construction',
+  { timeout: 30000 },
+  async () => {
+    await fixture(async ({ directory, put, execute }) => {
+      await confineSvelte(directory);
+      const { cp } = await import('node:fs/promises');
+      for (const name of [
+        'applesauce-core',
+        'applesauce-signers',
+        'applesauce-relay',
+        'rxjs',
+        '@noble/curves',
+        '@scure/base'
+      ]) {
+        const destination = path.join(directory, 'node_modules', name);
+        await mkdir(path.dirname(destination), { recursive: true });
+        await cp(
+          await realpath(path.join(root, 'node_modules', name)),
+          destination,
+          { recursive: true }
+        );
+      }
+      await cp(path.join(root, 'src/lib'), path.join(directory, 'src/lib'), {
+        recursive: true
+      });
+      const name = 'src/lib/nostr/giftwrap-builder.ts',
+        source = await readFile(path.join(root, name), 'utf8');
+      assert.equal(execute().status, 0);
+      for (const alteration of [
+        source + '\nexport const secret = generateSecretKey();',
+        source.replace('secret?.fill(0);', '// cleanup removed'),
+        source.replace('kind: 1059,', 'kind: 14,'),
+        source.replace(
+          "tags: [['p', record.destination]],",
+          "tags: [['p', record.peer], ['subject', 'leak']],"
+        ),
+        source.replace(
+          "review !== 'reviewed_private_wrap'",
+          "review !== 'connect'"
+        ),
+        source.replace("'applesauce-core/helpers'", "'nostr-tools/pure'")
+      ]) {
+        await put(name, alteration);
+        reject(execute(), /gift-wrap construction source identity/);
+      }
+      await put(name, source);
+      await put('src/lib/nostr/copied-giftwrap-builder.ts', source);
+      reject(execute(), /credential API/);
+    });
+  }
+);
+test(
+  'HCP076 rejects production key generation and secret access through named, aliased, namespace and bracket APIs outside the exact wrapper',
+  { timeout: 30000 },
+  async () => {
+    await fixture(async ({ directory, put, execute }) => {
+      await confineSvelte(directory);
+      const { cp } = await import('node:fs/promises');
+      await cp(
+        await realpath(path.join(root, 'node_modules/applesauce-core')),
+        path.join(directory, 'node_modules/applesauce-core'),
+        { recursive: true }
+      );
+      for (const source of [
+        "import * as sdk from 'applesauce-core/helpers'; const {'getPublicKey':read}=sdk; export const value=read;",
+        "import * as sdk from 'applesauce-core/helpers'; const {['getPublicKey']:read}=sdk; export const value=read;"
+      ]) {
+        await put('src/lib/nostr/other.ts', source);
+        assert.equal(execute().status, 0);
+      }
+      for (const source of [
+        "import {generateSecretKey} from 'applesauce-core/helpers'; export const key=generateSecretKey();",
+        "import {generateSecretKey as createKey} from 'applesauce-core/helpers'; export const key=createKey();",
+        "import * as sdk from 'applesauce-core/helpers'; export const key=sdk.generateSecretKey();",
+        "import * as sdk from 'applesauce-core/helpers'; export const create=sdk['generateSecretKey'];",
+        "import * as sdk from 'applesauce-core/helpers'; const {'generateSecretKey':create}=sdk; export const key=create();",
+        "import * as sdk from 'applesauce-core/helpers'; const {['generateSecretKey']:create}=sdk; export const key=create();",
+        "import * as sdk from 'applesauce-core/helpers'; const {['generate'+'SecretKey']:create}=sdk; export const key=create();",
+        "import * as sdk from 'applesauce-core/helpers'; const method=['generate','SecretKey'].join(''); const {[method]:create}=sdk; export const key=create();",
+        "export const key = provider['getSecretKey'];",
+        "provider['setSecretKey'](input);",
+        "const {'getSecretKey':read}=provider; export const key=read();",
+        "const {'setSecretKey':save}=provider; save(input);"
+      ]) {
+        await put('src/lib/nostr/other.ts', source);
+        reject(execute(), /credential API/);
+      }
+    });
+  }
+);

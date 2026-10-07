@@ -70,6 +70,7 @@ await test('actual SDK foreground search publishes genuine rows and metadata and
       port: 0,
       maxPayload: 65536
     });
+  let releaseLast: (() => void) | undefined;
   const sockets: WebSocket[] = [],
     filters: Record<string, unknown>[] = [];
   server.on('connection', (socket) => {
@@ -104,8 +105,18 @@ await test('actual SDK foreground search publishes genuine rows and metadata and
                 matches(v.pubkey, v.tags.find((t) => t[0] === 'd')![1])
               )
             : [];
-      for (const value of values)
+      for (const [index, value] of values.entries()) {
+        // Real delivery can expose20 visible rows before the21st is admitted.
+        // Hold that final discovery event to test both pagination states.
+        if (kind === 30402 && !queries[0].authors && index === 20) {
+          releaseLast = () => {
+            socket.send(JSON.stringify(['EVENT', id, value]));
+            socket.send(JSON.stringify(['EOSE', id]));
+          };
+          return;
+        }
         socket.send(JSON.stringify(['EVENT', id, value]));
+      }
       socket.send(JSON.stringify(['EOSE', id]));
     });
   });
@@ -167,7 +178,12 @@ await test('actual SDK foreground search publishes genuine rows and metadata and
       await new Promise((resolve) => setTimeout(resolve, 10));
     const first = searchViewSnapshot(owner)!;
     assert.equal(first.listings.length, 20);
-    assert.equal(first.hasMore, true);
+    assert.equal(first.hasMore, false);
+    assert.equal(typeof releaseLast, 'function');
+    releaseLast!();
+    for (let n = 0; n < 300 && !searchViewSnapshot(owner)?.hasMore; n++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(searchViewSnapshot(owner)!.hasMore, true);
     assert.deepEqual(
       first.listings.map((v) => v.eventId),
       listings.slice(0, 20).map((v) => v.id)
