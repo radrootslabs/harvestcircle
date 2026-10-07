@@ -6,6 +6,14 @@ import { canonicalPublicKey } from '../contracts/public-key.ts';
 import { boundedUtf8 } from '../contracts/food-availability-v1/text.ts';
 import { PUBLIC_INGRESS_BUDGETS } from '../config/budgets.ts';
 
+import {
+  browserExtensionScheduler,
+  runExtensionAction,
+  callExtension,
+  type ExtensionAction,
+  type ExtensionCallKind
+} from './extension-scheduler.ts';
+
 declare const adapterBrand: unique symbol;
 export type ExtensionAdapter = Readonly<{ [adapterBrand]: true }>;
 export type ExtensionGuestReason =
@@ -15,7 +23,7 @@ export type ExtensionGuestReason =
   | 'invalid_key'
   | 'changed_key'
   | 'unavailable';
-export type ExtensionSnapshot =
+export type ExtensionSnapshot = (
   | Readonly<{ state: 'guest'; reason: ExtensionGuestReason }>
   | Readonly<{ state: 'pending'; action: 'connect' | 'recheck' | 'probe' }>
   | Readonly<{
@@ -23,7 +31,9 @@ export type ExtensionSnapshot =
       publicKey: string;
       signingCandidate: boolean;
       messaging: 'not_probed' | 'unsupported' | 'refused' | 'capable';
-    }>;
+    }>
+) &
+  Readonly<{ admission?: 'busy' }>;
 
 declare global {
   interface Window {
@@ -51,13 +61,37 @@ function present(): Readonly<{ signingCandidate: boolean }> | undefined {
     ? { signingCandidate: typeof value.signEvent === 'function' }
     : undefined;
 }
-async function freshKey(current: () => boolean): Promise<string | undefined> {
+async function invokeExtension<T>(
+  action: ExtensionAction | undefined,
+  kind: ExtensionCallKind,
+  work: () => Promise<T>
+): Promise<T> {
+  if (!action) throw new Error('extension_unavailable');
+  let missing = false;
+  const result = await callExtension(action, kind, async () => {
+    try {
+      return await work();
+    } catch (error) {
+      missing = error instanceof ExtensionMissingError;
+      throw error;
+    }
+  });
+  if (result.status === 'settled' && result.current) return result.value;
+  if (missing) throw new ExtensionMissingError('extension_missing');
+  throw new Error('extension_' + result.status);
+}
+async function freshKey(
+  current: () => boolean,
+  action: ExtensionAction | undefined
+): Promise<string | undefined> {
   if (!current()) return undefined;
   const signer = new ExtensionSigner();
   // This SDK invocation admits one NIP-07 call. Its internal getters and
   // permission wait cannot universally be interrupted; callers fence the result.
   if (!current()) return undefined;
-  return canonicalPublicKey(await signer.getPublicKey());
+  return canonicalPublicKey(
+    await invokeExtension(action, 'key', () => signer.getPublicKey())
+  );
 }
 // Lexically owned per-adapter state; no mutable opaque receiver, browser handle
 // or imported signer escapes through the WeakMap/controller boundary.
@@ -68,7 +102,7 @@ export function createExtensionAdapter(): ExtensionAdapter {
     'not_probed';
   let reason: ExtensionGuestReason = 'disconnected';
   let pending: 'connect' | 'recheck' | 'probe' | null = null;
-  let generation = {},
+  let generation = Symbol(),
     cancelled = false;
   function snapshot(): ExtensionSnapshot {
     if (pending && !cancelled) return { state: 'pending', action: pending };
@@ -83,7 +117,7 @@ export function createExtensionAdapter(): ExtensionAdapter {
     reason = nextReason;
   }
   function disconnect() {
-    generation = {};
+    generation = Symbol();
     cancelled = true;
     guest(
       'disconnected'
@@ -91,25 +125,50 @@ export function createExtensionAdapter(): ExtensionAdapter {
   }
   async function run(
     action: 'connect' | 'recheck' | 'probe',
-    work: (current: () => boolean) => Promise<void>
+    work: (
+      current: () => boolean,
+      action: ExtensionAction | undefined
+    ) => Promise<void>
   ): Promise<ExtensionSnapshot> {
-    if (pending) return snapshot();
+    if (pending) return { ...snapshot(), admission: 'busy' };
+    let busy = false;
     const original = generation;
     pending = action;
     cancelled = false;
     const current = () => generation === original && !cancelled;
     try {
-      await work(current);
+      const scheduler = browserExtensionScheduler();
+      if (scheduler) {
+        // One shared page slot for all sessions and effect kinds. Busy performs
+        // no provider work and never schedules an automatic retry.
+        const admitted = await runExtensionAction(
+          scheduler,
+          { owner: key, session: original, operation: Symbol() },
+          current,
+          async (lease) => {
+            try {
+              await work(current, lease);
+            } catch (error) {
+              if (current())
+                guest(
+                  error instanceof ExtensionMissingError ? 'missing' : 'refused'
+                );
+              throw error;
+            }
+          }
+        );
+        busy = admitted.status === 'busy';
+      } else await work(current, undefined);
     } catch (error) {
       if (current())
         guest(error instanceof ExtensionMissingError ? 'missing' : 'refused');
     } finally {
       pending = null;
     }
-    return snapshot();
+    return busy ? { ...snapshot(), admission: 'busy' } : snapshot();
   }
   function connect(): Promise<ExtensionSnapshot> {
-    return run('connect', async (current) => {
+    return run('connect', async (current, action) => {
       if (typeof window === 'undefined') {
         guest('unavailable');
         return;
@@ -120,7 +179,7 @@ export function createExtensionAdapter(): ExtensionAdapter {
         guest('missing');
         return;
       }
-      const owner = await freshKey(current);
+      const owner = await freshKey(current, action);
       if (!current()) return;
       if (!owner) {
         guest('invalid_key');
@@ -143,8 +202,8 @@ export function createExtensionAdapter(): ExtensionAdapter {
   }
   function recheck(): Promise<ExtensionSnapshot> {
     if (!key) return Promise.resolve(snapshot());
-    return run('recheck', async (current) => {
-      const owner = await freshKey(current);
+    return run('recheck', async (current, action) => {
+      const owner = await freshKey(current, action);
       if (!current()) return;
       if (!owner) {
         guest('invalid_key');
@@ -180,10 +239,10 @@ export function createExtensionAdapter(): ExtensionAdapter {
   function probe(review: unknown): Promise<ExtensionSnapshot> {
     if (!key || review !== 'reviewed_self_copy')
       return Promise.resolve(snapshot());
-    return run('probe', async (current) => {
+    return run('probe', async (current, action) => {
       const owner = key;
       if (!owner) return;
-      const checked = await freshKey(current);
+      const checked = await freshKey(current, action);
       if (!current()) return;
       if (checked !== owner) {
         guest(checked ? 'changed_key' : 'invalid_key');
@@ -215,7 +274,9 @@ export function createExtensionAdapter(): ExtensionAdapter {
       let encrypted: unknown, decrypted: unknown;
       try {
         if (!current()) return;
-        encrypted = await encrypt(owner, text);
+        encrypted = await invokeExtension(action, 'encrypt', () =>
+          encrypt(owner, text)
+        );
         if (!current()) return;
         if (
           typeof encrypted !== 'string' ||
@@ -225,7 +286,9 @@ export function createExtensionAdapter(): ExtensionAdapter {
           return;
         }
         if (!current()) return;
-        decrypted = await decrypt(owner, encrypted);
+        decrypted = await invokeExtension(action, 'decrypt', () =>
+          decrypt(owner, encrypted as string)
+        );
       } catch {
         if (current()) messaging = 'refused';
         return;
@@ -235,7 +298,7 @@ export function createExtensionAdapter(): ExtensionAdapter {
         messaging = 'refused';
         return;
       }
-      const after = await freshKey(current);
+      const after = await freshKey(current, action);
       if (!current()) return;
       if (after !== owner) {
         guest(after ? 'changed_key' : 'invalid_key');

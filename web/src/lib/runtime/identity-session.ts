@@ -6,19 +6,22 @@ import {
   probeExtensionAdapter,
   disconnectExtensionAdapter,
   type ExtensionAdapter,
+  type ExtensionSnapshot,
   type ExtensionGuestReason
 } from '../nostr/extension.ts';
 
 declare const sessionBrand: unique symbol;
 export type IdentitySession = Readonly<{ [sessionBrand]: true }>;
-export type IdentitySnapshot =
+export type IdentitySnapshot = (
   | Readonly<{ state: 'guest'; reason: ExtensionGuestReason }>
   | Readonly<{ state: 'pending'; action: 'connect' | 'recheck' | 'probe' }>
   | Readonly<{
       state: 'connected' | 'signing_only' | 'messaging_capable';
       publicKey: string;
       messaging: 'not_probed' | 'unsupported' | 'refused' | 'capable';
-    }>;
+    }>
+) &
+  Readonly<{ admission?: 'busy' }>;
 // Per-client opaque session, never a module-global server user. A public key is
 // an extension observation, not installed-account or publishing authorization.
 const sessions = new WeakMap<IdentitySession, ExtensionAdapter>();
@@ -27,14 +30,9 @@ export function createIdentitySession(): IdentitySession {
   sessions.set(session, createExtensionAdapter());
   return session;
 }
-export function identitySessionSnapshot(
-  session: IdentitySession
-): IdentitySnapshot {
-  const adapter = sessions.get(session);
-  if (!adapter) return { state: 'guest', reason: 'unavailable' };
-  const snapshot = extensionSnapshot(adapter);
+function mapIdentitySnapshot(snapshot: ExtensionSnapshot): IdentitySnapshot {
   if (snapshot.state !== 'connected') return { ...snapshot };
-  return {
+  const state: IdentitySnapshot = {
     state:
       snapshot.messaging === 'capable' && snapshot.signingCandidate
         ? 'messaging_capable'
@@ -44,19 +42,32 @@ export function identitySessionSnapshot(
     publicKey: snapshot.publicKey,
     messaging: snapshot.messaging
   };
+  return snapshot.admission === 'busy'
+    ? { ...state, admission: 'busy' }
+    : state;
+}
+export function identitySessionSnapshot(
+  session: IdentitySession
+): IdentitySnapshot {
+  const adapter = sessions.get(session);
+  return adapter
+    ? mapIdentitySnapshot(extensionSnapshot(adapter))
+    : { state: 'guest', reason: 'unavailable' };
 }
 export async function connectIdentity(
   session: IdentitySession
 ): Promise<IdentitySnapshot> {
   const adapter = sessions.get(session);
-  if (adapter) await connectExtensionAdapter(adapter);
+  if (adapter)
+    return mapIdentitySnapshot(await connectExtensionAdapter(adapter));
   return identitySessionSnapshot(session);
 }
 export async function recheckIdentityOwner(
   session: IdentitySession
 ): Promise<IdentitySnapshot> {
   const adapter = sessions.get(session);
-  if (adapter) await recheckExtensionAdapter(adapter);
+  if (adapter)
+    return mapIdentitySnapshot(await recheckExtensionAdapter(adapter));
   return identitySessionSnapshot(session);
 }
 export async function probeIdentityMessaging(
@@ -64,7 +75,8 @@ export async function probeIdentityMessaging(
   review: unknown
 ): Promise<IdentitySnapshot> {
   const adapter = sessions.get(session);
-  if (adapter) await probeExtensionAdapter(adapter, review);
+  if (adapter)
+    return mapIdentitySnapshot(await probeExtensionAdapter(adapter, review));
   return identitySessionSnapshot(session);
 }
 export function disconnectIdentity(session: IdentitySession): void {

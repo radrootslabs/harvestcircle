@@ -16,6 +16,8 @@ declare global {
     };
     hcp051Key: string;
     hcp051Release: () => void;
+    hcp051Other: Identity.IdentitySession;
+    hcp051Task: Promise<Identity.IdentitySnapshot>;
   }
 }
 const owner =
@@ -233,7 +235,8 @@ test('late pending connection cannot restore a disconnected owner and original s
   );
   expect(await connect(page)).toEqual({
     state: 'guest',
-    reason: 'disconnected'
+    reason: 'disconnected',
+    admission: 'busy'
   });
   expect(await page.evaluate(() => window.hcp051Counts.keys)).toBe(1);
   await page.evaluate(() => window.hcp051Release());
@@ -321,7 +324,8 @@ test('disconnect during pending encryption keeps slot and prevents later decrypt
   );
   expect(await connect(page)).toEqual({
     state: 'guest',
-    reason: 'disconnected'
+    reason: 'disconnected',
+    admission: 'busy'
   });
   await page.evaluate(() => window.hcp051Release());
   expect(await pending).toEqual({ state: 'guest', reason: 'disconnected' });
@@ -542,3 +546,111 @@ for (const property of ['nip44', 'signEvent'] as const)
       decrypts: 1
     });
   });
+
+// HCP052: disconnected and busy callers cannot release or misreport the slot.
+test('cross-session busy Connect retains slot and exposes explicit retry after settlement', async ({
+  page
+}) => {
+  await load(page, 'pending');
+  await page.evaluate(() => {
+    window.hcp051Task = window.hcp051.connectIdentity(window.hcp051Session);
+  });
+  await expect
+    .poll(() => page.evaluate(() => window.hcp051Counts.keys))
+    .toBe(1);
+  const busy = await page.evaluate(async () => {
+    window.hcp051.disconnectIdentity(window.hcp051Session);
+    window.hcp051Other = window.hcp051.createIdentitySession();
+    return await window.hcp051.connectIdentity(window.hcp051Other);
+  });
+  expect(busy).toEqual({
+    state: 'guest',
+    reason: 'disconnected',
+    admission: 'busy'
+  });
+  expect(
+    await page.evaluate(() =>
+      window.hcp051.identitySessionSnapshot(window.hcp051Other)
+    )
+  ).toEqual({ state: 'guest', reason: 'disconnected' });
+  expect(await page.evaluate(() => window.hcp051Counts.keys)).toBe(1);
+  await page.evaluate(() => window.hcp051Release());
+  expect(await page.evaluate(() => window.hcp051Task)).toEqual({
+    state: 'guest',
+    reason: 'disconnected'
+  });
+  expect(await page.evaluate(() => window.hcp051Counts.keys)).toBe(1);
+  await page.evaluate(() => {
+    const provider = window.nostr as { getPublicKey: () => Promise<string> };
+    provider.getPublicKey = () => {
+      window.hcp051Counts.keys++;
+      return Promise.resolve(window.hcp051Key);
+    };
+  });
+  expect(
+    await page.evaluate(() => window.hcp051.connectIdentity(window.hcp051Other))
+  ).toMatchObject({ state: 'signing_only', publicKey: owner });
+  expect(await page.evaluate(() => window.hcp051Counts.keys)).toBe(2);
+});
+test('busy owner recheck and probe preserve capabilities without claiming a fresh owner check', async ({
+  page
+}) => {
+  await load(page, 'messaging');
+  await connect(page);
+  await page.evaluate(async () => {
+    window.hcp051Other = window.hcp051.createIdentitySession();
+    await window.hcp051.connectIdentity(window.hcp051Other);
+    const provider = window.nostr as { getPublicKey: () => Promise<string> };
+    provider.getPublicKey = async () => {
+      window.hcp051Counts.keys++;
+      await new Promise<void>((resolve) => {
+        window.hcp051Release = resolve;
+      });
+      return window.hcp051Key;
+    };
+    window.hcp051Task = window.hcp051.recheckIdentityOwner(
+      window.hcp051Session
+    );
+  });
+  await expect
+    .poll(() => page.evaluate(() => window.hcp051Counts.keys))
+    .toBe(3);
+  expect(
+    await page.evaluate(() =>
+      window.hcp051.recheckIdentityOwner(window.hcp051Other)
+    )
+  ).toMatchObject({
+    state: 'signing_only',
+    publicKey: owner,
+    admission: 'busy'
+  });
+  expect(
+    await page.evaluate(() =>
+      window.hcp051.probeIdentityMessaging(
+        window.hcp051Other,
+        'reviewed_self_copy'
+      )
+    )
+  ).toMatchObject({
+    state: 'signing_only',
+    publicKey: owner,
+    admission: 'busy'
+  });
+  expect(await page.evaluate(() => window.hcp051Counts)).toEqual({
+    keys: 3,
+    signs: 0,
+    encrypts: 0,
+    decrypts: 0
+  });
+  expect(
+    await page.evaluate(() =>
+      window.hcp051.identitySessionSnapshot(window.hcp051Other)
+    )
+  ).toEqual({
+    state: 'signing_only',
+    publicKey: owner,
+    messaging: 'not_probed'
+  });
+  await page.evaluate(() => window.hcp051Release());
+  await page.evaluate(() => window.hcp051Task);
+});
