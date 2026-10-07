@@ -468,3 +468,89 @@ test('reviewed AUTH uses the same genuine already-open private page connection',
   expect(frames.filter((x) => x[0] === 'REQ')).toHaveLength(1);
   expect(frames.filter((x) => x[0] === 'AUTH')).toHaveLength(1);
 });
+for (const phase of ['initial', 'post-sign'] as const)
+  test(`actual ${phase} AUTH key loss invalidates original session identity and retained private cache`, async ({
+    page
+  }) => {
+    const result = await page.evaluate(async (phase) => {
+      const f = window.hcp068Fixture,
+        before = f.ownership();
+      if (phase === 'initial') f.changeOwner();
+      else
+        f.beforeSign(() => {
+          f.changeOwner();
+          return Promise.resolve();
+        });
+      const result = await window.hcp068.respondInboxAuthentication(
+        window.hcp068Action
+      );
+      return { before, result, after: f.ownership() };
+    }, phase);
+    expect(result.before.private).toBe(true);
+    expect(result.before.identity).toBe(true);
+    expect(result.before.cache.count).toBe(1);
+    expect(result.result.status).not.toBe('accepted');
+    expect(result.after.private).toBe(false);
+    expect(result.after.identity).toBe(false);
+    expect(result.after.cache).toEqual({ closed: true, count: 0, bytes: 0 });
+    expect(frames.filter((x) => x[0] === 'AUTH')).toHaveLength(0);
+  });
+test('stale original generation cannot invalidate a genuinely connected successor', async ({
+  page
+}) => {
+  expect(
+    await page.evaluate(() =>
+      window.hcp068Fixture.staleGenerationInvalidation()
+    )
+  ).toEqual({ result: false, successor: true, identity: true });
+});
+for (const phase of ['initial', 'post-sign'] as const)
+  test(`actual ${phase} capability loss invalidates AUTH session and cache`, async ({
+    page
+  }) => {
+    const result = await page.evaluate(async (phase) => {
+      const f = window.hcp068Fixture;
+      if (phase === 'initial') f.loseCapability();
+      else
+        f.beforeSign(() => {
+          f.loseCapability();
+          return Promise.resolve();
+        });
+      const result = await window.hcp068.respondInboxAuthentication(
+        window.hcp068Action
+      );
+      return { result, after: f.ownership() };
+    }, phase);
+    expect(result.result.status).not.toBe('accepted');
+    expect(result.after.private).toBe(false);
+    expect(result.after.identity).toBe(false);
+    expect(result.after.cache).toEqual({ closed: true, count: 0, bytes: 0 });
+    expect(frames.filter((x) => x[0] === 'AUTH')).toHaveLength(0);
+  });
+for (const mode of ['invalid', 'missing'] as const)
+  for (const phase of ['initial', 'post-sign'] as const)
+    test(`actual ${phase} ${mode} key observation invalidates original ownership`, async ({
+      page
+    }) => {
+      const result = await page.evaluate(
+        async ({ mode, phase }) => {
+          const f = window.hcp068Fixture;
+          if (phase === 'initial') f.failKey(mode);
+          else
+            f.beforeSign(() => {
+              f.failKey(mode);
+              return Promise.resolve();
+            });
+          const result = await window.hcp068.respondInboxAuthentication(
+            window.hcp068Action
+          );
+          return { result, after: f.ownership() };
+        },
+        { mode, phase }
+      );
+      expect(result.result.status).not.toBe('accepted');
+      expect(result.after.private).toBe(false);
+      expect(result.after.identity).toBe(false);
+      expect(result.after.cache).toEqual({ closed: true, count: 0, bytes: 0 });
+      expect(frames.filter((x) => x[0] === 'AUTH')).toHaveLength(0);
+    });

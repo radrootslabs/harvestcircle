@@ -2,6 +2,7 @@ import {
   identityMessagingOwnership,
   recheckIdentityOwner,
   subscribeIdentityInvalidation,
+  disconnectIdentity,
   type IdentitySession
 } from './identity-session.ts';
 import type { PublicEffectCapture } from './effect-ownership.ts';
@@ -137,6 +138,19 @@ export function subscribePrivateSessionClose(
 }
 export function closePrivateSession(token: PrivateSession): boolean {
   return sessions.get(token)?.close() ?? false;
+}
+// A trusted private owner has actually observed key/capability loss. Invalidate
+// synchronously inside its occupied permission job without a second provider
+// request. The original captured generation must still be current: a late old
+// callback cannot disconnect a newly connected generation of this identity.
+export function invalidatePrivateSessionGeneration(
+  token: PrivateSession
+): boolean {
+  const state = sessions.get(token);
+  if (!state?.current()) return false;
+  disconnectIdentity(state.identity);
+  state.close();
+  return true;
 }
 // Every new finite network action gets a fresh SDK owner observation; neither
 // a remembered key nor a still-current presentation snapshot substitutes.

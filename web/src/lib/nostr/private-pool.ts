@@ -21,6 +21,7 @@ import {
   privateSessionOwnership,
   subscribePrivateSessionClose,
   recheckPrivateSession,
+  invalidatePrivateSessionGeneration,
   type PrivateSession
 } from '../runtime/private-session.ts';
 import { boundedUtf8 } from '../contracts/food-availability-v1/text.ts';
@@ -67,6 +68,7 @@ export type PrivateAuthChallenge = Readonly<{
   current(): boolean;
 }>;
 type AuthControl = {
+  invalidate(proof: PrivateAuthChallenge): boolean;
   challenge(): PrivateAuthChallenge | undefined;
   stopped(): boolean;
   reserve(proof: PrivateAuthChallenge): boolean;
@@ -204,6 +206,17 @@ export function getPrivatePool(
         );
       }
       const control: AuthControl = {
+        invalidate(proof) {
+          if (
+            !proofs.has(proof) ||
+            !proof.current() ||
+            !current() ||
+            proof.connection !== generation ||
+            proof.challenge !== challenge
+          )
+            return false;
+          return invalidatePrivateSessionGeneration(session);
+        },
         stopped: () => !current(),
         challenge() {
           if (!current() || challenge === undefined || responded)
@@ -592,4 +605,10 @@ export function closePrivateAuthConnection(
   connection: PrivateAuthConnection
 ): void {
   authConnections.get(connection)?.close();
+}
+export function invalidatePrivateAuthGeneration(
+  connection: PrivateAuthConnection,
+  proof: PrivateAuthChallenge
+): boolean {
+  return authConnections.get(connection)?.invalidate(proof) ?? false;
 }

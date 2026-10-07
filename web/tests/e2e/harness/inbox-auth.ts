@@ -4,12 +4,21 @@ import {
   createIdentitySession,
   connectIdentity,
   probeIdentityMessaging,
-  disconnectIdentity
+  disconnectIdentity,
+  identityMessagingOwnership
 } from '../../../src/lib/runtime/identity-session.ts';
 import {
   createPrivateSession,
-  closePrivateSession
+  closePrivateSession,
+  privateSessionSnapshot
 } from '../../../src/lib/runtime/private-session.ts';
+import * as ActualPrivateSession from '../../../src/lib/runtime/private-session.ts';
+import {
+  getPrivateStore,
+  insertPrivateEnvelope,
+  privateStoreSnapshot
+} from '../../../src/lib/messaging/private-store.ts';
+import { verifyEnvelope } from '../../../src/lib/nostr/verified-envelope.ts';
 import {
   getPrivatePool,
   beginPrivateAuthConnection,
@@ -41,13 +50,20 @@ export async function makeAuthFixture() {
   let mode: 'exact' | 'author' | 'relay' | 'challenge' | 'cached' | 'denied' =
       'exact',
     signs = 0,
-    changed = false;
+    changed = false,
+    invalidKey = false;
   let before = () => Promise.resolve();
   Object.defineProperty(window, 'nostr', {
     configurable: true,
     value: {
       getPublicKey: () =>
-        Promise.resolve(changed ? 'f'.repeat(64) : fixture.owner),
+        Promise.resolve(
+          invalidKey
+            ? 'not-a-public-key'
+            : changed
+              ? 'f'.repeat(64)
+              : fixture.owner
+        ),
       signEvent: async (input: Parameters<typeof fixture.sign>[0]) => {
         signs++;
         await before();
@@ -76,6 +92,20 @@ export async function makeAuthFixture() {
   const policy = fixturePolicy(),
     pool = getPrivatePool(session, policy, [inbox]);
   if (!pool) throw new Error('missing private pool');
+  const store = getPrivateStore(session);
+  if (!store) throw new Error('missing genuine raw store');
+  const cached = verifyEnvelope(
+    JSON.stringify(
+      fixture.sign({
+        kind: 1059,
+        created_at: 101,
+        tags: [['p', fixture.owner]],
+        content: 'opaque raw ciphertext fixture'
+      })
+    )
+  );
+  if (!cached.ok || insertPrivateEnvelope(store, cached.value) !== 'accepted')
+    throw new Error('missing actual verified raw cache fixture');
   return {
     pool,
     policy,
@@ -90,9 +120,52 @@ export async function makeAuthFixture() {
     changeOwner: () => {
       changed = true;
     },
+    loseCapability: () => {
+      const provider: unknown = Reflect.get(window, 'nostr');
+      if (!provider || typeof provider !== 'object')
+        throw new Error('missing controlled provider');
+      Object.defineProperty(provider, 'nip44', {
+        configurable: true,
+        value: undefined
+      });
+    },
+    failKey: (mode: 'invalid' | 'missing') => {
+      if (mode === 'invalid') invalidKey = true;
+      else Reflect.deleteProperty(window, 'nostr');
+    },
     logout: () => disconnectIdentity(identity),
     reopen: () => getPrivatePool(session, policy, [inbox]),
     startPage: () => subscribePrivatePage(pool, 1, () => {}),
+    ownership: () => ({
+      private: privateSessionSnapshot(session)?.current,
+      identity: identityMessagingOwnership(identity)?.current() ?? false,
+      cache: privateStoreSnapshot(store)
+    }),
+    async staleGenerationInvalidation() {
+      disconnectIdentity(identity);
+      await connectIdentity(identity);
+      await probeIdentityMessaging(identity, 'reviewed_self_copy');
+      const successor = await createPrivateSession(
+        identity,
+        'reviewed_private_session'
+      );
+      if (!successor) throw new Error('missing genuine successor');
+      const invalidate: unknown = Reflect.get(
+        ActualPrivateSession,
+        'invalidatePrivateSessionGeneration'
+      );
+      const result: unknown =
+        typeof invalidate === 'function'
+          ? Reflect.apply(invalidate, undefined, [session])
+          : 'missing';
+      const observed = {
+        result,
+        successor: privateSessionSnapshot(successor)?.current,
+        identity: identityMessagingOwnership(identity)?.current() ?? false
+      };
+      closePrivateSession(successor);
+      return observed;
+    },
     async rawPortBypass() {
       const connection = (await Reflect.apply(
         beginPrivateAuthConnection,

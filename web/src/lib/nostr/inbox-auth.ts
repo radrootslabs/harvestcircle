@@ -8,6 +8,7 @@ import {
   reservePrivateAuthResponse,
   sendPrivateAuthResponse,
   closePrivateAuthConnection,
+  invalidatePrivateAuthGeneration,
   type PrivatePool,
   type PrivateAuthChallenge
 } from './private-pool.ts';
@@ -83,6 +84,17 @@ export async function beginInboxAuthentication(
     const field = Object.getOwnPropertyDescriptor(value, name);
     return field && 'value' in field ? field.value : undefined;
   }
+  function messagingCapabilitiesCurrent(): boolean {
+    try {
+      const cipher = new ExtensionSigner().nip44;
+      return (
+        typeof cipher?.encrypt === 'function' &&
+        typeof cipher?.decrypt === 'function'
+      );
+    } catch {
+      return false;
+    }
+  }
   // Fixed seven-field response reconstruction never invokes provider getters,
   // iterators/toJSON or mutable cached SDK signature markers.
   function bindResponse(
@@ -145,6 +157,14 @@ export async function beginInboxAuthentication(
             new ExtensionSigner().getPublicKey()
           );
           if (
+            proof.current() &&
+            (key.status === 'denied' ||
+              (key.status === 'settled' &&
+                key.current &&
+                (key.value !== proof.owner || !messagingCapabilitiesCurrent())))
+          )
+            invalidatePrivateAuthGeneration(connection, proof);
+          if (
             key.status !== 'settled' ||
             !key.current ||
             key.value !== proof.owner ||
@@ -193,6 +213,15 @@ export async function beginInboxAuthentication(
           const effectKey = await callExtension(job, 'key', () =>
             new ExtensionSigner().getPublicKey()
           );
+          if (
+            proof.current() &&
+            (effectKey.status === 'denied' ||
+              (effectKey.status === 'settled' &&
+                effectKey.current &&
+                (effectKey.value !== proof.owner ||
+                  !messagingCapabilitiesCurrent())))
+          )
+            invalidatePrivateAuthGeneration(connection, proof);
           if (
             effectKey.status !== 'settled' ||
             !effectKey.current ||
