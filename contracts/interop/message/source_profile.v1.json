@@ -1,0 +1,750 @@
+{
+  "schema_version": 1,
+  "revision": "189c49b74b4bafc142b00b76b296477931139e72",
+  "functions": [
+    "message_build_tags",
+    "to_wire_parts",
+    "message_from_tags"
+  ],
+  "pinned_lib_source_sha256": {
+    "crates/event/src/message.rs": "7dc3080485077ce1cf984c8d24011892725e31b464e88dfd1bada68a8f976c40",
+    "crates/event_codec/src/message/tags.rs": "4a32ca1ce2e78abe9c9b0aad55d610d18f9d3a9ec69ac555762cc01559d8b01f",
+    "crates/event_codec/src/message/encode.rs": "47329dd304812d74e3c2c314d5371a12d926d86470a2e53ed6d4ec70d8efb054",
+    "crates/event_codec/src/message/decode.rs": "2ee7f2e7510b353a017d0e5eb68c16a3c546ddc92a5c7c52add5c0f24db0625e"
+  },
+  "bounds": {
+    "web_body_utf8_bytes": 4096,
+    "web_unsigned_parts_json_bytes": 8192
+  },
+  "limitations": "Generic codec data is not authenticated rumor, pair-room permission, sender, relay access or publication evidence; additional web canonical/budget/schema refusals explicitly differ from generic Lib acceptance. Full rumor identity/size is a subsequent owner.",
+  "vectors": [
+    {
+      "id": "first_enquiry",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "supported"
+    },
+    {
+      "id": "recipient_hint",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": "wss://hint.example.org"
+          }
+        ],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "supported"
+    },
+    {
+      "id": "reply",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "relays": null
+        },
+        "subject": null
+      },
+      "web_status": "supported"
+    },
+    {
+      "id": "reply_hint_subject",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "relays": "wss://hint.example.org"
+        },
+        "subject": "Carrots"
+      },
+      "web_status": "supported"
+    },
+    {
+      "id": "optional_defaults",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+          }
+        ],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "supported"
+    },
+    {
+      "id": "two_recipient_codec_not_room_permission",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+          },
+          {
+            "public_key": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+          }
+        ],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "supported"
+    },
+    {
+      "id": "duplicates_are_codec_data",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+          },
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+          }
+        ],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "supported"
+    },
+    {
+      "id": "body_ascii_4096",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": {
+          "repeat": "a",
+          "count": 4096
+        },
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "supported"
+    },
+    {
+      "id": "body_unicode_4096_bytes",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": {
+          "repeat": "é",
+          "count": 2048
+        },
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "supported"
+    },
+    {
+      "id": "bom_is_not_rust_whitespace",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": "﻿",
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "supported"
+    },
+    {
+      "id": "record_separator_is_not_rust_whitespace",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": "\u001c",
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "supported"
+    },
+    {
+      "id": "empty_body",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": "",
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "unsupported"
+    },
+    {
+      "id": "ascii_whitespace",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": " \t\n",
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "unsupported"
+    },
+    {
+      "id": "unicode_whitespace",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": " ",
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "unsupported"
+    },
+    {
+      "id": "no_recipients",
+      "mode": "write",
+      "input": {
+        "recipients": [],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "unsupported"
+    },
+    {
+      "id": "empty_key",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": " "
+          }
+        ],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "unsupported"
+    },
+    {
+      "id": "empty_recipient_hint",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": " "
+          }
+        ],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "unsupported"
+    },
+    {
+      "id": "empty_parent",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": {
+          "id": " ",
+          "relays": null
+        },
+        "subject": null
+      },
+      "web_status": "unsupported"
+    },
+    {
+      "id": "empty_reply_hint",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "relays": " "
+        },
+        "subject": null
+      },
+      "web_status": "unsupported"
+    },
+    {
+      "id": "empty_subject",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": null,
+        "subject": " "
+      },
+      "web_status": "unsupported"
+    },
+    {
+      "id": "noncanonical_key",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "alice"
+          }
+        ],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "unsupported",
+      "policy_difference": "canonical_public_key"
+    },
+    {
+      "id": "uppercase_key",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798"
+          }
+        ],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "unsupported",
+      "policy_difference": "canonical_public_key"
+    },
+    {
+      "id": "invalid_curve_key",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          }
+        ],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "unsupported",
+      "policy_difference": "canonical_public_key"
+    },
+    {
+      "id": "noncanonical_parent",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": {
+          "id": "product",
+          "relays": null
+        },
+        "subject": null
+      },
+      "web_status": "unsupported",
+      "policy_difference": "canonical_parent_hash"
+    },
+    {
+      "id": "body_ascii_4097",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": {
+          "repeat": "a",
+          "count": 4097
+        },
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "unsupported",
+      "policy_difference": "body_utf8_4096"
+    },
+    {
+      "id": "body_unicode_4098_bytes",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": {
+          "repeat": "é",
+          "count": 2049
+        },
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "unsupported",
+      "policy_difference": "body_utf8_4096"
+    },
+    {
+      "id": "escaped_parts_too_large",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": {
+          "repeat": "\"",
+          "count": 4096
+        },
+        "reply_to": null,
+        "subject": null
+      },
+      "web_status": "unsupported",
+      "policy_difference": "parts_json_8192"
+    },
+    {
+      "id": "subject_parts_too_large",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": {
+          "repeat": "a",
+          "count": 4096
+        },
+        "reply_to": null,
+        "subject": {
+          "repeat": "b",
+          "count": 4096
+        }
+      },
+      "web_status": "unsupported",
+      "policy_difference": "parts_json_8192"
+    },
+    {
+      "id": "authored_extra_order_field",
+      "mode": "write",
+      "input": {
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "reply_to": null,
+        "subject": null,
+        "order": "not-a-new-protocol"
+      },
+      "web_status": "unsupported",
+      "policy_difference": "authored_schema"
+    },
+    {
+      "id": "first_optional_tags_win",
+      "mode": "read",
+      "input": {
+        "kind": 14,
+        "tags": [
+          [
+            "p",
+            "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+          ],
+          [
+            "e",
+            "1111111111111111111111111111111111111111111111111111111111111111"
+          ],
+          [
+            "e"
+          ],
+          [
+            "subject",
+            "first"
+          ],
+          [
+            "subject",
+            "second"
+          ]
+        ],
+        "content": "hello"
+      },
+      "web_status": "supported"
+    },
+    {
+      "id": "unknown_order_and_q_not_authority",
+      "mode": "read",
+      "input": {
+        "kind": 14,
+        "tags": [
+          [
+            "order",
+            "x"
+          ],
+          [
+            "q",
+            "product"
+          ],
+          [
+            "p",
+            "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+          ],
+          []
+        ],
+        "content": "hello"
+      },
+      "web_status": "supported"
+    },
+    {
+      "id": "extra_known_tag_values_ignored",
+      "mode": "read",
+      "input": {
+        "kind": 14,
+        "tags": [
+          [
+            "p",
+            "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "wss://hint.example.org",
+            "extra"
+          ],
+          [
+            "e",
+            "1111111111111111111111111111111111111111111111111111111111111111",
+            "wss://hint.example.org",
+            "extra"
+          ],
+          [
+            "subject",
+            "text",
+            "extra"
+          ]
+        ],
+        "content": "hello"
+      },
+      "web_status": "supported"
+    },
+    {
+      "id": "duplicate_recipients_codec_data",
+      "mode": "read",
+      "input": {
+        "kind": 14,
+        "tags": [
+          [
+            "p",
+            "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+          ],
+          [
+            "p",
+            "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+          ]
+        ],
+        "content": "hello"
+      },
+      "web_status": "supported"
+    },
+    {
+      "id": "missing_p",
+      "mode": "read",
+      "input": {
+        "kind": 14,
+        "tags": [],
+        "content": "hello"
+      },
+      "web_status": "unsupported"
+    },
+    {
+      "id": "malformed_p",
+      "mode": "read",
+      "input": {
+        "kind": 14,
+        "tags": [
+          [
+            "p",
+            "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+          ],
+          [
+            "p"
+          ]
+        ],
+        "content": "hello"
+      },
+      "web_status": "unsupported"
+    },
+    {
+      "id": "malformed_first_e",
+      "mode": "read",
+      "input": {
+        "kind": 14,
+        "tags": [
+          [
+            "p",
+            "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+          ],
+          [
+            "e"
+          ],
+          [
+            "e",
+            "1111111111111111111111111111111111111111111111111111111111111111"
+          ]
+        ],
+        "content": "hello"
+      },
+      "web_status": "unsupported"
+    },
+    {
+      "id": "malformed_first_subject",
+      "mode": "read",
+      "input": {
+        "kind": 14,
+        "tags": [
+          [
+            "p",
+            "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+          ],
+          [
+            "subject"
+          ],
+          [
+            "subject",
+            "valid"
+          ]
+        ],
+        "content": "hello"
+      },
+      "web_status": "unsupported"
+    },
+    {
+      "id": "wrong_kind",
+      "mode": "read",
+      "input": {
+        "kind": 15,
+        "tags": [
+          [
+            "p",
+            "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+          ]
+        ],
+        "content": "hello"
+      },
+      "web_status": "unsupported"
+    },
+    {
+      "id": "read_noncanonical_key",
+      "mode": "read",
+      "input": {
+        "kind": 14,
+        "tags": [
+          [
+            "p",
+            "alice"
+          ]
+        ],
+        "content": "hello"
+      },
+      "web_status": "unsupported",
+      "policy_difference": "canonical_public_key"
+    },
+    {
+      "id": "read_noncanonical_parent",
+      "mode": "read",
+      "input": {
+        "kind": 14,
+        "tags": [
+          [
+            "p",
+            "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+          ],
+          [
+            "e",
+            "product"
+          ]
+        ],
+        "content": "hello"
+      },
+      "web_status": "unsupported",
+      "policy_difference": "canonical_parent_hash"
+    }
+  ]
+}
