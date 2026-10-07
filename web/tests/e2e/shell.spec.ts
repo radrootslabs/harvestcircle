@@ -34,6 +34,8 @@ test.beforeAll(async () => {
     ]);
     for (const relative of [
       'web/src/lib/components/AppShell.svelte',
+      'web/src/lib/components/CapabilityGate.svelte',
+      'web/src/lib/runtime/view-context.ts',
       'web/src/app.css',
       'web/src/routes/+layout.svelte',
       'web/tests/unit/components/shell.test.ts',
@@ -194,7 +196,7 @@ async function measure(page: import('@playwright/test').Page, stage: string) {
     scroll: globalThis.document.documentElement.scrollWidth,
     navigation: Array.from(
       globalThis.document.querySelectorAll(
-        'nav[aria-label="Primary"] > .cluster > *'
+        'nav[aria-label="Primary"] > .cluster > :is(a,span,button,details)'
       )
     ).map((element) => {
       const rect = element.getBoundingClientRect();
@@ -273,7 +275,7 @@ for (const width of [320, 1024]) {
         exact: true
       });
       await expect(primary).toHaveText(
-        'HarvestCircle Search List food Connect extension'
+        'HarvestCircle Search List food Messages Use your Nostr extension to choose your identity. Connect extension'
       );
       await expect(
         page.getByRole('link', { name: 'Search', exact: true })
@@ -284,6 +286,7 @@ for (const width of [320, 1024]) {
         'HarvestCircle',
         'Search',
         'List food',
+        'Messages',
         'Connect extension'
       ]);
       const guestConnect = page.getByRole('button', {
@@ -292,7 +295,9 @@ for (const width of [320, 1024]) {
       await guestConnect.focus();
       await expect(guestConnect).toBeFocused();
       await page.keyboard.press('Enter');
-      await expect(page.getByRole('status')).toHaveText('Commands: 1');
+      await expect(
+        page.getByRole('status').filter({ hasText: /^Commands:/ })
+      ).toHaveText('Commands: 1');
       await expect(primary).toContainText(
         'HarvestCircle Search Messages Selling Identity'
       );
@@ -336,7 +341,9 @@ for (const width of [320, 1024]) {
       await disconnect.evaluate((element) =>
         element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       );
-      await expect(page.getByRole('status')).toHaveText('Commands: 1');
+      await expect(
+        page.getByRole('status').filter({ hasText: /^Commands:/ })
+      ).toHaveText('Commands: 1');
       await measure(page, 'connected-open-long-key');
       await expect(page.locator('header')).not.toContainText(/unread/i);
       await page
@@ -345,7 +352,9 @@ for (const width of [320, 1024]) {
       await disconnect.focus();
       await expect(disconnect).toBeFocused();
       await page.keyboard.press('Enter');
-      await expect(page.getByRole('status')).toHaveText('Commands: 2');
+      await expect(
+        page.getByRole('status').filter({ hasText: /^Commands:/ })
+      ).toHaveText('Commands: 2');
       await page
         .getByRole('button', { name: 'Toggle command availability' })
         .click();
@@ -357,7 +366,9 @@ for (const width of [320, 1024]) {
       await connect.evaluate((element) =>
         element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       );
-      await expect(page.getByRole('status')).toHaveText('Commands: 2');
+      await expect(
+        page.getByRole('status').filter({ hasText: /^Commands:/ })
+      ).toHaveText('Commands: 2');
       expect(external).toEqual([]);
     } finally {
       await context.close();
@@ -398,13 +409,17 @@ test('controlled shell callbacks become available only after actual hydration', 
     ).toBeVisible();
     await expect.poll(() => delayedScripts).toBeGreaterThan(0);
     await expect(connect).toBeDisabled();
-    await expect(page.getByRole('status')).toHaveText('Commands: 0');
+    await expect(
+      page.getByRole('status').filter({ hasText: /^Commands:/ })
+    ).toHaveText('Commands: 0');
     releaseScripts();
     await expect(connect).toBeEnabled();
     await connect.focus();
     await expect(connect).toBeFocused();
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('status')).toHaveText('Commands: 1');
+    await expect(
+      page.getByRole('status').filter({ hasText: /^Commands:/ })
+    ).toHaveText('Commands: 1');
     const identity = page.locator('summary');
     await identity.focus();
     await expect(identity).toBeFocused();

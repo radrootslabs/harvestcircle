@@ -29,6 +29,10 @@ export default defineConfig(
   svelte.configs.recommended,
   svelte.configs.prettier,
   {
+    files: ['src/lib/components/CapabilityGate.svelte'],
+    languageOptions: { globals: { document: 'readonly' } }
+  },
+  {
     files: ['**/*.svelte'],
     languageOptions: { parserOptions: { parser: ts.parser, svelteConfig } },
     rules: { 'svelte/no-inline-styles': 'error' }

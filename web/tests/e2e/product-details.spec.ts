@@ -314,7 +314,9 @@ test('real product reload renders verified facts, safe guest contact, explicit c
       })
     ).toHaveAttribute('href', 'https://contact.example.org/collect');
     await page.getByRole('button', { name: 'Copy link', exact: true }).click();
-    await expect(page.getByRole('status')).toHaveText('Link copied.');
+    await expect(page.getByRole('main').getByRole('status')).toHaveText(
+      'Link copied.'
+    );
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
       href('active')
     );

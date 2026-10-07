@@ -123,15 +123,18 @@ test('actual browser loads guest shell without an extension', async ({
     ).toBeVisible();
     await expect(
       page.getByRole('button', { name: 'Connect extension' })
-    ).toBeDisabled();
+    ).toBeEnabled();
     await expect(
       page.getByText(
         'Unavailable during development: disabled navigation and actions.'
       )
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(
       page.getByRole('link', { name: 'Search', exact: true })
     ).toHaveCount(1);
+    await expect(
+      page.getByRole('link', { name: 'Messages', exact: true })
+    ).toHaveAttribute('href', '/messages');
     await page.keyboard.press('Tab');
     await expect(
       page.getByRole('link', { name: 'Skip to main content' })

@@ -201,26 +201,32 @@ for (const width of [320, 1024]) {
         page.getByRole('button', { name: 'Fixture command', exact: true })
       ).toBeFocused();
       await page.keyboard.press('Enter');
-      await expect(page.getByRole('status')).toHaveText('Commands: 1');
+      await expect(page.getByRole('main').getByRole('status')).toHaveText(
+        'Commands: 1'
+      );
       await expect(
         page.getByRole('button', { name: 'Disabled command' })
       ).toBeDisabled();
       await page
         .getByRole('button', { name: 'Disabled command' })
         .evaluate((element) => (element as HTMLButtonElement).click());
-      await expect(page.getByRole('status')).toHaveText('Commands: 1');
+      await expect(page.getByRole('main').getByRole('status')).toHaveText(
+        'Commands: 1'
+      );
       await page
         .getByRole('button', { name: 'Disabled command' })
         .evaluate((element) =>
           element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
         );
-      await expect(page.getByRole('status')).toHaveText('Commands: 1');
+      await expect(page.getByRole('main').getByRole('status')).toHaveText(
+        'Commands: 1'
+      );
       await page.keyboard.press('Tab');
       await expect(
         page.getByRole('link', { name: 'Fixture navigation' })
       ).toBeFocused();
       await page.keyboard.press('Tab');
-      await expect(page.locator('summary')).toBeFocused();
+      await expect(page.getByRole('main').locator('summary')).toBeFocused();
       await page.keyboard.press('Enter');
       await expect(page.locator('details')).toHaveAttribute('open', '');
       await page.keyboard.press('Space');
@@ -244,7 +250,9 @@ for (const width of [320, 1024]) {
       await page
         .getByRole('button', { name: 'Discard draft', exact: true })
         .click();
-      await expect(page.getByRole('status')).toHaveText('Commands: 2');
+      await expect(page.getByRole('main').getByRole('status')).toHaveText(
+        'Commands: 2'
+      );
       await expect(
         page.getByRole('button', { name: 'Discard draft', exact: true })
       ).toBeDisabled();

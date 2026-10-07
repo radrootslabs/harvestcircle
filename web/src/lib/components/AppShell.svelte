@@ -2,25 +2,45 @@
   import type { Snippet } from 'svelte';
   import { internalHref } from '../navigation-url';
   import Button from './primitives/Button.svelte';
+  import CapabilityGate from './CapabilityGate.svelte';
+  import type { IdentityViewActionResult } from '../runtime/view-context.ts';
+  import type { IdentitySnapshot } from '../runtime/identity-session.ts';
   import Disclosure from './primitives/Disclosure.svelte';
 
   type ShellRoute =
     '/search' | '/sell' | '/selling' | '/messages' | '/about' | '/privacy';
   type Identity =
-    | { kind: 'guest'; onconnect?: () => void }
+    | {
+        kind: 'guest';
+        onconnect?: () => Promise<IdentityViewActionResult> | void;
+      }
     | { kind: 'connected'; publicKey: string; ondisconnect?: () => void };
   let {
     children,
     currentPath = '/',
     availableRoutes = [],
-    identity = { kind: 'guest' }
+    identity = { kind: 'guest' },
+    capability,
+    ondisconnect
   }: {
     children: Snippet;
     currentPath?: string;
     availableRoutes?: readonly ShellRoute[];
     identity?: Identity;
+    capability?: IdentitySnapshot;
+    ondisconnect?: () => void;
   } = $props();
 
+  const observed = $derived(
+    capability ??
+      (identity.kind === 'guest'
+        ? { state: 'guest' as const, reason: 'disconnected' as const }
+        : {
+            state: 'connected' as const,
+            publicKey: identity.publicKey,
+            messaging: 'not_probed' as const
+          })
+  );
   const unavailable = $derived(
     !availableRoutes.includes('/search') ||
       !availableRoutes.includes('/about') ||
@@ -68,11 +88,7 @@
       {@render navigation('Search', '/search')}
       {#if identity.kind === 'guest'}
         {@render navigation('List food', '/sell')}
-        <Button
-          label="Connect extension"
-          disabled={!identity.onconnect}
-          onclick={identity.onconnect}
-        />
+        {@render navigation('Messages', '/messages')}
       {:else}
         {@render navigation('Messages', '/messages')}
         {@render navigation('Selling', '/selling')}
@@ -85,6 +101,14 @@
           />
         </Disclosure>
       {/if}
+      <CapabilityGate
+        focusTarget="navbar"
+        {ondisconnect}
+        identity={observed}
+        compact
+        focusScope={currentPath}
+        onconnect={identity.kind === 'guest' ? identity.onconnect : undefined}
+      />
     </div>
     {#if unavailable}
       <p id="shell-availability" class="text-small text-muted">

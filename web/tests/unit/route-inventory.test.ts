@@ -70,7 +70,7 @@ describe('thin protected route SSR', () => {
         expect(output.head).toMatch(/name="robots" content="noindex"/);
         expect(output.body).toContain('Connect or unlock');
         expect(output.body).toContain(
-          'Account access is unavailable during development.'
+          'Private views and editing are unavailable during development.'
         );
         expect(output.body).toMatch(
           /<button[^>]*disabled[^>]*>Connect extension/

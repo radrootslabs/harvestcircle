@@ -202,7 +202,7 @@ for (const width of [320, 1024]) {
         name: 'What are you looking for?'
       });
       const search = page.getByRole('button', { name: 'Search', exact: true });
-      const status = page.getByRole('status');
+      const status = page.getByRole('main').getByRole('status');
       await expect(query).toHaveCount(1);
       await expect(query).toHaveAttribute('rows', '2');
       await expect(search).toBeEnabled();

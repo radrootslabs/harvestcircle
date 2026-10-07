@@ -209,6 +209,24 @@ async function hasOwnedPublicRuntime(web) {
     ],
     ['svelte', ['onMount', 'setContext']]
   ]);
+  const identityPath = '../lib/runtime/view-context.ts';
+  const hasIdentity = imports.some(
+    (node) =>
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      node.moduleSpecifier.text === identityPath
+  );
+  if (hasIdentity)
+    required.set(identityPath, [
+      'createIdentityViewContext',
+      'IDENTITY_VIEW_CONTEXT',
+      'identityViewSnapshot',
+      'mountIdentityView',
+      'subscribeIdentityView',
+      'connectIdentityView',
+      'disconnectIdentityView',
+      'closeIdentityView',
+      'invalidateIdentityView'
+    ]);
   const allowedImports = new Set();
   for (const [module, names] of required) {
     const declarations = imports.filter(
@@ -236,7 +254,11 @@ async function hasOwnedPublicRuntime(web) {
       )
         fail();
     }
-    if (module === runtimePath && elements.length !== names.length) fail();
+    if (
+      (module === runtimePath || module === identityPath) &&
+      elements.length !== names.length
+    )
+      fail();
     allowedImports.add(declarations[0]);
   }
   const printer = ts.createPrinter({ removeComments: true });
@@ -265,10 +287,86 @@ async function hasOwnedPublicRuntime(web) {
     lifecycle.some((node, i) => print(node, source) !== shapes[i])
   )
     fail();
+  // HCP056 adds one separately owned identity lifecycle. The canonical public
+  // activation above remains mandatory, unchanged and independently ordered.
+  if (hasIdentity) {
+    const identityExpected = ts.createSourceFile(
+      'identity-expected.ts',
+      `
+  const identityContext = createIdentityViewContext();
+  setContext(IDENTITY_VIEW_CONTEXT, identityContext);
+  let identityView = $state(identityViewSnapshot(identityContext));
+  $effect(() => {
+    if (page.url.pathname) invalidateIdentityView(identityContext);
+  });
+  function connect() {
+    return connectIdentityView(identityContext);
+  }
+  function disconnect() {
+    disconnectIdentityView(identityContext);
+  }
+  const shellIdentity = $derived(
+    identityView.identity.state === 'guest' ||
+      identityView.identity.state === 'pending'
+      ? {
+          kind: 'guest' as const,
+          onconnect: identityView.mounted ? connect : undefined
+        }
+      : {
+          kind: 'connected' as const,
+          publicKey: identityView.identity.publicKey,
+          ondisconnect: disconnect
+        }
+  );
+
+  onMount(() => {
+    const off = subscribeIdentityView(identityContext, (next) => {
+      identityView = next;
+    });
+    mountIdentityView(identityContext);
+    return () => {
+      off();
+      closeIdentityView(identityContext);
+    };
+  });
+`,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS
+    );
+    const identityShapes = identityExpected.statements.map((node) =>
+      print(node, identityExpected)
+    );
+    const identityLifecycle = source.statements.filter((node) =>
+      identityShapes.includes(print(node, source))
+    );
+    if (
+      identityLifecycle.length !== identityShapes.length ||
+      identityLifecycle.some(
+        (node, i) => print(node, source) !== identityShapes[i]
+      )
+    )
+      fail();
+    lifecycle.push(...identityLifecycle);
+    publicText(await readOwned(web, 'src/lib/runtime/view-context.ts'));
+    publicText(await readOwned(web, 'src/lib/runtime/identity-session.ts'));
+  }
   // Reject duplicate, shadowed, reassigned, or extra uses of these bindings in
   // any other statement, including nested closures. Canonical callbacks have
   // no parameters and therefore cannot hide a second context binding.
-  const bindings = new Set(['publicContext', ...[...required.values()].flat()]);
+  const bindings = new Set([
+    'publicContext',
+    ...[...required.values()].flat(),
+    ...(hasIdentity
+      ? [
+          'identityContext',
+          'identityView',
+          'connect',
+          'disconnect',
+          'shellIdentity'
+        ]
+      : [])
+  ]);
   for (const statement of source.statements) {
     if (allowedImports.has(statement) || lifecycle.includes(statement))
       continue;
@@ -295,7 +393,7 @@ async function hasOwnedPublicRuntime(web) {
     'config/deployment-relays.ts'
   ])
     publicText(await readOwned(web, 'src/lib/' + name));
-  return true;
+  return hasIdentity ? 'public_identity' : 'public';
 }
 /** @param {string} web */
 async function productPresentationAdmission(web) {
@@ -488,7 +586,7 @@ export async function auditOutput(webDirectory) {
       'AccountGate',
       'references',
       'legacy',
-      'rolldown-runtime',
+      ...(hasPublicRuntime === 'public_identity' ? [] : ['rolldown-runtime']),
       'shared-errors'
     ])
       names.add(name);
@@ -498,7 +596,9 @@ export async function auditOutput(webDirectory) {
       'public-key',
       ...(hasSearchPresentation ? ['Disclosure', 'navigation'] : ['dist']),
       'negentropy',
-      'budgets'
+      ...(hasPublicRuntime === 'public_identity'
+        ? ['view-context', 'heads']
+        : ['budgets'])
     ])
       names.add(name);
   if (hasProductPresentation) names.add('publishers');
@@ -595,12 +695,27 @@ export async function auditOutput(webDirectory) {
     }
     const dist = requiredRecord(hasSearchPresentation ? 'Disclosure' : 'dist');
     const root = requiredRecord('nodes/0')[1];
-    const [budgetKey, budget] = requiredRecord('budgets');
+    const [budgetKey, budget] = requiredRecord(
+      hasPublicRuntime === 'public_identity' ? 'Button' : 'budgets'
+    );
     if (
       !/^_[A-Za-z0-9_-]+\.js$/.test(budgetKey) ||
-      Object.keys(budget).some((field) => !['file', 'name'].includes(field))
+      Object.keys(budget).some(
+        (field) =>
+          !(
+            hasPublicRuntime === 'public_identity'
+              ? ['file', 'name', 'imports']
+              : ['file', 'name']
+          ).includes(field)
+      )
     )
       throw new Error('Invalid owned budgets compiler identity');
+    if (hasPublicRuntime === 'public_identity')
+      equal(
+        budget.imports,
+        [requiredRecord('client')[0]],
+        'Invalid owned budgets compiler dependencies'
+      );
     for (const consumer of hasSearchPresentation
       ? [
           'Disclosure',
@@ -623,7 +738,13 @@ export async function auditOutput(webDirectory) {
       sdk.dynamicImports !== undefined
     )
       throw new Error('Invalid owned SDK compiler identity');
-    equal(sdk.imports, [dist[0]], 'Invalid owned SDK compiler dependency');
+    equal(
+      sdk.imports,
+      hasPublicRuntime === 'public_identity'
+        ? [requiredRecord('heads')[0], dist[0]]
+        : [dist[0]],
+      'Invalid owned SDK compiler dependency'
+    );
     equal(
       hasSearchPresentation ? dist[1].dynamicImports : root.dynamicImports,
       [sdkNegentropy],
@@ -650,13 +771,16 @@ export async function auditOutput(webDirectory) {
         throw new Error('Invalid owned navigation compiler dynamic imports');
       equal(
         dist[1].imports,
-        [
-          'rolldown-runtime',
-          'preload-helper',
-          'public-key',
-          'client',
-          'budgets'
-        ].map((name) => requiredRecord(name)[0]),
+        (hasPublicRuntime === 'public_identity'
+          ? ['public-key', 'preload-helper', 'heads', 'client', 'Button']
+          : [
+              'rolldown-runtime',
+              'preload-helper',
+              'public-key',
+              'client',
+              'budgets'
+            ]
+        ).map((name) => requiredRecord(name)[0]),
         'Invalid owned shared compiler dependencies'
       );
       for (const [key, record] of [dist, navigation]) {
@@ -669,6 +793,34 @@ export async function auditOutput(webDirectory) {
         )
           throw new Error('Invalid owned search compiler chunk');
       }
+    }
+    if (hasPublicRuntime === 'public_identity') {
+      /** @type {[string, string[]][]} */
+      const identityDependencies = [
+        ['view-context', ['public-key', 'heads', 'client', 'Button']],
+        ['heads', ['public-key', 'Button']]
+      ];
+      for (const [name, dependencies] of identityDependencies) {
+        const [key, record] = requiredRecord(name);
+        if (
+          !/^_[A-Za-z0-9_-]+\.js$/.test(key) ||
+          Object.keys(record).some(
+            (field) => !['file', 'name', 'imports'].includes(field)
+          )
+        )
+          throw new Error('Invalid owned identity compiler chunk');
+        equal(
+          record.imports,
+          dependencies.map((dependency) => requiredRecord(dependency)[0]),
+          'Invalid owned identity compiler dependencies'
+        );
+      }
+      const [identityKey] = requiredRecord('view-context');
+      if (
+        !root.imports?.includes(identityKey) ||
+        !requiredRecord('AccountGate')[1].imports?.includes(identityKey)
+      )
+        throw new Error('Invalid owned identity compiler consumer');
     }
     for (const name of hasSearchPresentation
       ? ['public-key']
@@ -701,38 +853,68 @@ export async function auditOutput(webDirectory) {
       throw new Error('Invalid owned product compiler identity');
     equal(
       publisher.imports,
-      ['public-key', 'Disclosure', 'budgets'].map((name) => entry(name)[0]),
+      (hasPublicRuntime === 'public_identity'
+        ? ['public-key', 'heads', 'Disclosure', 'Button']
+        : ['public-key', 'Disclosure', 'budgets']
+      ).map((name) => entry(name)[0]),
       'Invalid owned product publisher compiler dependencies'
     );
     equal(
       entry('nodes/7')[1].imports,
-      [
-        'rolldown-runtime',
-        'references',
-        'Disclosure',
-        'client',
-        'budgets',
-        'client.svelte',
-        'state',
-        'Button',
-        'publishers'
-      ].map((name) => entry(name)[0]),
+      (hasPublicRuntime === 'public_identity'
+        ? [
+            'public-key',
+            'references',
+            'heads',
+            'Disclosure',
+            'client',
+            'Button',
+            'client.svelte',
+            'state',
+            'publishers'
+          ]
+        : [
+            'rolldown-runtime',
+            'references',
+            'Disclosure',
+            'client',
+            'budgets',
+            'client.svelte',
+            'state',
+            'Button',
+            'publishers'
+          ]
+      ).map((name) => entry(name)[0]),
       'Invalid owned product compiler dependencies'
     );
     equal(
       entry('nodes/9')[1].imports,
-      [
-        'references',
-        'Disclosure',
-        'client',
-        'budgets',
-        'client.svelte',
-        'navigation',
-        'state',
-        'Button',
-        'routes',
-        'publishers'
-      ].map((name) => entry(name)[0]),
+      (hasPublicRuntime === 'public_identity'
+        ? [
+            'references',
+            'heads',
+            'Disclosure',
+            'client',
+            'Button',
+            'client.svelte',
+            'navigation',
+            'state',
+            'routes',
+            'publishers'
+          ]
+        : [
+            'references',
+            'Disclosure',
+            'client',
+            'budgets',
+            'client.svelte',
+            'navigation',
+            'state',
+            'Button',
+            'routes',
+            'publishers'
+          ]
+      ).map((name) => entry(name)[0]),
       'Invalid owned search product compiler dependencies'
     );
     if (

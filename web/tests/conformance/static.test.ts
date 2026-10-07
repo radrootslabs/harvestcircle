@@ -16,9 +16,15 @@ await test('actual static shell is prerendered and excludes controlled harness c
   assert.notEqual(fallback, html);
   assert.doesNotMatch(fallback, /<a[^>]*href="\/"[^>]*>HarvestCircle<\/a>/);
   assert.match(fallback, /<script[\s\S]*_app\/immutable/);
+  // Admit the exact public SSR notice, while retaining the original scan
+  // against private state, runtime effects and fixture markers elsewhere.
+  const identityNotice =
+    '<p id="identity-navbar-status" role="status" tabindex="-1">Use your Nostr extension to choose your identity.</p>';
+  assert.equal(html.split(identityNotice).length, 2);
+  assert.ok(!fallback.includes(identityNotice));
   for (const document of [html, fallback]) {
     assert.doesNotMatch(
-      document,
+      document.replace(identityNotice, ''),
       /HC_TEST_ONLY_|nostr|private|draft|conversation|signEvent|indexedDB|WebSocket/i
     );
   }

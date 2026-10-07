@@ -157,6 +157,16 @@ for (const routeCase of cases) {
             ).toBeDisabled();
             await expect(page.locator('main button')).toHaveCount(2);
             await expect(
+              page
+                .locator('main')
+                .getByRole('button', { name: 'Connect extension', exact: true })
+            ).toBeEnabled();
+            await expect(
+              page
+                .locator('main')
+                .getByRole('link', { name: 'Connection help' })
+            ).toHaveAttribute('href', '/about#help');
+            await expect(
               page.locator('main input, main textarea, main form')
             ).toHaveCount(0);
             expect(await page.locator('main').textContent()).not.toContain(

@@ -65,7 +65,10 @@ await test('navigation fallback serves actual separate output and preserves miss
     assert.ok(html);
     assert.match(html, /<title>HarvestCircle<\/title>/);
     assert.match(html, /name="robots" content="noindex"/);
-    assert.match(html, /Account access is unavailable during development/);
+    assert.match(
+      html,
+      /Private views and editing are unavailable during development/
+    );
     assert.doesNotMatch(html, /<form|<input|<textarea/);
   }
   assert.notEqual(search, fallback);

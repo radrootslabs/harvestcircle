@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import {
   cp,
@@ -28,6 +29,25 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
   // Exact HCP043 product shell bytes, immutable compatibility evidence only.
   const historicalProduct =
     '<svelte:head><title>Food — HarvestCircle</title></svelte:head>\n<div class="page page--reading stack">\n  <h1>Food</h1>\n  <p class="notice">Food details are unavailable during development.</p>\n</div>\n';
+  // Frozen public-only HCP055 producers, source6023db01169aa82cb6fe68ca94e1a73750247e72.
+  // Compatibility evidence only; runtime tests never require ancestor Git history.
+  const historicalPublicOnly = {
+    'src/routes/+layout.svelte': {
+      source:
+        "<script lang=\"ts\">\n  import '../theme.css';\n  import '../app.css';\n  import { onMount, setContext, type Snippet } from 'svelte';\n  import {\n    createPublicRuntimeContext,\n    mountPublicRuntime,\n    closePublicRuntime,\n    PUBLIC_RUNTIME_CONTEXT\n  } from '../lib/runtime/public-runtime.ts';\n  import { page } from '$app/state';\n  import AppShell from '../lib/components/AppShell.svelte';\n\n  const publicContext = createPublicRuntimeContext();\n  setContext(PUBLIC_RUNTIME_CONTEXT, publicContext);\n  onMount(() => {\n    mountPublicRuntime(publicContext);\n    return () => closePublicRuntime(publicContext);\n  });\n\n  let { children }: { children: Snippet } = $props();\n</script>\n\n<AppShell\n  currentPath={page.url.pathname}\n  availableRoutes={[\n    '/search',\n    '/sell',\n    '/selling',\n    '/messages',\n    '/about',\n    '/privacy'\n  ]}\n>\n  {@render children()}\n</AppShell>\n",
+      sha256: '956da247f23ad9695c3c6f8bff42801aceaa5b84a2606a1a8a5263fd0c637dc7'
+    },
+    'src/lib/components/AppShell.svelte': {
+      source:
+        "<script lang=\"ts\">\n  import type { Snippet } from 'svelte';\n  import { internalHref } from '../navigation-url';\n  import Button from './primitives/Button.svelte';\n  import Disclosure from './primitives/Disclosure.svelte';\n\n  type ShellRoute =\n    '/search' | '/sell' | '/selling' | '/messages' | '/about' | '/privacy';\n  type Identity =\n    | { kind: 'guest'; onconnect?: () => void }\n    | { kind: 'connected'; publicKey: string; ondisconnect?: () => void };\n  let {\n    children,\n    currentPath = '/',\n    availableRoutes = [],\n    identity = { kind: 'guest' }\n  }: {\n    children: Snippet;\n    currentPath?: string;\n    availableRoutes?: readonly ShellRoute[];\n    identity?: Identity;\n  } = $props();\n\n  const unavailable = $derived(\n    !availableRoutes.includes('/search') ||\n      !availableRoutes.includes('/about') ||\n      !availableRoutes.includes('/privacy') ||\n      (identity.kind === 'guest'\n        ? !availableRoutes.includes('/sell') || !identity.onconnect\n        : !availableRoutes.includes('/selling') ||\n          !availableRoutes.includes('/messages') ||\n          !identity.ondisconnect)\n  );\n\n  function available(href: string) {\n    return (\n      href === '/' ||\n      availableRoutes.some((route) => route === href.split('#')[0])\n    );\n  }\n</script>\n\n{#snippet navigation(label: string, href: string, brand = false)}\n  {#if available(href) && internalHref(href)}\n    <a\n      href={internalHref(href)}\n      class=\"shell-link\"\n      class:brand\n      aria-current={currentPath === href ? 'page' : undefined}>{label}</a\n    >\n  {:else}\n    <span\n      class=\"shell-link text-muted\"\n      aria-disabled=\"true\"\n      aria-describedby=\"shell-availability\"\n      aria-current={currentPath === href ? 'page' : undefined}>{label}</span\n    >\n  {/if}\n{/snippet}\n\n<a href={internalHref('#main-content')} class=\"skip-link visually-hidden\"\n  >Skip to main content</a\n>\n<header class=\"navbar\">\n  <nav aria-label=\"Primary\" class=\"page navbar__inner\">\n    <div class=\"cluster\">\n      {@render navigation('HarvestCircle', '/', true)}\n      {@render navigation('Search', '/search')}\n      {#if identity.kind === 'guest'}\n        {@render navigation('List food', '/sell')}\n        <Button\n          label=\"Connect extension\"\n          disabled={!identity.onconnect}\n          onclick={identity.onconnect}\n        />\n      {:else}\n        {@render navigation('Messages', '/messages')}\n        {@render navigation('Selling', '/selling')}\n        <Disclosure summary=\"Identity\">\n          <p class=\"key\">{identity.publicKey}</p>\n          <Button\n            label=\"Disconnect\"\n            disabled={!identity.ondisconnect}\n            onclick={identity.ondisconnect}\n          />\n        </Disclosure>\n      {/if}\n    </div>\n    {#if unavailable}\n      <p id=\"shell-availability\" class=\"text-small text-muted\">\n        Unavailable during development: disabled navigation and actions.\n      </p>\n    {/if}\n  </nav>\n</header>\n<main id=\"main-content\" tabindex=\"-1\" class=\"page\">\n  {@render children()}\n</main>\n<footer class=\"footer\">\n  <nav aria-label=\"Footer\" class=\"page cluster\">\n    {@render navigation('About', '/about')}\n    {@render navigation('Privacy', '/privacy')}\n    {@render navigation('Help / report', '/about#help')}\n  </nav>\n</footer>\n",
+      sha256: 'c8afbb1ee62a16ad47558829518b347fe3e2a312e490312ded812a8b538d828f'
+    },
+    'src/lib/components/AccountGate.svelte': {
+      source:
+        '<script lang="ts">\n  import Button from \'./primitives/Button.svelte\';\n</script>\n\n<svelte:head>\n  <title>HarvestCircle</title>\n  <meta name="robots" content="noindex" />\n</svelte:head>\n<div class="page page--reading stack">\n  <h1>Connect or unlock</h1>\n  <p>Connect an extension and unlock your account to continue.</p>\n  <p class="notice">Account access is unavailable during development.</p>\n  <div class="cluster">\n    <Button label="Connect extension" disabled />\n    <Button label="Unlock" disabled />\n  </div>\n</div>\n',
+      sha256: 'd5f90fb4b9af50037ed19dde626552e82df67017a39408bdbdeff1e712c10fbd'
+    }
+  };
   const base = await mkdtemp(path.join(os.tmpdir(), 'hc actual output '));
   t.after(() => rm(base, { recursive: true, force: true }));
   /** @param {string} root @param {string[]} args */
@@ -147,6 +167,46 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       );
     }
   );
+  await check(
+    'public-only owned lifecycle remains independently compilable',
+    async (t) => {
+      const f = await fixture(t);
+      for (const [name, value] of Object.entries(historicalPublicOnly)) {
+        assert.equal(
+          createHash('sha256').update(value.source).digest('hex'),
+          value.sha256
+        );
+        await writeFile(path.join(f.web, name), value.source);
+      }
+      await cp(
+        path.join(base, 'web/node_modules'),
+        path.join(f.web, 'node_modules'),
+        { recursive: true, verbatimSymlinks: true }
+      );
+      await refresh(f);
+      execFileSync(
+        process.execPath,
+        [path.join(source, 'web/node_modules/vite/bin/vite.js'), 'build'],
+        { cwd: f.web, stdio: 'pipe', timeout: 60000 }
+      );
+      const manifest = JSON.parse(
+        await readFile(
+          path.join(f.web, '.svelte-kit/output/client/.vite/manifest.json'),
+          'utf8'
+        )
+      );
+      assert.ok(
+        !Object.values(manifest).some(
+          (record) => record.name === 'view-context'
+        )
+      );
+      assert.ok(
+        Object.values(manifest).some((record) => record.name === 'budgets')
+      );
+      assert.equal((await f.audit()).length, 47);
+    },
+    60000
+  );
   /** @param {{root: string, web: string}} f */
   async function refresh(f) {
     git(f.root, 'add', '--', 'web/src');
@@ -182,6 +242,10 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
     'predecessor SDK graph remains qualified with the historical search form fixture',
     async (t) => {
       const f = await fixture(t);
+      // This historical graph predates identity activation. Restore its
+      // immutable public-only producers before compiling the former routes.
+      for (const [name, value] of Object.entries(historicalPublicOnly))
+        await writeFile(path.join(f.web, name), value.source);
       // Immutable former route bytes are a labelled verification variant only.
       const historical =
         "<script lang=\"ts\">\n  import { page } from '$app/state';\n  import SearchForm from '../../lib/components/SearchForm.svelte';\n  import {\n    normalizePublicQuery,\n    queryErrorMessage,\n    readPublicQuery\n  } from '../../lib/catalog/query-input';\n  import type { PublicQuery } from '../../lib/catalog/query-input';\n  import { searchHref } from '../../lib/routes';\n  import { internalHref } from '../../lib/navigation-url';\n  let query = $state<PublicQuery>(normalizePublicQuery(''));\n  let error = $state<string | undefined>();\n  $effect(() => {\n    query = readPublicQuery(page.url);\n    error = undefined;\n  });\n  function search(input: string) {\n    const next = normalizePublicQuery(input);\n    if (!next.ok) {\n      error = queryErrorMessage(next.error);\n      return;\n    }\n    error = undefined;\n    const target = internalHref(searchHref(next.text));\n    if (target === undefined) {\n      error = queryErrorMessage('invalid_query');\n      return;\n    }\n    globalThis.location.assign(target);\n  }\n</script>\n\n<svelte:head><title>Search food \u2014 HarvestCircle</title></svelte:head>\n<div class=\"page page--reading stack\">\n  <h1>Search food</h1>\n  <SearchForm\n    onsubmit={search}\n    initialValue={query.ok ? query.text : ''}\n    error={error ?? (query.ok ? undefined : queryErrorMessage(query.error))}\n  />\n  <p class=\"notice\">Search data is unavailable during development.</p>\n</div>\n";
@@ -227,6 +291,8 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
     'HCP043 search graph remains qualified with the exact historical product shell',
     async (t) => {
       const f = await fixture(t);
+      for (const [name, value] of Object.entries(historicalPublicOnly))
+        await writeFile(path.join(f.web, name), value.source);
       await writeFile(
         path.join(f.web, 'src/routes/products/[naddr=naddr]/+page.svelte'),
         historicalProduct
@@ -397,6 +463,130 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       await refresh(f);
       await assert.rejects(f.audit, /compiler|runtime/i);
     });
+  for (const mutation of [
+    'missing-mount',
+    'missing-subscription',
+    'missing-unsubscribe',
+    'missing-close',
+    'wrong-context',
+    'duplicate-context',
+    'extra-mount',
+    'aliased-mount',
+    'shadowed',
+    'missing-context',
+    'rebound-context'
+  ])
+    await check('owned identity lifecycle rejects ' + mutation, async (t) => {
+      const f = await fixture(t);
+      const file = path.join(f.web, 'src/routes/+layout.svelte');
+      const original = await readFile(file, 'utf8');
+      let layout = original;
+      assert.ok(layout.includes('mountIdentityView(identityContext);'));
+      if (mutation === 'missing-mount')
+        layout = layout.replace('mountIdentityView(identityContext);', '');
+      if (mutation === 'missing-subscription')
+        layout = layout.replace(
+          'subscribeIdentityView(identityContext,',
+          'subscribeIdentityView({},'
+        );
+      if (mutation === 'missing-unsubscribe')
+        layout = layout.replace('      off();', '');
+      if (mutation === 'missing-close')
+        layout = layout.replace('closeIdentityView(identityContext);', '');
+      if (mutation === 'wrong-context')
+        layout = layout.replace(
+          'closeIdentityView(identityContext)',
+          'closeIdentityView({})'
+        );
+      if (mutation === 'duplicate-context')
+        layout = layout.replace(
+          'const identityContext = createIdentityViewContext();',
+          'const identityContext = createIdentityViewContext(); const other = createIdentityViewContext();'
+        );
+      if (mutation === 'extra-mount')
+        layout = layout.replace(
+          'mountIdentityView(identityContext);',
+          'mountIdentityView(identityContext); mountIdentityView(identityContext);'
+        );
+      if (mutation === 'aliased-mount')
+        layout = layout
+          .replace(
+            '    mountIdentityView,',
+            '    mountIdentityView as otherMount,'
+          )
+          .replace(
+            'mountIdentityView(identityContext);',
+            'otherMount(identityContext);'
+          );
+      if (mutation === 'shadowed')
+        layout = layout.replace(
+          'const off = subscribeIdentityView',
+          'const identityContext = {}; const off = subscribeIdentityView'
+        );
+      if (mutation === 'missing-context')
+        layout = layout.replace(
+          'setContext(IDENTITY_VIEW_CONTEXT, identityContext);',
+          ''
+        );
+      if (mutation === 'rebound-context')
+        layout = layout.replace(
+          'const identityContext =',
+          'let identityContext ='
+        );
+      assert.notEqual(layout, original);
+      await writeFile(file, layout);
+      await refresh(f);
+      await assert.rejects(f.audit, /Invalid owned root runtime activation/);
+    });
+  for (const mutation of [
+    'missing-view',
+    'missing-heads',
+    'extra-view-field',
+    'wrong-view-imports',
+    'wrong-heads-imports',
+    'missing-root-edge',
+    'missing-gate-edge'
+  ])
+    await check(
+      'owned identity compiler topology rejects ' + mutation,
+      async (t) => {
+        const f = await fixture(t),
+          file = path.join(
+            f.web,
+            '.svelte-kit/output/client/.vite/manifest.json'
+          );
+        const manifest = JSON.parse(await readFile(file, 'utf8'));
+        /** @param {string} name */
+        const find = (name) => {
+          const entry = Object.entries(manifest).find(
+            ([, record]) => record.name === name
+          );
+          assert.ok(entry, 'Missing observed compiler role: ' + name);
+          return entry;
+        };
+        const [identityKey, identity] = find('view-context'),
+          [headsKey, heads] = find('heads');
+        if (mutation === 'missing-view') delete manifest[identityKey];
+        if (mutation === 'missing-heads') delete manifest[headsKey];
+        if (mutation === 'extra-view-field') identity.dynamicImports = [];
+        if (mutation === 'wrong-view-imports') identity.imports = [];
+        if (mutation === 'wrong-heads-imports') heads.imports = [];
+        if (
+          mutation === 'missing-root-edge' ||
+          mutation === 'missing-gate-edge'
+        ) {
+          const [, consumer] = find(
+            mutation === 'missing-root-edge' ? 'nodes/0' : 'AccountGate'
+          );
+          consumer.imports = consumer.imports.filter(
+            /** @param {string} dependency */
+            (dependency) => dependency !== identityKey
+          );
+        }
+        await writeFile(file, JSON.stringify(manifest));
+        await assert.rejects(f.audit, /compiler/i);
+      }
+    );
   for (const name of [
     'runtime/public-runtime.ts',
     'nostr/request-scope.ts',
@@ -515,11 +705,16 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
         )
       );
       const entries = Object.entries(manifest).filter(
-        ([, record]) => record.name === 'budgets'
+        ([, record]) => record.name === 'Button'
       );
       assert.equal(entries.length, 1);
       const [key, budget] = entries[0];
-      assert.deepEqual(Object.keys(budget).sort(), ['file', 'name']);
+      assert.deepEqual(Object.keys(budget).sort(), ['file', 'imports', 'name']);
+      const client = Object.entries(manifest).find(
+        ([, record]) => record.name === 'client'
+      );
+      assert.ok(client);
+      assert.deepEqual(budget.imports, [client[0]]);
       for (const name of ['Disclosure', 'nodes/9', 'routes'])
         assert.ok(
           Object.values(manifest)
@@ -600,7 +795,7 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
         publisher.imports = publisher.imports.filter(
           (/** @type {string} */ key) =>
             key !==
-            find(mutation === 'publisher-budget' ? 'budgets' : 'Disclosure')[0]
+            find(mutation === 'publisher-budget' ? 'Button' : 'Disclosure')[0]
         );
       else {
         const target = mutation === 'search-publisher' ? 'nodes/9' : 'nodes/7';
@@ -608,7 +803,7 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
           mutation === 'product-shared'
             ? 'Disclosure'
             : mutation === 'product-budget'
-              ? 'budgets'
+              ? 'Button'
               : 'publishers';
         find(target)[1].imports = find(target)[1].imports.filter(
           (/** @type {string} */ key) => key !== find(dependency)[0]
@@ -670,7 +865,7 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
         return entry;
       };
       const [sharedKey, shared] = find('Disclosure');
-      const [budgetKey] = find('budgets');
+      const [budgetKey] = find('Button');
       if (mutation === 'missing-shared') delete manifest[sharedKey];
       else if (mutation === 'missing-navigation')
         delete manifest[find('navigation')[0]];
@@ -722,14 +917,14 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       );
       const manifest = JSON.parse(await readFile(file, 'utf8'));
       const entry = Object.entries(manifest).find(
-        ([, record]) => record.name === 'budgets'
+        ([, record]) => record.name === 'Button'
       );
       assert.ok(entry);
       const [key, budget] = entry;
       if (mutation === 'unknown-name') budget.name = 'unapproved-budgets';
       if (mutation === 'duplicate') manifest['_HCduplicate.js'] = { ...budget };
       if (mutation === 'missing-module') delete manifest[key];
-      if (mutation === 'extra-field') budget.imports = [];
+      if (mutation === 'extra-field') budget.dynamicImports = [];
       if (
         mutation === 'missing-root-edge' ||
         mutation === 'missing-routes-edge'
