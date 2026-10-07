@@ -1,5 +1,6 @@
 import { PUBLIC_REQUEST_BUDGETS } from '../config/budgets.ts';
 import type { RelayPolicy } from '../config/relays.ts';
+import { canonicalPublicKey } from '../contracts/public-key.ts';
 import { requireNip50Source } from './search-sources.ts';
 import {
   createPublicIngress,
@@ -14,6 +15,7 @@ import {
 } from '../catalog/observations.ts';
 import {
   createPublicRequestResult,
+  createInboxRequestResult,
   handlePublicRequestMessage,
   publicRequestSnapshot,
   disposePublicRequestResult,
@@ -27,7 +29,7 @@ declare const requestBrand: unique symbol;
 export type PublicScheduler = Readonly<{ readonly [schedulerBrand]: true }>;
 export type PublicRun = Readonly<{ readonly [runBrand]: true }>;
 export type PublicRequest = Readonly<{ readonly [requestBrand]: true }>;
-export type RequestKind = 'search' | 'head' | 'deletion' | 'profile';
+export type RequestKind = 'search' | 'head' | 'deletion' | 'profile' | 'inbox';
 export type RequestState =
   'active' | 'eose' | 'partial' | 'cancelled' | 'deadline' | 'limit' | 'error';
 export interface RequestClock {
@@ -65,7 +67,8 @@ interface RunOwner {
     kind: RequestKind,
     open: (next: (message: PublicPoolMessage) => void) => () => void,
     onVerified: (event: VerifiedEnvelope) => void,
-    sampleSource?: string
+    sampleSource?: string,
+    inboxAuthor?: string
   ) => PublicRequest;
   readonly active: () => boolean;
   readonly snapshot: () => Readonly<{
@@ -84,6 +87,7 @@ interface RequestOwner {
     kind: RequestKind;
     deadline: number;
     state: RequestState;
+    inboxSettled?: boolean;
     result: ReturnType<typeof publicRequestSnapshot>;
   }>;
   readonly close: () => boolean;
@@ -208,14 +212,18 @@ export function createPublicRun(
     }),
     cancel,
     dispose,
-    open(kind, open, onVerified, sampleSource) {
+    open(kind, open, onVerified, sampleSource, inboxAuthor) {
+      if (kind === 'inbox' && !canonicalPublicKey(inboxAuthor))
+        throw new Error('inbox_author_invalid');
+      if (kind !== 'inbox' && inboxAuthor !== undefined)
+        throw new Error('inbox_request_kind_invalid');
       if (sampleSource !== undefined) {
         if (kind !== 'search') throw new Error('nip50_request_kind');
         requireNip50Source(policy, sampleSource);
       }
       shared.available();
       if (!owner.active()) throw new Error('public_run_inactive');
-      if (!['search', 'head', 'deletion', 'profile'].includes(kind))
+      if (!['search', 'head', 'deletion', 'profile', 'inbox'].includes(kind))
         throw new Error('public_request_kind_invalid');
       const request = Object.freeze({}) as PublicRequest;
       const expires = Math.min(
@@ -233,12 +241,10 @@ export function createPublicRun(
       shared.reserve(request, () => finish('cancelled'));
       let result: PublicRequestResult;
       try {
-        result = createPublicRequestResult(
-          policy,
-          ingress,
-          journal,
-          sampleSource
-        );
+        result =
+          inboxAuthor === undefined
+            ? createPublicRequestResult(policy, ingress, journal, sampleSource)
+            : createInboxRequestResult(policy, ingress, journal, inboxAuthor);
       } catch {
         shared.release(request);
         throw new Error('public_request_prepare_failed');
@@ -281,6 +287,7 @@ export function createPublicRun(
           kind: kind,
           deadline: expires,
           state: state,
+          ...(kind === 'inbox' ? { inboxSettled: cleanupComplete } : {}),
           result: publicRequestSnapshot(result)
         }),
         close: () => finish('cancelled')
@@ -376,6 +383,16 @@ export function openPublicRequest(
 export function closePublicRequest(request: PublicRequest): void {
   if (!requestOf(request).close())
     throw new Error('public_request_close_failed');
+}
+export function openInboxRequest(
+  run: PublicRun,
+  author: unknown,
+  open: (next: (message: PublicPoolMessage) => void) => () => void,
+  onVerified: (event: VerifiedEnvelope) => void
+): PublicRequest {
+  const key = canonicalPublicKey(author);
+  if (!key) throw new Error('inbox_author_invalid');
+  return runOf(run).open('inbox', open, onVerified, undefined, key);
 }
 export function cancelPublicRun(run: PublicRun): void {
   if (!runOf(run).cancel()) throw new Error('public_run_close_failed');

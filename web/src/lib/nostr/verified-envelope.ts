@@ -168,3 +168,11 @@ export function verifiedEnvelopeSnapshot(
   const raw = snapshots.get(token);
   return raw === undefined ? undefined : (JSON.parse(raw) as NostrEvent);
 }
+
+// Genuine proof-owned input only. SDK object ingress records reconstructed
+// decoded JSON; callers must not mislabel that as original transport bytes.
+export function verifiedEnvelopeWire(
+  token: VerifiedEnvelope
+): string | undefined {
+  return snapshots.get(token);
+}

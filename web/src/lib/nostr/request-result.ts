@@ -1,8 +1,10 @@
 import {
   PUBLIC_INGRESS_BUDGETS,
+  PUBLIC_QUERY_BUDGETS,
   PUBLIC_NIP50_BUDGETS
 } from '../config/budgets.ts';
 import { requireNip50Source } from './search-sources.ts';
+import { canonicalPublicKey } from '../contracts/public-key.ts';
 import { publicRelayTargets, type RelayPolicy } from '../config/relays.ts';
 import {
   createObservationContext,
@@ -13,6 +15,7 @@ import {
 } from '../catalog/observations.ts';
 import {
   admitPublicEvent,
+  admitInboxEvent,
   publicIngressStats,
   type PublicIngress
 } from './ingress.ts';
@@ -40,6 +43,12 @@ export type RequestSnapshot = Readonly<{
   coverage: 'bounded-eose' | 'partial';
   definitiveAbsence: false;
   inactive: boolean;
+  inbox?: Readonly<{ author: string; heads: readonly InboxSourceHead[] }>;
+}>;
+export type InboxSourceHead = Readonly<{
+  source: string;
+  id: string;
+  createdAt: number;
 }>;
 export type RequestMessageResult =
   | Readonly<{ status: 'accepted' | 'duplicate'; value: VerifiedEnvelope }>
@@ -109,6 +118,25 @@ export function createPublicRequestResult(
   journal: ObservationJournal,
   sampleSource?: string
 ): PublicRequestResult {
+  return createResult(policy, ingress, journal, sampleSource);
+}
+export function createInboxRequestResult(
+  policy: RelayPolicy,
+  ingress: PublicIngress,
+  journal: ObservationJournal,
+  author: unknown
+): PublicRequestResult {
+  const key = canonicalPublicKey(author);
+  if (!key) throw new Error('inbox_author_invalid');
+  return createResult(policy, ingress, journal, undefined, key);
+}
+function createResult(
+  policy: RelayPolicy,
+  ingress: PublicIngress,
+  journal: ObservationJournal,
+  sampleSource?: string,
+  inboxAuthor?: string
+): PublicRequestResult {
   publicIngressStats(ingress);
   const allOrigins = publicRelayTargets(policy, 'read');
   const expected = observationSourceOrigins(journal);
@@ -127,8 +155,10 @@ export function createPublicRequestResult(
   const context = createObservationContext(journal);
   runIngress.set(journal, ingress);
   const sources = new Map<string, ReturnType<typeof sourceOwner>>();
+  const heads = new Map<string, InboxSourceHead>();
   for (const source of origins) sources.set(source, sourceOwner(source));
   let inactive = false;
+  let unknownDelivery = false;
   const owner: Owner = {
     handle(message) {
       if (inactive) return { status: 'inactive' };
@@ -139,9 +169,14 @@ export function createPublicRequestResult(
       );
       const source = origin === undefined ? undefined : sources.get(origin);
       if (message.type === 'EVENT') {
-        const admitted = admitPublicEvent(ingress, message.event);
-        if (!source || origin === undefined)
+        const admitted =
+          inboxAuthor === undefined
+            ? admitPublicEvent(ingress, message.event)
+            : admitInboxEvent(ingress, message.event);
+        if (!source || origin === undefined) {
+          unknownDelivery = true;
           return { status: 'source_unknown' };
+        }
         const pending = source.state() === 'pending';
         source.candidate();
         // Preserve the inclusive100th admitted delivery, then settle this sample
@@ -150,6 +185,11 @@ export function createPublicRequestResult(
           sampleSource !== undefined &&
           source.snapshot().candidates >=
             PUBLIC_NIP50_BUDGETS.candidatesPerSource
+        )
+          source.control('limit');
+        if (
+          inboxAuthor !== undefined &&
+          source.snapshot().candidates >= PUBLIC_QUERY_BUDGETS.requestedPerRelay
         )
           source.control('limit');
         if (admitted.status === 'limit') {
@@ -166,15 +206,34 @@ export function createPublicRequestResult(
         }
         if (!('value' in admitted)) return { status: 'rejected' };
         const event = verifiedEnvelopeSnapshot(admitted.value);
-        if (!event || !isPublicEnvelopeKind(event.kind)) {
+        if (
+          !event ||
+          (inboxAuthor === undefined
+            ? !isPublicEnvelopeKind(event.kind)
+            : event.kind !== 10050 || event.pubkey !== inboxAuthor)
+        ) {
           source.reject();
           return { status: 'not_public' };
         }
         if (
+          inboxAuthor === undefined &&
           !recordPublicObservation(journal, context, origin, admitted.value)
         ) {
           source.control('limit');
           return { status: 'limit' };
+        }
+        if (inboxAuthor !== undefined) {
+          const previous = heads.get(origin);
+          if (
+            !previous ||
+            event.created_at > previous.createdAt ||
+            (event.created_at === previous.createdAt && event.id < previous.id)
+          )
+            heads.set(origin, {
+              source: origin,
+              id: event.id,
+              createdAt: event.created_at
+            });
         }
         source.admit(admitted.status === 'duplicate');
         // Record exact source evidence BEFORE any caller inserts/deduplicates into
@@ -192,13 +251,22 @@ export function createPublicRequestResult(
       const outcomes = Array.from(sources.values(), (row) => row.snapshot());
       const complete =
         outcomes.length > 0 &&
+        (inboxAuthor === undefined || !unknownDelivery) &&
         outcomes.every((row) => row.state === 'eose' && row.rejected === 0);
       return {
         context: context,
         sources: outcomes,
         coverage: complete ? 'bounded-eose' : 'partial',
         definitiveAbsence: false,
-        inactive: inactive
+        inactive: inactive,
+        ...(inboxAuthor === undefined
+          ? {}
+          : {
+              inbox: {
+                author: inboxAuthor,
+                heads: Array.from(heads.values(), (row) => ({ ...row }))
+              }
+            })
       };
     },
     dispose() {

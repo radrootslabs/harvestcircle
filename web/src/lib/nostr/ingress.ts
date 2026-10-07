@@ -1,5 +1,6 @@
 import { PUBLIC_INGRESS_BUDGETS } from '../config/budgets.ts';
 import { boundedEnvelopeNumbers } from './envelope-bounds.ts';
+import { decodedInboxWire } from './decoded-inbox-wire.ts';
 import {
   boundedEnvelopeTags,
   verifyEnvelope,
@@ -18,7 +19,7 @@ export type IngressStats = Readonly<{
   stopped: boolean;
 }>;
 interface Owner {
-  readonly admit: (input: unknown) => IngressResult;
+  readonly admit: (input: unknown, inbox?: boolean) => IngressResult;
   readonly stats: () => IngressStats;
 }
 const owners = new WeakMap<PublicIngress, Owner>();
@@ -141,7 +142,7 @@ export function createPublicIngress(): PublicIngress {
         chargedBytes: chargedBytes,
         stopped: stopped
       }),
-    admit(input) {
+    admit(input, inbox = false) {
       if (stopped || deliveries >= PUBLIC_INGRESS_BUDGETS.deliveries) {
         stopped = true;
         return { status: 'limit' };
@@ -159,7 +160,9 @@ export function createPublicIngress(): PublicIngress {
         const rawAvailable = typeof input === 'string';
         const wire = rawAvailable
           ? input
-          : reconstructedWire(input, assertActive);
+          : inbox
+            ? decodedInboxWire(input, assertActive)
+            : reconstructedWire(input, assertActive);
         if (stopped) {
           charge(PUBLIC_INGRESS_BUDGETS.eventBytes + 1);
           return { status: 'limit' };
@@ -207,4 +210,11 @@ export function admitPublicEvent(
 }
 export function publicIngressStats(token: PublicIngress): IngressStats {
   return ownerOf(token).stats();
+}
+
+export function admitInboxEvent(
+  token: PublicIngress,
+  input: unknown
+): IngressResult {
+  return ownerOf(token).admit(input, true);
 }

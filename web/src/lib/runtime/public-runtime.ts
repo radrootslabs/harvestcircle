@@ -20,6 +20,7 @@ import {
   createPublicScheduler,
   createPublicRun,
   openPublicRequest,
+  openInboxRequest,
   disposePublicRun,
   closePublicScheduler,
   publicRunSnapshot,
@@ -30,6 +31,7 @@ import {
   type RequestClock
 } from '../nostr/request-scope.ts';
 import type { PublicFilter } from '../nostr/exports.ts';
+import { inboxPreferenceQueries } from '../nostr/inbox-queries.ts';
 import {
   publicHeadEnvelope,
   publicHeadSnapshot,
@@ -367,6 +369,27 @@ export function subscribePublicView(
 
 export function publicViewNip50Sources(view: PublicView): readonly string[] {
   return qualifiedNip50Sources(viewOf(view).runtime.policy);
+}
+
+// Public metadata, dedicated ownership: no preference enters the food store.
+// Fixed anonymous origins, clocks, scheduler and aggregate ingress stay shared.
+export function subscribeInboxPreference(
+  view: PublicView,
+  run: PublicRun,
+  author: unknown,
+  onVerified: (event: VerifiedEnvelope) => void
+): PublicRequest {
+  const owner = viewOf(view),
+    filters = inboxPreferenceQueries(author);
+  if (!owner.current(run)) throw new Error('public_view_run_inactive');
+  return openInboxRequest(
+    run,
+    author,
+    (next) => subscribePublicPool(owner.runtime.pool, filters, next),
+    (event) => {
+      if (owner.current(run)) onVerified(event);
+    }
+  );
 }
 
 // Capacity invalidation differs from ordinary teardown: last-known snapshots
