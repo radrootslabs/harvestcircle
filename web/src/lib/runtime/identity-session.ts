@@ -6,6 +6,8 @@ import {
   probeExtensionAdapter,
   disconnectExtensionAdapter,
   extensionOwnershipCapture,
+  extensionMessagingOwnershipCapture,
+  subscribeExtensionInvalidation,
   signApprovedExtensionAdapter,
   markApprovedSigningWaitExpired,
   type ApprovedSignResult,
@@ -139,6 +141,21 @@ export function disconnectIdentity(session: IdentitySession): void {
   views.get(session)?.invalidate();
   const adapter = sessions.get(session);
   if (adapter) disconnectExtensionAdapter(adapter);
+}
+// Internal messaging lifecycle ports. Captured observation is not an inbox
+// configuration, AUTH, private store or publication permission.
+export function identityMessagingOwnership(
+  session: IdentitySession
+): PublicEffectCapture | undefined {
+  const adapter = sessions.get(session);
+  return adapter && extensionMessagingOwnershipCapture(adapter);
+}
+export function subscribeIdentityInvalidation(
+  session: IdentitySession,
+  listener: () => void
+): () => void {
+  const adapter = sessions.get(session);
+  return adapter ? subscribeExtensionInvalidation(adapter, listener) : () => {};
 }
 // Explicit route/input lifecycle event. No draft, DB, reconnect or SDK effect.
 export function invalidateIdentityOperations(session: IdentitySession): void {

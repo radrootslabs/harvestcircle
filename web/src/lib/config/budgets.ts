@@ -6,6 +6,17 @@ export const RELAY_BUDGETS = Object.freeze({
   inbox: 3
 });
 
+// Finite private transport page; duplicates and rejected ciphertext count.
+// Full history/live coordination has separate owners. These are logical
+// post-SDK-parse limits, not browser WebSocket allocation guarantees.
+export const PRIVATE_TRANSPORT_BUDGETS = Object.freeze({
+  requestedPerRelay: 200,
+  deliveries: 500,
+  processedBytes: 8388608,
+  pageMilliseconds: 15000,
+  envelopeBytes: 32768
+});
+
 // Approved public-run admission limits shared by all primary/auxiliary sources.
 // Logical post-parse work accounting; no WebSocket preallocation guarantee.
 const publicDeliveryLimit = 2000;

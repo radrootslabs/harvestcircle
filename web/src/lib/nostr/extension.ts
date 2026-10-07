@@ -81,6 +81,8 @@ type Controller = {
   recheck(): Promise<ExtensionSnapshot>;
   probe(review: unknown): Promise<ExtensionSnapshot>;
   capture(): PublicEffectCapture | undefined;
+  captureMessaging(): PublicEffectCapture | undefined;
+  subscribeInvalidation(listener: () => void): () => void;
   expire(approval: ApprovedPublicSigning, lease: PublicEffectLease): void;
   sign(
     approval: ApprovedPublicSigning,
@@ -136,6 +138,16 @@ async function freshKey(
 // Lexically owned per-adapter state; no mutable opaque receiver, browser handle
 // or imported signer escapes through the WeakMap/controller boundary.
 export function createExtensionAdapter(): ExtensionAdapter {
+  const invalidations = new Map<symbol, () => void>();
+  function notifyInvalidation() {
+    for (const listener of invalidations.values()) {
+      try {
+        listener();
+      } catch {
+        /* Cleanup failure stays owned by its scope. */
+      }
+    }
+  }
   let key: string | null = null,
     signingCandidate = false;
   let messaging: 'not_probed' | 'unsupported' | 'refused' | 'capable' =
@@ -164,6 +176,7 @@ export function createExtensionAdapter(): ExtensionAdapter {
     signingCandidate = false;
     messaging = 'not_probed';
     reason = nextReason;
+    notifyInvalidation();
   }
   function disconnect() {
     generation = Symbol();
@@ -213,6 +226,7 @@ export function createExtensionAdapter(): ExtensionAdapter {
         guest(error instanceof ExtensionMissingError ? 'missing' : 'refused');
     } finally {
       pending = null;
+      notifyInvalidation();
     }
     return busy ? { ...snapshot(), admission: 'busy' } : snapshot();
   }
@@ -507,6 +521,36 @@ export function createExtensionAdapter(): ExtensionAdapter {
         current: () => generation === original && !cancelled && key === owner
       };
     },
+    captureMessaging() {
+      if (
+        !key ||
+        cancelled ||
+        !signingCandidate ||
+        messaging !== 'capable' ||
+        pending ||
+        signing
+      )
+        return undefined;
+      const owner = key,
+        original = generation;
+      return {
+        owner,
+        session: original,
+        current: () =>
+          generation === original &&
+          !cancelled &&
+          key === owner &&
+          signingCandidate &&
+          messaging === 'capable'
+      };
+    },
+    subscribeInvalidation(listener) {
+      const id = Symbol();
+      invalidations.set(id, listener);
+      return () => {
+        invalidations.delete(id);
+      };
+    },
     sign,
     expire(approval, lease) {
       if (activeSigning?.approval === approval && activeSigning.lease === lease)
@@ -572,6 +616,17 @@ export function extensionOwnershipCapture(
   adapter: ExtensionAdapter
 ): PublicEffectCapture | undefined {
   return adapters.get(adapter)?.capture();
+}
+export function extensionMessagingOwnershipCapture(
+  adapter: ExtensionAdapter
+): PublicEffectCapture | undefined {
+  return adapters.get(adapter)?.captureMessaging();
+}
+export function subscribeExtensionInvalidation(
+  adapter: ExtensionAdapter,
+  listener: () => void
+): () => void {
+  return adapters.get(adapter)?.subscribeInvalidation(listener) ?? (() => {});
 }
 // Internal exact original operation port. Expiry pauses the real scheduler;
 // neither this method nor a UI timeout pretends to cancel the SDK promise.

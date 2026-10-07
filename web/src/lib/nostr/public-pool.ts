@@ -1,4 +1,4 @@
-import { RelayPool } from 'applesauce-relay/pool';
+import { createScopedRelayPool } from './pool-factory.ts';
 import { deploymentRelayPolicy } from '../config/deployment-relays.ts';
 import {
   publicRelayTargets,
@@ -40,12 +40,7 @@ export function getPublicPool(
   }
   const token = Object.freeze({}) as PublicPool;
   const origins = publicRelayTargets(policy, 'read');
-  const sdk = new RelayPool({
-    keepAlive: 0,
-    enablePing: false,
-    requestReconnect: 0,
-    subscriptionReconnect: 0
-  });
+  const sdk = createScopedRelayPool();
   const active = new Map<() => void, true>();
   let closed = false;
   let cleanupComplete = false;
