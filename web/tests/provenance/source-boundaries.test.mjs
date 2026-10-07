@@ -16,6 +16,44 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
+test('HCP060 document visibility access is confined to the exact disposal producer', async () => {
+  await fixture(async ({ directory, put, execute }) => {
+    await confineSvelte(directory);
+    const helper = await readFile(
+      path.join(root, 'src/lib/runtime/dispose.ts'),
+      'utf8'
+    );
+    // Source grammar fixture only, not product session or lifecycle qualification.
+    await put(
+      'src/lib/runtime/private-session.ts',
+      'export type PrivateSession = {}; export function privateSessionOwnership(){return undefined;} export function subscribePrivateSessionClose(){return ()=>{};} export function closePrivateSession(){return true;} export function privateSessionCleanupRequired(){return false;}'
+    );
+    await put('src/lib/runtime/dispose.ts', helper);
+    assert.equal(execute().status, 0);
+    for (const code of [
+      'export const value=document.visibilityState;',
+      'document.addEventListener("visibilitychange",()=>{});',
+      'document.removeEventListener("visibilitychange",()=>{});',
+      'const owner=document;owner.addEventListener("visibilitychange",()=>{});',
+      'const observe=document.addEventListener;observe("visibilitychange",()=>{});',
+      'document["addEventListener"]("visibilitychange",()=>{});',
+      'window.document.addEventListener("visibilitychange",()=>{});'
+    ]) {
+      await put('src/routes/+page.ts', code);
+      assert.notEqual(execute().status, 0, code);
+    }
+    await put('src/routes/+page.ts', 'export const value=1;');
+    await put(
+      'src/lib/runtime/dispose.ts',
+      helper + '\n document.addEventListener("click",()=>{});'
+    );
+    assert.notEqual(execute().status, 0);
+    await put('src/lib/runtime/dispose.ts', helper);
+    await put('src/lib/runtime/copied-dispose.ts', helper);
+    assert.notEqual(execute().status, 0);
+  });
+});
+
 test('HCP044 clipboard access is confined to the exact public copy producer', async () => {
   await fixture(async ({ directory, put, execute }) => {
     await confineSvelte(directory);

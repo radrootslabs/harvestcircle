@@ -11,7 +11,8 @@ type Controller = {
   identity: IdentitySession;
   capture: PublicEffectCapture;
   current(): boolean;
-  close(): void;
+  close(): boolean;
+  cleanupRequired(): boolean;
   subscribe(listener: () => void): () => void;
 };
 const sessions = new WeakMap<PrivateSession, Controller>();
@@ -25,6 +26,11 @@ export async function createPrivateSession(
 ): Promise<PrivateSession | undefined> {
   if (typeof window === 'undefined' || review !== 'reviewed_private_session')
     return undefined;
+  // Retire unresolved old resources before any new provider observation. A new
+  // author/generation cannot replace failed authenticated socket ownership.
+  const previous = currentSessions.get(identity);
+  const prior = previous && sessions.get(previous);
+  if (prior && !prior.current() && !prior.close()) return undefined;
   const before = identityMessagingOwnership(identity);
   if (!before) return undefined;
   const checked = await recheckIdentityOwner(identity);
@@ -40,37 +46,43 @@ export async function createPrivateSession(
     return undefined;
   const existing = currentSessions.get(identity);
   if (existing && sessions.get(existing)?.current()) return existing;
+  if (existing && !sessions.get(existing)?.close()) return undefined;
   const token = Object.freeze({}) as PrivateSession;
   const listeners = new Map<symbol, () => void>();
   let closed = false;
+  let closing = false;
   let unsubscribe = () => {};
   const current = () => !closed && capture.current();
   function close() {
-    if (closed) return;
     closed = true;
-    unsubscribe();
-    for (const listener of listeners.values()) {
-      try {
-        listener();
-      } catch {
-        /* Pool retains failed cleanup until retry. */
+    if (closing) return false;
+    closing = true;
+    try {
+      unsubscribe();
+      for (const [id, listener] of listeners) {
+        try {
+          listener();
+          listeners.delete(id);
+        } catch {
+          // Keep only failed cleanup registrations for an actual retry. Drain
+          // other resources now; passive invalidation never leaks exceptions.
+        }
       }
+    } finally {
+      closing = false;
     }
-    listeners.clear();
+    return listeners.size === 0;
   }
   sessions.set(token, {
     identity,
     capture,
     current,
     close,
+    cleanupRequired: () => closed && listeners.size !== 0,
     subscribe(listener) {
-      if (!current()) {
-        close();
-        listener();
-        return () => {};
-      }
       const id = Symbol();
       listeners.set(id, listener);
+      if (!current()) close();
       return () => {
         listeners.delete(id);
       };
@@ -105,7 +117,15 @@ export function privateSessionSnapshot(
   token: PrivateSession
 ): Readonly<{ owner: string; current: boolean }> | undefined {
   const state = sessions.get(token);
-  return state && { owner: state.capture.owner, current: state.current() };
+  return (
+    state && {
+      owner: state.capture.owner,
+      current: state.current()
+    }
+  );
+}
+export function privateSessionCleanupRequired(token: PrivateSession): boolean {
+  return sessions.get(token)?.cleanupRequired() ?? false;
 }
 export function subscribePrivateSessionClose(
   token: PrivateSession,
@@ -115,8 +135,8 @@ export function subscribePrivateSessionClose(
   if (!state) throw new Error('private_session_invalid');
   return state.subscribe(listener);
 }
-export function closePrivateSession(token: PrivateSession): void {
-  sessions.get(token)?.close();
+export function closePrivateSession(token: PrivateSession): boolean {
+  return sessions.get(token)?.close() ?? false;
 }
 // Every new finite network action gets a fresh SDK owner observation; neither
 // a remembered key nor a still-current presentation snapshot substitutes.

@@ -118,7 +118,8 @@ function mutationAdmission(
   report,
   identity = () => null,
   reviewedScroll = false,
-  reviewedCopy = false
+  reviewedCopy = false,
+  reviewedVisibility = false
 ) {
   // Bind this admitted AST only, without libs, module resolution, file reads,
   // config loading or evaluation. Symbols distinguish aliases and shadowing.
@@ -170,6 +171,35 @@ function mutationAdmission(
       top.parent.expression === top
     )
       top = top.parent;
+    // Only the byte-pinned private disposal owner observes scalar visibility
+    // and owns this one fixed event registration. No document handle escapes.
+    if (reviewedVisibility) {
+      const receiver = ts.isCallExpression(top) ? top.expression : top;
+      if (
+        ts.isPropertyAccessExpression(receiver) &&
+        ts.isIdentifier(receiver.expression) &&
+        receiver.expression.text === 'document' &&
+        !checker.getSymbolAtLocation(receiver.expression)
+      ) {
+        if (
+          !ts.isCallExpression(top) &&
+          receiver.name.text === 'visibilityState'
+        )
+          return true;
+        if (
+          ts.isCallExpression(top) &&
+          ['addEventListener', 'removeEventListener'].includes(
+            receiver.name.text
+          ) &&
+          top.arguments.length === 2 &&
+          ts.isStringLiteralLike(top.arguments[0]) &&
+          top.arguments[0].text === 'visibilitychange' &&
+          ts.isIdentifier(top.arguments[1]) &&
+          top.arguments[1].text === 'onVisibility'
+        )
+          return true;
+      }
+    }
     const action =
       ts.isCallExpression(top) &&
       ['focus', 'blur', 'scrollIntoView'].includes(member(top.expression)) &&
@@ -1517,6 +1547,16 @@ export async function auditSource(root) {
       complain(file, `unresolved production import ${specifier}`);
     }
   }
+  const visibilityFile = path.join(root, 'src/lib/runtime/dispose.ts');
+  const visibilityTrusted =
+    files.has(visibilityFile) &&
+    createHash('sha256').update(files.get(visibilityFile)).digest('hex') ===
+      'f236ad457215aff0ace7bdf4cd9d7c1b7ffefa8a49d2d3821f8ca6a79b4bec97';
+  if (files.has(visibilityFile) && !visibilityTrusted)
+    complain(
+      visibilityFile,
+      'visibility disposal source identity does not match reviewed pin'
+    );
   const copyFile = path.join(root, 'src/lib/navigation-copy.ts');
   const copyTrusted =
     files.has(copyFile) &&
@@ -2031,7 +2071,8 @@ export async function auditSource(root) {
             : exportIdentity(target, exported);
         },
         file === scrollFile && scrollTrusted,
-        file === copyFile && copyTrusted
+        file === copyFile && copyTrusted,
+        file === visibilityFile && visibilityTrusted
       );
       if (ast.referencedFiles.length || ast.typeReferenceDirectives.length)
         complain(file, 'source reference directives are forbidden');
