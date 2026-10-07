@@ -83,6 +83,12 @@ function scopeOf(repository: PublicQuotaRepository): Scope | undefined {
     return undefined;
   }
 }
+// Metadata only; this does not grant installed-account or effect authority.
+export function publicQuotaOwner(
+  repository: PublicQuotaRepository
+): string | undefined {
+  return scopeOf(repository)?.owner;
+}
 // A namespace capability only; installed-account authorization belongs to the
 // account workflow. This repository never acquires any private store.
 export function createPublicQuotaRepository(
@@ -267,6 +273,78 @@ export function admitPublicOperation(
     }
     active.objectStore(store).put({ owner: scope.owner, id, wire });
     return { ok: true, value: { id, revision: 0 } };
+  });
+}
+// Claim under the caller's origin/author Web Lock. A previous capture is never
+// overwritten or automatically signed again, even after a page lost its lock.
+// No extension/network await occurs inside the short transaction.
+export function claimPublicOperation(
+  repository: PublicQuotaRepository,
+  expectedId: unknown,
+  handle: PublicRecordHandle
+): Promise<
+  PublicQuotaResult<
+    Readonly<{ state: 'created' | 'existing'; record: PublicRecordHandle }>
+  >
+> {
+  const scope = scopeOf(repository),
+    id = canonicalLocalId(expectedId);
+  if (!scope) return Promise.resolve(failed('invalid_scope'));
+  if (!id) return Promise.resolve(failed('invalid_record'));
+  const record = publicRecordSnapshot(handle, scope.owner, id),
+    wire = publicRecordWire(handle, scope.owner, id);
+  if (
+    !record ||
+    !wire ||
+    record.family === 'public_draft' ||
+    record.revision !== 0 ||
+    record.artifact !== null
+  )
+    return Promise.resolve(failed('invalid_record'));
+  const store: Store =
+    record.family === 'public_operation'
+      ? 'public_operations'
+      : 'preference_operations';
+  const bytes = new TextEncoder().encode(wire).length;
+  return transaction<
+    Readonly<{ state: 'created' | 'existing'; record: PublicRecordHandle }>
+  >(scope, 'readwrite', (rows, active, refuse) => {
+    const previous = rows.find(
+      (row) => row.record.family !== 'public_draft' && row.record.id === id
+    );
+    if (previous) {
+      const original = previous.record;
+      if (
+        original.family === 'public_draft' ||
+        original.family !== record.family ||
+        JSON.stringify(original.source) !== JSON.stringify(record.source) ||
+        JSON.stringify(original.capture) !== JSON.stringify(record.capture) ||
+        ('consent' in original ? original.consent : null) !==
+          ('consent' in record ? record.consent : null)
+      ) {
+        refuse('conflict');
+        return;
+      }
+      const decoded = decodePublicRecord(previous.wire, scope.owner, id);
+      if (!decoded.ok) {
+        refuse('corrupt_record');
+        return;
+      }
+      return { ok: true, value: { state: 'existing', record: decoded.value } };
+    }
+    const operations = rows.filter(
+      (row) => row.record.family !== 'public_draft'
+    );
+    if (
+      operations.length >= LOCAL_PERSISTENCE_BUDGETS.publicOperations ||
+      operations.reduce((sum, row) => sum + row.bytes, bytes) >
+        LOCAL_PERSISTENCE_BUDGETS.publicOperationBytes
+    ) {
+      refuse('capacity');
+      return;
+    }
+    active.objectStore(store).put({ owner: scope.owner, id, wire });
+    return { ok: true, value: { state: 'created', record: handle } };
   });
 }
 export function inspectPublicStorage(

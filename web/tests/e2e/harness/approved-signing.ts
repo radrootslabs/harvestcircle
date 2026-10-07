@@ -6,28 +6,97 @@ import {
 } from 'applesauce-core/helpers';
 import {
   decodePublicRecord,
-  publicRecordSnapshot
+  publicRecordSnapshot,
+  type PublicRecordHandle
 } from '../../../src/lib/persistence/records.ts';
 import { capturedArtifactSnapshot } from '../../../src/lib/persistence/artifact-records.ts';
 import {
-  approveCapturedPublicSigning,
+  approveCapturedPublicSigning as approveActual,
+  approvedSigningIdentity,
+  type ApprovedPublicSigning,
   disposableApprovedTemplate,
   bindApprovedResponse
 } from '../../../src/lib/nostr/approved-signing.ts';
+import {
+  signApprovedExtensionAdapter as signActual,
+  extensionOwnershipCapture,
+  type ExtensionAdapter,
+  type ApprovedSignResult
+} from '../../../src/lib/nostr/extension.ts';
+import {
+  openBrowserDatabase,
+  closeBrowserDatabase
+} from '../../../src/lib/persistence/database.ts';
+import { createPublicQuotaRepository } from '../../../src/lib/persistence/quota.ts';
+import { runCapturedPublicEffect } from '../../../src/lib/runtime/effect-ownership.ts';
 export {
   createExtensionAdapter,
   connectExtensionAdapter,
   disconnectExtensionAdapter,
-  signApprovedExtensionAdapter,
   extensionSnapshot
 } from '../../../src/lib/nostr/extension.ts';
 export {
-  approveCapturedPublicSigning,
   disposableApprovedTemplate,
   bindApprovedResponse,
   capturedArtifactSnapshot,
   publicRecordSnapshot
 };
+// Test-only orchestration of the same actual locked signing port. Production
+// adapter/identity code never owns database acquisition or a signing bypass.
+const capturedRecords = new WeakMap<
+  ApprovedPublicSigning,
+  PublicRecordHandle
+>();
+export function approveCapturedPublicSigning(
+  record: PublicRecordHandle,
+  owner: unknown,
+  id: unknown,
+  review: unknown
+) {
+  const approved = approveActual(record, owner, id, review);
+  if (approved) capturedRecords.set(approved, record);
+  return approved;
+}
+export async function signApprovedExtensionAdapter(
+  adapter: ExtensionAdapter,
+  approval: ApprovedPublicSigning
+): Promise<ApprovedSignResult> {
+  const record = capturedRecords.get(approval),
+    identity = approvedSigningIdentity(approval),
+    capture = extensionOwnershipCapture(adapter);
+  if (!record || !identity) return { status: 'invalid_approval' };
+  if (!capture) return { status: 'unavailable' };
+  const opened = await openBrowserDatabase();
+  if (opened.state !== 'ready') return { status: 'unavailable' };
+  try {
+    const repository = createPublicQuotaRepository(
+      opened.owner,
+      identity.owner
+    );
+    if (!repository) return { status: 'unavailable' };
+    const result = await runCapturedPublicEffect(
+      repository,
+      record,
+      identity.id,
+      capture,
+      'reviewed_captured_operation',
+      (lease) => signActual(adapter, approval, lease)
+    );
+    if (result.status === 'completed') return result.value;
+    return {
+      status:
+        result.status === 'busy'
+          ? 'busy'
+          : result.status === 'unknown'
+            ? 'unknown'
+            : result.status === 'stopped'
+              ? 'stale'
+              : 'unavailable'
+    };
+  } finally {
+    closeBrowserDatabase(opened.owner);
+  }
+}
 export type Mode =
   | 'exact'
   | 'author'

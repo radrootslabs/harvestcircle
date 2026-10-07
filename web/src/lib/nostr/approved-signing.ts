@@ -2,6 +2,7 @@ import type { UnsignedEvent } from 'applesauce-core/helpers';
 import { boundedUtf8 } from '../contracts/food-availability-v1/text.ts';
 import {
   publicRecordSnapshot,
+  publicRecordWire,
   type PublicRecordHandle
 } from '../persistence/records.ts';
 import {
@@ -19,6 +20,7 @@ type Capture = Readonly<{
   revision: number;
   wire: string;
   hash: string;
+  recordWire: string;
 }>;
 const approvals = new WeakMap<ApprovedPublicSigning, Capture>();
 // Internal captured-operation capability. This is neither a raw UI template
@@ -33,7 +35,13 @@ export function approveCapturedPublicSigning(
 ): ApprovedPublicSigning | undefined {
   if (review !== 'reviewed_captured_operation') return undefined;
   const row = publicRecordSnapshot(record, owner, id);
-  if (!row || row.family === 'public_draft' || row.artifact !== null)
+  const recordWire = publicRecordWire(record, owner, id);
+  if (
+    !row ||
+    !recordWire ||
+    row.family === 'public_draft' ||
+    row.artifact !== null
+  )
     return undefined;
   const template = inspectLocalTemplate(
     row.capture.wire,
@@ -48,16 +56,27 @@ export function approveCapturedPublicSigning(
     id: row.id,
     revision: row.revision,
     wire: row.capture.wire,
-    hash: row.capture.hash
+    hash: row.capture.hash,
+    recordWire
   });
   return token;
 }
-export function approvedSigningIdentity(
-  approval: ApprovedPublicSigning
-): Readonly<{ owner: string; id: string; revision: number }> | undefined {
+export function approvedSigningIdentity(approval: ApprovedPublicSigning):
+  | Readonly<{
+      owner: string;
+      id: string;
+      revision: number;
+      recordWire: string;
+    }>
+  | undefined {
   const saved = approvals.get(approval);
   return saved
-    ? { owner: saved.owner, id: saved.id, revision: saved.revision }
+    ? {
+        owner: saved.owner,
+        id: saved.id,
+        revision: saved.revision,
+        recordWire: saved.recordWire
+      }
     : undefined;
 }
 // Each acquisition is a disposable fresh JSON copy. No retained template or

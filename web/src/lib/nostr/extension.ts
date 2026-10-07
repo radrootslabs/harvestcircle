@@ -12,12 +12,22 @@ import {
   type ApprovedPublicSigning
 } from './approved-signing.ts';
 import type { CapturedArtifact } from '../persistence/artifact-records.ts';
+import {
+  callOwnedExtension,
+  publicEffectLeaseCurrent,
+  publicEffectSnapshot,
+  markOwnedSignaturePending,
+  type PublicEffectLease,
+  type PublicEffectCapture
+} from '../runtime/effect-ownership.ts';
 
 export type ApprovedSignResult =
   | Readonly<{ status: 'signed'; artifact: CapturedArtifact }>
   | Readonly<{
       status:
         | 'invalid_approval'
+        | 'invalid_ownership'
+        | 'unknown'
         | 'unavailable'
         | 'busy'
         | 'stale'
@@ -65,7 +75,11 @@ type Controller = {
   connect(): Promise<ExtensionSnapshot>;
   recheck(): Promise<ExtensionSnapshot>;
   probe(review: unknown): Promise<ExtensionSnapshot>;
-  sign(approval: ApprovedPublicSigning): Promise<ApprovedSignResult>;
+  capture(): PublicEffectCapture | undefined;
+  sign(
+    approval: ApprovedPublicSigning,
+    lease: PublicEffectLease
+  ): Promise<ApprovedSignResult>;
 };
 const adapters = new WeakMap<ExtensionAdapter, Controller>();
 function present(): Readonly<{ signingCandidate: boolean }> | undefined {
@@ -353,7 +367,8 @@ export function createExtensionAdapter(): ExtensionAdapter {
     });
   }
   async function sign(
-    approval: ApprovedPublicSigning
+    approval: ApprovedPublicSigning,
+    lease: PublicEffectLease
   ): Promise<ApprovedSignResult> {
     const captured = approvedSigningIdentity(approval);
     if (!captured) return { status: 'invalid_approval' };
@@ -367,46 +382,84 @@ export function createExtensionAdapter(): ExtensionAdapter {
       return { status: 'unavailable' };
     const original = generation,
       owner = key;
+    const authority = {
+      owner,
+      id: captured.id,
+      recordWire: captured.recordWire,
+      session: original
+    };
+    if (!publicEffectLeaseCurrent(lease, authority))
+      return { status: 'invalid_ownership' };
     const current = () =>
-      generation === original && !cancelled && key === owner;
+      generation === original &&
+      !cancelled &&
+      key === owner &&
+      publicEffectLeaseCurrent(lease, authority);
     signing = true;
     try {
-      const scheduler = browserExtensionScheduler();
-      if (!scheduler) return { status: 'unavailable' };
-      const admitted = await runExtensionAction(
-        scheduler,
-        { owner, session: original, operation: Symbol() },
-        current,
-        async (action): Promise<ApprovedSignResult> => {
-          const before = await freshKey(current, action);
-          if (!current()) return { status: 'stale' };
-          if (before !== owner) {
-            guest(before ? 'changed_key' : 'invalid_key');
-            return { status: 'stale' };
-          }
-          const disposable = disposableApprovedTemplate(approval);
-          if (!disposable) return { status: 'invalid_approval' };
-          const signer = new ExtensionSigner();
-          const response: unknown = await invokeExtension(action, 'sign', () =>
-            signer.signEvent(disposable)
+      const owned = await callOwnedExtension(
+        lease,
+        authority,
+        async (): Promise<ApprovedSignResult> => {
+          const scheduler = browserExtensionScheduler();
+          if (!scheduler) return { status: 'unavailable' };
+          const admitted = await runExtensionAction(
+            scheduler,
+            { owner, session: original, operation: Symbol() },
+            current,
+            async (action): Promise<ApprovedSignResult> => {
+              const before = await freshKey(current, action);
+              if (!current()) return { status: 'stale' };
+              if (before !== owner) {
+                guest(before ? 'changed_key' : 'invalid_key');
+                return { status: 'stale' };
+              }
+              const disposable = disposableApprovedTemplate(approval);
+              if (!disposable) return { status: 'invalid_approval' };
+              const signer = new ExtensionSigner();
+              if (!current() || !markOwnedSignaturePending(lease))
+                return { status: 'stale' };
+              const response: unknown = await invokeExtension(
+                action,
+                'sign',
+                () => signer.signEvent(disposable)
+              );
+              if (!current()) return { status: 'stale' };
+              const artifact = bindApprovedResponse(approval, response);
+              if (!artifact) return { status: 'mismatch' };
+              const after = await freshKey(current, action);
+              if (!current()) return { status: 'stale' };
+              if (after !== owner) {
+                guest(after ? 'changed_key' : 'invalid_key');
+                return { status: 'stale' };
+              }
+              return { status: 'signed', artifact };
+            }
           );
+          if (admitted.status === 'busy') return { status: 'busy' };
           if (!current()) return { status: 'stale' };
-          const artifact = bindApprovedResponse(approval, response);
-          if (!artifact) return { status: 'mismatch' };
-          const after = await freshKey(current, action);
-          if (!current()) return { status: 'stale' };
-          if (after !== owner) {
-            guest(after ? 'changed_key' : 'invalid_key');
-            return { status: 'stale' };
-          }
-          return { status: 'signed', artifact };
+          return 'value' in admitted && admitted.value
+            ? admitted.value
+            : { status: admitted.status === 'denied' ? 'refused' : 'stale' };
         }
       );
-      if (admitted.status === 'busy') return { status: 'busy' };
-      if (!current()) return { status: 'stale' };
-      return 'value' in admitted && admitted.value
-        ? admitted.value
-        : { status: admitted.status === 'denied' ? 'refused' : 'stale' };
+      if (owned.status === 'settled')
+        return owned.current
+          ? owned.value
+          : {
+              status:
+                publicEffectSnapshot(lease)?.state === 'unknown'
+                  ? 'unknown'
+                  : 'stale'
+            };
+      return {
+        status:
+          owned.status === 'invalid'
+            ? 'invalid_ownership'
+            : owned.status === 'stopped'
+              ? 'stale'
+              : owned.status
+      };
     } catch {
       return { status: current() ? 'refused' : 'stale' };
     } finally {
@@ -420,6 +473,16 @@ export function createExtensionAdapter(): ExtensionAdapter {
     connect,
     recheck,
     probe,
+    capture() {
+      if (!key || cancelled) return undefined;
+      const owner = key,
+        original = generation;
+      return {
+        owner,
+        session: original,
+        current: () => generation === original && !cancelled && key === owner
+      };
+    },
     sign
   });
   return adapter;
@@ -469,10 +532,16 @@ export function probeExtensionAdapter(
 // adapter or an unrestricted raw-event signing/publishing function.
 export function signApprovedExtensionAdapter(
   adapter: ExtensionAdapter,
-  approval: ApprovedPublicSigning
+  approval: ApprovedPublicSigning,
+  lease: PublicEffectLease
 ): Promise<ApprovedSignResult> {
   return (
-    adapters.get(adapter)?.sign(approval) ??
+    adapters.get(adapter)?.sign(approval, lease) ??
     Promise.resolve({ status: 'unavailable' })
   );
+}
+export function extensionOwnershipCapture(
+  adapter: ExtensionAdapter
+): PublicEffectCapture | undefined {
+  return adapters.get(adapter)?.capture();
 }

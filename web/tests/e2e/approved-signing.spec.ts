@@ -207,7 +207,7 @@ test('unsettled signing retains shared slot and disconnect fences late exact res
       window.hcp053Release();
       return (await window.hcp053Task).status;
     })
-  ).toBe('stale');
+  ).toBe('unknown');
   expect(
     await page.evaluate(() =>
       window.hcp053.extensionSnapshot(window.hcp053Adapter)
@@ -255,7 +255,7 @@ for (const phase of ['before', 'after'] as const)
         other.close();
       }
     }, phase);
-    expect(outcome.status).toBe('stale');
+    expect(outcome.status).toBe(phase === 'before' ? 'stale' : 'unknown');
     expect(outcome.calls).toEqual(
       phase === 'before' ? ['key'] : ['key', 'sign', 'key']
     );
