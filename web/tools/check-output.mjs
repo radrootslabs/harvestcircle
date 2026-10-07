@@ -459,6 +459,27 @@ async function searchPresentationAdmission(web) {
   }
   return true;
 }
+// HCP066 exact owned preference port changes the shared compiler chunk name.
+// Preserve the full module/path/output rejection policy; no arbitrary admission.
+/** @param {string} web */
+async function preferencePublicationAdmission(web) {
+  const pool = await readOwned(web, 'src/lib/nostr/public-pool.ts');
+  if (!pool.toString().includes("'./inbox-preference-publication.ts'"))
+    return false;
+  const producers = {
+    'src/lib/nostr/public-pool.ts':
+      'd5054acecd074a36e68d39e1f69c86cdde6480339c7f4bf901ece151a2b6a5b7',
+    'src/lib/nostr/inbox-preference-publication.ts':
+      'fbad642340732bf7cf92905010af314829b80cc7b134121396f14e9bb8e765cc'
+  };
+  for (const [name, pin] of Object.entries(producers)) {
+    const bytes = await readOwned(web, name);
+    publicText(bytes);
+    if (createHash('sha256').update(bytes).digest('hex') !== pin)
+      throw new Error('Invalid owned preference publication source');
+  }
+  return true;
+}
 /** @param {string} webDirectory */
 export async function auditOutput(webDirectory) {
   const web = path.resolve(webDirectory);
@@ -560,6 +581,11 @@ export async function auditOutput(webDirectory) {
     hasFullRoutes &&
     hasPublicRuntime &&
     (await productPresentationAdmission(web));
+  const hasPreferencePublication =
+    hasPublicRuntime && (await preferencePublicationAdmission(web));
+  const identityCompilerModule = hasPreferencePublication
+    ? 'identity-session'
+    : 'heads';
   // Admit compiler-owned module identities, not arbitrary extensions/copy roots.
   const names = new Set([
     'entry/app',
@@ -597,7 +623,7 @@ export async function auditOutput(webDirectory) {
       ...(hasSearchPresentation ? ['Disclosure', 'navigation'] : ['dist']),
       'negentropy',
       ...(hasPublicRuntime === 'public_identity'
-        ? ['view-context', 'heads']
+        ? ['view-context', identityCompilerModule]
         : ['budgets'])
     ])
       names.add(name);
@@ -741,7 +767,7 @@ export async function auditOutput(webDirectory) {
     equal(
       sdk.imports,
       hasPublicRuntime === 'public_identity'
-        ? [requiredRecord('heads')[0], dist[0]]
+        ? [requiredRecord(identityCompilerModule)[0], dist[0]]
         : [dist[0]],
       'Invalid owned SDK compiler dependency'
     );
@@ -772,7 +798,13 @@ export async function auditOutput(webDirectory) {
       equal(
         dist[1].imports,
         (hasPublicRuntime === 'public_identity'
-          ? ['public-key', 'preload-helper', 'heads', 'client', 'Button']
+          ? [
+              'public-key',
+              'preload-helper',
+              identityCompilerModule,
+              'client',
+              'Button'
+            ]
           : [
               'rolldown-runtime',
               'preload-helper',
@@ -797,8 +829,16 @@ export async function auditOutput(webDirectory) {
     if (hasPublicRuntime === 'public_identity') {
       /** @type {[string, string[]][]} */
       const identityDependencies = [
-        ['view-context', ['public-key', 'heads', 'client', 'Button']],
-        ['heads', ['public-key', 'Button']]
+        [
+          'view-context',
+          [
+            ...(hasPreferencePublication ? [] : ['public-key']),
+            identityCompilerModule,
+            'client',
+            'Button'
+          ]
+        ],
+        [identityCompilerModule, ['public-key', 'Button']]
       ];
       for (const [name, dependencies] of identityDependencies) {
         const [key, record] = requiredRecord(name);
@@ -854,7 +894,7 @@ export async function auditOutput(webDirectory) {
     equal(
       publisher.imports,
       (hasPublicRuntime === 'public_identity'
-        ? ['public-key', 'heads', 'Disclosure', 'Button']
+        ? ['public-key', identityCompilerModule, 'Disclosure', 'Button']
         : ['public-key', 'Disclosure', 'budgets']
       ).map((name) => entry(name)[0]),
       'Invalid owned product publisher compiler dependencies'
@@ -865,7 +905,7 @@ export async function auditOutput(webDirectory) {
         ? [
             'public-key',
             'references',
-            'heads',
+            identityCompilerModule,
             'Disclosure',
             'client',
             'Button',
@@ -892,7 +932,7 @@ export async function auditOutput(webDirectory) {
       (hasPublicRuntime === 'public_identity'
         ? [
             'references',
-            'heads',
+            identityCompilerModule,
             'Disclosure',
             'client',
             'Button',

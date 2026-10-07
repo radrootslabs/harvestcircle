@@ -19,6 +19,7 @@ import {
 } from '../runtime/identity-session.ts';
 import {
   decodePublicRecord,
+  publicRecordSnapshot,
   type PublicRecordHandle
 } from '../persistence/records.ts';
 import { canonicalLocalId } from '../private-handles.ts';
@@ -330,5 +331,30 @@ export function captureInboxSetup(
     return { status: 'captured', record: record.value, owner: preview.author };
   } catch {
     return { status: 'unavailable' };
+  }
+}
+// Informational known-base fence only, never a signing or network capability.
+// Exact already-published artifact is an allowed observation on explicit resume;
+// competing/partial observations still block. This is not a global CAS.
+export function inboxSetupRecordCurrent(
+  record: PublicRecordHandle,
+  owner: string,
+  id: string,
+  resolver: InboxResolver,
+  policy: RelayPolicy
+): boolean {
+  try {
+    const row = publicRecordSnapshot(record, owner, id),
+      observed = base(resolver, policy, owner);
+    if (!row || row.family !== 'preference_operation' || !observed)
+      return false;
+    const matches =
+      observed.wire === row.source.wire ||
+      (row.artifact !== null &&
+        observed.id === row.artifact.eventId &&
+        observed.wire === row.artifact.wire);
+    return matches && inboxResolverCurrentAfterSample(resolver);
+  } catch {
+    return false;
   }
 }

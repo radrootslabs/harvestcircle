@@ -136,6 +136,25 @@ function retain(
   });
   return { ok: true, value: token };
 }
+// A durable one-attempt marker, not a known refusal or a retry permission.
+// Lost unsigned revision1 remains uncertain; it can never be reset by this API.
+export function preparePreferenceSigningTransition(
+  record: PublicRecordHandle,
+  owner: unknown,
+  id: unknown
+): Result<PublicOperationTransition> {
+  const base = baseOf(record, owner, id);
+  if (
+    !base ||
+    base.row.family !== 'preference_operation' ||
+    base.row.capture.kind !== 10050 ||
+    base.row.revision !== 0 ||
+    base.row.artifact !== null ||
+    base.row.receipts.length !== 0
+  )
+    return failed('invalid_record');
+  return retain(base, { ...base.row, revision: 1 });
+}
 export function preparePublicArtifactTransition(
   record: PublicRecordHandle,
   owner: unknown,

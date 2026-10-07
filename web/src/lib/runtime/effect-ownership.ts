@@ -7,6 +7,7 @@ import {
 } from '../persistence/records.ts';
 import {
   claimPublicOperation,
+  loadPreferenceOperation,
   publicQuotaOwner,
   type PublicQuotaRepository,
   type PublicQuotaFailure
@@ -60,7 +61,7 @@ export async function runCapturedPublicEffect<T>(
   expectedId: unknown,
   input: PublicEffectCapture,
   review: unknown,
-  work: (lease: PublicEffectLease) => Promise<T>
+  work: (lease: PublicEffectLease, stored: PublicRecordHandle) => Promise<T>
 ): Promise<PublicEffectResult<T>> {
   try {
     const owner = canonicalPublicKey(input?.owner),
@@ -72,7 +73,9 @@ export async function runCapturedPublicEffect<T>(
     const recordWire =
       owner && id ? publicRecordWire(handle, owner, id) : undefined;
     if (
-      review !== 'reviewed_captured_operation' ||
+      (review !== 'reviewed_captured_operation' &&
+        review !== 'reviewed_prepared_preference_operation' &&
+        review !== 'reviewed_stored_preference_retry') ||
       !owner ||
       !id ||
       !row ||
@@ -85,6 +88,13 @@ export async function runCapturedPublicEffect<T>(
       typeof work !== 'function'
     )
       return { status: 'invalid' };
+    const preferenceMode = review !== 'reviewed_captured_operation';
+    const storedRetry = review === 'reviewed_stored_preference_retry';
+    if (
+      preferenceMode &&
+      (row.family !== 'preference_operation' || row.capture.kind !== 10050)
+    )
+      return { status: 'invalid' };
     if (typeof window === 'undefined' || !navigator.locks?.request)
       return { status: 'unavailable' };
     if (publicQuotaOwner(repository) !== owner)
@@ -95,23 +105,56 @@ export async function runCapturedPublicEffect<T>(
       async (lock): Promise<PublicEffectResult<T>> => {
         if (!lock) return { status: 'busy' };
         if (!fresh()) return { status: 'stopped' };
-        const claimed = await claimPublicOperation(repository, id, handle);
+        async function claimOriginal() {
+          if (!storedRetry)
+            return await claimPublicOperation(repository, id, handle);
+          const loaded = await loadPreferenceOperation(repository, id);
+          if (!loaded.ok) return loaded;
+          const stored = publicRecordSnapshot(loaded.value, owner, id);
+          if (
+            stored?.family !== 'preference_operation' ||
+            row?.family !== 'preference_operation' ||
+            JSON.stringify(stored.capture) !== JSON.stringify(row.capture) ||
+            JSON.stringify(stored.source) !== JSON.stringify(row.source) ||
+            stored.consent !== row.consent
+          )
+            return { ok: false as const, reason: 'conflict' as const };
+          return {
+            ok: true as const,
+            value: { state: 'existing' as const, record: loaded.value }
+          };
+        }
+        const claimed = await claimOriginal();
         if (!claimed.ok)
           return claimed.reason === 'unknown_completion'
             ? { status: 'unknown', record: handle }
             : { status: claimed.reason };
         const original = claimed.value.record;
+        if (storedRetry && claimed.value.state !== 'existing')
+          return { status: 'unknown', record: original };
         if (claimed.value.state === 'existing') {
           const stored = publicRecordSnapshot(original, owner, id);
-          return {
-            status:
-              stored &&
-              stored.family !== 'public_draft' &&
-              stored.artifact !== null
-                ? 'retained'
-                : 'unknown',
-            record: original
-          };
+          const prepared =
+            preferenceMode &&
+            !storedRetry &&
+            stored?.family === 'preference_operation' &&
+            stored.revision === 0 &&
+            stored.artifact === null;
+          const retry =
+            storedRetry &&
+            stored?.family === 'preference_operation' &&
+            stored.revision >= 2 &&
+            stored.artifact !== null;
+          if (!prepared && !retry)
+            return {
+              status:
+                stored &&
+                stored.family !== 'public_draft' &&
+                stored.artifact !== null
+                  ? 'retained'
+                  : 'unknown',
+              record: original
+            };
         }
         let phase: State = 'active',
           closed = false,
@@ -148,7 +191,11 @@ export async function runCapturedPublicEffect<T>(
           authority: Authority,
           invoke: () => Promise<V>
         ): Promise<JobResult<V>> {
-          if (!matches(authority) || typeof invoke !== 'function')
+          if (
+            storedRetry ||
+            !matches(authority) ||
+            typeof invoke !== 'function'
+          )
             return { status: 'invalid' };
           if (!accepting || !current())
             return { status: phase === 'unknown' ? 'unknown' : 'stopped' };
@@ -177,7 +224,8 @@ export async function runCapturedPublicEffect<T>(
           call,
           stop,
           mark() {
-            if (started || !outstanding() || !current()) return false;
+            if (storedRetry || started || !outstanding() || !current())
+              return false;
             started = true;
             return true;
           },
@@ -194,7 +242,7 @@ export async function runCapturedPublicEffect<T>(
           if (!current()) return { status: 'stopped' };
           let value: T;
           try {
-            value = await work(lease);
+            value = await work(lease, original);
           } catch {
             stop();
             return {

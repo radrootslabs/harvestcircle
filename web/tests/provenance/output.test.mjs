@@ -564,8 +564,13 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
           assert.ok(entry, 'Missing observed compiler role: ' + name);
           return entry;
         };
+        const identityCompilerRole = Object.values(manifest).some(
+          (record) => record.name === 'identity-session'
+        )
+          ? 'identity-session'
+          : 'heads';
         const [identityKey, identity] = find('view-context'),
-          [headsKey, heads] = find('heads');
+          [headsKey, heads] = find(identityCompilerRole);
         if (mutation === 'missing-view') delete manifest[identityKey];
         if (mutation === 'missing-heads') delete manifest[headsKey];
         if (mutation === 'extra-view-field') identity.dynamicImports = [];

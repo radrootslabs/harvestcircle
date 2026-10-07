@@ -481,6 +481,25 @@ export function commitPublicCleanup(
 
 // No signer/network await exists inside this transaction. It consumes only a
 // genuine immutable typed transition captured before storage acquisition.
+// Exact owner-scoped actual stored preference, not a caller's structural row.
+// Read is bounded by the same complete quota/codec scan and transaction ack.
+export function loadPreferenceOperation(
+  repository: PublicQuotaRepository,
+  expectedId: unknown
+): Promise<PublicQuotaResult<PublicRecordHandle>> {
+  const scope = scopeOf(repository),
+    id = canonicalLocalId(expectedId);
+  if (!scope) return Promise.resolve(failed('invalid_scope'));
+  if (!id) return Promise.resolve(failed('invalid_record'));
+  return transaction(scope, 'readonly', (rows) => {
+    const row = rows.find(
+      (row) => row.store === 'preference_operations' && row.record.id === id
+    );
+    if (!row) return failed('invalid_record');
+    const decoded = decodePublicRecord(row.wire, scope.owner, id);
+    return decoded.ok ? decoded : failed('corrupt_record');
+  });
+}
 export function commitPublicOperationTransition(
   repository: PublicQuotaRepository,
   handle: PublicOperationTransition
