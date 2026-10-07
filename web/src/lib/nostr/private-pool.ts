@@ -1,6 +1,22 @@
 import { createScopedRelayPool } from './pool-factory.ts';
+import { NEVER } from 'rxjs';
+import {
+  takeInboxAuthAdmission,
+  takeGuardedInboxAuthResponse,
+  type InboxAuthAdmission,
+  type GuardedInboxAuthResponse
+} from './inbox-auth.ts';
+import {
+  verifyEnvelope,
+  verifiedEnvelopeSnapshot,
+  boundedEnvelopeTags
+} from './verified-envelope.ts';
 import { readRelayPolicy, type RelayPolicy } from '../config/relays.ts';
-import { PRIVATE_TRANSPORT_BUDGETS, RELAY_BUDGETS } from '../config/budgets.ts';
+import {
+  PRIVATE_TRANSPORT_BUDGETS,
+  PRIVATE_AUTH_BUDGETS,
+  RELAY_BUDGETS
+} from '../config/budgets.ts';
 import {
   privateSessionOwnership,
   subscribePrivateSessionClose,
@@ -30,12 +46,37 @@ type Owner = {
   token: PrivatePool;
   closed(): boolean;
   cleaned(): boolean;
+  auth(
+    origin: string,
+    admission: InboxAuthAdmission
+  ): Promise<PrivateAuthConnection | undefined>;
   subscribe(
     limit: number,
     listener: (message: PrivatePageMessage) => void
   ): () => void;
   close(): void;
 };
+declare const connectionBrand: unique symbol;
+export type PrivateAuthConnection = Readonly<{ [connectionBrand]: true }>;
+export type PrivateAuthChallenge = Readonly<{
+  owner: string;
+  session: symbol;
+  connection: symbol;
+  relay: string;
+  challenge: string;
+  current(): boolean;
+}>;
+type AuthControl = {
+  challenge(): PrivateAuthChallenge | undefined;
+  stopped(): boolean;
+  reserve(proof: PrivateAuthChallenge): boolean;
+  send(
+    proof: PrivateAuthChallenge,
+    response: GuardedInboxAuthResponse
+  ): Promise<'accepted' | 'refused' | 'unknown' | 'stopped'>;
+  close(): void;
+};
+const authConnections = new WeakMap<PrivateAuthConnection, AuthControl>();
 const pools = new WeakMap<PrivatePool, Owner>();
 let lifetime: Owner | undefined;
 // Fixed scope selection is not authenticated owner10050 membership/readiness.
@@ -46,8 +87,9 @@ export function getPrivatePool(
   selected: readonly string[]
 ): PrivatePool | undefined {
   if (typeof window === 'undefined') return undefined;
-  const capture = privateSessionOwnership(session);
-  if (!capture) throw new Error('private_session_invalid');
+  const captured = privateSessionOwnership(session);
+  if (!captured) throw new Error('private_session_invalid');
+  const capture = captured;
   const manifest = readRelayPolicy(policy);
   if (!manifest.messagingEnabled) throw new Error('private_pool_disabled');
   const length = Array.isArray(selected) ? selected.length : 0;
@@ -88,6 +130,7 @@ export function getPrivatePool(
     cleanupRequired = false;
   let active = () => {};
   let off = () => {};
+  const authCleanup = new Map<string, () => void>();
   const owner: Owner = {
     session,
     policy,
@@ -95,6 +138,213 @@ export function getPrivatePool(
     token,
     closed: () => closed,
     cleaned: () => cleaned,
+    async auth(origin, admission) {
+      if (
+        closed ||
+        cleanupRequired ||
+        !origins.includes(origin) ||
+        authCleanup.has(origin) ||
+        !capture.current()
+      )
+        return undefined;
+      if (!takeInboxAuthAdmission(admission, owner.token, origin))
+        return undefined;
+      // Reserve before any provider job. No duplicate reviewed action may reset
+      // a live connection's response admission counter.
+      let stopped = false,
+        responded = false,
+        responses = 0,
+        challenge: string | undefined;
+      let generation: symbol | undefined;
+      const proofs = new WeakMap<PrivateAuthChallenge, true>();
+      let reservation: PrivateAuthChallenge | undefined;
+      let sent = false;
+      const releases = new Map<symbol, () => void>();
+      function cleanup() {
+        stopped = true;
+        challenge = undefined;
+        generation = undefined;
+        let failed = false;
+        for (const release of releases.values()) {
+          try {
+            release();
+          } catch {
+            failed = true;
+          }
+        }
+        if (failed) throw new Error('private_auth_cleanup_required');
+      }
+      authCleanup.set(origin, cleanup);
+      const halt = () => {
+        if (stopped) return;
+        stopped = true;
+        try {
+          owner.close();
+        } catch {
+          /* Actual control retained for retry. */
+        }
+      };
+      if (
+        !(await recheckPrivateSession(session)) ||
+        closed ||
+        stopped ||
+        !capture.current()
+      ) {
+        halt();
+        return undefined;
+      }
+      const relay = sdk.relay(origin);
+      const token = Object.freeze({}) as PrivateAuthConnection;
+      // A private page may already own this actual SDK connection. Its open$
+      // Subject does not replay; initialize from its genuine connected state.
+      if (relay.connected$.value) generation = Symbol();
+      function current() {
+        return (
+          !stopped && !closed && capture.current() && generation !== undefined
+        );
+      }
+      const control: AuthControl = {
+        stopped: () => !current(),
+        challenge() {
+          if (!current() || challenge === undefined || responded)
+            return undefined;
+          const exact = challenge,
+            stamp = generation!;
+          const proof: PrivateAuthChallenge = {
+            owner: capture.owner,
+            session: capture.session,
+            connection: stamp,
+            relay: relay.url,
+            challenge: exact,
+            current: () =>
+              current() && generation === stamp && challenge === exact
+          };
+          proofs.set(proof, true);
+          return proof;
+        },
+        reserve(proof) {
+          if (
+            !proofs.has(proof) ||
+            reservation !== undefined ||
+            !proof.current() ||
+            !current() ||
+            responded ||
+            proof.connection !== generation ||
+            proof.challenge !== challenge ||
+            responses >= PRIVATE_AUTH_BUDGETS.responsesPerConnectionAction
+          )
+            return false;
+          responses++;
+          reservation = proof;
+          sent = false;
+          return true;
+        },
+        async send(proof, approved) {
+          const wire = takeGuardedInboxAuthResponse(approved, proof);
+          const verified = verifyEnvelope(wire);
+          const event = verified.ok
+            ? verifiedEnvelopeSnapshot(verified.value)
+            : undefined;
+          if (
+            !proofs.has(proof) ||
+            reservation !== proof ||
+            sent ||
+            !event ||
+            event.kind !== 22242 ||
+            event.pubkey !== capture.owner ||
+            event.content !== '' ||
+            JSON.stringify(event.tags) !==
+              JSON.stringify([
+                ['relay', relay.url],
+                ['challenge', proof.challenge]
+              ]) ||
+            !proof.current() ||
+            !current() ||
+            proof.connection !== generation ||
+            proof.challenge !== challenge
+          )
+            return 'stopped';
+          try {
+            sent = true;
+            const response = await relay.auth(event);
+            if (!proof.current() || !current()) return 'stopped';
+            if (response.ok) {
+              responded = true;
+              return 'accepted';
+            }
+            const outcome =
+              response.message === 'Timeout' ? 'unknown' : 'refused';
+            halt();
+            return outcome;
+          } catch {
+            halt();
+            return 'unknown';
+          }
+        },
+        close: () => owner.close()
+      };
+      authConnections.set(token, control);
+      const opened = relay.open$.subscribe(() => {
+        if (!stopped && !closed && capture.current()) generation = Symbol();
+      });
+      releases.set(Symbol(), () => opened.unsubscribe());
+      const lost = relay.close$.subscribe(halt);
+      releases.set(Symbol(), () => lost.unsubscribe());
+      const closing = relay.closing$.subscribe(halt);
+      releases.set(Symbol(), () => closing.unsubscribe());
+      const challenges = relay.challenge$.subscribe((next: unknown) => {
+        if (stopped || closed || !capture.current()) {
+          halt();
+          return;
+        }
+        if (next === null) return;
+        if (
+          typeof next !== 'string' ||
+          !next ||
+          !boundedEnvelopeTags([
+            ['relay', relay.url],
+            ['challenge', next]
+          ]) ||
+          !generation
+        ) {
+          halt();
+          return;
+        }
+        if (next === challenge) return;
+        if (
+          responses >= PRIVATE_AUTH_BUDGETS.responsesPerConnectionAction ||
+          (challenge !== undefined && !responded)
+        ) {
+          halt();
+          return;
+        }
+        challenge = next;
+        responded = false;
+        reservation = undefined;
+      });
+      releases.set(Symbol(), () => challenges.unsubscribe());
+      if (closed || stopped || !capture.current()) {
+        cleanup();
+        owner.close();
+        return undefined;
+      }
+      // Official Observable filter input holds the watchTower without emitting
+      // a filter/REQ. Its own CLOSE at teardown is ordinary SDK control cleanup.
+      const hold = relay
+        .req(NEVER, {
+          waitForAuth: false,
+          reconnect: false,
+          resubscribe: false
+        })
+        .subscribe({ error: halt, complete: halt });
+      releases.set(Symbol(), () => hold.unsubscribe());
+      if (closed || stopped || !capture.current()) {
+        cleanup();
+        owner.close();
+        return undefined;
+      }
+      return token;
+    },
     subscribe(limit, listener) {
       if (closed || !capture.current()) {
         owner.close();
@@ -252,6 +502,13 @@ export function getPrivatePool(
       } catch {
         failed = true;
       }
+      for (const cleanup of authCleanup.values()) {
+        try {
+          cleanup();
+        } catch {
+          failed = true;
+        }
+      }
       try {
         sdk.close();
       } catch {
@@ -299,4 +556,40 @@ export function subscribePrivatePage(
 }
 export function closePrivatePool(token: PrivatePool): void {
   ownerOf(token).close();
+}
+export function beginPrivateAuthConnection(
+  pool: PrivatePool,
+  origin: string,
+  admission: InboxAuthAdmission
+): Promise<PrivateAuthConnection | undefined> {
+  return ownerOf(pool).auth(origin, admission);
+}
+export function privateAuthChallenge(
+  connection: PrivateAuthConnection
+): PrivateAuthChallenge | undefined {
+  return authConnections.get(connection)?.challenge();
+}
+export function privateAuthStopped(connection: PrivateAuthConnection): boolean {
+  return authConnections.get(connection)?.stopped() ?? true;
+}
+export function reservePrivateAuthResponse(
+  connection: PrivateAuthConnection,
+  proof: PrivateAuthChallenge
+): boolean {
+  return authConnections.get(connection)?.reserve(proof) ?? false;
+}
+export function sendPrivateAuthResponse(
+  connection: PrivateAuthConnection,
+  proof: PrivateAuthChallenge,
+  response: GuardedInboxAuthResponse
+) {
+  return (
+    authConnections.get(connection)?.send(proof, response) ??
+    Promise.resolve('stopped' as const)
+  );
+}
+export function closePrivateAuthConnection(
+  connection: PrivateAuthConnection
+): void {
+  authConnections.get(connection)?.close();
 }

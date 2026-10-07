@@ -222,6 +222,9 @@ importers:
       applesauce-signers:
         specifier: 6.2.3
         version: 6.2.3(@capacitor/core@7.6.9)(typescript@6.0.3)
+      rxjs:
+        specifier: 7.8.2
+        version: 7.8.2
     devDependencies:
       '@eslint/js':
         specifier: 10.0.1

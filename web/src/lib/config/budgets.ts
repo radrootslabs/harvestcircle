@@ -17,6 +17,12 @@ export const PRIVATE_TRANSPORT_BUDGETS = Object.freeze({
   envelopeBytes: 32768
 });
 
+// Original M06/M07 authority: responses are counted before permission work,
+// per actual connection and explicit action, never renewed by challenge churn.
+export const PRIVATE_AUTH_BUDGETS = Object.freeze({
+  responsesPerConnectionAction: 2
+});
+
 // Approved public-run admission limits shared by all primary/auxiliary sources.
 // Logical post-parse work accounting; no WebSocket preallocation guarantee.
 const publicDeliveryLimit = 2000;
