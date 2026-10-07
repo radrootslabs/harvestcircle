@@ -177,6 +177,14 @@ export function invalidateIdentityView(context: IdentityViewContext): void {
   const owned = contexts.get(context);
   owned?.invalidate();
 }
+// Trusted client orchestration receives only the original opaque session. This
+// is not effect permission; each workflow still rechecks its genuine owner.
+export function identityViewSession(
+  context: IdentityViewContext
+): IdentitySession | undefined {
+  const owner = contexts.get(context);
+  return owner?.snapshot().mounted ? owner.session : undefined;
+}
 // Mechanical observed-owner comparison only, never private authorization.
 export function identityViewMatchesOwner(
   context: IdentityViewContext,

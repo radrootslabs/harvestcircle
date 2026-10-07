@@ -75,7 +75,10 @@ describe('thin protected route SSR', () => {
         expect(output.body).toMatch(
           /<button[^>]*disabled[^>]*>Connect extension/
         );
-        expect(output.body).toMatch(/<button[^>]*disabled[^>]*>Unlock/);
+        expect(output.body).toContain('Inbox setup');
+        expect(output.body).toMatch(
+          /<button[^>]*disabled[^>]*>Check current preference/
+        );
         expect(output.body).not.toMatch(
           /<form|<textarea|<input|PRIVATE_TEST_ONLY|naddr1/
         );

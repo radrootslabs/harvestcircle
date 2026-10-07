@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getContext, onMount } from 'svelte';
   import CapabilityGate from './CapabilityGate.svelte';
-  import Button from './primitives/Button.svelte';
+  import InboxSetup from './InboxSetup.svelte';
   import {
     IDENTITY_VIEW_CONTEXT,
     identityViewSnapshot,
@@ -48,5 +48,5 @@
   <p class="notice">
     Private views and editing are unavailable during development.
   </p>
-  <Button label="Unlock" disabled />
+  <InboxSetup />
 </div>

@@ -480,6 +480,26 @@ async function preferencePublicationAdmission(web) {
   }
   return true;
 }
+/** @param {string} web */
+async function inboxSetupAdmission(web) {
+  const gate = await readOwned(web, 'src/lib/components/AccountGate.svelte');
+  if (!gate.toString().includes("'./InboxSetup.svelte'")) return false;
+  const producers = {
+    'src/lib/components/InboxSetup.svelte':
+      'b6ee2ecccd3ad3e192a56b6d03178bdf222c60dcc0bcb8e2ce7b09dda3bb3bf0',
+    'src/lib/messaging/inbox-setup-view.ts':
+      '26bf9a653c9b09ff9e7466b4b219d5292e6313b93b84db188a8b2f4f5cd979e4',
+    'src/lib/runtime/view-context.ts':
+      'e2329113e29db35e983270217c47d38a44d4e0491fd710395e008786b5ae7033'
+  };
+  for (const [name, pin] of Object.entries(producers)) {
+    const bytes = await readOwned(web, name);
+    publicText(bytes);
+    if (createHash('sha256').update(bytes).digest('hex') !== pin)
+      throw new Error('Invalid owned inbox compiler source');
+  }
+  return true;
+}
 /** @param {string} webDirectory */
 export async function auditOutput(webDirectory) {
   const web = path.resolve(webDirectory);
@@ -583,9 +603,15 @@ export async function auditOutput(webDirectory) {
     (await productPresentationAdmission(web));
   const hasPreferencePublication =
     hasPublicRuntime && (await preferencePublicationAdmission(web));
-  const identityCompilerModule = hasPreferencePublication
-    ? 'identity-session'
-    : 'heads';
+  const hasInboxSetup =
+    hasFullRoutes &&
+    hasPublicRuntime === 'public_identity' &&
+    (await inboxSetupAdmission(web));
+  const identityCompilerModule = hasInboxSetup
+    ? 'public-runtime'
+    : hasPreferencePublication
+      ? 'identity-session'
+      : 'heads';
   // Admit compiler-owned module identities, not arbitrary extensions/copy roots.
   const names = new Set([
     'entry/app',
@@ -628,6 +654,7 @@ export async function auditOutput(webDirectory) {
     ])
       names.add(name);
   if (hasProductPresentation) names.add('publishers');
+  if (hasInboxSetup) names.add('private-handles');
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();
   for (const [key, record] of Object.entries(manifest)) {
@@ -719,7 +746,13 @@ export async function auditOutput(webDirectory) {
       if (!entry) throw new Error('Incomplete owned SDK compiler module');
       return entry;
     }
-    const dist = requiredRecord(hasSearchPresentation ? 'Disclosure' : 'dist');
+    const dist = requiredRecord(
+      hasInboxSetup
+        ? 'public-runtime'
+        : hasSearchPresentation
+          ? 'Disclosure'
+          : 'dist'
+    );
     const root = requiredRecord('nodes/0')[1];
     const [budgetKey, budget] = requiredRecord(
       hasPublicRuntime === 'public_identity' ? 'Button' : 'budgets'
@@ -744,7 +777,7 @@ export async function auditOutput(webDirectory) {
       );
     for (const consumer of hasSearchPresentation
       ? [
-          'Disclosure',
+          hasInboxSetup ? 'public-runtime' : 'Disclosure',
           'nodes/9',
           'routes',
           ...(hasProductPresentation ? ['nodes/7', 'publishers'] : [])
@@ -766,9 +799,11 @@ export async function auditOutput(webDirectory) {
       throw new Error('Invalid owned SDK compiler identity');
     equal(
       sdk.imports,
-      hasPublicRuntime === 'public_identity'
-        ? [requiredRecord(identityCompilerModule)[0], dist[0]]
-        : [dist[0]],
+      hasInboxSetup
+        ? [dist[0]]
+        : hasPublicRuntime === 'public_identity'
+          ? [requiredRecord(identityCompilerModule)[0], dist[0]]
+          : [dist[0]],
       'Invalid owned SDK compiler dependency'
     );
     equal(
@@ -797,21 +832,23 @@ export async function auditOutput(webDirectory) {
         throw new Error('Invalid owned navigation compiler dynamic imports');
       equal(
         dist[1].imports,
-        (hasPublicRuntime === 'public_identity'
-          ? [
-              'public-key',
-              'preload-helper',
-              identityCompilerModule,
-              'client',
-              'Button'
-            ]
-          : [
-              'rolldown-runtime',
-              'preload-helper',
-              'public-key',
-              'client',
-              'budgets'
-            ]
+        (hasInboxSetup
+          ? ['public-key', 'preload-helper', 'private-handles', 'Button']
+          : hasPublicRuntime === 'public_identity'
+            ? [
+                'public-key',
+                'preload-helper',
+                identityCompilerModule,
+                'client',
+                'Button'
+              ]
+            : [
+                'rolldown-runtime',
+                'preload-helper',
+                'public-key',
+                'client',
+                'budgets'
+              ]
         ).map((name) => requiredRecord(name)[0]),
         'Invalid owned shared compiler dependencies'
       );
@@ -838,22 +875,68 @@ export async function auditOutput(webDirectory) {
             'Button'
           ]
         ],
-        [identityCompilerModule, ['public-key', 'Button']]
+        [
+          identityCompilerModule,
+          hasInboxSetup
+            ? ['public-key', 'preload-helper', 'private-handles', 'Button']
+            : ['public-key', 'Button']
+        ],
+        ...(hasInboxSetup
+          ? [/** @type {[string, string[]]} */ (['private-handles', []])]
+          : [])
       ];
       for (const [name, dependencies] of identityDependencies) {
         const [key, record] = requiredRecord(name);
         if (
           !/^_[A-Za-z0-9_-]+\.js$/.test(key) ||
           Object.keys(record).some(
-            (field) => !['file', 'name', 'imports'].includes(field)
+            (field) =>
+              ![
+                'file',
+                'name',
+                'imports',
+                ...(hasInboxSetup && name === 'public-runtime'
+                  ? ['dynamicImports']
+                  : [])
+              ].includes(field)
           )
         )
           throw new Error('Invalid owned identity compiler chunk');
         equal(
-          record.imports,
+          record.imports ?? [],
           dependencies.map((dependency) => requiredRecord(dependency)[0]),
           'Invalid owned identity compiler dependencies'
         );
+      }
+      if (hasInboxSetup) {
+        const [disclosureKey, disclosure] = requiredRecord('Disclosure');
+        if (
+          !/^_[A-Za-z0-9_-]+\.js$/.test(disclosureKey) ||
+          Object.keys(disclosure).some(
+            (field) => !['file', 'name', 'imports'].includes(field)
+          )
+        )
+          throw new Error('Invalid owned inbox disclosure compiler identity');
+        equal(
+          disclosure.imports,
+          [requiredRecord('client')[0]],
+          'Invalid owned inbox disclosure compiler dependencies'
+        );
+        const [, gate] = requiredRecord('AccountGate');
+        equal(
+          gate.imports,
+          [
+            'public-key',
+            'private-handles',
+            'public-runtime',
+            'client',
+            'Button',
+            'view-context'
+          ].map((name) => requiredRecord(name)[0]),
+          'Invalid owned inbox compiler dependencies'
+        );
+        if (gate.dynamicImports !== undefined)
+          throw new Error('Invalid owned inbox compiler dynamic imports');
       }
       const [identityKey] = requiredRecord('view-context');
       if (
@@ -893,67 +976,94 @@ export async function auditOutput(webDirectory) {
       throw new Error('Invalid owned product compiler identity');
     equal(
       publisher.imports,
-      (hasPublicRuntime === 'public_identity'
-        ? ['public-key', identityCompilerModule, 'Disclosure', 'Button']
-        : ['public-key', 'Disclosure', 'budgets']
+      (hasInboxSetup
+        ? ['public-key', identityCompilerModule, 'Button']
+        : hasPublicRuntime === 'public_identity'
+          ? ['public-key', identityCompilerModule, 'Disclosure', 'Button']
+          : ['public-key', 'Disclosure', 'budgets']
       ).map((name) => entry(name)[0]),
       'Invalid owned product publisher compiler dependencies'
     );
     equal(
       entry('nodes/7')[1].imports,
-      (hasPublicRuntime === 'public_identity'
+      (hasInboxSetup
         ? [
             'public-key',
             'references',
             identityCompilerModule,
-            'Disclosure',
             'client',
             'Button',
             'client.svelte',
             'state',
-            'publishers'
-          ]
-        : [
-            'rolldown-runtime',
-            'references',
             'Disclosure',
-            'client',
-            'budgets',
-            'client.svelte',
-            'state',
-            'Button',
             'publishers'
           ]
+        : hasPublicRuntime === 'public_identity'
+          ? [
+              'public-key',
+              'references',
+              identityCompilerModule,
+              'Disclosure',
+              'client',
+              'Button',
+              'client.svelte',
+              'state',
+              'publishers'
+            ]
+          : [
+              'rolldown-runtime',
+              'references',
+              'Disclosure',
+              'client',
+              'budgets',
+              'client.svelte',
+              'state',
+              'Button',
+              'publishers'
+            ]
       ).map((name) => entry(name)[0]),
       'Invalid owned product compiler dependencies'
     );
     equal(
       entry('nodes/9')[1].imports,
-      (hasPublicRuntime === 'public_identity'
+      (hasInboxSetup
         ? [
             'references',
             identityCompilerModule,
-            'Disclosure',
             'client',
             'Button',
             'client.svelte',
             'navigation',
             'state',
-            'routes',
-            'publishers'
-          ]
-        : [
-            'references',
             'Disclosure',
-            'client',
-            'budgets',
-            'client.svelte',
-            'navigation',
-            'state',
-            'Button',
             'routes',
             'publishers'
           ]
+        : hasPublicRuntime === 'public_identity'
+          ? [
+              'references',
+              identityCompilerModule,
+              'Disclosure',
+              'client',
+              'Button',
+              'client.svelte',
+              'navigation',
+              'state',
+              'routes',
+              'publishers'
+            ]
+          : [
+              'references',
+              'Disclosure',
+              'client',
+              'budgets',
+              'client.svelte',
+              'navigation',
+              'state',
+              'Button',
+              'routes',
+              'publishers'
+            ]
       ).map((name) => entry(name)[0]),
       'Invalid owned search product compiler dependencies'
     );

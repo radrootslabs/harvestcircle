@@ -137,7 +137,7 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       const f = await fixture(t);
       const files = await f.audit();
       // Exact eleven-route module/page/static admission; CSS stays once-imported.
-      assert.equal(files.length, 47);
+      assert.equal(files.length, 48);
       // The actual SDK payload crosses the reader scratch boundary; a reused
       // scratch buffer must still preserve every compiler/static byte exactly.
       const sizes = await Promise.all(
@@ -218,6 +218,48 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
     ])
       await writeFile(path.join(f.web, name), bytes);
   }
+  for (const name of [
+    'components/InboxSetup.svelte',
+    'messaging/inbox-setup-view.ts',
+    'runtime/view-context.ts'
+  ])
+    await check(
+      'linked inbox setup requires exact owned source ' + name,
+      async (t) => {
+        const f = await fixture(t);
+        const file = path.join(f.web, 'src/lib', name);
+        await writeFile(
+          file,
+          (await readFile(file, 'utf8')) + '\n// changed source\n'
+        );
+        await refresh(f);
+        await assert.rejects(f.audit, /inbox compiler source/);
+      }
+    );
+  for (const name of [
+    'private-handles',
+    'public-runtime',
+    'AccountGate',
+    'Disclosure'
+  ])
+    await check(
+      'linked inbox setup rejects changed exact compiler edge ' + name,
+      async (t) => {
+        const f = await fixture(t);
+        const file = path.join(
+          f.web,
+          '.svelte-kit/output/client/.vite/manifest.json'
+        );
+        const manifest = JSON.parse(await readFile(file, 'utf8'));
+        const entry = Object.entries(manifest).find(
+          ([, row]) => row.name === name
+        );
+        assert.ok(entry, 'Missing actual linked inbox compiler role');
+        entry[1].imports = ['forged-compiler-edge'];
+        await writeFile(file, JSON.stringify(manifest));
+        await assert.rejects(f.audit, /compiler/);
+      }
+    );
   await check(
     'owned root preserves its lifecycle across a 64 KiB read boundary',
     async (t) => {
@@ -233,7 +275,7 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       assert.ok(Buffer.byteLength(expanded) > 64 * 1024);
       await writeFile(file, expanded);
       await refresh(f);
-      assert.equal((await f.audit()).length, 47);
+      assert.equal((await f.audit()).length, 48);
     }
   );
   const sdkKey =
@@ -340,7 +382,13 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
         );
         const m = JSON.parse(await readFile(file, 'utf8'));
         const root = Object.values(m).find((v) => v.name === 'nodes/0');
-        const dist = Object.entries(m).find(([, v]) => v.name === 'Disclosure');
+        const dist = Object.entries(m).find(
+          ([, v]) =>
+            v.name ===
+            (Object.values(m).some((row) => row.name === 'public-runtime')
+              ? 'public-runtime'
+              : 'Disclosure')
+        );
         assert.ok(m[sdkKey] && root && dist, 'Actual successor SDK identities');
         if (mutation === 'unknown-name') m[sdkKey].name = 'unapproved-sdk';
         if (
@@ -350,7 +398,7 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
           const entry = Object.entries(m).find(
             ([, v]) =>
               v.name ===
-              (mutation === 'missing-dist' ? 'Disclosure' : mutation.slice(8))
+              (mutation === 'missing-dist' ? dist[1].name : mutation.slice(8))
           );
           assert.ok(entry);
           delete m[entry[0]];
@@ -568,7 +616,11 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
           (record) => record.name === 'identity-session'
         )
           ? 'identity-session'
-          : 'heads';
+          : Object.values(manifest).some(
+                (record) => record.name === 'public-runtime'
+              )
+            ? 'public-runtime'
+            : 'heads';
         const [identityKey, identity] = find('view-context'),
           [headsKey, heads] = find(identityCompilerRole);
         if (mutation === 'missing-view') delete manifest[identityKey];
@@ -720,7 +772,13 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
       );
       assert.ok(client);
       assert.deepEqual(budget.imports, [client[0]]);
-      for (const name of ['Disclosure', 'nodes/9', 'routes'])
+      for (const name of [
+        Object.values(manifest).some((row) => row.name === 'public-runtime')
+          ? 'public-runtime'
+          : 'Disclosure',
+        'nodes/9',
+        'routes'
+      ])
         assert.ok(
           Object.values(manifest)
             .find((record) => record.name === name)
@@ -800,7 +858,15 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
         publisher.imports = publisher.imports.filter(
           (/** @type {string} */ key) =>
             key !==
-            find(mutation === 'publisher-budget' ? 'Button' : 'Disclosure')[0]
+            find(
+              mutation === 'publisher-budget'
+                ? 'Button'
+                : Object.values(manifest).some(
+                      (row) => row.name === 'public-runtime'
+                    )
+                  ? 'public-runtime'
+                  : 'Disclosure'
+            )[0]
         );
       else {
         const target = mutation === 'search-publisher' ? 'nodes/9' : 'nodes/7';
@@ -869,7 +935,11 @@ await test('actual output qualification', { timeout: 180000 }, async (t) => {
         assert.ok(entry, 'Missing actual compiler record ' + name);
         return entry;
       };
-      const [sharedKey, shared] = find('Disclosure');
+      const [sharedKey, shared] = find(
+        Object.values(manifest).some((row) => row.name === 'public-runtime')
+          ? 'public-runtime'
+          : 'Disclosure'
+      );
       const [budgetKey] = find('Button');
       if (mutation === 'missing-shared') delete manifest[sharedKey];
       else if (mutation === 'missing-navigation')

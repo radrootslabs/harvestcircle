@@ -153,9 +153,21 @@ for (const routeCase of cases) {
               'noindex'
             );
             await expect(
-              page.getByRole('button', { name: 'Unlock', exact: true })
+              page.getByRole('button', {
+                name: 'Check current preference',
+                exact: true
+              })
             ).toBeDisabled();
-            await expect(page.locator('main button')).toHaveCount(2);
+            await expect(page.locator('main button')).toHaveCount(3);
+            await expect(
+              page.getByRole('button', { name: 'Not now', exact: true })
+            ).toBeEnabled();
+            await expect(
+              page.getByRole('button', { name: 'Unlock inbox', exact: true })
+            ).toHaveCount(0);
+            await expect(
+              page.getByRole('button', { name: 'Enable inbox', exact: true })
+            ).toHaveCount(0);
             await expect(
               page
                 .locator('main')
