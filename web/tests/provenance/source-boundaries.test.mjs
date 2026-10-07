@@ -2101,7 +2101,8 @@ test('history scroll owner rejects malformed values without coercion or SSR effe
 
 test(
   'HCP076 allows only the byte-pinned disposable gift-wrap producer and rejects key escape or copied construction',
-  { timeout: 30000 },
+  // Nine sequential audits retain8s each, plus bounded real fixture setup.
+  { timeout: 90000 },
   async () => {
     await fixture(async ({ directory, put, execute }) => {
       await confineSvelte(directory);
@@ -2131,6 +2132,7 @@ test(
       for (const alteration of [
         source + '\nexport const secret = generateSecretKey();',
         source.replace('secret?.fill(0);', '// cleanup removed'),
+        source.replace('nip44.v2.decrypt(', 'nip44.v2.encrypt('),
         source.replace('kind: 1059,', 'kind: 14,'),
         source.replace(
           "tags: [['p', record.destination]],",
@@ -2142,6 +2144,7 @@ test(
         ),
         source.replace("'applesauce-core/helpers'", "'nostr-tools/pure'")
       ]) {
+        assert.notEqual(alteration, source);
         await put(name, alteration);
         reject(execute(), /gift-wrap construction source identity/);
       }

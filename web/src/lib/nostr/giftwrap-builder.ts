@@ -67,6 +67,11 @@ export function buildPrivateGiftwrap(
     if (!privateSealSnapshot(seal)) return undefined;
     const content = nip44.v2.encrypt(record.wire, conversation);
     if (!privateSealSnapshot(seal)) return undefined;
+    if (
+      nip44.v2.decrypt(content, conversation) !== record.wire ||
+      !privateSealSnapshot(seal)
+    )
+      return undefined;
     const captured = JSON.stringify({
       pubkey: author,
       kind: 1059,
@@ -139,6 +144,13 @@ export function buildPrivateGiftwrap(
     conversation?.fill(0);
     secret?.fill(0);
   }
+}
+// Returns only the genuine original capability, never disposable key material.
+export function privateGiftwrapSeal(
+  token: PrivateGiftwrap
+): PrivateRecipientSeal | undefined {
+  const saved = wraps.get(token);
+  return saved && privateSealSnapshot(saved.seal) ? saved.seal : undefined;
 }
 export function privateGiftwrapSnapshot(
   token: PrivateGiftwrap

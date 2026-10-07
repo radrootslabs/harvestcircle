@@ -46,6 +46,7 @@ type SavedSeal = Readonly<{
   command: string;
   rumorHash: string;
   wire: string;
+  reserved: ReservedSendIdentity;
   current(): boolean;
 }>;
 const operations = new WeakMap<PrivateSealOperation, State>();
@@ -165,6 +166,17 @@ export function capturePrivateSealOperation(
       return { status: encrypted.status === 'denied' ? 'refused' : 'stopped' };
     if (!sealCiphertextV2(encrypted.value)) return { status: 'mismatch' };
     if (!(await fresh(action))) return { status: 'stopped' };
+    const decryptPort = cipherPort();
+    if (!decryptPort || !current()) return { status: 'stopped' };
+    const decrypted = await callExtension(action, 'decrypt', () =>
+      decryptPort.decrypt(target, encrypted.value)
+    );
+    if (!current()) return { status: 'stopped' };
+    if (decrypted.status !== 'settled' || !decrypted.current)
+      return { status: decrypted.status === 'denied' ? 'refused' : 'stopped' };
+    if (decrypted.value !== wire || reservedSendRumorWire(reserved) !== wire)
+      return { status: 'mismatch' };
+    if (!(await fresh(action))) return { status: 'stopped' };
     const milliseconds = safeUnsignedInteger(Date.now());
     if (milliseconds === undefined || !current()) return { status: 'stopped' };
     // Public randomized timing metadata only. Never change the reserved inner
@@ -193,6 +205,7 @@ export function capturePrivateSealOperation(
       command: record.id,
       rumorHash: record.rumorHash,
       wire: signed,
+      reserved,
       current
     });
     return { status: 'sealed', seal };
@@ -257,7 +270,7 @@ export function expirePrivateSealWait(operation: PrivateSealOperation): void {
 // Future wrapper/nested owners must retain exact original operation binding.
 export function privateSealSnapshot(
   seal: PrivateRecipientSeal
-): Readonly<Omit<SavedSeal, 'current'>> | undefined {
+): Readonly<Omit<SavedSeal, 'current' | 'reserved'>> | undefined {
   const saved = seals.get(seal);
   return saved?.current()
     ? {
@@ -270,4 +283,11 @@ export function privateSealSnapshot(
         wire: saved.wire
       }
     : undefined;
+}
+// Genuine association only; detached snapshots cannot recreate this identity.
+export function privateSealReservation(
+  seal: PrivateRecipientSeal
+): ReservedSendIdentity | undefined {
+  const saved = seals.get(seal);
+  return saved?.current() ? saved.reserved : undefined;
 }

@@ -258,3 +258,23 @@ for (const response of ['wrong_target', 'cached_bad_id'] as const)
     expect(state.conversations[0].every((x) => x === 0)).toBe(true);
     f.key.fill(0);
   });
+for (const fault of ['mismatch', 'exception'] as const)
+  it(`outer roundtrip ${fault} clears directly owned buffers and grants no wrapper`, () => {
+    vi.stubGlobal('window', {});
+    const f = fixture();
+    const spy = vi.spyOn(nip44.v2, 'decrypt').mockImplementation(() => {
+      if (fault === 'exception') throw Error('SDK roundtrip fault');
+      return 'substitute signed seal';
+    });
+    try {
+      expect(
+        buildPrivateGiftwrap(f.seal, 'reviewed_private_wrap')
+      ).toBeUndefined();
+      expect(state.keys).toHaveLength(1);
+      expect(state.keys[0].every((x) => x === 0)).toBe(true);
+      expect(state.conversations[0].every((x) => x === 0)).toBe(true);
+    } finally {
+      spy.mockRestore();
+      f.key.fill(0);
+    }
+  });

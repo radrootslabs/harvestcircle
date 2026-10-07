@@ -61,6 +61,9 @@ export type Mode =
   | 'changed_key'
   | 'hold_encrypt'
   | 'hold_sign'
+  | 'wrong_plaintext'
+  | 'declined_decrypt'
+  | 'hold_decrypt'
   | 'getter_reentry'
   | 'stop_capability_getter'
   | 'stop_capability_after_key';
@@ -75,6 +78,7 @@ export async function makeFixture() {
     keys = 0,
     encrypts = 0,
     signs = 0,
+    decrypts = 0,
     capabilityReads = 0,
     reentrantReads = 0,
     postStopEncrypts = 0,
@@ -161,19 +165,34 @@ export async function makeFixture() {
                   return new Promise<string>((resolve) => {
                     release = () => resolve(encryptTo(target, text));
                   });
-                return Promise.resolve(encryptTo(target, text));
+                return Promise.resolve(
+                  encryptTo(
+                    target,
+                    mode === 'wrong_plaintext' ? 'substitute rumor' : text
+                  )
+                );
               };
             },
             decrypt: (target: string, cipher: string) => {
-              const conversation = nip44.v2.utils.getConversationKey(
-                secret,
-                target
-              );
-              try {
-                return Promise.resolve(nip44.v2.decrypt(cipher, conversation));
-              } finally {
-                conversation.fill(0);
-              }
+              decrypts++;
+              if (mode === 'declined_decrypt')
+                return Promise.reject(Error('decrypt refused'));
+              const decryptNow = () => {
+                const conversation = nip44.v2.utils.getConversationKey(
+                  secret,
+                  target
+                );
+                try {
+                  return nip44.v2.decrypt(cipher, conversation);
+                } finally {
+                  conversation.fill(0);
+                }
+              };
+              if (mode === 'hold_decrypt')
+                return new Promise<string>((resolve) => {
+                  release = () => resolve(decryptNow());
+                });
+              return Promise.resolve(decryptNow());
             }
           };
     }
@@ -207,11 +226,12 @@ export async function makeFixture() {
   if (!proof.ok) throw Error('invalid public fixture');
   const context = captureEnquiryContext(proof.value);
   if (!context) throw Error('invalid context');
+  const reservationTime = Date.now();
   const plan = captureEnquiryRumor(
     identity,
     context,
     'Private seal sentinel',
-    Math.floor(Date.now() / 1000)
+    Math.floor(reservationTime / 1000)
   );
   if (!plan) throw Error('missing plan');
   const opened = await openBrowserDatabase();
@@ -219,14 +239,24 @@ export async function makeFixture() {
   const database = opened.owner,
     repository = createPrivateSendReservationRepository(database, owner);
   if (!repository) throw Error('missing repository');
-  const reservation = await reserveSendIdentity(
-    repository,
-    identity,
-    '12345678-1234-4234-8234-123456789abc',
-    plan,
-    'reviewed_private_intent'
-  );
-  if (reservation.status !== 'reserved') throw Error('missing reservation');
+  // Controlled fixture second across actual asynchronous IDB/WebLock setup.
+  // Production admission still requires its real current observed second.
+  const liveNow = Date.now;
+  let reservation: Awaited<ReturnType<typeof reserveSendIdentity>>;
+  Date.now = () => reservationTime;
+  try {
+    reservation = await reserveSendIdentity(
+      repository,
+      identity,
+      '12345678-1234-4234-8234-123456789abc',
+      plan,
+      'reviewed_private_intent'
+    );
+  } finally {
+    Date.now = liveNow;
+  }
+  if (reservation.status !== 'reserved')
+    throw Error('missing reservation: ' + reservation.status);
   const reserved = reservation.identity;
   const original = reservedSendRumorWire(reserved);
   return {
@@ -234,6 +264,18 @@ export async function makeFixture() {
     peer,
     identity,
     reserved,
+    async reserveAgain() {
+      const result = await reserveSendIdentity(
+        repository,
+        identity,
+        '12345678-1234-4234-8234-123456789abc',
+        plan,
+        'reviewed_private_intent'
+      );
+      if (result.status !== 'existing' && result.status !== 'reserved')
+        throw Error('missing second reservation');
+      return result.identity;
+    },
     operation: (
       role: unknown = 'peer',
       review: unknown = 'reviewed_private_seal'
@@ -245,7 +287,14 @@ export async function makeFixture() {
       mode = value;
       capabilityReads = 0;
     },
-    counts: () => ({ keys, encrypts, signs, reentrantReads, postStopEncrypts }),
+    counts: () => ({
+      keys,
+      encrypts,
+      decrypts,
+      signs,
+      reentrantReads,
+      postStopEncrypts
+    }),
     identityState: () => identitySessionSnapshot(identity).state,
     settle: () => {
       release?.();

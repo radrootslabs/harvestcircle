@@ -109,7 +109,7 @@ for (const role of ['peer', 'self'] as const)
       randomizedBounds: true,
       signs: 1,
       encrypts: 1,
-      keys: 3,
+      keys: 4,
       again: 'stopped'
     });
     expect(result.target).toBe(result.expected);
@@ -180,7 +180,7 @@ test('detached reservation, wrong role or absent explicit review cannot acquire 
   });
   expect(result).toEqual({ absent: true, same: true });
 });
-for (const phase of ['hold_encrypt', 'hold_sign'] as const)
+for (const phase of ['hold_encrypt', 'hold_decrypt', 'hold_sign'] as const)
   test(`disconnect during ${phase} retains real slot until settlement and fences late result`, async ({
     page
   }) => {
@@ -197,7 +197,12 @@ for (const phase of ['hold_encrypt', 'hold_sign'] as const)
       .poll(() => page.evaluate(() => window.hcp075Fixture.slot()))
       .toMatchObject({
         state: 'active',
-        pending: phase === 'hold_encrypt' ? 'encrypt' : 'sign'
+        pending:
+          phase === 'hold_encrypt'
+            ? 'encrypt'
+            : phase === 'hold_decrypt'
+              ? 'decrypt'
+              : 'sign'
       });
     const pending = await page.evaluate(() => {
       const f = window.hcp075Fixture;
