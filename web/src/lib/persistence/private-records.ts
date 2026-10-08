@@ -8,6 +8,7 @@ import {
   verifiedEnvelopeSnapshot
 } from '../nostr/verified-envelope.ts';
 import { canonicalRelayOrigin } from '../config/relays.ts';
+import type { InboxRouteSnapshot } from '../messaging/inbox-routing.ts';
 import {
   LOCAL_PERSISTENCE_BUDGETS,
   PRIVATE_TRANSPORT_BUDGETS,
@@ -38,6 +39,13 @@ export type PrivateSendOperation = Readonly<{
   createdAt: number;
   self: PrivateCiphertextArtifact;
   peerArtifact: PrivateCiphertextArtifact | null;
+  // Absent in original self-only records; never an implicit migration or an
+  // effect capability. Both ciphertext roles are required for a paired plan.
+  deliveryPlan?: PrivateDeliveryPlan;
+}>;
+export type PrivateDeliveryPlan = Readonly<{
+  state: 'prepared';
+  routes: InboxRouteSnapshot;
 }>;
 export type ReceivedEnvelopeRecord = Readonly<{
   schema: 1;
@@ -86,6 +94,85 @@ const reservationFields = [
   'rumorHash',
   'createdAt'
 ];
+function routeHead(value: unknown): boolean {
+  return (
+    exactLocalFields(value, ['id', 'createdAt']) &&
+    hash(value.id) &&
+    unsigned(value.createdAt)
+  );
+}
+function persistedRoute(
+  value: unknown,
+  author: string,
+  role: 'peer' | 'self_archive'
+): boolean {
+  if (
+    !exactLocalFields(value, [
+      'role',
+      'author',
+      'targets',
+      'knownBase',
+      'sources'
+    ]) ||
+    value.role !== role ||
+    value.author !== author ||
+    !Array.isArray(value.targets) ||
+    value.targets.length < 1 ||
+    value.targets.length > RELAY_BUDGETS.inbox ||
+    new Set(value.targets).size !== value.targets.length ||
+    !value.targets.every(
+      (origin) =>
+        typeof origin === 'string' && canonicalRelayOrigin(origin) === origin
+    ) ||
+    !exactLocalFields(value.knownBase, ['author', 'id', 'createdAt']) ||
+    value.knownBase.author !== author ||
+    !hash(value.knownBase.id) ||
+    !unsigned(value.knownBase.createdAt) ||
+    !Array.isArray(value.sources) ||
+    value.sources.length < 1 ||
+    value.sources.length > RELAY_BUDGETS.public
+  )
+    return false;
+  const origins = new Set<string>();
+  function acceptOrigin(origin: string): boolean {
+    if (origins.has(origin)) return false;
+    origins.add(origin);
+    return true;
+  }
+  for (const source of value.sources) {
+    if (typeof source !== 'object' || source === null || Array.isArray(source))
+      return false;
+    const row = source as Record<string, unknown>;
+    if (
+      !exactLocalFields(
+        row,
+        row.head === undefined
+          ? ['source', 'state']
+          : ['source', 'state', 'head']
+      ) ||
+      row.state !== 'eose' ||
+      typeof row.source !== 'string' ||
+      canonicalRelayOrigin(row.source) !== row.source ||
+      !acceptOrigin(row.source) ||
+      (row.head !== undefined && !routeHead(row.head))
+    )
+      return false;
+  }
+  return true;
+}
+function deliveryPlan(
+  value: unknown,
+  owner: string,
+  peer: string
+): value is PrivateDeliveryPlan {
+  return (
+    exactLocalFields(value, ['state', 'routes']) &&
+    value.state === 'prepared' &&
+    exactLocalFields(value.routes, ['peer', 'archive']) &&
+    persistedRoute(value.routes.peer, peer, 'peer') &&
+    persistedRoute(value.routes.archive, owner, 'self_archive')
+  );
+}
 // JSON.parse keeps only the last duplicate key. Retaining the original outer
 // bytes therefore requires a separate syntax-only duplicate check, including
 // escaped key aliases and nested local metadata. JSON validity/semantics remain
@@ -294,14 +381,18 @@ export function decodePrivateRecord(
         !exactLocalFields(fields, [
           ...reservationFields,
           'self',
-          'peerArtifact'
+          'peerArtifact',
+          ...(fields.deliveryPlan === undefined ? [] : ['deliveryPlan'])
         ]) ||
         !sendMetadata(fields, owner, id) ||
         !unsigned(fields.revision) ||
         fields.revision < 1 ||
         !artifact(fields.self, owner) ||
         (fields.peerArtifact !== null &&
-          !artifact(fields.peerArtifact, fields.peer as string))
+          !artifact(fields.peerArtifact, fields.peer as string)) ||
+        (fields.deliveryPlan !== undefined &&
+          (fields.peerArtifact === null ||
+            !deliveryPlan(fields.deliveryPlan, owner, fields.peer as string)))
       )
         return failed('malformed');
       record = {
@@ -320,7 +411,10 @@ export function decodePrivateRecord(
             : {
                 eventId: fields.peerArtifact.eventId,
                 wire: fields.peerArtifact.wire
-              }
+              },
+        ...(fields.deliveryPlan === undefined
+          ? {}
+          : { deliveryPlan: fields.deliveryPlan })
       };
     } else if (fields.family === 'received_envelope') {
       if (

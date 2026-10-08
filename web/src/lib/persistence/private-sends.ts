@@ -19,8 +19,13 @@ import {
   privateRecordSnapshot,
   privateRecordWire,
   type PrivateRecordHandle,
-  type PrivateSendReservation
+  type PrivateSendReservation,
+  type PrivateSendOperation
 } from './private-records.ts';
+import {
+  inboxRoutePlanSnapshot,
+  type InboxRoutePlan
+} from '../messaging/inbox-routing.ts';
 import {
   loadPrivateRecord,
   commitPrivateRecord,
@@ -268,6 +273,229 @@ export async function verifySelfRecoveryAcknowledgement(
   receipt: SelfRecoveryAcknowledgement
 ): Promise<boolean> {
   const saved = acknowledgements.get(receipt);
+  if (!saved?.current()) return false;
+  const loaded = await loadPrivateRecord(
+    repository,
+    'private_sends',
+    saved.record.id
+  );
+  return (
+    saved.current() &&
+    loaded.ok &&
+    privateRecordWire(loaded.value, saved.record.owner, saved.record.id) ===
+      saved.wire
+  );
+}
+
+declare const pairedAcknowledgementBrand: unique symbol;
+export type PairedDeliveryAcknowledgement = Readonly<{
+  [pairedAcknowledgementBrand]: true;
+}>;
+type Paired = Readonly<{
+  record: PrivateSendOperation;
+  wire: string;
+  current(): boolean;
+}>;
+const pairedAcknowledgements = new WeakMap<
+  PairedDeliveryAcknowledgement,
+  Paired
+>();
+export type PairedDeliveryCommitResult =
+  | Readonly<{
+      status: 'prepared' | 'existing' | 'reconciled';
+      receipt: PairedDeliveryAcknowledgement;
+    }>
+  | Readonly<{ status: PrivateStorageFailure | 'invalid' | 'stopped' }>;
+
+// Requires genuine current self acknowledgement, peer factory proof and route
+// capture. Structural local record admission alone cannot mint this receipt.
+// Caller owns WebLock and current route recheck; this function owns short CAS.
+export async function commitPairedDelivery(
+  repository: PrivateStorageRepository,
+  session: IdentitySession,
+  reserved: ReservedSendIdentity,
+  self: SelfRecoveryAcknowledgement,
+  peer: VerifiedOutboundEnvelope,
+  plan: InboxRoutePlan,
+  review: unknown
+): Promise<PairedDeliveryCommitResult> {
+  if (typeof window === 'undefined' || review !== 'reviewed_pair_commit')
+    return { status: 'invalid' };
+  const savedSelf = acknowledgements.get(self),
+    original = reservedSendSnapshot(reserved),
+    ownership = identityMessagingOwnership(session),
+    proof = verifiedOutboundSnapshot(peer),
+    routes = inboxRoutePlanSnapshot(plan);
+  if (
+    !savedSelf?.current() ||
+    !original ||
+    !ownership?.current() ||
+    !proof ||
+    !routes ||
+    original.owner !== ownership.owner ||
+    savedSelf.record.owner !== original.owner ||
+    savedSelf.record.id !== original.id ||
+    savedSelf.record.peer !== original.peer ||
+    savedSelf.record.rumorHash !== original.rumorHash ||
+    savedSelf.record.createdAt !== original.createdAt ||
+    proof.role !== 'peer' ||
+    proof.destination !== original.peer ||
+    proof.owner !== original.owner ||
+    proof.command !== original.id ||
+    proof.peer !== original.peer ||
+    proof.rumorHash !== original.rumorHash ||
+    routes.peer.author !== original.peer ||
+    routes.archive.author !== original.owner
+  )
+    return { status: 'invalid' };
+  const verified = verifyEnvelope(proof.wire),
+    event = verified.ok && verifiedEnvelopeSnapshot(verified.value);
+  if (!event || event.kind !== 1059) return { status: 'invalid' };
+  const current = () => {
+    const fresh = reservedSendSnapshot(reserved),
+      peerNow = verifiedOutboundSnapshot(peer);
+    return (
+      ownership.current() &&
+      savedSelf.current() &&
+      fresh?.owner === original.owner &&
+      fresh.id === original.id &&
+      fresh.peer === original.peer &&
+      fresh.rumorHash === original.rumorHash &&
+      fresh.createdAt === original.createdAt &&
+      peerNow?.role === 'peer' &&
+      peerNow.wire === proof.wire
+    );
+  };
+  try {
+    const loaded = await readSelfRecoveryBase(repository, reserved);
+    if (!current()) return { status: 'stopped' };
+    if (!loaded.ok) return { status: loaded.reason };
+    const base = privateRecordSnapshot(
+        loaded.value,
+        original.owner,
+        original.id
+      ),
+      baseWire = privateRecordWire(loaded.value, original.owner, original.id);
+    if (
+      !base ||
+      base.family !== 'private_send_operation' ||
+      base.self.eventId !== savedSelf.self.eventId ||
+      base.self.wire !== savedSelf.self.wire
+    )
+      return { status: 'conflict' };
+    const peerArtifact = { eventId: event.id, wire: proof.wire },
+      deliveryPlan = { state: 'prepared' as const, routes };
+    let expected: PrivateRecordHandle,
+      status: 'prepared' | 'existing' | 'reconciled';
+    if (base.peerArtifact || base.deliveryPlan) {
+      if (
+        base.peerArtifact?.eventId !== peerArtifact.eventId ||
+        base.peerArtifact.wire !== peerArtifact.wire ||
+        JSON.stringify(base.deliveryPlan) !== JSON.stringify(deliveryPlan)
+      )
+        return { status: 'conflict' };
+      expected = loaded.value;
+      status = 'existing';
+    } else {
+      if (baseWire !== savedSelf.wire) return { status: 'conflict' };
+      const decoded = decodePrivateRecord(
+        JSON.stringify({
+          schema: 1,
+          family: 'private_send_operation',
+          owner: base.owner,
+          id: base.id,
+          revision: base.revision + 1,
+          peer: base.peer,
+          rumorHash: base.rumorHash,
+          createdAt: base.createdAt,
+          self: { eventId: base.self.eventId, wire: base.self.wire },
+          peerArtifact,
+          deliveryPlan
+        }),
+        base.owner,
+        base.id
+      );
+      if (!decoded.ok) return { status: 'invalid_record' };
+      expected = decoded.value;
+      if (!current()) return { status: 'stopped' };
+      const committed = await commitPrivateRecord(
+        repository,
+        expected,
+        loaded.value
+      );
+      if (!current()) return { status: 'stopped' };
+      if (!committed.ok && committed.reason !== 'unknown_completion')
+        return { status: committed.reason };
+      status = !committed.ok
+        ? 'reconciled'
+        : committed.value.state === 'existing'
+          ? 'existing'
+          : 'prepared';
+    }
+    const wire = privateRecordWire(expected, original.owner, original.id),
+      readback = await loadPrivateRecord(
+        repository,
+        'private_sends',
+        original.id
+      );
+    if (!current()) return { status: 'stopped' };
+    if (!readback.ok) return { status: 'unknown_completion' };
+    const observed = privateRecordSnapshot(
+      readback.value,
+      original.owner,
+      original.id
+    );
+    if (
+      !wire ||
+      privateRecordWire(readback.value, original.owner, original.id) !== wire ||
+      !observed ||
+      observed.family !== 'private_send_operation' ||
+      !observed.peerArtifact ||
+      !observed.deliveryPlan
+    )
+      return { status: 'conflict' };
+    const receipt = Object.freeze({}) as PairedDeliveryAcknowledgement;
+    pairedAcknowledgements.set(receipt, {
+      record: observed,
+      wire,
+      current: () => ownership.current()
+    });
+    return { status, receipt };
+  } catch {
+    return { status: current() ? 'unavailable' : 'stopped' };
+  }
+}
+export function pairedDeliveryAcknowledgementSnapshot(
+  receipt: PairedDeliveryAcknowledgement
+) {
+  const saved = pairedAcknowledgements.get(receipt);
+  if (
+    !saved?.current() ||
+    !saved.record.peerArtifact ||
+    !saved.record.deliveryPlan
+  )
+    return undefined;
+  const row = saved.record;
+  return {
+    owner: row.owner,
+    id: row.id,
+    revision: row.revision,
+    peer: row.peer,
+    rumorHash: row.rumorHash,
+    createdAt: row.createdAt,
+    self: { ...row.self },
+    peerArtifact: { ...saved.record.peerArtifact },
+    deliveryPlan: JSON.parse(
+      JSON.stringify(saved.record.deliveryPlan)
+    ) as NonNullable<PrivateSendOperation['deliveryPlan']>,
+    fact: 'acknowledged_local_pair_only' as const
+  };
+}
+export async function verifyPairedDeliveryAcknowledgement(
+  repository: PrivateStorageRepository,
+  receipt: PairedDeliveryAcknowledgement
+): Promise<boolean> {
+  const saved = pairedAcknowledgements.get(receipt);
   if (!saved?.current()) return false;
   const loaded = await loadPrivateRecord(
     repository,

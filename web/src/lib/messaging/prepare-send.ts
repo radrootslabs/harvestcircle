@@ -17,6 +17,13 @@ import {
 } from './envelope-preparation.ts';
 import { privateRecordSnapshot } from '../persistence/private-records.ts';
 import {
+  inboxRoutePlanSnapshot,
+  recheckInboxRoutePlan,
+  type InboxRoutePlan
+} from './inbox-routing.ts';
+import type { InboxResolver } from './resolve-inbox.ts';
+import type { RelayPolicy } from '../config/relays.ts';
+import {
   type PrivateStorageRepository,
   type PrivateStorageFailure
 } from '../persistence/private-storage.ts';
@@ -25,7 +32,11 @@ import {
   commitSelfRecovery,
   selfRecoveryAcknowledgementSnapshot,
   verifySelfRecoveryAcknowledgement,
-  type SelfRecoveryAcknowledgement
+  commitPairedDelivery,
+  pairedDeliveryAcknowledgementSnapshot,
+  verifyPairedDeliveryAcknowledgement,
+  type SelfRecoveryAcknowledgement,
+  type PairedDeliveryAcknowledgement
 } from '../persistence/private-sends.ts';
 
 declare const preparationBrand: unique symbol;
@@ -44,6 +55,19 @@ export type SelfRecoveryPreparationResult = Readonly<{
     | 'mismatch'
     | 'out_of_order';
 }>;
+export type PairedDeliveryContext = Readonly<{
+  plan: InboxRoutePlan;
+  policy: RelayPolicy;
+  own: InboxResolver;
+  other: InboxResolver;
+}>;
+export type PairedDeliveryPreparationResult = Readonly<{
+  status:
+    | SelfRecoveryPreparationResult['status']
+    | 'self_required'
+    | 'review_required'
+    | 'prepared';
+}>;
 type Phase =
   'unsaved' | 'preparing' | 'saved' | 'unknown_completion' | 'needs_action';
 type Snapshot = Readonly<{
@@ -55,6 +79,11 @@ type Snapshot = Readonly<{
 }>;
 type Controller = {
   run(review: unknown): Promise<SelfRecoveryPreparationResult>;
+  runPair(
+    context: PairedDeliveryContext,
+    review: unknown
+  ): Promise<PairedDeliveryPreparationResult>;
+  pairReceipt(): PairedDeliveryAcknowledgement | undefined;
   snapshot(): Snapshot | undefined;
   receipt(): SelfRecoveryAcknowledgement | undefined;
   peer(
@@ -96,12 +125,14 @@ export function captureSelfRecoveryPreparation(
     busy = false,
     phase: Phase = 'unsaved',
     acknowledgement: SelfRecoveryAcknowledgement | undefined,
+    pairedAcknowledgement: PairedDeliveryAcknowledgement | undefined,
     unsubscribe = () => {};
   function stop() {
     if (!active) return;
     active = false;
     generation++;
     acknowledgement = undefined;
+    pairedAcknowledgement = undefined;
     closeEnvelopePreparation(pair);
     unsubscribe();
     unsubscribe = () => {};
@@ -186,6 +217,41 @@ export function captureSelfRecoveryPreparation(
           return { status: base.reason };
         }
         if (acknowledgement) {
+          // A genuine committed pair is the exact legitimate successor to our
+          // self-only record. Reconcile through that receipt's full wire, never
+          // treat arbitrary edits to a self record as acknowledged advancement.
+          if (pairedAcknowledgement) {
+            const paired = pairedDeliveryAcknowledgementSnapshot(
+                pairedAcknowledgement
+              ),
+              originalSelf =
+                selfRecoveryAcknowledgementSnapshot(acknowledgement);
+            const matches =
+              paired &&
+              originalSelf &&
+              paired.owner === record.owner &&
+              paired.id === record.id &&
+              paired.peer === record.peer &&
+              paired.rumorHash === record.rumorHash &&
+              paired.createdAt === record.createdAt &&
+              paired.self.eventId === originalSelf.self.eventId &&
+              paired.self.wire === originalSelf.self.wire;
+            const valid =
+              matches &&
+              (await verifyPairedDeliveryAcknowledgement(
+                repository,
+                pairedAcknowledgement
+              ));
+            if (!admitted()) return { status: 'stopped' };
+            if (valid) {
+              phase = 'saved';
+              return { status: 'saved' };
+            }
+            pairedAcknowledgement = undefined;
+            acknowledgement = undefined;
+            phase = 'needs_action';
+            return { status: 'conflict' };
+          }
           const valid = await verifySelfRecoveryAcknowledgement(
             repository,
             acknowledgement
@@ -263,8 +329,118 @@ export function captureSelfRecoveryPreparation(
       busy = false;
     }
   }
+  function pairReceipt() {
+    return current() &&
+      pairedAcknowledgement &&
+      pairedDeliveryAcknowledgementSnapshot(pairedAcknowledgement)
+      ? pairedAcknowledgement
+      : undefined;
+  }
+  async function runPair(
+    context: PairedDeliveryContext,
+    reviewed: unknown
+  ): Promise<PairedDeliveryPreparationResult> {
+    if (reviewed !== 'reviewed_pair_preparation') return { status: 'invalid' };
+    if (!current()) return { status: 'stopped' };
+    if (busy) return { status: 'busy' };
+    const self = receipt();
+    if (!self) return { status: 'self_required' };
+    busy = true;
+    const attempt = generation;
+    try {
+      const { plan, policy, own, other } = context,
+        routes = inboxRoutePlanSnapshot(plan);
+      if (
+        !routes ||
+        routes.peer.author !== record.peer ||
+        routes.archive.author !== record.owner
+      )
+        return { status: 'invalid' };
+      const routeWire = JSON.stringify(routes);
+      const routesCurrent = () =>
+        recheckInboxRoutePlan(plan, policy, own, other) === 'unchanged' &&
+        JSON.stringify(inboxRoutePlanSnapshot(plan)) === routeWire;
+      const admitted = () => current() && attempt === generation;
+      if (!routesCurrent()) return { status: 'review_required' };
+      if (!admitted()) return { status: 'stopped' };
+      if (pairedAcknowledgement) {
+        const valid = await verifyPairedDeliveryAcknowledgement(
+          repository,
+          pairedAcknowledgement
+        );
+        if (!admitted()) return { status: 'stopped' };
+        if (!routesCurrent()) return { status: 'review_required' };
+        const saved = pairedDeliveryAcknowledgementSnapshot(
+          pairedAcknowledgement
+        );
+        return valid &&
+          saved &&
+          JSON.stringify(saved.deliveryPlan.routes) === routeWire
+          ? { status: 'prepared' }
+          : { status: 'conflict' };
+      }
+      const durableSelf = await verifySelfRecoveryAcknowledgement(
+        repository,
+        self
+      );
+      if (!admitted()) return { status: 'stopped' };
+      if (!routesCurrent()) return { status: 'review_required' };
+      if (!admitted()) return { status: 'stopped' };
+      if (!durableSelf) return { status: 'conflict' };
+      phase = 'preparing';
+      // The existing lower crypto factory owns the owner lock during SDK work.
+      const prepared = await prepareEnvelopeRole(
+        pair,
+        'peer',
+        'reviewed_pair_role'
+      );
+      if (!admitted()) return { status: 'stopped' };
+      if (!routesCurrent()) return { status: 'review_required' };
+      if (!admitted()) return { status: 'stopped' };
+      if (prepared.status !== 'complete') return { status: prepared.status };
+      const proof = preparedEnvelopeProof(pair, 'peer');
+      if (!proof) return { status: 'mismatch' };
+      const saved = await navigator.locks.request(
+        'harvestcircle:owner:' + record.owner,
+        { mode: 'exclusive', ifAvailable: true },
+        async (lock) => {
+          if (!lock) return { status: 'busy' as const };
+          if (!routesCurrent()) return { status: 'review_required' as const };
+          if (!admitted()) return { status: 'stopped' as const };
+          return await commitPairedDelivery(
+            repository,
+            session,
+            reserved,
+            self,
+            proof,
+            plan,
+            'reviewed_pair_commit'
+          );
+        }
+      );
+      if (!admitted()) return { status: 'stopped' };
+      if (!routesCurrent()) return { status: 'review_required' };
+      if (!admitted()) return { status: 'stopped' };
+      if ('receipt' in saved) pairedAcknowledgement = saved.receipt;
+      phase = 'saved';
+      return { status: saved.status };
+    } catch {
+      return { status: current() ? 'unavailable' : 'stopped' };
+    } finally {
+      busy = false;
+      if (current()) phase = 'saved';
+    }
+  }
   const token = Object.freeze({}) as SelfRecoveryPreparation;
-  preparations.set(token, { run, snapshot, receipt, peer, stop });
+  preparations.set(token, {
+    run,
+    runPair,
+    pairReceipt,
+    snapshot,
+    receipt,
+    peer,
+    stop
+  });
   unsubscribe = subscribeIdentityInvalidation(session, stop);
   return current() ? token : undefined;
 }
@@ -295,4 +471,17 @@ export function stopSelfRecoveryPreparation(
   token: SelfRecoveryPreparation
 ): void {
   preparations.get(token)?.stop();
+}
+export function preparePairedDelivery(
+  token: SelfRecoveryPreparation,
+  context: PairedDeliveryContext,
+  review: unknown
+): Promise<PairedDeliveryPreparationResult> {
+  return (
+    preparations.get(token)?.runPair(context, review) ??
+    Promise.resolve({ status: 'invalid' })
+  );
+}
+export function preparedPairedDelivery(token: SelfRecoveryPreparation) {
+  return preparations.get(token)?.pairReceipt();
 }
