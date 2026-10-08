@@ -10,6 +10,8 @@ export const RELAY_BUDGETS = Object.freeze({
 // Full history/live coordination has separate owners. These are logical
 // post-SDK-parse limits, not browser WebSocket allocation guarantees.
 export const PRIVATE_TRANSPORT_BUDGETS = Object.freeze({
+  rumorBytes: 8192,
+  sealBytes: 16384,
   requestedPerRelay: 200,
   deliveries: 500,
   processedBytes: 8388608,

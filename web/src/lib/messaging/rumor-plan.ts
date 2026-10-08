@@ -6,6 +6,10 @@ import {
   type IdentitySession
 } from '../runtime/identity-session.ts';
 import { buildEnquiryMessage, type EnquiryContext } from './enquiry-context.ts';
+import {
+  recoveredSelfEnvelopeSnapshot,
+  type RecoveredSelfEnvelope
+} from '../nostr/self-recovery-reader.ts';
 declare const rumorBrand: unique symbol;
 export type RumorPlan = Readonly<{ readonly [rumorBrand]: true }>;
 export type RumorPlanSnapshot = Readonly<{
@@ -95,6 +99,37 @@ export function captureReplyRumor(
     }),
     observedTime
   );
+}
+// Historical time/hash/wire are admitted only by actual authenticated SDK
+// recovery. This creates no new intent, reservation, event or persistent body.
+export function restoreRecoveredRumor(
+  session: IdentitySession,
+  recovered: RecoveredSelfEnvelope
+): RumorPlan | undefined {
+  const ownership = identityMessagingOwnership(session),
+    snapshot = recoveredSelfEnvelopeSnapshot(recovered);
+  if (
+    !ownership?.current() ||
+    !snapshot ||
+    snapshot.record.owner !== ownership.owner
+  )
+    return undefined;
+  const token = Object.freeze({}) as RumorPlan;
+  const current = () =>
+    ownership.current() && !!recoveredSelfEnvelopeSnapshot(recovered);
+  const unsubscribe = subscribeIdentityInvalidation(session, () =>
+    stopRumorPlan(token)
+  );
+  plans.set(token, {
+    owner: snapshot.record.owner,
+    peer: snapshot.record.peer,
+    id: snapshot.record.rumorHash,
+    createdAt: snapshot.record.createdAt,
+    wire: snapshot.rumorWire,
+    current,
+    unsubscribe
+  });
+  return current() ? token : undefined;
 }
 export function rumorPlanSnapshot(
   plan: RumorPlan

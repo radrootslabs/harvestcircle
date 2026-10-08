@@ -6,6 +6,10 @@ import {
 } from '../runtime/identity-session.ts';
 import { rumorPlanSnapshot, type RumorPlan } from './rumor-plan.ts';
 import {
+  recoveredSelfEnvelopeSnapshot,
+  type RecoveredSelfEnvelope
+} from '../nostr/self-recovery-reader.ts';
+import {
   privateSendReservationOwner,
   reservePrivateSendReservation,
   type PrivateSendReservationRepository,
@@ -101,6 +105,56 @@ export function reservedSendSnapshot(
 ): PrivateSendReservation | undefined {
   const value = identities.get(identity);
   return value?.current() ? { ...value.record } : undefined;
+}
+// Restore the original actual command from authenticated stored self evidence;
+// never re-reserve it using the current clock or a detached caller hash.
+export function restoreRecoveredSendIdentity(
+  session: IdentitySession,
+  recovered: RecoveredSelfEnvelope,
+  plan: RumorPlan
+): ReservedSendIdentity | undefined {
+  const snapshot = recoveredSelfEnvelopeSnapshot(recovered),
+    ownership = identityMessagingOwnership(session),
+    rumor = rumorPlanSnapshot(plan);
+  if (
+    !snapshot ||
+    !ownership?.current() ||
+    !rumor ||
+    ownership.owner !== snapshot.record.owner ||
+    rumor.owner !== snapshot.record.owner ||
+    rumor.peer !== snapshot.record.peer ||
+    rumor.id !== snapshot.record.rumorHash ||
+    rumor.createdAt !== snapshot.record.createdAt ||
+    rumor.wire !== snapshot.rumorWire
+  )
+    return undefined;
+  const record: PrivateSendReservation = {
+    schema: 1,
+    family: 'private_send_reservation',
+    owner: snapshot.record.owner,
+    id: snapshot.record.id,
+    revision: 0,
+    peer: snapshot.record.peer,
+    rumorHash: snapshot.record.rumorHash,
+    createdAt: snapshot.record.createdAt
+  };
+  const current = () => {
+    const observed = rumorPlanSnapshot(plan),
+      source = recoveredSelfEnvelopeSnapshot(recovered);
+    return (
+      ownership.current() &&
+      !!source &&
+      observed?.wire === source.rumorWire &&
+      source.record.id === record.id &&
+      source.record.owner === record.owner &&
+      source.record.peer === record.peer &&
+      source.record.rumorHash === record.rumorHash &&
+      source.record.createdAt === record.createdAt
+    );
+  };
+  const identity = Object.freeze({}) as ReservedSendIdentity;
+  identities.set(identity, { record, plan, current });
+  return current() ? identity : undefined;
 }
 // Internal memory-only input to future encryption. A detached wire/snapshot is
 // neither reserved identity nor effect permission and cannot retarget a send.

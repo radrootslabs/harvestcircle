@@ -24,7 +24,7 @@ declare const pairBrand: unique symbol;
 export type EnvelopePreparation = Readonly<{ [pairBrand]: true }>;
 type Role = 'self' | 'peer';
 type Completed = Readonly<{
-  operation: PrivateSealOperation;
+  operation?: PrivateSealOperation;
   proof: VerifiedOutboundEnvelope;
 }>;
 export type EnvelopePreparationResult = Readonly<{
@@ -59,7 +59,8 @@ const pairs = new WeakMap<EnvelopePreparation, Controller>();
 export function captureEnvelopePreparation(
   session: IdentitySession,
   reserved: ReservedSendIdentity,
-  review: unknown
+  review: unknown,
+  recoveredSelf?: VerifiedOutboundEnvelope
 ): EnvelopePreparation | undefined {
   if (review !== 'reviewed_envelope_pair') return undefined;
   const inputRecord = reservedSendSnapshot(reserved),
@@ -82,6 +83,20 @@ export function captureEnvelopePreparation(
   let self: Completed | undefined,
     peer: Completed | undefined,
     active: PrivateSealOperation | undefined;
+  if (recoveredSelf) {
+    const original = verifiedOutboundSnapshot(recoveredSelf);
+    if (
+      !original ||
+      original.role !== 'self' ||
+      original.destination !== record.owner ||
+      original.owner !== record.owner ||
+      original.peer !== record.peer ||
+      original.command !== record.id ||
+      original.rumorHash !== record.rumorHash
+    )
+      return undefined;
+    self = { proof: recoveredSelf };
+  }
   let busy = false,
     generation = 0,
     unsubscribe = () => {};
@@ -98,8 +113,8 @@ export function captureEnvelopePreparation(
     if (!retained) return;
     retained = undefined;
     stop(false);
-    if (self) stopPrivateSeal(self.operation);
-    if (peer) stopPrivateSeal(peer.operation);
+    if (self?.operation) stopPrivateSeal(self.operation);
+    if (peer?.operation) stopPrivateSeal(peer.operation);
     self = undefined;
     peer = undefined;
     unsubscribe();

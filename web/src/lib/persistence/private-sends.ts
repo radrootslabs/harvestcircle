@@ -8,6 +8,7 @@ import {
 } from '../messaging/send-identity.ts';
 import {
   verifiedOutboundSnapshot,
+  verifiedOutboundRecoverySource,
   type VerifiedOutboundEnvelope
 } from '../nostr/verify-outbound-envelope.ts';
 import {
@@ -129,7 +130,8 @@ function input(
         record,
         current,
         ownerCurrent: () => ownership.current(),
-        self: { eventId: event.id, wire: observed.wire }
+        self: { eventId: event.id, wire: observed.wire },
+        recoveryWire: verifiedOutboundRecoverySource(proof)
       }
     : undefined;
 }
@@ -159,6 +161,15 @@ export async function commitSelfRecovery(
     );
     if (!base || base.family === 'received_envelope')
       return { status: 'invalid_record' };
+    if (
+      captured.recoveryWire !== undefined &&
+      privateRecordWire(
+        loaded.value,
+        captured.record.owner,
+        captured.record.id
+      ) !== captured.recoveryWire
+    )
+      return { status: 'conflict' };
     let expected: PrivateRecordHandle,
       status: 'saved' | 'existing' | 'reconciled';
     if (base.family === 'private_send_operation') {

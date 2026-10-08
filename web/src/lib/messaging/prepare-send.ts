@@ -7,6 +7,7 @@ import {
   reservedSendSnapshot,
   type ReservedSendIdentity
 } from './send-identity.ts';
+import type { VerifiedOutboundEnvelope } from '../nostr/verify-outbound-envelope.ts';
 import {
   captureEnvelopePreparation,
   prepareEnvelopeRole,
@@ -99,7 +100,8 @@ export function captureSelfRecoveryPreparation(
   repository: PrivateStorageRepository,
   session: IdentitySession,
   reserved: ReservedSendIdentity,
-  review: unknown
+  review: unknown,
+  recoveredSelf?: VerifiedOutboundEnvelope
 ): SelfRecoveryPreparation | undefined {
   if (typeof window === 'undefined' || review !== 'reviewed_self_recovery')
     return undefined;
@@ -114,7 +116,8 @@ export function captureSelfRecoveryPreparation(
   const pairInput = captureEnvelopePreparation(
     session,
     reserved,
-    'reviewed_envelope_pair'
+    'reviewed_envelope_pair',
+    recoveredSelf
   );
   if (!pairInput) return undefined;
   const record = recordInput,

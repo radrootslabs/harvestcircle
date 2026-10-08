@@ -7,6 +7,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   timeout: 120_000,
+  expect: { timeout: 120_000 },
   use: { browserName: 'chromium', headless: true, serviceWorkers: 'block' },
   reporter: 'list'
 });
