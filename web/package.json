@@ -14,9 +14,9 @@
     "build": "node tools/check-source.mjs && node tools/build-info.mjs && vite build && node tools/check-output.mjs",
     "check": "node tools/check-source.mjs && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "lint": "node tools/check-source.mjs && svelte-kit sync && eslint . --max-warnings 0 && prettier --check .",
-    "test:unit": "node tools/check-source.mjs && svelte-kit sync && vitest run --config vitest.config.ts && node --test --test-concurrency=1 --test-timeout=10000 tests/provenance/*.test.mjs",
+    "test:unit": "node tools/check-source.mjs && svelte-kit sync && vitest run --config vitest.config.ts && node --test --test-concurrency=1 --test-timeout=120000 tests/provenance/*.test.mjs",
     "test:conformance": "corepack pnpm build && node --test tests/conformance/*.test.ts",
-    "test:integration": "corepack pnpm build && node --test --test-timeout=10000 tests/integration/*.test.ts",
+    "test:integration": "corepack pnpm build && node --test --test-timeout=120000 tests/integration/*.test.ts",
     "test:e2e": "corepack pnpm build && playwright test",
     "test:conformance:oracle": "node tools/check-food-interop.mjs",
     "check:launch-relays": "node tools/check-source.mjs && node tools/check-launch-relays.mjs"

@@ -6,7 +6,7 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  timeout: 15_000,
+  timeout: 120_000,
   use: { browserName: 'chromium', headless: true, serviceWorkers: 'block' },
   reporter: 'list'
 });

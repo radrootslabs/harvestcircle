@@ -9,16 +9,15 @@ import {
   browserDatabaseTransaction,
   type BrowserDatabase
 } from './database.ts';
-export type PrivateSendReservation = Readonly<{
-  schema: 1;
-  family: 'private_send_reservation';
-  owner: string;
-  id: string;
-  revision: 0;
-  peer: string;
-  rumorHash: string;
-  createdAt: number;
-}>;
+import {
+  inspectPrivateSendReservation,
+  inspectPrivateSendRecord,
+  type PrivateSendReservation
+} from './private-records.ts';
+export {
+  inspectPrivateSendReservation,
+  type PrivateSendReservation
+} from './private-records.ts';
 declare const repositoryBrand: unique symbol;
 export type PrivateSendReservationRepository = Readonly<{
   [repositoryBrand]: true;
@@ -47,61 +46,6 @@ const failed = (reason: ReservationFailure): ReservationResult => ({
   ok: false,
   reason
 });
-// Metadata only, never a plaintext/private-draft or encrypted-send decoder.
-// Future paired-ciphertext/recovery families retain their own admission owner.
-export function inspectPrivateSendReservation(
-  raw: unknown,
-  expectedOwner: unknown,
-  expectedId: unknown
-): PrivateSendReservation | undefined {
-  const owner = canonicalPublicKey(expectedOwner),
-    id = canonicalLocalId(expectedId);
-  if (!owner || !id || typeof raw !== 'string' || !boundedUtf8(raw, 4096))
-    return undefined;
-  try {
-    const value: unknown = JSON.parse(raw);
-    if (
-      !exactLocalFields(value, [
-        'schema',
-        'family',
-        'owner',
-        'id',
-        'revision',
-        'peer',
-        'rumorHash',
-        'createdAt'
-      ]) ||
-      value.schema !== 1 ||
-      value.family !== 'private_send_reservation' ||
-      value.owner !== owner ||
-      value.id !== id ||
-      value.revision !== 0
-    )
-      return undefined;
-    const peer = canonicalPublicKey(value.peer),
-      createdAt = safeUnsignedInteger(value.createdAt);
-    if (
-      !peer ||
-      peer === owner ||
-      createdAt === undefined ||
-      typeof value.rumorHash !== 'string' ||
-      !/^[0-9a-f]{64}$/.test(value.rumorHash)
-    )
-      return undefined;
-    return {
-      schema: 1,
-      family: 'private_send_reservation',
-      owner,
-      id,
-      revision: 0,
-      peer,
-      rumorHash: value.rumorHash,
-      createdAt
-    };
-  } catch {
-    return undefined;
-  }
-}
 export function createPrivateSendReservationRepository(
   database: BrowserDatabase,
   expectedOwner: unknown
@@ -217,17 +161,23 @@ export function reservePrivateSendReservation(
               refuse('corrupt_record');
               return;
             }
-            const value = inspectPrivateSendReservation(
-              row.wire,
-              scope.owner,
-              id
-            );
+            const value = inspectPrivateSendRecord(row.wire, scope.owner, id);
             if (!value) {
               refuse('corrupt_record');
               return;
             }
             count += 1;
-            if (value.id === candidate.id) existing = value;
+            if (value.id === candidate.id)
+              existing = {
+                schema: 1,
+                family: 'private_send_reservation',
+                owner: value.owner,
+                id: value.id,
+                revision: 0,
+                peer: value.peer,
+                rumorHash: value.rumorHash,
+                createdAt: value.createdAt
+              };
             if (value.rumorHash === candidate.rumorHash) collision = true;
             bytes += new TextEncoder().encode(JSON.stringify(row)).length;
             if (
