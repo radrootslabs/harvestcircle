@@ -69,7 +69,9 @@ export type Mode =
   | 'stop_capability_after_key';
 // Ephemeral source-only provider: actual stock SDK encryption/signature and real
 // Chromium IDB/WebLocks. No installed extension/relay/client qualification.
-export async function makeFixture() {
+export async function makeFixture(
+  inputText: unknown = 'Private seal sentinel'
+) {
   const secret = generateSecretKey(),
     peerSecret = generateSecretKey(),
     owner = getPublicKey(secret),
@@ -230,7 +232,7 @@ export async function makeFixture() {
   const plan = captureEnquiryRumor(
     identity,
     context,
-    'Private seal sentinel',
+    inputText,
     Math.floor(reservationTime / 1000)
   );
   if (!plan) throw Error('missing plan');
@@ -264,6 +266,13 @@ export async function makeFixture() {
     peer,
     identity,
     reserved,
+    textPlan: (text: unknown) =>
+      captureEnquiryRumor(
+        identity,
+        context,
+        text,
+        Math.floor(Date.now() / 1000)
+      ),
     async reserveAgain() {
       const result = await reserveSendIdentity(
         repository,
