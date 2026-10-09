@@ -1,3 +1,10 @@
+import {
+  projectConversationThread,
+  unavailableThread,
+  type ThreadSnapshot,
+  type ThreadMessage
+} from './conversation-thread.ts';
+import type { PrivateRecordHandle } from '../persistence/private-records.ts';
 import { canonicalPublicKey } from '../contracts/public-key.ts';
 import {
   groupInboxMessages,
@@ -7,12 +14,14 @@ import {
 import {
   captureMessageMetadata,
   messageMetadataSnapshot,
+  markDisplayedMessage,
   type MessageMetadata
 } from '../persistence/message-metadata.ts';
 import {
   captureConversationDirectory,
   rememberAdmittedConversation,
   closeConversationDirectory,
+  resolveLocalConversation,
   type ConversationDirectory
 } from './conversation-directory.ts';
 import {
@@ -56,6 +65,7 @@ import {
 } from '../persistence/database.ts';
 import {
   createPrivateStorageRepository,
+  listPrivateSendRecords,
   type PrivateStorageRepository
 } from '../persistence/private-storage.ts';
 import {
@@ -97,9 +107,22 @@ export type InboxViewSnapshot = Readonly<{
   historyComplete: false;
   cleanupRequired: boolean;
 }>;
-type Inputs = Readonly<{ identity: IdentitySession; setup: InboxSetupView }>;
+type Inputs = Readonly<{
+  identity: IdentitySession;
+  setup: InboxSetupView;
+  conversationId?: string;
+}>;
 type Controller = {
   snapshot(): InboxViewSnapshot;
+  thread(id: unknown): ThreadSnapshot;
+  threadRevision(): number;
+  message(id: unknown, rumor: unknown): ThreadMessage | undefined;
+  resolve(id: unknown, review: unknown): Promise<boolean>;
+  displayed(
+    id: unknown,
+    rumors: readonly string[],
+    review: unknown
+  ): Promise<boolean>;
   setup(): InboxSetupView | undefined;
   list(): InboxListSnapshot;
   row(peer: unknown): InboxListRow | undefined;
@@ -158,6 +181,16 @@ export function createInboxView(input: Inputs): InboxView | undefined {
     directory: ConversationDirectory | undefined,
     older: OlderInbox | undefined;
   let list: InboxListSnapshot = groupInboxMessages('', [], []);
+  let threadId: string | undefined,
+    threadPeer: string | undefined,
+    threadEpoch = 0;
+  let threadModel: ThreadSnapshot = unavailableThread();
+  const threadProofs = new Map<
+    string,
+    Readonly<{ room: AdmittedConversation; message: ThreadMessage }>
+  >();
+  let sendRecords: readonly PrivateRecordHandle[] =
+    Array.from<PrivateRecordHandle>([]);
   let listReason: string | null = null;
   let listRevision = 0;
   const rowProofs = new Map<
@@ -187,6 +220,157 @@ export function createInboxView(input: Inputs): InboxView | undefined {
       owner.session === capture.session &&
       current()
     );
+  }
+  function threadRooms(id: unknown) {
+    if (
+      id !== threadId ||
+      !threadPeer ||
+      !privateCurrent() ||
+      !unlocked ||
+      !queue
+    )
+      return;
+    const rooms = decryptionQueueConversations(queue).filter((room) => {
+      const data = conversationSnapshot(room);
+      return (
+        data?.owner === capture.owner &&
+        data.peer === threadPeer &&
+        unlockedConversationCurrent(unlocked!, room)
+      );
+    });
+    return rooms;
+  }
+  function refreshThread() {
+    threadProofs.clear();
+    threadModel = unavailableThread();
+    const rooms = threadRooms(threadId);
+    if (!rooms || !threadPeer) return;
+    const data = rooms.map(conversationSnapshot);
+    if (data.some((row) => !row)) return;
+    threadModel = projectConversationThread(
+      capture.owner,
+      threadPeer,
+      data.filter((row) => row !== undefined),
+      sendRecords
+    );
+    if (threadModel.status !== 'ready') return;
+    const byRumor = new Map<string, AdmittedConversation>();
+    for (const room of rooms) {
+      const row = conversationSnapshot(room);
+      if (row) byRumor.set(row.rumorId, room);
+    }
+    for (const message of threadModel.messages) {
+      const room = byRumor.get(message.data.rumorId);
+      if (room) threadProofs.set(message.data.rumorId, { room, message });
+    }
+  }
+  function messageSnapshot(
+    id: unknown,
+    rumor: unknown
+  ): ThreadMessage | undefined {
+    if (
+      id !== threadId ||
+      typeof rumor !== 'string' ||
+      !privateCurrent() ||
+      !unlocked ||
+      threadModel.status !== 'ready'
+    )
+      return;
+    const proof = threadProofs.get(rumor);
+    if (!proof || !unlockedConversationCurrent(unlocked, proof.room)) return;
+    const actual = conversationSnapshot(proof.room);
+    if (
+      !actual ||
+      actual.owner !== capture.owner ||
+      actual.peer !== threadPeer ||
+      actual.rumorId !== rumor
+    )
+      return;
+    return {
+      data: { ...actual },
+      citations: proof.message.citations.map((row) => ({ ...row })),
+      parent: proof.message.parent,
+      delivery: proof.message.delivery?.slice() ?? null
+    };
+  }
+  function threadSnapshot(id: unknown): ThreadSnapshot {
+    if (id !== threadId || !privateCurrent() || threadModel.status !== 'ready')
+      return unavailableThread();
+    const messages = threadModel.messages.map((row) =>
+      messageSnapshot(id, row.data.rumorId)
+    );
+    return messages.some((row) => !row)
+      ? unavailableThread()
+      : {
+          status: 'ready',
+          messages: messages.filter((row) => row !== undefined)
+        };
+  }
+  async function resolve(id: unknown, review: unknown) {
+    if (review !== 'reviewed_conversation_navigation') return false;
+    const selection = ++threadEpoch,
+      generation = epoch;
+    threadId = undefined;
+    threadPeer = undefined;
+    threadProofs.clear();
+    threadModel = unavailableThread();
+    notify();
+    if (!directory || !privateCurrent()) return false;
+    const result = await resolveLocalConversation(directory, id);
+    if (
+      selection !== threadEpoch ||
+      !current(generation) ||
+      !privateCurrent() ||
+      result.status !== 'resolved' ||
+      result.owner !== capture.owner
+    )
+      return false;
+    threadId = result.conversationId;
+    threadPeer = result.peer;
+    refreshThread();
+    notify();
+    return true;
+  }
+  async function displayed(
+    id: unknown,
+    rumors: readonly string[],
+    review: unknown
+  ) {
+    if (
+      review !== 'reviewed_displayed_conversation' ||
+      !Array.isArray(rumors) ||
+      !metadata
+    )
+      return false;
+    const rooms = threadRooms(id),
+      selection = threadEpoch,
+      generation = epoch,
+      originalMetadata = metadata;
+    if (!rooms || rumors.length > 2000) return false;
+    for (const rumor of rumors) {
+      const room = rooms.find(
+        (value) => conversationSnapshot(value)?.rumorId === rumor
+      );
+      if (
+        !room ||
+        selection !== threadEpoch ||
+        !current(generation) ||
+        !privateCurrent() ||
+        id !== threadId
+      )
+        return false;
+      const result = await markDisplayedMessage(
+        originalMetadata,
+        room,
+        'displayed_message'
+      );
+      if (result.status !== 'saved' && result.status !== 'existing')
+        return false;
+    }
+    if (selection !== threadEpoch || !current(generation) || !privateCurrent())
+      return false;
+    await refreshList(generation);
+    return selection === threadEpoch && current(generation) && privateCurrent();
   }
   function rowSnapshot(peer: unknown): InboxListRow | undefined {
     if (
@@ -228,7 +412,9 @@ export function createInboxView(input: Inputs): InboxView | undefined {
     if (!privateCurrent() || !unlocked || !metadata) return false;
     try {
       const local = await messageMetadataSnapshot(metadata);
+      const sends = repository && (await listPrivateSendRecords(repository));
       if (!current(generation) || !privateCurrent() || !unlocked) return false;
+      sendRecords = sends?.ok ? sends.value : [];
       const cached = readUnlockedMessages(unlocked);
       if (
         local.status !== 'ready' ||
@@ -257,6 +443,7 @@ export function createInboxView(input: Inputs): InboxView | undefined {
         const room = byRumor.get(row.latest.rumorId);
         if (room) rowProofs.set(row.peer, { data: row, room });
       }
+      refreshThread();
       listRevision++;
       listReason = list.status === 'ready' ? null : 'unavailable';
       return list.status === 'ready';
@@ -494,6 +681,12 @@ export function createInboxView(input: Inputs): InboxView | undefined {
         pendingCleanup = pendingCleanup.concat(cleanup);
       }
     if (pendingCleanup.length > 0) reason = 'cleanup_required';
+    threadEpoch++;
+    threadProofs.clear();
+    threadModel = unavailableThread();
+    threadId = undefined;
+    threadPeer = undefined;
+    sendRecords = [];
     metadata = undefined;
     directory = undefined;
     older = undefined;
@@ -580,6 +773,8 @@ export function createInboxView(input: Inputs): InboxView | undefined {
   async function read(reviewed: unknown) {
     if (
       reviewed !== 'reviewed_decrypt_batch' ||
+      (input.conversationId !== undefined &&
+        (threadId !== input.conversationId || !threadPeer)) ||
       busy ||
       !queue ||
       !privateCurrent()
@@ -690,6 +885,16 @@ export function createInboxView(input: Inputs): InboxView | undefined {
           });
       });
       if (!privateCurrent()) return false;
+      if (
+        input.conversationId !== undefined &&
+        !(await resolve(
+          input.conversationId,
+          'reviewed_conversation_navigation'
+        ))
+      ) {
+        reason = 'unavailable';
+        return false;
+      }
       const result = await runDecryptionBatch(queue, 'reviewed_decrypt_batch');
       if (!current(generation) || !privateCurrent()) return false;
       await refreshList(generation);
@@ -758,6 +963,11 @@ export function createInboxView(input: Inputs): InboxView | undefined {
   }
   views.set(token, {
     snapshot,
+    thread: threadSnapshot,
+    threadRevision: () => (privateCurrent() ? listRevision + threadEpoch : -1),
+    message: messageSnapshot,
+    resolve,
+    displayed,
     list: listSnapshot,
     row: rowSnapshot,
     revision: () => (privateCurrent() ? listRevision : -1),
@@ -897,4 +1107,39 @@ export function inboxConversationRow(
 }
 export function inboxListRevision(token: InboxView | undefined): number {
   return token ? (views.get(token)?.revision() ?? -1) : -1;
+}
+
+export function inboxThreadSnapshot(
+  token: InboxView | undefined,
+  id: unknown
+): ThreadSnapshot {
+  return (token && views.get(token)?.thread(id)) || unavailableThread();
+}
+export function inboxMessageSnapshot(
+  token: InboxView,
+  id: unknown,
+  rumor: unknown
+): ThreadMessage | undefined {
+  return views.get(token)?.message(id, rumor);
+}
+export function resolveInboxConversation(
+  token: InboxView,
+  id: unknown,
+  review: unknown
+): Promise<boolean> {
+  return views.get(token)?.resolve(id, review) ?? Promise.resolve(false);
+}
+export function markInboxConversationDisplayed(
+  token: InboxView,
+  id: unknown,
+  rumors: readonly string[],
+  review: unknown
+): Promise<boolean> {
+  return (
+    views.get(token)?.displayed(id, rumors, review) ?? Promise.resolve(false)
+  );
+}
+
+export function inboxThreadRevision(token: InboxView | undefined): number {
+  return token ? (views.get(token)?.threadRevision() ?? -1) : -1;
 }

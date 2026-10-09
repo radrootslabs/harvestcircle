@@ -509,9 +509,9 @@ async function inboxPresentationAdmission(web) {
     'src/routes/messages/+page.svelte':
       '8279a92770f38858e197e790839bc98b4d7889214ebecdf47e542d632afbc84f',
     'src/lib/components/InboxStatus.svelte':
-      '519d13dad65d3d57db57329ee693cd6a2ea3e14bb1b51f334d8d58c3b677bf92',
+      '29f17df1ccece671ea2ba57578dc028fa541ce924e1cdc4b3e7753da500da53f',
     'src/lib/messaging/inbox-view.ts':
-      '9fb55cd5a227d4a23f56a5ff6d30902cdf7c8bfb16cb313e36f55d78cce9a7ec',
+      '7a66afb2a1dad62f6c8c8a4753f8129d4a1fcd2b00116edbab6ac422f489d83f',
     'src/lib/messaging/inbox-sync.ts':
       '84f9b3bb165a81878bb281c51d245aff7eb06a0fa55b857a49b13d0cb1cff8ae',
     'src/lib/messaging/inbox-setup-view.ts':
@@ -521,7 +521,17 @@ async function inboxPresentationAdmission(web) {
     'src/lib/components/ConversationRow.svelte':
       'c5d0926ac9cdda18a6befe365227dfe62405f71598f59964ff36af9a0e85d743',
     'src/lib/messaging/inbox-list.ts':
-      '9cc82877bfa8dbb2a7fa41bceb842793349416271f19569f49fdd5cfc1de07e5'
+      '9cc82877bfa8dbb2a7fa41bceb842793349416271f19569f49fdd5cfc1de07e5',
+    'src/lib/components/ConversationThread.svelte':
+      'accd91eb5b5ada0f07158dbe7ddfccdd3af65f92536427d0a717a7c18aad7aca',
+    'src/lib/components/MessageItem.svelte':
+      '7a33a603f806686c29f5b9faec2758f8b78339593d7a7aefa1a3ec1c7ce6f01e',
+    'src/lib/messaging/conversation-thread.ts':
+      '7367f0e6d96a9f249514f66c2459274e856eb83462523e37264d4cd97d2e36d1',
+    'src/lib/persistence/private-storage.ts':
+      'e45a95c9b12e8534a6ab0a4ec8ee1c86e730bba2f252dc1947954439720f2bfc',
+    'src/routes/messages/[conversationId=local_id]/+page.svelte':
+      'b06c6189adee80b68bc6657fa0e8504551fe9a8b1655a6d81807ebee9930a5e7'
   };
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);
@@ -689,7 +699,7 @@ export async function auditOutput(webDirectory) {
   if (hasProductPresentation) names.add('publishers');
   if (hasInboxSetup) names.add('private-handles');
   if (hasInboxPresentation)
-    for (const name of ['conversation-directory', 'read']) names.add(name);
+    for (const name of ['InboxStatus', 'InboxSetup', 'read']) names.add(name);
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();
   for (const [key, record] of Object.entries(manifest)) {
@@ -960,14 +970,17 @@ export async function auditOutput(webDirectory) {
         const [, gate] = requiredRecord('AccountGate');
         equal(
           gate.imports,
-          [
-            'public-key',
-            'private-handles',
-            'public-runtime',
-            'client',
-            'Button',
-            'view-context'
-          ].map((name) => requiredRecord(name)[0]),
+          (hasInboxPresentation
+            ? ['client', 'view-context', 'InboxSetup']
+            : [
+                'public-key',
+                'private-handles',
+                'public-runtime',
+                'client',
+                'Button',
+                'view-context'
+              ]
+          ).map((name) => requiredRecord(name)[0]),
           'Invalid owned inbox compiler dependencies'
         );
         if (gate.dynamicImports !== undefined)
@@ -1004,41 +1017,46 @@ export async function auditOutput(webDirectory) {
     /** @type {[string,string[]][]} */
     const dependencies = [
       [
-        'conversation-directory',
+        'InboxStatus',
         [
           'public-key',
           'private-handles',
-          'public-runtime',
-          'Button',
-          'AccountGate'
-        ]
-      ],
-      ['read', ['public-runtime']],
-      [
-        'nodes/4',
-        [
-          'public-key',
           'public-runtime',
           'references',
           'client',
           'Button',
           'navigation',
           'view-context',
-          'AccountGate',
-          'conversation-directory',
+          'InboxSetup',
           'read'
         ]
       ],
       [
+        'InboxSetup',
+        [
+          'public-key',
+          'private-handles',
+          'public-runtime',
+          'client',
+          'Button',
+          'view-context'
+        ]
+      ],
+      ['read', ['public-runtime']],
+      ['nodes/4', ['client', 'AccountGate', 'InboxStatus']],
+      [
         'nodes/5',
         [
           'public-key',
+          'public-runtime',
           'client',
+          'Button',
           'client.svelte',
           'state',
           'view-context',
-          'AccountGate',
-          'conversation-directory'
+          'legacy',
+          'InboxSetup',
+          'InboxStatus'
         ]
       ]
     ];
@@ -1053,6 +1071,17 @@ export async function auditOutput(webDirectory) {
         throw new Error(
           'Invalid owned inbox presentation compiler dynamic imports'
         );
+      if (name.startsWith('nodes/')) {
+        if (
+          row.src !== key ||
+          row.isEntry !== true ||
+          row.isDynamicEntry !== undefined ||
+          row.css !== undefined
+        )
+          throw new Error(
+            'Invalid owned inbox presentation compiler entry role'
+          );
+      }
       if (!name.startsWith('nodes/')) {
         if (
           !/^_[A-Za-z0-9_-]+\.js$/.test(key) ||

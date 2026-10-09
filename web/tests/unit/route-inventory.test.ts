@@ -74,9 +74,16 @@ describe('thin protected route SSR', () => {
         expect(output.head).toContain('<title>HarvestCircle</title>');
         expect(output.head).toMatch(/name="robots" content="noindex"/);
         expect(output.body).toContain('Connect or unlock');
-        expect(output.body).toContain(
-          'Private views and editing are unavailable during development.'
-        );
+        if (name === 'Conversation') {
+          expect(output.body).toMatch(
+            /This conversation is unavailable until it is unlocked in the matching\s+browser and account\./
+          );
+          expect(output.body).toContain('href="/messages"');
+          expect(output.body).not.toContain('data-message-id');
+        } else
+          expect(output.body).toContain(
+            'Private views and editing are unavailable during development.'
+          );
         expect(output.body).toMatch(
           /<button[^>]*disabled[^>]*>Connect extension/
         );

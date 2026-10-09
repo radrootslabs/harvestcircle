@@ -393,6 +393,32 @@ export function listPrivateReceivedRecords(
   );
 }
 
+// Strict bounded readonly outbox observations; no publication authority.
+export function listPrivateSendRecords(
+  repository: PrivateStorageRepository
+): Promise<PrivateStorageResult<readonly PrivateRecordHandle[]>> {
+  const scope = scopeOf(repository);
+  if (!scope) return Promise.resolve(failed('invalid_scope'));
+  return transaction<readonly PrivateRecordHandle[]>(
+    scope,
+    'private_sends',
+    'readonly',
+    (rows) => {
+      let handles = Array.from<PrivateRecordHandle>([]);
+      for (const row of rows) {
+        const decoded = decodePrivateRecord(
+          row.wire,
+          scope.owner,
+          row.record.id
+        );
+        if (!decoded.ok) return failed('corrupt_record');
+        handles = handles.concat(decoded.value);
+      }
+      return { ok: true, value: handles };
+    }
+  );
+}
+
 // Explicit original-owner local received-copy loss only. Immutable selected
 // whole wires CAS before any delete; independent outbox is never opened.
 // Actual close aborts an admitted transaction where still possible. Native

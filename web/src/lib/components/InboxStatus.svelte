@@ -43,7 +43,15 @@
     closeInboxView,
     type InboxView
   } from '../messaging/inbox-view.ts';
-  let { controller }: { controller?: InboxView } = $props();
+  let {
+    controller,
+    showLists = true,
+    manageController = true
+  }: {
+    controller?: InboxView;
+    showLists?: boolean;
+    manageController?: boolean;
+  } = $props();
   const identityContext = getContext<IdentityViewContext>(
       IDENTITY_VIEW_CONTEXT
     ),
@@ -106,7 +114,7 @@
       ? subscribeIdentityView(identityContext, acquire)
       : () => {};
     acquire();
-    if (!controller && publicContext)
+    if (manageController && !controller && publicContext)
       void publicRuntimeReady(publicContext)
         .then((value) => {
           if (disposed) return;
@@ -252,7 +260,7 @@
         }}
       />
     {/if}
-    {#if owned && list.status === 'ready'}
+    {#if showLists && owned && list.status === 'ready'}
       {#if list.requests.length > 0}<section
           class="stack"
           aria-label="Message requests"

@@ -305,7 +305,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             const f = await fixture(t);
             const files = await f.audit();
             // Exact eleven-route module/page/static admission; CSS stays once-imported.
-            assert.equal(files.length, 50);
+            assert.equal(files.length, 51);
             // The actual SDK payload crosses the reader scratch boundary; a reused
             // scratch buffer must still preserve every compiler/static byte exactly.
             const sizes = await Promise.all(
@@ -347,7 +347,12 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'src/lib/messaging/inbox-sync.ts',
           'src/lib/messaging/decryption-queue.ts',
           'src/lib/components/ConversationRow.svelte',
-          'src/lib/messaging/inbox-list.ts'
+          'src/lib/messaging/inbox-list.ts',
+          'src/lib/components/ConversationThread.svelte',
+          'src/lib/components/MessageItem.svelte',
+          'src/lib/messaging/conversation-thread.ts',
+          'src/lib/persistence/private-storage.ts',
+          'src/routes/messages/[conversationId=local_id]/+page.svelte'
         ])
           await check(
             'linked inbox presentation requires exact owned source ' +
@@ -389,7 +394,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
                 assert.ok(row);
                 return row;
               };
-              const [key, row] = find('conversation-directory');
+              const [key, row] = find('InboxStatus');
               if (mutation === 'missing-private-cache-directory')
                 delete manifest[key];
               if (mutation === 'extra-private-edge')
@@ -410,7 +415,10 @@ import { auditOutput } from '../../tools/check-output.mjs';
         for (const mutation of [
           'directory-missing-context',
           'directory-entry-role',
-          'directory-duplicate-role'
+          'directory-duplicate-role',
+          'thread-missing-edge',
+          'thread-dynamic',
+          'thread-entry-role'
         ])
           await check(
             'actual inbox list compiler rejects ' + mutation,
@@ -422,18 +430,29 @@ import { auditOutput } from '../../tools/check-output.mjs';
                 ),
                 manifest = JSON.parse(await readFile(file, 'utf8'));
               const entry = Object.entries(manifest).find(
-                ([, row]) => row.name === 'conversation-directory'
+                ([, row]) =>
+                  row.name ===
+                  (mutation.startsWith('thread-') ? 'nodes/5' : 'InboxStatus')
               );
               assert.ok(entry);
               const [, row] = entry;
               if (mutation === 'directory-missing-context')
                 row.imports = row.imports.filter(
                   (/** @type {string} */ value) =>
-                    manifest[value].name !== 'AccountGate'
+                    manifest[value].name !== 'InboxSetup'
                 );
               if (mutation === 'directory-entry-role') row.isEntry = true;
               if (mutation === 'directory-duplicate-role')
                 manifest['_forged_directory.js'] = { ...row };
+              if (mutation === 'thread-missing-edge')
+                row.imports = row.imports.slice(1);
+              if (mutation === 'thread-dynamic')
+                row.dynamicImports = [
+                  Object.keys(manifest).find(
+                    (key) => manifest[key].name === 'read'
+                  )
+                ];
+              if (mutation === 'thread-entry-role') row.isEntry = false;
               await writeFile(file, JSON.stringify(manifest));
               await assert.rejects(f.audit, /compiler|duplicate|inventory/);
             }
@@ -496,7 +515,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             assert.ok(Buffer.byteLength(expanded) > 64 * 1024);
             await writeFile(file, expanded);
             await refresh(f);
-            assert.equal((await f.audit()).length, 50);
+            assert.equal((await f.audit()).length, 51);
           }
         );
 
@@ -1047,7 +1066,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
               }
               await writeFile(file, JSON.stringify(manifest));
               if (mutation === 'permuted-edges')
-                assert.equal((await f.audit()).length, 50);
+                assert.equal((await f.audit()).length, 51);
               else await assert.rejects(f.audit, /compiler|references/);
             }
           );
