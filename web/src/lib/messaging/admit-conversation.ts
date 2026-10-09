@@ -136,3 +136,17 @@ export function conversationOwnership(token: AdmittedConversation) {
   const saved = rooms.get(token);
   return saved && receivedNestedEnvelopeOwnership(saved.nested);
 }
+
+// HCP094 ciphertext identity observation from the original authenticated room.
+// Detached strings never replace genuine room custody or grant persistence.
+export function conversationEnvelopeIdentity(token: AdmittedConversation) {
+  const saved = rooms.get(token),
+    nested = saved && receivedNestedEnvelopeSnapshot(saved.nested);
+  return nested && conversationSnapshot(token)
+    ? {
+        owner: nested.owner,
+        outerId: nested.outerId,
+        outerWire: nested.outerWire
+      }
+    : undefined;
+}

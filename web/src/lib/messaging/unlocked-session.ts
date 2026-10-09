@@ -28,6 +28,8 @@ type View = Readonly<{
 type Snapshot = Readonly<{ closed: boolean; count: number; bytes: number }>;
 type Controller = {
   current(): boolean;
+  ownership(): ReturnType<typeof privateSessionOwnership>;
+  contains(room: AdmittedConversation): boolean;
   accept(room: AdmittedConversation): UnlockedAdmission;
   read(): View;
   snapshot(): Snapshot;
@@ -72,6 +74,8 @@ export function captureUnlockedSession(
     // heap/garbage-collection timing cannot be securely zeroized or recalled.
     controllers.set(token, {
       current: () => false,
+      ownership: () => undefined,
+      contains: () => false,
       accept: () => 'closed',
       read: () => ({ status: 'closed', messages: [] }),
       snapshot: () => ({ closed: true, count: 0, bytes: 0 }),
@@ -87,6 +91,25 @@ export function captureUnlockedSession(
   }
   const state: Controller = {
     current,
+    ownership: () => (current() ? { ...capture, current } : undefined),
+    contains(room) {
+      if (!current()) return false;
+      const own = conversationOwnership(room),
+        data = conversationSnapshot(room);
+      if (
+        !own?.current() ||
+        own.owner !== capture.owner ||
+        own.session !== capture.session ||
+        !data
+      )
+        return false;
+      const wire = JSON.stringify(data);
+      return (
+        current() &&
+        entries.get(data.rumorId) === wire &&
+        privateCacheWire(cache, data.rumorId) === wire
+      );
+    },
     accept(room) {
       if (!current()) return 'closed';
       // Authenticate original room and generation before even a dedup lookup.
@@ -169,4 +192,15 @@ export function unlockedSessionSnapshot(scope: UnlockedSession): Snapshot {
 }
 export function closeUnlockedSession(scope: UnlockedSession): void {
   controllers.get(scope)?.close();
+}
+
+// Original accepted-cache custody observations only. Copies are not authority.
+export function unlockedSessionOwnership(scope: UnlockedSession) {
+  return controllers.get(scope)?.ownership();
+}
+export function unlockedConversationCurrent(
+  scope: UnlockedSession,
+  room: AdmittedConversation
+): boolean {
+  return controllers.get(scope)?.contains(room) ?? false;
 }
