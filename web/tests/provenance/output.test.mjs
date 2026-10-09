@@ -305,7 +305,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             const f = await fixture(t);
             const files = await f.audit();
             // Exact eleven-route module/page/static admission; CSS stays once-imported.
-            assert.equal(files.length, 51);
+            assert.equal(files.length, 52);
             // The actual SDK payload crosses the reader scratch boundary; a reused
             // scratch buffer must still preserve every compiler/static byte exactly.
             const sizes = await Promise.all(
@@ -350,6 +350,9 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'src/lib/messaging/inbox-list.ts',
           'src/lib/components/ConversationThread.svelte',
           'src/lib/components/MessageItem.svelte',
+          'src/lib/components/ConversationOptions.svelte',
+          'src/lib/messaging/cited-product.ts',
+          'src/lib/nostr/enquiry-references.ts',
           'src/lib/components/MessageComposer.svelte',
           'src/lib/messaging/reply-controller.ts',
           'src/lib/messaging/rumor-plan.ts',
@@ -423,7 +426,9 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'thread-dynamic',
           'thread-entry-role',
           'reply-missing-navigation',
-          'reply-missing-handles'
+          'reply-missing-handles',
+          'context-resolver-dynamic',
+          'context-resolver-entry'
         ])
           await check(
             'actual inbox list compiler rejects ' + mutation,
@@ -437,13 +442,18 @@ import { auditOutput } from '../../tools/check-output.mjs';
               const entry = Object.entries(manifest).find(
                 ([, row]) =>
                   row.name ===
-                  (mutation.startsWith('thread-') ||
-                  mutation.startsWith('reply-')
-                    ? 'nodes/5'
-                    : 'InboxStatus')
+                  (mutation.startsWith('context-')
+                    ? 'resolve-head'
+                    : mutation.startsWith('thread-') ||
+                        mutation.startsWith('reply-')
+                      ? 'nodes/5'
+                      : 'InboxStatus')
               );
               assert.ok(entry);
               const [, row] = entry;
+              if (mutation === 'context-resolver-dynamic')
+                row.dynamicImports = [];
+              if (mutation === 'context-resolver-entry') row.isEntry = true;
               if (mutation === 'directory-missing-context')
                 row.imports = row.imports.filter(
                   (/** @type {string} */ value) =>
@@ -533,7 +543,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             assert.ok(Buffer.byteLength(expanded) > 64 * 1024);
             await writeFile(file, expanded);
             await refresh(f);
-            assert.equal((await f.audit()).length, 51);
+            assert.equal((await f.audit()).length, 52);
           }
         );
 
@@ -1084,7 +1094,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
               }
               await writeFile(file, JSON.stringify(manifest));
               if (mutation === 'permuted-edges')
-                assert.equal((await f.audit()).length, 51);
+                assert.equal((await f.audit()).length, 52);
               else await assert.rejects(f.audit, /compiler|references/);
             }
           );

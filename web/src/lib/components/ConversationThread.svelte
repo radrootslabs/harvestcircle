@@ -3,6 +3,7 @@
   import InboxStatus from './InboxStatus.svelte';
   import Button from './primitives/Button.svelte';
   import MessageItem from './MessageItem.svelte';
+  import ConversationOptions from './ConversationOptions.svelte';
   import MessageComposer from './MessageComposer.svelte';
   import {
     createReplyController,
@@ -52,8 +53,8 @@
     readProblem = $state(false),
     retryRevision = $state(0),
     displayedPending = $state(false);
-  let runtime: PublicRuntime | undefined,
-    off = () => {},
+  let runtime = $state.raw<PublicRuntime | undefined>();
+  let off = () => {},
     initialized = false,
     previous = Array.from<string>([]),
     attempted = Array.from<string>([]),
@@ -191,10 +192,12 @@
 <div class="page page--reading stack">
   <h2>Conversation</h2>
   {#if owned && model.status === 'ready'}
+    <ConversationOptions controller={owned} {conversationId} />
     {#each model.messages as message (message.data.rumorId)}<MessageItem
         controller={owned}
         {conversationId}
         {message}
+        {runtime}
         onreply={replyTo}
       />{/each}
     {#if reply}{#key reply}<MessageComposer

@@ -12,6 +12,25 @@ export type EnquiryReferences = Readonly<{
   naddr: string;
   nevent: string;
 }>;
+// A body pointer is only a bounded public-version selector, never proof. Strip
+// relay hints and require its asserted kind and author before any public query.
+export function includedProductVersion(
+  value: string,
+  author: string
+): string | undefined {
+  if (!boundedUtf8(value, 2048)) return undefined;
+  try {
+    const pointer = decodePointer(value);
+    return pointer.type === 'nevent' &&
+      pointer.data.kind === 30402 &&
+      pointer.data.author === author &&
+      /^[a-f0-9]{64}$/.test(pointer.data.id)
+      ? pointer.data.id
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
 // Public signed listing proofs only. No body links, private parent IDs or relay
 // hints enter this projection; references never perform a lookup or fetch.
 export function enquiryReferences(

@@ -1101,6 +1101,9 @@ export function createInboxView(input: Inputs): InboxView | undefined {
     read,
     stop,
     close() {
+      // Retain this first terminal fanout before cleanup can reenter Close or
+      // unsubscribe another observer. Authority is revoked before callbacks.
+      const terminalListeners = closed ? [] : Array.from(listeners.values());
       if (!closed) {
         closed = true;
         epoch++;
@@ -1120,6 +1123,12 @@ export function createInboxView(input: Inputs): InboxView | undefined {
         );
       }
       listeners.clear();
+      for (const listener of terminalListeners)
+        try {
+          listener(snapshot());
+        } catch {
+          /* Isolate terminal presentation without stranding other observers. */
+        }
       return pendingCleanup.length === 0;
     }
   });

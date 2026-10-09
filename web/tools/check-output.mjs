@@ -511,7 +511,7 @@ async function inboxPresentationAdmission(web) {
     'src/lib/components/InboxStatus.svelte':
       '29f17df1ccece671ea2ba57578dc028fa541ce924e1cdc4b3e7753da500da53f',
     'src/lib/messaging/inbox-view.ts':
-      'ba082b95304ef931dde530b846a986cbf492f82d16a4fb04ffc9448f5b21ee81',
+      'f725d1e122550232efa52b26139d3047d3bbfd6d3d11b1ef0a110b5e4b4410dc',
     'src/lib/messaging/inbox-sync.ts':
       '84f9b3bb165a81878bb281c51d245aff7eb06a0fa55b857a49b13d0cb1cff8ae',
     'src/lib/messaging/inbox-setup-view.ts':
@@ -523,9 +523,9 @@ async function inboxPresentationAdmission(web) {
     'src/lib/messaging/inbox-list.ts':
       '9cc82877bfa8dbb2a7fa41bceb842793349416271f19569f49fdd5cfc1de07e5',
     'src/lib/components/ConversationThread.svelte':
-      'beb2fa152de393ffd6edf2fa42f4eb14376983e05e7624292f3f8c60eea57dc0',
+      'ae59e6c06c0c5a86a58f49abed0ac9702631a694605b2c6686dfa65db0359080',
     'src/lib/components/MessageItem.svelte':
-      '50c7f7b2f41c46c45ac59013daeed915d116375b45b9f846e06051695aa3c6a8',
+      '5c9af10ece18deeddd85e11453239c2a0b8e741cb84529e15c4ad87864704517',
     'src/lib/messaging/conversation-thread.ts':
       '7367f0e6d96a9f249514f66c2459274e856eb83462523e37264d4cd97d2e36d1',
     'src/lib/persistence/private-storage.ts':
@@ -537,7 +537,13 @@ async function inboxPresentationAdmission(web) {
     'src/lib/messaging/reply-controller.ts':
       'c13f1395b5317febcd23396babbcc116065ff96e8cbeb29c8eadfdfc14e45c2d',
     'src/lib/messaging/rumor-plan.ts':
-      '11a672d05a1eaf680b8039bd4c0986754b64f7103034c698843dc24d0560e0f5'
+      '11a672d05a1eaf680b8039bd4c0986754b64f7103034c698843dc24d0560e0f5',
+    'src/lib/components/ConversationOptions.svelte':
+      'a33d9ffb13e28ce985799fa69342c8fa63816da70e1f9383d4e8e82f5a393c6d',
+    'src/lib/messaging/cited-product.ts':
+      'b4a43fad9b020cf647350350e5d0195df9a80d772ab6910e0e9fb8c11b4b0e48',
+    'src/lib/nostr/enquiry-references.ts':
+      'a17175337ee53279f898a7c6fa1af7e77ad26c0d2c0da46f26a9766fa701d365'
   };
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);
@@ -705,7 +711,8 @@ export async function auditOutput(webDirectory) {
   if (hasProductPresentation) names.add('publishers');
   if (hasInboxSetup) names.add('private-handles');
   if (hasInboxPresentation)
-    for (const name of ['InboxStatus', 'InboxSetup', 'read']) names.add(name);
+    for (const name of ['InboxStatus', 'InboxSetup', 'read', 'resolve-head'])
+      names.add(name);
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();
   for (const [key, record] of Object.entries(manifest)) {
@@ -1056,6 +1063,7 @@ export async function auditOutput(webDirectory) {
           'public-key',
           'private-handles',
           'public-runtime',
+          'references',
           'client',
           'Button',
           'client.svelte',
@@ -1064,9 +1072,11 @@ export async function auditOutput(webDirectory) {
           'view-context',
           'legacy',
           'InboxSetup',
-          'InboxStatus'
+          'InboxStatus',
+          'resolve-head'
         ]
-      ]
+      ],
+      ['resolve-head', ['public-runtime', 'Button', 'read']]
     ];
     for (const [name, imports] of dependencies) {
       const [key, row] = entry(name);
@@ -1123,7 +1133,7 @@ export async function auditOutput(webDirectory) {
             'public-key',
             identityCompilerModule,
             'Button',
-            ...(hasInboxPresentation ? ['read'] : [])
+            ...(hasInboxPresentation ? ['resolve-head'] : [])
           ]
         : hasPublicRuntime === 'public_identity'
           ? ['public-key', identityCompilerModule, 'Disclosure', 'Button']
@@ -1143,7 +1153,8 @@ export async function auditOutput(webDirectory) {
             'client.svelte',
             'state',
             'Disclosure',
-            'publishers'
+            'publishers',
+            ...(hasInboxPresentation ? ['resolve-head'] : [])
           ]
         : hasPublicRuntime === 'public_identity'
           ? [
@@ -1186,7 +1197,8 @@ export async function auditOutput(webDirectory) {
             'state',
             'Disclosure',
             'routes',
-            'publishers'
+            'publishers',
+            ...(hasInboxPresentation ? ['resolve-head'] : [])
           ]
         : hasPublicRuntime === 'public_identity'
           ? [

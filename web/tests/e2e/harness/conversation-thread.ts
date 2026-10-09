@@ -84,7 +84,8 @@ export async function renderFixture(
   freshOwnLookup?: (
     owner: string,
     policy: RelayPolicy
-  ) => Promise<InboxResolver>
+  ) => Promise<InboxResolver>,
+  initialContent?: string
 ) {
   // Receipt scenario performs actual original SDK retry and receives loopback
   // OKs before mounting the readonly thread. The UI itself never publishes.
@@ -183,9 +184,10 @@ export async function renderFixture(
       };
     } else
       first = cipher(
-        kind === 'hostile'
-          ? '<img src=x> Quoted price 4 GBP https://untrusted.example.org nostr:naddr1invalid'
-          : 'Actual encrypted thread fixture',
+        initialContent ??
+          (kind === 'hostile'
+            ? '<img src=x> Quoted price 4 GBP https://untrusted.example.org nostr:naddr1invalid'
+            : 'Actual encrypted thread fixture'),
         1700000000,
         0,
         kind === 'hostile' ? 'f'.repeat(64) : undefined
