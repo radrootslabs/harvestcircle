@@ -210,6 +210,13 @@ function validTransition(
   return (
     base.family === 'private_send_reservation' ||
     (JSON.stringify(base.self) === JSON.stringify(next.self) &&
+      (base.deliveryPlan === undefined ||
+        JSON.stringify(base.deliveryPlan) ===
+          JSON.stringify(next.deliveryPlan)) &&
+      (base.receipts ?? []).every(
+        (fact, index) =>
+          JSON.stringify(fact) === JSON.stringify(next.receipts?.[index])
+      ) &&
       (base.peerArtifact === null ||
         JSON.stringify(base.peerArtifact) ===
           JSON.stringify(next.peerArtifact)))

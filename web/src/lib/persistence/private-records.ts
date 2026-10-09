@@ -12,6 +12,7 @@ import type { InboxRouteSnapshot } from '../messaging/inbox-routing.ts';
 import {
   LOCAL_PERSISTENCE_BUDGETS,
   PRIVATE_TRANSPORT_BUDGETS,
+  PRIVATE_PUBLICATION_BUDGETS,
   RELAY_BUDGETS
 } from '../config/budgets.ts';
 export type PrivateSendReservation = Readonly<{
@@ -42,6 +43,20 @@ export type PrivateSendOperation = Readonly<{
   // Absent in original self-only records; never an implicit migration or an
   // effect capability. Both ciphertext roles are required for a paired plan.
   deliveryPlan?: PrivateDeliveryPlan;
+  // Optional compatibility metadata; local observations are never a sender
+  // factory proof, effect permission, person delivery or remote read receipt.
+  receipts?: readonly PrivateTargetReceipt[];
+}>;
+export type PrivateTargetReceipt = Readonly<{
+  actionId: string;
+  origin: string;
+  role: 'peer' | 'self_archive';
+  attempt: number;
+  eventId: string;
+  status:
+    'accepted' | 'refused' | 'timed_out' | 'unknown' | 'stopped' | 'readback';
+  observedAtMilliseconds: number;
+  readbackWire: string | null;
 }>;
 export type PrivateDeliveryPlan = Readonly<{
   state: 'prepared';
@@ -346,6 +361,52 @@ function artifact(
     outer(value.wire, destination) === value.eventId
   );
 }
+function receipt(
+  value: unknown,
+  self: PrivateCiphertextArtifact,
+  peer: PrivateCiphertextArtifact,
+  plan: PrivateDeliveryPlan
+): boolean {
+  if (
+    !exactLocalFields(value, [
+      'actionId',
+      'origin',
+      'role',
+      'attempt',
+      'eventId',
+      'status',
+      'observedAtMilliseconds',
+      'readbackWire'
+    ]) ||
+    !canonicalLocalId(value.actionId) ||
+    (value.role !== 'peer' && value.role !== 'self_archive') ||
+    typeof value.origin !== 'string' ||
+    canonicalRelayOrigin(value.origin) !== value.origin ||
+    !unsigned(value.attempt) ||
+    value.attempt < 1 ||
+    value.attempt > PRIVATE_PUBLICATION_BUDGETS.attemptsPerTargetAction ||
+    !unsigned(value.observedAtMilliseconds) ||
+    typeof value.status !== 'string' ||
+    ![
+      'accepted',
+      'refused',
+      'timed_out',
+      'unknown',
+      'stopped',
+      'readback'
+    ].includes(value.status)
+  )
+    return false;
+  const route = value.role === 'peer' ? plan.routes.peer : plan.routes.archive,
+    outer = value.role === 'peer' ? peer : self;
+  return (
+    route.targets.includes(value.origin) &&
+    value.eventId === outer.eventId &&
+    (value.status === 'readback'
+      ? value.readbackWire === outer.wire
+      : value.readbackWire === null)
+  );
+}
 // Strict local storage codec only, never installed-account/effect authorization,
 // genuine sender factory proof, nested authenticity, read receipt or Send.
 export function decodePrivateRecord(
@@ -382,7 +443,8 @@ export function decodePrivateRecord(
           ...reservationFields,
           'self',
           'peerArtifact',
-          ...(fields.deliveryPlan === undefined ? [] : ['deliveryPlan'])
+          ...(fields.deliveryPlan === undefined ? [] : ['deliveryPlan']),
+          ...(fields.receipts === undefined ? [] : ['receipts'])
         ]) ||
         !sendMetadata(fields, owner, id) ||
         !unsigned(fields.revision) ||
@@ -392,7 +454,24 @@ export function decodePrivateRecord(
           !artifact(fields.peerArtifact, fields.peer as string)) ||
         (fields.deliveryPlan !== undefined &&
           (fields.peerArtifact === null ||
-            !deliveryPlan(fields.deliveryPlan, owner, fields.peer as string)))
+            !deliveryPlan(
+              fields.deliveryPlan,
+              owner,
+              fields.peer as string
+            ))) ||
+        (fields.receipts !== undefined &&
+          (!Array.isArray(fields.receipts) ||
+            fields.peerArtifact === null ||
+            fields.deliveryPlan === undefined ||
+            !deliveryPlan(fields.deliveryPlan, owner, fields.peer as string) ||
+            !fields.receipts.every((value) =>
+              receipt(
+                value,
+                fields.self as PrivateCiphertextArtifact,
+                fields.peerArtifact as PrivateCiphertextArtifact,
+                fields.deliveryPlan as PrivateDeliveryPlan
+              )
+            )))
       )
         return failed('malformed');
       record = {
@@ -414,7 +493,10 @@ export function decodePrivateRecord(
               },
         ...(fields.deliveryPlan === undefined
           ? {}
-          : { deliveryPlan: fields.deliveryPlan })
+          : { deliveryPlan: fields.deliveryPlan }),
+        ...(fields.receipts === undefined
+          ? {}
+          : { receipts: fields.receipts as PrivateTargetReceipt[] })
       };
     } else if (fields.family === 'received_envelope') {
       if (

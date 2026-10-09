@@ -34,6 +34,11 @@ import {
   type PrivateStorageFailure,
   type PrivateStorageResult
 } from './private-storage.ts';
+import {
+  preparePrivateReceiptTransition,
+  commitPrivateReceiptTransition,
+  type PrivateReceiptCommitResult
+} from './private-receipts.ts';
 
 declare const acknowledgementBrand: unique symbol;
 export type SelfRecoveryAcknowledgement = Readonly<{
@@ -519,4 +524,68 @@ export async function verifyPairedDeliveryAcknowledgement(
     privateRecordWire(loaded.value, saved.record.owner, saved.record.id) ===
       saved.wire
   );
+}
+// Only the already genuine current pair can renew its exact custody after a
+// controlled append of named receipt metadata. A decoded namespace row alone
+// cannot mint this acknowledgment. Earlier permissions invalidate on revision.
+export async function commitPairedDeliveryReceipt(
+  repository: PrivateStorageRepository,
+  receipt: PairedDeliveryAcknowledgement,
+  receiptWire: unknown
+): Promise<PrivateReceiptCommitResult> {
+  const saved = pairedAcknowledgements.get(receipt);
+  if (!saved?.current()) return { status: 'invalid' };
+  try {
+    const loaded = await loadPrivateRecord(
+      repository,
+      'private_sends',
+      saved.record.id
+    );
+    if (!loaded.ok) return { status: loaded.reason };
+    if (
+      !saved.current() ||
+      privateRecordWire(loaded.value, saved.record.owner, saved.record.id) !==
+        saved.wire
+    )
+      return { status: 'conflict' };
+    const transition = preparePrivateReceiptTransition(
+      loaded.value,
+      saved.record.owner,
+      saved.record.id,
+      receiptWire
+    );
+    if (!transition.ok) return { status: 'invalid' };
+    const committed = await commitPrivateReceiptTransition(
+      repository,
+      transition.value
+    );
+    if (!('record' in committed)) return committed;
+    const row = privateRecordSnapshot(
+        committed.record,
+        saved.record.owner,
+        saved.record.id
+      ),
+      wire = privateRecordWire(
+        committed.record,
+        saved.record.owner,
+        saved.record.id
+      );
+    if (!saved.current()) return { status: 'unknown_completion' };
+    if (
+      !row ||
+      row.family !== 'private_send_operation' ||
+      !wire ||
+      !row.peerArtifact ||
+      !row.deliveryPlan
+    )
+      return { status: 'conflict' };
+    pairedAcknowledgements.set(receipt, {
+      record: row,
+      wire,
+      current: saved.current
+    });
+    return committed;
+  } catch {
+    return { status: 'unknown_completion' };
+  }
 }
