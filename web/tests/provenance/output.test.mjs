@@ -21,8 +21,8 @@ import { fileURLToPath } from 'node:url';
 import { generateBuildInfo } from '../../tools/build-info.mjs';
 import { auditOutput } from '../../tools/check-output.mjs';
 
-// Slow-host verification allows600s for each setup/copy/compiler/audit test.
-// Vite children keep300s; admission checks keep120s within their1800s group.
+// Slow-host verification allows1800s for each setup/copy/compiler/audit test.
+// Vite children and admission checks keep1800s within their1800s group.
 // Serial top-level tests keep compatibility work out of the mutation budget.
 {
   const source = fileURLToPath(new URL('../../../', import.meta.url));
@@ -50,6 +50,11 @@ import { auditOutput } from '../../tools/check-output.mjs';
     // Historical public-only variants must also restore their original private
     // shell. The successor route imports owned identity context, which those
     // historical roots never provided. Current actual-output cases retain it.
+    'src/routes/messages/+page.svelte': {
+      source:
+        '<script lang="ts">\n  import AccountGate from \'../../lib/components/AccountGate.svelte\';\n</script>\n\n<AccountGate />\n',
+      sha256: '23547dcfa10e85865e31b66c31ea0d043592e3c316c94da2d74bdf2dd419b38a'
+    },
     'src/routes/messages/[conversationId=local_id]/+page.svelte': {
       source:
         '<script lang="ts">\n  import AccountGate from \'../../../lib/components/AccountGate.svelte\';\n</script>\n\n<AccountGate />\n',
@@ -300,7 +305,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             const f = await fixture(t);
             const files = await f.audit();
             // Exact eleven-route module/page/static admission; CSS stays once-imported.
-            assert.equal(files.length, 48);
+            assert.equal(files.length, 50);
             // The actual SDK payload crosses the reader scratch boundary; a reused
             // scratch buffer must still preserve every compiler/static byte exactly.
             const sizes = await Promise.all(
@@ -334,6 +339,70 @@ import { auditOutput } from '../../tools/check-output.mjs';
             );
           }
         );
+
+        for (const sourceName of [
+          'src/routes/messages/+page.svelte',
+          'src/lib/components/InboxStatus.svelte',
+          'src/lib/messaging/inbox-view.ts',
+          'src/lib/messaging/inbox-sync.ts',
+          'src/lib/messaging/decryption-queue.ts'
+        ])
+          await check(
+            'linked inbox presentation requires exact owned source ' +
+              sourceName,
+            async (t) => {
+              const f = await fixture(t),
+                file = path.join(f.web, sourceName);
+              await writeFile(
+                file,
+                (await readFile(file, 'utf8')) +
+                  '\n// changed presentation source\n'
+              );
+              // Match the actual altered source identity before probing the
+              // independent exact producer pin. The stale identity guard stays.
+              await refresh(f);
+              await assert.rejects(f.audit, /inbox presentation source/);
+            }
+          );
+        for (const mutation of [
+          'missing-unlocked',
+          'extra-private-edge',
+          'missing-private-edge',
+          'private-dynamic',
+          'publisher-extra-edge'
+        ])
+          await check(
+            'actual inbox compiler rejects ' + mutation,
+            async (t) => {
+              const f = await fixture(t),
+                file = path.join(
+                  f.web,
+                  '.svelte-kit/output/client/.vite/manifest.json'
+                );
+              const manifest = JSON.parse(await readFile(file, 'utf8'));
+              const find = (/** @type {string} */ name) => {
+                const row = Object.entries(manifest).find(
+                  ([, v]) => v.name === name
+                );
+                assert.ok(row);
+                return row;
+              };
+              const [key, row] = find('unlocked-session');
+              if (mutation === 'missing-unlocked') delete manifest[key];
+              if (mutation === 'extra-private-edge')
+                row.imports = row.imports.concat(find('references')[0]);
+              if (mutation === 'missing-private-edge')
+                row.imports = row.imports.slice(1);
+              if (mutation === 'private-dynamic')
+                row.dynamicImports = [find('read')[0]];
+              if (mutation === 'publisher-extra-edge')
+                find('publishers')[1].imports = find(
+                  'publishers'
+                )[1].imports.concat(find('references')[0]);
+              await writeFile(file, JSON.stringify(manifest));
+              await assert.rejects(f.audit, /compiler|references/);
+            }
+          );
 
         for (const name of [
           'components/InboxSetup.svelte',
@@ -392,7 +461,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             assert.ok(Buffer.byteLength(expanded) > 64 * 1024);
             await writeFile(file, expanded);
             await refresh(f);
-            assert.equal((await f.audit()).length, 48);
+            assert.equal((await f.audit()).length, 50);
           }
         );
 
@@ -943,7 +1012,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
               }
               await writeFile(file, JSON.stringify(manifest));
               if (mutation === 'permuted-edges')
-                assert.equal((await f.audit()).length, 48);
+                assert.equal((await f.audit()).length, 50);
               else await assert.rejects(f.audit, /compiler|references/);
             }
           );

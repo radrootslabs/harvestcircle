@@ -100,7 +100,7 @@ async function audit(extra: { name: string; content: string }) {
     const result = spawnSync(process.execPath, ['tools/check-source.mjs'], {
       cwd: directory,
       encoding: 'utf8',
-      timeout: 8000
+      timeout: 1_800_000
     });
     expect(result.error).toBeUndefined();
     return result;

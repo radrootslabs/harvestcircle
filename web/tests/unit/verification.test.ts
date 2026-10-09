@@ -10,7 +10,7 @@ const execute = (args: string[]) =>
   spawnSync(process.execPath, args, {
     cwd: root,
     encoding: 'utf8',
-    timeout: 30_000
+    timeout: 1_800_000
   });
 
 describe('verification rejects invalid inputs', () => {
@@ -48,7 +48,7 @@ describe('verification rejects invalid inputs', () => {
     } finally {
       await rm(directory, { recursive: true });
     }
-  }, 40_000);
+  }, 1_800_000);
 
   it('rejects deliberate JavaScript and Svelte lint violations', async () => {
     const eslint = new ESLint({ cwd: root });

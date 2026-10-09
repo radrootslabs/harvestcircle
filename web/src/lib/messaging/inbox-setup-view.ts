@@ -100,6 +100,17 @@ type Inputs = Readonly<{
   close?(): void;
 }>;
 type Controller = {
+  ownership():
+    | Readonly<{
+        identity: IdentitySession;
+        policy: RelayPolicy;
+        session: PrivateSession | undefined;
+        resolver: InboxResolver | undefined;
+        observeAccess: ObserveInboxAccess | undefined;
+        current(): boolean;
+      }>
+    | undefined;
+  observe(): void;
   snapshot(): InboxSetupViewSnapshot;
   subscribe(listener: (state: InboxSetupViewSnapshot) => void): () => void;
   check(): Promise<void>;
@@ -148,6 +159,7 @@ export function createInboxSetupView(
     },
     epoch = 0,
     closed = false;
+  let pendingClose: (() => void)[] | undefined;
   let resolver: InboxResolver | undefined,
     review: InboxSetupReview | undefined,
     action: InboxPreferenceAction | undefined,
@@ -243,6 +255,21 @@ export function createInboxSetupView(
     if (!capture.current()) stop();
   });
   views.set(token, {
+    ownership: () =>
+      current()
+        ? {
+            identity: input.identity,
+            policy: input.policy,
+            session,
+            resolver,
+            observeAccess: input.observeAccess,
+            current: () => current()
+          }
+        : undefined,
+    observe() {
+      if (current() && !state.busy && state.status === 'lookup_incomplete')
+        inspect();
+    },
     snapshot,
     subscribe(listener) {
       const id = Symbol();
@@ -435,15 +462,44 @@ export function createInboxSetupView(
       }),
     stop,
     close() {
-      if (closed) return;
-      closed = true;
-      stop();
-      invalidate();
-      if (resolver) closeInboxResolver(resolver);
-      if (session) closePrivateSession(session);
-      if (database) closeBrowserDatabase(database);
-      input.close?.();
-      listeners.clear();
+      if (!pendingClose) {
+        closed = true;
+        const originalResolver = resolver,
+          originalReader = reader,
+          originalSession = session,
+          originalDatabase = database;
+        pendingClose = [
+          stop,
+          invalidate,
+          () => {
+            if (originalReader) closeInboxReadback(originalReader);
+          },
+          () => {
+            if (originalResolver) closeInboxResolver(originalResolver);
+          },
+          () => {
+            if (originalSession && !closePrivateSession(originalSession))
+              throw Error('private_cleanup_required');
+          },
+          () => {
+            if (originalDatabase) closeBrowserDatabase(originalDatabase);
+          },
+          () => input.close?.(),
+          () => listeners.clear()
+        ];
+      }
+      let unfinished = Array.from<() => void>([]);
+      for (const cleanup of pendingClose) {
+        try {
+          cleanup();
+        } catch {
+          unfinished = unfinished.concat(cleanup);
+        }
+      }
+      pendingClose = unfinished;
+      // Closed admission and completed disposal are separate facts. A failed
+      // original cleanup remains owned and retryable after invalidation.
+      if (unfinished.length > 0) throw Error('inbox_setup_cleanup_required');
     }
   });
   return token;
@@ -530,4 +586,13 @@ export function stopInboxSetupView(view: InboxSetupView | undefined): void {
 }
 export function closeInboxSetupView(view: InboxSetupView | undefined): void {
   if (view) views.get(view)?.close();
+}
+
+// Detached original-token observation for trusted page orchestration. Neither
+// its scalar fields nor mutation of this fresh object changes stored custody.
+export function inboxSetupViewOwnership(view: InboxSetupView | undefined) {
+  return view && views.get(view)?.ownership();
+}
+export function observeInboxSetupView(view: InboxSetupView | undefined): void {
+  if (view) views.get(view)?.observe();
 }

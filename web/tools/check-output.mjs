@@ -488,7 +488,7 @@ async function inboxSetupAdmission(web) {
     'src/lib/components/InboxSetup.svelte':
       'b6ee2ecccd3ad3e192a56b6d03178bdf222c60dcc0bcb8e2ce7b09dda3bb3bf0',
     'src/lib/messaging/inbox-setup-view.ts':
-      '26bf9a653c9b09ff9e7466b4b219d5292e6313b93b84db188a8b2f4f5cd979e4',
+      '7559ec04394624a8275280027c031b90d0a62b78f94aec3933df6f3b50077450',
     'src/lib/runtime/view-context.ts':
       'e2329113e29db35e983270217c47d38a44d4e0491fd710395e008786b5ae7033'
   };
@@ -497,6 +497,33 @@ async function inboxSetupAdmission(web) {
     publicText(bytes);
     if (createHash('sha256').update(bytes).digest('hex') !== pin)
       throw new Error('Invalid owned inbox compiler source');
+  }
+  return true;
+}
+/** @param {string} web */
+async function inboxPresentationAdmission(web) {
+  const route = await readOwned(web, 'src/routes/messages/+page.svelte');
+  if (!route.toString().includes("'../../lib/components/InboxStatus.svelte'"))
+    return false;
+  const producers = {
+    'src/routes/messages/+page.svelte':
+      '8279a92770f38858e197e790839bc98b4d7889214ebecdf47e542d632afbc84f',
+    'src/lib/components/InboxStatus.svelte':
+      '605b92b9f8bb45ffb01ea4682869a37ec5b673a20a0deb7d9385ab659673f27f',
+    'src/lib/messaging/inbox-view.ts':
+      '008feb690302c8d9bf563581bd7eb071e619da7da1e56a12108d6560888e3c2c',
+    'src/lib/messaging/inbox-sync.ts':
+      '84f9b3bb165a81878bb281c51d245aff7eb06a0fa55b857a49b13d0cb1cff8ae',
+    'src/lib/messaging/inbox-setup-view.ts':
+      '7559ec04394624a8275280027c031b90d0a62b78f94aec3933df6f3b50077450',
+    'src/lib/messaging/decryption-queue.ts':
+      '07661a883ee360e9fd7bd411893d637fd6b4b70aecb20101b826fe41b7ca4810'
+  };
+  for (const [name, pin] of Object.entries(producers)) {
+    const bytes = await readOwned(web, name);
+    publicText(bytes);
+    if (createHash('sha256').update(bytes).digest('hex') !== pin)
+      throw new Error('Invalid owned inbox presentation source');
   }
   return true;
 }
@@ -607,6 +634,8 @@ export async function auditOutput(webDirectory) {
     hasFullRoutes &&
     hasPublicRuntime === 'public_identity' &&
     (await inboxSetupAdmission(web));
+  const hasInboxPresentation =
+    hasInboxSetup && (await inboxPresentationAdmission(web));
   const identityCompilerModule = hasInboxSetup
     ? 'public-runtime'
     : hasPreferencePublication
@@ -655,6 +684,8 @@ export async function auditOutput(webDirectory) {
       names.add(name);
   if (hasProductPresentation) names.add('publishers');
   if (hasInboxSetup) names.add('private-handles');
+  if (hasInboxPresentation)
+    for (const name of ['unlocked-session', 'read']) names.add(name);
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();
   for (const [key, record] of Object.entries(manifest)) {
@@ -959,6 +990,77 @@ export async function auditOutput(webDirectory) {
         throw new Error('Invalid owned SDK compiler chunk');
     }
   }
+  if (hasInboxPresentation) {
+    const records = Object.entries(manifest);
+    const entry = (/** @type {string} */ name) => {
+      const row = records.find(([, r]) => r.name === name);
+      if (!row) throw new Error('Missing inbox compiler module');
+      return row;
+    };
+    /** @type {[string,string[]][]} */
+    const dependencies = [
+      [
+        'unlocked-session',
+        [
+          'public-key',
+          'private-handles',
+          'public-runtime',
+          'Button',
+          'AccountGate'
+        ]
+      ],
+      ['read', ['public-runtime']],
+      [
+        'nodes/4',
+        [
+          'public-key',
+          'public-runtime',
+          'references',
+          'client',
+          'Button',
+          'view-context',
+          'AccountGate',
+          'unlocked-session',
+          'read'
+        ]
+      ],
+      [
+        'nodes/5',
+        [
+          'public-key',
+          'public-runtime',
+          'client',
+          'Button',
+          'client.svelte',
+          'state',
+          'view-context',
+          'AccountGate',
+          'unlocked-session'
+        ]
+      ]
+    ];
+    for (const [name, imports] of dependencies) {
+      const [key, row] = entry(name);
+      equal(
+        (row.imports ?? []).toSorted(),
+        imports.map((value) => entry(value)[0]).sort(),
+        'Invalid owned inbox presentation compiler dependencies'
+      );
+      if (row.dynamicImports !== undefined)
+        throw new Error(
+          'Invalid owned inbox presentation compiler dynamic imports'
+        );
+      if (!name.startsWith('nodes/')) {
+        if (
+          !/^_[A-Za-z0-9_-]+\.js$/.test(key) ||
+          Object.keys(row).some(
+            (field) => !['file', 'name', 'imports'].includes(field)
+          )
+        )
+          throw new Error('Invalid owned inbox presentation compiler identity');
+      }
+    }
+  }
   if (hasProductPresentation) {
     const records = Object.entries(manifest);
     const entry = (/** @type {string} */ name) => {
@@ -977,7 +1079,12 @@ export async function auditOutput(webDirectory) {
     equal(
       publisher.imports,
       (hasInboxSetup
-        ? ['public-key', identityCompilerModule, 'Button']
+        ? [
+            'public-key',
+            identityCompilerModule,
+            'Button',
+            ...(hasInboxPresentation ? ['read'] : [])
+          ]
         : hasPublicRuntime === 'public_identity'
           ? ['public-key', identityCompilerModule, 'Disclosure', 'Button']
           : ['public-key', 'Disclosure', 'budgets']

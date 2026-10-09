@@ -70,6 +70,7 @@ export type InboxHistoryOwnership = Readonly<{
 type Controller = {
   history(): InboxHistoryOwnership | undefined;
   start(review: unknown): boolean;
+  refresh(review: unknown, previousOuterCheck?: unknown): boolean;
   stop(): void;
   snapshot(): Snapshot;
 };
@@ -319,6 +320,32 @@ export function captureInboxSync(
         });
     }
     ingress.set(token, {
+      refresh(reviewed, previousOuterCheck) {
+        if (
+          reviewed !== 'reviewed_foreground_inbox' ||
+          !current() ||
+          stopped ||
+          failed ||
+          state !== 'live' ||
+          backfill !== 'complete' ||
+          pending !== 0
+        )
+          return false;
+        const plan = outerHistoryPlan(
+          Math.floor(Date.now() / 1000),
+          previousOuterCheck
+        );
+        if (!current()) return false;
+        backfill = 'running';
+        try {
+          release();
+          release = subscribePrivateHistory(pool, plan.overlap.since, receive);
+          return true;
+        } catch {
+          pause('backfill_unavailable');
+          return false;
+        }
+      },
       history() {
         return current() &&
           !stopped &&
@@ -424,4 +451,15 @@ export function inboxSyncHistoryOwnership(
   token: InboxSync
 ): InboxHistoryOwnership | undefined {
   return ingress.get(token)?.history();
+}
+
+// Repeating a checked foreground window requires the same original current
+// access/live owner and a fresh explicit review. No recreated live subscription,
+// automatic AUTH/retry, decryption or copied snapshot authority.
+export function refreshInboxSync(
+  token: InboxSync,
+  review: unknown,
+  previousOuterCheck?: unknown
+): boolean {
+  return ingress.get(token)?.refresh(review, previousOuterCheck) ?? false;
 }
