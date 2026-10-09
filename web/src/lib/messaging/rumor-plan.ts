@@ -10,6 +10,20 @@ import {
   recoveredSelfEnvelopeSnapshot,
   type RecoveredSelfEnvelope
 } from '../nostr/self-recovery-reader.ts';
+import {
+  privateSessionOwnership,
+  type PrivateSession
+} from '../runtime/private-session.ts';
+import {
+  unlockedSessionOwnership,
+  unlockedConversationCurrent,
+  type UnlockedSession
+} from './unlocked-session.ts';
+import {
+  conversationSnapshot,
+  conversationOwnership,
+  type AdmittedConversation
+} from './admit-conversation.ts';
 declare const rumorBrand: unique symbol;
 export type RumorPlan = Readonly<{ readonly [rumorBrand]: true }>;
 export type RumorPlanSnapshot = Readonly<{
@@ -30,21 +44,23 @@ const plans = new WeakMap<RumorPlan, Controller>();
 function capture(
   session: IdentitySession,
   rawMessage: string,
-  observedTime: unknown
+  observedTime: unknown,
+  additionalCurrent: () => boolean = () => true
 ): RumorPlan | undefined {
   const ownership = identityMessagingOwnership(session);
-  if (!ownership || !ownership.current()) return undefined;
+  if (!ownership || !ownership.current() || !additionalCurrent())
+    return undefined;
   const rumor = buildCanonicalPairRumor(
     rawMessage,
     ownership.owner,
     observedTime
   );
-  if (!rumor || !ownership.current()) return undefined;
+  if (!rumor || !ownership.current() || !additionalCurrent()) return undefined;
   const peer = rumor.tags.find((row) => row[0] === 'p')?.[1];
   if (!peer) return undefined;
   const token = Object.freeze({}) as RumorPlan;
   const unsubscribe = subscribeIdentityInvalidation(session, () => {
-    if (!ownership.current()) stopRumorPlan(token);
+    if (!ownership.current() || !additionalCurrent()) stopRumorPlan(token);
   });
   plans.set(token, {
     owner: ownership.owner,
@@ -52,10 +68,68 @@ function capture(
     id: rumor.id,
     createdAt: rumor.created_at,
     wire: JSON.stringify(rumor),
-    current: ownership.current,
+    current: () => ownership.current() && additionalCurrent(),
     unsubscribe
   });
   return token;
+}
+// Reply authority comes from the original authenticated room and its exact
+// private/cache generation. A detached snapshot, parent hash or outer author
+// cannot select the peer or borrow a same-owner session.
+export function captureAuthenticatedReplyRumor(
+  identity: IdentitySession,
+  session: PrivateSession,
+  unlocked: UnlockedSession,
+  room: AdmittedConversation,
+  text: unknown,
+  observedTime: unknown
+): RumorPlan | undefined {
+  const owner = identityMessagingOwnership(identity),
+    privateOwner = privateSessionOwnership(session),
+    cache = unlockedSessionOwnership(unlocked),
+    admitted = conversationOwnership(room),
+    data = conversationSnapshot(room);
+  if (
+    !owner ||
+    !privateOwner ||
+    !cache ||
+    !admitted ||
+    !data ||
+    typeof text !== 'string'
+  )
+    return;
+  const current = () => {
+    const actual = conversationSnapshot(room);
+    return (
+      owner.current() &&
+      privateOwner.current() &&
+      cache.current() &&
+      admitted.current() &&
+      owner.owner === data.owner &&
+      privateOwner.owner === owner.owner &&
+      privateOwner.session === owner.session &&
+      cache.owner === owner.owner &&
+      cache.session === owner.session &&
+      admitted.owner === owner.owner &&
+      admitted.session === owner.session &&
+      actual?.owner === data.owner &&
+      actual.peer === data.peer &&
+      actual.rumorId === data.rumorId &&
+      unlockedConversationCurrent(unlocked, room)
+    );
+  };
+  if (!current()) return;
+  return capture(
+    identity,
+    JSON.stringify({
+      recipients: [{ public_key: data.peer, relay_url: null }],
+      content: text,
+      reply_to: { id: data.rumorId, relays: null },
+      subject: null
+    }),
+    observedTime,
+    current
+  );
 }
 export function captureEnquiryRumor(
   session: IdentitySession,

@@ -8,9 +8,14 @@
   let {
     controller,
     conversationId,
-    message
-  }: { controller: InboxView; conversationId: string; message: ThreadMessage } =
-    $props();
+    message,
+    onreply
+  }: {
+    controller: InboxView;
+    conversationId: string;
+    message: ThreadMessage;
+    onreply?: (parent: string) => void;
+  } = $props();
   // Copied rows select only a hash. Render fresh current original room bytes.
   const current = $derived(
     inboxMessageSnapshot(controller, conversationId, message.data.rumorId)
@@ -53,5 +58,12 @@
     {#each current.delivery ?? [] as label (label)}<p class="text-small">
         {label}
       </p>{/each}
+    {#if onreply}<button
+        type="button"
+        class="button button--secondary"
+        onclick={() => {
+          if (current) onreply?.(current.data.rumorId);
+        }}>Reply to this message</button
+      >{/if}
   </article>
 {/if}

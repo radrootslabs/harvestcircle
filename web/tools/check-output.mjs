@@ -511,7 +511,7 @@ async function inboxPresentationAdmission(web) {
     'src/lib/components/InboxStatus.svelte':
       '29f17df1ccece671ea2ba57578dc028fa541ce924e1cdc4b3e7753da500da53f',
     'src/lib/messaging/inbox-view.ts':
-      '7a66afb2a1dad62f6c8c8a4753f8129d4a1fcd2b00116edbab6ac422f489d83f',
+      'ba082b95304ef931dde530b846a986cbf492f82d16a4fb04ffc9448f5b21ee81',
     'src/lib/messaging/inbox-sync.ts':
       '84f9b3bb165a81878bb281c51d245aff7eb06a0fa55b857a49b13d0cb1cff8ae',
     'src/lib/messaging/inbox-setup-view.ts':
@@ -523,15 +523,21 @@ async function inboxPresentationAdmission(web) {
     'src/lib/messaging/inbox-list.ts':
       '9cc82877bfa8dbb2a7fa41bceb842793349416271f19569f49fdd5cfc1de07e5',
     'src/lib/components/ConversationThread.svelte':
-      'accd91eb5b5ada0f07158dbe7ddfccdd3af65f92536427d0a717a7c18aad7aca',
+      'beb2fa152de393ffd6edf2fa42f4eb14376983e05e7624292f3f8c60eea57dc0',
     'src/lib/components/MessageItem.svelte':
-      '7a33a603f806686c29f5b9faec2758f8b78339593d7a7aefa1a3ec1c7ce6f01e',
+      '50c7f7b2f41c46c45ac59013daeed915d116375b45b9f846e06051695aa3c6a8',
     'src/lib/messaging/conversation-thread.ts':
       '7367f0e6d96a9f249514f66c2459274e856eb83462523e37264d4cd97d2e36d1',
     'src/lib/persistence/private-storage.ts':
       'e45a95c9b12e8534a6ab0a4ec8ee1c86e730bba2f252dc1947954439720f2bfc',
     'src/routes/messages/[conversationId=local_id]/+page.svelte':
-      'b06c6189adee80b68bc6657fa0e8504551fe9a8b1655a6d81807ebee9930a5e7'
+      'b06c6189adee80b68bc6657fa0e8504551fe9a8b1655a6d81807ebee9930a5e7',
+    'src/lib/components/MessageComposer.svelte':
+      '9fd8221ab7c9c2d2d0e6626dc8d37b7c95de82b65804dc8766a7f756363c68ae',
+    'src/lib/messaging/reply-controller.ts':
+      'c13f1395b5317febcd23396babbcc116065ff96e8cbeb29c8eadfdfc14e45c2d',
+    'src/lib/messaging/rumor-plan.ts':
+      '11a672d05a1eaf680b8039bd4c0986754b64f7103034c698843dc24d0560e0f5'
   };
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);
@@ -1048,10 +1054,12 @@ export async function auditOutput(webDirectory) {
         'nodes/5',
         [
           'public-key',
+          'private-handles',
           'public-runtime',
           'client',
           'Button',
           'client.svelte',
+          'navigation',
           'state',
           'view-context',
           'legacy',

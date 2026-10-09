@@ -58,6 +58,13 @@ import {
   stopInboxView,
   closeInboxView
 } from '../../../src/lib/messaging/inbox-view.ts';
+import { identityMessagingOwnership } from '../../../src/lib/runtime/identity-session.ts';
+import type { RelayPolicy } from '../../../src/lib/config/relays.ts';
+import type { InboxResolver } from '../../../src/lib/messaging/resolve-inbox.ts';
+
+// HCP103 does not navigate; HCP104's separate harness exercises actual mounted
+// beforeNavigate callbacks and unload/disposal. This alias owns fixture scope.
+export function beforeNavigate(): void {}
 
 export function goto(): never {
   throw Error('Thread fixture must not navigate');
@@ -72,7 +79,12 @@ export type Scenario =
   | 'hostile';
 export async function renderFixture(
   kind: Scenario = 'inbound',
-  selectedId?: string
+  selectedId?: string,
+  qualifiedReplyFixture = false,
+  freshOwnLookup?: (
+    owner: string,
+    policy: RelayPolicy
+  ) => Promise<InboxResolver>
 ) {
   // Receipt scenario performs actual original SDK retry and receives loopback
   // OKs before mounting the readonly thread. The UI itself never publishes.
@@ -276,7 +288,19 @@ export async function renderFixture(
   const setup = createInboxSetupView({
     identity: f.identity,
     policy,
-    lookup: () => Promise.resolve(f.context.own)
+    lookup: () =>
+      freshOwnLookup
+        ? freshOwnLookup(f.owner, policy)
+        : Promise.resolve(f.context.own),
+    // Controlled qualification projection only, never production relay evidence.
+    observeAccess: qualifiedReplyFixture
+      ? (context) => ({
+          ...context,
+          receive: 'qualified_exercised',
+          archive: 'qualified_exercised',
+          current: () => !!identityMessagingOwnership(f.identity)?.current()
+        })
+      : undefined
   });
   if (!setup) throw Error('no original setup');
   const controller = createInboxView({
@@ -342,6 +366,10 @@ export async function renderFixture(
     holdReadLock,
     releaseRead,
     controller,
+    replyLookup(peer: string) {
+      if (peer !== f.peer) throw Error('wrong authenticated fixture peer');
+      return f.context.other;
+    },
     owner: f.owner,
     peer: f.peer,
     conversationId,

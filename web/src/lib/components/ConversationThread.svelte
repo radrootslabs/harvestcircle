@@ -3,6 +3,15 @@
   import InboxStatus from './InboxStatus.svelte';
   import Button from './primitives/Button.svelte';
   import MessageItem from './MessageItem.svelte';
+  import MessageComposer from './MessageComposer.svelte';
+  import {
+    createReplyController,
+    createRuntimeReplyController,
+    selectReplyParent,
+    replySnapshot,
+    closeReplyController,
+    type ReplyController
+  } from '../messaging/reply-controller.ts';
   import {
     IDENTITY_VIEW_CONTEXT,
     identityViewSession,
@@ -37,6 +46,7 @@
   const identity = getContext<IdentityViewContext>(IDENTITY_VIEW_CONTEXT),
     publicContext = getContext<PublicRuntimeContext>(PUBLIC_RUNTIME_CONTEXT);
   let owned = $state.raw<InboxView | undefined>(),
+    reply = $state.raw<ReplyController | undefined>(),
     model = $state(inboxThreadSnapshot(undefined, '')),
     announcement = $state(''),
     readProblem = $state(false),
@@ -48,6 +58,20 @@
     previous = Array.from<string>([]),
     attempted = Array.from<string>([]),
     disposed = false;
+  function captureReply(parent: string) {
+    if (!owned) return;
+    return runtime
+      ? createRuntimeReplyController(owned, conversationId, parent, runtime)
+      : createReplyController(owned, conversationId, parent);
+  }
+  function replyTo(parent: string) {
+    if (reply && replySnapshot(reply)?.dirty) {
+      selectReplyParent(reply, parent, 'reviewed_reply_parent');
+      return;
+    }
+    if (reply) closeReplyController(reply);
+    reply = captureReply(parent);
+  }
   onMount(() => {
     let observedRevision = -2,
       observedMode = '';
@@ -74,6 +98,8 @@
         observedMode = mode;
         const next = inboxThreadSnapshot(owned, conversationId);
         if (next.status !== 'ready') {
+          if (reply) closeReplyController(reply);
+          reply = undefined;
           model = next;
           announcement = '';
           readProblem = false;
@@ -90,6 +116,7 @@
         if (ids.length > 0) initialized = true;
         previous = ids;
         model = next;
+        if (!reply && ids.length) reply = captureReply(ids[ids.length - 1]);
       });
     }
     const identityOff = identity
@@ -109,6 +136,7 @@
       disposed = true;
       identityOff();
       off();
+      if (reply) closeReplyController(reply);
       if (owned && !controller) {
         const setup = inboxViewSetup(owned);
         closeInboxView(owned);
@@ -167,7 +195,12 @@
         controller={owned}
         {conversationId}
         {message}
+        onreply={replyTo}
       />{/each}
+    {#if reply}{#key reply}<MessageComposer
+          controller={reply}
+          focusScope="conversation"
+        />{/key}{/if}
   {:else}<p>
       This conversation is unavailable until it is unlocked in the matching
       browser and account.

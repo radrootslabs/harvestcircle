@@ -93,6 +93,11 @@ import {
   type InboxSync
 } from './inbox-sync.ts';
 import { messagingReadinessSnapshot } from './readiness.ts';
+import {
+  selfRecoveryAcknowledgementSnapshot,
+  verifySelfRecoveryAcknowledgement,
+  type SelfRecoveryAcknowledgement
+} from '../persistence/private-sends.ts';
 declare const inboxViewBrand: unique symbol;
 export type InboxView = Readonly<{ [inboxViewBrand]: true }>;
 export type InboxViewSnapshot = Readonly<{
@@ -112,7 +117,25 @@ type Inputs = Readonly<{
   setup: InboxSetupView;
   conversationId?: string;
 }>;
+export type InboxReplyOwnership = Readonly<{
+  owner: string;
+  identity: IdentitySession;
+  session: PrivateSession;
+  database: BrowserDatabase;
+  repository: PrivateStorageRepository;
+  unlocked: UnlockedSession;
+  room: AdmittedConversation;
+  setup: InboxSetupView;
+  peer: string;
+  parent: string;
+  current(): boolean;
+  acceptLocalReply(
+    receipt: SelfRecoveryAcknowledgement,
+    review: unknown
+  ): Promise<boolean>;
+}>;
 type Controller = {
+  reply(id: unknown, rumor: unknown): InboxReplyOwnership | undefined;
   snapshot(): InboxViewSnapshot;
   thread(id: unknown): ThreadSnapshot;
   threadRevision(): number;
@@ -192,6 +215,7 @@ export function createInboxView(input: Inputs): InboxView | undefined {
   let sendRecords: readonly PrivateRecordHandle[] =
     Array.from<PrivateRecordHandle>([]);
   let listReason: string | null = null;
+  let repliedPeers = Array.from<string>([]);
   let listRevision = 0;
   const rowProofs = new Map<
     string,
@@ -306,6 +330,79 @@ export function createInboxView(input: Inputs): InboxView | undefined {
           messages: messages.filter((row) => row !== undefined)
         };
   }
+  function replyOwnership(
+    id: unknown,
+    rumor: unknown
+  ): InboxReplyOwnership | undefined {
+    if (
+      typeof rumor !== 'string' ||
+      !messageSnapshot(id, rumor) ||
+      !session ||
+      !database ||
+      !repository ||
+      !unlocked
+    )
+      return;
+    const proof = threadProofs.get(rumor);
+    if (!proof) return;
+    const data = conversationSnapshot(proof.room);
+    if (!data) return;
+    const generation = epoch,
+      selection = threadEpoch,
+      originalSession = session,
+      originalRepository = repository,
+      originalCache = unlocked,
+      originalDatabase = database;
+    const admitted = () =>
+      current(generation) &&
+      privateCurrent() &&
+      selection === threadEpoch &&
+      id === threadId &&
+      threadPeer === data.peer &&
+      session === originalSession &&
+      repository === originalRepository &&
+      unlocked === originalCache &&
+      !!messageSnapshot(id, rumor) &&
+      unlockedConversationCurrent(originalCache, proof.room);
+    if (!admitted()) return;
+    return {
+      owner: capture.owner,
+      identity: input.identity,
+      session: originalSession,
+      database: originalDatabase,
+      repository: originalRepository,
+      unlocked: originalCache,
+      room: proof.room,
+      setup: input.setup,
+      peer: data.peer,
+      parent: data.rumorId,
+      current: admitted,
+      async acceptLocalReply(receipt, review) {
+        const saved = selfRecoveryAcknowledgementSnapshot(receipt);
+        if (
+          review !== 'reviewed_local_reply' ||
+          !admitted() ||
+          saved?.owner !== capture.owner ||
+          saved.peer !== data.peer ||
+          !(await verifySelfRecoveryAcknowledgement(
+            originalRepository,
+            receipt
+          )) ||
+          !admitted()
+        )
+          return false;
+        // Presentation in this unlocked view only, backed by the actual native
+        // self receipt. No order/notification or persistent acceptance field.
+        if (!repliedPeers.includes(data.peer))
+          repliedPeers = repliedPeers.concat(data.peer);
+        listRevision++;
+        await refreshList(generation);
+        if (!admitted()) return false;
+        notify();
+        return true;
+      }
+    };
+  }
   async function resolve(id: unknown, review: unknown) {
     if (review !== 'reviewed_conversation_navigation') return false;
     const selection = ++threadEpoch,
@@ -404,8 +501,22 @@ export function createInboxView(input: Inputs): InboxView | undefined {
       return { status: 'unavailable', requests: [], conversations: [] };
     return {
       status: 'ready',
-      requests: requests.filter((row) => row !== undefined),
-      conversations: conversations.filter((row) => row !== undefined)
+      requests: requests
+        .filter((row) => row !== undefined)
+        .filter((row) => !repliedPeers.includes(row.peer)),
+      conversations: conversations
+        .filter((row) => row !== undefined)
+        .concat(
+          requests
+            .filter((row) => row !== undefined)
+            .filter((row) => repliedPeers.includes(row.peer))
+        )
+        .sort(
+          (a, b) =>
+            b.latest.createdAt - a.latest.createdAt ||
+            b.latest.rumorId.localeCompare(a.latest.rumorId) ||
+            a.peer.localeCompare(b.peer)
+        )
     };
   }
   async function refreshList(generation = epoch) {
@@ -687,6 +798,7 @@ export function createInboxView(input: Inputs): InboxView | undefined {
     threadId = undefined;
     threadPeer = undefined;
     sendRecords = [];
+    repliedPeers = [];
     metadata = undefined;
     directory = undefined;
     older = undefined;
@@ -962,6 +1074,7 @@ export function createInboxView(input: Inputs): InboxView | undefined {
     return current(generation) && privateCurrent();
   }
   views.set(token, {
+    reply: replyOwnership,
     snapshot,
     thread: threadSnapshot,
     threadRevision: () => (privateCurrent() ? listRevision + threadEpoch : -1),
@@ -1142,4 +1255,12 @@ export function markInboxConversationDisplayed(
 
 export function inboxThreadRevision(token: InboxView | undefined): number {
   return token ? (views.get(token)?.threadRevision() ?? -1) : -1;
+}
+
+export function inboxReplyOwnership(
+  token: InboxView,
+  id: unknown,
+  rumor: unknown
+): InboxReplyOwnership | undefined {
+  return views.get(token)?.reply(id, rumor);
 }

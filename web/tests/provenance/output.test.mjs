@@ -350,6 +350,9 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'src/lib/messaging/inbox-list.ts',
           'src/lib/components/ConversationThread.svelte',
           'src/lib/components/MessageItem.svelte',
+          'src/lib/components/MessageComposer.svelte',
+          'src/lib/messaging/reply-controller.ts',
+          'src/lib/messaging/rumor-plan.ts',
           'src/lib/messaging/conversation-thread.ts',
           'src/lib/persistence/private-storage.ts',
           'src/routes/messages/[conversationId=local_id]/+page.svelte'
@@ -418,7 +421,9 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'directory-duplicate-role',
           'thread-missing-edge',
           'thread-dynamic',
-          'thread-entry-role'
+          'thread-entry-role',
+          'reply-missing-navigation',
+          'reply-missing-handles'
         ])
           await check(
             'actual inbox list compiler rejects ' + mutation,
@@ -432,7 +437,10 @@ import { auditOutput } from '../../tools/check-output.mjs';
               const entry = Object.entries(manifest).find(
                 ([, row]) =>
                   row.name ===
-                  (mutation.startsWith('thread-') ? 'nodes/5' : 'InboxStatus')
+                  (mutation.startsWith('thread-') ||
+                  mutation.startsWith('reply-')
+                    ? 'nodes/5'
+                    : 'InboxStatus')
               );
               assert.ok(entry);
               const [, row] = entry;
@@ -453,6 +461,16 @@ import { auditOutput } from '../../tools/check-output.mjs';
                   )
                 ];
               if (mutation === 'thread-entry-role') row.isEntry = false;
+              if (mutation === 'reply-missing-navigation')
+                row.imports = row.imports.filter(
+                  (/** @type {string} */ value) =>
+                    manifest[value].name !== 'navigation'
+                );
+              if (mutation === 'reply-missing-handles')
+                row.imports = row.imports.filter(
+                  (/** @type {string} */ value) =>
+                    manifest[value].name !== 'private-handles'
+                );
               await writeFile(file, JSON.stringify(manifest));
               await assert.rejects(f.audit, /compiler|duplicate|inventory/);
             }
