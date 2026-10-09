@@ -23,13 +23,20 @@ export function inboxPreferenceQueries(
 // future backdated messages. Actual relay semantics require separate Q.
 export function privateInboxQueries(
   owner: unknown,
-  mode: 'live' | 'backfill'
+  mode: 'live' | 'backfill',
+  since?: number
 ): readonly PublicFilter[] {
   const key = canonicalPublicKey(owner);
   if (!key) throw Error('inbox_owner_invalid');
   if (mode !== 'live' && mode !== 'backfill') throw Error('inbox_mode_invalid');
+  if (
+    since !== undefined &&
+    (mode === 'live' || !Number.isSafeInteger(since) || since < 0)
+  )
+    throw Error('inbox_outer_since_invalid');
   return [
     {
+      ...(since === undefined ? {} : { since }),
       kinds: [1059],
       '#p': [key],
       limit: mode === 'live' ? 0 : PRIVATE_TRANSPORT_BUDGETS.requestedPerRelay

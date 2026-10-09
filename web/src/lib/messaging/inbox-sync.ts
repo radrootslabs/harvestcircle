@@ -1,3 +1,4 @@
+import { outerHistoryPlan } from './history-cursor.ts';
 import {
   unlockedSessionOwnership,
   subscribeUnlockedSessionClose,
@@ -29,7 +30,7 @@ import {
 } from '../runtime/private-session.ts';
 import {
   getPrivatePool,
-  subscribePrivatePage,
+  subscribePrivateHistory,
   subscribePrivateLive,
   type PrivatePageMessage,
   closePrivatePool
@@ -75,7 +76,8 @@ export function captureInboxSync(
   own: InboxResolver,
   unlocked: UnlockedSession,
   observeAccess: ObserveInboxAccess | undefined,
-  review: unknown
+  review: unknown,
+  previousOuterCheck?: unknown
 ): InboxSync | undefined {
   if (
     typeof window === 'undefined' ||
@@ -84,6 +86,10 @@ export function captureInboxSync(
   )
     return undefined;
   try {
+    const history = outerHistoryPlan(
+      Math.floor(Date.now() / 1000),
+      previousOuterCheck
+    );
     const previous = sessions.get(session);
     if (previous && ingress.get(previous)?.snapshot().state !== 'stopped')
       return undefined;
@@ -349,9 +355,9 @@ export function captureInboxSync(
                 }
                 state = 'live';
                 try {
-                  release = subscribePrivatePage(
+                  release = subscribePrivateHistory(
                     pool,
-                    PRIVATE_TRANSPORT_BUDGETS.requestedPerRelay,
+                    history.overlap.since,
                     receive
                   );
                 } catch {

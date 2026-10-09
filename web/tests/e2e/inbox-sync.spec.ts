@@ -125,7 +125,7 @@ test('closing original unlock after live start sends actual CLOSE and prevents r
     f.capture();
     f.start();
   });
-  await expect.poll(() => requests.length).toBe(2);
+  await expect.poll(() => requests.length).toBe(3);
   await page.evaluate(() => window.hcp095Fixture.closeUnlock());
   await expect.poll(() => closes.length).toBeGreaterThanOrEqual(2);
   expect(
@@ -138,7 +138,7 @@ test('closing original unlock after live start sends actual CLOSE and prevents r
     start: false,
     capture: false
   });
-  expect(requests).toHaveLength(2);
+  expect(requests).toHaveLength(3);
 });
 test('second capture cannot replace the original admitted foreground owner', async ({
   page
@@ -149,7 +149,7 @@ test('second capture cannot replace the original admitted foreground owner', asy
       return [f.capture(), f.capture(), f.start()];
     })
   ).toEqual([true, false, true]);
-  await expect.poll(() => requests.length).toBe(2);
+  await expect.poll(() => requests.length).toBe(3);
   expect(
     requests.filter((r) => (r[2] as { limit: number }).limit === 0)
   ).toHaveLength(1);
@@ -233,11 +233,11 @@ test('actual live REQ precedes bounded backfill and gap delivery is retained onc
     .poll(() =>
       page.evaluate(() => window.hcp095Fixture.snapshot()?.duplicates)
     )
-    .toBe(1);
+    .toBe(2);
   const owner = await page.evaluate(() => window.hcp095Fixture.owner);
-  expect(requests).toHaveLength(2);
+  expect(requests).toHaveLength(3);
   expect(requests.map((r) => (r[2] as { limit: number }).limit)).toEqual([
-    0, 200
+    0, 200, 200
   ]);
   expect(requests[0][2]).toEqual({ kinds: [1059], '#p': [owner], limit: 0 });
   expect(requests[1][2]).toEqual({ kinds: [1059], '#p': [owner], limit: 200 });
@@ -246,7 +246,7 @@ test('actual live REQ precedes bounded backfill and gap delivery is retained onc
   ).toMatchObject({
     state: 'live',
     retained: 1,
-    duplicates: 1,
+    duplicates: 2,
     backfill: 'complete',
     historyComplete: false
   });
@@ -263,7 +263,7 @@ test('single no-later-event live tail arrives after both EOSE without decrypt or
     f.capture();
     f.start();
   });
-  await expect.poll(() => requests.length).toBe(2);
+  await expect.poll(() => requests.length).toBe(3);
   await expect
     .poll(() => page.evaluate(() => window.hcp095Fixture.snapshot()?.backfill))
     .toBe('complete');
@@ -291,7 +291,7 @@ test('repeated start never allocates a second live subscription', async ({
       return [f.start(), f.start()];
     })
   ).toEqual([true, false]);
-  await expect.poll(() => requests.length).toBe(2);
+  await expect.poll(() => requests.length).toBe(3);
   expect(
     requests.filter((r) => (r[2] as { limit: number }).limit === 0)
   ).toHaveLength(1);
@@ -304,7 +304,7 @@ test('route disposal closes actual live request and suspends original Messages l
     f.capture();
     f.start();
   });
-  await expect.poll(() => requests.length).toBe(2);
+  await expect.poll(() => requests.length).toBe(3);
   await page.evaluate(() => window.hcp095Fixture.navigateAway());
   await expect.poll(() => closes.length).toBeGreaterThanOrEqual(2);
   expect(
@@ -321,7 +321,7 @@ test('route disposal closes actual live request and suspends original Messages l
     start: false,
     capture: false
   });
-  expect(requests).toHaveLength(2);
+  expect(requests).toHaveLength(3);
 });
 test('closed original unlocked cache refuses foreground receive without sockets', async ({
   page
@@ -385,7 +385,7 @@ test('121 duplicate live deliveries charge before dedup and pause the source', a
     f.capture();
     f.start();
   });
-  await expect.poll(() => requests.length).toBe(2);
+  await expect.poll(() => requests.length).toBe(3);
   const e = eventFrom(await page.evaluate(() => window.hcp095Fixture.outer));
   for (let i = 0; i < 121; i++) deliver(e);
   await expect

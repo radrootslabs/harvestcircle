@@ -79,6 +79,32 @@ export type PrivatePageMessage =
     }>;
 export type PrivateLiveMessage =
   PrivatePageMessage | Readonly<{ type: 'open' }>;
+type FiniteBudget = {
+  elapsed(): number;
+  remainingBytes(): number;
+  charge(bytes: number): boolean;
+  finish(milliseconds: number): void;
+};
+function finiteBudget(): FiniteBudget {
+  let deliveries = 0,
+    bytes = 0,
+    elapsed = 0;
+  return {
+    elapsed: () => elapsed,
+    remainingBytes: () => PRIVATE_TRANSPORT_BUDGETS.processedBytes - bytes,
+    charge(size) {
+      deliveries++;
+      bytes += size;
+      return (
+        deliveries <= PRIVATE_TRANSPORT_BUDGETS.deliveries &&
+        bytes <= PRIVATE_TRANSPORT_BUDGETS.processedBytes
+      );
+    },
+    finish(milliseconds) {
+      elapsed += milliseconds;
+    }
+  };
+}
 type Owner = {
   session: PrivateSession;
   policy: RelayPolicy;
@@ -96,7 +122,9 @@ type Owner = {
   ): Promise<PrivateAuthConnection | undefined>;
   subscribe(
     limit: number,
-    listener: (message: PrivatePageMessage) => void
+    listener: (message: PrivatePageMessage) => void,
+    since?: number,
+    budget?: FiniteBudget
   ): () => void;
   subscribeLive(listener: (message: PrivateLiveMessage) => void): () => void;
   close(): void;
@@ -755,7 +783,7 @@ export function getPrivatePool(
         });
       return () => finish('stopped', true);
     },
-    subscribe(limit, listener) {
+    subscribe(limit, listener, since, sharedBudget) {
       if (readOrigins.length === 0)
         throw new Error('private_read_origins_unavailable');
       if (closed || !capture.current()) {
@@ -765,9 +793,8 @@ export function getPrivatePool(
       if (cleanupRequired) throw new Error('private_page_cleanup_required');
       if (busy) throw new Error('private_page_busy');
       busy = true;
-      let ended = false,
-        deliveries = 0,
-        bytes = 0;
+      let ended = false;
+      const budget = sharedBudget ?? finiteBudget();
       let release = () => {};
       let timer: ReturnType<typeof setTimeout> | undefined;
       const completed = new Map<string, true>();
@@ -792,6 +819,7 @@ export function getPrivatePool(
           return;
         }
         ended = true;
+        if (started > 0) budget.finish(performance.now() - started);
         if (timer !== undefined) clearTimeout(timer);
         let failure: unknown;
         try {
@@ -820,6 +848,10 @@ export function getPrivatePool(
             finish('stale');
             return;
           }
+          if (budget.elapsed() >= PRIVATE_TRANSPORT_BUDGETS.pageMilliseconds) {
+            finish('elapsed');
+            return;
+          }
           started = performance.now();
           if (ended || closed || !capture.current()) {
             if (!ended) finish('stale');
@@ -828,10 +860,12 @@ export function getPrivatePool(
           const subscription = sdk
             .req(
               [...readOrigins],
-              privateInboxQueries(capture.owner, 'backfill').map((filter) => ({
-                ...filter,
-                limit
-              })),
+              privateInboxQueries(capture.owner, 'backfill', since).map(
+                (filter) => ({
+                  ...filter,
+                  limit
+                })
+              ),
               {
                 waitForAuth: false,
                 reconnect: false,
@@ -846,7 +880,7 @@ export function getPrivatePool(
                   owner.close();
                   return;
                 }
-                const elapsed = performance.now() - started;
+                const elapsed = budget.elapsed() + performance.now() - started;
                 if (ended || closed || !capture.current()) {
                   if (!ended) finish('stale');
                   owner.close();
@@ -860,25 +894,20 @@ export function getPrivatePool(
                   completed.set(message.from, true);
                   if (completed.size === readOrigins.length) finish('complete');
                 } else if (message.type === 'EVENT') {
-                  deliveries++;
-                  if (deliveries > PRIVATE_TRANSPORT_BUDGETS.deliveries) {
-                    finish('budget');
-                    return;
-                  }
                   const wire = JSON.stringify(message.event);
                   // Charge actual encoded bytes, including rejected envelopes. An
                   // input beyond the remaining budget stops before encoding it.
                   if (
                     typeof wire !== 'string' ||
-                    !boundedUtf8(
-                      wire,
-                      PRIVATE_TRANSPORT_BUDGETS.processedBytes - bytes
-                    )
+                    !boundedUtf8(wire, budget.remainingBytes())
                   ) {
                     finish('budget');
                     return;
                   }
-                  bytes += new TextEncoder().encode(wire).length;
+                  if (!budget.charge(new TextEncoder().encode(wire).length)) {
+                    finish('budget');
+                    return;
+                  }
                   const accepted = boundedUtf8(
                     wire,
                     PRIVATE_TRANSPORT_BUDGETS.envelopeBytes
@@ -900,7 +929,10 @@ export function getPrivatePool(
           } else {
             timer = setTimeout(
               () => finish('elapsed'),
-              PRIVATE_TRANSPORT_BUDGETS.pageMilliseconds
+              Math.max(
+                0,
+                PRIVATE_TRANSPORT_BUDGETS.pageMilliseconds - budget.elapsed()
+              )
             );
           }
         })
@@ -981,6 +1013,48 @@ export function subscribePrivatePage(
   )
     throw new Error('private_page_limit_invalid');
   return ownerOf(token).subscribe(requested, listener);
+}
+// Two bounded windows, one actual original pool and shared pre-dedup work meter.
+// Each fresh provider ownership wait is outside cumulative active network time.
+export function subscribePrivateHistory(
+  token: PrivatePool,
+  since: number,
+  listener: (message: PrivatePageMessage) => void
+): () => void {
+  if (!Number.isSafeInteger(since) || since < 0)
+    throw Error('private_history_since_invalid');
+  const owner = ownerOf(token),
+    budget: FiniteBudget = finiteBudget();
+  let stopped = false,
+    release = () => {};
+  function window(overlap: boolean) {
+    if (stopped) return;
+    try {
+      release = owner.subscribe(
+        PRIVATE_TRANSPORT_BUDGETS.requestedPerRelay,
+        (message) => {
+          if (stopped) return;
+          if (
+            !overlap &&
+            message.type === 'end' &&
+            message.reason === 'complete'
+          ) {
+            // finish has released its busy page before notifying this callback.
+            queueMicrotask(() => window(true));
+          } else listener(message);
+        },
+        overlap ? since : undefined,
+        budget
+      );
+    } catch {
+      listener({ type: 'end', reason: 'error' });
+    }
+  }
+  window(false);
+  return () => {
+    stopped = true;
+    release();
+  };
 }
 export function closePrivatePool(token: PrivatePool): void {
   ownerOf(token).close();
