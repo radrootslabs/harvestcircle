@@ -71,12 +71,20 @@ export type PairedDeliveryPreparationResult = Readonly<{
 }>;
 type Phase =
   'unsaved' | 'preparing' | 'saved' | 'unknown_completion' | 'needs_action';
+type PairPhase =
+  | 'unprepared'
+  | 'preparing'
+  | 'prepared'
+  | 'unknown_completion'
+  | 'needs_action';
 type Snapshot = Readonly<{
   state: Phase;
   busy: boolean;
   owner: string;
   command: string;
   copy: string;
+  pairState: PairPhase;
+  pairCopy: string;
 }>;
 type Controller = {
   run(review: unknown): Promise<SelfRecoveryPreparationResult>;
@@ -127,6 +135,7 @@ export function captureSelfRecoveryPreparation(
     generation = 0,
     busy = false,
     phase: Phase = 'unsaved',
+    pairPhase: PairPhase = 'unprepared',
     acknowledgement: SelfRecoveryAcknowledgement | undefined,
     pairedAcknowledgement: PairedDeliveryAcknowledgement | undefined,
     unsubscribe = () => {};
@@ -172,6 +181,17 @@ export function captureSelfRecoveryPreparation(
       busy,
       owner: record.owner,
       command: record.id,
+      pairState: pairPhase,
+      pairCopy:
+        pairPhase === 'prepared'
+          ? 'Both encrypted artifacts and their delivery plan are saved locally. No recipient delivery is claimed.'
+          : pairPhase === 'unknown_completion'
+            ? 'Paired encrypted preparation could not be confirmed. Review the existing preparation before continuing.'
+            : pairPhase === 'preparing'
+              ? 'Preparing the missing peer envelope. No recipient delivery is claimed.'
+              : pairPhase === 'needs_action'
+                ? 'Paired delivery preparation needs review. The acknowledged self copy is a local recovery fact only.'
+                : 'No paired delivery preparation is acknowledged.',
       copy:
         phase === 'saved' && receipt()
           ? 'Saved encrypted in this browser'
@@ -350,6 +370,22 @@ export function captureSelfRecoveryPreparation(
     if (!self) return { status: 'self_required' };
     busy = true;
     const attempt = generation;
+    function finishPair(
+      result: PairedDeliveryPreparationResult
+    ): PairedDeliveryPreparationResult {
+      if (current() && attempt === generation)
+        pairPhase =
+          result.status === 'unknown_completion'
+            ? 'unknown_completion'
+            : (result.status === 'prepared' ||
+                  result.status === 'existing' ||
+                  result.status === 'reconciled') &&
+                pairedAcknowledgement &&
+                pairedDeliveryAcknowledgementSnapshot(pairedAcknowledgement)
+              ? 'prepared'
+              : 'needs_action';
+      return result;
+    }
     try {
       const { plan, policy, own, other } = context,
         routes = inboxRoutePlanSnapshot(plan);
@@ -358,51 +394,55 @@ export function captureSelfRecoveryPreparation(
         routes.peer.author !== record.peer ||
         routes.archive.author !== record.owner
       )
-        return { status: 'invalid' };
+        return finishPair({ status: 'invalid' });
       const routeWire = JSON.stringify(routes);
       const routesCurrent = () =>
         recheckInboxRoutePlan(plan, policy, own, other) === 'unchanged' &&
         JSON.stringify(inboxRoutePlanSnapshot(plan)) === routeWire;
       const admitted = () => current() && attempt === generation;
-      if (!routesCurrent()) return { status: 'review_required' };
-      if (!admitted()) return { status: 'stopped' };
+      if (!routesCurrent()) return finishPair({ status: 'review_required' });
+      if (!admitted()) return finishPair({ status: 'stopped' });
       if (pairedAcknowledgement) {
         const valid = await verifyPairedDeliveryAcknowledgement(
           repository,
           pairedAcknowledgement
         );
-        if (!admitted()) return { status: 'stopped' };
-        if (!routesCurrent()) return { status: 'review_required' };
+        if (!admitted()) return finishPair({ status: 'stopped' });
+        if (!routesCurrent()) return finishPair({ status: 'review_required' });
         const saved = pairedDeliveryAcknowledgementSnapshot(
           pairedAcknowledgement
         );
-        return valid &&
-          saved &&
-          JSON.stringify(saved.deliveryPlan.routes) === routeWire
-          ? { status: 'prepared' }
-          : { status: 'conflict' };
+        return finishPair(
+          valid &&
+            saved &&
+            JSON.stringify(saved.deliveryPlan.routes) === routeWire
+            ? { status: 'prepared' }
+            : { status: 'conflict' }
+        );
       }
       const durableSelf = await verifySelfRecoveryAcknowledgement(
         repository,
         self
       );
-      if (!admitted()) return { status: 'stopped' };
-      if (!routesCurrent()) return { status: 'review_required' };
-      if (!admitted()) return { status: 'stopped' };
-      if (!durableSelf) return { status: 'conflict' };
+      if (!admitted()) return finishPair({ status: 'stopped' });
+      if (!routesCurrent()) return finishPair({ status: 'review_required' });
+      if (!admitted()) return finishPair({ status: 'stopped' });
+      if (!durableSelf) return finishPair({ status: 'conflict' });
       phase = 'preparing';
+      pairPhase = 'preparing';
       // The existing lower crypto factory owns the owner lock during SDK work.
       const prepared = await prepareEnvelopeRole(
         pair,
         'peer',
         'reviewed_pair_role'
       );
-      if (!admitted()) return { status: 'stopped' };
-      if (!routesCurrent()) return { status: 'review_required' };
-      if (!admitted()) return { status: 'stopped' };
-      if (prepared.status !== 'complete') return { status: prepared.status };
+      if (!admitted()) return finishPair({ status: 'stopped' });
+      if (!routesCurrent()) return finishPair({ status: 'review_required' });
+      if (!admitted()) return finishPair({ status: 'stopped' });
+      if (prepared.status !== 'complete')
+        return finishPair({ status: prepared.status });
       const proof = preparedEnvelopeProof(pair, 'peer');
-      if (!proof) return { status: 'mismatch' };
+      if (!proof) return finishPair({ status: 'mismatch' });
       const saved = await navigator.locks.request(
         'harvestcircle:owner:' + record.owner,
         { mode: 'exclusive', ifAvailable: true },
@@ -421,14 +461,14 @@ export function captureSelfRecoveryPreparation(
           );
         }
       );
-      if (!admitted()) return { status: 'stopped' };
-      if (!routesCurrent()) return { status: 'review_required' };
-      if (!admitted()) return { status: 'stopped' };
+      if (!admitted()) return finishPair({ status: 'stopped' });
+      if (!routesCurrent()) return finishPair({ status: 'review_required' });
+      if (!admitted()) return finishPair({ status: 'stopped' });
       if ('receipt' in saved) pairedAcknowledgement = saved.receipt;
       phase = 'saved';
-      return { status: saved.status };
+      return finishPair({ status: saved.status });
     } catch {
-      return { status: current() ? 'unavailable' : 'stopped' };
+      return finishPair({ status: current() ? 'unavailable' : 'stopped' });
     } finally {
       busy = false;
       if (current()) phase = 'saved';
