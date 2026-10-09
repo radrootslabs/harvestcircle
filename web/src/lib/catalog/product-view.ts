@@ -9,6 +9,7 @@ import {
   publicViewProjectionAvailable,
   publicViewRunCurrent,
   publicViewOwnsRun,
+  publicViewKnownEvidence,
   subscribePublicView,
   type PublicView
 } from '../runtime/public-runtime.ts';
@@ -22,6 +23,7 @@ import {
 import {
   createPublicHeadCandidate,
   publicHeadSnapshot,
+  publicHeadEnvelope,
   selectPublicHead,
   type PublicHead
 } from './heads.ts';
@@ -38,6 +40,7 @@ import {
   type PublisherView
 } from './publishers.ts';
 import type { FoodProjection } from '../contracts/food-availability-v1/read.ts';
+import type { VerifiedEnvelope } from '../nostr/verified-envelope.ts';
 import type { WallClock } from './clock-policy.ts';
 import type { ForegroundSchedule } from './search-view.ts';
 export type ProductViewSnapshot = Readonly<{
@@ -63,8 +66,14 @@ declare const productBrand: unique symbol;
 export type ProductView = Readonly<{ readonly [productBrand]: true }>;
 interface Owner {
   snapshot: () => ProductViewSnapshot;
+  listing: () => ProductListingOwnership | undefined;
   close: () => void;
 }
+export type ProductListingOwnership = Readonly<{
+  proof: VerifiedEnvelope;
+  available: () => boolean;
+  current: () => boolean;
+}>;
 const owners = new WeakMap<ProductView, Owner>();
 function ownerOf(token: ProductView): Owner {
   const owner = owners.get(token);
@@ -188,7 +197,36 @@ export function createProductView(
   const token = Object.freeze({}) as ProductView;
   owners.set(token, {
     snapshot,
+    listing() {
+      const observed = snapshot();
+      if (observed.outcome !== 'active' || observed.lastKnown || !head) return;
+      const selected = publicViewKnownEvidence(view, head).head;
+      const metadata = publicHeadSnapshot(selected);
+      if (
+        metadata.id !== observed.eventId ||
+        metadata.pubkey !== reference.pubkey ||
+        metadata.identifier !== reference.identifier
+      )
+        return;
+      return {
+        proof: publicHeadEnvelope(selected),
+        available: () =>
+          !closed &&
+          publicViewOwnsRun(view, run) &&
+          publicViewProjectionAvailable(view),
+        current() {
+          const actual = snapshot();
+          return (
+            !closed &&
+            actual.outcome === 'active' &&
+            !actual.lastKnown &&
+            actual.eventId === metadata.id
+          );
+        }
+      };
+    },
     close() {
+      const notifyTerminal = !closed;
       closed = true;
       const previous = cancel;
       cancel = undefined;
@@ -205,6 +243,12 @@ export function createProductView(
       } catch {
         error = true;
       }
+      if (notifyTerminal)
+        try {
+          onUpdate(snapshot());
+        } catch {
+          /* Terminal observer cannot prevent original revocation/cleanup. */
+        }
       if (error) throw Error('product_view_close_failed');
     }
   });
@@ -268,4 +312,11 @@ export function productViewSnapshot(token: ProductView): ProductViewSnapshot {
 }
 export function closeProductView(token: ProductView): void {
   ownerOf(token).close();
+}
+// Only the original current view resolves the observed signed proof. Detached
+// UI snapshots cannot create this witness or select another author/version.
+export function productViewListingOwnership(
+  token: ProductView
+): ProductListingOwnership | undefined {
+  return owners.get(token)?.listing();
 }

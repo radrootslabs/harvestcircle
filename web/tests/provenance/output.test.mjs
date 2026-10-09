@@ -61,6 +61,20 @@ import { auditOutput } from '../../tools/check-output.mjs';
       sha256: '93e21d162901af304f2a142acc7ddce87f7826421735d8a3af4ae281744ab3a0'
     }
   };
+  // Exact accepted HCP105 public product producers, frozen before enquiry.
+  // Restore only this public-only graph; current output retains HCP106 source.
+  const historicalPublicProduct = {
+    'src/routes/products/[naddr=naddr]/+page.svelte': {
+      source:
+        "<script lang=\"ts\">\n  import { getContext, onMount } from 'svelte';\n  import { page } from '$app/state';\n  import {\n    PUBLIC_RUNTIME_CONTEXT,\n    publicRuntimeReady,\n    createPublicView,\n    disposePublicView,\n    type PublicView,\n    type PublicRuntime,\n    type PublicRuntimeContext\n  } from '../../../lib/runtime/public-runtime.ts';\n  import {\n    createProductView,\n    closeProductView,\n    type ProductView,\n    type ProductViewSnapshot\n  } from '../../../lib/catalog/product-view.ts';\n  import { decodeProductReference } from '../../../lib/nostr/references.ts';\n  import { readPublicContact } from '../../../lib/contracts/food-availability-v1/contact-read.ts';\n  import { copyProductReference } from '../../../lib/navigation-copy.ts';\n  import { internalHref, navigationHref } from '../../../lib/navigation-url.ts';\n  import ListingFacts from '../../../lib/components/ListingFacts.svelte';\n  import PublisherIdentity from '../../../lib/components/PublisherIdentity.svelte';\n  import Disclosure from '../../../lib/components/primitives/Disclosure.svelte';\n  import Button from '../../../lib/components/primitives/Button.svelte';\n  const context = getContext<PublicRuntimeContext>(PUBLIC_RUNTIME_CONTEXT);\n  let runtime = $state.raw<PublicRuntime | undefined>(),\n    result = $state.raw<ProductViewSnapshot | undefined>(),\n    error = $state<string | undefined>(),\n    copyNotice = $state<string | undefined>();\n  const reference = $derived(decodeProductReference(page.params.naddr));\n  const contact = $derived(readPublicContact(result?.food?.content));\n  let disposed = false;\n  onMount(() => {\n    const unavailable = () => {\n      if (!disposed) error = 'Food sources are unavailable.';\n    };\n    try {\n      void publicRuntimeReady(context)\n        .then((value) => {\n          if (!disposed) {\n            runtime = value;\n            if (!value) unavailable();\n          }\n        })\n        .catch(unavailable);\n    } catch {\n      unavailable();\n    }\n    return () => {\n      disposed = true;\n    };\n  });\n  $effect(() => {\n    const selected = reference,\n      shared = runtime;\n    result = undefined;\n    copyNotice = undefined;\n    if (!selected || !shared) return;\n    let active = true,\n      acquired: PublicView | undefined,\n      owner: ProductView | undefined;\n    try {\n      acquired = createPublicView(shared);\n      owner = createProductView(\n        acquired,\n        selected.naddr,\n        { nowSeconds: () => Math.floor(Date.now() / 1000) },\n        (value) => {\n          if (active && !disposed) result = value;\n        }\n      );\n      error = undefined;\n    } catch {\n      error = 'Food sources are unavailable.';\n      if (acquired)\n        try {\n          disposePublicView(acquired);\n        } catch {\n          /* Shared runtime keeps a failed disposer retryable. */\n        }\n    }\n    return () => {\n      active = false;\n      if (owner) closeProductView(owner);\n    };\n  });\n  async function copyLink() {\n    const selected = reference;\n    if (!selected) return;\n    const copied = await copyProductReference(selected.naddr, page.url.origin);\n    if (!disposed && reference?.naddr === selected.naddr)\n      copyNotice = copied\n        ? 'Link copied.'\n        : 'Copy was unavailable. Select the public link below.';\n  }\n</script>\n\n<svelte:head\n  ><title>{result?.food?.title ?? 'Food'} — HarvestCircle</title></svelte:head\n>\n<div class=\"page page--reading stack\">\n  <a href={internalHref('/search')}>Search food</a>\n  <h1>{result?.food?.title ?? 'Food'}</h1>\n  {#if !reference}<p class=\"notice\">This food reference is invalid.</p>\n  {:else if error || result?.outcome === 'unavailable'}<p class=\"notice\">\n      Food sources are unavailable.\n    </p>\n  {:else if !result || result.outcome === 'checking'}<p>\n      Checking food sources…\n    </p>\n  {:else if result.outcome === 'unobserved'}<p class=\"notice\">\n      This listing was not observed in the sources checked. It may be\n      unavailable or missing from these sources.\n    </p>\n  {:else if result.outcome === 'withdrawn'}<p class=\"notice\">\n      This listing was withdrawn by its publisher.\n    </p>\n  {:else if result.outcome === 'unsupported'}<p class=\"notice\">\n      The latest known listing uses an unsupported food format.\n    </p>\n  {:else if result.outcome === 'future_quarantined' || result.outcome === 'clock_unavailable'}<p\n      class=\"notice\"\n    >\n      Listing time could not be confirmed. Food details are unavailable.\n    </p>{/if}\n  {#if result}\n    <PublisherIdentity publisher={result.publisher} />\n    {#if result.lastKnown}<p class=\"notice\">\n        This is last-known information. The listing status check is incomplete.\n      </p>{/if}\n    {#if result.food && result.createdAt !== undefined}<ListingFacts\n        food={result.food}\n        createdAt={result.createdAt}\n      />{/if}\n    {#if result.outcome === 'sold'}<p class=\"notice\">\n        The seller marked this listing sold.\n      </p>{/if}\n    {#if result.outcome === 'active'}<p>\n        Confirm availability with the seller.\n      </p>\n      <Button label=\"Message seller\" disabled={true} />\n      <p class=\"notice\">\n        In-app messaging is unavailable during development.\n      </p>{/if}\n    <Disclosure summary=\"Listing and source details\">\n      {#if result.eventId}<p>\n          Listing version: <code>{result.eventId}</code>\n        </p>{/if}\n      {#each result.sources as source (source.result.context)}<p>\n          {source.kind}: {source.state}. Coverage: {source.result.coverage}.\n        </p>\n        {#each source.result.sources as relay (relay.source)}<p>\n            {relay.source}: {relay.state}.\n          </p>{/each}{/each}\n      <p>\n        These bounded checks do not prove complete coverage or current stock.\n      </p>\n    </Disclosure>\n    {#if contact && result.outcome === 'active'}<Disclosure\n        summary=\"Other contact details\"\n        ><a href={navigationHref(contact.href)}>{contact.href}</a></Disclosure\n      >{/if}\n  {/if}\n  {#if reference}<Button label=\"Copy link\" onclick={copyLink} /><a\n      href={internalHref(`/products/${reference.naddr}`)}>Public food link</a\n    >{/if}\n  {#if copyNotice}<p role=\"status\">{copyNotice}</p>{/if}\n</div>\n",
+      sha256: '1869d4dc32ea794d5ee5c1d6cc6b4aac94483482d18cff0562c0cb10087b5278'
+    },
+    'src/lib/catalog/product-view.ts': {
+      source:
+        "import { PUBLIC_QUERY_BUDGETS } from '../config/budgets.ts';\nimport {\n  decodeProductReference,\n  type ProductReference\n} from '../nostr/references.ts';\nimport {\n  beginPublicViewRun,\n  disposePublicView,\n  publicViewProjectionAvailable,\n  publicViewRunCurrent,\n  publicViewOwnsRun,\n  subscribePublicView,\n  type PublicView\n} from '../runtime/public-runtime.ts';\nimport {\n  publicRequestScopeSnapshot,\n  publicRunSnapshot,\n  closePublicRequest,\n  disposePublicRun,\n  type PublicRequest\n} from '../nostr/request-scope.ts';\nimport {\n  createPublicHeadCandidate,\n  publicHeadSnapshot,\n  selectPublicHead,\n  type PublicHead\n} from './heads.ts';\nimport {\n  createPublicViewHeadResolver,\n  headResolutionSnapshot,\n  resolveHeads,\n  closeHeadResolver\n} from './resolve-head.ts';\nimport {\n  createPublisherViews,\n  readPublisherPage,\n  publisherSnapshot,\n  type PublisherView\n} from './publishers.ts';\nimport type { FoodProjection } from '../contracts/food-availability-v1/read.ts';\nimport type { WallClock } from './clock-policy.ts';\nimport type { ForegroundSchedule } from './search-view.ts';\nexport type ProductViewSnapshot = Readonly<{\n  reference: ProductReference;\n  outcome:\n    | 'checking'\n    | 'unobserved'\n    | 'unavailable'\n    | 'active'\n    | 'sold'\n    | 'withdrawn'\n    | 'unsupported'\n    | 'future_quarantined'\n    | 'clock_unavailable';\n  food: FoodProjection | undefined;\n  eventId: string | undefined;\n  createdAt: number | undefined;\n  publisher: PublisherView;\n  lastKnown: boolean;\n  sources: readonly ReturnType<typeof publicRequestScopeSnapshot>[];\n}>;\ndeclare const productBrand: unique symbol;\nexport type ProductView = Readonly<{ readonly [productBrand]: true }>;\ninterface Owner {\n  snapshot: () => ProductViewSnapshot;\n  close: () => void;\n}\nconst owners = new WeakMap<ProductView, Owner>();\nfunction ownerOf(token: ProductView): Owner {\n  const owner = owners.get(token);\n  if (!owner) throw Error('product_view_invalid');\n  return owner;\n}\nfunction foreground(callback: () => void, delay: number): () => void {\n  const timer = setTimeout(() => {\n    callback();\n  }, delay);\n  return () => {\n    clearTimeout(timer);\n  };\n}\n// One explicit route read, one coordinate, shared run/request budgets. No forged\n// seed, independent cache, relay hints, automatic refresh or additional deadline.\nexport function createProductView(\n  view: PublicView,\n  value: unknown,\n  clock: WallClock,\n  onUpdate: (value: ProductViewSnapshot) => void,\n  schedule: ForegroundSchedule = foreground\n): ProductView {\n  const decoded = decodeProductReference(value);\n  if (!decoded) throw Error('product_reference_invalid');\n  const reference = decoded;\n  const run = beginPublicViewRun(view),\n    resolver = createPublicViewHeadResolver(view, run, clock),\n    publishers = createPublisherViews(view, clock);\n  let closed = false,\n    failed = false,\n    head: PublicHead | undefined,\n    cancel: (() => void) | undefined;\n  const requests = new Map<PublicRequest, true>();\n  const current = () => !closed && publicViewRunCurrent(view, run);\n  function snapshot(): ProductViewSnapshot {\n    const available =\n      !closed &&\n      publicViewProjectionAvailable(view) &&\n      publicViewOwnsRun(view, run);\n    const row = available ? headResolutionSnapshot(resolver)[0] : undefined;\n    let scopes = Array.from(requests.keys(), publicRequestScopeSnapshot);\n    for (const scope of [row?.headSources, row?.deletionSources])\n      if (\n        scope &&\n        !scopes.some((s) => s.result.context === scope.result.context)\n      )\n        scopes = scopes.concat(scope);\n    const complete =\n      !failed &&\n      scopes.length > 0 &&\n      scopes.every(\n        (s) => s.state === 'eose' && s.result.coverage === 'bounded-eose'\n      );\n    let outcome: ProductViewSnapshot['outcome'];\n    if (!available) outcome = 'unavailable';\n    else if (row?.deletion.outcome === 'suppressed') outcome = 'withdrawn';\n    else if (\n      row?.state.display === 'future_quarantined' ||\n      row?.state.display === 'clock_unavailable'\n    )\n      outcome = row.state.display;\n    else if (row?.state.display === 'unsupported') outcome = 'unsupported';\n    else if (row?.state.food) outcome = row.state.food.status;\n    else if (\n      !row &&\n      (failed ||\n        (scopes.length > 0 &&\n          scopes.every(\n            (scope) =>\n              scope.result.sources.length > 0 &&\n              scope.result.sources.every(\n                (source) =>\n                  source.state === 'error' || source.state === 'closed'\n              )\n          )))\n    )\n      outcome = 'unavailable';\n    else\n      outcome =\n        current() && scopes.some((s) => s.state === 'active')\n          ? 'checking'\n          : 'unobserved';\n    const publisher = publisherSnapshot(publishers, reference.pubkey);\n    const stillAvailable =\n      !closed &&\n      publicViewProjectionAvailable(view) &&\n      publicViewOwnsRun(view, run);\n    return {\n      reference: { ...reference },\n      outcome: stillAvailable ? outcome : 'unavailable',\n      food: stillAvailable ? row?.state.food : undefined,\n      eventId: stillAvailable ? row?.state.head.id : undefined,\n      createdAt: stillAvailable ? row?.state.head.created_at : undefined,\n      publisher: stillAvailable\n        ? publisher\n        : {\n            pubkey: reference.pubkey,\n            label: reference.pubkey,\n            assertedName: false\n          },\n      lastKnown: !stillAvailable || !complete || (row?.lastKnown ?? true),\n      sources: scopes\n    };\n  }\n  function publish() {\n    const value = snapshot();\n    if (!closed && publicViewOwnsRun(view, run)) onUpdate(value);\n  }\n  function queue() {\n    if (!current() || publicRunSnapshot(run).activeRequests === 0) return;\n    const next = schedule(() => {\n      if (closed || !publicViewOwnsRun(view, run)) return;\n      cancel = undefined;\n      publish();\n      queue();\n    }, 250);\n    if (current()) cancel = next;\n    else next();\n  }\n  const token = Object.freeze({}) as ProductView;\n  owners.set(token, {\n    snapshot,\n    close() {\n      closed = true;\n      const previous = cancel;\n      cancel = undefined;\n      previous?.();\n      let error = false;\n      try {\n        closeHeadResolver(resolver);\n      } catch {\n        error = true;\n      }\n      try {\n        if (publicViewOwnsRun(view, run)) disposePublicView(view);\n        else disposePublicRun(run);\n      } catch {\n        error = true;\n      }\n      if (error) throw Error('product_view_close_failed');\n    }\n  });\n  try {\n    const filter =\n      reference.identifier === ''\n        ? {\n            kinds: [30402],\n            authors: [reference.pubkey],\n            limit: PUBLIC_QUERY_BUDGETS.requestedPerRelay\n          }\n        : {\n            kinds: [30402],\n            authors: [reference.pubkey],\n            '#d': [reference.identifier],\n            limit: PUBLIC_QUERY_BUDGETS.requestedPerRelay\n          };\n    const request = subscribePublicView(\n      view,\n      run,\n      'head',\n      [filter],\n      (proof) => {\n        if (!current()) return;\n        const candidate = createPublicHeadCandidate(proof);\n        if (!candidate) return;\n        const next = publicHeadSnapshot(candidate);\n        if (\n          next.kind !== 30402 ||\n          next.pubkey !== reference.pubkey ||\n          next.identifier !== reference.identifier\n        )\n          return;\n        head = selectPublicHead(head, candidate).head;\n        try {\n          resolveHeads(resolver, [head]);\n          if (current())\n            for (const request of readPublisherPage(publishers, run, [\n              reference.pubkey\n            ]))\n              requests.set(request, true);\n        } catch {\n          failed = true;\n        }\n      }\n    );\n    requests.set(request, true);\n    if (publicRequestScopeSnapshot(request).result.sources.length === 0) {\n      failed = true;\n      closePublicRequest(request);\n    }\n  } catch {\n    failed = true;\n  }\n  publish();\n  queue();\n  return token;\n}\nexport function productViewSnapshot(token: ProductView): ProductViewSnapshot {\n  return ownerOf(token).snapshot();\n}\nexport function closeProductView(token: ProductView): void {\n  ownerOf(token).close();\n}\n",
+      sha256: 'e3739170e3c700246a80c1358c7b96541a5cbf1e4c26905e6ca60537adfce9cf'
+    }
+  };
   const base = await mkdtemp(path.join(os.tmpdir(), 'hc actual output '));
   let setupReady = false;
   /** @param {import('node:test').TestContext} t */
@@ -214,6 +228,13 @@ import { auditOutput } from '../../tools/check-output.mjs';
           );
           await writeFile(path.join(f.web, name), value.source);
         }
+        for (const [name, value] of Object.entries(historicalPublicProduct)) {
+          assert.equal(
+            createHash('sha256').update(value.source).digest('hex'),
+            value.sha256
+          );
+          await writeFile(path.join(f.web, name), value.source);
+        }
         await copyDependencies(t, base, f.web);
         await refresh(f);
         compile(t, f.web);
@@ -305,7 +326,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             const f = await fixture(t);
             const files = await f.audit();
             // Exact eleven-route module/page/static admission; CSS stays once-imported.
-            assert.equal(files.length, 52);
+            assert.equal(files.length, 55);
             // The actual SDK payload crosses the reader scratch boundary; a reused
             // scratch buffer must still preserve every compiler/static byte exactly.
             const sizes = await Promise.all(
@@ -428,7 +449,16 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'reply-missing-navigation',
           'reply-missing-handles',
           'context-resolver-dynamic',
-          'context-resolver-entry'
+          'context-resolver-entry',
+          'enquiry-view-dynamic',
+          'enquiry-view-entry',
+          'enquiry-setup-dynamic',
+          'enquiry-setup-entry',
+          'enquiry-gate-dynamic',
+          'enquiry-gate-entry',
+          'enquiry-root-missing-gate',
+          'enquiry-root-missing-css',
+          'enquiry-root-extra-css'
         ])
           await check(
             'actual inbox list compiler rejects ' + mutation,
@@ -442,15 +472,41 @@ import { auditOutput } from '../../tools/check-output.mjs';
               const entry = Object.entries(manifest).find(
                 ([, row]) =>
                   row.name ===
-                  (mutation.startsWith('context-')
-                    ? 'resolve-head'
-                    : mutation.startsWith('thread-') ||
-                        mutation.startsWith('reply-')
-                      ? 'nodes/5'
-                      : 'InboxStatus')
+                  (mutation.startsWith('enquiry-view-')
+                    ? 'inbox-view'
+                    : mutation.startsWith('enquiry-setup-')
+                      ? 'inbox-setup-view'
+                      : mutation.startsWith('enquiry-gate-')
+                        ? 'CapabilityGate'
+                        : mutation.startsWith('enquiry-root-')
+                          ? 'nodes/0'
+                          : mutation.startsWith('context-')
+                            ? 'resolve-head'
+                            : mutation.startsWith('thread-') ||
+                                mutation.startsWith('reply-')
+                              ? 'nodes/5'
+                              : 'InboxStatus')
               );
               assert.ok(entry);
               const [, row] = entry;
+              if (mutation === 'enquiry-root-missing-css') row.css = [];
+              if (mutation === 'enquiry-root-extra-css')
+                row.css = [...row.css, row.css[0]];
+              if (
+                mutation.startsWith('enquiry-') &&
+                mutation.endsWith('-dynamic')
+              )
+                row.dynamicImports = [];
+              if (
+                mutation.startsWith('enquiry-') &&
+                mutation.endsWith('-entry')
+              )
+                row.isEntry = true;
+              if (mutation === 'enquiry-root-missing-gate')
+                row.imports = row.imports.filter(
+                  (/** @type {string} */ value) =>
+                    manifest[value].name !== 'CapabilityGate'
+                );
               if (mutation === 'context-resolver-dynamic')
                 row.dynamicImports = [];
               if (mutation === 'context-resolver-entry') row.isEntry = true;
@@ -543,7 +599,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             assert.ok(Buffer.byteLength(expanded) > 64 * 1024);
             await writeFile(file, expanded);
             await refresh(f);
-            assert.equal((await f.audit()).length, 52);
+            assert.equal((await f.audit()).length, 55);
           }
         );
 
@@ -1038,6 +1094,9 @@ import { auditOutput } from '../../tools/check-output.mjs';
         for (const producer of [
           'src/routes/products/[naddr=naddr]/+page.svelte',
           'src/lib/catalog/product-view.ts',
+          'src/lib/components/ProductEnquiry.svelte',
+          'src/lib/messaging/product-enquiry.ts',
+          'src/lib/messaging/enquiry-context.ts',
           'src/lib/components/ListingFacts.svelte',
           'src/lib/components/PublisherIdentity.svelte',
           'src/lib/contracts/food-availability-v1/contact-read.ts',
@@ -1094,7 +1153,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
               }
               await writeFile(file, JSON.stringify(manifest));
               if (mutation === 'permuted-edges')
-                assert.equal((await f.audit()).length, 52);
+                assert.equal((await f.audit()).length, 55);
               else await assert.rejects(f.audit, /compiler|references/);
             }
           );

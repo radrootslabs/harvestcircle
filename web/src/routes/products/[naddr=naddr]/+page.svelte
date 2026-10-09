@@ -24,11 +24,13 @@
   import PublisherIdentity from '../../../lib/components/PublisherIdentity.svelte';
   import Disclosure from '../../../lib/components/primitives/Disclosure.svelte';
   import Button from '../../../lib/components/primitives/Button.svelte';
+  import ProductEnquiry from '../../../lib/components/ProductEnquiry.svelte';
   const context = getContext<PublicRuntimeContext>(PUBLIC_RUNTIME_CONTEXT);
   let runtime = $state.raw<PublicRuntime | undefined>(),
     result = $state.raw<ProductViewSnapshot | undefined>(),
     error = $state<string | undefined>(),
     copyNotice = $state<string | undefined>();
+  let productOwner = $state.raw<ProductView | undefined>();
   const reference = $derived(decodeProductReference(page.params.naddr));
   const contact = $derived(readPublicContact(result?.food?.content));
   let disposed = false;
@@ -56,6 +58,7 @@
     const selected = reference,
       shared = runtime;
     result = undefined;
+    productOwner = undefined;
     copyNotice = undefined;
     if (!selected || !shared) return;
     let active = true,
@@ -71,6 +74,7 @@
           if (active && !disposed) result = value;
         }
       );
+      productOwner = owner;
       error = undefined;
     } catch {
       error = 'Food sources are unavailable.';
@@ -140,10 +144,10 @@
     {#if result.outcome === 'active'}<p>
         Confirm availability with the seller.
       </p>
-      <Button label="Message seller" disabled={true} />
-      <p class="notice">
-        In-app messaging is unavailable during development.
-      </p>{/if}
+      {#if productOwner}<ProductEnquiry
+          view={productOwner}
+          observation={result}
+        />{/if}{/if}
     <Disclosure summary="Listing and source details">
       {#if result.eventId}<p>
           Listing version: <code>{result.eventId}</code>

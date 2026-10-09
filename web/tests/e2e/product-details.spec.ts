@@ -298,7 +298,9 @@ test('real product reload renders verified facts, safe guest contact, explicit c
       page.getByRole('button', { name: 'Message seller', exact: true })
     ).toBeDisabled();
     await expect(
-      page.getByText('In-app messaging is unavailable during development.')
+      page.getByText(
+        'This is last-known information. The listing status check is incomplete.'
+      )
     ).toBeVisible();
     await expect(
       page.getByRole('button', { name: 'Manage listing' })
