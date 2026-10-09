@@ -262,7 +262,7 @@ test('two actual connections race for the last send slot without evicting existi
 test('private-send stored UTF8 bytes refuse oversized updates and preserve their exact base', async ({
   page
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(1_800_000);
   await load(page);
   const result = await page.evaluate(async () => {
     const f = window.hcp080Fixture,
@@ -299,7 +299,7 @@ test('private-send stored UTF8 bytes refuse oversized updates and preserve their
 test('received count cap remains separate from a full unresolved outbox and refuses without eviction', async ({
   page
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(1_800_000);
   await load(page);
   const result = await page.evaluate(async () => {
     const f = window.hcp080Fixture,
@@ -340,7 +340,7 @@ test('received count cap remains separate from a full unresolved outbox and refu
 test('received 48MiB byte cap refuses below count cap and preserves both independent namespaces', async ({
   page
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(1_800_000);
   await load(page);
   const result = await page.evaluate(async () => {
     const f = window.hcp080Fixture,

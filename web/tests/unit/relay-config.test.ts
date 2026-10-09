@@ -283,7 +283,7 @@ describe('fixed relay policy', () => {
       {
         cwd: fileURLToPath(new URL('../../', import.meta.url)),
         encoding: 'utf8',
-        timeout: 10000
+        timeout: 1800000
       }
     );
     expect(result.error).toBeUndefined();

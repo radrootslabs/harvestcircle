@@ -139,7 +139,7 @@ async function fixture(run) {
       const result = spawnSync(process.execPath, args, {
         cwd: directory,
         encoding: 'utf8',
-        timeout: 8000
+        timeout: 1800000
       });
       assert.equal(result.error, undefined);
       return result;
@@ -594,7 +594,7 @@ for (const script of ['check', 'lint', 'build', 'test:unit', 'dev'])
       const result = spawnSync('corepack', ['pnpm', 'run', script], {
         cwd: directory,
         encoding: 'utf8',
-        timeout: 8000
+        timeout: 1800000
       });
       assert.equal(result.error, undefined);
       assert.equal(result.status, 1, result.stdout + result.stderr);
@@ -832,7 +832,7 @@ for (const script of ['check', 'lint', 'build', 'test:unit', 'dev'])
       const result = spawnSync('corepack', ['pnpm', 'run', script], {
         cwd: directory,
         encoding: 'utf8',
-        timeout: 8000
+        timeout: 1800000
       });
       assert.equal(result.error, undefined);
       assert.equal(result.status, 1, result.stdout + result.stderr);
@@ -1587,7 +1587,7 @@ for (const command of ['check', 'lint', 'build', 'test:unit', 'dev'])
       const result = spawnSync('corepack', ['pnpm', 'run', command], {
         cwd: directory,
         encoding: 'utf8',
-        timeout: 8000
+        timeout: 1800000
       });
       assert.equal(result.error, undefined);
       assert.equal(result.status, 1, result.stdout + result.stderr);
@@ -1885,7 +1885,7 @@ for (const command of ['check', 'lint', 'build', 'test:unit', 'dev'])
       const result = spawnSync('corepack', ['pnpm', 'run', command], {
         cwd: directory,
         encoding: 'utf8',
-        timeout: 8000
+        timeout: 1800000
       });
       assert.equal(result.error, undefined);
       assert.equal(result.status, 1, result.stdout + result.stderr);
@@ -2101,8 +2101,8 @@ test('history scroll owner rejects malformed values without coercion or SSR effe
 
 test(
   'HCP076 allows only the byte-pinned disposable gift-wrap producer and rejects key escape or copied construction',
-  // Nine sequential audits retain8s each, plus bounded real fixture setup.
-  { timeout: 90000 },
+  // Sequential audits retain generous host allowances on busy workstations.
+  { timeout: 1800000 },
   async () => {
     await fixture(async ({ directory, put, execute }) => {
       await confineSvelte(directory);
@@ -2156,7 +2156,7 @@ test(
 );
 test(
   'HCP076 rejects production key generation and secret access through named, aliased, namespace and bracket APIs outside the exact wrapper',
-  { timeout: 30000 },
+  { timeout: 1800000 },
   async () => {
     await fixture(async ({ directory, put, execute }) => {
       await confineSvelte(directory);

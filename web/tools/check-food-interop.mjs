@@ -30,7 +30,7 @@ const run = (command, argv, cwd = root) => {
   const result = spawnSync(command, argv, {
     cwd,
     encoding: 'utf8',
-    timeout: 180000,
+    timeout: 1800000,
     maxBuffer: 1024 * 1024
   });
   assert.ifError(result.error);

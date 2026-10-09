@@ -1,6 +1,12 @@
 import { createScopedRelayPool } from './pool-factory.ts';
 import { NEVER } from 'rxjs';
 import {
+  privatePublicationSnapshot,
+  takePrivatePublication,
+  type PrivatePublication,
+  type PrivateDeliveryRole
+} from './private-publisher.ts';
+import {
   takeInboxAuthAdmission,
   takeGuardedInboxAuthResponse,
   type InboxAuthAdmission,
@@ -15,6 +21,7 @@ import { readRelayPolicy, type RelayPolicy } from '../config/relays.ts';
 import {
   PRIVATE_TRANSPORT_BUDGETS,
   PRIVATE_AUTH_BUDGETS,
+  PRIVATE_PUBLICATION_BUDGETS,
   RELAY_BUDGETS
 } from '../config/budgets.ts';
 import {
@@ -27,6 +34,12 @@ import {
 import { boundedUtf8 } from '../contracts/food-availability-v1/text.ts';
 declare const poolBrand: unique symbol;
 export type PrivatePool = Readonly<{ [poolBrand]: true }>;
+export type PrivateGiftWrapAttemptResult = Readonly<{
+  status: 'accepted' | 'refused' | 'unknown' | 'timed_out' | 'stopped';
+  role?: PrivateDeliveryRole;
+  origin?: string;
+  eventId?: string;
+}>;
 export type PrivatePageMessage =
   | Readonly<{ type: 'candidate'; from: string; wire: string }>
   | Readonly<{
@@ -47,6 +60,10 @@ type Owner = {
   token: PrivatePool;
   closed(): boolean;
   cleaned(): boolean;
+  publish(
+    permission: PrivatePublication,
+    signal: AbortSignal
+  ): Promise<PrivateGiftWrapAttemptResult>;
   auth(
     origin: string,
     admission: InboxAuthAdmission
@@ -103,12 +120,18 @@ export function getPrivatePool(
     if (
       typeof origin !== 'string' ||
       selectedOrigins.has(origin) ||
-      !manifest.inbox.some((row) => row.origin === origin && row.read)
+      !manifest.inbox.some(
+        ({ origin: allowed, read, write }) =>
+          allowed === origin && (read || write)
+      )
     )
       throw new Error('private_pool_origins_invalid');
     selectedOrigins.set(origin, true);
   }
   const origins = [...selectedOrigins.keys()];
+  const readOrigins = origins.filter((origin) =>
+    manifest.inbox.some((row) => row.origin === origin && row.read)
+  );
   // Untrusted selection access can run code. Recheck before factory admission.
   if (!capture.current()) throw new Error('private_session_invalid');
   if (lifetime) {
@@ -133,6 +156,9 @@ export function getPrivatePool(
   let active = () => {};
   let off = () => {};
   const authCleanup = new Map<string, () => void>();
+  const publicationStops = new Map<() => void, true>();
+  let publishing = false,
+    publicationCleanupRequired = false;
   const owner: Owner = {
     session,
     policy,
@@ -140,11 +166,175 @@ export function getPrivatePool(
     token,
     closed: () => closed,
     cleaned: () => cleaned,
+    async publish(permission, signal) {
+      const view = privatePublicationSnapshot(permission);
+      if (
+        !view ||
+        publishing ||
+        closed ||
+        cleanupRequired ||
+        publicationCleanupRequired ||
+        signal.aborted ||
+        !capture.current() ||
+        view.owner !== capture.owner ||
+        !origins.includes(view.origin) ||
+        !manifest.inbox.some(
+          ({ origin: allowed, write }) => allowed === view.origin && write
+        ) ||
+        typeof window === 'undefined' ||
+        !navigator.locks?.request
+      )
+        return { status: 'stopped' };
+      publishing = true;
+      try {
+        // No owner lock is held across the serialized fresh extension job.
+        if (
+          !(await recheckPrivateSession(session)) ||
+          closed ||
+          signal.aborted ||
+          !capture.current()
+        )
+          return { status: 'stopped' };
+        return await navigator.locks.request(
+          'harvestcircle:owner:' + capture.owner,
+          { mode: 'exclusive', ifAvailable: true },
+          async (lock) => {
+            if (!lock || closed || signal.aborted || !capture.current())
+              return { status: 'stopped' as const };
+            const admitted = await takePrivatePublication(
+              permission,
+              session,
+              policy,
+              view.origin
+            );
+            if (
+              !admitted ||
+              closed ||
+              signal.aborted ||
+              !capture.current() ||
+              !admitted.current()
+            )
+              return { status: 'stopped' as const };
+            return await new Promise<PrivateGiftWrapAttemptResult>(
+              (resolve) => {
+                let ended = false,
+                  release = () => {},
+                  fenceTimer: ReturnType<typeof setTimeout> | undefined;
+                function finish(
+                  status: PrivateGiftWrapAttemptResult['status']
+                ) {
+                  if (ended) return;
+                  ended = true;
+                  clearTimeout(timer);
+                  if (fenceTimer !== undefined) clearTimeout(fenceTimer);
+                  signal.removeEventListener('abort', stop);
+                  try {
+                    release();
+                    publicationStops.delete(stop);
+                  } catch {
+                    publicationCleanupRequired = true;
+                    status = 'unknown';
+                  }
+                  resolve({
+                    status,
+                    role: admitted!.role,
+                    origin: admitted!.origin,
+                    eventId: admitted!.eventId
+                  });
+                }
+                function stop() {
+                  if (ended) {
+                    release();
+                    publicationStops.delete(stop);
+                    return;
+                  }
+                  finish('stopped');
+                }
+                function fence() {
+                  if (ended) return;
+                  if (
+                    closed ||
+                    signal.aborted ||
+                    !capture.current() ||
+                    !admitted!.current()
+                  ) {
+                    finish('stopped');
+                    return;
+                  }
+                  fenceTimer = setTimeout(() => fence(), 50);
+                }
+                const relay = sdk.relay(view.origin);
+                const timeout =
+                  Number.isFinite(relay.eventTimeout) && relay.eventTimeout > 0
+                    ? Math.min(
+                        PRIVATE_PUBLICATION_BUDGETS.networkActionMilliseconds,
+                        relay.eventTimeout
+                      )
+                    : PRIVATE_PUBLICATION_BUDGETS.networkActionMilliseconds;
+                const timer = setTimeout(() => finish('timed_out'), timeout);
+                signal.addEventListener('abort', stop, { once: true });
+                publicationStops.set(stop, true);
+                try {
+                  if (
+                    closed ||
+                    signal.aborted ||
+                    !capture.current() ||
+                    !admitted.current()
+                  ) {
+                    finish('stopped');
+                    return;
+                  }
+                  // The only private EVENT port accepts the freshly read-back1059;
+                  // no caller event, key, relay template or SDK option crosses it.
+                  const subscription = relay
+                    .event(admitted.event, 'EVENT')
+                    .subscribe({
+                      next(response) {
+                        if (ended) return;
+                        if (
+                          (response.from !== view.origin &&
+                            response.from !== view.origin + '/') ||
+                          typeof response.ok !== 'boolean'
+                        )
+                          finish('unknown');
+                        else if (response.ok) finish('accepted');
+                        else if (response.message === 'Timeout')
+                          finish('unknown');
+                        else finish('refused');
+                      },
+                      error: () => finish('unknown'),
+                      complete: () => {
+                        if (!ended) finish('unknown');
+                      }
+                    });
+                  release = () => subscription.unsubscribe();
+                  if (ended) {
+                    try {
+                      release();
+                      publicationStops.delete(stop);
+                    } catch {
+                      publicationCleanupRequired = true;
+                    }
+                  } else fence();
+                } catch {
+                  finish('unknown');
+                }
+              }
+            );
+          }
+        );
+      } catch {
+        return { status: 'stopped' };
+      } finally {
+        publishing = false;
+      }
+    },
     async auth(origin, admission) {
       if (
         closed ||
         cleanupRequired ||
         !origins.includes(origin) ||
+        !readOrigins.includes(origin) ||
         authCleanup.has(origin) ||
         !capture.current()
       )
@@ -359,6 +549,8 @@ export function getPrivatePool(
       return token;
     },
     subscribe(limit, listener) {
+      if (readOrigins.length === 0)
+        throw new Error('private_read_origins_unavailable');
       if (closed || !capture.current()) {
         owner.close();
         throw new Error('private_pool_closed');
@@ -428,7 +620,7 @@ export function getPrivatePool(
           }
           const subscription = sdk
             .req(
-              [...origins],
+              [...readOrigins],
               [{ kinds: [1059], '#p': [capture.owner], limit }],
               {
                 waitForAuth: false,
@@ -456,7 +648,7 @@ export function getPrivatePool(
                 }
                 if (message.type === 'EOSE') {
                   completed.set(message.from, true);
-                  if (completed.size === origins.length) finish('complete');
+                  if (completed.size === readOrigins.length) finish('complete');
                 } else if (message.type === 'EVENT') {
                   deliveries++;
                   if (deliveries > PRIVATE_TRANSPORT_BUDGETS.deliveries) {
@@ -522,6 +714,13 @@ export function getPrivatePool(
           failed = true;
         }
       }
+      for (const stop of publicationStops.keys()) {
+        try {
+          stop();
+        } catch {
+          failed = true;
+        }
+      }
       try {
         sdk.close();
       } catch {
@@ -569,6 +768,17 @@ export function subscribePrivatePage(
 }
 export function closePrivatePool(token: PrivatePool): void {
   ownerOf(token).close();
+}
+export function publishPrivateGiftWrapAttempt(
+  pool: PrivatePool,
+  permission: PrivatePublication,
+  signal: AbortSignal
+): Promise<PrivateGiftWrapAttemptResult> {
+  try {
+    return ownerOf(pool).publish(permission, signal);
+  } catch {
+    return Promise.resolve({ status: 'stopped' });
+  }
 }
 export function beginPrivateAuthConnection(
   pool: PrivatePool,

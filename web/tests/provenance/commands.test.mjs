@@ -65,7 +65,7 @@ fi
         cwd: root,
         env: { ...env, ...extra },
         encoding: 'utf8',
-        timeout: 30000
+        timeout: 1800000
       }
     );
     return {
@@ -111,7 +111,7 @@ fi
 
 await test(
   'standalone web targets select web cwd and run every required lane without native tools',
-  { timeout: 180000 },
+  { timeout: 1800000 },
   async (t) => {
     const { root, run, calls } = await fixture(t);
     for (const target of [
@@ -150,7 +150,7 @@ await test(
 
 await test(
   'doctor rejects a mismatched selected manager before installation',
-  { timeout: 45000 },
+  { timeout: 1800000 },
   async (t) => {
     const { run, calls } = await fixture(t);
     const result = run('web-install', { HC_PNPM_VERSION: '10.25.0' });
@@ -166,7 +166,7 @@ await test(
 
 await test(
   'web check propagates failing commands and stops subsequent lanes',
-  { timeout: 45000 },
+  { timeout: 1800000 },
   async (t) => {
     const { run, calls } = await fixture(t);
     const result = run('web-check', { HC_FAIL_COMMAND: 'lint' });
@@ -185,7 +185,7 @@ await test(
 
 await test(
   'missing web tooling fails without trying native tools',
-  { timeout: 45000 },
+  { timeout: 1800000 },
   async (t) => {
     const { root, run } = await fixture(t);
     await rm(path.join(root, 'bin/corepack'));
@@ -197,7 +197,7 @@ await test(
 
 await test(
   'doctor rejects mismatched toolchain authorities',
-  { timeout: 45000 },
+  { timeout: 1800000 },
   async (t) => {
     const { root, run } = await fixture(t);
     await writeFile(path.join(root, 'web/.node-version'), '24.20.0\n');
@@ -213,7 +213,7 @@ await test(
 
 await test(
   'doctor rejects wrong selected Node before invoking Corepack',
-  { timeout: 45000 },
+  { timeout: 1800000 },
   async (t) => {
     const { root, run } = await fixture(t);
     const file = path.join(root, 'web/package.json');

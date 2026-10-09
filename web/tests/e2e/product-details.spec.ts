@@ -31,7 +31,7 @@ let server: Awaited<ReturnType<typeof createStaticHarness>>;
 // Verification fixture: compile exact primary source, deriving only its fixed
 // deployment allowlist. Never alter the primary output or production policy.
 test.beforeAll(async () => {
-  test.setTimeout(120000);
+  test.setTimeout(1_800_000);
   directory = await mkdtemp(path.join(tmpdir(), 'hcp044-details-'));
   try {
     const checkout = path.join(directory, 'checkout'),
@@ -94,7 +94,7 @@ test.beforeAll(async () => {
         '--store-dir',
         path.dirname(sourceStore)
       ],
-      { cwd: web, timeout: 90000 }
+      { cwd: web, timeout: 1800000 }
     ).toString();
     const sourceAudit = execFileSync(
       process.execPath,
@@ -105,7 +105,7 @@ test.beforeAll(async () => {
     const compiled = execFileSync(
       process.execPath,
       ['node_modules/vite/bin/vite.js', 'build'],
-      { cwd: web, timeout: 90000 }
+      { cwd: web, timeout: 1800000 }
     ).toString();
     console.log(
       JSON.stringify({

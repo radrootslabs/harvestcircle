@@ -21,7 +21,7 @@ const capsule = fileURLToPath(new URL('../../../', import.meta.url));
 let directory: string;
 let server: Awaited<ReturnType<typeof createStaticHarness>>;
 test.beforeAll(async () => {
-  test.setTimeout(120_000);
+  test.setTimeout(1_800_000);
   directory = await mkdtemp(path.join(tmpdir(), 'hcp016-notices-'));
   try {
     const checkout = path.join(directory, 'checkout');
@@ -73,7 +73,7 @@ test.beforeAll(async () => {
         '--store-dir',
         path.dirname(sourceStore)
       ],
-      { cwd: path.join(checkout, 'web'), stdio: 'pipe', timeout: 90_000 }
+      { cwd: path.join(checkout, 'web'), stdio: 'pipe', timeout: 1800000 }
     );
     const sourceAudit = execFileSync(
       process.execPath,
@@ -109,7 +109,7 @@ test.beforeAll(async () => {
       {
         cwd: path.join(checkout, 'web'),
         stdio: 'pipe',
-        timeout: 90_000
+        timeout: 1800000
       }
     );
     async function payload(

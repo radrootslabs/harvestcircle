@@ -484,7 +484,9 @@ export function captureSelfRecoveryPreparation(
     peer,
     stop
   });
-  unsubscribe = subscribeIdentityInvalidation(session, stop);
+  unsubscribe = subscribeIdentityInvalidation(session, () => {
+    if (!ownership.current()) stop();
+  });
   return current() ? token : undefined;
 }
 export function prepareSelfRecovery(

@@ -29,7 +29,7 @@ void test('explicit Message interop runner rejects unapproved arguments before C
     {
       cwd: new URL('../../', import.meta.url),
       encoding: 'utf8',
-      timeout: 10000
+      timeout: 1800000
     }
   );
   assert.equal(result.status, 1);

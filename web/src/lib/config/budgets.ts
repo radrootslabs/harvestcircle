@@ -26,6 +26,13 @@ export const PRIVATE_AUTH_BUDGETS = Object.freeze({
   responsesPerConnectionAction: 2
 });
 
+// The private explicit-action network budget begins after preparation and
+// provider permission waiting. Later retry scheduling shares this same cap.
+export const PRIVATE_PUBLICATION_BUDGETS = Object.freeze({
+  attemptsPerTargetAction: 3,
+  networkActionMilliseconds: 45000
+});
+
 // Approved public-run admission limits shared by all primary/auxiliary sources.
 // Logical post-parse work accounting; no WebSocket preallocation guarantee.
 const publicDeliveryLimit = 2000;

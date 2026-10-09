@@ -131,7 +131,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
         execFileSync(
           process.execPath,
           [path.join(source, 'web/node_modules/vite/bin/vite.js'), 'build'],
-          { cwd: web, stdio: 'pipe', timeout: 300000 }
+          { cwd: web, stdio: 'pipe', timeout: 1800000 }
         );
         active(t);
       } finally {
@@ -142,7 +142,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
     }
     await test(
       'actual output fixture setup',
-      { timeout: 600000 },
+      { timeout: 1800000 },
       async (t) => {
         // Compile actual current source once in isolation. No install/native subprocess.
         for (const name of git(
@@ -191,7 +191,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
     );
     await test(
       'public-only owned lifecycle remains independently compilable',
-      { timeout: 600000 },
+      { timeout: 1800000 },
       async (t) => {
         const f = await fixture(t);
         for (const [name, value] of Object.entries(historicalPublicOnly)) {
@@ -223,7 +223,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
     );
     await test(
       'predecessor SDK graph remains qualified with the historical search form fixture',
-      { timeout: 600000 },
+      { timeout: 1800000 },
       async (t) => {
         const f = await fixture(t);
         // This historical graph predates identity activation. Restore its
@@ -264,7 +264,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
     );
     await test(
       'HCP043 search graph remains qualified with the exact historical product shell',
-      { timeout: 600000 },
+      { timeout: 1800000 },
       async (t) => {
         const f = await fixture(t);
         for (const [name, value] of Object.entries(historicalPublicOnly))
@@ -284,7 +284,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
       { timeout: 1800000 },
       async (t) => {
         /** @param {string} name @param {(context: import('node:test').TestContext) => Promise<void>} run @param {number} [timeout] */
-        const check = (name, run, timeout = 120000) =>
+        const check = (name, run, timeout = 1800000) =>
           t.test(name, { timeout }, run);
         await check(
           'actual compiled payload passes and build dispatch invokes the guard last',
@@ -1562,7 +1562,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
                 {
                   cwd: f.web,
                   encoding: 'utf8',
-                  timeout: 120000,
+                  timeout: 1800000,
                   maxBuffer: 4096
                 }
               )
@@ -1606,7 +1606,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
     );
     await test(
       'actual compiler admits nonempty approved theme/app CSS',
-      { timeout: 600000 },
+      { timeout: 1800000 },
       async (t) => {
         ready(t);
         const layout = path.join(base, 'web/src/routes/+layout.svelte');

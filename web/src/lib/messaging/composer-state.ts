@@ -288,7 +288,9 @@ export function createPrivateComposer(
     discard,
     close
   });
-  unsubscribe = subscribeIdentityInvalidation(session, close);
+  unsubscribe = subscribeIdentityInvalidation(session, () => {
+    if (!ownership.current()) close();
+  });
   return current() ? token : undefined;
 }
 export function updatePrivateComposerText(

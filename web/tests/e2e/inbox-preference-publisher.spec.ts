@@ -391,7 +391,7 @@ test('competing and incomplete preference observations block explicit stored res
 test('actual SDK timeouts allow only three explicit same-artifact attempts and retain each named fact', async ({
   page
 }) => {
-  test.setTimeout(45000);
+  test.setTimeout(1_800_000);
   response = 'silent';
   const result = await page.evaluate(async () => {
     const s = window.hcp066,

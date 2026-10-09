@@ -232,7 +232,11 @@ export function captureEnvelopePreparation(
   }
   const token = Object.freeze({}) as EnvelopePreparation;
   pairs.set(token, { run, snapshot, proof, stop, close });
-  unsubscribe = subscribeIdentityInvalidation(session, close);
+  unsubscribe = subscribeIdentityInvalidation(session, () => {
+    // Successful fresh same-owner checks notify observers without revoking
+    // this captured generation. Only actual owner/capability loss retires it.
+    if (!ownership.current()) close();
+  });
   return current() ? token : undefined;
 }
 export function prepareEnvelopeRole(

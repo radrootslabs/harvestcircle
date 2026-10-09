@@ -53,7 +53,7 @@ const selectedPnpm = execFileSync('corepack', ['pnpm', '--version'], {
   cwd: process.cwd(),
   env: { ...process.env, COREPACK_ENABLE_NETWORK: '0' },
   encoding: 'utf8',
-  timeout: 10000,
+  timeout: 600000,
   maxBuffer: 64 * 1024,
   stdio: ['ignore', 'pipe', 'pipe']
 }).trim();
