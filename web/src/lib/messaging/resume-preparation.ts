@@ -24,12 +24,21 @@ import {
   stopRumorPlan,
   type RumorPlan
 } from './rumor-plan.ts';
-import { restoreRecoveredSendIdentity } from './send-identity.ts';
+import {
+  restoreRecoveredSendIdentity,
+  type ReservedSendIdentity
+} from './send-identity.ts';
+import {
+  acknowledgeRecoveredPairedDelivery,
+  type PairedDeliveryCommitResult
+} from '../persistence/private-sends.ts';
 import { verifyRecoveredSelfEnvelope } from '../nostr/verify-outbound-envelope.ts';
 import {
   captureSelfRecoveryPreparation,
   prepareSelfRecovery,
   preparePairedDelivery,
+  preparedSelfRecovery,
+  preparedPairedDelivery,
   stopSelfRecoveryPreparation,
   type SelfRecoveryPreparation,
   type PairedDeliveryContext,
@@ -66,6 +75,10 @@ type Controller = {
   ): Promise<ResumePreparationResult>;
   snapshot(): Snapshot | undefined;
   rumor(): RumorPlan | undefined;
+  qualify(
+    context: PairedDeliveryContext,
+    review: unknown
+  ): Promise<PairedDeliveryCommitResult | Readonly<{ status: 'busy' }>>;
   stop(expired: boolean): void;
 };
 const resumes = new WeakMap<ResumePreparation, Controller>();
@@ -92,6 +105,7 @@ export function captureResumePreparation(
     reader: SelfRecoveryReader | undefined,
     plan: RumorPlan | undefined,
     preparation: SelfRecoveryPreparation | undefined,
+    recoveredIdentity: ReservedSendIdentity | undefined,
     alreadyPaired = false,
     peerOnly = false,
     originalWire: string | undefined,
@@ -110,6 +124,7 @@ export function captureResumePreparation(
     preparation = undefined;
     plan = undefined;
     originalWire = undefined;
+    recoveredIdentity = undefined;
     unsubscribe();
     unsubscribe = () => {};
   }
@@ -190,6 +205,7 @@ export function captureResumePreparation(
           return { status: 'stopped' };
         }
         originalWire = source.storedWire;
+        recoveredIdentity = reserved;
         alreadyPaired =
           !!source.record.peerArtifact && !!source.record.deliveryPlan;
         peerOnly = !!source.record.peerArtifact && !source.record.deliveryPlan;
@@ -268,9 +284,44 @@ export function captureResumePreparation(
     run,
     snapshot,
     rumor: () => (current() ? plan : undefined),
+    async qualify(context, review) {
+      if (review !== 'reviewed_stored_private_retry')
+        return { status: 'invalid' };
+      if (!current()) return { status: 'stopped' };
+      if (busy) return { status: 'busy' };
+      if (!preparation || !recoveredIdentity) return { status: 'invalid' };
+      busy = true;
+      try {
+        const freshPair = preparedPairedDelivery(preparation);
+        if (freshPair) return { status: 'existing', receipt: freshPair };
+        if (!alreadyPaired) return { status: 'invalid' };
+        const saved = await prepareSelfRecovery(
+          preparation,
+          'reviewed_self_recovery'
+        );
+        if (!current()) return { status: 'stopped' };
+        if (!['saved', 'existing', 'reconciled'].includes(saved.status))
+          return { status: saved.status === 'stopped' ? 'stopped' : 'invalid' };
+        const self = preparedSelfRecovery(preparation);
+        if (!self) return { status: 'invalid' };
+        const qualified = await acknowledgeRecoveredPairedDelivery(
+          repository,
+          session,
+          recoveredIdentity,
+          self,
+          context,
+          review
+        );
+        return current() ? qualified : { status: 'stopped' };
+      } finally {
+        busy = false;
+      }
+    },
     stop
   });
-  unsubscribe = subscribeIdentityInvalidation(session, () => stop(false));
+  unsubscribe = subscribeIdentityInvalidation(session, () => {
+    if (!ownership.current()) stop(false);
+  });
   return current() ? token : undefined;
 }
 export function resumeEncryptedPreparation(
@@ -280,6 +331,16 @@ export function resumeEncryptedPreparation(
 ): Promise<ResumePreparationResult> {
   return (
     resumes.get(token)?.run(context, review) ??
+    Promise.resolve({ status: 'invalid' })
+  );
+}
+export function qualifyRecoveredPrivatePair(
+  token: ResumePreparation,
+  context: PairedDeliveryContext,
+  review: unknown
+): Promise<PairedDeliveryCommitResult | Readonly<{ status: 'busy' }>> {
+  return (
+    resumes.get(token)?.qualify(context, review) ??
     Promise.resolve({ status: 'invalid' })
   );
 }

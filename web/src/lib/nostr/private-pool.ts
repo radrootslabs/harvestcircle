@@ -39,6 +39,8 @@ export type PrivateGiftWrapAttemptResult = Readonly<{
   role?: PrivateDeliveryRole;
   origin?: string;
   eventId?: string;
+  actionId?: string;
+  attempt?: number;
 }>;
 export type PrivatePageMessage =
   | Readonly<{ type: 'candidate'; from: string; wire: string }>
@@ -215,6 +217,9 @@ export function getPrivatePool(
               !admitted.current()
             )
               return { status: 'stopped' as const };
+            const network = admitted.beginNetwork();
+            if (admitted.networkMetered && !network)
+              return { status: 'stopped' as const };
             return await new Promise<PrivateGiftWrapAttemptResult>(
               (resolve) => {
                 let ended = false,
@@ -225,6 +230,7 @@ export function getPrivatePool(
                 ) {
                   if (ended) return;
                   ended = true;
+                  network?.finish();
                   clearTimeout(timer);
                   if (fenceTimer !== undefined) clearTimeout(fenceTimer);
                   signal.removeEventListener('abort', stop);
@@ -239,7 +245,10 @@ export function getPrivatePool(
                     status,
                     role: admitted!.role,
                     origin: admitted!.origin,
-                    eventId: admitted!.eventId
+                    eventId: admitted!.eventId,
+                    ...(network
+                      ? { actionId: network.actionId, attempt: network.attempt }
+                      : {})
                   });
                 }
                 function stop() {
@@ -252,6 +261,10 @@ export function getPrivatePool(
                 }
                 function fence() {
                   if (ended) return;
+                  if (network && network.remaining() <= 0) {
+                    finish('timed_out');
+                    return;
+                  }
                   if (
                     closed ||
                     signal.aborted ||
@@ -264,13 +277,13 @@ export function getPrivatePool(
                   fenceTimer = setTimeout(() => fence(), 50);
                 }
                 const relay = sdk.relay(view.origin);
+                const allowance =
+                  network?.remaining() ??
+                  PRIVATE_PUBLICATION_BUDGETS.networkActionMilliseconds;
                 const timeout =
                   Number.isFinite(relay.eventTimeout) && relay.eventTimeout > 0
-                    ? Math.min(
-                        PRIVATE_PUBLICATION_BUDGETS.networkActionMilliseconds,
-                        relay.eventTimeout
-                      )
-                    : PRIVATE_PUBLICATION_BUDGETS.networkActionMilliseconds;
+                    ? Math.min(allowance, relay.eventTimeout)
+                    : allowance;
                 const timer = setTimeout(() => finish('timed_out'), timeout);
                 signal.addEventListener('abort', stop, { once: true });
                 publicationStops.set(stop, true);
@@ -291,6 +304,10 @@ export function getPrivatePool(
                     .subscribe({
                       next(response) {
                         if (ended) return;
+                        if (network && network.remaining() <= 0) {
+                          finish('timed_out');
+                          return;
+                        }
                         if (
                           (response.from !== view.origin &&
                             response.from !== view.origin + '/') ||

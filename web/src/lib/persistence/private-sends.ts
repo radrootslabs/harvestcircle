@@ -1,5 +1,6 @@
 import {
   identityMessagingOwnership,
+  recheckIdentityOwner,
   type IdentitySession
 } from '../runtime/identity-session.ts';
 import {
@@ -25,8 +26,10 @@ import {
 } from './private-records.ts';
 import {
   inboxRoutePlanSnapshot,
+  recheckInboxRoutePlan,
   type InboxRoutePlan
 } from '../messaging/inbox-routing.ts';
+import type { PairedDeliveryContext } from '../messaging/prepare-send.ts';
 import {
   loadPrivateRecord,
   commitPrivateRecord,
@@ -316,6 +319,108 @@ const pairedAcknowledgements = new WeakMap<
   PairedDeliveryAcknowledgement,
   Paired
 >();
+// Explicit restart admission authenticates the self recovery copy and verifies
+// exact durable pair custody. It does not decrypt or newly authenticate the
+// nested peer ciphertext, regenerate either artifact, or perform publication.
+export async function acknowledgeRecoveredPairedDelivery(
+  repository: PrivateStorageRepository,
+  session: IdentitySession,
+  reserved: ReservedSendIdentity,
+  self: SelfRecoveryAcknowledgement,
+  context: PairedDeliveryContext,
+  review: unknown
+): Promise<PairedDeliveryCommitResult> {
+  if (
+    typeof window === 'undefined' ||
+    review !== 'reviewed_stored_private_retry' ||
+    !navigator.locks?.request
+  )
+    return { status: 'invalid' };
+  const saved = acknowledgements.get(self),
+    original = reservedSendSnapshot(reserved),
+    ownership = identityMessagingOwnership(session);
+  if (
+    !saved?.current() ||
+    !original ||
+    !ownership?.current() ||
+    JSON.stringify(saved.record) !== JSON.stringify(original) ||
+    original.owner !== ownership.owner
+  )
+    return { status: 'invalid' };
+  const current = () =>
+    ownership.current() &&
+    saved.current() &&
+    !!reservedSendSnapshot(reserved) &&
+    recheckInboxRoutePlan(
+      context.plan,
+      context.policy,
+      context.own,
+      context.other
+    ) === 'unchanged';
+  try {
+    const checked = await recheckIdentityOwner(session);
+    if (
+      checked.state !== 'messaging_capable' ||
+      checked.publicKey !== ownership.owner ||
+      checked.admission === 'busy' ||
+      !current()
+    )
+      return { status: 'stopped' };
+    return await navigator.locks.request(
+      'harvestcircle:owner:' + ownership.owner,
+      { mode: 'exclusive', ifAvailable: true },
+      async (lock) => {
+        if (!lock || !current()) return { status: 'stopped' as const };
+        const loaded = await loadPrivateRecord(
+          repository,
+          'private_sends',
+          original.id
+        );
+        if (!current()) return { status: 'stopped' as const };
+        if (!loaded.ok) return { status: loaded.reason };
+        const row = privateRecordSnapshot(
+            loaded.value,
+            original.owner,
+            original.id
+          ),
+          wire = privateRecordWire(loaded.value, original.owner, original.id),
+          routes = inboxRoutePlanSnapshot(context.plan);
+        if (
+          !row ||
+          row.family !== 'private_send_operation' ||
+          !row.peerArtifact ||
+          !row.deliveryPlan ||
+          !wire ||
+          wire !== saved.wire ||
+          JSON.stringify(row.deliveryPlan.routes) !== JSON.stringify(routes)
+        )
+          return { status: 'conflict' as const };
+        const verified = verifyEnvelope(row.peerArtifact.wire),
+          event = verified.ok && verifiedEnvelopeSnapshot(verified.value);
+        if (
+          !event ||
+          event.kind !== 1059 ||
+          event.id !== row.peerArtifact.eventId ||
+          event.tags.length !== 1 ||
+          event.tags[0].length !== 2 ||
+          event.tags[0][0] !== 'p' ||
+          event.tags[0][1] !== row.peer ||
+          !current()
+        )
+          return { status: 'invalid' as const };
+        const receipt = Object.freeze({}) as PairedDeliveryAcknowledgement;
+        pairedAcknowledgements.set(receipt, {
+          record: row,
+          wire,
+          current: () => ownership.current()
+        });
+        return { status: 'existing' as const, receipt };
+      }
+    );
+  } catch {
+    return { status: current() ? 'unavailable' : 'stopped' };
+  }
+}
 export type PairedDeliveryCommitResult =
   | Readonly<{
       status: 'prepared' | 'existing' | 'reconciled';
@@ -523,6 +628,40 @@ export async function verifyPairedDeliveryAcknowledgement(
     loaded.ok &&
     privateRecordWire(loaded.value, saved.record.owner, saved.record.id) ===
       saved.wire
+  );
+}
+// A separately decoded row cannot supply acceptance facts merely because the
+// owner and local ID match. Require the full wire acknowledged by this genuine
+// current custody, then let the workflow recheck actual storage before use.
+export function pairedDeliveryRecordMatches(
+  receipt: PairedDeliveryAcknowledgement,
+  record: PrivateRecordHandle
+): boolean {
+  const saved = pairedAcknowledgements.get(receipt);
+  return (
+    !!saved?.current() &&
+    privateRecordWire(record, saved.record.owner, saved.record.id) ===
+      saved.wire
+  );
+}
+// Pure genuine custody metadata. A workflow must still verify full readback
+// under the owner lock before suppressing or admitting a network effect.
+export function pairedDeliveryTargetAccepted(
+  receipt: PairedDeliveryAcknowledgement,
+  role: 'peer' | 'self_archive',
+  origin: string,
+  eventId: string
+): boolean {
+  const saved = pairedAcknowledgements.get(receipt);
+  return (
+    !!saved?.current() &&
+    (saved.record.receipts ?? []).some(
+      (fact) =>
+        fact.role === role &&
+        fact.origin === origin &&
+        fact.eventId === eventId &&
+        fact.status === 'accepted'
+    )
   );
 }
 // Only the already genuine current pair can renew its exact custody after a

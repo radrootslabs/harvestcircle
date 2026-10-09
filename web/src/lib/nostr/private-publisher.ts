@@ -4,6 +4,7 @@ import {
 } from '../runtime/private-session.ts';
 import {
   pairedDeliveryAcknowledgementSnapshot,
+  pairedDeliveryTargetAccepted,
   verifyPairedDeliveryAcknowledgement,
   type PairedDeliveryAcknowledgement
 } from '../persistence/private-sends.ts';
@@ -14,7 +15,11 @@ import {
   recheckInboxRoutePlan
 } from '../messaging/inbox-routing.ts';
 import { readRelayPolicy, type RelayPolicy } from '../config/relays.ts';
-import { PRIVATE_TRANSPORT_BUDGETS } from '../config/budgets.ts';
+import {
+  PRIVATE_TRANSPORT_BUDGETS,
+  PRIVATE_PUBLICATION_BUDGETS
+} from '../config/budgets.ts';
+import { newLocalId } from '../private-handles.ts';
 import { boundedUtf8 } from '../contracts/food-availability-v1/text.ts';
 import {
   verifyEnvelope,
@@ -23,6 +28,158 @@ import {
 declare const publicationBrand: unique symbol;
 export type PrivatePublication = Readonly<{ [publicationBrand]: true }>;
 export type PrivateDeliveryRole = 'peer' | 'self_archive';
+declare const actionBrand: unique symbol;
+export type PrivatePublicationAction = Readonly<{ [actionBrand]: true }>;
+type NetworkAttempt = Readonly<{
+  actionId: string;
+  attempt: number;
+  remaining(): number;
+  finish(): void;
+}>;
+type Action = {
+  session: PrivateSession;
+  receipt: PairedDeliveryAcknowledgement;
+  context: PairedDeliveryContext;
+  current(): boolean;
+  begin(
+    role: PrivateDeliveryRole,
+    origin: string,
+    eventId: string
+  ): NetworkAttempt | undefined;
+};
+const actions = new WeakMap<PrivatePublicationAction, Action>();
+function immutablePair(receipt: PairedDeliveryAcknowledgement) {
+  const row = pairedDeliveryAcknowledgementSnapshot(receipt);
+  return (
+    row &&
+    JSON.stringify({
+      owner: row.owner,
+      id: row.id,
+      peer: row.peer,
+      rumorHash: row.rumorHash,
+      createdAt: row.createdAt,
+      self: row.self,
+      peerArtifact: row.peerArtifact,
+      deliveryPlan: row.deliveryPlan
+    })
+  );
+}
+// One explicit action has one network meter, including all artifacts/targets.
+// SDK identity approval and persisted readback happen before an attempt starts.
+export function capturePrivatePublicationAction(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  receipt: PairedDeliveryAcknowledgement,
+  context: PairedDeliveryContext,
+  review: unknown
+): PrivatePublicationAction | undefined {
+  if (review !== 'reviewed_private_retry') return undefined;
+  const row = pairedDeliveryAcknowledgementSnapshot(receipt),
+    original = immutablePair(receipt),
+    ownership = privateSessionOwnership(session);
+  if (!row || !original || !ownership?.current()) return undefined;
+  for (const route of [
+    row.deliveryPlan.routes.peer,
+    row.deliveryPlan.routes.archive
+  ])
+    for (const origin of route.targets) {
+      if (
+        !capturePrivatePublication(
+          repository,
+          session,
+          receipt,
+          context,
+          route.role,
+          origin,
+          'reviewed_private_delivery'
+        )
+      )
+        return undefined;
+    }
+  const actionId = newLocalId();
+  if (!actionId) return undefined;
+  const counts = new Map<string, number>();
+  let used = 0,
+    running = false,
+    broken = false,
+    last = -1;
+  function clock() {
+    const now = performance.now();
+    if (!Number.isFinite(now) || now < 0 || now < last) {
+      broken = true;
+      return undefined;
+    }
+    last = now;
+    return now;
+  }
+  function current() {
+    return (
+      !broken &&
+      ownership!.current() &&
+      immutablePair(receipt) === original &&
+      recheckInboxRoutePlan(
+        context.plan,
+        context.policy,
+        context.own,
+        context.other
+      ) === 'unchanged'
+    );
+  }
+  const token = Object.freeze({}) as PrivatePublicationAction;
+  actions.set(token, {
+    session,
+    receipt,
+    context,
+    current,
+    begin(role, origin, eventId) {
+      if (
+        !current() ||
+        running ||
+        used >= PRIVATE_PUBLICATION_BUDGETS.networkActionMilliseconds
+      )
+        return undefined;
+      const key = JSON.stringify([role, origin, eventId]),
+        count = counts.get(key) ?? 0;
+      if (count >= PRIVATE_PUBLICATION_BUDGETS.attemptsPerTargetAction)
+        return undefined;
+      const start = clock();
+      if (start === undefined) return undefined;
+      counts.set(key, count + 1);
+      running = true;
+      let finished = false;
+      function remaining() {
+        const now = clock();
+        return finished || now === undefined || !current()
+          ? 0
+          : Math.max(
+              0,
+              PRIVATE_PUBLICATION_BUDGETS.networkActionMilliseconds -
+                used -
+                (now - start!)
+            );
+      }
+      return {
+        actionId,
+        attempt: count + 1,
+        remaining,
+        finish() {
+          if (finished) return;
+          const now = clock();
+          finished = true;
+          running = false;
+          used =
+            now === undefined
+              ? PRIVATE_PUBLICATION_BUDGETS.networkActionMilliseconds
+              : Math.min(
+                  PRIVATE_PUBLICATION_BUDGETS.networkActionMilliseconds,
+                  used + now - start
+                );
+        }
+      };
+    }
+  });
+  return token;
+}
 type Admission = {
   session: PrivateSession;
   policy: RelayPolicy;
@@ -37,6 +194,7 @@ type Admission = {
   destination: string;
   current(): boolean;
   take(): boolean;
+  action?: Action;
 };
 const permissions = new WeakMap<PrivatePublication, Admission>();
 // Genuine current local pair custody plus its frozen routes is necessary, but
@@ -49,7 +207,8 @@ export function capturePrivatePublication(
   context: PairedDeliveryContext,
   role: PrivateDeliveryRole,
   origin: string,
-  review: unknown
+  review: unknown,
+  action?: PrivatePublicationAction
 ): PrivatePublication | undefined {
   if (
     typeof window === 'undefined' ||
@@ -60,7 +219,17 @@ export function capturePrivatePublication(
     return undefined;
   try {
     const ownership = privateSessionOwnership(session),
-      saved = pairedDeliveryAcknowledgementSnapshot(receipt);
+      saved = pairedDeliveryAcknowledgementSnapshot(receipt),
+      budget = action && actions.get(action);
+    if (
+      action &&
+      (!budget ||
+        budget.session !== session ||
+        budget.receipt !== receipt ||
+        budget.context !== context ||
+        !budget.current())
+    )
+      return undefined;
     if (!ownership || !saved || ownership.owner !== saved.owner)
       return undefined;
     const policy = context.policy,
@@ -131,6 +300,7 @@ export function capturePrivatePublication(
       wire: artifact.wire,
       destination,
       current,
+      ...(budget ? { action: budget } : {}),
       take() {
         if (consumed) return false;
         consumed = true;
@@ -182,6 +352,16 @@ export async function takePrivatePublication(
       !saved.current()
     )
       return undefined;
+    if (
+      saved.action &&
+      pairedDeliveryTargetAccepted(
+        saved.receipt,
+        saved.role,
+        saved.origin,
+        saved.eventId
+      )
+    )
+      return undefined;
     const verified = verifyEnvelope(saved.wire),
       event = verified.ok && verifiedEnvelopeSnapshot(verified.value);
     if (
@@ -202,7 +382,12 @@ export async function takePrivatePublication(
       command: saved.command,
       role: saved.role,
       origin: saved.origin,
-      eventId: saved.eventId
+      eventId: saved.eventId,
+      beginNetwork: () =>
+        saved.action
+          ? saved.action.begin(saved.role, saved.origin, saved.eventId)
+          : undefined,
+      networkMetered: !!saved.action
     };
   } catch {
     return undefined;

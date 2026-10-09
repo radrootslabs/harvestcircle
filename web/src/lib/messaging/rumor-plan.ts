@@ -117,9 +117,9 @@ export function restoreRecoveredRumor(
   const token = Object.freeze({}) as RumorPlan;
   const current = () =>
     ownership.current() && !!recoveredSelfEnvelopeSnapshot(recovered);
-  const unsubscribe = subscribeIdentityInvalidation(session, () =>
-    stopRumorPlan(token)
-  );
+  const unsubscribe = subscribeIdentityInvalidation(session, () => {
+    if (!current()) stopRumorPlan(token);
+  });
   plans.set(token, {
     owner: snapshot.record.owner,
     peer: snapshot.record.peer,

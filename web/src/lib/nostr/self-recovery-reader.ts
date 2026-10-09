@@ -321,7 +321,9 @@ export function captureSelfRecoveryReader(
   }
   const token = Object.freeze({}) as SelfRecoveryReader;
   readers.set(token, { run, stop });
-  unsubscribe = subscribeIdentityInvalidation(session, () => stop(false));
+  unsubscribe = subscribeIdentityInvalidation(session, () => {
+    if (!ownership.current()) stop(false);
+  });
   return current() ? token : undefined;
 }
 export function readSelfRecoveryEnvelope(
