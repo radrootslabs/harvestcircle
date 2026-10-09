@@ -58,7 +58,15 @@ type Snapshot = Readonly<{
   historyComplete: false;
   foregroundOnly: true;
 }>;
+export type InboxHistoryOwnership = Readonly<{
+  session: PrivateSession;
+  repository: PrivateStorageRepository;
+  pool: NonNullable<ReturnType<typeof getPrivatePool>>;
+  targets: readonly string[];
+  current: () => boolean;
+}>;
 type Controller = {
+  history(): InboxHistoryOwnership | undefined;
   start(review: unknown): boolean;
   stop(): void;
   snapshot(): Snapshot;
@@ -309,6 +317,16 @@ export function captureInboxSync(
         });
     }
     ingress.set(token, {
+      history() {
+        return current() &&
+          !stopped &&
+          !failed &&
+          state === 'live' &&
+          backfill === 'complete' &&
+          pending === 0
+          ? { session, repository, pool, targets: targets.slice(), current }
+          : undefined;
+      },
       snapshot: () => ({
         owner: ownership.owner,
         state,
@@ -395,4 +413,12 @@ export function stopInboxSync(token: InboxSync): void {
 }
 export function inboxSyncSnapshot(token: InboxSync): Snapshot | undefined {
   return ingress.get(token)?.snapshot();
+}
+
+// Original genuine sync only. Detached snapshots/query hints cannot mint this
+// original owner-generation/visibility/access transport and storage boundary.
+export function inboxSyncHistoryOwnership(
+  token: InboxSync
+): InboxHistoryOwnership | undefined {
+  return ingress.get(token)?.history();
 }

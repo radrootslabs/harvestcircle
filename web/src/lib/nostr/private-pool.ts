@@ -68,6 +68,7 @@ export type PrivatePageMessage =
   | Readonly<{ type: 'candidate'; from: string; wire: string }>
   | Readonly<{
       type: 'end';
+      deliveries?: number;
       reason:
         | 'complete'
         | 'closed'
@@ -81,6 +82,7 @@ export type PrivateLiveMessage =
   PrivatePageMessage | Readonly<{ type: 'open' }>;
 type FiniteBudget = {
   elapsed(): number;
+  count(): number;
   remainingBytes(): number;
   charge(bytes: number): boolean;
   finish(milliseconds: number): void;
@@ -91,6 +93,7 @@ function finiteBudget(): FiniteBudget {
     elapsed = 0;
   return {
     elapsed: () => elapsed,
+    count: () => deliveries,
     remainingBytes: () => PRIVATE_TRANSPORT_BUDGETS.processedBytes - bytes,
     charge(size) {
       deliveries++;
@@ -109,6 +112,7 @@ type Owner = {
   session: PrivateSession;
   policy: RelayPolicy;
   origins: readonly string[];
+  readOrigins: readonly string[];
   token: PrivatePool;
   closed(): boolean;
   cleaned(): boolean;
@@ -124,7 +128,9 @@ type Owner = {
     limit: number,
     listener: (message: PrivatePageMessage) => void,
     since?: number,
-    budget?: FiniteBudget
+    budget?: FiniteBudget,
+    until?: number,
+    source?: string
   ): () => void;
   subscribeLive(listener: (message: PrivateLiveMessage) => void): () => void;
   close(): void;
@@ -221,6 +227,7 @@ export function getPrivatePool(
     session,
     policy,
     origins,
+    readOrigins,
     token,
     closed: () => closed,
     cleaned: () => cleaned,
@@ -783,8 +790,12 @@ export function getPrivatePool(
         });
       return () => finish('stopped', true);
     },
-    subscribe(limit, listener, since, sharedBudget) {
-      if (readOrigins.length === 0)
+    subscribe(limit, listener, since, sharedBudget, until, source) {
+      const targets =
+        source === undefined
+          ? readOrigins
+          : readOrigins.filter((origin) => origin === source);
+      if (targets.length === 0)
         throw new Error('private_read_origins_unavailable');
       if (closed || !capture.current()) {
         owner.close();
@@ -795,6 +806,7 @@ export function getPrivatePool(
       busy = true;
       let ended = false;
       const budget = sharedBudget ?? finiteBudget();
+      const baselineDeliveries = budget.count();
       let release = () => {};
       let timer: ReturnType<typeof setTimeout> | undefined;
       const completed = new Map<string, true>();
@@ -829,7 +841,13 @@ export function getPrivatePool(
           failure = error;
         } finally {
           busy = cleanupRequired;
-          emit({ type: 'end', reason: cleanupRequired ? 'error' : reason });
+          emit({
+            type: 'end',
+            reason: cleanupRequired ? 'error' : reason,
+            ...(source === undefined
+              ? {}
+              : { deliveries: budget.count() - baselineDeliveries })
+          });
         }
         // SDK and timer callbacks report finite error state without leaking an
         // exception. Explicit stop/close can report failure and retry release.
@@ -859,8 +877,8 @@ export function getPrivatePool(
           }
           const subscription = sdk
             .req(
-              [...readOrigins],
-              privateInboxQueries(capture.owner, 'backfill', since).map(
+              [...targets],
+              privateInboxQueries(capture.owner, 'backfill', since, until).map(
                 (filter) => ({
                   ...filter,
                   limit
@@ -892,7 +910,7 @@ export function getPrivatePool(
                 }
                 if (message.type === 'EOSE') {
                   completed.set(message.from, true);
-                  if (completed.size === readOrigins.length) finish('complete');
+                  if (completed.size === targets.length) finish('complete');
                 } else if (message.type === 'EVENT') {
                   const wire = JSON.stringify(message.event);
                   // Charge actual encoded bytes, including rejected envelopes. An
@@ -1055,6 +1073,46 @@ export function subscribePrivateHistory(
     stopped = true;
     release();
   };
+}
+
+declare const historyRunBrand: unique symbol;
+export type PrivateHistoryRun = Readonly<{ [historyRunBrand]: true }>;
+const historyRuns = new WeakMap<
+  PrivateHistoryRun,
+  { pool: PrivatePool; budget: FiniteBudget }
+>();
+// Meter only; original pool's current owner/access admission remains mandatory.
+export function createPrivateHistoryRun(pool: PrivatePool): PrivateHistoryRun {
+  const owner = ownerOf(pool);
+  if (owner.closed()) throw Error('private_pool_closed');
+  const token = Object.freeze({}) as PrivateHistoryRun;
+  historyRuns.set(token, { pool, budget: finiteBudget() });
+  return token;
+}
+export function subscribePrivateSourcePage(
+  pool: PrivatePool,
+  run: PrivateHistoryRun,
+  source: string,
+  until: number | undefined,
+  listener: (message: PrivatePageMessage) => void
+): () => void {
+  const stored = historyRuns.get(run),
+    owner = ownerOf(pool);
+  if (
+    !stored ||
+    stored.pool !== pool ||
+    !owner.readOrigins.includes(source) ||
+    (until !== undefined && (!Number.isSafeInteger(until) || until < 0))
+  )
+    throw Error('private_history_scope_invalid');
+  return owner.subscribe(
+    PRIVATE_TRANSPORT_BUDGETS.requestedPerRelay,
+    listener,
+    undefined,
+    stored.budget,
+    until,
+    source
+  );
 }
 export function closePrivatePool(token: PrivatePool): void {
   ownerOf(token).close();

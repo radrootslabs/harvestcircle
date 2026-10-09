@@ -24,7 +24,8 @@ export function inboxPreferenceQueries(
 export function privateInboxQueries(
   owner: unknown,
   mode: 'live' | 'backfill',
-  since?: number
+  since?: number,
+  until?: number
 ): readonly PublicFilter[] {
   const key = canonicalPublicKey(owner);
   if (!key) throw Error('inbox_owner_invalid');
@@ -34,8 +35,14 @@ export function privateInboxQueries(
     (mode === 'live' || !Number.isSafeInteger(since) || since < 0)
   )
     throw Error('inbox_outer_since_invalid');
+  if (
+    until !== undefined &&
+    (mode === 'live' || !Number.isSafeInteger(until) || until < 0)
+  )
+    throw Error('inbox_outer_until_invalid');
   return [
     {
+      ...(until === undefined ? {} : { until }),
       ...(since === undefined ? {} : { since }),
       kinds: [1059],
       '#p': [key],
