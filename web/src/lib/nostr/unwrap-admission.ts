@@ -258,7 +258,7 @@ type Reader = {
 const readers = new WeakMap<ReceivedUnwrap, Reader>();
 const nested = new WeakMap<
   ReceivedNestedEnvelope,
-  { snapshot: Snapshot; current(): boolean }
+  { snapshot: Snapshot; session: symbol; current: () => boolean }
 >();
 // No common unwrap helper/cache or caller event objects are consulted. Original
 // owner storage finishes each IDB transaction before serialized SDK work begins.
@@ -413,6 +413,7 @@ export function captureReceivedUnwrap(
           // wait before minting original retained-record custody.
           const token = Object.freeze({}) as ReceivedNestedEnvelope;
           nested.set(token, {
+            session: ownership.session,
             snapshot: {
               owner: ownership.owner,
               outerId: id,
@@ -465,5 +466,22 @@ export function receivedNestedEnvelopeSnapshot(
   const saved = nested.get(token);
   return saved?.current()
     ? (JSON.parse(JSON.stringify(saved.snapshot)) as Snapshot)
+    : undefined;
+}
+
+// HCP093 original-generation custody port. This observation is not a Send,
+// persistence, inbox-readiness or AUTH capability. Structural copies never
+// replace the original nested proof in the WeakMap.
+export function receivedNestedEnvelopeOwnership(
+  token: ReceivedNestedEnvelope
+):
+  Readonly<{ owner: string; session: symbol; current(): boolean }> | undefined {
+  const saved = nested.get(token);
+  return saved?.current()
+    ? {
+        owner: saved.snapshot.owner,
+        session: saved.session,
+        current: saved.current
+      }
     : undefined;
 }

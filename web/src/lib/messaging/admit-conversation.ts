@@ -9,6 +9,7 @@ import {
 import { safeUnsignedInteger } from '../nostr/envelope-bounds.ts';
 import {
   receivedNestedEnvelopeSnapshot,
+  receivedNestedEnvelopeOwnership,
   type ReceivedNestedEnvelope
 } from '../nostr/unwrap-admission.ts';
 
@@ -127,4 +128,11 @@ export function conversationSnapshot(
   return nested && saved
     ? inspectConversationData(nested.rumorWire, nested.owner, saved.role)
     : undefined;
+}
+
+// Original immutable identity generation is observed only from the actual
+// admitted nested proof; same-owner strings do not import another session.
+export function conversationOwnership(token: AdmittedConversation) {
+  const saved = rooms.get(token);
+  return saved && receivedNestedEnvelopeOwnership(saved.nested);
 }
