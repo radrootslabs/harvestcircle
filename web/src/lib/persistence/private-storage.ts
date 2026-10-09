@@ -1,3 +1,8 @@
+import {
+  privateSessionOwnership,
+  subscribePrivateSessionClose,
+  type PrivateSession
+} from '../runtime/private-session.ts';
 import { canonicalPublicKey } from '../contracts/public-key.ts';
 import { exactLocalFields } from '../contracts/local-records.ts';
 import { LOCAL_PERSISTENCE_BUDGETS } from '../config/budgets.ts';
@@ -104,7 +109,8 @@ function transaction<T>(
     rows: readonly Row[],
     tx: IDBTransaction,
     refuse: (reason: PrivateStorageFailure) => void
-  ) => PrivateStorageResult<T> | undefined
+  ) => PrivateStorageResult<T> | undefined,
+  watch?: (refuse: (reason: PrivateStorageFailure) => void) => () => void
 ): Promise<PrivateStorageResult<T>> {
   let tx: IDBTransaction;
   try {
@@ -125,6 +131,7 @@ function transaction<T>(
       bytes = 0;
     let rows = Array.from<Row>([]);
     function refuse(reason: PrivateStorageFailure) {
+      if (result && !result.ok) return;
       result = failed(reason);
       try {
         tx.abort();
@@ -132,12 +139,28 @@ function transaction<T>(
         result = failed('unknown_completion');
       }
     }
-    tx.addEventListener('complete', () =>
-      resolve(result ?? failed('unknown_completion'))
-    );
-    tx.addEventListener('abort', () =>
-      resolve(result && !result.ok ? result : failed('aborted'))
-    );
+    let off = () => {};
+    tx.addEventListener('complete', () => {
+      off();
+      resolve(result ?? failed('unknown_completion'));
+    });
+    tx.addEventListener('abort', () => {
+      off();
+      // Actual native abort confirms rollback even if another abort call raced.
+      resolve(
+        result && !result.ok && result.reason !== 'unknown_completion'
+          ? result
+          : failed('aborted')
+      );
+    });
+    if (watch) {
+      try {
+        off = watch(refuse);
+      } catch {
+        refuse('unavailable');
+        return;
+      }
+    }
     try {
       const cursorRequest = tx
         .objectStore(store)
@@ -366,6 +389,87 @@ export function listPrivateReceivedRecords(
         handles = handles.concat(decoded.value);
       }
       return { ok: true, value: handles };
+    }
+  );
+}
+
+// Explicit original-owner local received-copy loss only. Immutable selected
+// whole wires CAS before any delete; independent outbox is never opened.
+// Actual close aborts an admitted transaction where still possible. Native
+// complete is necessary, and caller must separately verify readonly absence.
+export function removePrivateReceivedRecords(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  handles: readonly PrivateRecordHandle[],
+  review: unknown,
+  cancellation?: AbortSignal
+): Promise<PrivateStorageResult<Readonly<{ removed: number }>>> {
+  const scope = scopeOf(repository),
+    ownership = privateSessionOwnership(session);
+  if (
+    review !== 'reviewed_delete_local_received_copies' ||
+    !scope ||
+    cancellation?.aborted ||
+    !ownership?.current() ||
+    scope.owner !== ownership.owner
+  )
+    return Promise.resolve(failed('invalid_scope'));
+  if (
+    !Array.isArray(handles) ||
+    !handles.length ||
+    handles.length > LOCAL_PERSISTENCE_BUDGETS.receivedEnvelopes
+  )
+    return Promise.resolve(failed('invalid_record'));
+  const selected = handles.map((handle: PrivateRecordHandle) => {
+    const identity = privateRecordIdentity(handle);
+    const record =
+        identity && privateRecordSnapshot(handle, scope.owner, identity.id),
+      wire = identity && privateRecordWire(handle, scope.owner, identity.id);
+    return identity && record?.family === 'received_envelope' && wire
+      ? { id: identity.id, wire }
+      : undefined;
+  });
+  if (
+    selected.some((x) => !x) ||
+    new Set(selected.map((x) => x?.id)).size !== selected.length
+  )
+    return Promise.resolve(failed('invalid_record'));
+  return transaction<Readonly<{ removed: number }>>(
+    scope,
+    'received_envelopes',
+    'readwrite',
+    (rows, tx, refuse) => {
+      if (!ownership.current() || cancellation?.aborted) {
+        refuse('invalid_scope');
+        return;
+      }
+      for (const item of selected) {
+        if (
+          !item ||
+          rows.find((row) => row.record.id === item.id)?.wire !== item.wire
+        ) {
+          refuse('conflict');
+          return;
+        }
+      }
+      if (!ownership.current() || cancellation?.aborted) {
+        refuse('invalid_scope');
+        return;
+      }
+      for (const item of selected)
+        if (item)
+          tx.objectStore('received_envelopes').delete([scope.owner, item.id]);
+      return { ok: true, value: { removed: selected.length } };
+    },
+    (refuse) => {
+      const abort = () => refuse('invalid_scope');
+      const off = subscribePrivateSessionClose(session, abort);
+      cancellation?.addEventListener('abort', abort, { once: true });
+      if (cancellation?.aborted) abort();
+      return () => {
+        off();
+        cancellation?.removeEventListener('abort', abort);
+      };
     }
   );
 }

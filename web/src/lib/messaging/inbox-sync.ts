@@ -1,3 +1,4 @@
+import { inboxRecoveryChoices } from './inbox-budget.ts';
 import { outerHistoryPlan } from './history-cursor.ts';
 import {
   unlockedSessionOwnership,
@@ -57,6 +58,7 @@ type Snapshot = Readonly<{
   backfill: string;
   historyComplete: false;
   foregroundOnly: true;
+  recoveryChoices: readonly string[];
 }>;
 export type InboxHistoryOwnership = Readonly<{
   session: PrivateSession;
@@ -340,7 +342,8 @@ export function captureInboxSync(
         cleanupRequired,
         backfill,
         historyComplete: false,
-        foregroundOnly: true
+        foregroundOnly: true,
+        recoveryChoices: inboxRecoveryChoices(reason)
       }),
       stop,
       start(reviewed) {
