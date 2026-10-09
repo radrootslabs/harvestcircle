@@ -1,5 +1,8 @@
 <script lang="ts">
   import { getContext, onMount } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { internalHref } from '../navigation-url.ts';
+  import ConversationRow from './ConversationRow.svelte';
   import CapabilityGate from './CapabilityGate.svelte';
   import InboxSetup from './InboxSetup.svelte';
   import Button from './primitives/Button.svelte';
@@ -26,6 +29,11 @@
   import {
     createInboxView,
     inboxViewSnapshot,
+    inboxListSnapshot,
+    inboxListRevision,
+    openInboxConversation,
+    loadOlderInboxView,
+    inboxViewOlderAvailable,
     inboxViewSetup,
     subscribeInboxView,
     unlockInboxView,
@@ -42,11 +50,24 @@
     publicContext = getContext<PublicRuntimeContext>(PUBLIC_RUNTIME_CONTEXT);
   let identity = $state(identityViewSnapshot(identityContext)),
     panel = $state(inboxViewSnapshot(undefined)),
+    list = $state(inboxListSnapshot(undefined)),
+    olderAvailable = $state(false),
     owned = $state.raw<InboxView | undefined>();
   let runtime: PublicRuntime | undefined,
     off = () => {};
   const setup = $derived(inboxViewSetup(owned));
   onMount(() => {
+    let observedRevision = -2,
+      observedMode = '';
+    function updateList() {
+      const revision = inboxListRevision(owned),
+        mode = panel.state + ':' + panel.count + ':' + (panel.reason ?? '');
+      if (revision !== observedRevision || mode !== observedMode) {
+        list = inboxListSnapshot(owned);
+        observedRevision = revision;
+        observedMode = mode;
+      }
+    }
     let disposed = false;
     function acquire() {
       if (disposed) return;
@@ -72,8 +93,13 @@
         }
       }
       panel = inboxViewSnapshot(owned);
+      observedRevision = -2;
+      updateList();
+      olderAvailable = inboxViewOlderAvailable(owned);
       off = subscribeInboxView(owned, (next) => {
         panel = next;
+        updateList();
+        olderAvailable = inboxViewOlderAvailable(owned);
       });
     }
     const identityOff = identityContext
@@ -101,6 +127,19 @@
       }
     };
   });
+  async function openConversation(peer: string) {
+    const original = owned;
+    if (!original) return;
+    const result = await openInboxConversation(
+      original,
+      peer,
+      'reviewed_admitted_conversation_navigation'
+    );
+    const href = internalHref(result);
+    if (owned !== original || inboxListSnapshot(original).status !== 'ready')
+      return;
+    if (href) void goto(href);
+  }
   const effectiveIdentity = $derived(
     panel.owner ? panel.identity : identity.identity
   );
@@ -213,8 +252,41 @@
         }}
       />
     {/if}
-    <h2>Message requests</h2>
-    <h2>Conversations</h2>
+    {#if owned && list.status === 'ready'}
+      {#if list.requests.length > 0}<section
+          class="stack"
+          aria-label="Message requests"
+        >
+          <h2>Message requests</h2>
+          {#each list.requests as row (row.peer)}<ConversationRow
+              controller={owned}
+              {row}
+              onopen={openConversation}
+            />{/each}
+        </section>{/if}
+      {#if list.conversations.length > 0}<section
+          class="stack"
+          aria-label="Conversations"
+        >
+          <h2>Conversations</h2>
+          {#each list.conversations as row (row.peer)}<ConversationRow
+              controller={owned}
+              {row}
+              onopen={openConversation}
+            />{/each}
+        </section>{/if}
+      <p class="text-small">
+        New means locally unread in this browser. No remote read receipt or
+        background message awareness is implied.
+      </p>
+    {/if}
+    <Button
+      label="Load older messages"
+      disabled={!owned || panel.busy || !olderAvailable}
+      onclick={() => {
+        if (owned) void loadOlderInboxView(owned, 'reviewed_load_older');
+      }}
+    />
     <Button
       label="Lock messages"
       disabled={!owned}

@@ -26,6 +26,11 @@ const errorState = vi.hoisted(() => ({
   params: { naddr: 'invalid-reference' }
 }));
 vi.mock('$app/state', () => ({ page: errorState }));
+vi.mock('$app/navigation', () => ({
+  goto: () => {
+    throw new Error('SSR must not navigate');
+  }
+}));
 
 const routeRoot = fileURLToPath(new URL('../../src/routes/', import.meta.url));
 const expectedPages = [

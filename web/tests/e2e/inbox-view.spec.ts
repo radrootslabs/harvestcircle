@@ -54,7 +54,14 @@ test.beforeAll(async () => {
     configFile: false,
     logLevel: 'silent',
     plugins: [svelte({ configFile: false })],
-    resolve: { conditions: ['browser'] },
+    resolve: {
+      conditions: ['browser'],
+      alias: {
+        '$app/navigation': fileURLToPath(
+          new URL('./harness/inbox-view.ts', import.meta.url)
+        )
+      }
+    },
     build: {
       write: false,
       minify: false,

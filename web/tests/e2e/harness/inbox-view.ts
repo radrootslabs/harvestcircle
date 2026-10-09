@@ -172,3 +172,9 @@ export async function renderSetupFixture(
     }
   };
 }
+
+// This original standalone fixture does not exercise navigation. Any SSR or
+// mounted regression action that attempts it must fail rather than succeed.
+export function goto(): never {
+  throw new Error('HCP101 standalone harness must not navigate');
+}

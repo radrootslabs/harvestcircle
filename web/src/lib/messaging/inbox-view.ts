@@ -1,3 +1,32 @@
+import { canonicalPublicKey } from '../contracts/public-key.ts';
+import {
+  groupInboxMessages,
+  type InboxListSnapshot,
+  type InboxListRow
+} from './inbox-list.ts';
+import {
+  captureMessageMetadata,
+  messageMetadataSnapshot,
+  type MessageMetadata
+} from '../persistence/message-metadata.ts';
+import {
+  captureConversationDirectory,
+  rememberAdmittedConversation,
+  closeConversationDirectory,
+  type ConversationDirectory
+} from './conversation-directory.ts';
+import {
+  conversationSnapshot,
+  type AdmittedConversation
+} from './admit-conversation.ts';
+import { decryptionQueueConversations } from './decryption-queue.ts';
+import {
+  captureOlderInbox,
+  loadOlderInbox,
+  stopOlderInbox,
+  olderInboxSnapshot,
+  type OlderInbox
+} from './history-pagination.ts';
 import {
   identityMessagingOwnership,
   identitySessionSnapshot,
@@ -33,6 +62,7 @@ import {
   captureUnlockedSession,
   closeUnlockedSession,
   readUnlockedMessages,
+  unlockedConversationCurrent,
   type UnlockedSession
 } from './unlocked-session.ts';
 import {
@@ -71,6 +101,12 @@ type Inputs = Readonly<{ identity: IdentitySession; setup: InboxSetupView }>;
 type Controller = {
   snapshot(): InboxViewSnapshot;
   setup(): InboxSetupView | undefined;
+  list(): InboxListSnapshot;
+  row(peer: unknown): InboxListRow | undefined;
+  revision(): number;
+  open(peer: unknown, review: unknown): Promise<string | undefined>;
+  older(review: unknown): Promise<boolean>;
+  olderAvailable(): boolean;
   subscribe(listener: (view: InboxViewSnapshot) => void): () => void;
   unlock(review: unknown): Promise<boolean>;
   check(review: unknown): Promise<boolean>;
@@ -118,6 +154,16 @@ export function createInboxView(input: Inputs): InboxView | undefined {
     unlocked: UnlockedSession | undefined,
     queue: DecryptionQueue | undefined,
     sync: InboxSync | undefined;
+  let metadata: MessageMetadata | undefined,
+    directory: ConversationDirectory | undefined,
+    older: OlderInbox | undefined;
+  let list: InboxListSnapshot = groupInboxMessages('', [], []);
+  let listReason: string | null = null;
+  let listRevision = 0;
+  const rowProofs = new Map<
+    string,
+    Readonly<{ data: InboxListRow; room: AdmittedConversation }>
+  >();
   let off = () => {},
     privateOff = () => {},
     setupOff = () => {},
@@ -141,6 +187,186 @@ export function createInboxView(input: Inputs): InboxView | undefined {
       owner.session === capture.session &&
       current()
     );
+  }
+  function rowSnapshot(peer: unknown): InboxListRow | undefined {
+    if (
+      typeof peer !== 'string' ||
+      !privateCurrent() ||
+      !unlocked ||
+      !queue ||
+      list.status !== 'ready'
+    )
+      return;
+    const proof = rowProofs.get(peer);
+    if (!proof || !unlockedConversationCurrent(unlocked, proof.room)) return;
+    const actual = conversationSnapshot(proof.room);
+    if (
+      !actual ||
+      actual.owner !== capture.owner ||
+      actual.peer !== peer ||
+      actual.rumorId !== proof.data.latest.rumorId
+    )
+      return;
+    return { ...proof.data, latest: { ...actual } };
+  }
+  function listSnapshot(): InboxListSnapshot {
+    if (!privateCurrent() || !unlocked || !queue)
+      return { status: 'locked', requests: [], conversations: [] };
+    if (list.status !== 'ready')
+      return { status: list.status, requests: [], conversations: [] };
+    const requests = list.requests.map((row) => rowSnapshot(row.peer)),
+      conversations = list.conversations.map((row) => rowSnapshot(row.peer));
+    if (requests.some((row) => !row) || conversations.some((row) => !row))
+      return { status: 'unavailable', requests: [], conversations: [] };
+    return {
+      status: 'ready',
+      requests: requests.filter((row) => row !== undefined),
+      conversations: conversations.filter((row) => row !== undefined)
+    };
+  }
+  async function refreshList(generation = epoch) {
+    if (!privateCurrent() || !unlocked || !metadata) return false;
+    try {
+      const local = await messageMetadataSnapshot(metadata);
+      if (!current(generation) || !privateCurrent() || !unlocked) return false;
+      const cached = readUnlockedMessages(unlocked);
+      if (
+        local.status !== 'ready' ||
+        local.owner !== capture.owner ||
+        cached.status !== 'ready'
+      ) {
+        list = { status: 'unavailable', requests: [], conversations: [] };
+        rowProofs.clear();
+        listRevision++;
+        listReason = 'storage_unavailable';
+        return false;
+      }
+      list = groupInboxMessages(
+        capture.owner,
+        cached.messages,
+        local.readRumors
+      );
+      rowProofs.clear();
+      const rooms = queue && decryptionQueueConversations(queue),
+        byRumor = new Map<string, AdmittedConversation>();
+      for (const room of rooms ?? []) {
+        const observed = conversationSnapshot(room);
+        if (observed) byRumor.set(observed.rumorId, room);
+      }
+      for (const row of list.requests.concat(list.conversations)) {
+        const room = byRumor.get(row.latest.rumorId);
+        if (room) rowProofs.set(row.peer, { data: row, room });
+      }
+      listRevision++;
+      listReason = list.status === 'ready' ? null : 'unavailable';
+      return list.status === 'ready';
+    } catch {
+      if (current(generation) && privateCurrent()) {
+        list = { status: 'unavailable', requests: [], conversations: [] };
+        rowProofs.clear();
+        listRevision++;
+        listReason = 'storage_unavailable';
+      }
+      return false;
+    }
+  }
+  function olderAvailable() {
+    if (busy || !privateCurrent() || !unlocked || !repository || !sync)
+      return false;
+    const transport = inboxSyncSnapshot(sync),
+      ownership = inboxSyncHistoryOwnership(sync),
+      own = inboxSetupViewOwnership(input.setup),
+      original = session && privateSessionOwnership(session);
+    if (
+      !own?.current() ||
+      !own.resolver ||
+      !original?.current() ||
+      !ownership?.current() ||
+      transport?.backfill !== 'complete' ||
+      transport.pending !== 0
+    )
+      return false;
+    return (
+      messagingReadinessSnapshot(
+        input.identity,
+        session,
+        own.policy,
+        own.resolver,
+        undefined,
+        own.observeAccess
+      ).ownAccess === 'qualified_exercised'
+    );
+  }
+  async function open(peer: unknown, review: unknown) {
+    if (
+      review !== 'reviewed_admitted_conversation_navigation' ||
+      busy ||
+      !privateCurrent() ||
+      !queue ||
+      !directory ||
+      !canonicalPublicKey(peer)
+    )
+      return;
+    const room = decryptionQueueConversations(queue).find(
+      (value) => conversationSnapshot(value)?.peer === peer
+    );
+    if (!room) return;
+    const generation = epoch;
+    busy = true;
+    notify();
+    try {
+      const result = await rememberAdmittedConversation(
+        directory,
+        room,
+        review
+      );
+      if (!current(generation) || !privateCurrent()) return;
+      if (result.status !== 'saved' && result.status !== 'existing') {
+        reason = 'unavailable';
+        return;
+      }
+      await refreshList(generation);
+      if (!current(generation) || !privateCurrent()) return;
+      return '/messages/' + result.conversationId;
+    } catch {
+      if (current(generation)) reason = 'unavailable';
+      return;
+    } finally {
+      if (current(generation)) {
+        busy = false;
+        notify();
+      }
+    }
+  }
+  async function loadOlder(review: unknown) {
+    if (
+      review !== 'reviewed_load_older' ||
+      !olderAvailable() ||
+      !sync ||
+      !queue
+    )
+      return false;
+    older ??= captureOlderInbox(sync, review);
+    if (!older) return false;
+    const generation = epoch;
+    busy = true;
+    notify();
+    try {
+      const result = await loadOlderInbox(older, review);
+      if (!current(generation) || !privateCurrent() || !queue) return false;
+      await refreshDecryptionQueue(queue);
+      if (!current(generation) || !privateCurrent()) return false;
+      await refreshList(generation);
+      return current(generation) && privateCurrent() && result;
+    } catch {
+      if (current(generation)) reason = 'unavailable';
+      return false;
+    } finally {
+      if (current(generation)) {
+        busy = false;
+        notify();
+      }
+    }
   }
   function snapshot(): InboxViewSnapshot {
     if (!current())
@@ -167,6 +393,7 @@ export function createInboxView(input: Inputs): InboxView | undefined {
       };
     const cached = readUnlockedMessages(unlocked),
       decrypt = decryptionQueueSnapshot(queue),
+      paging = older && olderInboxSnapshot(older),
       transport = sync && inboxSyncSnapshot(sync);
     const scope = inboxSetupViewOwnership(input.setup);
     const exercised =
@@ -184,6 +411,8 @@ export function createInboxView(input: Inputs): InboxView | undefined {
       reason !== null ||
       !exercised ||
       cached.status !== 'ready' ||
+      list.status === 'unavailable' ||
+      !!paging?.reason ||
       decrypt.state === 'paused' ||
       transport?.state === 'needs_action' ||
       transport?.state === 'stopped';
@@ -200,6 +429,8 @@ export function createInboxView(input: Inputs): InboxView | undefined {
               : 'ready',
       reason:
         reason ??
+        listReason ??
+        paging?.reason ??
         decrypt.reason ??
         transport?.reason ??
         (!exercised ? 'access_unavailable' : null),
@@ -228,8 +459,16 @@ export function createInboxView(input: Inputs): InboxView | undefined {
       originalSync = sync,
       originalUnlocked = unlocked,
       originalSession = session,
-      originalDatabase = database;
+      originalDatabase = database,
+      originalDirectory = directory,
+      originalOlder = older;
     const tasks = pendingCleanup.concat([
+      () => {
+        if (originalOlder) stopOlderInbox(originalOlder);
+      },
+      () => {
+        if (originalDirectory) closeConversationDirectory(originalDirectory);
+      },
       () => {
         if (originalQueue) stopDecryptionQueue(originalQueue);
       },
@@ -255,6 +494,13 @@ export function createInboxView(input: Inputs): InboxView | undefined {
         pendingCleanup = pendingCleanup.concat(cleanup);
       }
     if (pendingCleanup.length > 0) reason = 'cleanup_required';
+    metadata = undefined;
+    directory = undefined;
+    older = undefined;
+    list = { status: 'locked', requests: [], conversations: [] };
+    listReason = null;
+    rowProofs.clear();
+    listRevision++;
     queue = undefined;
     sync = undefined;
     unlocked = undefined;
@@ -346,7 +592,8 @@ export function createInboxView(input: Inputs): InboxView | undefined {
     try {
       const result = await runDecryptionBatch(queue, reviewed);
       if (!current(generation) || !privateCurrent()) return false;
-      return result;
+      await refreshList(generation);
+      return current(generation) && privateCurrent() && result;
     } finally {
       if (current(generation)) {
         busy = false;
@@ -410,8 +657,25 @@ export function createInboxView(input: Inputs): InboxView | undefined {
           unlocked,
           'reviewed_inbox_unlock'
         );
-      if (!queue) {
+      if (!queue || !unlocked) {
         reason = 'unavailable';
+        return false;
+      }
+      metadata = captureMessageMetadata(
+        database,
+        session,
+        unlocked,
+        'reviewed_local_message_metadata'
+      );
+      directory =
+        metadata &&
+        captureConversationDirectory(
+          session,
+          metadata,
+          'reviewed_conversation_directory'
+        );
+      if (!metadata || !directory) {
+        reason = 'storage_unavailable';
         return false;
       }
       privateOff = subscribePrivateSessionClose(session, () => {
@@ -428,7 +692,8 @@ export function createInboxView(input: Inputs): InboxView | undefined {
       if (!privateCurrent()) return false;
       const result = await runDecryptionBatch(queue, 'reviewed_decrypt_batch');
       if (!current(generation) || !privateCurrent()) return false;
-      return result;
+      await refreshList(generation);
+      return current(generation) && privateCurrent() && result;
     } catch {
       if (current(generation)) reason = 'unavailable';
       return false;
@@ -455,6 +720,7 @@ export function createInboxView(input: Inputs): InboxView | undefined {
       notify();
       return false;
     }
+    const generation = epoch;
     reason = null;
     if (sync) {
       if (
@@ -487,10 +753,17 @@ export function createInboxView(input: Inputs): InboxView | undefined {
     checkPending = true;
     notify();
     await sample();
-    return privateCurrent();
+    if (current(generation) && privateCurrent()) await refreshList(generation);
+    return current(generation) && privateCurrent();
   }
   views.set(token, {
     snapshot,
+    list: listSnapshot,
+    row: rowSnapshot,
+    revision: () => (privateCurrent() ? listRevision : -1),
+    open,
+    older: loadOlder,
+    olderAvailable,
     setup: () => (current() ? input.setup : undefined),
     subscribe(listener) {
       const key = Symbol();
@@ -584,4 +857,44 @@ export function stopInboxView(token: InboxView): void {
 }
 export function closeInboxView(token: InboxView): boolean {
   return views.get(token)?.close() ?? true;
+}
+
+// Fresh genuine original cache observation. Returned rows are detached and
+// never replace the original room/native authority used by explicit Open.
+export function inboxListSnapshot(
+  token: InboxView | undefined
+): InboxListSnapshot {
+  return (
+    (token && views.get(token)?.list()) || {
+      status: 'unavailable',
+      requests: [],
+      conversations: []
+    }
+  );
+}
+export function openInboxConversation(
+  token: InboxView,
+  peer: unknown,
+  review: unknown
+): Promise<string | undefined> {
+  return views.get(token)?.open(peer, review) ?? Promise.resolve(undefined);
+}
+export function loadOlderInboxView(
+  token: InboxView,
+  review: unknown
+): Promise<boolean> {
+  return views.get(token)?.older(review) ?? Promise.resolve(false);
+}
+export function inboxViewOlderAvailable(token: InboxView | undefined): boolean {
+  return !!token && !!views.get(token)?.olderAvailable();
+}
+
+export function inboxConversationRow(
+  token: InboxView | undefined,
+  peer: unknown
+): InboxListRow | undefined {
+  return token ? views.get(token)?.row(peer) : undefined;
+}
+export function inboxListRevision(token: InboxView | undefined): number {
+  return token ? (views.get(token)?.revision() ?? -1) : -1;
 }

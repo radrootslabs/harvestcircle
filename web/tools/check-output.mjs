@@ -509,15 +509,19 @@ async function inboxPresentationAdmission(web) {
     'src/routes/messages/+page.svelte':
       '8279a92770f38858e197e790839bc98b4d7889214ebecdf47e542d632afbc84f',
     'src/lib/components/InboxStatus.svelte':
-      '605b92b9f8bb45ffb01ea4682869a37ec5b673a20a0deb7d9385ab659673f27f',
+      '519d13dad65d3d57db57329ee693cd6a2ea3e14bb1b51f334d8d58c3b677bf92',
     'src/lib/messaging/inbox-view.ts':
-      '008feb690302c8d9bf563581bd7eb071e619da7da1e56a12108d6560888e3c2c',
+      '9fb55cd5a227d4a23f56a5ff6d30902cdf7c8bfb16cb313e36f55d78cce9a7ec',
     'src/lib/messaging/inbox-sync.ts':
       '84f9b3bb165a81878bb281c51d245aff7eb06a0fa55b857a49b13d0cb1cff8ae',
     'src/lib/messaging/inbox-setup-view.ts':
       '7559ec04394624a8275280027c031b90d0a62b78f94aec3933df6f3b50077450',
     'src/lib/messaging/decryption-queue.ts':
-      '07661a883ee360e9fd7bd411893d637fd6b4b70aecb20101b826fe41b7ca4810'
+      '07661a883ee360e9fd7bd411893d637fd6b4b70aecb20101b826fe41b7ca4810',
+    'src/lib/components/ConversationRow.svelte':
+      'c5d0926ac9cdda18a6befe365227dfe62405f71598f59964ff36af9a0e85d743',
+    'src/lib/messaging/inbox-list.ts':
+      '9cc82877bfa8dbb2a7fa41bceb842793349416271f19569f49fdd5cfc1de07e5'
   };
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);
@@ -685,7 +689,7 @@ export async function auditOutput(webDirectory) {
   if (hasProductPresentation) names.add('publishers');
   if (hasInboxSetup) names.add('private-handles');
   if (hasInboxPresentation)
-    for (const name of ['unlocked-session', 'read']) names.add(name);
+    for (const name of ['conversation-directory', 'read']) names.add(name);
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();
   for (const [key, record] of Object.entries(manifest)) {
@@ -1000,7 +1004,7 @@ export async function auditOutput(webDirectory) {
     /** @type {[string,string[]][]} */
     const dependencies = [
       [
-        'unlocked-session',
+        'conversation-directory',
         [
           'public-key',
           'private-handles',
@@ -1018,9 +1022,10 @@ export async function auditOutput(webDirectory) {
           'references',
           'client',
           'Button',
+          'navigation',
           'view-context',
           'AccountGate',
-          'unlocked-session',
+          'conversation-directory',
           'read'
         ]
       ],
@@ -1028,14 +1033,12 @@ export async function auditOutput(webDirectory) {
         'nodes/5',
         [
           'public-key',
-          'public-runtime',
           'client',
-          'Button',
           'client.svelte',
           'state',
           'view-context',
           'AccountGate',
-          'unlocked-session'
+          'conversation-directory'
         ]
       ]
     ];

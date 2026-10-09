@@ -345,7 +345,9 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'src/lib/components/InboxStatus.svelte',
           'src/lib/messaging/inbox-view.ts',
           'src/lib/messaging/inbox-sync.ts',
-          'src/lib/messaging/decryption-queue.ts'
+          'src/lib/messaging/decryption-queue.ts',
+          'src/lib/components/ConversationRow.svelte',
+          'src/lib/messaging/inbox-list.ts'
         ])
           await check(
             'linked inbox presentation requires exact owned source ' +
@@ -365,7 +367,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             }
           );
         for (const mutation of [
-          'missing-unlocked',
+          'missing-private-cache-directory',
           'extra-private-edge',
           'missing-private-edge',
           'private-dynamic',
@@ -387,8 +389,9 @@ import { auditOutput } from '../../tools/check-output.mjs';
                 assert.ok(row);
                 return row;
               };
-              const [key, row] = find('unlocked-session');
-              if (mutation === 'missing-unlocked') delete manifest[key];
+              const [key, row] = find('conversation-directory');
+              if (mutation === 'missing-private-cache-directory')
+                delete manifest[key];
               if (mutation === 'extra-private-edge')
                 row.imports = row.imports.concat(find('references')[0]);
               if (mutation === 'missing-private-edge')
@@ -401,6 +404,38 @@ import { auditOutput } from '../../tools/check-output.mjs';
                 )[1].imports.concat(find('references')[0]);
               await writeFile(file, JSON.stringify(manifest));
               await assert.rejects(f.audit, /compiler|references/);
+            }
+          );
+
+        for (const mutation of [
+          'directory-missing-context',
+          'directory-entry-role',
+          'directory-duplicate-role'
+        ])
+          await check(
+            'actual inbox list compiler rejects ' + mutation,
+            async (t) => {
+              const f = await fixture(t),
+                file = path.join(
+                  f.web,
+                  '.svelte-kit/output/client/.vite/manifest.json'
+                ),
+                manifest = JSON.parse(await readFile(file, 'utf8'));
+              const entry = Object.entries(manifest).find(
+                ([, row]) => row.name === 'conversation-directory'
+              );
+              assert.ok(entry);
+              const [, row] = entry;
+              if (mutation === 'directory-missing-context')
+                row.imports = row.imports.filter(
+                  (/** @type {string} */ value) =>
+                    manifest[value].name !== 'AccountGate'
+                );
+              if (mutation === 'directory-entry-role') row.isEntry = true;
+              if (mutation === 'directory-duplicate-role')
+                manifest['_forged_directory.js'] = { ...row };
+              await writeFile(file, JSON.stringify(manifest));
+              await assert.rejects(f.audit, /compiler|duplicate|inventory/);
             }
           );
 
