@@ -105,3 +105,11 @@ export const PUBLIC_PUBLICATION_BUDGETS = Object.freeze({
   attemptsPerTargetAction: 3,
   networkActionMilliseconds: 45000
 });
+
+// Foreground live inbox only; rolling source window charged before dedup.
+// Logical post-SDK-parse limits, not browser preallocation guarantees.
+export const PRIVATE_LIVE_BUDGETS = Object.freeze({
+  deliveries: 120,
+  processedBytes: 2097152,
+  windowMilliseconds: 60000
+});

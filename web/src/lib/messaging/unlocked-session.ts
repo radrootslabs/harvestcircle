@@ -35,6 +35,7 @@ type Controller = {
   snapshot(): Snapshot;
   close(): void;
 };
+const closeObservers = new WeakMap<UnlockedSession, Map<() => void, true>>();
 const controllers = new WeakMap<UnlockedSession, Controller>(),
   sessions = new WeakMap<PrivateSession, UnlockedSession>();
 // Explicit owner-generation memory scope only. No decryption, shared SDK
@@ -66,6 +67,16 @@ export function captureUnlockedSession(
   function close() {
     if (closed) return;
     closed = true;
+    const callbacks = closeObservers.get(token);
+    closeObservers.delete(token);
+    if (callbacks)
+      for (const callback of callbacks.keys()) {
+        try {
+          callback();
+        } catch {
+          /* Continue original cache disposal. */
+        }
+      }
     entries.clear();
     bytes = 0;
     clearPrivateCacheScope(cache);
@@ -203,4 +214,25 @@ export function unlockedConversationCurrent(
   room: AdmittedConversation
 ): boolean {
   return controllers.get(scope)?.contains(room) ?? false;
+}
+
+// Original opaque controller lifetime only, not a copied snapshot capability.
+export function subscribeUnlockedSessionClose(
+  scope: UnlockedSession,
+  callback: () => void
+): () => void {
+  if (!controllers.get(scope)?.current()) {
+    callback();
+    return () => {};
+  }
+  let observers = closeObservers.get(scope);
+  if (!observers) {
+    observers = new Map();
+    closeObservers.set(scope, observers);
+  }
+  observers.set(callback, true);
+  const captured = observers;
+  return () => {
+    captured.delete(callback);
+  };
 }

@@ -1,3 +1,4 @@
+import { privateInboxQueries } from './inbox-queries.ts';
 import { createScopedRelayPool } from './pool-factory.ts';
 import { NEVER } from 'rxjs';
 import {
@@ -20,6 +21,7 @@ import {
 import { readRelayPolicy, type RelayPolicy } from '../config/relays.ts';
 import {
   PRIVATE_TRANSPORT_BUDGETS,
+  PRIVATE_LIVE_BUDGETS,
   PRIVATE_AUTH_BUDGETS,
   PRIVATE_PUBLICATION_BUDGETS,
   RELAY_BUDGETS
@@ -75,6 +77,8 @@ export type PrivatePageMessage =
         | 'elapsed'
         | 'stopped';
     }>;
+export type PrivateLiveMessage =
+  PrivatePageMessage | Readonly<{ type: 'open' }>;
 type Owner = {
   session: PrivateSession;
   policy: RelayPolicy;
@@ -94,6 +98,7 @@ type Owner = {
     limit: number,
     listener: (message: PrivatePageMessage) => void
   ): () => void;
+  subscribeLive(listener: (message: PrivateLiveMessage) => void): () => void;
   close(): void;
 };
 declare const connectionBrand: unique symbol;
@@ -176,6 +181,9 @@ export function getPrivatePool(
     busy = false,
     cleanupRequired = false;
   let active = () => {};
+  let liveActive = () => {},
+    liveBusy = false,
+    liveCleanupRequired = false;
   let off = () => {};
   const authCleanup = new Map<string, () => void>();
   const publicationStops = new Map<() => void, true>();
@@ -606,6 +614,147 @@ export function getPrivatePool(
       }
       return token;
     },
+    subscribeLive(listener) {
+      if (!readOrigins.length) throw Error('private_read_origins_unavailable');
+      if (closed || !capture.current()) throw Error('private_pool_closed');
+      if (liveBusy || liveCleanupRequired) throw Error('private_live_busy');
+      liveBusy = true;
+      let ended = false,
+        release = () => {},
+        serial = 0;
+      const opened = new Map<string, true>(),
+        meters = new Map<string, Map<number, { at: number; bytes: number }>>();
+      function emit(message: PrivateLiveMessage) {
+        try {
+          listener(message);
+        } catch {
+          /* Keep cleanup owned even when a consumer throws. */
+        }
+      }
+      function finish(
+        reason: Extract<PrivatePageMessage, { type: 'end' }>['reason'],
+        propagate = false
+      ) {
+        if (ended) {
+          if (liveCleanupRequired && propagate) {
+            release();
+            liveCleanupRequired = false;
+            liveBusy = false;
+          }
+          return;
+        }
+        ended = true;
+        let failure: unknown;
+        try {
+          release();
+          liveCleanupRequired = false;
+          liveBusy = false;
+        } catch (error) {
+          failure = error;
+          liveCleanupRequired = true;
+        }
+        meters.clear();
+        opened.clear();
+        emit({ type: 'end', reason: liveCleanupRequired ? 'error' : reason });
+        if (liveCleanupRequired && propagate) throw failure;
+      }
+      liveActive = () => {
+        finish('closed', true);
+        release();
+      };
+      void recheckPrivateSession(session)
+        .then((fresh) => {
+          if (ended) return;
+          if (!fresh || closed || !capture.current()) {
+            finish('stale');
+            return;
+          }
+          const subscription = sdk
+            .req(
+              [...readOrigins],
+              [...privateInboxQueries(capture.owner, 'live')],
+              {
+                waitForAuth: false,
+                reconnect: false,
+                resubscribe: false
+              }
+            )
+            .subscribe({
+              next(message) {
+                if (ended) return;
+                if (closed || !capture.current()) {
+                  finish('stale');
+                  return;
+                }
+                const origin = message.from.endsWith('/')
+                  ? message.from.slice(0, -1)
+                  : message.from;
+                if (!readOrigins.includes(origin)) {
+                  finish('error');
+                  return;
+                }
+                if (message.type === 'OPEN') {
+                  opened.set(origin, true);
+                  if (opened.size === readOrigins.length)
+                    emit({ type: 'open' });
+                } else if (message.type === 'EVENT') {
+                  const now = performance.now();
+                  let meter = meters.get(origin);
+                  if (!meter) {
+                    meter = new Map();
+                    meters.set(origin, meter);
+                  }
+                  let bytes = 0;
+                  for (const [key, item] of meter) {
+                    if (
+                      now - item.at >=
+                      PRIVATE_LIVE_BUDGETS.windowMilliseconds
+                    )
+                      meter.delete(key);
+                    else bytes += item.bytes;
+                  }
+                  // Count every actual delivery, including invalid envelopes/duplicates.
+                  if (meter.size >= PRIVATE_LIVE_BUDGETS.deliveries) {
+                    finish('budget');
+                    return;
+                  }
+                  const wire = JSON.stringify(message.event);
+                  if (
+                    typeof wire !== 'string' ||
+                    !boundedUtf8(
+                      wire,
+                      PRIVATE_LIVE_BUDGETS.processedBytes - bytes
+                    )
+                  ) {
+                    finish('budget');
+                    return;
+                  }
+                  meter.set(++serial, {
+                    at: now,
+                    bytes: new TextEncoder().encode(wire).length
+                  });
+                  if (
+                    boundedUtf8(wire, PRIVATE_TRANSPORT_BUDGETS.envelopeBytes)
+                  )
+                    emit({ type: 'candidate', from: origin, wire });
+                } else if (message.type === 'CLOSED') finish('closed');
+                else if (message.type === 'ERROR') finish('error');
+                // EOSE ends retained history only; the unthrottled live owner remains.
+              },
+              error: () => finish('error'),
+              complete: () => finish('closed')
+            });
+          release = () => subscription.unsubscribe();
+          if (ended || closed || !capture.current()) {
+            release();
+            if (!ended) finish('stale');
+          }
+        })
+        .catch(() => {
+          if (!ended) finish('error');
+        });
+      return () => finish('stopped', true);
+    },
     subscribe(limit, listener) {
       if (readOrigins.length === 0)
         throw new Error('private_read_origins_unavailable');
@@ -679,7 +828,10 @@ export function getPrivatePool(
           const subscription = sdk
             .req(
               [...readOrigins],
-              [{ kinds: [1059], '#p': [capture.owner], limit }],
+              privateInboxQueries(capture.owner, 'backfill').map((filter) => ({
+                ...filter,
+                limit
+              })),
               {
                 waitForAuth: false,
                 reconnect: false,
@@ -733,7 +885,8 @@ export function getPrivatePool(
                   );
                   if (accepted)
                     emit({ type: 'candidate', from: message.from, wire });
-                } else if (message.type === 'ERROR') finish('error');
+                } else if (message.type === 'CLOSED') finish('closed');
+                else if (message.type === 'ERROR') finish('error');
               },
               complete: () => finish('complete'),
               error: () => finish('error')
@@ -760,6 +913,11 @@ export function getPrivatePool(
       if (cleaned) return;
       closed = true;
       let failed = false;
+      try {
+        liveActive();
+      } catch {
+        failed = true;
+      }
       try {
         active();
       } catch {
@@ -879,4 +1037,12 @@ export function invalidatePrivateAuthGeneration(
   proof: PrivateAuthChallenge
 ): boolean {
   return authConnections.get(connection)?.invalidate(proof) ?? false;
+}
+
+// One foreground live lane per selected private relay on the original pool.
+export function subscribePrivateLive(
+  pool: PrivatePool,
+  listener: (message: PrivateLiveMessage) => void
+): () => void {
+  return ownerOf(pool).subscribeLive(listener);
 }
