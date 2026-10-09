@@ -93,10 +93,22 @@ type Display =
     }>;
 type Controller = {
   snapshot(): Promise<Snapshot>;
-  display(room: AdmittedConversation, review: unknown): Promise<Display>;
+  display(
+    room: AdmittedConversation,
+    review: unknown,
+    markRead?: boolean
+  ): Promise<Display>;
   messages(): ReturnType<typeof readUnlockedMessages>;
   close(): void;
 };
+const metadataOwnerships = new WeakMap<
+  MessageMetadata,
+  Readonly<{
+    owner: string;
+    session: symbol;
+    current(): boolean;
+  }>
+>();
 const controllers = new WeakMap<MessageMetadata, Controller>();
 const failed = (reason: Failure): Result<never> => ({ ok: false, reason });
 function cipherRow(
@@ -308,6 +320,7 @@ export function captureMessageMetadata(
   function close() {
     if (closed) return;
     closed = true;
+    metadataOwnerships.delete(token);
     off();
     controllers.set(token, {
       snapshot: () => Promise.resolve<Snapshot>({ status: 'stopped' }),
@@ -358,11 +371,15 @@ export function captureMessageMetadata(
   }
   async function display(
     room: AdmittedConversation,
-    review: unknown
+    review: unknown,
+    markRead = true
   ): Promise<Display> {
     if (!scope.current()) return { status: 'stopped' };
     if (
-      review !== 'displayed_message' ||
+      review !==
+        (markRead
+          ? 'displayed_message'
+          : 'reviewed_admitted_conversation_navigation') ||
       !unlockedConversationCurrent(unlocked, room)
     )
       return { status: 'invalid' };
@@ -406,7 +423,7 @@ export function captureMessageMetadata(
           if (row.record.read && row.record.read.rumorHash !== data.rumorId)
             return { status: 'conflict' };
           let pair = loaded.value.pairs.find((x) => x.peer === data.peer);
-          const existed = !!row.record.read && !!pair;
+          const existed = !!pair && (!markRead || !!row.record.read);
           if (!pair) {
             const id = newLocalId();
             if (!id) return { status: 'unavailable' };
@@ -422,7 +439,7 @@ export function captureMessageMetadata(
           }
           const selected = pair;
           let nextWire = row.wire;
-          if (!row.record.read) {
+          if (markRead && !row.record.read) {
             const now = Date.now();
             if (
               safeUnsignedInteger(now) === undefined ||
@@ -539,6 +556,11 @@ export function captureMessageMetadata(
         : { status: 'closed', messages: [] },
     close
   });
+  metadataOwnerships.set(token, {
+    owner,
+    session: generation,
+    current: scope.current
+  });
   off = subscribePrivateSessionClose(session, close);
   return scope.current() ? token : undefined;
 }
@@ -565,6 +587,33 @@ export function markDisplayedMessage(
 ): Promise<Display> {
   return (
     controllers.get(scope)?.display(room, review) ??
+    Promise.resolve({ status: 'invalid' })
+  );
+}
+
+// Genuine original metadata custody only. Detached snapshot pairs and owner
+// strings cannot substitute for this token/generation when navigating.
+export function messageMetadataOwnership(scope: MessageMetadata) {
+  const owned = metadataOwnerships.get(scope);
+  if (!owned?.current()) return;
+  // Detached observation: caller mutation cannot rebind the private stored
+  // owner/generation or original current check used by later admission.
+  return {
+    owner: owned.owner,
+    session: owned.session,
+    current: () => owned.current()
+  };
+}
+// Admitted exchange may establish a room without treating navigation as read.
+// It retains the original cached-room proof, owner lock, full-wire CAS and
+// native completion/readback path; unknown route lookup never calls it.
+export function rememberMessageConversation(
+  scope: MessageMetadata,
+  room: AdmittedConversation,
+  review: unknown
+): Promise<Display> {
+  return (
+    controllers.get(scope)?.display(room, review, false) ??
     Promise.resolve({ status: 'invalid' })
   );
 }

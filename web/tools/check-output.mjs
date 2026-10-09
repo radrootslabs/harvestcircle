@@ -985,7 +985,7 @@ export async function auditOutput(webDirectory) {
       'Invalid owned product publisher compiler dependencies'
     );
     equal(
-      entry('nodes/7')[1].imports,
+      entry('nodes/7')[1].imports?.toSorted(),
       (hasInboxSetup
         ? [
             'public-key',
@@ -1021,11 +1021,13 @@ export async function auditOutput(webDirectory) {
               'Button',
               'publishers'
             ]
-      ).map((name) => entry(name)[0]),
+      )
+        .map((name) => entry(name)[0])
+        .sort(),
       'Invalid owned product compiler dependencies'
     );
     equal(
-      entry('nodes/9')[1].imports,
+      entry('nodes/9')[1].imports?.toSorted(),
       (hasInboxSetup
         ? [
             'references',
@@ -1064,7 +1066,9 @@ export async function auditOutput(webDirectory) {
               'routes',
               'publishers'
             ]
-      ).map((name) => entry(name)[0]),
+      )
+        .map((name) => entry(name)[0])
+        .sort(),
       'Invalid owned search product compiler dependencies'
     );
     if (

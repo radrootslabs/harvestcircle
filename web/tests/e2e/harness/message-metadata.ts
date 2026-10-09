@@ -154,6 +154,7 @@ export async function makeFixture(
   let rawCache: PrivateCacheScope | undefined;
   let database: BrowserDatabase | undefined,
     metadata: MessageMetadata | undefined;
+  let otherMetadata: MessageMetadata | undefined;
   let otherPrivateSession: Awaited<ReturnType<typeof createPrivateSession>>;
   let otherIdentity: ReturnType<typeof createIdentitySession> | undefined;
   return {
@@ -415,6 +416,7 @@ export async function makeFixture(
         'reviewed_local_message_metadata'
       );
       if (!m) throw Error('no genuine other metadata');
+      otherMetadata = m;
       return await messageMetadataSnapshot(m);
     },
     async wrongGenerationMetadata() {
@@ -523,11 +525,21 @@ export async function makeFixture(
         IDBDatabase.prototype.transaction = original;
       };
     },
-    async anotherWrap(lateOld = false) {
+    foreignNavigationSession() {
+      return otherPrivateSession;
+    },
+    navigationInputs() {
+      return { privateSession, metadata, room };
+    },
+    async otherNavigationInputs() {
+      await this.otherOwnerMetadata();
+      return { privateSession: otherPrivateSession, metadata: otherMetadata };
+    },
+    async anotherWrap(lateOld = false, productText?: string) {
       const selectedTemplate = {
           ...template,
           created_at: 1,
-          content: 'Late old actual encrypted rumor'
+          content: productText ?? 'Late old actual encrypted rumor'
         },
         selectedRumor = lateOld
           ? { id: getEventHash(selectedTemplate), ...selectedTemplate }

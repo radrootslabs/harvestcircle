@@ -46,6 +46,14 @@ import { auditOutput } from '../../tools/check-output.mjs';
       source:
         '<script lang="ts">\n  import Button from \'./primitives/Button.svelte\';\n</script>\n\n<svelte:head>\n  <title>HarvestCircle</title>\n  <meta name="robots" content="noindex" />\n</svelte:head>\n<div class="page page--reading stack">\n  <h1>Connect or unlock</h1>\n  <p>Connect an extension and unlock your account to continue.</p>\n  <p class="notice">Account access is unavailable during development.</p>\n  <div class="cluster">\n    <Button label="Connect extension" disabled />\n    <Button label="Unlock" disabled />\n  </div>\n</div>\n',
       sha256: 'd5f90fb4b9af50037ed19dde626552e82df67017a39408bdbdeff1e712c10fbd'
+    },
+    // Historical public-only variants must also restore their original private
+    // shell. The successor route imports owned identity context, which those
+    // historical roots never provided. Current actual-output cases retain it.
+    'src/routes/messages/[conversationId=local_id]/+page.svelte': {
+      source:
+        '<script lang="ts">\n  import AccountGate from \'../../../lib/components/AccountGate.svelte\';\n</script>\n\n<AccountGate />\n',
+      sha256: '93e21d162901af304f2a142acc7ddce87f7826421735d8a3af4ae281744ab3a0'
     }
   };
   const base = await mkdtemp(path.join(os.tmpdir(), 'hc actual output '));
@@ -901,6 +909,42 @@ import { auditOutput } from '../../tools/check-output.mjs';
                 f.audit,
                 /Invalid owned product presentation source/
               );
+            }
+          );
+        }
+        for (const mutation of [
+          'permuted-edges',
+          'extra-edge',
+          'duplicate-edge'
+        ]) {
+          await check(
+            'product compiler dependency order: ' + mutation,
+            async (t) => {
+              const f = await fixture(t);
+              const file = path.join(
+                f.web,
+                '.svelte-kit/output/client/.vite/manifest.json'
+              );
+              const manifest = JSON.parse(await readFile(file, 'utf8'));
+              const find = (/** @type {string} */ name) => {
+                const row = Object.entries(manifest).find(
+                  ([, v]) => v.name === name
+                );
+                assert.ok(row);
+                return row;
+              };
+              for (const name of ['nodes/7', 'nodes/9']) {
+                const row = find(name)[1];
+                row.imports = [...row.imports].reverse();
+                if (mutation === 'extra-edge')
+                  row.imports = row.imports.concat(find('AccountGate')[0]);
+                if (mutation === 'duplicate-edge')
+                  row.imports = row.imports.concat(row.imports[0]);
+              }
+              await writeFile(file, JSON.stringify(manifest));
+              if (mutation === 'permuted-edges')
+                assert.equal((await f.audit()).length, 48);
+              else await assert.rejects(f.audit, /compiler|references/);
             }
           );
         }

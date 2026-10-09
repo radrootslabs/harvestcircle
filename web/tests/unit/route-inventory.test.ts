@@ -53,19 +53,19 @@ describe('approved route inventory', () => {
 });
 
 describe('thin protected route SSR', () => {
-  for (const [name, component] of Object.entries({
-    Sell,
-    Selling,
-    Draft,
-    Edit,
-    Messages,
-    Conversation
+  for (const [name, renderComponent] of Object.entries({
+    Sell: () => render(Sell),
+    Selling: () => render(Selling),
+    Draft: () => render(Draft),
+    Edit: () => render(Edit),
+    Messages: () => render(Messages),
+    Conversation: () => render(Conversation)
   })) {
     it(
       name +
         ' renders only a generic unavailable connection/unlock gate without browser effects',
       () => {
-        const output = render(component);
+        const output = renderComponent();
         expect(output.head).toContain('<title>HarvestCircle</title>');
         expect(output.head).toMatch(/name="robots" content="noindex"/);
         expect(output.body).toContain('Connect or unlock');
