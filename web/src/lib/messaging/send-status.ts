@@ -31,7 +31,16 @@ export function privateSendStatus(
       refusedTargets: origins('refused'),
       timeoutTargets: origins('timed_out'),
       unknownTargets: origins('unknown'),
-      stoppedTargets: origins('stopped')
+      stoppedTargets: origins('stopped'),
+      uncertainTargets: targets.filter(
+        (origin) =>
+          !acceptedTargets.includes(origin) &&
+          matching.some(
+            (f) =>
+              f.origin === origin &&
+              ['unknown', 'timed_out', 'stopped'].includes(f.status)
+          )
+      )
     };
   }
   const recipientFacts = role(

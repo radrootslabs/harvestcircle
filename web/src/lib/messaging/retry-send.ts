@@ -28,6 +28,7 @@ import {
 } from '../nostr/private-pool.ts';
 import { PRIVATE_PUBLICATION_BUDGETS } from '../config/budgets.ts';
 import type { PairedDeliveryContext } from './prepare-send.ts';
+import { reconcilePrivateSendAttempt } from '../persistence/private-send-settlements.ts';
 // Codec readback metadata alone is not a qualified authenticated remote query.
 // Only named acceptance suppresses retry here; separate readback remains visible.
 export function privateRetryTargets(
@@ -195,8 +196,11 @@ export function capturePrivateRetry(
               permission,
               abort.signal
             );
-            if (abort.signal.aborted || !ownership.current())
+            if (abort.signal.aborted || !ownership.current()) {
+              if (result.actionId) attempts++;
+              await reconcilePrivateSendAttempt(result);
               return finish('stopped');
+            }
             if (
               !result.actionId &&
               pairedDeliveryTargetAccepted(
@@ -241,8 +245,10 @@ export function capturePrivateRetry(
                 readbackWire: null
               })
             );
-            if (abort.signal.aborted || !ownership.current())
+            if (abort.signal.aborted || !ownership.current()) {
+              await reconcilePrivateSendAttempt(result);
               return finish('stopped');
+            }
             if (!('record' in saved)) return finish('needs_action');
             if (result.status === 'accepted') {
               accepted = true;

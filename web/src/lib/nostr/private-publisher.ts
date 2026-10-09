@@ -377,6 +377,21 @@ export async function takePrivatePublication(
       return undefined;
     return {
       event,
+      repository: saved.repository,
+      // Frozen original operation/artifact scope for metadata-only settlement.
+      // It survives session loss without becoming new effect permission.
+      pairWire: (() => {
+        const row = pairedDeliveryAcknowledgementSnapshot(saved.receipt)!;
+        return JSON.stringify({
+          owner: row.owner,
+          id: row.id,
+          peer: row.peer,
+          rumorHash: row.rumorHash,
+          createdAt: row.createdAt,
+          self: row.self,
+          peerArtifact: row.peerArtifact
+        });
+      })(),
       current: () => saved.current(),
       owner: saved.owner,
       command: saved.command,

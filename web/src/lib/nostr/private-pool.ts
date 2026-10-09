@@ -32,6 +32,7 @@ import {
   type PrivateSession
 } from '../runtime/private-session.ts';
 import { boundedUtf8 } from '../contracts/food-availability-v1/text.ts';
+import type { PrivateStorageRepository } from '../persistence/private-storage.ts';
 declare const poolBrand: unique symbol;
 export type PrivatePool = Readonly<{ [poolBrand]: true }>;
 export type PrivateGiftWrapAttemptResult = Readonly<{
@@ -42,6 +43,25 @@ export type PrivateGiftWrapAttemptResult = Readonly<{
   actionId?: string;
   attempt?: number;
 }>;
+type AttemptEvidence = Readonly<{
+  repository: PrivateStorageRepository;
+  owner: string;
+  command: string;
+  pairWire: string;
+  receiptWire: string;
+}>;
+const attemptEvidence = new WeakMap<
+  PrivateGiftWrapAttemptResult,
+  AttemptEvidence
+>();
+// Only this module's actual admitted SDK EVENT port mints these observations.
+// Detached/cloned status objects cannot impersonate an attempted operation.
+export function privateGiftWrapAttemptEvidence(
+  result: PrivateGiftWrapAttemptResult
+) {
+  const evidence = attemptEvidence.get(result);
+  return evidence && { ...evidence };
+}
 export type PrivatePageMessage =
   | Readonly<{ type: 'candidate'; from: string; wire: string }>
   | Readonly<{
@@ -223,6 +243,7 @@ export function getPrivatePool(
             return await new Promise<PrivateGiftWrapAttemptResult>(
               (resolve) => {
                 let ended = false,
+                  attempted = false,
                   release = () => {},
                   fenceTimer: ReturnType<typeof setTimeout> | undefined;
                 function finish(
@@ -241,7 +262,7 @@ export function getPrivatePool(
                     publicationCleanupRequired = true;
                     status = 'unknown';
                   }
-                  resolve({
+                  const result: PrivateGiftWrapAttemptResult = {
                     status,
                     role: admitted!.role,
                     origin: admitted!.origin,
@@ -249,7 +270,26 @@ export function getPrivatePool(
                     ...(network
                       ? { actionId: network.actionId, attempt: network.attempt }
                       : {})
-                  });
+                  };
+                  if (attempted && network) {
+                    attemptEvidence.set(result, {
+                      repository: admitted!.repository,
+                      owner: admitted!.owner,
+                      command: admitted!.command,
+                      pairWire: admitted!.pairWire,
+                      receiptWire: JSON.stringify({
+                        actionId: network.actionId,
+                        role: admitted!.role,
+                        origin: admitted!.origin,
+                        eventId: admitted!.eventId,
+                        attempt: network.attempt,
+                        status,
+                        observedAtMilliseconds: Date.now(),
+                        readbackWire: null
+                      })
+                    });
+                  }
+                  resolve(result);
                 }
                 function stop() {
                   if (ended) {
@@ -299,6 +339,7 @@ export function getPrivatePool(
                   }
                   // The only private EVENT port accepts the freshly read-back1059;
                   // no caller event, key, relay template or SDK option crosses it.
+                  attempted = true;
                   const subscription = relay
                     .event(admitted.event, 'EVENT')
                     .subscribe({
