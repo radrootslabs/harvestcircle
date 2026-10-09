@@ -212,7 +212,15 @@ function validTransition(
     (JSON.stringify(base.self) === JSON.stringify(next.self) &&
       (base.deliveryPlan === undefined ||
         JSON.stringify(base.deliveryPlan) ===
-          JSON.stringify(next.deliveryPlan)) &&
+          JSON.stringify(next.deliveryPlan) ||
+        (!!next.deliveryPlan &&
+          JSON.stringify(base.deliveryPlan.routes) !==
+            JSON.stringify(next.deliveryPlan.routes) &&
+          JSON.stringify(next.deliveryPlan.previousRoutes) ===
+            JSON.stringify([
+              ...(base.deliveryPlan.previousRoutes ?? []),
+              base.deliveryPlan.routes
+            ]))) &&
       (base.receipts ?? []).every(
         (fact, index) =>
           JSON.stringify(fact) === JSON.stringify(next.receipts?.[index])

@@ -26,6 +26,7 @@ import {
 } from './private-records.ts';
 import {
   inboxRoutePlanSnapshot,
+  createInboxRoutePlan,
   recheckInboxRoutePlan,
   type InboxRoutePlan
 } from '../messaging/inbox-routing.ts';
@@ -319,6 +320,244 @@ const pairedAcknowledgements = new WeakMap<
   PairedDeliveryAcknowledgement,
   Paired
 >();
+declare const routingReviewBrand: unique symbol;
+export type PairedRoutingReview = Readonly<{ [routingReviewBrand]: true }>;
+type RoutingReview = Readonly<{
+  repository: PrivateStorageRepository;
+  session: IdentitySession;
+  receipt: PairedDeliveryAcknowledgement;
+  saved: Paired;
+  context: PairedDeliveryContext;
+  changed: boolean;
+  current(): boolean;
+}>;
+const routingReviewStates = new WeakMap<PairedRoutingReview, RoutingReview>();
+const pendingRoutingReviews = new WeakMap<
+  PairedDeliveryAcknowledgement,
+  PairedRoutingReview
+>();
+// Genuine current discovery is a reviewed destination candidate, not Send.
+// Detection immediately fences previously captured retry/publication custody.
+export function capturePairedRoutingReview(
+  repository: PrivateStorageRepository,
+  session: IdentitySession,
+  receipt: PairedDeliveryAcknowledgement,
+  candidate: Pick<PairedDeliveryContext, 'policy' | 'own' | 'other'>,
+  review: unknown
+): PairedRoutingReview | undefined {
+  if (
+    typeof window === 'undefined' ||
+    review !== 'reviewed_private_route_resolution'
+  )
+    return undefined;
+  const saved = pairedAcknowledgements.get(receipt),
+    ownership = identityMessagingOwnership(session);
+  if (
+    !saved?.current() ||
+    !saved.record.deliveryPlan ||
+    !saved.record.peerArtifact ||
+    !ownership?.current() ||
+    ownership.owner !== saved.record.owner
+  )
+    return undefined;
+  // Unready current resolution must also fence the old destination. No
+  // fallback capability survives merely because there is no new usable plan.
+  const token = Object.freeze({}) as PairedRoutingReview;
+  pendingRoutingReviews.set(receipt, token);
+  const plan = createInboxRoutePlan(
+    candidate.policy,
+    saved.record.owner,
+    saved.record.peer,
+    candidate.own,
+    candidate.other
+  );
+  if (!plan) return undefined;
+  const context = {
+    plan,
+    policy: candidate.policy,
+    own: candidate.own,
+    other: candidate.other
+  };
+  const routes = inboxRoutePlanSnapshot(plan);
+  if (
+    !routes ||
+    routes.peer.author !== saved.record.peer ||
+    routes.archive.author !== saved.record.owner ||
+    recheckInboxRoutePlan(
+      context.plan,
+      context.policy,
+      context.own,
+      context.other
+    ) !== 'unchanged'
+  )
+    return undefined;
+  const current = () =>
+    saved.current() &&
+    ownership.current() &&
+    pendingRoutingReviews.get(receipt) === token &&
+    recheckInboxRoutePlan(
+      context.plan,
+      context.policy,
+      context.own,
+      context.other
+    ) === 'unchanged';
+  routingReviewStates.set(token, {
+    repository,
+    session,
+    receipt,
+    saved,
+    context,
+    changed:
+      JSON.stringify(routes) !==
+      JSON.stringify(saved.record.deliveryPlan.routes),
+    current
+  });
+  return token;
+}
+export function pairedRoutingReviewSnapshot(token: PairedRoutingReview) {
+  const state = routingReviewStates.get(token);
+  if (!state?.current() || !state.saved.record.deliveryPlan) return undefined;
+  const previous = state.saved.record.deliveryPlan.routes,
+    next = inboxRoutePlanSnapshot(state.context.plan);
+  if (!next) return undefined;
+  function changes(role: 'peer' | 'archive') {
+    return {
+      removed: previous[role].targets.filter(
+        (origin) => !next![role].targets.includes(origin)
+      ),
+      added: next![role].targets.filter(
+        (origin) => !previous[role].targets.includes(origin)
+      )
+    };
+  }
+  return {
+    owner: state.saved.record.owner,
+    peer: state.saved.record.peer,
+    command: state.saved.record.id,
+    status: state.changed
+      ? ('review_required' as const)
+      : ('unchanged' as const),
+    previous: JSON.parse(JSON.stringify(previous)) as typeof previous,
+    next,
+    changes: { peer: changes('peer'), archive: changes('archive') },
+    fact: 'destination_review_only' as const
+  };
+}
+export type PairedRoutingResult =
+  | Readonly<{
+      status: 'updated' | 'unchanged';
+      receipt: PairedDeliveryAcknowledgement;
+    }>
+  | Readonly<{ status: PrivateStorageFailure | 'invalid' | 'stopped' }>;
+export async function approvePairedRoutingReview(
+  token: PairedRoutingReview,
+  review: unknown
+): Promise<PairedRoutingResult> {
+  const state = routingReviewStates.get(token);
+  if (
+    !state ||
+    review !== 'reviewed_private_destination_update' ||
+    !navigator.locks?.request
+  )
+    return { status: 'invalid' };
+  if (!state.current()) return { status: 'stopped' };
+  const { repository, session, receipt, saved, context } = state;
+  try {
+    const owner = await recheckIdentityOwner(session);
+    if (
+      owner.state !== 'messaging_capable' ||
+      owner.publicKey !== saved.record.owner ||
+      owner.admission === 'busy' ||
+      !state.current()
+    )
+      return { status: 'stopped' };
+    return await navigator.locks.request(
+      'harvestcircle:owner:' + saved.record.owner,
+      { mode: 'exclusive', ifAvailable: true },
+      async (lock) => {
+        if (!lock || !state.current()) return { status: 'stopped' as const };
+        const base = await loadPrivateRecord(
+          repository,
+          'private_sends',
+          saved.record.id
+        );
+        if (!state.current()) return { status: 'stopped' as const };
+        if (!base.ok) return { status: base.reason };
+        if (
+          privateRecordWire(base.value, saved.record.owner, saved.record.id) !==
+          saved.wire
+        )
+          return { status: 'conflict' as const };
+        const routes = inboxRoutePlanSnapshot(context.plan),
+          row = saved.record;
+        if (!routes || !row.deliveryPlan) return { status: 'invalid' as const };
+        let expected = base.value;
+        if (state.changed) {
+          if (row.revision === Number.MAX_SAFE_INTEGER)
+            return { status: 'invalid_record' as const };
+          const decoded = decodePrivateRecord(
+            JSON.stringify({
+              ...row,
+              revision: row.revision + 1,
+              deliveryPlan: {
+                state: 'prepared',
+                routes,
+                previousRoutes: [
+                  ...(row.deliveryPlan.previousRoutes ?? []),
+                  row.deliveryPlan.routes
+                ]
+              }
+            }),
+            row.owner,
+            row.id
+          );
+          if (!decoded.ok) return { status: 'invalid_record' as const };
+          expected = decoded.value;
+          if (!state.current()) return { status: 'stopped' as const };
+          const committed = await commitPrivateRecord(
+            repository,
+            expected,
+            base.value
+          );
+          if (!state.current())
+            return { status: 'unknown_completion' as const };
+          if (!committed.ok) return { status: committed.reason };
+        }
+        const loaded = await loadPrivateRecord(
+          repository,
+          'private_sends',
+          row.id
+        );
+        if (!state.current() || !loaded.ok)
+          return { status: 'unknown_completion' as const };
+        const wire = privateRecordWire(loaded.value, row.owner, row.id),
+          next = privateRecordSnapshot(loaded.value, row.owner, row.id);
+        if (
+          !wire ||
+          wire !== privateRecordWire(expected, row.owner, row.id) ||
+          !next ||
+          next.family !== 'private_send_operation' ||
+          JSON.stringify(next.self) !== JSON.stringify(row.self) ||
+          JSON.stringify(next.peerArtifact) !== JSON.stringify(row.peerArtifact)
+        )
+          return { status: 'conflict' as const };
+        pairedAcknowledgements.set(receipt, {
+          record: next,
+          wire,
+          current: saved.current
+        });
+        pendingRoutingReviews.delete(receipt);
+        routingReviewStates.delete(token);
+        return {
+          status: state.changed ? ('updated' as const) : ('unchanged' as const),
+          receipt
+        };
+      }
+    );
+  } catch {
+    return { status: state.current() ? 'unavailable' : 'stopped' };
+  }
+}
 // Explicit restart admission authenticates the self recovery copy and verifies
 // exact durable pair custody. It does not decrypt or newly authenticate the
 // nested peer ciphertext, regenerate either artifact, or perform publication.
@@ -592,6 +831,7 @@ export function pairedDeliveryAcknowledgementSnapshot(
   const saved = pairedAcknowledgements.get(receipt);
   if (
     !saved?.current() ||
+    pendingRoutingReviews.has(receipt) ||
     !saved.record.peerArtifact ||
     !saved.record.deliveryPlan
   )
@@ -617,7 +857,7 @@ export async function verifyPairedDeliveryAcknowledgement(
   receipt: PairedDeliveryAcknowledgement
 ): Promise<boolean> {
   const saved = pairedAcknowledgements.get(receipt);
-  if (!saved?.current()) return false;
+  if (!saved?.current() || pendingRoutingReviews.has(receipt)) return false;
   const loaded = await loadPrivateRecord(
     repository,
     'private_sends',
@@ -625,6 +865,7 @@ export async function verifyPairedDeliveryAcknowledgement(
   );
   return (
     saved.current() &&
+    !pendingRoutingReviews.has(receipt) &&
     loaded.ok &&
     privateRecordWire(loaded.value, saved.record.owner, saved.record.id) ===
       saved.wire
@@ -640,6 +881,7 @@ export function pairedDeliveryRecordMatches(
   const saved = pairedAcknowledgements.get(receipt);
   return (
     !!saved?.current() &&
+    !pendingRoutingReviews.has(receipt) &&
     privateRecordWire(record, saved.record.owner, saved.record.id) ===
       saved.wire
   );
@@ -655,6 +897,7 @@ export function pairedDeliveryTargetAccepted(
   const saved = pairedAcknowledgements.get(receipt);
   return (
     !!saved?.current() &&
+    !pendingRoutingReviews.has(receipt) &&
     (saved.record.receipts ?? []).some(
       (fact) =>
         fact.role === role &&
@@ -673,7 +916,8 @@ export async function commitPairedDeliveryReceipt(
   receiptWire: unknown
 ): Promise<PrivateReceiptCommitResult> {
   const saved = pairedAcknowledgements.get(receipt);
-  if (!saved?.current()) return { status: 'invalid' };
+  if (!saved?.current() || pendingRoutingReviews.has(receipt))
+    return { status: 'invalid' };
   try {
     const loaded = await loadPrivateRecord(
       repository,

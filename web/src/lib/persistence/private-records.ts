@@ -61,6 +61,9 @@ export type PrivateTargetReceipt = Readonly<{
 export type PrivateDeliveryPlan = Readonly<{
   state: 'prepared';
   routes: InboxRouteSnapshot;
+  // Earlier reviewed destinations retain the scope of immutable old facts.
+  // These local snapshots never qualify an inbox or authorize replay.
+  previousRoutes?: readonly InboxRouteSnapshot[];
 }>;
 export type ReceivedEnvelopeRecord = Readonly<{
   schema: 1;
@@ -181,11 +184,28 @@ function deliveryPlan(
   peer: string
 ): value is PrivateDeliveryPlan {
   return (
-    exactLocalFields(value, ['state', 'routes']) &&
+    exactLocalFields(value, [
+      'state',
+      'routes',
+      ...(typeof value === 'object' &&
+      value !== null &&
+      'previousRoutes' in value
+        ? ['previousRoutes']
+        : [])
+    ]) &&
     value.state === 'prepared' &&
     exactLocalFields(value.routes, ['peer', 'archive']) &&
     persistedRoute(value.routes.peer, peer, 'peer') &&
-    persistedRoute(value.routes.archive, owner, 'self_archive')
+    persistedRoute(value.routes.archive, owner, 'self_archive') &&
+    (value.previousRoutes === undefined ||
+      (Array.isArray(value.previousRoutes) &&
+        value.previousRoutes.length > 0 &&
+        value.previousRoutes.every(
+          (previous) =>
+            exactLocalFields(previous, ['peer', 'archive']) &&
+            persistedRoute(previous.peer, peer, 'peer') &&
+            persistedRoute(previous.archive, owner, 'self_archive')
+        )))
   );
 }
 // JSON.parse keeps only the last duplicate key. Retaining the original outer
@@ -400,7 +420,13 @@ function receipt(
   const route = value.role === 'peer' ? plan.routes.peer : plan.routes.archive,
     outer = value.role === 'peer' ? peer : self;
   return (
-    route.targets.includes(value.origin) &&
+    (route.targets.includes(value.origin) ||
+      (plan.previousRoutes ?? []).some((previous) =>
+        (value.role === 'peer'
+          ? previous.peer
+          : previous.archive
+        ).targets.includes(value.origin as string)
+      )) &&
     value.eventId === outer.eventId &&
     (value.status === 'readback'
       ? value.readbackWire === outer.wire
