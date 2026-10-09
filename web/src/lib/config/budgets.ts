@@ -113,3 +113,9 @@ export const PRIVATE_LIVE_BUDGETS = Object.freeze({
   processedBytes: 2097152,
   windowMilliseconds: 60000
 });
+
+// Envelope costs include unsupported and blocked inner senders. Each explicit
+// reviewed continuation gets at most twenty; provider waits never cancel calls.
+export const PRIVATE_DECRYPTION_BUDGETS = Object.freeze({
+  envelopesPerAction: 20
+});

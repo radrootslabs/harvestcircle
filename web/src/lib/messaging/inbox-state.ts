@@ -1,6 +1,7 @@
 import {
   LOCAL_PERSISTENCE_BUDGETS,
-  PRIVATE_TRANSPORT_BUDGETS
+  PRIVATE_TRANSPORT_BUDGETS,
+  PRIVATE_DECRYPTION_BUDGETS
 } from '../config/budgets.ts';
 export type OuterFact = Readonly<{ outerId: string; outerTime: number }>;
 export type OuterCursor = Readonly<{
@@ -90,4 +91,19 @@ export function advanceOuterPage(
     partial,
     historyComplete: false
   };
+}
+
+// A work plan is metadata, never an owner, unlock or SDK permission.
+export function planDecryptBatch(ids: readonly string[]) {
+  if (ids.length > LOCAL_PERSISTENCE_BUDGETS.receivedEnvelopes)
+    throw Error('decryption_queue_capacity');
+  for (const id of ids)
+    if (typeof id !== 'string' || !/^[0-9a-f]{64}$/.test(id))
+      throw Error('decryption_queue_identity_invalid');
+  const unique = ids.filter((id, index, all) => all.indexOf(id) === index);
+  const selected = unique.slice(
+    0,
+    PRIVATE_DECRYPTION_BUDGETS.envelopesPerAction
+  );
+  return { selected, remaining: unique.length - selected.length };
 }
