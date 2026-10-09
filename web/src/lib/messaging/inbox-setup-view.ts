@@ -26,6 +26,7 @@ import {
 } from '../runtime/public-runtime.ts';
 import {
   resolveInboxPreference,
+  settleInboxResolver,
   inboxResolutionSnapshot,
   closeInboxResolver,
   type InboxResolver
@@ -89,7 +90,7 @@ export type InboxSetupViewSnapshot = Readonly<{
 type Inputs = Readonly<{
   identity: IdentitySession;
   policy: RelayPolicy;
-  lookup(): Promise<InboxResolver>;
+  lookup(current?: () => boolean): Promise<InboxResolver>;
   readback?(
     record: PublicRecordHandle,
     owner: string,
@@ -286,7 +287,7 @@ export function createInboxSetupView(
     check: () =>
       work('checking', async (generation) => {
         if (resolver) closeInboxResolver(resolver);
-        const found = await input.lookup();
+        const found = await input.lookup(() => current(generation));
         if (!current(generation)) {
           closeInboxResolver(found);
           return;
@@ -359,7 +360,7 @@ export function createInboxSetupView(
           input.policy,
           review,
           command,
-          input.lookup,
+          () => input.lookup(() => current(generation)),
           'reviewed_global_inbox_replacement'
         );
         if (!current(generation)) {
@@ -517,11 +518,12 @@ export function createRuntimeInboxSetupView(
     const controller = createInboxSetupView({
       identity,
       policy: deploymentRelayPolicy,
-      lookup: () => {
+      lookup: (current = () => true) => {
         const owner = identityMessagingOwnership(identity);
         if (!owner) throw new Error('inbox_owner_unavailable');
-        return Promise.resolve(
-          resolveInboxPreference(view, beginPublicViewRun(view), owner.owner)
+        return settleInboxResolver(
+          resolveInboxPreference(view, beginPublicViewRun(view), owner.owner),
+          () => owner.current() && current()
         );
       },
       readback: (record, owner, id) =>

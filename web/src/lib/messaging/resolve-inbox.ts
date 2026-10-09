@@ -201,3 +201,32 @@ export function closeInboxResolver(token: InboxResolver): void {
 export function inboxResolverCurrentAfterSample(token: InboxResolver): boolean {
   return ownerOf(token).currentAfterSample();
 }
+declare function setTimeout(callback: () => void, milliseconds: number): number;
+// Await the same original bounded request, preserving its observed outcome.
+// The original clock and owner decide retirement; this never renews a run,
+// manufactures EOSE/readiness or grants a signing/publication capability.
+export async function settleInboxResolver(
+  token: InboxResolver,
+  current: () => boolean = () => true
+): Promise<InboxResolver> {
+  const owner = ownerOf(token);
+  try {
+    for (;;) {
+      const observed = owner.snapshot();
+      if (!current() || !owner.currentAfterSample()) {
+        owner.close();
+        return token;
+      }
+      const scope = publicRequestScopeSnapshot(observed.request);
+      if (
+        scope.state !== 'active' &&
+        (scope.state !== 'eose' || scope.inboxSettled === true)
+      )
+        return token;
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+  } catch {
+    owner.close();
+    return token;
+  }
+}

@@ -404,7 +404,12 @@ async function productPresentationAdmission(web) {
   const hasEnquiry = route.includes(
     '../../../lib/components/ProductEnquiry.svelte'
   );
-  const producers = hasEnquiry
+  const hasRequest =
+    hasEnquiry &&
+    (await readOwned(web, 'src/lib/components/ProductEnquiry.svelte'))
+      .toString()
+      .includes('../messaging/product-request-controller.ts');
+  const producers = hasRequest
     ? {
         'src/routes/products/[naddr=naddr]/+page.svelte':
           '970f716e5f31bb0a7e463db84876d4f4b0801979e0893ef69fbeed1b17d69b0f',
@@ -425,39 +430,72 @@ async function productPresentationAdmission(web) {
         'src/lib/catalog/resolve-head.ts':
           '4f1c9f144164580da038d127ab463f9f8ba6b20e882fc31151cb29850782d633',
         'src/lib/components/ProductEnquiry.svelte':
-          '4935f091aa4db3b79b681e4bfdda4547b6654a87adee897b1da25abd17c03290',
+          'a13db6509100a0db73536211301b22cb42e86b3c2ad06d861f61a679ae6ac635',
         'src/lib/messaging/product-enquiry.ts':
-          'fdabb058bd42b253d24e0cb2b0a27fb24ef1c65bdc1783e298d1098185e345f4',
+          '093fe1d5331b81fcf63efeae2b17e5f2c39cbab990e542a13e529a39e28eb8f1',
         'src/lib/messaging/enquiry-context.ts':
-          'fc00bb77f601427fb73defc0c758332c3465c2d583bfa1f7b996f808f508b735'
+          'fc00bb77f601427fb73defc0c758332c3465c2d583bfa1f7b996f808f508b735',
+        'src/lib/messaging/product-request-controller.ts':
+          'd26242d348c6575cfae197833f3cf5a12751cf987c0f36322a647cc55e2bcb22',
+        'src/lib/components/CapabilityGate.svelte':
+          '38584846f67135d03ad531199cfd4e5f9dbcede58ca7baa2ee2d14fd9f46d414',
+        'src/lib/messaging/resolve-inbox.ts':
+          '6c6438c518f13916a4a5664d8dd0e313338219bd52d5a91db8abab9bbc4a794c'
       }
-    : {
-        'src/routes/products/[naddr=naddr]/+page.svelte':
-          '1869d4dc32ea794d5ee5c1d6cc6b4aac94483482d18cff0562c0cb10087b5278',
-        'src/lib/catalog/product-view.ts':
-          'e3739170e3c700246a80c1358c7b96541a5cbf1e4c26905e6ca60537adfce9cf',
-        'src/lib/components/ListingFacts.svelte':
-          '65d009b4940e7ced61347919689877da9473a2a66a44f61cc5e7bd0b2d217215',
-        'src/lib/components/PublisherIdentity.svelte':
-          '90b156e2401d40079ee559d65ce66ec09ecc4246bc80cfdfc5def0e21e8ce9ff',
-        'src/lib/contracts/food-availability-v1/contact-read.ts':
-          '18f812812c15858768223d929bcea9d7eae5154612747016ccd17864c229420a',
-        'src/lib/navigation-copy.ts':
-          '1a17eac4b355d8a3fb2b55b3fe1bc856cc3b3bce07434836d708b68407686f20',
-        'src/lib/runtime/public-runtime.ts':
-          'fa2e27d72b82b6bef73693cf93f19614e61ea51ebd11eb40d8ca4ec723f0c14e',
-        'src/lib/catalog/publishers.ts':
-          'a6795a35ebbf97246e22235df1ca868432e2cccfb26a38f0ebdf4524911192e6',
-        'src/lib/catalog/resolve-head.ts':
-          '4f1c9f144164580da038d127ab463f9f8ba6b20e882fc31151cb29850782d633'
-      };
+    : hasEnquiry
+      ? {
+          'src/routes/products/[naddr=naddr]/+page.svelte':
+            '970f716e5f31bb0a7e463db84876d4f4b0801979e0893ef69fbeed1b17d69b0f',
+          'src/lib/catalog/product-view.ts':
+            'e608bcc5b7918366e2daabd5f5270cabf0ded22e1bbfd413d26450387ebac171',
+          'src/lib/components/ListingFacts.svelte':
+            '65d009b4940e7ced61347919689877da9473a2a66a44f61cc5e7bd0b2d217215',
+          'src/lib/components/PublisherIdentity.svelte':
+            '90b156e2401d40079ee559d65ce66ec09ecc4246bc80cfdfc5def0e21e8ce9ff',
+          'src/lib/contracts/food-availability-v1/contact-read.ts':
+            '18f812812c15858768223d929bcea9d7eae5154612747016ccd17864c229420a',
+          'src/lib/navigation-copy.ts':
+            '1a17eac4b355d8a3fb2b55b3fe1bc856cc3b3bce07434836d708b68407686f20',
+          'src/lib/runtime/public-runtime.ts':
+            'fa2e27d72b82b6bef73693cf93f19614e61ea51ebd11eb40d8ca4ec723f0c14e',
+          'src/lib/catalog/publishers.ts':
+            'a6795a35ebbf97246e22235df1ca868432e2cccfb26a38f0ebdf4524911192e6',
+          'src/lib/catalog/resolve-head.ts':
+            '4f1c9f144164580da038d127ab463f9f8ba6b20e882fc31151cb29850782d633',
+          'src/lib/components/ProductEnquiry.svelte':
+            '4935f091aa4db3b79b681e4bfdda4547b6654a87adee897b1da25abd17c03290',
+          'src/lib/messaging/product-enquiry.ts':
+            'fdabb058bd42b253d24e0cb2b0a27fb24ef1c65bdc1783e298d1098185e345f4',
+          'src/lib/messaging/enquiry-context.ts':
+            'fc00bb77f601427fb73defc0c758332c3465c2d583bfa1f7b996f808f508b735'
+        }
+      : {
+          'src/routes/products/[naddr=naddr]/+page.svelte':
+            '1869d4dc32ea794d5ee5c1d6cc6b4aac94483482d18cff0562c0cb10087b5278',
+          'src/lib/catalog/product-view.ts':
+            'e3739170e3c700246a80c1358c7b96541a5cbf1e4c26905e6ca60537adfce9cf',
+          'src/lib/components/ListingFacts.svelte':
+            '65d009b4940e7ced61347919689877da9473a2a66a44f61cc5e7bd0b2d217215',
+          'src/lib/components/PublisherIdentity.svelte':
+            '90b156e2401d40079ee559d65ce66ec09ecc4246bc80cfdfc5def0e21e8ce9ff',
+          'src/lib/contracts/food-availability-v1/contact-read.ts':
+            '18f812812c15858768223d929bcea9d7eae5154612747016ccd17864c229420a',
+          'src/lib/navigation-copy.ts':
+            '1a17eac4b355d8a3fb2b55b3fe1bc856cc3b3bce07434836d708b68407686f20',
+          'src/lib/runtime/public-runtime.ts':
+            'fa2e27d72b82b6bef73693cf93f19614e61ea51ebd11eb40d8ca4ec723f0c14e',
+          'src/lib/catalog/publishers.ts':
+            'a6795a35ebbf97246e22235df1ca868432e2cccfb26a38f0ebdf4524911192e6',
+          'src/lib/catalog/resolve-head.ts':
+            '4f1c9f144164580da038d127ab463f9f8ba6b20e882fc31151cb29850782d633'
+        };
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);
     publicText(bytes);
     if (createHash('sha256').update(bytes).digest('hex') !== pin)
       throw new Error('Invalid owned product presentation source');
   }
-  return hasEnquiry ? 'enquiry' : true;
+  return hasRequest ? 'request' : hasEnquiry ? 'enquiry' : true;
 }
 // This exact reviewed producer set owns the shared presentation/runtime split.
 // A successor changes these identities only with new compiler qualification.
@@ -516,9 +554,9 @@ async function inboxSetupAdmission(web) {
   if (!gate.toString().includes("'./InboxSetup.svelte'")) return false;
   const producers = {
     'src/lib/components/InboxSetup.svelte':
-      'b6ee2ecccd3ad3e192a56b6d03178bdf222c60dcc0bcb8e2ce7b09dda3bb3bf0',
+      'd718e9ee2005af0be358fb3c3a051beb6d71568a81e2d43758bdec80edc959f6',
     'src/lib/messaging/inbox-setup-view.ts':
-      '7559ec04394624a8275280027c031b90d0a62b78f94aec3933df6f3b50077450',
+      '4ec9025232bb1355fef1ba039b46ce0a2be10e02e348e1b4eaadc3d1f3c2fd84',
     'src/lib/runtime/view-context.ts':
       'e2329113e29db35e983270217c47d38a44d4e0491fd710395e008786b5ae7033'
   };
@@ -545,7 +583,7 @@ async function inboxPresentationAdmission(web) {
     'src/lib/messaging/inbox-sync.ts':
       '84f9b3bb165a81878bb281c51d245aff7eb06a0fa55b857a49b13d0cb1cff8ae',
     'src/lib/messaging/inbox-setup-view.ts':
-      '7559ec04394624a8275280027c031b90d0a62b78f94aec3933df6f3b50077450',
+      '4ec9025232bb1355fef1ba039b46ce0a2be10e02e348e1b4eaadc3d1f3c2fd84',
     'src/lib/messaging/decryption-queue.ts':
       '07661a883ee360e9fd7bd411893d637fd6b4b70aecb20101b826fe41b7ca4810',
     'src/lib/components/ConversationRow.svelte':
@@ -563,11 +601,11 @@ async function inboxPresentationAdmission(web) {
     'src/routes/messages/[conversationId=local_id]/+page.svelte':
       'b06c6189adee80b68bc6657fa0e8504551fe9a8b1655a6d81807ebee9930a5e7',
     'src/lib/components/MessageComposer.svelte':
-      '9fd8221ab7c9c2d2d0e6626dc8d37b7c95de82b65804dc8766a7f756363c68ae',
+      'bc8ac0e2123b60957f1c289acbb2b8740e171097029f640f657cd79f5aa8423b',
     'src/lib/messaging/reply-controller.ts':
       'c13f1395b5317febcd23396babbcc116065ff96e8cbeb29c8eadfdfc14e45c2d',
     'src/lib/messaging/rumor-plan.ts':
-      '11a672d05a1eaf680b8039bd4c0986754b64f7103034c698843dc24d0560e0f5',
+      '8ecfa4b8238027f9011a657015da10cc2cc3691d03afa32b9a5064a6ccc56cd9',
     'src/lib/components/ConversationOptions.svelte':
       'a33d9ffb13e28ce985799fa69342c8fa63816da70e1f9383d4e8e82f5a393c6d',
     'src/lib/messaging/cited-product.ts':
@@ -684,7 +722,9 @@ export async function auditOutput(webDirectory) {
     hasFullRoutes &&
     hasPublicRuntime &&
     (await productPresentationAdmission(web));
-  const hasProductEnquiry = hasProductPresentation === 'enquiry';
+  const hasProductRequest = hasProductPresentation === 'request';
+  const hasProductEnquiry =
+    hasProductRequest || hasProductPresentation === 'enquiry';
   const hasPreferencePublication =
     hasPublicRuntime && (await preferencePublicationAdmission(web));
   const hasInboxSetup =
@@ -742,10 +782,14 @@ export async function auditOutput(webDirectory) {
   if (hasProductPresentation) names.add('publishers');
   if (hasInboxSetup) names.add('private-handles');
   if (hasProductEnquiry)
-    for (const name of ['inbox-view', 'inbox-setup-view', 'CapabilityGate'])
+    for (const name of hasProductRequest
+      ? ['inbox-view', 'MessageComposer']
+      : ['inbox-view', 'inbox-setup-view', 'CapabilityGate'])
       names.add(name);
   if (hasInboxPresentation)
-    for (const name of ['InboxStatus', 'InboxSetup', 'read', 'resolve-head'])
+    for (const name of hasProductRequest
+      ? ['InboxStatus', 'InboxSetup', 'read']
+      : ['InboxStatus', 'InboxSetup', 'read', 'resolve-head'])
       names.add(name);
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();
@@ -960,14 +1004,16 @@ export async function auditOutput(webDirectory) {
       const identityDependencies = [
         [
           'view-context',
-          hasProductEnquiry
-            ? [identityCompilerModule]
-            : [
-                ...(hasPreferencePublication ? [] : ['public-key']),
-                identityCompilerModule,
-                'client',
-                'Button'
-              ]
+          hasProductRequest
+            ? ['public-runtime', 'client', 'Button']
+            : hasProductEnquiry
+              ? [identityCompilerModule]
+              : [
+                  ...(hasPreferencePublication ? [] : ['public-key']),
+                  identityCompilerModule,
+                  'client',
+                  'Button'
+                ]
         ],
         [
           identityCompilerModule,
@@ -1019,18 +1065,20 @@ export async function auditOutput(webDirectory) {
         const [, gate] = requiredRecord('AccountGate');
         equal(
           gate.imports,
-          (hasProductEnquiry
-            ? ['client', 'CapabilityGate', 'view-context', 'InboxSetup']
-            : hasInboxPresentation
-              ? ['client', 'view-context', 'InboxSetup']
-              : [
-                  'public-key',
-                  'private-handles',
-                  'public-runtime',
-                  'client',
-                  'Button',
-                  'view-context'
-                ]
+          (hasProductRequest
+            ? ['client', 'view-context', 'InboxSetup']
+            : hasProductEnquiry
+              ? ['client', 'CapabilityGate', 'view-context', 'InboxSetup']
+              : hasInboxPresentation
+                ? ['client', 'view-context', 'InboxSetup']
+                : [
+                    'public-key',
+                    'private-handles',
+                    'public-runtime',
+                    'client',
+                    'Button',
+                    'view-context'
+                  ]
           ).map((name) => requiredRecord(name)[0]),
           'Invalid owned inbox compiler dependencies'
         );
@@ -1066,7 +1114,7 @@ export async function auditOutput(webDirectory) {
       return row;
     };
     /** @type {[string,string[]][]} */
-    const dependencies = hasProductEnquiry
+    const dependencies = hasProductRequest
       ? [
           [
             'InboxStatus',
@@ -1075,9 +1123,7 @@ export async function auditOutput(webDirectory) {
               'client',
               'Button',
               'navigation',
-              'CapabilityGate',
               'view-context',
-              'inbox-setup-view',
               'InboxSetup',
               'inbox-view'
             ]
@@ -1085,11 +1131,12 @@ export async function auditOutput(webDirectory) {
           [
             'InboxSetup',
             [
+              'public-key',
+              'private-handles',
               'public-runtime',
               'client',
               'Button',
-              'view-context',
-              'inbox-setup-view'
+              'view-context'
             ]
           ],
           ['read', ['public-runtime']],
@@ -1098,23 +1145,21 @@ export async function auditOutput(webDirectory) {
             'nodes/5',
             [
               'public-key',
-              'private-handles',
               'public-runtime',
               'references',
               'client',
               'Button',
               'client.svelte',
-              'navigation',
               'state',
               'view-context',
               'legacy',
-              'inbox-setup-view',
+              'InboxSetup',
               'inbox-view',
               'InboxStatus',
-              'resolve-head'
+              'publishers',
+              'MessageComposer'
             ]
           ],
-          ['resolve-head', ['public-runtime', 'Button', 'read']],
           [
             'inbox-view',
             [
@@ -1123,21 +1168,24 @@ export async function auditOutput(webDirectory) {
               'public-runtime',
               'references',
               'Button',
-              'inbox-setup-view',
+              'InboxSetup',
               'read'
             ]
           ],
           [
-            'inbox-setup-view',
+            'MessageComposer',
             [
-              'public-key',
               'private-handles',
               'public-runtime',
+              'references',
+              'client',
               'Button',
-              'view-context'
+              'navigation',
+              'InboxSetup',
+              'inbox-view',
+              'publishers'
             ]
           ],
-          ['CapabilityGate', ['client', 'Button']],
           [
             'nodes/0',
             [
@@ -1147,62 +1195,148 @@ export async function auditOutput(webDirectory) {
               'Button',
               'client.svelte',
               'state',
-              'CapabilityGate',
-              'Disclosure',
-              'view-context'
+              'view-context',
+              'Disclosure'
             ]
           ]
         ]
-      : [
-          [
-            'InboxStatus',
+      : hasProductEnquiry
+        ? [
             [
-              'public-key',
-              'private-handles',
-              'public-runtime',
-              'references',
-              'client',
-              'Button',
-              'navigation',
-              'view-context',
-              'InboxSetup',
-              'read'
-            ]
-          ],
-          [
-            'InboxSetup',
-            [
-              'public-key',
-              'private-handles',
-              'public-runtime',
-              'client',
-              'Button',
-              'view-context'
-            ]
-          ],
-          ['read', ['public-runtime']],
-          ['nodes/4', ['client', 'AccountGate', 'InboxStatus']],
-          [
-            'nodes/5',
-            [
-              'public-key',
-              'private-handles',
-              'public-runtime',
-              'references',
-              'client',
-              'Button',
-              'client.svelte',
-              'navigation',
-              'state',
-              'view-context',
-              'legacy',
-              'InboxSetup',
               'InboxStatus',
-              'resolve-head'
+              [
+                'public-runtime',
+                'client',
+                'Button',
+                'navigation',
+                'CapabilityGate',
+                'view-context',
+                'inbox-setup-view',
+                'InboxSetup',
+                'inbox-view'
+              ]
+            ],
+            [
+              'InboxSetup',
+              [
+                'public-runtime',
+                'client',
+                'Button',
+                'view-context',
+                'inbox-setup-view'
+              ]
+            ],
+            ['read', ['public-runtime']],
+            ['nodes/4', ['client', 'AccountGate', 'InboxStatus']],
+            [
+              'nodes/5',
+              [
+                'public-key',
+                'private-handles',
+                'public-runtime',
+                'references',
+                'client',
+                'Button',
+                'client.svelte',
+                'navigation',
+                'state',
+                'view-context',
+                'legacy',
+                'inbox-setup-view',
+                'inbox-view',
+                'InboxStatus',
+                'resolve-head'
+              ]
+            ],
+            ['resolve-head', ['public-runtime', 'Button', 'read']],
+            [
+              'inbox-view',
+              [
+                'public-key',
+                'private-handles',
+                'public-runtime',
+                'references',
+                'Button',
+                'inbox-setup-view',
+                'read'
+              ]
+            ],
+            [
+              'inbox-setup-view',
+              [
+                'public-key',
+                'private-handles',
+                'public-runtime',
+                'Button',
+                'view-context'
+              ]
+            ],
+            ['CapabilityGate', ['client', 'Button']],
+            [
+              'nodes/0',
+              [
+                'public-key',
+                'public-runtime',
+                'client',
+                'Button',
+                'client.svelte',
+                'state',
+                'CapabilityGate',
+                'Disclosure',
+                'view-context'
+              ]
             ]
-          ],
-          ['resolve-head', ['public-runtime', 'Button', 'read']]
-        ];
+          ]
+        : [
+            [
+              'InboxStatus',
+              [
+                'public-key',
+                'private-handles',
+                'public-runtime',
+                'references',
+                'client',
+                'Button',
+                'navigation',
+                'view-context',
+                'InboxSetup',
+                'read'
+              ]
+            ],
+            [
+              'InboxSetup',
+              [
+                'public-key',
+                'private-handles',
+                'public-runtime',
+                'client',
+                'Button',
+                'view-context'
+              ]
+            ],
+            ['read', ['public-runtime']],
+            ['nodes/4', ['client', 'AccountGate', 'InboxStatus']],
+            [
+              'nodes/5',
+              [
+                'public-key',
+                'private-handles',
+                'public-runtime',
+                'references',
+                'client',
+                'Button',
+                'client.svelte',
+                'navigation',
+                'state',
+                'view-context',
+                'legacy',
+                'InboxSetup',
+                'InboxStatus',
+                'resolve-head'
+              ]
+            ],
+            ['resolve-head', ['public-runtime', 'Button', 'read']]
+          ];
     for (const [name, imports] of dependencies) {
       const [key, row] = entry(name);
       equal(
@@ -1264,58 +1398,74 @@ export async function auditOutput(webDirectory) {
       throw new Error('Invalid owned product compiler identity');
     equal(
       publisher.imports,
-      (hasInboxSetup
-        ? [
-            'public-key',
-            identityCompilerModule,
-            'Button',
-            ...(hasInboxPresentation ? ['resolve-head'] : [])
-          ]
-        : hasPublicRuntime === 'public_identity'
-          ? ['public-key', identityCompilerModule, 'Disclosure', 'Button']
-          : ['public-key', 'Disclosure', 'budgets']
+      (hasProductRequest
+        ? ['public-key', 'public-runtime', 'Button', 'read']
+        : hasInboxSetup
+          ? [
+              'public-key',
+              identityCompilerModule,
+              'Button',
+              ...(hasInboxPresentation ? ['resolve-head'] : [])
+            ]
+          : hasPublicRuntime === 'public_identity'
+            ? ['public-key', identityCompilerModule, 'Disclosure', 'Button']
+            : ['public-key', 'Disclosure', 'budgets']
       ).map((name) => entry(name)[0]),
       'Invalid owned product publisher compiler dependencies'
     );
     equal(
       entry('nodes/7')[1].imports?.toSorted(),
-      (hasInboxSetup
+      (hasProductRequest
         ? [
             'public-key',
+            'public-runtime',
             'references',
-            identityCompilerModule,
             'client',
             'Button',
             'client.svelte',
             'state',
+            'view-context',
             'Disclosure',
-            'publishers',
-            ...(hasInboxPresentation ? ['resolve-head'] : []),
-            ...(hasProductEnquiry ? ['inbox-view'] : [])
+            'InboxSetup',
+            'MessageComposer'
           ]
-        : hasPublicRuntime === 'public_identity'
+        : hasInboxSetup
           ? [
               'public-key',
               'references',
               identityCompilerModule,
-              'Disclosure',
               'client',
               'Button',
               'client.svelte',
               'state',
-              'publishers'
-            ]
-          : [
-              'rolldown-runtime',
-              'references',
               'Disclosure',
-              'client',
-              'budgets',
-              'client.svelte',
-              'state',
-              'Button',
-              'publishers'
+              'publishers',
+              ...(hasInboxPresentation ? ['resolve-head'] : []),
+              ...(hasProductEnquiry ? ['inbox-view'] : [])
             ]
+          : hasPublicRuntime === 'public_identity'
+            ? [
+                'public-key',
+                'references',
+                identityCompilerModule,
+                'Disclosure',
+                'client',
+                'Button',
+                'client.svelte',
+                'state',
+                'publishers'
+              ]
+            : [
+                'rolldown-runtime',
+                'references',
+                'Disclosure',
+                'client',
+                'budgets',
+                'client.svelte',
+                'state',
+                'Button',
+                'publishers'
+              ]
       )
         .map((name) => entry(name)[0])
         .sort(),
@@ -1323,10 +1473,10 @@ export async function auditOutput(webDirectory) {
     );
     equal(
       entry('nodes/9')[1].imports?.toSorted(),
-      (hasInboxSetup
+      (hasProductRequest
         ? [
+            'public-runtime',
             'references',
-            identityCompilerModule,
             'client',
             'Button',
             'client.svelte',
@@ -1334,34 +1484,47 @@ export async function auditOutput(webDirectory) {
             'state',
             'Disclosure',
             'routes',
-            'publishers',
-            ...(hasInboxPresentation ? ['resolve-head'] : [])
+            'publishers'
           ]
-        : hasPublicRuntime === 'public_identity'
+        : hasInboxSetup
           ? [
               'references',
               identityCompilerModule,
-              'Disclosure',
               'client',
               'Button',
               'client.svelte',
               'navigation',
               'state',
-              'routes',
-              'publishers'
-            ]
-          : [
-              'references',
               'Disclosure',
-              'client',
-              'budgets',
-              'client.svelte',
-              'navigation',
-              'state',
-              'Button',
               'routes',
-              'publishers'
+              'publishers',
+              ...(hasInboxPresentation ? ['resolve-head'] : [])
             ]
+          : hasPublicRuntime === 'public_identity'
+            ? [
+                'references',
+                identityCompilerModule,
+                'Disclosure',
+                'client',
+                'Button',
+                'client.svelte',
+                'navigation',
+                'state',
+                'routes',
+                'publishers'
+              ]
+            : [
+                'references',
+                'Disclosure',
+                'client',
+                'budgets',
+                'client.svelte',
+                'navigation',
+                'state',
+                'Button',
+                'routes',
+                'publishers'
+              ]
       )
         .map((name) => entry(name)[0])
         .sort(),

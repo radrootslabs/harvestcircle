@@ -135,12 +135,13 @@ export function captureEnquiryRumor(
   session: IdentitySession,
   context: EnquiryContext,
   text: unknown,
-  observedTime: unknown
+  observedTime: unknown,
+  additionalCurrent: () => boolean = () => true
 ): RumorPlan | undefined {
   const parts = buildEnquiryMessage(context, text);
   const message = parts && messageFromWireParts(JSON.stringify(parts));
   return message
-    ? capture(session, JSON.stringify(message), observedTime)
+    ? capture(session, JSON.stringify(message), observedTime, additionalCurrent)
     : undefined;
 }
 export function captureReplyRumor(

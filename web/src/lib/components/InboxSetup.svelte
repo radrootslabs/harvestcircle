@@ -1,4 +1,5 @@
 <script lang="ts">
+  /* global setInterval, clearInterval */
   import { getContext, onMount } from 'svelte';
   import Button from './primitives/Button.svelte';
   import {
@@ -23,9 +24,13 @@
     readbackInboxSetupView,
     stopInboxSetupView,
     closeInboxSetupView,
+    observeInboxSetupView,
     type InboxSetupView
   } from '../messaging/inbox-setup-view.ts';
-  let { controller }: { controller?: InboxSetupView } = $props();
+  let {
+    controller,
+    inline = false
+  }: { controller?: InboxSetupView; inline?: boolean } = $props();
   const identityContext = getContext<IdentityViewContext>(
     IDENTITY_VIEW_CONTEXT
   );
@@ -67,6 +72,9 @@
       ? subscribeIdentityView(identityContext, acquire)
       : () => {};
     acquire();
+    const timer = inline
+      ? setInterval(() => observeInboxSetupView(owned), 250)
+      : undefined;
     if (!controller && publicContext)
       void publicRuntimeReady(publicContext)
         .then((value) => {
@@ -79,6 +87,7 @@
         });
     return () => {
       disposed = true;
+      if (timer !== undefined) clearInterval(timer);
       identityOff();
       off();
       closeInboxSetupView(owned);
@@ -188,13 +197,14 @@
     your public preference; it does not send your enquiry or publish a listing.
   </p>
   {#if panel.owner}<p>Public key: <code>{panel.owner}</code></p>{/if}
-  <Button
-    label="Check current preference"
-    disabled={!owned || panel.busy}
-    onclick={() => {
-      void checkInboxSetupView(owned);
-    }}
-  />
+  {#if !inline || ['not_checked', 'lookup_incomplete', 'unavailable', 'conflict', 'stopped', 'needs_action'].includes(panel.status)}<Button
+      label="Check current preference"
+      variant={inline ? 'primary' : 'secondary'}
+      disabled={!owned || panel.busy}
+      onclick={() => {
+        void checkInboxSetupView(owned);
+      }}
+    />{/if}
   {#if panel.currentWire}
     <h3>Current observed destinations</h3>
     <ul aria-label="Current observed inbox destinations">
@@ -210,13 +220,14 @@
   {#if panel.status === 'compatible' || panel.status === 'access_unavailable' || panel.status === 'awaiting_readback'}
     <Button
       label="Unlock inbox"
+      variant={inline ? 'primary' : 'secondary'}
       disabled={!owned || panel.busy}
       onclick={() => {
         void unlockInboxSetupView(owned);
       }}
     />
   {/if}
-  {#if panel.status !== 'compatible' && panel.availableInboxes.length > 0 && panel.currentWire !== undefined && !panel.busy && panel.status !== 'review' && panel.status !== 'awaiting_readback'}
+  {#if (!inline || ['needs_review', 'not_observed'].includes(panel.status)) && panel.status !== 'compatible' && panel.availableInboxes.length > 0 && panel.currentWire !== undefined && !panel.busy && panel.status !== 'review' && panel.status !== 'awaiting_readback'}
     <fieldset>
       <legend>Select 1–3 configured inboxes</legend>
       {#each panel.availableInboxes as origin (origin)}
@@ -255,6 +266,7 @@
     {/if}
     <Button
       label="Review inbox change"
+      variant={inline ? 'primary' : 'secondary'}
       disabled={!owned ||
         panel.busy ||
         selected.length < 1 ||
@@ -301,7 +313,7 @@
   {#each panel.readback as origin (origin)}<p>
       Exact signed preference read back from {origin}
     </p>{/each}
-  {#if panel.accepted.length > 0}<Button
+  {#if panel.accepted.length > 0 && (!inline || ['awaiting_readback', 'needs_action'].includes(panel.status))}<Button
       label="Check acceptance and readback"
       disabled={panel.busy}
       onclick={() => {

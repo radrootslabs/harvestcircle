@@ -15,6 +15,10 @@ const host = vi.hoisted(() => ({
   url: new URL('https://harvest.example/products/invalid')
 }));
 vi.mock('$app/state', () => ({ page: host }));
+vi.mock('$app/navigation', () => ({
+  beforeNavigate: vi.fn(),
+  goto: vi.fn()
+}));
 const corpus = JSON.parse(
   readFileSync(
     new URL(

@@ -8,6 +8,7 @@
     identity,
     required = 'connection',
     compact = false,
+    primary = false,
     focusScope = '',
     focusTarget = 'inline',
     ondisconnect,
@@ -17,6 +18,7 @@
     identity: IdentitySnapshot;
     required?: 'connection' | 'messaging';
     compact?: boolean;
+    primary?: boolean;
     focusScope?: string;
     focusTarget?: 'navbar' | 'protected' | 'inline';
     ondisconnect?: () => void;
@@ -112,6 +114,7 @@
   {#if !compact}<p>Your private key stays in the extension.</p>{/if}
   <Button
     label="Connect extension"
+    variant={primary ? 'primary' : 'secondary'}
     disabled={identity.state === 'pending' || !onconnect}
     onclick={connect}
   />
@@ -129,5 +132,10 @@
     This check asks your extension to encrypt and decrypt a disposable
     self-copy. It does not unlock messages or change public inbox preferences.
   </p>
-  <Button label="Check messaging support" disabled={!onprobe} onclick={probe} />
+  <Button
+    label="Check messaging support"
+    variant={primary ? 'primary' : 'secondary'}
+    disabled={!onprobe}
+    onclick={probe}
+  />
 {/if}

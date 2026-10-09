@@ -308,6 +308,7 @@ test.describe('actual shared inline capability component', () => {
       'src/lib/components/AccountGate.svelte',
       'src/lib/components/InboxSetup.svelte',
       'src/lib/messaging/inbox-setup-view.ts',
+      'src/lib/messaging/resolve-inbox.ts',
       'src/routes/+layout.svelte',
       'tests/e2e/harness/capability-gate.svelte'
     ])

@@ -326,7 +326,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             const f = await fixture(t);
             const files = await f.audit();
             // Exact eleven-route module/page/static admission; CSS stays once-imported.
-            assert.equal(files.length, 55);
+            assert.equal(files.length, 53);
             // The actual SDK payload crosses the reader scratch boundary; a reused
             // scratch buffer must still preserve every compiler/static byte exactly.
             const sizes = await Promise.all(
@@ -475,17 +475,18 @@ import { auditOutput } from '../../tools/check-output.mjs';
                   (mutation.startsWith('enquiry-view-')
                     ? 'inbox-view'
                     : mutation.startsWith('enquiry-setup-')
-                      ? 'inbox-setup-view'
+                      ? 'InboxSetup'
                       : mutation.startsWith('enquiry-gate-')
-                        ? 'CapabilityGate'
+                        ? 'InboxSetup'
                         : mutation.startsWith('enquiry-root-')
                           ? 'nodes/0'
                           : mutation.startsWith('context-')
-                            ? 'resolve-head'
-                            : mutation.startsWith('thread-') ||
-                                mutation.startsWith('reply-')
-                              ? 'nodes/5'
-                              : 'InboxStatus')
+                            ? 'publishers'
+                            : mutation.startsWith('reply-')
+                              ? 'MessageComposer'
+                              : mutation.startsWith('thread-')
+                                ? 'nodes/5'
+                                : 'InboxStatus')
               );
               assert.ok(entry);
               const [, row] = entry;
@@ -505,7 +506,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
               if (mutation === 'enquiry-root-missing-gate')
                 row.imports = row.imports.filter(
                   (/** @type {string} */ value) =>
-                    manifest[value].name !== 'CapabilityGate'
+                    manifest[value].name !== 'view-context'
                 );
               if (mutation === 'context-resolver-dynamic')
                 row.dynamicImports = [];
@@ -599,7 +600,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             assert.ok(Buffer.byteLength(expanded) > 64 * 1024);
             await writeFile(file, expanded);
             await refresh(f);
-            assert.equal((await f.audit()).length, 55);
+            assert.equal((await f.audit()).length, 53);
           }
         );
 
@@ -1096,6 +1097,9 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'src/lib/catalog/product-view.ts',
           'src/lib/components/ProductEnquiry.svelte',
           'src/lib/messaging/product-enquiry.ts',
+          'src/lib/messaging/product-request-controller.ts',
+          'src/lib/messaging/resolve-inbox.ts',
+          'src/lib/components/CapabilityGate.svelte',
           'src/lib/messaging/enquiry-context.ts',
           'src/lib/components/ListingFacts.svelte',
           'src/lib/components/PublisherIdentity.svelte',
@@ -1153,8 +1157,50 @@ import { auditOutput } from '../../tools/check-output.mjs';
               }
               await writeFile(file, JSON.stringify(manifest));
               if (mutation === 'permuted-edges')
-                assert.equal((await f.audit()).length, 55);
+                assert.equal((await f.audit()).length, 53);
               else await assert.rejects(f.audit, /compiler|references/);
+            }
+          );
+        }
+        for (const mutation of [
+          'missing',
+          'extra-edge',
+          'missing-edge',
+          'duplicate-edge',
+          'dynamic',
+          'entry',
+          'css'
+        ]) {
+          await check(
+            'inline request shared composer compiler rejects ' + mutation,
+            async (t) => {
+              const f = await fixture(t),
+                file = path.join(
+                  f.web,
+                  '.svelte-kit/output/client/.vite/manifest.json'
+                );
+              const manifest = JSON.parse(await readFile(file, 'utf8'));
+              const entry = Object.entries(manifest).find(
+                ([, row]) => row.name === 'MessageComposer'
+              );
+              assert.ok(entry);
+              const [key, row] = entry;
+              if (mutation === 'missing') delete manifest[key];
+              if (mutation === 'extra-edge')
+                row.imports = row.imports.concat(
+                  Object.keys(manifest).find(
+                    (name) => manifest[name].name === 'AccountGate'
+                  )
+                );
+              if (mutation === 'missing-edge')
+                row.imports = row.imports.slice(1);
+              if (mutation === 'duplicate-edge')
+                row.imports = row.imports.concat(row.imports[0]);
+              if (mutation === 'dynamic') row.dynamicImports = [];
+              if (mutation === 'entry') row.isEntry = true;
+              if (mutation === 'css') row.css = [];
+              await writeFile(file, JSON.stringify(manifest));
+              await assert.rejects(f.audit, /compiler|references/);
             }
           );
         }
@@ -1210,7 +1256,11 @@ import { auditOutput } from '../../tools/check-output.mjs';
                 );
               else {
                 const target =
-                  mutation === 'search-publisher' ? 'nodes/9' : 'nodes/7';
+                  mutation === 'search-publisher'
+                    ? 'nodes/9'
+                    : mutation === 'product-publisher'
+                      ? 'MessageComposer'
+                      : 'nodes/7';
                 const dependency =
                   mutation === 'product-shared'
                     ? 'Disclosure'

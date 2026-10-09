@@ -6,7 +6,8 @@ import {
   captureEnquiryContext,
   enquiryContextSnapshot,
   buildEnquiryMessage,
-  type EnquiryContextSnapshot
+  type EnquiryContextSnapshot,
+  type EnquiryContext
 } from './enquiry-context.ts';
 import { openInboxConversation, type InboxView } from './inbox-view.ts';
 import type { MessageWireParts } from '../contracts/message-v1/index.ts';
@@ -16,11 +17,14 @@ export type ProductEnquiry = Readonly<{ readonly [enquiryBrand]: true }>;
 type Snapshot = EnquiryContextSnapshot &
   Readonly<{
     text: string;
+    revision: number;
     memoryOnly: true;
     saved: false;
     listingCurrent: boolean;
   }>;
 type Owner = {
+  ownership():
+    Readonly<{ context: EnquiryContext; current(): boolean }> | undefined;
   snapshot(): Snapshot | undefined;
   message(): MessageWireParts | undefined;
   update(text: unknown, review: unknown): boolean;
@@ -43,6 +47,7 @@ export function captureProductEnquiry(
   const observed = context && enquiryContextSnapshot(context);
   if (!context || !observed || observed.status !== 'active') return;
   let active = true,
+    revision = 0,
     text = `Hello, I am interested in ${JSON.stringify(observed.title)}. Is it available?`;
   if (!buildEnquiryMessage(context, text)) return;
   function close() {
@@ -58,11 +63,16 @@ export function captureProductEnquiry(
   }
   const token = Object.freeze({}) as ProductEnquiry;
   owners.set(token, {
+    ownership: () =>
+      current()
+        ? { context, current: () => current() && listing.current() }
+        : undefined,
     snapshot() {
       return current()
         ? {
             ...observed,
             text,
+            revision,
             memoryOnly: true,
             saved: false,
             listingCurrent: listing.current()
@@ -83,6 +93,7 @@ export function captureProductEnquiry(
       )
         return false;
       text = value;
+      revision++;
       return true;
     },
     async reuse(inbox, permission) {
@@ -129,4 +140,7 @@ export function reuseProductEnquiryConversation(
 }
 export function closeProductEnquiry(token: ProductEnquiry): void {
   owners.get(token)?.close();
+}
+export function productEnquirySendOwnership(token: ProductEnquiry) {
+  return owners.get(token)?.ownership();
 }
