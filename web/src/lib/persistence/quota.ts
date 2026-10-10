@@ -1,7 +1,8 @@
 import { canonicalPublicKey } from '../contracts/public-key.ts';
 import {
   exactLocalFields,
-  type PublicRecord
+  type PublicRecord,
+  type PublicDraftRecord
 } from '../contracts/local-records.ts';
 import { canonicalLocalId } from '../private-handles.ts';
 import { LOCAL_PERSISTENCE_BUDGETS } from '../config/budgets.ts';
@@ -287,6 +288,38 @@ export function claimPublicOperation(
     Readonly<{ state: 'created' | 'existing'; record: PublicRecordHandle }>
   >
 > {
+  return claimOperation(repository, expectedId, handle);
+}
+type DraftAdmission = Readonly<{
+  expected: PublicDraftRecord;
+  current(this: void): boolean;
+  draftCurrent(this: void): boolean;
+}>;
+// Storage-only atomic draft/CAS reservation. Current original account/review
+// ownership is supplied by the public listing command owner, never a UI flag.
+// Existing commands retain their original capture even after future draft edits.
+export function claimPublicDraftOperation(
+  repository: PublicQuotaRepository,
+  expectedId: unknown,
+  handle: PublicRecordHandle,
+  admission: DraftAdmission
+): Promise<
+  PublicQuotaResult<
+    Readonly<{ state: 'created' | 'existing'; record: PublicRecordHandle }>
+  >
+> {
+  return claimOperation(repository, expectedId, handle, admission);
+}
+function claimOperation(
+  repository: PublicQuotaRepository,
+  expectedId: unknown,
+  handle: PublicRecordHandle,
+  draft?: DraftAdmission
+): Promise<
+  PublicQuotaResult<
+    Readonly<{ state: 'created' | 'existing'; record: PublicRecordHandle }>
+  >
+> {
   const scope = scopeOf(repository),
     id = canonicalLocalId(expectedId);
   if (!scope) return Promise.resolve(failed('invalid_scope'));
@@ -309,6 +342,10 @@ export function claimPublicOperation(
   return transaction<
     Readonly<{ state: 'created' | 'existing'; record: PublicRecordHandle }>
   >(scope, 'readwrite', (rows, active, refuse) => {
+    if (draft && !draft.current()) {
+      refuse('unavailable');
+      return;
+    }
     const previous = rows.find(
       (row) => row.record.family !== 'public_draft' && row.record.id === id
     );
@@ -332,6 +369,29 @@ export function claimPublicOperation(
       }
       return { ok: true, value: { state: 'existing', record: decoded.value } };
     }
+    if (draft) {
+      const source =
+        record.family === 'public_operation' ? record.source : undefined;
+      const previousDraft = rows.find(
+        (row) =>
+          row.record.family === 'public_draft' &&
+          row.record.id === draft.expected.id
+      );
+      if (
+        !source ||
+        source.type !== 'draft' ||
+        draft.expected.owner !== scope.owner ||
+        source.id !== draft.expected.id ||
+        source.revision !== draft.expected.revision ||
+        !previousDraft ||
+        JSON.stringify(previousDraft.record) !==
+          JSON.stringify(draft.expected) ||
+        !draft.draftCurrent()
+      ) {
+        refuse('conflict');
+        return;
+      }
+    }
     const operations = rows.filter(
       (row) => row.record.family !== 'public_draft'
     );
@@ -341,6 +401,10 @@ export function claimPublicOperation(
         LOCAL_PERSISTENCE_BUDGETS.publicOperationBytes
     ) {
       refuse('capacity');
+      return;
+    }
+    if (draft && (!draft.current() || !draft.draftCurrent())) {
+      refuse('conflict');
       return;
     }
     active.objectStore(store).put({ owner: scope.owner, id, wire });

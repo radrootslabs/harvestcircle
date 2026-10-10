@@ -26,6 +26,14 @@ export type DraftControllerSnapshot = Readonly<{
   state: 'editing' | 'saving' | 'saved' | 'failed' | 'closed';
   failure: DraftFailure | null;
 }>;
+export type PublicDraftControllerOwnership = Readonly<{
+  repository: PublicDraftRepository;
+  current(
+    this: void,
+    expectedWire: string,
+    expectedEditVersion: number
+  ): boolean;
+}>;
 type Controller = {
   edit(form: unknown): boolean;
   flush(): Promise<boolean>;
@@ -33,6 +41,7 @@ type Controller = {
   saveClose(): Promise<boolean>;
   close(): void;
   snapshot(): DraftControllerSnapshot;
+  ownership(): PublicDraftControllerOwnership;
 };
 const controllers = new WeakMap<PublicDraftController, Controller>();
 export async function createPublicDraftController(
@@ -155,6 +164,23 @@ export async function createPublicDraftController(
     return work;
   }
   const value: Controller = {
+    ownership() {
+      return {
+        repository,
+        current(expectedWire, expectedEditVersion) {
+          return (
+            !closed &&
+            failure === null &&
+            state === 'saved' &&
+            publicDraftRepositoryOwner(repository) !== undefined &&
+            savedEditVersion === editVersion &&
+            editVersion === expectedEditVersion &&
+            saved !== null &&
+            JSON.stringify(saved) === expectedWire
+          );
+        }
+      };
+    },
     edit(input) {
       if (closed || editVersion === Number.MAX_SAFE_INTEGER) return false;
       const next = publicDraftFormSnapshot(input);
@@ -231,6 +257,13 @@ export function publicDraftControllerSnapshot(
   controller: PublicDraftController
 ): DraftControllerSnapshot | undefined {
   return controllers.get(controller)?.snapshot();
+}
+// Original controller/repository custody, not a copied saved-state boolean.
+// This grants only an observation of the exact acknowledged draft revision.
+export function publicDraftControllerOwnership(
+  controller: PublicDraftController
+): PublicDraftControllerOwnership | undefined {
+  return controllers.get(controller)?.ownership();
 }
 export function flushPublicDraft(
   controller: PublicDraftController
