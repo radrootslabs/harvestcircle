@@ -74,6 +74,17 @@ await test('navigation fallback serves actual separate output and preserves miss
       assert.match(html, /Connect to continue/);
       assert.match(html, /<button[^>]*disabled[^>]*>Connect extension/);
       assert.doesNotMatch(html, /Inbox setup|Check current preference/);
+    } else if (pathname === '/selling') {
+      assert.match(html, /Connect to continue/);
+      assert.match(html, /<button[^>]*disabled[^>]*>Connect extension/);
+      assert.match(html, /href="\/sell"/);
+      assert.match(html, /List food/);
+      assert.match(html, /Inbox settings/);
+      assert.match(html, /Inbox setup is unavailable/);
+      assert.doesNotMatch(
+        html,
+        /No listings yet\.|<h2>Needs attention|<h2>Drafts|<h2>Listings/
+      );
     } else {
       assert.match(
         html,

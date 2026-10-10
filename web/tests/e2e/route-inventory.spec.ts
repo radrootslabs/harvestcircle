@@ -155,9 +155,10 @@ for (const routeCase of cases) {
           if (routeCase.private) {
             await expect(
               page.getByRole('heading', {
-                name: routeCase.editor
-                  ? 'Connect to continue'
-                  : 'Connect or unlock',
+                name:
+                  routeCase.editor || routeCase.path === '/selling'
+                    ? 'Connect to continue'
+                    : 'Connect or unlock',
                 exact: true
               })
             ).toBeVisible();
@@ -177,6 +178,30 @@ for (const routeCase of cases) {
                 page.getByRole('button', { name: 'Not now', exact: true })
               ).toHaveCount(0);
             } else {
+              if (routeCase.path === '/selling') {
+                await expect(
+                  page.locator('main').getByRole('link', {
+                    name: 'List food',
+                    exact: true
+                  })
+                ).toHaveAttribute('href', '/sell');
+                await expect(
+                  page.locator('main').getByRole('button')
+                ).toHaveCount(1);
+                await expect(
+                  page.getByRole('button', {
+                    name: 'Check current preference',
+                    exact: true
+                  })
+                ).toHaveCount(0);
+                const settings = page.locator('main details');
+                await expect(settings).toHaveCount(1);
+                await expect(settings).not.toHaveAttribute('open', '');
+                await settings
+                  .getByText('Inbox settings', { exact: true })
+                  .click();
+                await expect(settings).toHaveAttribute('open', '');
+              }
               await expect(
                 page.getByRole('button', {
                   name: 'Check current preference',

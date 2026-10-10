@@ -98,6 +98,24 @@ describe('thin protected route SSR', () => {
 
         expect(output.head).toContain('<title>HarvestCircle</title>');
         expect(output.head).toMatch(/name="robots" content="noindex"/);
+        if (name === 'Selling') {
+          expect(output.body).toContain('Connect to continue');
+          expect(output.body).toContain('href="/sell"');
+          expect(output.body).toContain('List food');
+          expect(output.body).toContain('Inbox settings');
+          expect(output.body).toContain('Inbox setup is unavailable');
+          expect(output.body).toMatch(
+            /<button[^>]*disabled[^>]*>Connect extension/
+          );
+          expect(output.body).toMatch(
+            /<button[^>]*disabled[^>]*>Check current preference/
+          );
+          expect(output.body).not.toMatch(
+            /<form|<textarea|<input|<select|PRIVATE_TEST_ONLY|naddr1|No listings yet\.|<h2>Needs attention|<h2>Drafts|<h2>Listings/
+          );
+          // Original SSR effect tripwires still reject IDB/extension/socket/fetch.
+          return;
+        }
         expect(output.body).toContain('Connect or unlock');
         if (name === 'Conversation') {
           expect(output.body).toMatch(

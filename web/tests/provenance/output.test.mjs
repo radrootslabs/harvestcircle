@@ -131,7 +131,13 @@ import { auditOutput } from '../../tools/check-output.mjs';
   async function restoreHistoricalPublicProducers(web) {
     for (const [name, value] of Object.entries({
       ...historicalPublicProducerClosure,
-      ...historicalWithdrawalProducerClosure
+      ...historicalWithdrawalProducerClosure,
+      'src/routes/selling/+page.svelte': {
+        source:
+          '<script lang="ts">\n  import AccountGate from \'../../lib/components/AccountGate.svelte\';\n</script>\n\n<AccountGate />\n',
+        sha256:
+          '23547dcfa10e85865e31b66c31ea0d043592e3c316c94da2d74bdf2dd419b38a'
+      }
     })) {
       assert.equal(
         createHash('sha256').update(value.source).digest('hex'),
@@ -563,6 +569,20 @@ import { auditOutput } from '../../tools/check-output.mjs';
         /** @param {string} name @param {(context: import('node:test').TestContext) => Promise<void>} run @param {number} [timeout] */
         const check = (name, run, timeout = 1800000) =>
           t.test(name, { timeout }, run);
+        const originalCompilerManifest = JSON.parse(
+          await readFile(
+            path.join(
+              base,
+              'web/.svelte-kit/output/client/.vite/manifest.json'
+            ),
+            'utf8'
+          )
+        );
+        const compiledAccountGate = Object.values(
+          originalCompilerManifest
+        ).some((row) => row.name === 'AccountGate');
+        const gateRole = compiledAccountGate ? 'AccountGate' : 'nodes/4';
+        const unrelatedRole = compiledAccountGate ? 'AccountGate' : 'nodes/11';
         await check(
           'actual compiled payload passes and build dispatch invokes the guard last',
           async (t) => {
@@ -817,7 +837,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
         for (const name of [
           'references',
           'public-runtime',
-          'AccountGate',
+          gateRole,
           'Disclosure'
         ])
           await check(
@@ -1169,8 +1189,9 @@ import { auditOutput } from '../../tools/check-output.mjs';
                 mutation === 'missing-gate-edge'
               ) {
                 const [, consumer] = find(
-                  mutation === 'missing-root-edge' ? 'nodes/0' : 'AccountGate'
+                  mutation === 'missing-root-edge' ? 'nodes/0' : gateRole
                 );
+                assert.ok(consumer.imports.includes(identityKey));
                 consumer.imports = consumer.imports.filter(
                   /** @param {string} dependency */
                   (dependency) => dependency !== identityKey
@@ -1385,12 +1406,14 @@ import { auditOutput } from '../../tools/check-output.mjs';
                 if (mutation === 'missing') delete manifest[key];
                 if (mutation === 'missing-edge')
                   row.imports = row.imports.slice(1);
-                if (mutation === 'extra-edge')
-                  row.imports = row.imports.concat(
-                    Object.keys(manifest).find(
-                      (key) => manifest[key].name === 'AccountGate'
-                    )
+                if (mutation === 'extra-edge') {
+                  const extra = Object.entries(manifest).find(
+                    ([, record]) => record.name === unrelatedRole
                   );
+                  assert.ok(extra, 'Missing actual unrelated compiler role');
+                  assert.ok(!row.imports.includes(extra[0]));
+                  row.imports = row.imports.concat(extra[0]);
+                }
                 if (mutation === 'duplicate-edge')
                   row.imports = row.imports.concat(row.imports[0]);
                 if (mutation === 'permuted-edges')
@@ -1449,6 +1472,28 @@ import { auditOutput } from '../../tools/check-output.mjs';
               await assert.rejects(
                 f.audit,
                 /Invalid owned listing editor source/
+              );
+            }
+          );
+        }
+        for (const producer of [
+          'src/routes/selling/+page.svelte',
+          'src/lib/components/SellingRow.svelte',
+          'src/lib/publishing/selling-view.ts'
+        ]) {
+          await check(
+            'seller workspace rejects changed owned producer ' + producer,
+            async (t) => {
+              const f = await fixture(t);
+              await writeFile(
+                path.join(f.web, producer),
+                (await readFile(path.join(f.web, producer), 'utf8')) +
+                  '\n// owned seller source mutation\n'
+              );
+              await refresh(f);
+              await assert.rejects(
+                f.audit,
+                /Invalid owned selling workspace source/
               );
             }
           );
@@ -1537,8 +1582,11 @@ import { auditOutput } from '../../tools/check-output.mjs';
               for (const name of ['nodes/7', 'nodes/9']) {
                 const row = find(name)[1];
                 row.imports = [...row.imports].reverse();
-                if (mutation === 'extra-edge')
-                  row.imports = row.imports.concat(find('AccountGate')[0]);
+                if (mutation === 'extra-edge') {
+                  const extra = find(unrelatedRole)[0];
+                  assert.ok(!row.imports.includes(extra));
+                  row.imports = row.imports.concat(extra);
+                }
                 if (mutation === 'duplicate-edge')
                   row.imports = row.imports.concat(row.imports[0]);
               }
@@ -1571,12 +1619,14 @@ import { auditOutput } from '../../tools/check-output.mjs';
               assert.ok(entry);
               const [key, row] = entry;
               if (mutation === 'missing') delete manifest[key];
-              if (mutation === 'extra-edge')
-                row.imports = row.imports.concat(
-                  Object.keys(manifest).find(
-                    (name) => manifest[name].name === 'AccountGate'
-                  )
+              if (mutation === 'extra-edge') {
+                const extra = Object.entries(manifest).find(
+                  ([, record]) => record.name === unrelatedRole
                 );
+                assert.ok(extra, 'Missing actual unrelated compiler role');
+                assert.ok(!row.imports.includes(extra[0]));
+                row.imports = row.imports.concat(extra[0]);
+              }
               if (mutation === 'missing-edge')
                 row.imports = row.imports.slice(1);
               if (mutation === 'duplicate-edge')
