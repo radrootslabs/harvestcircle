@@ -454,7 +454,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             const f = await fixture(t);
             const files = await f.audit();
             // Exact eleven-route module/page/static admission; CSS stays once-imported.
-            assert.equal(files.length, 54);
+            assert.equal(files.length, 55);
             // The actual SDK payload crosses the reader scratch boundary; a reused
             // scratch buffer must still preserve every compiler/static byte exactly.
             const sizes = await Promise.all(
@@ -738,7 +738,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             assert.ok(Buffer.byteLength(expanded) > 64 * 1024);
             await writeFile(file, expanded);
             await refresh(f);
-            assert.equal((await f.audit()).length, 54);
+            assert.equal((await f.audit()).length, 55);
           }
         );
 
@@ -1300,7 +1300,9 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'src/lib/components/ListingEditor.svelte',
           'src/lib/publishing/listing-editor.ts',
           'src/lib/components/ListingReview.svelte',
-          'src/lib/publishing/editor-workflow.ts'
+          'src/lib/publishing/editor-workflow.ts',
+          'src/lib/components/ConflictNotice.svelte',
+          'src/lib/publishing/edit-source.ts'
         ]) {
           await check(
             'listing editor rejects changed owned producer ' + producer,

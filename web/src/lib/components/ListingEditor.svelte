@@ -1,7 +1,8 @@
 <script lang="ts">
-  /* global document */
+  /* global document, setInterval, clearInterval */
   import { getContext, onMount, tick } from 'svelte';
   import ListingReview from './ListingReview.svelte';
+  import ConflictNotice from './ConflictNotice.svelte';
   import InboxSetup from './InboxSetup.svelte';
   import {
     PUBLIC_RUNTIME_CONTEXT,
@@ -43,6 +44,8 @@
     saveAndCloseListingEditor,
     closeListingEditor,
     subscribeListingEditor,
+    listingEditorEditSource,
+    observeListingEditor,
     type ListingEditor as Editor,
     type ListingEditorRoute,
     type ListingEditorSnapshot
@@ -156,7 +159,8 @@
   });
   $effect(() => {
     const resource = route,
-      author = admittedAuthor;
+      author = admittedAuthor,
+      editRuntime = route.mode === 'edit' ? runtime : undefined;
     if (!active || !author) {
       editor = undefined;
       snapshot = undefined;
@@ -168,6 +172,12 @@
     let alive = true,
       owned: Editor | undefined,
       off = () => {};
+    const observer =
+      resource.mode === 'edit'
+        ? setInterval(() => {
+            if (owned) observeListingEditor(owned);
+          }, 250)
+        : undefined;
     editor = undefined;
     snapshot = undefined;
     review = undefined;
@@ -175,58 +185,62 @@
     reviewMessage = '';
     form = blankForm();
     unavailable = false;
-    void openListingEditor(context, resource, cancellation.signal).then(
-      (result) => {
-        if (!alive) {
-          if (result.status === 'ready') closeListingEditor(result.editor);
-          return;
-        }
-        if (result.status !== 'ready') {
-          unavailable = true;
-          return;
-        }
-        owned = result.editor;
-        editor = owned;
-        const next = listingEditorSnapshot(owned);
-        if (!next) {
-          unavailable = true;
-          return;
-        }
-        snapshot = next;
-        form = { ...next.form };
-        off = subscribeListingEditor(owned, () => {
-          snapshot = owned && listingEditorSnapshot(owned);
-          if (
-            snapshot?.state === 'saved' &&
-            snapshot.draftId &&
-            resource.mode === 'new' &&
-            owned &&
-            firstOwner !== owned &&
-            !closeBusy &&
-            onfirstsave
-          ) {
-            firstOwner = owned;
-            firstNavigation = onfirstsave(
-              snapshot.draftId,
-              () =>
-                alive &&
-                mounted &&
-                editor === owned &&
-                !!owned &&
-                !!listingEditorSnapshot(owned)
-            ).catch(() => {
-              if (alive) navigationFailed = true;
-            });
-          }
-          if (!snapshot) {
-            unavailable = true;
-            form = blankForm();
-          }
-        });
+    void openListingEditor(
+      context,
+      resource,
+      cancellation.signal,
+      editRuntime
+    ).then((result) => {
+      if (!alive) {
+        if (result.status === 'ready') closeListingEditor(result.editor);
+        return;
       }
-    );
+      if (result.status !== 'ready') {
+        unavailable = true;
+        return;
+      }
+      owned = result.editor;
+      editor = owned;
+      const next = listingEditorSnapshot(owned);
+      if (!next) {
+        unavailable = true;
+        return;
+      }
+      snapshot = next;
+      form = { ...next.form };
+      off = subscribeListingEditor(owned, () => {
+        snapshot = owned && listingEditorSnapshot(owned);
+        if (
+          snapshot?.state === 'saved' &&
+          snapshot.draftId &&
+          resource.mode === 'new' &&
+          owned &&
+          firstOwner !== owned &&
+          !closeBusy &&
+          onfirstsave
+        ) {
+          firstOwner = owned;
+          firstNavigation = onfirstsave(
+            snapshot.draftId,
+            () =>
+              alive &&
+              mounted &&
+              editor === owned &&
+              !!owned &&
+              !!listingEditorSnapshot(owned)
+          ).catch(() => {
+            if (alive) navigationFailed = true;
+          });
+        }
+        if (!snapshot) {
+          unavailable = true;
+          form = blankForm();
+        }
+      });
+    });
     return () => {
       alive = false;
+      if (observer !== undefined) clearInterval(observer);
       cancellation.abort();
       off();
       if (owned) closeListingEditor(owned);
@@ -380,6 +394,16 @@
         Loading local values.
       </p>{/if}
   {:else}
+    {#if route.mode === 'edit' && editor && listingEditorEditSource(editor)}
+      <ConflictNotice
+        source={listingEditorEditSource(editor)!}
+        proposed={form}
+      />
+      {#if visible.editable}<Notice
+          tone="info"
+          text="These changes can be saved locally. Publishing changes is not available."
+        />{/if}
+    {/if}
     {#if !visible.editable}<Notice
         tone="info"
         text={route.mode === 'draft'
@@ -628,14 +652,17 @@
           </div>
         </details>
       </form>
-      {#if visible.editable}<button
+      {#if visible.editable && route.mode !== 'edit'}<button
           type="button"
           onclick={showReview}
           disabled={reviewBusy || closeBusy}
           >{reviewBusy ? 'Preparing review' : 'Review listing'}</button
         >{/if}
     {/if}
-    {#if visible.editable && setup}<InboxSetup controller={setup} inline />{/if}
+    {#if visible.editable && route.mode !== 'edit' && setup}<InboxSetup
+        controller={setup}
+        inline
+      />{/if}
     {#each visible.operations as operation (operation)}<OperationStatus
         publicOperation={operation}
       />{/each}

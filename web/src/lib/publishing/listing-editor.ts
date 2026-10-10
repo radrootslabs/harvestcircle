@@ -17,9 +17,14 @@ import {
   type ListingReviewResult
 } from './prepare-listing.ts';
 import { decodeProductReference } from '../nostr/references.ts';
-import { inspectLocalTemplate } from '../nostr/local-template.ts';
-import { projectFoodParts } from '../contracts/food-availability-v1/read.ts';
-import { buildFoodTemplate } from '../contracts/food-availability-v1/write.ts';
+import {
+  openOwnedEditSource,
+  ownedEditSourceSnapshot,
+  authorizeOwnedEditSource,
+  closeOwnedEditSource,
+  type OwnedEditSource
+} from './edit-source.ts';
+import type { PublicRuntime } from '../runtime/public-runtime.ts';
 import {
   openBrowserDatabase,
   closeBrowserDatabase,
@@ -37,7 +42,6 @@ import {
 } from '../persistence/quota.ts';
 import { publicRecordSnapshot } from '../persistence/records.ts';
 import {
-  readPublicDraft,
   publicDraftRepositoryOwner,
   type PublicDraftRepository
 } from '../persistence/drafts.ts';
@@ -82,6 +86,7 @@ export type ListingEditorSnapshot = Readonly<{
   failure: string | null;
   coordinate: string | null;
   sourceEventId: string | null;
+  sourcePublishedAtSeconds?: number;
   operations: readonly ListingOperationView[];
 }>;
 type Editor = Readonly<{
@@ -96,6 +101,8 @@ type Editor = Readonly<{
     form: PublicDraftForm
   ): Promise<ListingReviewResult>;
   reviewCurrent(review: ListingReview): boolean;
+  source(): OwnedEditSource | undefined;
+  observe(): void;
   subscribe(listener: () => void): () => void;
 }>;
 const editors = new WeakMap<ListingEditor, Editor>();
@@ -138,7 +145,8 @@ function routeSnapshot(value: unknown): ListingEditorRoute | undefined {
 export async function openListingEditor(
   context: IdentityViewContext,
   input: unknown,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  runtime?: PublicRuntime
 ): Promise<
   | Readonly<{ status: 'ready'; editor: ListingEditor }>
   | Readonly<{
@@ -173,6 +181,9 @@ export async function openListingEditor(
     repository: PublicDraftRepository | undefined,
     controller: PublicDraftController | undefined;
   const operations = new Map<string, ListingOperationView>();
+  let editSource: OwnedEditSource | undefined;
+  let acquiringEditDraft:
+    Promise<PublicDraftController | undefined> | undefined;
   let reviewed:
     | {
         setup: InboxSetupView | undefined;
@@ -220,6 +231,7 @@ export async function openListingEditor(
     signal?.removeEventListener('abort', retire);
     cancellation.abort();
     clearReview();
+    if (editSource) closeOwnedEditSource(editSource);
     if (controller) closePublicDraftController(controller);
     for (const operation of operations.values())
       closeListingOperationView(operation);
@@ -253,85 +265,19 @@ export async function openListingEditor(
       coordinate: string | null = null,
       sourceEventId: string | null = null;
     if (route.mode === 'edit') {
-      const reference = decodeProductReference(route.naddr),
-        quota = publicPublicationQuotaRepository(publications);
-      if (!reference || !quota) return unavailable('source');
-      const inspected = await inspectPublicStorage(quota);
-      if (!current() || !inspected.ok) return unavailable('source');
-      const inventory = publicInventorySnapshot(quota, inspected.value);
-      if (!inventory) return unavailable('source');
-      let matching:
-        Readonly<{ form: PublicDraftForm; eventId: string }> | undefined;
-      for (const item of inventory.rows) {
-        if (item.family !== 'public_operation') continue;
-        const read = await readPublicListingIntent(publications, item.id);
-        if (!current()) return unavailable('source');
-        const row =
-          read.status === 'found' &&
-          publicRecordSnapshot(read.record, owner, item.id);
-        if (
-          !row ||
-          row.family !== 'public_operation' ||
-          row.capture.kind !== 30402 ||
-          !row.artifact ||
-          row.source.type !== 'draft'
-        )
-          continue;
-        const template = inspectLocalTemplate(row.capture.wire, owner, 30402);
-        if (!template) continue;
-        const projected = projectFoodParts(template);
-        if (
-          projected.outcome !== 'focused' ||
-          projected.projection.identifier !== reference.identifier
-        )
-          continue;
-        const source = await readPublicDraft(drafts, row.source.id);
-        if (!current()) return unavailable('source');
-        if (!source.ok || source.value.revision !== row.source.revision)
-          continue;
-        const value = source.value.form,
-          p = projected.projection;
-        if (value.contactType === '' && value.contactValue !== '') continue;
-        const built = buildFoodTemplate({
-          identifier: p.identifier,
-          title: value.title,
-          description: value.description,
-          location: value.location,
-          amount: value.amount,
-          currency: value.currency,
-          unit: value.unit,
-          ...(value.quantity === '' ? {} : { quantity: value.quantity }),
-          published_at: p.published_at,
-          created_at: template.created_at,
-          status: p.status,
-          ...(value.contactType === ''
-            ? {}
-            : {
-                contact: {
-                  type: value.contactType,
-                  value: value.contactValue,
-                  public: true as const
-                }
-              })
-        });
-        if (
-          !built.ok ||
-          JSON.stringify({
-            pubkey: owner,
-            kind: 30402,
-            created_at: template.created_at,
-            tags: built.wire_parts.tags,
-            content: built.wire_parts.content
-          }) !== row.capture.wire
-        )
-          continue;
-        if (matching) return unavailable('source');
-        matching = { form: value, eventId: row.artifact.eventId };
-      }
-      if (!matching) return unavailable('source');
-      sourceForm = matching.form;
+      editSource = await openOwnedEditSource(
+        publications,
+        context,
+        route.naddr,
+        runtime,
+        cancellation.signal
+      );
+      if (!current()) return unavailable('source');
+      const retained = editSource && ownedEditSourceSnapshot(editSource);
+      if (!retained) return unavailable('source');
+      sourceForm = retained.form;
       coordinate = route.naddr;
-      sourceEventId = matching.eventId;
+      sourceEventId = retained.sourceEventId;
     } else {
       const acquired = await createPublicDraftController(
         drafts,
@@ -402,6 +348,10 @@ export async function openListingEditor(
     const value: Editor = {
       current,
       retire,
+      source: () => (current() ? editSource : undefined),
+      observe: () => {
+        if (current()) notify();
+      },
       snapshot() {
         if (!current()) {
           retire();
@@ -412,7 +362,10 @@ export async function openListingEditor(
           mode: route.mode,
           owner,
           form: local ? local.form : { ...(sourceForm ?? emptyForm) },
-          editable: route.mode !== 'edit' && operations.size === 0,
+          editable:
+            operations.size === 0 &&
+            (route.mode !== 'edit' ||
+              !!(editSource && authorizeOwnedEditSource(editSource))),
           draftId: local?.draft?.id ?? null,
           state:
             local && operations.size === 0
@@ -423,6 +376,12 @@ export async function openListingEditor(
           failure: local?.failure ?? null,
           coordinate,
           sourceEventId,
+          ...(editSource
+            ? {
+                sourcePublishedAtSeconds:
+                  ownedEditSourceSnapshot(editSource)?.publishedAtSeconds
+              }
+            : {}),
           operations: Array.from(operations.values())
         };
       },
@@ -431,8 +390,27 @@ export async function openListingEditor(
           retire();
           return false;
         }
-        if (!controller || route.mode === 'edit' || operations.size)
-          return false;
+        if (route.mode === 'edit') {
+          if (
+            !editSource ||
+            !authorizeOwnedEditSource(editSource) ||
+            !sourceForm
+          )
+            return false;
+          if (!controller) {
+            acquiringEditDraft ??= createPublicDraftController(
+              drafts,
+              sourceForm
+            );
+            const acquired = await acquiringEditDraft;
+            if (!current() || !authorizeOwnedEditSource(editSource)) {
+              if (acquired) closePublicDraftController(acquired);
+              return false;
+            }
+            controller = acquired;
+          }
+        }
+        if (!controller || operations.size) return false;
         if (!editPublicDraft(controller, input)) return false;
         clearReview();
         notify();
@@ -456,8 +434,7 @@ export async function openListingEditor(
           retire();
           return false;
         }
-        if (!controller || route.mode === 'edit' || operations.size)
-          return false;
+        if (!controller || operations.size) return false;
         const pending = flushPublicDraft(controller);
         await Promise.resolve();
         if (!current()) {
@@ -474,13 +451,7 @@ export async function openListingEditor(
         return saved;
       },
       async saveClose() {
-        if (
-          !current() ||
-          !controller ||
-          route.mode === 'edit' ||
-          operations.size ||
-          closing
-        )
+        if (!current() || !controller || operations.size || closing)
           return false;
         closing = true;
         try {
@@ -620,6 +591,14 @@ export function flushListingEditor(editor: ListingEditor): Promise<boolean> {
 }
 export function closeListingEditor(editor: ListingEditor): void {
   editors.get(editor)?.retire();
+}
+export function listingEditorEditSource(
+  editor: ListingEditor
+): OwnedEditSource | undefined {
+  return editors.get(editor)?.source();
+}
+export function observeListingEditor(editor: ListingEditor): void {
+  editors.get(editor)?.observe();
 }
 export function saveAndCloseListingEditor(
   editor: ListingEditor

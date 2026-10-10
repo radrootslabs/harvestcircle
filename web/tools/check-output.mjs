@@ -639,9 +639,31 @@ async function listingEditorAdmission(web) {
     'src/lib/publishing/editor-workflow.ts':
       '5bc8827c5ff167e0974f03a87e4e9db350e42f30c511f199b785c30ad365d838'
   };
+  /** @type {Record<string,string>} */
+  const editProducers = {
+    'src/routes/sell/+page.svelte':
+      '97f22f9a0309621e9acb5f1b328d3376bc9c5affbe5a7ea1b85ece76097b9c08',
+    'src/routes/selling/drafts/[draftId=local_id]/+page.svelte':
+      '1df59a753fbef2bc2ebf77890a79cbd3d7a5bb0dcef34c219df1b5e8043cf787',
+    'src/routes/products/[naddr=naddr]/edit/+page.svelte':
+      '09c3a6bde766045319cd36a00a82ca565f9f3b5cd5322982be9482836f312998',
+    'src/lib/components/ListingEditor.svelte':
+      '3b1d6248c256ce02a668a2c92654816dd0c2659b7b430d5e1d3aeba6f9326bfa',
+    'src/lib/publishing/listing-editor.ts':
+      'fa2c698892b820f10adc0c816641da6a2c40b5cfc3df8db2880f61659d81b4ec',
+    'src/lib/components/ListingReview.svelte':
+      'bf4e6bf0fc76fa12672fabc441e1058d73c1f281a0a560aeafbdaa2aa36f6f90',
+    'src/lib/publishing/editor-workflow.ts':
+      '5bc8827c5ff167e0974f03a87e4e9db350e42f30c511f199b785c30ad365d838',
+    'src/lib/components/ConflictNotice.svelte':
+      'f0a71cab9e8f1f12a3421402e3bc3b2f96c2ddb35ad8949c6e9599b850c3a17c',
+    'src/lib/publishing/edit-source.ts':
+      '985634e4c4eb2cd12839409552b1c56cd518021d4f031166a3c1ab8c4a0e7eff'
+  };
   let historical = true,
     current = true,
-    reviewed = true;
+    reviewed = true,
+    editing = true;
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);
     publicText(bytes);
@@ -649,6 +671,7 @@ async function listingEditorAdmission(web) {
     historical = historical && actual === pin;
     current = current && actual === continuity[name];
     reviewed = reviewed && actual === reviewProducers[name];
+    editing = editing && actual === editProducers[name];
   }
   if (reviewed) {
     for (const name of [
@@ -663,6 +686,22 @@ async function listingEditorAdmission(web) {
           reviewProducers[name];
     }
   }
+  if (editing) {
+    for (const name of [
+      'src/lib/components/ListingReview.svelte',
+      'src/lib/publishing/editor-workflow.ts',
+      'src/lib/components/ConflictNotice.svelte',
+      'src/lib/publishing/edit-source.ts'
+    ]) {
+      const bytes = await readOwned(web, name);
+      publicText(bytes);
+      editing =
+        editing &&
+        createHash('sha256').update(bytes).digest('hex') ===
+          editProducers[name];
+    }
+  }
+  if (editing) return 'edit-source';
   if (!historical && !current && !reviewed)
     throw new Error('Invalid owned listing editor source');
   if (reviewed) return 'review';
@@ -862,7 +901,8 @@ export async function auditOutput(webDirectory) {
   const hasListingEditor = hasFullRoutes && (await listingEditorAdmission(web));
   if (hasListingEditor && !(hasListingPublication && hasInboxSetup))
     throw new Error('Invalid owned listing editor runtime authority');
-  const hasListingReview = hasListingEditor === 'review';
+  const hasListingEdit = hasListingEditor === 'edit-source';
+  const hasListingReview = hasListingEditor === 'review' || hasListingEdit;
   const hasListingContinuity =
     hasListingEditor === 'continuity' || hasListingReview;
   const identityCompilerModule = hasListingEditor
@@ -976,6 +1016,7 @@ export async function auditOutput(webDirectory) {
     ])
       names.add(name);
   }
+  if (hasListingEdit) names.add('resolve-head');
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();
   for (const [key, record] of Object.entries(manifest)) {
@@ -2646,6 +2687,89 @@ export async function auditOutput(webDirectory) {
           'read'
         ]
       };
+    if (hasListingEdit)
+      Object.assign(expected, {
+        'nodes/5': {
+          file: '_app/immutable/nodes/5.HASH.js',
+          name: 'nodes/5',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/5.js',
+          isEntry: true,
+          imports: [
+            'public-key',
+            'public-runtime',
+            'references',
+            'client',
+            'Button',
+            'client.svelte',
+            'state',
+            'legacy',
+            'inbox-view',
+            'InboxStatus',
+            'resolve-head',
+            'MessageComposer'
+          ]
+        },
+        'nodes/9': {
+          file: '_app/immutable/nodes/9.HASH.js',
+          name: 'nodes/9',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/9.js',
+          isEntry: true,
+          imports: [
+            'public-runtime',
+            'references',
+            'client',
+            'Button',
+            'client.svelte',
+            'navigation',
+            'state',
+            'Disclosure',
+            'SearchForm',
+            'routes',
+            'resolve-head',
+            'publishers'
+          ]
+        },
+        'resolve-head': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'resolve-head',
+          imports: ['public-runtime', 'Button', 'read']
+        },
+        ListingEditor: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'ListingEditor',
+          imports: [
+            'public-key',
+            'public-runtime',
+            'references',
+            'client',
+            'Button',
+            'CapabilityGate',
+            'InboxSetup',
+            'read',
+            'resolve-head'
+          ]
+        },
+        MessageComposer: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'MessageComposer',
+          imports: [
+            'public-key',
+            'public-runtime',
+            'references',
+            'client',
+            'Button',
+            'navigation',
+            'inbox-view',
+            'resolve-head',
+            'publishers'
+          ]
+        },
+        publishers: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'publishers',
+          imports: ['public-key', 'public-runtime', 'Button', 'resolve-head']
+        }
+      });
     for (const record of Object.values(manifest)) {
       const actual = { ...record };
       actual.file = actual.file.includes('/chunks/')
