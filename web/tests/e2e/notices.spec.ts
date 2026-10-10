@@ -205,6 +205,8 @@ for (const width of [320, 1024]) {
         const page = await context.newPage();
         await page.goto(server.url);
         const field = page.getByRole('textbox', { name: 'Food', exact: true });
+        await expect(field).toBeEnabled();
+        await expect(field).toHaveValue('preserved food');
         await field.fill('unchanged multiline\n菜');
         await expect(
           page.getByRole('heading', { name: 'Check the following fields' })

@@ -1,9 +1,14 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import Notice from '../../../src/lib/components/Notice.svelte';
   import OperationStatus from '../../../src/lib/components/OperationStatus.svelte';
   import ErrorSummary from '../../../src/lib/components/ErrorSummary.svelte';
   import FormField from '../../../src/lib/components/primitives/FormField.svelte';
   let input = $state('preserved food');
+  let mounted = $state(false);
+  onMount(() => {
+    mounted = true;
+  });
   let failed = $state(false);
   let text = $state(
     'Waiting for your extension. Another approval may be needed.'
@@ -39,6 +44,7 @@
           {id}
           class="input textarea"
           bind:value={input}
+          disabled={!mounted}
           aria-describedby={describedby}
           aria-invalid={invalid}></textarea>{/snippet}
     </FormField>
