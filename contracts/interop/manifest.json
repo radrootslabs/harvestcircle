@@ -39,8 +39,8 @@
     },
     {
       "path": "web/tests/conformance/food-writer-rust.v1.json",
-      "sha256": "4978ddc6c1cf3aeeeabb643f5b5d94a57cff292687ab3a676cdf7e74e88e2aa7",
-      "bytes": 35738
+      "sha256": "a7920bfe0e1677c215b6f089e5fcf66dd3ce7e57842f0342164ab847c933f859",
+      "bytes": 29382
     },
     {
       "path": "contracts/interop/food_availability/web_templates.v1.json",

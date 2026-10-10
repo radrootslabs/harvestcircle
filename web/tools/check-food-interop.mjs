@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { format, resolveConfig } from 'prettier';
 import { webTemplates } from '../tests/conformance/food-writer-cases.ts';
 import { createFoodReplay } from '../tests/conformance/food-bidirectional.ts';
 
@@ -161,9 +162,18 @@ try {
   // The replay must bind the refreshed producer provenance, never stale bytes
   // read before an explicitly requested regeneration.
   const receipt = createFoodReplay(actual, webTemplates, await readInputs());
-  if (args[0] === '--write')
-    await writeFile(fixture, JSON.stringify(receipt, null, 2) + '\n');
-  else
+  if (args[0] === '--write') {
+    // Producer output must satisfy the same pinned formatting policy as lint.
+    // Format only the actual Rust replay, before its raw-byte manifest is built.
+    const filepath = fileURLToPath(fixture);
+    await writeFile(
+      fixture,
+      await format(JSON.stringify(receipt), {
+        ...(await resolveConfig(filepath)),
+        filepath
+      })
+    );
+  } else
     assert.deepEqual(
       JSON.parse(await readFile(fixture, 'utf8')),
       receipt,
