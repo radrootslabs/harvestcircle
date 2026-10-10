@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import { goto } from '$app/navigation';
   import ListingEditor from '../../../../lib/components/ListingEditor.svelte';
   import type { ListingEditorRoute } from '../../../../lib/publishing/listing-editor.ts';
   const route = $derived({
@@ -8,4 +9,9 @@
   } satisfies ListingEditorRoute);
 </script>
 
-<ListingEditor {route} />
+<ListingEditor
+  {route}
+  onsavedclose={async () => {
+    await goto('/selling');
+  }}
+/>

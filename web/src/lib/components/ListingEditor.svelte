@@ -2,6 +2,7 @@
   import { getContext, onMount } from 'svelte';
   import CapabilityGate from './CapabilityGate.svelte';
   import Notice from './Notice.svelte';
+  import OperationStatus from './OperationStatus.svelte';
   import { foodUnits } from '../contracts/food-availability-v1/values.ts';
   import type { PublicDraftForm } from '../contracts/local-records.ts';
   import {
@@ -16,6 +17,7 @@
     openListingEditor,
     listingEditorSnapshot,
     editListingEditor,
+    saveAndCloseListingEditor,
     closeListingEditor,
     subscribeListingEditor,
     type ListingEditor as Editor,
@@ -23,13 +25,25 @@
     type ListingEditorSnapshot
   } from '../publishing/listing-editor.ts';
   import { internalHref } from '../navigation-url.ts';
-  let { route }: { route: ListingEditorRoute } = $props();
+  let {
+    route,
+    onfirstsave,
+    onsavedclose
+  }: {
+    route: ListingEditorRoute;
+    onfirstsave?: (draftId: string, current: () => boolean) => Promise<void>;
+    onsavedclose?: () => Promise<void>;
+  } = $props();
   const context = getContext<IdentityViewContext>(IDENTITY_VIEW_CONTEXT);
   let identity = $state(identityViewSnapshot(context)),
     mounted = $state(false),
     editor = $state.raw<Editor | undefined>(),
     snapshot = $state<ListingEditorSnapshot>(),
     unavailable = $state(false);
+  let closeBusy = $state(false),
+    navigationFailed = $state(false);
+  let firstNavigation: Promise<void> | undefined;
+  let firstOwner: Editor | undefined;
   type Form = {
     -readonly [Key in keyof PublicDraftForm]: PublicDraftForm[Key];
   };
@@ -109,6 +123,28 @@
         form = { ...next.form };
         off = subscribeListingEditor(owned, () => {
           snapshot = owned && listingEditorSnapshot(owned);
+          if (
+            snapshot?.state === 'saved' &&
+            snapshot.draftId &&
+            resource.mode === 'new' &&
+            owned &&
+            firstOwner !== owned &&
+            !closeBusy &&
+            onfirstsave
+          ) {
+            firstOwner = owned;
+            firstNavigation = onfirstsave(
+              snapshot.draftId,
+              () =>
+                alive &&
+                mounted &&
+                editor === owned &&
+                !!owned &&
+                !!listingEditorSnapshot(owned)
+            ).catch(() => {
+              if (alive) navigationFailed = true;
+            });
+          }
           if (!snapshot) {
             unavailable = true;
             form = blankForm();
@@ -131,6 +167,32 @@
   }
   function connect() {
     return connectIdentityView(context);
+  }
+  async function saveClose() {
+    const original = editor,
+      resource = route,
+      author = admittedAuthor;
+    if (closeBusy || !original || !listingEditorSnapshot(original)?.editable)
+      return;
+    closeBusy = true;
+    try {
+      const saved = await saveAndCloseListingEditor(original);
+      await firstNavigation;
+      if (
+        !saved ||
+        !mounted ||
+        editor !== original ||
+        route !== resource ||
+        !author ||
+        admittedAuthor !== author
+      )
+        return;
+      await onsavedclose?.();
+    } catch {
+      if (mounted) navigationFailed = true;
+    } finally {
+      closeBusy = false;
+    }
   }
   function disconnect() {
     disconnectIdentityView(context);
@@ -180,7 +242,9 @@
   {:else}
     {#if !visible.editable}<Notice
         tone="info"
-        text="These retained local values are read-only until the current listing is checked."
+        text={route.mode === 'draft'
+          ? 'This draft has a retained listing operation. Keep its original outcome for reconciliation.'
+          : 'These retained local values are read-only until the current listing is checked.'}
       />{:else}<p>
         Changes are saved in this browser. Browser storage is not a backup.
       </p>{/if}
@@ -335,6 +399,18 @@
         </div>
       </details>
     </form>
+    {#each visible.operations as operation (operation)}<OperationStatus
+        publicOperation={operation}
+      />{/each}
+    {#if visible.editable}<button
+        type="button"
+        onclick={saveClose}
+        disabled={closeBusy}>Save and close</button
+      >{/if}
+    {#if navigationFailed}<Notice
+        tone="warning"
+        text="Navigation did not complete. Your saved local data remains in this browser."
+      />{/if}
     {#if visible.editable}<p role="status">
         {visible.state === 'saved'
           ? 'Saved in this browser.'

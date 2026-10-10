@@ -33,6 +33,8 @@ import {
   publicDraftControllerSnapshot,
   editPublicDraft,
   flushPublicDraft,
+  retryPublicDraft,
+  saveAndClosePublicDraft,
   closePublicDraftController,
   type PublicDraftController
 } from './draft-controller.ts';
@@ -45,6 +47,11 @@ import {
   identitySessionSnapshot,
   subscribeIdentityInvalidation
 } from '../runtime/identity-session.ts';
+import {
+  readListingOperationView,
+  closeListingOperationView,
+  type ListingOperationView
+} from './listing-operation-view.ts';
 
 declare const editorBrand: unique symbol;
 export type ListingEditor = Readonly<{ [editorBrand]: true }>;
@@ -62,6 +69,7 @@ export type ListingEditorSnapshot = Readonly<{
   failure: string | null;
   coordinate: string | null;
   sourceEventId: string | null;
+  operations: readonly ListingOperationView[];
 }>;
 type Editor = Readonly<{
   current(): boolean;
@@ -69,6 +77,7 @@ type Editor = Readonly<{
   snapshot(): ListingEditorSnapshot | undefined;
   edit(form: unknown): Promise<boolean>;
   flush(): Promise<boolean>;
+  saveClose(): Promise<boolean>;
   subscribe(listener: () => void): () => void;
 }>;
 const editors = new WeakMap<ListingEditor, Editor>();
@@ -140,10 +149,12 @@ export async function openListingEditor(
     listeners = new Map<symbol, () => void>(),
     cancellation = new AbortController();
   let alive = true,
+    closing = false,
     unsubscribe = () => {},
     database: BrowserDatabase | undefined,
     repository: PublicDraftRepository | undefined,
     controller: PublicDraftController | undefined;
+  const operations = new Map<string, ListingOperationView>();
   function current() {
     return (
       alive &&
@@ -177,6 +188,8 @@ export async function openListingEditor(
     signal?.removeEventListener('abort', retire);
     cancellation.abort();
     if (controller) closePublicDraftController(controller);
+    for (const operation of operations.values())
+      closeListingOperationView(operation);
     if (database) closeBrowserDatabase(database);
     if (active.get(context)?.stamp === stamp) active.delete(context);
     notify();
@@ -298,6 +311,39 @@ export async function openListingEditor(
       }
       controller = acquired;
       if (!controller) return unavailable('resource');
+      if (route.mode === 'draft') {
+        const quota = publicPublicationQuotaRepository(publications);
+        if (!quota) return unavailable('source');
+        const inspected = await inspectPublicStorage(quota);
+        if (!current() || !inspected.ok) return unavailable('source');
+        const inventory = publicInventorySnapshot(quota, inspected.value);
+        if (!inventory) return unavailable('source');
+        for (const item of inventory.rows) {
+          if (item.family !== 'public_operation') continue;
+          const read = await readPublicListingIntent(publications, item.id);
+          if (!current()) return unavailable('source');
+          const row =
+            read.status === 'found' &&
+            publicRecordSnapshot(read.record, owner, item.id);
+          if (!row || row.family !== 'public_operation')
+            return unavailable('source');
+          if (row.source.type !== 'draft' || row.source.id !== route.draftId)
+            continue;
+          if (operations.size >= 100) return unavailable('source');
+          const operation = await readListingOperationView(
+            publications,
+            session,
+            item.id
+          );
+          if (!current()) {
+            if (operation.status === 'found')
+              closeListingOperationView(operation.view);
+            return unavailable('source');
+          }
+          if (operation.status !== 'found') return unavailable('source');
+          operations.set(item.id, operation.view);
+        }
+      }
     }
     if (!current()) return unavailable('source');
     const value: Editor = {
@@ -313,16 +359,18 @@ export async function openListingEditor(
           mode: route.mode,
           owner,
           form: local ? local.form : { ...(sourceForm ?? emptyForm) },
-          editable: route.mode !== 'edit',
+          editable: route.mode !== 'edit' && operations.size === 0,
           draftId: local?.draft?.id ?? null,
-          state: local
-            ? local.state === 'closed'
-              ? 'failed'
-              : local.state
-            : 'read-only',
+          state:
+            local && operations.size === 0
+              ? local.state === 'closed'
+                ? 'failed'
+                : local.state
+              : 'read-only',
           failure: local?.failure ?? null,
           coordinate,
-          sourceEventId
+          sourceEventId,
+          operations: Array.from(operations.values())
         };
       },
       async edit(input) {
@@ -330,7 +378,8 @@ export async function openListingEditor(
           retire();
           return false;
         }
-        if (!controller || route.mode === 'edit') return false;
+        if (!controller || route.mode === 'edit' || operations.size)
+          return false;
         if (!editPublicDraft(controller, input)) return false;
         notify();
         const pending = flushPublicDraft(controller);
@@ -353,7 +402,8 @@ export async function openListingEditor(
           retire();
           return false;
         }
-        if (!controller || route.mode === 'edit') return false;
+        if (!controller || route.mode === 'edit' || operations.size)
+          return false;
         const pending = flushPublicDraft(controller);
         await Promise.resolve();
         if (!current()) {
@@ -368,6 +418,41 @@ export async function openListingEditor(
         }
         notify();
         return saved;
+      },
+      async saveClose() {
+        if (
+          !current() ||
+          !controller ||
+          route.mode === 'edit' ||
+          operations.size ||
+          closing
+        )
+          return false;
+        closing = true;
+        try {
+          if (publicDraftControllerSnapshot(controller)?.state === 'failed') {
+            const retried = await retryPublicDraft(controller);
+            if (!current()) {
+              retire();
+              return false;
+            }
+            notify();
+            if (!retried) return false;
+          }
+          const saved = await saveAndClosePublicDraft(controller);
+          if (!current()) {
+            retire();
+            return false;
+          }
+          if (!saved) {
+            notify();
+            return false;
+          }
+          retire();
+          return true;
+        } finally {
+          closing = false;
+        }
       },
       subscribe(listener) {
         if (!current()) return () => {};
@@ -401,6 +486,11 @@ export function flushListingEditor(editor: ListingEditor): Promise<boolean> {
 }
 export function closeListingEditor(editor: ListingEditor): void {
   editors.get(editor)?.retire();
+}
+export function saveAndCloseListingEditor(
+  editor: ListingEditor
+): Promise<boolean> {
+  return editors.get(editor)?.saveClose() ?? Promise.resolve(false);
 }
 export function subscribeListingEditor(
   editor: ListingEditor,

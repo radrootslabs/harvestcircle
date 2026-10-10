@@ -27,6 +27,7 @@ const errorState = vi.hoisted(() => ({
 }));
 vi.mock('$app/state', () => ({ page: errorState }));
 vi.mock('$app/navigation', () => ({
+  beforeNavigate: vi.fn(),
   goto: () => {
     throw new Error('SSR must not navigate');
   }
