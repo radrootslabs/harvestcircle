@@ -9,9 +9,18 @@ import {
   type ListingPublication
 } from '../publishing/sign-listing.ts';
 import {
+  listingResumeOwnership,
+  type ListingResumption
+} from '../publishing/resume-listing.ts';
+import {
+  listingRetryOwnership,
+  type ListingRetry
+} from '../publishing/retry-listing.ts';
+import {
   identityMessagingOwnership,
   identityPublicOperationOwnership,
-  recheckIdentityOwner
+  recheckIdentityOwner,
+  type IdentitySession
 } from '../runtime/identity-session.ts';
 import { preferencePolicyFingerprint } from './inbox-preference-publication.ts';
 import { readPublicListingIntent } from '../persistence/public-publications.ts';
@@ -24,10 +33,14 @@ declare const leaseBrand: unique symbol;
 declare const permissionBrand: unique symbol;
 export type ListingDeliveryLease = Readonly<{ [leaseBrand]: true }>;
 export type ListingAttemptPermission = Readonly<{ [permissionBrand]: true }>;
-type Original = NonNullable<ReturnType<typeof listingPublicationOwnership>>;
+type Original = NonNullable<
+  | ReturnType<typeof listingPublicationOwnership>
+  | ReturnType<typeof listingResumeOwnership>
+>;
 type Owner = Readonly<{
   original: Original;
   policy: RelayPolicy;
+  signal?: AbortSignal;
   current(): boolean;
 }>;
 type Permission = Readonly<{
@@ -38,6 +51,32 @@ type Permission = Readonly<{
 }>;
 const leases = new WeakMap<ListingDeliveryLease, Owner>();
 const permissions = new WeakMap<ListingAttemptPermission, Permission>();
+// Stop releases this action's wait and author lock. The extension promise may
+// settle later; it cannot resurrect the revoked network lease or a signer.
+async function recheckDeliveryOwner(
+  identity: IdentitySession,
+  signal?: AbortSignal
+): Promise<boolean> {
+  if (signal?.aborted) return false;
+  if (!signal) {
+    await recheckIdentityOwner(identity);
+    return true;
+  }
+  let stop = () => {};
+  const stopped = new Promise<boolean>((resolve) => {
+    stop = () => resolve(false);
+    signal.addEventListener('abort', stop, { once: true });
+    if (signal.aborted) stop();
+  });
+  try {
+    return await Promise.race([
+      recheckIdentityOwner(identity).then(() => true),
+      stopped
+    ]);
+  } finally {
+    signal.removeEventListener('abort', stop);
+  }
+}
 // Receipt revisions may grow, but the complete original operation payload and
 // verified artifact stay exact. No new command, author or destination is adopted.
 export async function readRetainedListingDelivery(
@@ -93,7 +132,21 @@ export async function readOwnedListingDelivery(
 ): Promise<PublicRecordHandle | undefined> {
   const owner = leases.get(lease);
   if (!owner?.current()) return;
-  const record = await readRetainedListingDelivery(lease);
+  const read = readRetainedListingDelivery(lease);
+  let stop = () => {};
+  const stopped =
+    owner.signal &&
+    new Promise<undefined>((resolve) => {
+      stop = () => resolve(undefined);
+      owner.signal!.addEventListener('abort', stop, { once: true });
+      if (owner.signal!.aborted) stop();
+    });
+  let record: PublicRecordHandle | undefined;
+  try {
+    record = await (stopped ? Promise.race([read, stopped]) : read);
+  } finally {
+    owner.signal?.removeEventListener('abort', stop);
+  }
   return owner.current() ? record : undefined;
 }
 export function listingDeliveryOwnership(lease: ListingDeliveryLease) {
@@ -113,18 +166,28 @@ export type ListingOwnershipResult<T> =
 // One original author lock spans this finite explicitly requested network
 // action. It never spans a native IDB transaction and cannot mint a signer.
 export async function withListingDeliveryOwnership<T>(
-  publication: ListingPublication,
+  publication: ListingPublication | ListingResumption,
   policy: RelayPolicy,
   consent: unknown,
-  work: (lease: ListingDeliveryLease) => Promise<T>
+  work: (lease: ListingDeliveryLease) => Promise<T>,
+  control?: ListingRetry
 ): Promise<ListingOwnershipResult<T>> {
-  const original = listingPublicationOwnership(publication);
+  const signed = listingPublicationOwnership(publication as ListingPublication),
+    resumed = listingResumeOwnership(publication as ListingResumption),
+    original = signed ?? resumed,
+    retry = control && listingRetryOwnership(control);
   if (
     !original ||
-    consent !== 'publish_stored_listing' ||
+    (control
+      ? !retry ||
+        retry.source !== publication ||
+        retry.policy !== policy ||
+        retry.consent !== consent
+      : !signed || consent !== 'publish_stored_listing') ||
     original.policy !== policy
   )
     return { status: 'invalid' };
+  if (retry && !retry.current()) return { status: 'stopped' };
   if (typeof window === 'undefined' || !navigator.locks?.request)
     return { status: 'unavailable' };
   try {
@@ -133,36 +196,45 @@ export async function withListingDeliveryOwnership<T>(
       { mode: 'exclusive', ifAvailable: true },
       async (lock): Promise<ListingOwnershipResult<T>> => {
         if (!lock) return { status: 'busy' };
-        await recheckIdentityOwner(original.identity);
+        if (!(await recheckDeliveryOwner(original.identity, retry?.signal)))
+          return { status: 'stopped' };
         const identity = identityMessagingOwnership(original.identity),
-          operation = identityPublicOperationOwnership(
-            original.identity,
-            original.operation
-          );
+          operation =
+            signed &&
+            identityPublicOperationOwnership(
+              original.identity,
+              signed.operation
+            );
         if (
           !identity ||
-          !operation ||
+          (signed && !operation) ||
           identity.owner !== original.owner ||
-          operation.owner !== original.owner ||
-          operation.session !== identity.session ||
-          !original.current()
+          (operation &&
+            (operation.owner !== original.owner ||
+              operation.session !== identity.session)) ||
+          !original.current() ||
+          (retry && !retry.current())
         )
           return { status: 'stopped' };
         let active = true;
         const owner: Owner = {
           original,
           policy,
+          signal: retry?.signal,
           current: () =>
             active &&
             original.current() &&
             identity.current() &&
-            operation.current()
+            (!operation || operation.current()) &&
+            (!retry || retry.current())
         };
         const lease = Object.freeze({}) as ListingDeliveryLease;
         leases.set(lease, owner);
         try {
           if (!(await readOwnedListingDelivery(lease)))
-            return { status: 'unavailable' };
+            return {
+              status: retry && !retry.current() ? 'stopped' : 'unavailable'
+            };
           return { status: 'completed', value: await work(lease) };
         } finally {
           active = false;
@@ -201,7 +273,7 @@ export async function authorizeListingAttempt(
       !row.capture.targets.includes(origin)
     )
       return;
-    await recheckIdentityOwner(original.identity);
+    if (!(await recheckDeliveryOwner(original.identity, owner.signal))) return;
     if (!owner.current()) return;
     const token = Object.freeze({}) as ListingAttemptPermission;
     permissions.set(token, { owner, origin, mode, wire: row.artifact.wire });
