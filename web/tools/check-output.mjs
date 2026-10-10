@@ -622,17 +622,50 @@ async function listingEditorAdmission(web) {
     'src/lib/publishing/listing-editor.ts':
       '9d7ea3f905188ab807b1779c2c0856e39a82cfe598bd071da33fabad66796012'
   };
+  /** @type {Record<string,string>} */
+  const reviewProducers = {
+    'src/routes/sell/+page.svelte':
+      '97f22f9a0309621e9acb5f1b328d3376bc9c5affbe5a7ea1b85ece76097b9c08',
+    'src/routes/selling/drafts/[draftId=local_id]/+page.svelte':
+      '1df59a753fbef2bc2ebf77890a79cbd3d7a5bb0dcef34c219df1b5e8043cf787',
+    'src/routes/products/[naddr=naddr]/edit/+page.svelte':
+      '09c3a6bde766045319cd36a00a82ca565f9f3b5cd5322982be9482836f312998',
+    'src/lib/components/ListingEditor.svelte':
+      '8be89452b0bfd50ff907efcf38873ef1b4007440464836db8b1ff2bc552b97ff',
+    'src/lib/publishing/listing-editor.ts':
+      'f781a9b028f4f441514bfb8622767c365b0425e7083acfd8deaaba57dc0b7dab',
+    'src/lib/components/ListingReview.svelte':
+      'bf4e6bf0fc76fa12672fabc441e1058d73c1f281a0a560aeafbdaa2aa36f6f90',
+    'src/lib/publishing/editor-workflow.ts':
+      '5bc8827c5ff167e0974f03a87e4e9db350e42f30c511f199b785c30ad365d838'
+  };
   let historical = true,
-    current = true;
+    current = true,
+    reviewed = true;
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);
     publicText(bytes);
     const actual = createHash('sha256').update(bytes).digest('hex');
     historical = historical && actual === pin;
     current = current && actual === continuity[name];
+    reviewed = reviewed && actual === reviewProducers[name];
   }
-  if (!historical && !current)
+  if (reviewed) {
+    for (const name of [
+      'src/lib/components/ListingReview.svelte',
+      'src/lib/publishing/editor-workflow.ts'
+    ]) {
+      const bytes = await readOwned(web, name);
+      publicText(bytes);
+      reviewed =
+        reviewed &&
+        createHash('sha256').update(bytes).digest('hex') ===
+          reviewProducers[name];
+    }
+  }
+  if (!historical && !current && !reviewed)
     throw new Error('Invalid owned listing editor source');
+  if (reviewed) return 'review';
   if (current) return 'continuity';
   return true;
 }
@@ -829,7 +862,9 @@ export async function auditOutput(webDirectory) {
   const hasListingEditor = hasFullRoutes && (await listingEditorAdmission(web));
   if (hasListingEditor && !(hasListingPublication && hasInboxSetup))
     throw new Error('Invalid owned listing editor runtime authority');
-  const hasListingContinuity = hasListingEditor === 'continuity';
+  const hasListingReview = hasListingEditor === 'review';
+  const hasListingContinuity =
+    hasListingEditor === 'continuity' || hasListingReview;
   const identityCompilerModule = hasListingEditor
     ? 'view-context'
     : hasInboxSetup
@@ -2596,6 +2631,21 @@ export async function auditOutput(webDirectory) {
             imports: ['view-context', 'public-runtime']
           }
         };
+    if (hasListingReview)
+      expected.ListingEditor = {
+        file: '_app/immutable/chunks/HASH.js',
+        name: 'ListingEditor',
+        imports: [
+          'public-key',
+          'public-runtime',
+          'references',
+          'client',
+          'Button',
+          'CapabilityGate',
+          'InboxSetup',
+          'read'
+        ]
+      };
     for (const record of Object.values(manifest)) {
       const actual = { ...record };
       actual.file = actual.file.includes('/chunks/')

@@ -1298,7 +1298,9 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'src/routes/selling/drafts/[draftId=local_id]/+page.svelte',
           'src/routes/products/[naddr=naddr]/edit/+page.svelte',
           'src/lib/components/ListingEditor.svelte',
-          'src/lib/publishing/listing-editor.ts'
+          'src/lib/publishing/listing-editor.ts',
+          'src/lib/components/ListingReview.svelte',
+          'src/lib/publishing/editor-workflow.ts'
         ]) {
           await check(
             'listing editor rejects changed owned producer ' + producer,

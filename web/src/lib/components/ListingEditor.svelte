@@ -1,5 +1,28 @@
 <script lang="ts">
-  import { getContext, onMount } from 'svelte';
+  /* global document */
+  import { getContext, onMount, tick } from 'svelte';
+  import ListingReview from './ListingReview.svelte';
+  import InboxSetup from './InboxSetup.svelte';
+  import {
+    PUBLIC_RUNTIME_CONTEXT,
+    publicRuntimeReady,
+    type PublicRuntimeContext,
+    type PublicRuntime
+  } from '../runtime/public-runtime.ts';
+  import {
+    createRuntimeInboxSetupView,
+    inboxSetupViewSnapshot,
+    subscribeInboxSetupView,
+    closeInboxSetupView,
+    type InboxSetupView
+  } from '../messaging/inbox-setup-view.ts';
+  import {
+    openEditorReview,
+    editorReviewSnapshot,
+    closeEditorReview,
+    type EditorReview,
+    type EditorFormError
+  } from '../publishing/editor-workflow.ts';
   import CapabilityGate from './CapabilityGate.svelte';
   import Notice from './Notice.svelte';
   import OperationStatus from './OperationStatus.svelte';
@@ -28,13 +51,25 @@
   let {
     route,
     onfirstsave,
-    onsavedclose
+    onsavedclose,
+    inboxController
   }: {
     route: ListingEditorRoute;
     onfirstsave?: (draftId: string, current: () => boolean) => Promise<void>;
     onsavedclose?: () => Promise<void>;
+    inboxController?: InboxSetupView;
   } = $props();
   const context = getContext<IdentityViewContext>(IDENTITY_VIEW_CONTEXT);
+  const publicContext = getContext<PublicRuntimeContext>(
+    PUBLIC_RUNTIME_CONTEXT
+  );
+  let runtime = $state.raw<PublicRuntime | undefined>(),
+    setup = $state.raw<InboxSetupView | undefined>();
+  let setupState = $state(inboxSetupViewSnapshot(undefined));
+  let review = $state.raw<EditorReview | undefined>(),
+    reviewBusy = $state(false);
+  let errors = $state<readonly EditorFormError[]>([]),
+    reviewMessage = $state('');
   let identity = $state(identityViewSnapshot(context)),
     mounted = $state(false),
     editor = $state.raw<Editor | undefined>(),
@@ -79,10 +114,45 @@
     const off = subscribeIdentityView(context, (next) => {
       identity = next;
     });
+    if (publicContext)
+      void publicRuntimeReady(publicContext)
+        .then((value) => {
+          if (mounted) runtime = value;
+        })
+        .catch(() => {
+          /* Draft saving does not depend on inbox setup. */
+        });
     return () => {
       mounted = false;
       off();
     };
+  });
+  $effect(() => {
+    const author = admittedAuthor,
+      available = active,
+      source = runtime,
+      supplied = inboxController;
+    if (!available || !author) {
+      setup = undefined;
+      setupState = inboxSetupViewSnapshot(undefined);
+      return;
+    }
+    const owned =
+      supplied ?? (source && createRuntimeInboxSetupView(context, source));
+    setup = owned;
+    const off = owned
+      ? subscribeInboxSetupView(owned, (next) => {
+          setupState = next;
+        })
+      : () => {};
+    return () => {
+      off();
+      if (owned) closeInboxSetupView(owned);
+    };
+  });
+  const visibleReview = $derived.by(() => {
+    if (!setupState.owner || !snapshot || !visible || !review) return;
+    return editorReviewSnapshot(review) ? review : undefined;
   });
   $effect(() => {
     const resource = route,
@@ -100,6 +170,9 @@
       off = () => {};
     editor = undefined;
     snapshot = undefined;
+    review = undefined;
+    errors = [];
+    reviewMessage = '';
     form = blankForm();
     unavailable = false;
     void openListingEditor(context, resource, cancellation.signal).then(
@@ -163,7 +236,74 @@
   function changed() {
     const original = editor;
     if (!original || !listingEditorSnapshot(original)?.editable) return;
+    if (review) closeEditorReview(review);
+    review = undefined;
+    errors = [];
     void editListingEditor(original, { ...form });
+  }
+  async function showReview() {
+    const original = editor,
+      resource = route,
+      author = admittedAuthor;
+    if (
+      reviewBusy ||
+      closeBusy ||
+      !original ||
+      !listingEditorSnapshot(original)?.editable
+    )
+      return;
+    reviewBusy = true;
+    try {
+      const result = await openEditorReview(original, setup, { ...form });
+      if (
+        !mounted ||
+        editor !== original ||
+        route !== resource ||
+        admittedAuthor !== author ||
+        !listingEditorSnapshot(original)
+      ) {
+        if (result.status === 'review') closeEditorReview(result.review);
+        return;
+      }
+      if (result.status === 'blocked') {
+        errors = result.errors;
+        reviewMessage = result.message;
+        await tick();
+        document.querySelector<HTMLElement>('#listing-review-errors')?.focus();
+        return;
+      }
+      if (review) closeEditorReview(review);
+      review = result.review;
+      errors = [];
+      reviewMessage = '';
+      await tick();
+      if (mounted && editor === original && editorReviewSnapshot(result.review))
+        document.querySelector<HTMLElement>('#listing-review-heading')?.focus();
+    } finally {
+      reviewBusy = false;
+    }
+  }
+  async function editDetails() {
+    if (review) closeEditorReview(review);
+    review = undefined;
+    errors = [];
+    reviewMessage = '';
+    await tick();
+    if (mounted && editor && listingEditorSnapshot(editor)?.editable)
+      document.querySelector<HTMLInputElement>('#listing-title')?.focus();
+  }
+  function fieldError(field: keyof PublicDraftForm) {
+    return errors.find((value) => value.field === field);
+  }
+  function fieldId(field: keyof PublicDraftForm) {
+    return (
+      'listing-' +
+      (field === 'contactType'
+        ? 'contact-type'
+        : field === 'contactValue'
+          ? 'contact-value'
+          : field)
+    );
   }
   function connect() {
     return connectIdentityView(context);
@@ -248,164 +388,261 @@
       />{:else}<p>
         Changes are saved in this browser. Browser storage is not a backup.
       </p>{/if}
-    <form class="stack" onsubmit={(event) => event.preventDefault()} novalidate>
-      <div class="field">
-        <label class="label" for="listing-title">Product name</label><input
-          id="listing-title"
-          type="text"
-          value={form.title}
-          oninput={(event) => {
-            form = { ...form, title: event.currentTarget.value };
-            changed();
-          }}
-          readonly={!visible.editable}
-        />
-      </div>
-      <div class="field">
-        <label class="label" for="listing-description">Description</label
-        ><textarea
-          id="listing-description"
-          rows="6"
-          value={form.description}
-          oninput={(event) => {
-            form = { ...form, description: event.currentTarget.value };
-            changed();
-          }}
-          readonly={!visible.editable}></textarea>
-      </div>
-      <div class="field">
-        <label class="label" for="listing-location">Public area</label>
-        <p id="listing-location-hint" class="text-small">
-          A town or collection area is enough.
-        </p>
-        <input
-          id="listing-location"
-          type="text"
-          aria-describedby="listing-location-hint"
-          value={form.location}
-          oninput={(event) => {
-            form = { ...form, location: event.currentTarget.value };
-            changed();
-          }}
-          readonly={!visible.editable}
-        />
-      </div>
-      <div class="cluster">
-        <div class="field">
-          <label class="label" for="listing-amount">Price</label><input
-            id="listing-amount"
-            type="text"
-            inputmode="decimal"
-            value={form.amount}
-            oninput={(event) => {
-              form = { ...form, amount: event.currentTarget.value };
-              changed();
-            }}
-            readonly={!visible.editable}
-          />
-        </div>
-        <div class="field">
-          <label class="label" for="listing-currency">Currency</label><input
-            id="listing-currency"
-            type="text"
-            maxlength="3"
-            value={form.currency}
-            oninput={(event) => {
-              form = { ...form, currency: event.currentTarget.value };
-              changed();
-            }}
-            readonly={!visible.editable}
-          />
-        </div>
-        <div class="field">
-          <label class="label" for="listing-unit">Per</label><select
-            id="listing-unit"
-            value={form.unit}
-            onchange={(event) => {
-              form = { ...form, unit: event.currentTarget.value };
-              changed();
-            }}
-            disabled={!visible.editable}
-            ><option value="">Choose a unit</option
-            >{#each foodUnits as unit (unit)}<option value={unit}>{unit}</option
-              >{/each}</select
-          >
-        </div>
-      </div>
-      <div class="field">
-        <label class="label" for="listing-quantity"
-          >Advertised quantity (optional)</label
+    {#if visibleReview}<ListingReview
+        review={visibleReview}
+        onedit={editDetails}
+      />{:else}
+      {#if reviewMessage}<Notice tone="warning" text={reviewMessage} />{/if}
+      {#if errors.length}<div
+          id="listing-review-errors"
+          tabindex="-1"
+          role="alert"
         >
-        <p id="listing-quantity-unit">
-          {form.unit || 'Uses the selected price unit'}
-        </p>
-        <input
-          id="listing-quantity"
-          type="text"
-          inputmode="decimal"
-          aria-describedby="listing-quantity-unit"
-          value={form.quantity}
-          oninput={(event) => {
-            form = { ...form, quantity: event.currentTarget.value };
-            changed();
-          }}
-          readonly={!visible.editable}
-        />
-      </div>
-      <details>
-        <summary>Add public contact details (optional)</summary>
-        <div class="stack">
-          <p>Only add contact details you want to include publicly.</p>
+          <p>Check these listing fields. Your input remains here.</p>
+          <ul>
+            {#each errors as error (error.field)}<li>
+                <a href={internalHref('#' + fieldId(error.field))}
+                  >{error.message}</a
+                >
+              </li>{/each}
+          </ul>
+        </div>{/if}
+      <form
+        class="stack"
+        onsubmit={(event) => event.preventDefault()}
+        novalidate
+      >
+        <div class="field">
+          <label class="label" for="listing-title">Product name</label><input
+            id="listing-title"
+            aria-invalid={fieldError('title') ? 'true' : undefined}
+            aria-errormessage={fieldError('title')
+              ? 'listing-title-error'
+              : undefined}
+            type="text"
+            value={form.title}
+            oninput={(event) => {
+              form = { ...form, title: event.currentTarget.value };
+              changed();
+            }}
+            readonly={!visible.editable}
+          />
+          {#if fieldError('title')}<p id="listing-title-error">
+              {fieldError('title')?.message}
+            </p>{/if}
+        </div>
+        <div class="field">
+          <label class="label" for="listing-description">Description</label
+          ><textarea
+            id="listing-description"
+            aria-invalid={fieldError('description') ? 'true' : undefined}
+            aria-errormessage={fieldError('description')
+              ? 'listing-description-error'
+              : undefined}
+            rows="6"
+            value={form.description}
+            oninput={(event) => {
+              form = { ...form, description: event.currentTarget.value };
+              changed();
+            }}
+            readonly={!visible.editable}></textarea>
+          {#if fieldError('description')}<p id="listing-description-error">
+              {fieldError('description')?.message}
+            </p>{/if}
+        </div>
+        <div class="field">
+          <label class="label" for="listing-location">Public area</label>
+          <p id="listing-location-hint" class="text-small">
+            A town or collection area is enough.
+          </p>
+          <input
+            id="listing-location"
+            aria-invalid={fieldError('location') ? 'true' : undefined}
+            aria-errormessage={fieldError('location')
+              ? 'listing-location-error'
+              : undefined}
+            type="text"
+            aria-describedby="listing-location-hint"
+            value={form.location}
+            oninput={(event) => {
+              form = { ...form, location: event.currentTarget.value };
+              changed();
+            }}
+            readonly={!visible.editable}
+          />
+          {#if fieldError('location')}<p id="listing-location-error">
+              {fieldError('location')?.message}
+            </p>{/if}
+        </div>
+        <div class="cluster">
           <div class="field">
-            <label class="label" for="listing-contact-type"
-              >Public contact type</label
-            ><select
-              id="listing-contact-type"
-              value={form.contactType}
-              onchange={(event) => {
-                const value = event.currentTarget.value;
-                if (
-                  value === '' ||
-                  value === 'email' ||
-                  value === 'phone' ||
-                  value === 'https'
-                ) {
-                  form = { ...form, contactType: value };
-                  changed();
-                }
-              }}
-              disabled={!visible.editable}
-              ><option value="">No public contact</option><option value="email"
-                >Email</option
-              ><option value="phone">Phone</option><option value="https"
-                >Website</option
-              ></select
-            >
-          </div>
-          <div class="field">
-            <label class="label" for="listing-contact-value"
-              >Public contact details</label
-            ><input
-              id="listing-contact-value"
+            <label class="label" for="listing-amount">Price</label><input
+              id="listing-amount"
+              aria-invalid={fieldError('amount') ? 'true' : undefined}
+              aria-errormessage={fieldError('amount')
+                ? 'listing-amount-error'
+                : undefined}
               type="text"
-              value={form.contactValue}
+              inputmode="decimal"
+              value={form.amount}
               oninput={(event) => {
-                form = { ...form, contactValue: event.currentTarget.value };
+                form = { ...form, amount: event.currentTarget.value };
                 changed();
               }}
               readonly={!visible.editable}
             />
+            {#if fieldError('amount')}<p id="listing-amount-error">
+                {fieldError('amount')?.message}
+              </p>{/if}
+          </div>
+          <div class="field">
+            <label class="label" for="listing-currency">Currency</label><input
+              id="listing-currency"
+              aria-invalid={fieldError('currency') ? 'true' : undefined}
+              aria-errormessage={fieldError('currency')
+                ? 'listing-currency-error'
+                : undefined}
+              type="text"
+              maxlength="3"
+              value={form.currency}
+              oninput={(event) => {
+                form = { ...form, currency: event.currentTarget.value };
+                changed();
+              }}
+              readonly={!visible.editable}
+            />
+            {#if fieldError('currency')}<p id="listing-currency-error">
+                {fieldError('currency')?.message}
+              </p>{/if}
+          </div>
+          <div class="field">
+            <label class="label" for="listing-unit">Per</label><select
+              id="listing-unit"
+              aria-invalid={fieldError('unit') ? 'true' : undefined}
+              aria-errormessage={fieldError('unit')
+                ? 'listing-unit-error'
+                : undefined}
+              value={form.unit}
+              onchange={(event) => {
+                form = { ...form, unit: event.currentTarget.value };
+                changed();
+              }}
+              disabled={!visible.editable}
+              ><option value="">Choose a unit</option
+              >{#each foodUnits as unit (unit)}<option value={unit}
+                  >{unit}</option
+                >{/each}</select
+            >
+            {#if fieldError('unit')}<p id="listing-unit-error">
+                {fieldError('unit')?.message}
+              </p>{/if}
           </div>
         </div>
-      </details>
-    </form>
+        <div class="field">
+          <label class="label" for="listing-quantity"
+            >Advertised quantity (optional)</label
+          >
+          <p id="listing-quantity-unit">
+            {form.unit || 'Uses the selected price unit'}
+          </p>
+          <input
+            id="listing-quantity"
+            aria-invalid={fieldError('quantity') ? 'true' : undefined}
+            aria-errormessage={fieldError('quantity')
+              ? 'listing-quantity-error'
+              : undefined}
+            type="text"
+            inputmode="decimal"
+            aria-describedby="listing-quantity-unit"
+            value={form.quantity}
+            oninput={(event) => {
+              form = { ...form, quantity: event.currentTarget.value };
+              changed();
+            }}
+            readonly={!visible.editable}
+          />
+          {#if fieldError('quantity')}<p id="listing-quantity-error">
+              {fieldError('quantity')?.message}
+            </p>{/if}
+        </div>
+        <details>
+          <summary>Add public contact details (optional)</summary>
+          <div class="stack">
+            <p>Only add contact details you want to include publicly.</p>
+            <div class="field">
+              <label class="label" for="listing-contact-type"
+                >Public contact type</label
+              ><select
+                id="listing-contact-type"
+                aria-invalid={fieldError('contactType') ? 'true' : undefined}
+                aria-errormessage={fieldError('contactType')
+                  ? 'listing-contact-type-error'
+                  : undefined}
+                value={form.contactType}
+                onchange={(event) => {
+                  const value = event.currentTarget.value;
+                  if (
+                    value === '' ||
+                    value === 'email' ||
+                    value === 'phone' ||
+                    value === 'https'
+                  ) {
+                    form = { ...form, contactType: value };
+                    changed();
+                  }
+                }}
+                disabled={!visible.editable}
+                ><option value="">No public contact</option><option
+                  value="email">Email</option
+                ><option value="phone">Phone</option><option value="https"
+                  >Website</option
+                ></select
+              >
+              {#if fieldError('contactType')}<p id="listing-contact-type-error">
+                  {fieldError('contactType')?.message}
+                </p>{/if}
+            </div>
+            <div class="field">
+              <label class="label" for="listing-contact-value"
+                >Public contact details</label
+              ><input
+                id="listing-contact-value"
+                aria-invalid={fieldError('contactValue') ? 'true' : undefined}
+                aria-errormessage={fieldError('contactValue')
+                  ? 'listing-contact-value-error'
+                  : undefined}
+                type="text"
+                value={form.contactValue}
+                oninput={(event) => {
+                  form = { ...form, contactValue: event.currentTarget.value };
+                  changed();
+                }}
+                readonly={!visible.editable}
+              />
+              {#if fieldError('contactValue')}<p
+                  id="listing-contact-value-error"
+                >
+                  {fieldError('contactValue')?.message}
+                </p>{/if}
+            </div>
+          </div>
+        </details>
+      </form>
+      {#if visible.editable}<button
+          type="button"
+          onclick={showReview}
+          disabled={reviewBusy || closeBusy}
+          >{reviewBusy ? 'Preparing review' : 'Review listing'}</button
+        >{/if}
+    {/if}
+    {#if visible.editable && setup}<InboxSetup controller={setup} inline />{/if}
     {#each visible.operations as operation (operation)}<OperationStatus
         publicOperation={operation}
       />{/each}
     {#if visible.editable}<button
         type="button"
         onclick={saveClose}
-        disabled={closeBusy}>Save and close</button
+        disabled={closeBusy || reviewBusy}>Save and close</button
       >{/if}
     {#if navigationFailed}<Notice
         tone="warning"

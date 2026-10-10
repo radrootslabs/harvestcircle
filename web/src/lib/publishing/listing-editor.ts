@@ -2,7 +2,20 @@ import {
   exactLocalFields,
   type PublicDraftForm
 } from '../contracts/local-records.ts';
-import { canonicalLocalId } from '../private-handles.ts';
+import { canonicalLocalId, newLocalId } from '../private-handles.ts';
+import type { InboxSetupView } from '../messaging/inbox-setup-view.ts';
+import {
+  captureNewListingReadiness,
+  closeNewListingReadiness,
+  type NewListingReadiness
+} from './new-listing-readiness.ts';
+import {
+  reviewNewListing,
+  listingReviewSnapshot,
+  listingReviewOwnership,
+  type ListingReview,
+  type ListingReviewResult
+} from './prepare-listing.ts';
 import { decodeProductReference } from '../nostr/references.ts';
 import { inspectLocalTemplate } from '../nostr/local-template.ts';
 import { projectFoodParts } from '../contracts/food-availability-v1/read.ts';
@@ -78,6 +91,11 @@ type Editor = Readonly<{
   edit(form: unknown): Promise<boolean>;
   flush(): Promise<boolean>;
   saveClose(): Promise<boolean>;
+  review(
+    setup: InboxSetupView | undefined,
+    form: PublicDraftForm
+  ): Promise<ListingReviewResult>;
+  reviewCurrent(review: ListingReview): boolean;
   subscribe(listener: () => void): () => void;
 }>;
 const editors = new WeakMap<ListingEditor, Editor>();
@@ -155,6 +173,20 @@ export async function openListingEditor(
     repository: PublicDraftRepository | undefined,
     controller: PublicDraftController | undefined;
   const operations = new Map<string, ListingOperationView>();
+  let reviewed:
+    | {
+        setup: InboxSetupView | undefined;
+        proof: NewListingReadiness;
+        review: ListingReview;
+      }
+    | undefined;
+  let reviewing: Promise<ListingReviewResult> | undefined;
+  let reviewingForm: string | undefined;
+  let reviewingSetup: InboxSetupView | undefined;
+  function clearReview() {
+    if (reviewed) closeNewListingReadiness(reviewed.proof);
+    reviewed = undefined;
+  }
   function current() {
     return (
       alive &&
@@ -187,6 +219,7 @@ export async function openListingEditor(
     unsubscribe();
     signal?.removeEventListener('abort', retire);
     cancellation.abort();
+    clearReview();
     if (controller) closePublicDraftController(controller);
     for (const operation of operations.values())
       closeListingOperationView(operation);
@@ -346,6 +379,26 @@ export async function openListingEditor(
       }
     }
     if (!current()) return unavailable('source');
+    function reviewCurrent(review: ListingReview) {
+      const preview = listingReviewSnapshot(review),
+        local = controller && publicDraftControllerSnapshot(controller);
+      return !!(
+        current() &&
+        !closing &&
+        !operations.size &&
+        route &&
+        route.mode !== 'edit' &&
+        reviewed?.review === review &&
+        listingReviewOwnership(review)?.current() &&
+        preview &&
+        local?.state === 'saved' &&
+        local.draft &&
+        preview.owner === owner &&
+        preview.draftId === local.draft.id &&
+        preview.draftRevision === local.draft.revision &&
+        JSON.stringify(preview.form) === JSON.stringify(local.form)
+      );
+    }
     const value: Editor = {
       current,
       retire,
@@ -381,6 +434,7 @@ export async function openListingEditor(
         if (!controller || route.mode === 'edit' || operations.size)
           return false;
         if (!editPublicDraft(controller, input)) return false;
+        clearReview();
         notify();
         const pending = flushPublicDraft(controller);
         await Promise.resolve();
@@ -454,6 +508,86 @@ export async function openListingEditor(
           closing = false;
         }
       },
+      review(setup, input) {
+        const local = controller && publicDraftControllerSnapshot(controller);
+        if (
+          !current() ||
+          closing ||
+          !controller ||
+          !local ||
+          route.mode === 'edit' ||
+          operations.size ||
+          !exactLocalFields(input, Object.keys(emptyForm)) ||
+          JSON.stringify(input) !== JSON.stringify(local.form)
+        )
+          return Promise.resolve({
+            status: 'blocked',
+            reason: 'invalid_scope'
+          });
+        if (
+          reviewed &&
+          reviewed.setup === setup &&
+          reviewCurrent(reviewed.review)
+        )
+          return Promise.resolve({ status: 'review', review: reviewed.review });
+        const formWire = JSON.stringify(local.form);
+        if (reviewing)
+          return reviewingForm === formWire && reviewingSetup === setup
+            ? reviewing
+            : Promise.resolve({ status: 'blocked', reason: 'conflict' });
+        clearReview();
+        const proof = captureNewListingReadiness(
+            session,
+            setup,
+            'reviewed_new_listing_inbox'
+          ),
+          command = newLocalId();
+        if (!proof || !command) {
+          if (proof) closeNewListingReadiness(proof);
+          return Promise.resolve({ status: 'blocked', reason: 'unavailable' });
+        }
+        const original = controller;
+        reviewingForm = formWire;
+        reviewingSetup = setup;
+        const pending = reviewNewListing(
+          publications,
+          original,
+          proof,
+          command,
+          'reviewed_new_listing'
+        )
+          .then((result): ListingReviewResult => {
+            const actual = publicDraftControllerSnapshot(original);
+            if (
+              !current() ||
+              closing ||
+              !actual ||
+              JSON.stringify(actual.form) !== formWire ||
+              result.status !== 'review'
+            ) {
+              closeNewListingReadiness(proof);
+              return result.status === 'blocked'
+                ? result
+                : { status: 'blocked', reason: 'conflict' };
+            }
+            reviewed = { setup, proof, review: result.review };
+            if (!reviewCurrent(result.review)) {
+              clearReview();
+              return { status: 'blocked', reason: 'conflict' };
+            }
+            return result;
+          })
+          .finally(() => {
+            if (reviewing === pending) {
+              reviewing = undefined;
+              reviewingForm = undefined;
+              reviewingSetup = undefined;
+            }
+          });
+        reviewing = pending;
+        return pending;
+      },
+      reviewCurrent,
       subscribe(listener) {
         if (!current()) return () => {};
         const key = Symbol();
@@ -497,4 +631,21 @@ export function subscribeListingEditor(
   listener: () => void
 ): () => void {
   return editors.get(editor)?.subscribe(listener) ?? (() => {});
+}
+// Original editor custody remains private. Review never reserves or signs.
+export function reviewListingEditor(
+  editor: ListingEditor,
+  setup: InboxSetupView | undefined,
+  form: PublicDraftForm
+): Promise<ListingReviewResult> {
+  return (
+    editors.get(editor)?.review(setup, form) ??
+    Promise.resolve({ status: 'blocked', reason: 'invalid_scope' })
+  );
+}
+export function listingEditorReviewCurrent(
+  editor: ListingEditor,
+  review: ListingReview
+): boolean {
+  return editors.get(editor)?.reviewCurrent(review) ?? false;
 }
