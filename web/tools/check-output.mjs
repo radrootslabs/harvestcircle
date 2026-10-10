@@ -538,7 +538,7 @@ async function preferencePublicationAdmission(web) {
     return false;
   const producers = {
     'src/lib/nostr/public-pool.ts':
-      'd5054acecd074a36e68d39e1f69c86cdde6480339c7f4bf901ece151a2b6a5b7',
+      'd08c2c16936125e75a8195cfdc600f8c592cb942e1802d934823ee221c1c132b',
     'src/lib/nostr/inbox-preference-publication.ts':
       'fbad642340732bf7cf92905010af314829b80cc7b134121396f14e9bb8e765cc'
   };
@@ -547,6 +547,26 @@ async function preferencePublicationAdmission(web) {
     publicText(bytes);
     if (createHash('sha256').update(bytes).digest('hex') !== pin)
       throw new Error('Invalid owned preference publication source');
+  }
+  return true;
+}
+// HCP112 exact original-token listing ports change the shared identity chunk.
+// Admit only their reviewed source pins and the complete observed closed graph.
+/** @param {string} web */
+async function listingPublicationAdmission(web) {
+  const pool = await readOwned(web, 'src/lib/nostr/public-pool.ts');
+  if (!pool.toString().includes("'./listing-publisher.ts'")) return false;
+  const producers = {
+    'src/lib/nostr/listing-publisher.ts':
+      'f2b4436665a2dc594e9c7b103cfa9257c7f58eeb46870bb06ee9fb63c18cb641',
+    'src/lib/publishing/sign-listing.ts':
+      'c33e1399c19e1134a8a9f511800056c65c9f48155358c903dfed7c2c10c32486'
+  };
+  for (const [name, pin] of Object.entries(producers)) {
+    const bytes = await readOwned(web, name);
+    publicText(bytes);
+    if (createHash('sha256').update(bytes).digest('hex') !== pin)
+      throw new Error('Invalid owned listing publication source');
   }
   return true;
 }
@@ -729,6 +749,11 @@ export async function auditOutput(webDirectory) {
     hasProductRequest || hasProductPresentation === 'enquiry';
   const hasPreferencePublication =
     hasPublicRuntime && (await preferencePublicationAdmission(web));
+  const hasListingPublication =
+    hasPreferencePublication && (await listingPublicationAdmission(web));
+  const identityViewCompilerModule = hasListingPublication
+    ? 'CapabilityGate'
+    : 'view-context';
   const hasInboxSetup =
     hasFullRoutes &&
     hasPublicRuntime === 'public_identity' &&
@@ -777,7 +802,7 @@ export async function auditOutput(webDirectory) {
       ...(hasSearchPresentation ? ['Disclosure', 'navigation'] : ['dist']),
       'negentropy',
       ...(hasPublicRuntime === 'public_identity'
-        ? ['view-context', identityCompilerModule]
+        ? [identityViewCompilerModule, identityCompilerModule]
         : ['budgets'])
     ])
       names.add(name);
@@ -985,11 +1010,35 @@ export async function auditOutput(webDirectory) {
                 'preload-helper',
                 'public-key',
                 'client',
-                'budgets'
+                'budgets',
+                ...(hasListingPublication && hasProductPresentation
+                  ? ['Button']
+                  : [])
               ]
         ).map((name) => requiredRecord(name)[0]),
         'Invalid owned shared compiler dependencies'
       );
+      // Historical public-only producers still compile current shared source.
+      // The exact HCP112 ports add only this existing, closed Button edge.
+      if (
+        hasPublicRuntime !== 'public_identity' &&
+        hasListingPublication &&
+        hasProductPresentation
+      ) {
+        const [buttonKey, button] = requiredRecord('Button');
+        if (
+          !/^_[A-Za-z0-9_-]+\.js$/.test(buttonKey) ||
+          Object.keys(button).some(
+            (field) => !['file', 'name', 'imports'].includes(field)
+          )
+        )
+          throw new Error('Invalid owned public-only Button compiler identity');
+        equal(
+          button.imports,
+          [requiredRecord('client')[0]],
+          'Invalid owned public-only Button compiler dependencies'
+        );
+      }
       for (const [key, record] of [dist, navigation]) {
         if (
           !/^_[A-Za-z0-9_-]+\.js$/.test(key) ||
@@ -1005,17 +1054,19 @@ export async function auditOutput(webDirectory) {
       /** @type {[string, string[]][]} */
       const identityDependencies = [
         [
-          'view-context',
-          hasProductRequest
-            ? ['public-runtime', 'client', 'Button']
-            : hasProductEnquiry
-              ? [identityCompilerModule]
-              : [
-                  ...(hasPreferencePublication ? [] : ['public-key']),
-                  identityCompilerModule,
-                  'client',
-                  'Button'
-                ]
+          identityViewCompilerModule,
+          hasListingPublication
+            ? ['client', 'Button']
+            : hasProductRequest
+              ? ['public-runtime', 'client', 'Button']
+              : hasProductEnquiry
+                ? [identityCompilerModule]
+                : [
+                    ...(hasPreferencePublication ? [] : ['public-key']),
+                    identityCompilerModule,
+                    'client',
+                    'Button'
+                  ]
         ],
         [
           identityCompilerModule,
@@ -1067,27 +1118,39 @@ export async function auditOutput(webDirectory) {
         const [, gate] = requiredRecord('AccountGate');
         equal(
           gate.imports,
-          (hasProductRequest
-            ? ['client', 'view-context', 'InboxSetup']
-            : hasProductEnquiry
-              ? ['client', 'CapabilityGate', 'view-context', 'InboxSetup']
-              : hasInboxPresentation
-                ? ['client', 'view-context', 'InboxSetup']
-                : [
-                    'public-key',
-                    'private-handles',
-                    'public-runtime',
+          (hasListingPublication
+            ? [
+                'public-runtime',
+                'client',
+                identityViewCompilerModule,
+                'InboxSetup'
+              ]
+            : hasProductRequest
+              ? ['client', identityViewCompilerModule, 'InboxSetup']
+              : hasProductEnquiry
+                ? [
                     'client',
-                    'Button',
-                    'view-context'
+                    'CapabilityGate',
+                    identityViewCompilerModule,
+                    'InboxSetup'
                   ]
+                : hasInboxPresentation
+                  ? ['client', identityViewCompilerModule, 'InboxSetup']
+                  : [
+                      'public-key',
+                      'private-handles',
+                      'public-runtime',
+                      'client',
+                      'Button',
+                      identityViewCompilerModule
+                    ]
           ).map((name) => requiredRecord(name)[0]),
           'Invalid owned inbox compiler dependencies'
         );
         if (gate.dynamicImports !== undefined)
           throw new Error('Invalid owned inbox compiler dynamic imports');
       }
-      const [identityKey] = requiredRecord('view-context');
+      const [identityKey] = requiredRecord(identityViewCompilerModule);
       if (
         !root.imports?.includes(identityKey) ||
         !requiredRecord('AccountGate')[1].imports?.includes(identityKey)
@@ -1116,7 +1179,7 @@ export async function auditOutput(webDirectory) {
       return row;
     };
     /** @type {[string,string[]][]} */
-    const dependencies = hasProductRequest
+    const dependencies = hasListingPublication
       ? [
           [
             'InboxStatus',
@@ -1125,22 +1188,12 @@ export async function auditOutput(webDirectory) {
               'client',
               'Button',
               'navigation',
-              'view-context',
+              'CapabilityGate',
               'InboxSetup',
               'inbox-view'
             ]
           ],
-          [
-            'InboxSetup',
-            [
-              'public-key',
-              'private-handles',
-              'public-runtime',
-              'client',
-              'Button',
-              'view-context'
-            ]
-          ],
+          ['InboxSetup', ['public-runtime', 'client', 'Button']],
           ['read', ['public-runtime']],
           ['nodes/4', ['client', 'AccountGate', 'InboxStatus']],
           [
@@ -1153,9 +1206,7 @@ export async function auditOutput(webDirectory) {
               'Button',
               'client.svelte',
               'state',
-              'view-context',
               'legacy',
-              'InboxSetup',
               'inbox-view',
               'InboxStatus',
               'publishers',
@@ -1170,7 +1221,6 @@ export async function auditOutput(webDirectory) {
               'public-runtime',
               'references',
               'Button',
-              'InboxSetup',
               'read'
             ]
           ],
@@ -1183,7 +1233,6 @@ export async function auditOutput(webDirectory) {
               'client',
               'Button',
               'navigation',
-              'InboxSetup',
               'inbox-view',
               'publishers'
             ]
@@ -1197,12 +1246,12 @@ export async function auditOutput(webDirectory) {
               'Button',
               'client.svelte',
               'state',
-              'view-context',
+              'CapabilityGate',
               'Disclosure'
             ]
           ]
         ]
-      : hasProductEnquiry
+      : hasProductRequest
         ? [
             [
               'InboxStatus',
@@ -1211,9 +1260,7 @@ export async function auditOutput(webDirectory) {
                 'client',
                 'Button',
                 'navigation',
-                'CapabilityGate',
-                'view-context',
-                'inbox-setup-view',
+                identityViewCompilerModule,
                 'InboxSetup',
                 'inbox-view'
               ]
@@ -1221,11 +1268,12 @@ export async function auditOutput(webDirectory) {
             [
               'InboxSetup',
               [
+                'public-key',
+                'private-handles',
                 'public-runtime',
                 'client',
                 'Button',
-                'view-context',
-                'inbox-setup-view'
+                identityViewCompilerModule
               ]
             ],
             ['read', ['public-runtime']],
@@ -1234,23 +1282,21 @@ export async function auditOutput(webDirectory) {
               'nodes/5',
               [
                 'public-key',
-                'private-handles',
                 'public-runtime',
                 'references',
                 'client',
                 'Button',
                 'client.svelte',
-                'navigation',
                 'state',
-                'view-context',
+                identityViewCompilerModule,
                 'legacy',
-                'inbox-setup-view',
+                'InboxSetup',
                 'inbox-view',
                 'InboxStatus',
-                'resolve-head'
+                'publishers',
+                'MessageComposer'
               ]
             ],
-            ['resolve-head', ['public-runtime', 'Button', 'read']],
             [
               'inbox-view',
               [
@@ -1259,21 +1305,24 @@ export async function auditOutput(webDirectory) {
                 'public-runtime',
                 'references',
                 'Button',
-                'inbox-setup-view',
+                'InboxSetup',
                 'read'
               ]
             ],
             [
-              'inbox-setup-view',
+              'MessageComposer',
               [
-                'public-key',
                 'private-handles',
                 'public-runtime',
+                'references',
+                'client',
                 'Button',
-                'view-context'
+                'navigation',
+                'InboxSetup',
+                'inbox-view',
+                'publishers'
               ]
             ],
-            ['CapabilityGate', ['client', 'Button']],
             [
               'nodes/0',
               [
@@ -1283,62 +1332,148 @@ export async function auditOutput(webDirectory) {
                 'Button',
                 'client.svelte',
                 'state',
-                'CapabilityGate',
-                'Disclosure',
-                'view-context'
+                identityViewCompilerModule,
+                'Disclosure'
               ]
             ]
           ]
-        : [
-            [
-              'InboxStatus',
+        : hasProductEnquiry
+          ? [
               [
-                'public-key',
-                'private-handles',
-                'public-runtime',
-                'references',
-                'client',
-                'Button',
-                'navigation',
-                'view-context',
-                'InboxSetup',
-                'read'
-              ]
-            ],
-            [
-              'InboxSetup',
-              [
-                'public-key',
-                'private-handles',
-                'public-runtime',
-                'client',
-                'Button',
-                'view-context'
-              ]
-            ],
-            ['read', ['public-runtime']],
-            ['nodes/4', ['client', 'AccountGate', 'InboxStatus']],
-            [
-              'nodes/5',
-              [
-                'public-key',
-                'private-handles',
-                'public-runtime',
-                'references',
-                'client',
-                'Button',
-                'client.svelte',
-                'navigation',
-                'state',
-                'view-context',
-                'legacy',
-                'InboxSetup',
                 'InboxStatus',
-                'resolve-head'
+                [
+                  'public-runtime',
+                  'client',
+                  'Button',
+                  'navigation',
+                  'CapabilityGate',
+                  identityViewCompilerModule,
+                  'inbox-setup-view',
+                  'InboxSetup',
+                  'inbox-view'
+                ]
+              ],
+              [
+                'InboxSetup',
+                [
+                  'public-runtime',
+                  'client',
+                  'Button',
+                  identityViewCompilerModule,
+                  'inbox-setup-view'
+                ]
+              ],
+              ['read', ['public-runtime']],
+              ['nodes/4', ['client', 'AccountGate', 'InboxStatus']],
+              [
+                'nodes/5',
+                [
+                  'public-key',
+                  'private-handles',
+                  'public-runtime',
+                  'references',
+                  'client',
+                  'Button',
+                  'client.svelte',
+                  'navigation',
+                  'state',
+                  identityViewCompilerModule,
+                  'legacy',
+                  'inbox-setup-view',
+                  'inbox-view',
+                  'InboxStatus',
+                  'resolve-head'
+                ]
+              ],
+              ['resolve-head', ['public-runtime', 'Button', 'read']],
+              [
+                'inbox-view',
+                [
+                  'public-key',
+                  'private-handles',
+                  'public-runtime',
+                  'references',
+                  'Button',
+                  'inbox-setup-view',
+                  'read'
+                ]
+              ],
+              [
+                'inbox-setup-view',
+                [
+                  'public-key',
+                  'private-handles',
+                  'public-runtime',
+                  'Button',
+                  identityViewCompilerModule
+                ]
+              ],
+              ['CapabilityGate', ['client', 'Button']],
+              [
+                'nodes/0',
+                [
+                  'public-key',
+                  'public-runtime',
+                  'client',
+                  'Button',
+                  'client.svelte',
+                  'state',
+                  'CapabilityGate',
+                  'Disclosure',
+                  identityViewCompilerModule
+                ]
               ]
-            ],
-            ['resolve-head', ['public-runtime', 'Button', 'read']]
-          ];
+            ]
+          : [
+              [
+                'InboxStatus',
+                [
+                  'public-key',
+                  'private-handles',
+                  'public-runtime',
+                  'references',
+                  'client',
+                  'Button',
+                  'navigation',
+                  identityViewCompilerModule,
+                  'InboxSetup',
+                  'read'
+                ]
+              ],
+              [
+                'InboxSetup',
+                [
+                  'public-key',
+                  'private-handles',
+                  'public-runtime',
+                  'client',
+                  'Button',
+                  identityViewCompilerModule
+                ]
+              ],
+              ['read', ['public-runtime']],
+              ['nodes/4', ['client', 'AccountGate', 'InboxStatus']],
+              [
+                'nodes/5',
+                [
+                  'public-key',
+                  'private-handles',
+                  'public-runtime',
+                  'references',
+                  'client',
+                  'Button',
+                  'client.svelte',
+                  'navigation',
+                  'state',
+                  identityViewCompilerModule,
+                  'legacy',
+                  'InboxSetup',
+                  'InboxStatus',
+                  'resolve-head'
+                ]
+              ],
+              ['resolve-head', ['public-runtime', 'Button', 'read']]
+            ];
     for (const [name, imports] of dependencies) {
       const [key, row] = entry(name);
       equal(
@@ -1426,7 +1561,7 @@ export async function auditOutput(webDirectory) {
             'Button',
             'client.svelte',
             'state',
-            'view-context',
+            identityViewCompilerModule,
             'Disclosure',
             'InboxSetup',
             'MessageComposer'

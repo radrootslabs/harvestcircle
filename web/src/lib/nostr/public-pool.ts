@@ -11,6 +11,17 @@ import {
   takePreferencePublication,
   type PreferencePublication
 } from './inbox-preference-publication.ts';
+import {
+  takeListingPublication,
+  type ListingAttemptPermission
+} from './listing-publisher.ts';
+import {
+  verifyEnvelope,
+  verifiedEnvelopeSnapshot
+} from './verified-envelope.ts';
+export type ListingReadbackResult =
+  | Readonly<{ status: 'found'; wire: string }>
+  | Readonly<{ status: 'missing' | 'unknown' | 'stopped' }>;
 export type PreferenceAttemptResult = Readonly<{
   status: 'accepted' | 'refused' | 'timed_out' | 'unknown' | 'stopped';
 }>;
@@ -34,6 +45,18 @@ interface Owner {
     signal: AbortSignal,
     remaining: number
   ) => Promise<PreferenceAttemptResult>;
+  readonly listing: (
+    permission: ListingAttemptPermission,
+    origin: string,
+    signal: AbortSignal,
+    remaining: number
+  ) => Promise<PreferenceAttemptResult>;
+  readonly readListing: (
+    permission: ListingAttemptPermission,
+    origin: string,
+    signal: AbortSignal,
+    remaining: number
+  ) => Promise<ListingReadbackResult>;
 }
 const owners = new WeakMap<PublicPool, Owner>();
 let lifetime: Owner | undefined;
@@ -172,6 +195,238 @@ export function getPublicPool(
         }
       });
     },
+    async listing(permission, origin, signal, remaining) {
+      const admitted = takeListingPublication(
+        permission,
+        policy,
+        origin,
+        'publish'
+      );
+      if (
+        closed ||
+        publicationCleanupRequired ||
+        !admitted ||
+        signal.aborted ||
+        !Number.isFinite(remaining) ||
+        remaining <= 0 ||
+        remaining > 45000
+      )
+        return { status: 'stopped' };
+      return await new Promise<PreferenceAttemptResult>((resolve) => {
+        let ended = false;
+        let release = () => {};
+        let fenceTimer: ReturnType<typeof setTimeout> | undefined;
+        function finish(status: PreferenceAttemptResult['status']) {
+          if (ended) return;
+          ended = true;
+          clearTimeout(timer);
+          if (fenceTimer !== undefined) clearTimeout(fenceTimer);
+          signal.removeEventListener('abort', stopped);
+          try {
+            release();
+          } catch {
+            publicationCleanupRequired = true;
+            status = 'unknown';
+          }
+          resolve({ status });
+        }
+        function stopped() {
+          if (ended) {
+            release();
+            return;
+          }
+          finish('stopped');
+        }
+        function fence() {
+          if (ended) return;
+          if (closed || signal.aborted || !admitted!.current()) {
+            finish('stopped');
+            return;
+          }
+          fenceTimer = setTimeout(() => fence(), 50);
+        }
+        signal.addEventListener('abort', stopped, { once: true });
+        // Arm our finite deadline before subscribing. The SDK uses the same
+        // response shape for its timer and a relay refusal saying "Timeout";
+        // only this owned deadline supplies retryable timeout evidence.
+        const relay = sdk.relay(origin);
+        const timeout =
+          Number.isFinite(relay.eventTimeout) && relay.eventTimeout > 0
+            ? Math.min(remaining, relay.eventTimeout)
+            : remaining;
+        const timer = setTimeout(() => finish('timed_out'), timeout);
+        try {
+          if (!admitted.current() || signal.aborted) {
+            finish('stopped');
+            return;
+          }
+          // This SDK invocation is an attempted effect. Stop cannot reverse an
+          // already emitted/buffered EVENT, but teardown schedules no new one.
+          const subscription = relay.event(admitted.event, 'EVENT').subscribe({
+            next(response) {
+              if (ended) return;
+              if (
+                (response.from !== origin && response.from !== origin + '/') ||
+                typeof response.ok !== 'boolean'
+              ) {
+                finish('unknown');
+                return;
+              }
+              if (response.ok) finish('accepted');
+              else if (response.message === 'Timeout') finish('unknown');
+              else if (
+                typeof response.message === 'string' &&
+                response.message.startsWith('auth-required:')
+              )
+                finish('unknown');
+              else finish('refused');
+            },
+            error: () => finish('unknown'),
+            complete: () => {
+              if (!ended) finish('unknown');
+            }
+          });
+          const stop = () => {
+            subscription.unsubscribe();
+            active.delete(stop);
+          };
+          release = () => {
+            stop();
+            active.delete(stopped);
+          };
+          active.set(stopped, true);
+          if (ended) {
+            try {
+              release();
+            } catch {
+              publicationCleanupRequired = true;
+            }
+          } else {
+            fence();
+          }
+        } catch {
+          finish('unknown');
+        }
+      });
+    },
+    async readListing(permission, origin, signal, remaining) {
+      const admitted = takeListingPublication(
+        permission,
+        policy,
+        origin,
+        'readback'
+      );
+      if (
+        closed ||
+        publicationCleanupRequired ||
+        !admitted ||
+        signal.aborted ||
+        !Number.isFinite(remaining) ||
+        remaining <= 0 ||
+        remaining > 45000
+      )
+        return { status: 'stopped' };
+      return await new Promise<ListingReadbackResult>((resolve) => {
+        let ended = false,
+          release = () => {};
+        let fenceTimer: ReturnType<typeof setTimeout> | undefined;
+        function finish(result: ListingReadbackResult) {
+          if (ended) return;
+          ended = true;
+          clearTimeout(timer);
+          if (fenceTimer !== undefined) clearTimeout(fenceTimer);
+          signal.removeEventListener('abort', stopped);
+          try {
+            release();
+          } catch {
+            publicationCleanupRequired = true;
+            result = { status: 'unknown' };
+          }
+          resolve(result);
+        }
+        function stopped() {
+          finish({ status: 'stopped' });
+        }
+        function fence() {
+          if (ended) return;
+          if (closed || signal.aborted || !admitted!.current()) {
+            stopped();
+            return;
+          }
+          fenceTimer = setTimeout(fence, 50);
+        }
+        const timer = setTimeout(
+          () => finish({ status: 'unknown' }),
+          remaining
+        );
+        signal.addEventListener('abort', stopped, { once: true });
+        try {
+          if (!admitted.current() || signal.aborted) {
+            stopped();
+            return;
+          }
+          const expected = admitted.event;
+          // Exact frozen target and ID only. No generic filter/relay/request API.
+          const subscription = sdk
+            .req(
+              [origin],
+              [
+                {
+                  ids: [expected.id],
+                  authors: [expected.pubkey],
+                  kinds: [30402],
+                  limit: 1
+                }
+              ],
+              { waitForAuth: false, reconnect: false, resubscribe: false }
+            )
+            .subscribe({
+              next(message) {
+                if (
+                  ended ||
+                  (message.from !== origin && message.from !== origin + '/')
+                )
+                  return;
+                if (message.type === 'EOSE') {
+                  finish({ status: 'missing' });
+                  return;
+                }
+                if (message.type !== 'EVENT' || !admitted.current()) return;
+                const checked = verifyEnvelope(JSON.stringify(message.event));
+                const observed =
+                  checked.ok && verifiedEnvelopeSnapshot(checked.value);
+                const fields = (event: typeof expected) =>
+                  JSON.stringify([
+                    event.id,
+                    event.pubkey,
+                    event.created_at,
+                    event.kind,
+                    event.tags,
+                    event.content,
+                    event.sig
+                  ]);
+                if (observed && fields(observed) === fields(expected))
+                  // SDK object ingress is independently verified signed fields,
+                  // not a claim to preserve the relay's original JSON encoding.
+                  finish({ status: 'found', wire: admitted.wire });
+              },
+              error: () => finish({ status: 'unknown' }),
+              complete: () => {
+                if (!ended) finish({ status: 'missing' });
+              }
+            });
+          release = () => {
+            subscription.unsubscribe();
+            active.delete(stopped);
+          };
+          active.set(stopped, true);
+          if (ended) release();
+          else fence();
+        } catch {
+          finish({ status: 'unknown' });
+        }
+      });
+    },
     subscribe(filters, onMessage, sampleSource) {
       if (closed) throw new Error('public_pool_closed');
       let release = () => {};
@@ -288,6 +543,39 @@ export function publishPublicPreferenceAttempt(
     const owner = ownerOf(token);
     if (owner.policy !== policy) return Promise.resolve({ status: 'stopped' });
     return owner.preference(permission, origin, signal, remaining);
+  } catch {
+    return Promise.resolve({ status: 'unknown' });
+  }
+}
+// Listing and preference permissions stay separate despite the shared SDK owner.
+export function publishPublicListingAttempt(
+  token: PublicPool,
+  permission: ListingAttemptPermission,
+  policy: RelayPolicy,
+  origin: string,
+  signal: AbortSignal,
+  remaining: number
+): Promise<PreferenceAttemptResult> {
+  try {
+    const owner = ownerOf(token);
+    if (owner.policy !== policy) return Promise.resolve({ status: 'stopped' });
+    return owner.listing(permission, origin, signal, remaining);
+  } catch {
+    return Promise.resolve({ status: 'unknown' });
+  }
+}
+export function readPublicListingExactAttempt(
+  token: PublicPool,
+  permission: ListingAttemptPermission,
+  policy: RelayPolicy,
+  origin: string,
+  signal: AbortSignal,
+  remaining: number
+): Promise<ListingReadbackResult> {
+  try {
+    const owner = ownerOf(token);
+    if (owner.policy !== policy) return Promise.resolve({ status: 'stopped' });
+    return owner.readListing(permission, origin, signal, remaining);
   } catch {
     return Promise.resolve({ status: 'unknown' });
   }

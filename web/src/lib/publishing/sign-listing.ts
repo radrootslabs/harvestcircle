@@ -187,6 +187,24 @@ export function listingPublicationSnapshot(token: ListingPublication) {
     policyFingerprint: value.policyFingerprint
   };
 }
+// Original custody only. This port grants no raw event or network effect; the
+// typed publisher must obtain its own current lock and reread durable storage.
+export function listingPublicationOwnership(token: ListingPublication) {
+  const value = publications.get(token);
+  if (!value || !current(value.model)) return;
+  const operation = value.model.getOperation();
+  if (!operation) return;
+  return {
+    repository: value.model.original.repository,
+    identity: value.model.original.readiness.identity,
+    policy: value.model.original.readiness.policy,
+    operation,
+    owner: value.owner,
+    command: value.command,
+    recordWire: value.recordWire,
+    current: () => current(value.model)
+  };
+}
 async function exactStored(
   model: Model,
   expected: PublicRecordHandle

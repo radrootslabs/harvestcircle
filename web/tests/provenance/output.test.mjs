@@ -246,13 +246,51 @@ import { auditOutput } from '../../tools/check-output.mjs';
         );
         assert.ok(
           !Object.values(manifest).some(
-            (record) => record.name === 'view-context'
+            (record) =>
+              record.name === 'view-context' || record.name === 'CapabilityGate'
           )
         );
         assert.ok(
           Object.values(manifest).some((record) => record.name === 'budgets')
         );
         assert.equal((await f.audit()).length, 47);
+        const manifestFile = path.join(
+          f.web,
+          '.svelte-kit/output/client/.vite/manifest.json'
+        );
+        const originalManifest = await readFile(manifestFile);
+        for (const mutation of ['shared-edge', 'button-import']) {
+          await t.test(
+            `public-only listing compatibility rejects extra ${mutation}`,
+            { timeout: 1800000 },
+            async () => {
+              const changed = JSON.parse(originalManifest.toString());
+              const records = Object.entries(changed);
+              const additional = records.find(
+                ([, record]) => record.name === 'entry/payload'
+              );
+              const target = records.find(
+                ([, record]) =>
+                  record.name ===
+                  (mutation === 'shared-edge' ? 'Disclosure' : 'Button')
+              );
+              assert.ok(additional);
+              assert.ok(target);
+              target[1].imports.push(additional[0]);
+              try {
+                await writeFile(manifestFile, JSON.stringify(changed));
+                await assert.rejects(
+                  f.audit(),
+                  mutation === 'shared-edge'
+                    ? /Invalid owned shared compiler dependencies/
+                    : /Invalid owned public-only Button compiler dependencies/
+                );
+              } finally {
+                await writeFile(manifestFile, originalManifest);
+              }
+            }
+          );
+        }
       }
     );
     await test(
@@ -506,7 +544,9 @@ import { auditOutput } from '../../tools/check-output.mjs';
               if (mutation === 'enquiry-root-missing-gate')
                 row.imports = row.imports.filter(
                   (/** @type {string} */ value) =>
-                    manifest[value].name !== 'view-context'
+                    !['view-context', 'CapabilityGate'].includes(
+                      manifest[value].name
+                    )
                 );
               if (mutation === 'context-resolver-dynamic')
                 row.dynamicImports = [];
@@ -898,7 +938,13 @@ import { auditOutput } from '../../tools/check-output.mjs';
                     )
                   ? 'public-runtime'
                   : 'heads';
-              const [identityKey, identity] = find('view-context'),
+              const [identityKey, identity] = find(
+                  Object.values(manifest).some(
+                    (record) => record.name === 'view-context'
+                  )
+                    ? 'view-context'
+                    : 'CapabilityGate'
+                ),
                 [headsKey, heads] = find(identityCompilerRole);
               if (mutation === 'missing-view') delete manifest[identityKey];
               if (mutation === 'missing-heads') delete manifest[headsKey];
