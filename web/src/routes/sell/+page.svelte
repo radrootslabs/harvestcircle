@@ -1,5 +1,5 @@
 <script lang="ts">
-  import AccountGate from '../../lib/components/AccountGate.svelte';
+  import ListingEditor from '../../lib/components/ListingEditor.svelte';
 </script>
 
-<AccountGate />
+<ListingEditor route={{ mode: 'new' }} />

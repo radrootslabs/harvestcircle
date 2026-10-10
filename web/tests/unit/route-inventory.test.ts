@@ -58,6 +58,11 @@ describe('approved route inventory', () => {
 });
 
 describe('thin protected route SSR', () => {
+  const editorTitles: Readonly<Record<string, string>> = {
+    Sell: 'New listing',
+    Draft: 'Continue draft',
+    Edit: 'Edit listing'
+  };
   for (const [name, renderComponent] of Object.entries({
     Sell: () => render(Sell),
     Selling: () => render(Selling),
@@ -68,9 +73,28 @@ describe('thin protected route SSR', () => {
   })) {
     it(
       name +
-        ' renders only a generic unavailable connection/unlock gate without browser effects',
+        (editorTitles[name]
+          ? ' renders the shared editor connection gate before protected values or browser effects'
+          : ' renders only a generic unavailable connection/unlock gate without browser effects'),
       () => {
         const output = renderComponent();
+        const editorTitle = editorTitles[name];
+        if (editorTitle) {
+          expect(output.head).toContain(
+            '<title>' + editorTitle + ' · HarvestCircle</title>'
+          );
+          expect(output.head).toMatch(/name="robots" content="noindex"/);
+          expect(output.body).toContain('Connect to continue');
+          expect(output.body).toMatch(
+            /<button[^>]*disabled[^>]*>Connect extension/
+          );
+          expect(output.body).not.toMatch(
+            /<form|<textarea|<input|<select|PRIVATE_TEST_ONLY|naddr1|Inbox setup|Check current preference/
+          );
+          // Original SSR effect tripwires still reject IDB/extension/socket/fetch.
+          return;
+        }
+
         expect(output.head).toContain('<title>HarvestCircle</title>');
         expect(output.head).toMatch(/name="robots" content="noindex"/);
         expect(output.body).toContain('Connect or unlock');

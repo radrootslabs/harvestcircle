@@ -63,12 +63,23 @@ await test('navigation fallback serves actual separate output and preserves miss
   for (const pathname of ['/sell', '/selling', '/messages']) {
     const html = prerendered.get(pathname);
     assert.ok(html);
-    assert.match(html, /<title>HarvestCircle<\/title>/);
-    assert.match(html, /name="robots" content="noindex"/);
     assert.match(
       html,
-      /Private views and editing are unavailable during development/
+      pathname === '/sell'
+        ? /<title>New listing · HarvestCircle<\/title>/
+        : /<title>HarvestCircle<\/title>/
     );
+    assert.match(html, /name="robots" content="noindex"/);
+    if (pathname === '/sell') {
+      assert.match(html, /Connect to continue/);
+      assert.match(html, /<button[^>]*disabled[^>]*>Connect extension/);
+      assert.doesNotMatch(html, /Inbox setup|Check current preference/);
+    } else {
+      assert.match(
+        html,
+        /Private views and editing are unavailable during development/
+      );
+    }
     assert.doesNotMatch(html, /<form|<input|<textarea/);
   }
   assert.notEqual(search, fallback);

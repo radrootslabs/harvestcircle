@@ -61,7 +61,7 @@ test('current source has no revision-one aliases or query-driven redirects', asy
       const target = server.url + '/sell?' + query.toString();
       expect((await page.goto(target))?.status()).toBe(200);
       await expect(
-        page.getByRole('heading', { name: 'Connect or unlock', exact: true })
+        page.getByRole('heading', { name: 'Connect to continue', exact: true })
       ).toBeVisible();
       expect(page.url()).toBe(target);
       // Exercise the real initialized client and Back, rather than SSR alone.
@@ -69,7 +69,7 @@ test('current source has no revision-one aliases or query-driven redirects', asy
       await expect(page.getByLabel('What are you looking for?')).toBeEnabled();
       await page.goBack();
       await expect(
-        page.getByRole('heading', { name: 'Connect or unlock', exact: true })
+        page.getByRole('heading', { name: 'Connect to continue', exact: true })
       ).toBeVisible();
       expect(page.url()).toBe(target);
       await expect(
@@ -91,13 +91,24 @@ const cases = [
   { path: '/', title: 'HarvestCircle', private: false },
   { path: '/search', title: 'Search food — HarvestCircle', private: false },
   { path: '/products/' + naddr, title: 'Food — HarvestCircle', private: false },
-  { path: '/sell', title: 'HarvestCircle', private: true },
+  {
+    path: '/sell',
+    title: 'New listing · HarvestCircle',
+    private: true,
+    editor: true
+  },
   { path: '/selling', title: 'HarvestCircle', private: true },
-  { path: '/selling/drafts/' + handle, title: 'HarvestCircle', private: true },
+  {
+    path: '/selling/drafts/' + handle,
+    title: 'Continue draft · HarvestCircle',
+    private: true,
+    editor: true
+  },
   {
     path: '/products/' + naddr + '/edit',
-    title: 'HarvestCircle',
-    private: true
+    title: 'Edit listing · HarvestCircle',
+    private: true,
+    editor: true
   },
   { path: '/messages', title: 'HarvestCircle', private: true },
   { path: '/messages/' + handle, title: 'HarvestCircle', private: true },
@@ -144,7 +155,9 @@ for (const routeCase of cases) {
           if (routeCase.private) {
             await expect(
               page.getByRole('heading', {
-                name: 'Connect or unlock',
+                name: routeCase.editor
+                  ? 'Connect to continue'
+                  : 'Connect or unlock',
                 exact: true
               })
             ).toBeVisible();
@@ -152,16 +165,29 @@ for (const routeCase of cases) {
               'content',
               'noindex'
             );
-            await expect(
-              page.getByRole('button', {
-                name: 'Check current preference',
-                exact: true
-              })
-            ).toBeDisabled();
-            await expect(page.locator('main button')).toHaveCount(3);
-            await expect(
-              page.getByRole('button', { name: 'Not now', exact: true })
-            ).toBeEnabled();
+            if (routeCase.editor) {
+              await expect(page.locator('main button')).toHaveCount(1);
+              await expect(
+                page.getByRole('button', {
+                  name: 'Check current preference',
+                  exact: true
+                })
+              ).toHaveCount(0);
+              await expect(
+                page.getByRole('button', { name: 'Not now', exact: true })
+              ).toHaveCount(0);
+            } else {
+              await expect(
+                page.getByRole('button', {
+                  name: 'Check current preference',
+                  exact: true
+                })
+              ).toBeDisabled();
+              await expect(page.locator('main button')).toHaveCount(3);
+              await expect(
+                page.getByRole('button', { name: 'Not now', exact: true })
+              ).toBeEnabled();
+            }
             await expect(
               page.getByRole('button', { name: 'Unlock inbox', exact: true })
             ).toHaveCount(0);

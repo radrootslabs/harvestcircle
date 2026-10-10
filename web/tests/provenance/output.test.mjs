@@ -31,6 +31,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
     '<svelte:head><title>Food — HarvestCircle</title></svelte:head>\n<div class="page page--reading stack">\n  <h1>Food</h1>\n  <p class="notice">Food details are unavailable during development.</p>\n</div>\n';
   // Frozen public-only HCP055 producers, source6023db01169aa82cb6fe68ca94e1a73750247e72.
   // Compatibility evidence only; runtime tests never require ancestor Git history.
+  /** @type {Record<string, {source:string, sha256:string}>} */
   const historicalPublicOnly = {
     'src/routes/+layout.svelte': {
       source:
@@ -46,6 +47,22 @@ import { auditOutput } from '../../tools/check-output.mjs';
       source:
         '<script lang="ts">\n  import Button from \'./primitives/Button.svelte\';\n</script>\n\n<svelte:head>\n  <title>HarvestCircle</title>\n  <meta name="robots" content="noindex" />\n</svelte:head>\n<div class="page page--reading stack">\n  <h1>Connect or unlock</h1>\n  <p>Connect an extension and unlock your account to continue.</p>\n  <p class="notice">Account access is unavailable during development.</p>\n  <div class="cluster">\n    <Button label="Connect extension" disabled />\n    <Button label="Unlock" disabled />\n  </div>\n</div>\n',
       sha256: 'd5f90fb4b9af50037ed19dde626552e82df67017a39408bdbdeff1e712c10fbd'
+    },
+    // Exact predecessor AccountGate route bytes, historical compatibility only.
+    'src/routes/sell/+page.svelte': {
+      source:
+        '<script lang="ts">\n  import AccountGate from \'../../lib/components/AccountGate.svelte\';\n</script>\n\n<AccountGate />\n',
+      sha256: '23547dcfa10e85865e31b66c31ea0d043592e3c316c94da2d74bdf2dd419b38a'
+    },
+    'src/routes/selling/drafts/[draftId=local_id]/+page.svelte': {
+      source:
+        '<script lang="ts">\n  import AccountGate from \'../../../../lib/components/AccountGate.svelte\';\n</script>\n\n<AccountGate />\n',
+      sha256: '465852393264789ceae4133e8d79416ebf37d5485b08fb54c61056fa3714dc5d'
+    },
+    'src/routes/products/[naddr=naddr]/edit/+page.svelte': {
+      source:
+        '<script lang="ts">\n  import AccountGate from \'../../../../lib/components/AccountGate.svelte\';\n</script>\n\n<AccountGate />\n',
+      sha256: '465852393264789ceae4133e8d79416ebf37d5485b08fb54c61056fa3714dc5d'
     },
     // Historical public-only variants must also restore their original private
     // shell. The successor route imports owned identity context, which those
@@ -364,7 +381,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             const f = await fixture(t);
             const files = await f.audit();
             // Exact eleven-route module/page/static admission; CSS stays once-imported.
-            assert.equal(files.length, 53);
+            assert.equal(files.length, 55);
             // The actual SDK payload crosses the reader scratch boundary; a reused
             // scratch buffer must still preserve every compiler/static byte exactly.
             const sizes = await Promise.all(
@@ -640,7 +657,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             assert.ok(Buffer.byteLength(expanded) > 64 * 1024);
             await writeFile(file, expanded);
             await refresh(f);
-            assert.equal((await f.audit()).length, 53);
+            assert.equal((await f.audit()).length, 55);
           }
         );
 
@@ -1138,6 +1155,110 @@ import { auditOutput } from '../../tools/check-output.mjs';
             assert.ok((await f.audit()).includes(budget.file));
           }
         );
+        for (const name of [
+          'ListingEditor',
+          'view-context',
+          'nodes/8',
+          'nodes/10',
+          'nodes/12'
+        ]) {
+          for (const mutation of [
+            'missing',
+            'missing-edge',
+            'extra-edge',
+            'duplicate-edge',
+            'permuted-edges',
+            'dynamic',
+            'entry',
+            'css'
+          ]) {
+            await check(
+              'exact listing editor compiler rejects ' + name + ' ' + mutation,
+              async (t) => {
+                const f = await fixture(t),
+                  file = path.join(
+                    f.web,
+                    '.svelte-kit/output/client/.vite/manifest.json'
+                  );
+                const manifest = JSON.parse(await readFile(file, 'utf8'));
+                const entry = Object.entries(manifest).find(
+                  ([, row]) => row.name === name
+                );
+                assert.ok(entry);
+                const [key, row] = entry;
+                if (mutation === 'missing') delete manifest[key];
+                if (mutation === 'missing-edge')
+                  row.imports = row.imports.slice(1);
+                if (mutation === 'extra-edge')
+                  row.imports = row.imports.concat(
+                    Object.keys(manifest).find(
+                      (key) => manifest[key].name === 'AccountGate'
+                    )
+                  );
+                if (mutation === 'duplicate-edge')
+                  row.imports = row.imports.concat(row.imports[0]);
+                if (mutation === 'permuted-edges')
+                  row.imports = [...row.imports].reverse();
+                if (mutation === 'dynamic')
+                  row.dynamicImports = [row.imports[0]];
+                if (mutation === 'entry') {
+                  if (row.isEntry === true) delete row.isEntry;
+                  else row.isEntry = true;
+                }
+                if (mutation === 'css') row.css = [];
+                await writeFile(file, JSON.stringify(manifest));
+                await assert.rejects(f.audit, /compiler|references|import/);
+              }
+            );
+          }
+        }
+        for (const producer of [
+          'src/routes/sell/+page.svelte',
+          'src/routes/selling/drafts/[draftId=local_id]/+page.svelte',
+          'src/routes/products/[naddr=naddr]/edit/+page.svelte',
+          'src/lib/components/ListingEditor.svelte',
+          'src/lib/publishing/listing-editor.ts'
+        ]) {
+          await check(
+            'listing editor rejects changed owned producer ' + producer,
+            async (t) => {
+              const f = await fixture(t);
+              await writeFile(
+                path.join(f.web, producer),
+                (await readFile(path.join(f.web, producer), 'utf8')) +
+                  '\n// owned editor source mutation\n'
+              );
+              await refresh(f);
+              await assert.rejects(
+                f.audit,
+                /Invalid owned listing editor source/
+              );
+            }
+          );
+        }
+        for (const route of [
+          'src/routes/sell/+page.svelte',
+          'src/routes/selling/drafts/[draftId=local_id]/+page.svelte',
+          'src/routes/products/[naddr=naddr]/edit/+page.svelte'
+        ]) {
+          await check(
+            'listing editor rejects partial three-route activation ' + route,
+            async (t) => {
+              const f = await fixture(t);
+              const historical = historicalPublicOnly[route];
+              assert.equal(
+                createHash('sha256').update(historical.source).digest('hex'),
+                historical.sha256
+              );
+              await writeFile(path.join(f.web, route), historical.source);
+              await refresh(f);
+              await assert.rejects(
+                f.audit,
+                /Invalid owned listing editor activation/
+              );
+            }
+          );
+        }
         for (const producer of [
           'src/routes/products/[naddr=naddr]/+page.svelte',
           'src/lib/catalog/product-view.ts',
@@ -1203,9 +1324,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
                   row.imports = row.imports.concat(row.imports[0]);
               }
               await writeFile(file, JSON.stringify(manifest));
-              if (mutation === 'permuted-edges')
-                assert.equal((await f.audit()).length, 53);
-              else await assert.rejects(f.audit, /compiler|references/);
+              await assert.rejects(f.audit, /compiler|references/);
             }
           );
         }
