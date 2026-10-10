@@ -131,7 +131,8 @@ docker run \
         cargo deny --manifest-path core/Cargo.toml check --config core/deny.toml licenses sources
         cargo fmt --manifest-path tools/xtask/Cargo.toml --all -- --check
         cargo clippy --manifest-path tools/xtask/Cargo.toml --all-targets --locked -- -D warnings
-        cargo test --manifest-path tools/xtask/Cargo.toml --locked
+        # Subprocess-heavy tooling tests run serially on translated/limited hosts.
+        cargo test --manifest-path tools/xtask/Cargo.toml --locked -- --test-threads=1
         cargo run --manifest-path tools/xtask/Cargo.toml --locked -- qualification-report
         tools/test-build-modes.sh
         ./gradlew --no-daemon --no-parallel --no-configuration-cache \
