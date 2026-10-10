@@ -49,6 +49,7 @@ type Model = Readonly<{
   getSigning(): boolean;
   startSigning(): void;
   finishSigning(): void;
+  subscribe(listener: () => void): () => void;
   getMarked(): PublicRecordHandle | undefined;
   setMarked(value: PublicRecordHandle): void;
   getArtifact(): CapturedArtifact | undefined;
@@ -64,8 +65,34 @@ function createModel(original: Ownership): Model {
   let marked: PublicRecordHandle | undefined;
   let artifact: CapturedArtifact | undefined;
   let publication: ListingPublication | undefined;
+  const listeners = new Map<symbol, () => void>();
+  let notifying = false;
+  function notify() {
+    if (notifying) return;
+    notifying = true;
+    try {
+      const callbacks = Array.from(listeners.entries());
+      for (const [key, listener] of callbacks) {
+        if (listeners.get(key) !== listener) continue;
+        try {
+          listener();
+        } catch {
+          /* Disclosure observers never control signing. */
+        }
+      }
+    } finally {
+      notifying = false;
+    }
+  }
   return {
     original,
+    subscribe(listener) {
+      const key = Symbol();
+      listeners.set(key, listener);
+      return () => {
+        listeners.delete(key);
+      };
+    },
     getOperation: () => operation,
     setOperation: (value) => {
       operation = value;
@@ -76,14 +103,20 @@ function createModel(original: Ownership): Model {
     },
     getStopped: () => stopped,
     stop: () => {
+      if (stopped) return;
       stopped = true;
+      notify();
     },
     getSigning: () => signing,
     startSigning: () => {
+      if (signing) return;
       signing = true;
+      notify();
     },
     finishSigning: () => {
+      if (!signing) return;
       signing = false;
+      notify();
     },
     getMarked: () => marked,
     setMarked: (value) => {
@@ -170,8 +203,16 @@ export function listingSigningSnapshot(token: ListingSigning) {
     hash: row.capture.hash,
     stopped: model.getStopped(),
     attempted: model.getAttempted(),
+    signing: model.getSigning() && current(model),
     lateAvailable: operation?.lateAvailable ?? false
   };
+}
+// Original-token lifecycle observation only; no sign, retry or send authority.
+export function subscribeListingSigning(
+  token: ListingSigning,
+  listener: () => void
+): () => void {
+  return signings.get(token)?.subscribe(listener) ?? (() => {});
 }
 // Detached disclosure is never a send capability. HCP112 must independently
 // admit the original plan, reread storage and obtain final network ownership.

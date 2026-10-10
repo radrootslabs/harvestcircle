@@ -560,13 +560,17 @@ async function listingPublicationAdmission(web) {
     'src/lib/nostr/listing-publisher.ts':
       '1c8c3445513329d57fcddc75da63991f0c1c27c28caf87db381d32bba739c872',
     'src/lib/publishing/sign-listing.ts':
-      'c33e1399c19e1134a8a9f511800056c65c9f48155358c903dfed7c2c10c32486',
+      '5051a2e0eb3353b9f099cb92dcbd3162003a9a32cebac6035b979ae3a9400bfe',
     'src/lib/publishing/retry-listing.ts':
       '67b6a110bb116ff2b0791833cc0df02889b206839baf04467e44fa5f2c1ec459',
     'src/lib/publishing/resume-listing.ts':
       '42cd0404f1e543e03350e6c8c92fce5a1c4f8eb02f9540831fc6c7cf84bba9a9',
     'src/lib/publishing/deliver-listing.ts':
-      'a47d3ae5b4bc1d3cd85ff7385851953fbf21bd22e265e875e7710b192830d409'
+      'a47d3ae5b4bc1d3cd85ff7385851953fbf21bd22e265e875e7710b192830d409',
+    'src/lib/publishing/listing-operation-view.ts':
+      '5f48bfb7056b56bd29357e605e20ef1375c559973fcc31f38d564a3b9eb07094',
+    'src/lib/components/OperationStatus.svelte':
+      'c6a1d741d16b577783e80b8f447cb959d5bf8b2d711cd5abcdc396be430a7472'
   };
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);
