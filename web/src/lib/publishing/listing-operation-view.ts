@@ -27,6 +27,7 @@ export type ListingOperationSnapshot = Readonly<{
   command: string;
   revision: number;
   eventId: string;
+  purpose: 'listing' | 'withdrawal';
   artifact: 'unsigned' | 'signed';
   state:
     | 'prepared'
@@ -137,7 +138,10 @@ export async function readListingOperationView(
       !current() ||
       !row ||
       row.family !== 'public_operation' ||
-      row.capture.kind !== 30402 ||
+      !(
+        row.capture.kind === 30402 ||
+        (row.capture.kind === 5 && row.source.type === 'public_head')
+      ) ||
       row.capture.targets.length === 0 ||
       (!row.artifact && (row.revision > 1 || row.receipts.length !== 0)) ||
       (row.artifact && row.revision < 2)
@@ -145,8 +149,16 @@ export async function readListingOperationView(
       retire();
       return { status: 'unavailable' };
     }
-    const template = inspectLocalTemplate(row.capture.wire, owner, 30402);
-    if (!template || projectFoodParts(template).outcome !== 'focused') {
+    const template = inspectLocalTemplate(
+      row.capture.wire,
+      owner,
+      row.capture.kind
+    );
+    if (
+      !template ||
+      (template.kind === 30402 &&
+        projectFoodParts(template).outcome !== 'focused')
+    ) {
       retire();
       return { status: 'unavailable' };
     }
@@ -207,7 +219,7 @@ export async function readListingOperationView(
     observesSigning = state === 'signing';
     if (observesSigning && signing)
       unsubscribeSigning = subscribeListingSigning(signing, retire);
-    const text =
+    const listingText =
       state === 'signing'
         ? 'Waiting for your extension to sign the retained listing.'
         : state === 'unknown'
@@ -223,11 +235,19 @@ export async function readListingOperationView(
                   : row.artifact
                     ? 'Signed listing saved in this browser. No relay acceptance is recorded.'
                     : 'Saved in this browser. The retained listing has not been signed.';
+    const text =
+      row.capture.kind === 5
+        ? listingText
+            .replaceAll('listing event', 'removal request')
+            .replaceAll('listing', 'removal request') +
+          ' This request cannot erase all other copies.'
+        : listingText;
     const snapshot: ListingOperationSnapshot = {
       owner,
       command: id,
       revision: row.revision,
       eventId: row.capture.hash,
+      purpose: row.capture.kind === 5 ? 'withdrawal' : 'listing',
       artifact: row.artifact ? 'signed' : 'unsigned',
       state,
       acceptanceCount,

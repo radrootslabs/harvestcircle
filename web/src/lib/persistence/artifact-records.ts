@@ -166,8 +166,10 @@ export function preparePublicListingSigningTransition(
   if (
     !base ||
     base.row.family !== 'public_operation' ||
-    base.row.source.type !== 'draft' ||
-    base.row.capture.kind !== 30402 ||
+    !(
+      (base.row.source.type === 'draft' && base.row.capture.kind === 30402) ||
+      (base.row.source.type === 'public_head' && base.row.capture.kind === 5)
+    ) ||
     base.row.revision !== 0 ||
     base.row.artifact !== null ||
     base.row.receipts.length !== 0

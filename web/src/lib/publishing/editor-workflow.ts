@@ -185,7 +185,7 @@ export async function openEditorReview(
   editor: ListingEditor,
   setup: InboxSetupView | undefined,
   form: PublicDraftForm,
-  status: 'active' | 'sold' = 'active'
+  status: 'active' | 'sold' | 'withdrawal' = 'active'
 ): Promise<
   | Readonly<{ status: 'review'; review: EditorReview }>
   | Readonly<{
@@ -194,7 +194,7 @@ export async function openEditorReview(
       message: string;
     }>
 > {
-  const errors = validateEditorForm(form);
+  const errors = status === 'withdrawal' ? [] : validateEditorForm(form);
   if (errors.length)
     return {
       status: 'blocked',
@@ -253,6 +253,12 @@ export function editorPublicationOperation(
   const owned = reviews.get(review);
   return owned?.active() ? owned.operation() : undefined;
 }
+// Revokes future effects of this original action; stored/sent evidence remains.
+export function stopEditorAction(review: EditorReview): void {
+  const owned = reviews.get(review);
+  const signing = owned?.active() ? owned.signing() : undefined;
+  if (signing) stopListingSigning(signing);
+}
 // Existing publication pipeline only. One original review deduplicates clicks;
 // explicit consent does not bypass original editor/source/draft/current-head.
 export function publishEditorRevision(
@@ -263,8 +269,11 @@ export function publishEditorRevision(
   const preview = owned && listingReviewSnapshot(owned.original);
   if (
     !owned?.active() ||
-    !preview?.revision ||
-    consent !== 'publish_reviewed_revision'
+    (!preview?.revision && !preview?.withdrawal) ||
+    consent !==
+      (preview?.withdrawal
+        ? 'publish_reviewed_withdrawal'
+        : 'publish_reviewed_revision')
   )
     return Promise.resolve({ status: 'invalid' });
   const pending = publishing.get(review);

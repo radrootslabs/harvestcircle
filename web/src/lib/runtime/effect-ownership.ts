@@ -75,6 +75,7 @@ export async function runCapturedPublicEffect<T>(
     if (
       (review !== 'reviewed_captured_operation' &&
         review !== 'reviewed_prepared_listing_operation' &&
+        review !== 'reviewed_prepared_withdrawal_operation' &&
         review !== 'reviewed_prepared_preference_operation' &&
         review !== 'reviewed_stored_preference_retry') ||
       !owner ||
@@ -90,14 +91,24 @@ export async function runCapturedPublicEffect<T>(
     )
       return { status: 'invalid' };
     const listingMode = review === 'reviewed_prepared_listing_operation';
+    const withdrawalMode = review === 'reviewed_prepared_withdrawal_operation';
     const preferenceMode =
-      review !== 'reviewed_captured_operation' && !listingMode;
+      review !== 'reviewed_captured_operation' &&
+      !listingMode &&
+      !withdrawalMode;
     const storedRetry = review === 'reviewed_stored_preference_retry';
     if (
       listingMode &&
       (row.family !== 'public_operation' ||
         row.capture.kind !== 30402 ||
         row.source.type !== 'draft')
+    )
+      return { status: 'invalid' };
+    if (
+      withdrawalMode &&
+      (row.family !== 'public_operation' ||
+        row.capture.kind !== 5 ||
+        row.source.type !== 'public_head')
     )
       return { status: 'invalid' };
     if (
@@ -150,7 +161,11 @@ export async function runCapturedPublicEffect<T>(
               (listingMode &&
                 stored?.family === 'public_operation' &&
                 stored.capture.kind === 30402 &&
-                stored.source.type === 'draft')) &&
+                stored.source.type === 'draft') ||
+              (withdrawalMode &&
+                stored?.family === 'public_operation' &&
+                stored.capture.kind === 5 &&
+                stored.source.type === 'public_head')) &&
             stored.revision === 0 &&
             stored.artifact === null;
           const retry =

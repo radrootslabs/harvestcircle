@@ -374,7 +374,7 @@ export function getPublicPool(
                 {
                   ids: [expected.id],
                   authors: [expected.pubkey],
-                  kinds: [30402],
+                  kinds: [expected.kind],
                   limit: 1
                 }
               ],

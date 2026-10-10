@@ -498,7 +498,8 @@ async function productPresentationAdmission(web) {
       createHash('sha256').update(bytes).digest('hex') !== pin &&
       !(
         name === 'src/lib/runtime/public-runtime.ts' &&
-        (await listingEditorAdmission(web)) === 'owned-revision'
+        ((await listingEditorAdmission(web)) === 'owned-revision' ||
+          (await listingEditorAdmission(web)) === 'owned-withdrawal')
       )
     )
       throw new Error('Invalid owned product presentation source');
@@ -551,7 +552,13 @@ async function preferencePublicationAdmission(web) {
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);
     publicText(bytes);
-    if (createHash('sha256').update(bytes).digest('hex') !== pin)
+    if (
+      createHash('sha256').update(bytes).digest('hex') !== pin &&
+      !(
+        name === 'src/lib/nostr/public-pool.ts' &&
+        (await listingEditorAdmission(web)) === 'owned-withdrawal'
+      )
+    )
       throw new Error('Invalid owned preference publication source');
   }
   return true;
@@ -584,8 +591,15 @@ async function listingPublicationAdmission(web) {
     if (
       createHash('sha256').update(bytes).digest('hex') !== pin &&
       !(
-        name === 'src/lib/nostr/listing-publisher.ts' &&
-        (await listingEditorAdmission(web)) === 'owned-revision'
+        (name === 'src/lib/nostr/listing-publisher.ts' &&
+          (await listingEditorAdmission(web)) === 'owned-revision') ||
+        ([
+          'src/lib/nostr/listing-publisher.ts',
+          'src/lib/publishing/sign-listing.ts',
+          'src/lib/publishing/listing-operation-view.ts',
+          'src/lib/components/OperationStatus.svelte'
+        ].includes(name) &&
+          (await listingEditorAdmission(web)) === 'owned-withdrawal')
       )
     )
       throw new Error('Invalid owned listing publication source');
@@ -711,6 +725,61 @@ async function listingEditorAdmission(web) {
     'src/lib/nostr/listing-publisher.ts':
       '1d7e1f99fe393626a3dda6796867be0d52ce4bcd064c185c9f4b3a24290183e2'
   };
+  /** @type {Record<string,string>} */
+  const withdrawalProducers = {
+    'src/routes/sell/+page.svelte':
+      '97f22f9a0309621e9acb5f1b328d3376bc9c5affbe5a7ea1b85ece76097b9c08',
+    'src/routes/selling/drafts/[draftId=local_id]/+page.svelte':
+      '1df59a753fbef2bc2ebf77890a79cbd3d7a5bb0dcef34c219df1b5e8043cf787',
+    'src/routes/products/[naddr=naddr]/edit/+page.svelte':
+      '09c3a6bde766045319cd36a00a82ca565f9f3b5cd5322982be9482836f312998',
+    'src/lib/components/ListingEditor.svelte':
+      '060f4863f6f4f2a4fb1471bb0d5eeedf31ab13b5c83d894f47757cf5a68099e6',
+    'src/lib/publishing/listing-editor.ts':
+      'fe067bc1609f783aeee8ad5a0f3178cff50cae81085377b2bbec7874b5f4349d',
+    'src/lib/components/ListingReview.svelte':
+      'deee41ca6c60b346afc7ed5e62e3101ee03b04fdd2a9aa8fa3f3dec585e3863b',
+    'src/lib/publishing/editor-workflow.ts':
+      'c87e4f46793fd9beeedb5027cdbb06d533cf7e5df7378c030355c4608738e0f6',
+    'src/lib/components/ConflictNotice.svelte':
+      'f0a71cab9e8f1f12a3421402e3bc3b2f96c2ddb35ad8949c6e9599b850c3a17c',
+    'src/lib/publishing/edit-source.ts':
+      '1432a8ada3d822cc9f634d40a7847a4d6d02c202ecfe59a9634543d57202f56b',
+    'src/lib/publishing/prepare-listing.ts':
+      '00b922e8b0bfc73cf5ac59857472e8dd627c8df62d28f1c646c5d7c76ce5ede9',
+    'src/lib/publishing/new-listing-readiness.ts':
+      'ba76be4d7309b1a6beb0c8e0f19b89f2595049e94709486b79eff38953e68893',
+    'src/lib/runtime/public-runtime.ts':
+      '8d2b840e94448b55642b1481d12785ed76d326735a4461e9795f57a98e8d2530',
+    'src/lib/persistence/public-publications.ts':
+      'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
+    'src/lib/persistence/quota.ts':
+      'e261a7c9c81d0685021663639b1bb543192e65580edb64fa58ccbb9a4a04cc95',
+    'src/lib/publishing/revise-listing.ts':
+      '1f03d43f460feb12a02489226131ec2f7b95df5f534fcbb0b49ccc686a1b0c06',
+    'src/lib/publishing/mark-sold.ts':
+      '80beaf8ad38b396154d5556e50e2cf5cd9f327bcdbc05f0db1ce190bf29f7234',
+    'src/lib/components/ConfirmPanel.svelte':
+      '9e25745303bdf408a14df5153a28e9579bfa019ab083225acb7d874e93a17d59',
+    'src/lib/nostr/listing-publisher.ts':
+      '10032c32482a766158d8a69027056e6a822a16b5f68ab9754b0f1cf42d0608f9',
+    'src/lib/publishing/withdraw-listing.ts':
+      '168064a7ce271f8342c7b7cbbf996bd96f8968e405eee0bb3e3dba1bdaf346fb',
+    'src/lib/publishing/sign-listing.ts':
+      'a1c123c40a190699b57378c5569fcbbfbc5e23ab4d4c0df499ca40ff82fe1a10',
+    'src/lib/persistence/artifact-records.ts':
+      'e3b235c5aaf19558b557feb6e17a35b2b1de39c1aa49cb2ef14084d670138d16',
+    'src/lib/publishing/listing-operation-view.ts':
+      '07f94625c0231a62f25c1db98c9459f8939c32505453633b58d2f72a894858ce',
+    'src/lib/components/OperationStatus.svelte':
+      'ca3a007899996f6331fadd2ead4c55dc7116c273626ecd2f36bcd4701065ae5f',
+    'src/lib/runtime/effect-ownership.ts':
+      'a181d1fa8b18d45b3e143de19af4dfdaab91779ac44df972d22e7fada645778b',
+    'src/lib/nostr/public-pool.ts':
+      '220b0b9ca0cea20c1a2e1a08a82fc4b68a1ba4dd6ffff1f45154b54735233806',
+    'src/lib/persistence/public-receipts.ts':
+      '10743a9d855c4f573eb42ca90a13c550dee9620e4ad3aac322858c696152e564'
+  };
   let historical = true,
     current = true,
     reviewed = true,
@@ -778,6 +847,17 @@ async function listingEditorAdmission(web) {
           revisionProducers[name];
     }
   }
+  let withdrawing = publicText(
+    await readOwned(web, 'src/lib/components/ListingEditor.svelte')
+  ).includes('Request removal');
+  if (withdrawing)
+    for (const [name, pin] of Object.entries(withdrawalProducers)) {
+      const bytes = await readOwned(web, name);
+      publicText(bytes);
+      withdrawing =
+        withdrawing && createHash('sha256').update(bytes).digest('hex') === pin;
+    }
+  if (withdrawing) return 'owned-withdrawal';
   if (revising) return 'owned-revision';
   if (editing) return 'edit-source';
   if (!historical && !current && !reviewed)
@@ -979,7 +1059,9 @@ export async function auditOutput(webDirectory) {
   const hasListingEditor = hasFullRoutes && (await listingEditorAdmission(web));
   if (hasListingEditor && !(hasListingPublication && hasInboxSetup))
     throw new Error('Invalid owned listing editor runtime authority');
-  const hasListingRevision = hasListingEditor === 'owned-revision';
+  const hasListingRevision =
+    hasListingEditor === 'owned-revision' ||
+    hasListingEditor === 'owned-withdrawal';
   const hasListingEdit =
     hasListingEditor === 'edit-source' || hasListingRevision;
   const hasListingReview = hasListingEditor === 'review' || hasListingEdit;

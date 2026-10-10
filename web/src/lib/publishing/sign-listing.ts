@@ -380,12 +380,20 @@ async function execute(model: Model): Promise<ListingSigningResult> {
     model.setOperation(operation);
     const ownership = identityPublicOperationOwnership(identity, operation);
     if (!ownership || !current(model)) return { status: 'unavailable' };
+    const captured = publicRecordSnapshot(
+      original.record,
+      owner,
+      original.command
+    );
+    if (captured?.family !== 'public_operation') return { status: 'invalid' };
     const result = await runCapturedPublicEffect(
       quota,
       original.record,
       original.command,
       { ...ownership, current: () => current(model) && ownership.current() },
-      'reviewed_prepared_listing_operation',
+      captured.capture.kind === 5 && captured.source.type === 'public_head'
+        ? 'reviewed_prepared_withdrawal_operation'
+        : 'reviewed_prepared_listing_operation',
       async (lease): Promise<ListingSigningResult> => {
         const marker = preparePublicListingSigningTransition(
           original.record,

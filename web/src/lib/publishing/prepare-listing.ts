@@ -57,6 +57,7 @@ export type ListingPreview = Readonly<{
   expectedHash: string;
   targets: readonly string[];
   policyFingerprint: string;
+  withdrawal?: Readonly<{ coordinate: string; eventId: string }>;
   revision?: Readonly<{
     coordinate: string;
     publishedAtSeconds: number;
@@ -71,7 +72,7 @@ type Review = Readonly<{
   command: string;
   readiness: NewListingReadiness;
   source?: OwnedEditSource;
-  status?: 'active' | 'sold';
+  status?: 'active' | 'sold' | 'withdrawal';
   record: PublicRecordHandle;
   revisionBase?: Readonly<{ command: string; record: PublicRecordHandle }>;
   previewWire: string;
@@ -131,7 +132,7 @@ export async function reviewOwnedListing(
   source: OwnedEditSource,
   controller: PublicDraftController,
   command: unknown,
-  status: 'active' | 'sold',
+  status: 'active' | 'sold' | 'withdrawal',
   consent: unknown
 ): Promise<ListingReviewResult> {
   const original = authorizeOwnedEditSource(source);
@@ -151,7 +152,10 @@ async function reviewListing(
   readiness: NewListingReadiness | undefined,
   command: unknown,
   consent: unknown,
-  revision?: Readonly<{ source: OwnedEditSource; status: 'active' | 'sold' }>
+  revision?: Readonly<{
+    source: OwnedEditSource;
+    status: 'active' | 'sold' | 'withdrawal';
+  }>
 ): Promise<ListingReviewResult> {
   try {
     const custody = publicDraftControllerOwnership(controller),
@@ -172,9 +176,11 @@ async function reviewListing(
       !ready.current() ||
       consent !==
         (revision
-          ? revision.status === 'sold'
-            ? 'reviewed_sold_availability'
-            : 'reviewed_owned_revision'
+          ? revision.status === 'withdrawal'
+            ? 'reviewed_owned_withdrawal'
+            : revision.status === 'sold'
+              ? 'reviewed_sold_availability'
+              : 'reviewed_owned_revision'
           : 'reviewed_new_listing')
     )
       return { status: 'blocked', reason: 'unavailable' };
@@ -224,7 +230,8 @@ async function reviewListing(
         reason: revision ? 'conflict' : 'unavailable'
       };
     const form = expected.form;
-    if (form.contactType === '' && form.contactValue !== '')
+    const withdrawal = revision?.status === 'withdrawal';
+    if (!withdrawal && form.contactType === '' && form.contactValue !== '')
       return { status: 'blocked', reason: 'invalid_form' };
     const contact =
       form.contactType === ''
@@ -245,20 +252,34 @@ async function reviewListing(
       ...(form.quantity === '' ? {} : { quantity: form.quantity }),
       created_at: createdAtSeconds,
       published_at: retained ? retained.publishedAtSeconds : createdAtSeconds,
-      status: revision?.status ?? 'active',
+      status: revision?.status === 'sold' ? 'sold' : 'active',
       ...(contact ? { contact } : {})
     });
-    if (!built.ok) return { status: 'blocked', reason: 'invalid_form' };
+    if (!withdrawal && !built.ok)
+      return { status: 'blocked', reason: 'invalid_form' };
     const manifest = readRelayPolicy(ready.policy),
       targets = publicRelayTargets(ready.policy, 'write');
     const templateWire = JSON.stringify({
       pubkey: owner,
-      kind: 30402,
+      kind: withdrawal ? 5 : 30402,
       created_at: createdAtSeconds,
-      tags: built.wire_parts.tags,
-      content: built.wire_parts.content
+      tags:
+        withdrawal && base
+          ? [
+              ['e', base.id],
+              ['a', `30402:${owner}:${identifier}`],
+              ['k', '30402']
+            ]
+          : built.ok
+            ? built.wire_parts.tags
+            : [],
+      content: withdrawal ? '' : built.ok ? built.wire_parts.content : ''
     });
-    const template = inspectLocalTemplate(templateWire, owner, 30402);
+    const template = inspectLocalTemplate(
+      templateWire,
+      owner,
+      withdrawal ? 5 : 30402
+    );
     if (!template || !manifest.postingEnabled || targets.length === 0)
       return { status: 'blocked', reason: 'unavailable' };
     const digest = await crypto.subtle.digest(
@@ -301,9 +322,12 @@ async function reviewListing(
         owner,
         id,
         revision: 0,
-        source: { type: 'draft', id: expected.id, revision: expected.revision },
+        source:
+          withdrawal && retained
+            ? { type: 'public_head', wire: retained.baseWire }
+            : { type: 'draft', id: expected.id, revision: expected.revision },
         capture: {
-          kind: 30402,
+          kind: withdrawal ? 5 : 30402,
           wire: templateWire,
           hash: template.hash,
           targets,
@@ -320,7 +344,7 @@ async function reviewListing(
       ? captureOwnedListingReadiness(
           revision.source,
           template.hash,
-          'reviewed_owned_listing'
+          withdrawal ? 'reviewed_owned_withdrawal' : 'reviewed_owned_listing'
         )
       : readiness;
     const finalReady = newListingReadinessOwnership(proof);
@@ -352,12 +376,17 @@ async function reviewListing(
         identifier,
         createdAtSeconds,
         form,
-        summary: built.summary,
+        summary: withdrawal ? 'Removal request' : built.ok ? built.summary : '',
         templateWire,
         expectedHash: template.hash,
         targets,
         policyFingerprint,
-        ...(retained && revision
+        ...(withdrawal && retained && base
+          ? {
+              withdrawal: { coordinate: retained.coordinate, eventId: base.id }
+            }
+          : {}),
+        ...(retained && revision && !withdrawal
           ? {
               revision: {
                 coordinate: retained.coordinate,

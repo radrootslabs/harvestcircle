@@ -88,6 +88,7 @@ type Source = {
         identity: IdentitySession;
         policy: RelayPolicy;
         currentRevision(eventId: string): boolean;
+        currentWithdrawal(eventId: string): boolean;
         current(): boolean;
       }>
     | undefined;
@@ -389,6 +390,42 @@ export async function openOwnedEditSource(
           publishedAtSeconds: base.publishedAt,
           identity: session,
           policy,
+          currentWithdrawal(eventId: string) {
+            const state = snapshot();
+            if (
+              !current() ||
+              !runtime ||
+              publicRuntimePolicy(runtime) !== policy
+            )
+              return false;
+            if (state?.status === 'ready') return true;
+            const row =
+              resolver && networkOwned()
+                ? headResolutionSnapshot(resolver).find(
+                    (value) => value.key === key
+                  )
+                : undefined;
+            // Only the original request's verified suppression preserves its
+            // delivery continuity. A different request/head remains fenced.
+            return !!(
+              state?.status === 'withdrawn' &&
+              state.currentEventId === base.eventId &&
+              row &&
+              row.state.display === 'focused_known' &&
+              row.deletion.eventReference?.requestId === eventId &&
+              row.deletion.addressReference?.requestId === eventId &&
+              row.coverage === 'bounded-eose' &&
+              !row.lastKnown &&
+              view &&
+              run &&
+              publicViewRunCurrent(view, run) &&
+              [row.headSources, row.deletionSources].every(
+                (scope) =>
+                  scope?.state === 'eose' &&
+                  scope.result.coverage === 'bounded-eose'
+              )
+            );
+          },
           currentRevision(eventId: string) {
             const state = snapshot();
             if (

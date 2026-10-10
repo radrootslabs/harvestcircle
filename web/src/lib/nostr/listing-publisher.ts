@@ -98,7 +98,10 @@ export async function readRetainedListingDelivery(
   );
   if (
     baseline?.family !== 'public_operation' ||
-    baseline.capture.kind !== 30402 ||
+    !(
+      baseline.capture.kind === 30402 ||
+      (baseline.capture.kind === 5 && baseline.source.type === 'public_head')
+    ) ||
     !baseline.artifact ||
     baseline.revision !== 2
   )

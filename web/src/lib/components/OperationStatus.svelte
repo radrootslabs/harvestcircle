@@ -43,6 +43,10 @@
 <div class="stack stack--tight">
   <Notice tone={summary.tone} text={summary.text} />
   {#if publicSnapshot}
+    {#if publicSnapshot.purpose === 'withdrawal'}<p>
+        Removal request evidence remains here even when the listing is
+        suppressed. It cannot erase all other copies.
+      </p>{/if}
     <p>
       Relay acceptance recorded for {publicSnapshot.acceptanceCount} of {publicSnapshot
         .targets.length} targets.
@@ -52,9 +56,11 @@
         .targets.length} targets.
     </p>
     <p>
-      {publicSnapshot.localSource === 'retained-prototype'
-        ? 'Retained prototype source is available in this browser. Editing requires a separate current-head check.'
-        : 'No supported retained prototype source is available for editing. Keep this listing read-only.'}
+      {publicSnapshot.purpose === 'withdrawal'
+        ? 'This request has its own retained local operation. Listing visibility does not determine its delivery outcome.'
+        : publicSnapshot.localSource === 'retained-prototype'
+          ? 'Retained prototype source is available in this browser. Editing requires a separate current-head check.'
+          : 'No supported retained prototype source is available for editing. Keep this listing read-only.'}
     </p>
     {#if publicSnapshot.needsAction}
       <Notice

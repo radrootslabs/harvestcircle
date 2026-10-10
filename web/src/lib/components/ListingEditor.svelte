@@ -23,6 +23,7 @@
     editorReviewSnapshot,
     closeEditorReview,
     publishEditorRevision,
+    stopEditorAction,
     editorPublicationOperation,
     type EditorReview,
     type EditorFormError
@@ -76,6 +77,7 @@
   let review = $state.raw<EditorReview | undefined>(),
     reviewBusy = $state(false);
   let soldConfirm = $state(false),
+    withdrawalConfirm = $state(false),
     publishBusy = $state(false);
   let publicationOperation = $state.raw<ListingOperationView | undefined>();
   let errors = $state<readonly EditorFormError[]>([]),
@@ -199,6 +201,7 @@
     review = undefined;
     publicationOperation = undefined;
     soldConfirm = false;
+    withdrawalConfirm = false;
     errors = [];
     reviewMessage = '';
     form = blankForm();
@@ -273,9 +276,12 @@
     review = undefined;
     errors = [];
     soldConfirm = false;
+    withdrawalConfirm = false;
     void editListingEditor(original, { ...form });
   }
-  async function showReview(status: 'active' | 'sold' = 'active') {
+  async function showReview(
+    status: 'active' | 'sold' | 'withdrawal' = 'active'
+  ) {
     const original = editor,
       resource = route,
       author = admittedAuthor;
@@ -348,7 +354,9 @@
     try {
       const result = await publishEditorRevision(
         original,
-        'publish_reviewed_revision'
+        editorReviewSnapshot(original)?.withdrawal
+          ? 'publish_reviewed_withdrawal'
+          : 'publish_reviewed_revision'
       );
       if (
         !mounted ||
@@ -488,6 +496,18 @@
         }}
         oncancel={() => {
           soldConfirm = false;
+        }}
+      />{/if}
+    {#if withdrawalConfirm && editable}<ConfirmPanel
+        title="Confirm removal request"
+        text="This public request asks clients to stop displaying the listing. It cannot erase all other copies. Review the exact target before publishing."
+        confirmLabel="Review removal request"
+        onconfirm={() => {
+          withdrawalConfirm = false;
+          void showReview('withdrawal');
+        }}
+        oncancel={() => {
+          withdrawalConfirm = false;
         }}
       />{/if}
     {#if visibleReview}<ListingReview
@@ -758,7 +778,26 @@
           }}
           disabled={reviewBusy || closeBusy}>Mark as sold</button
         >
+        <button
+          type="button"
+          onclick={() => {
+            withdrawalConfirm = true;
+          }}
+          disabled={reviewBusy || closeBusy}>Request removal</button
+        >
       </details>{/if}
+    {#if publishBusy && review && editorReviewSnapshot(review)?.withdrawal}
+      <p>
+        Stop stops further attempts; it cannot retract requests already sent or
+        whose outcome is unknown.
+      </p>
+      <button
+        type="button"
+        onclick={() => {
+          if (review) stopEditorAction(review);
+        }}>Stop current action</button
+      >
+    {/if}
     {#if publicationOperation}<OperationStatus
         publicOperation={publicationOperation}
       />{/if}

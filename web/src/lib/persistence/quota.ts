@@ -389,7 +389,11 @@ function claimOperation(
           inspectLocalTemplate(witness.capture.wire, scope.owner, 30402);
         const nextTemplate =
           record.family === 'public_operation' &&
-          inspectLocalTemplate(record.capture.wire, scope.owner, 30402);
+          inspectLocalTemplate(
+            record.capture.wire,
+            scope.owner,
+            record.capture.kind
+          );
         const tag = (
           template: NonNullable<ReturnType<typeof inspectLocalTemplate>>,
           key: string
@@ -405,26 +409,45 @@ function claimOperation(
           JSON.stringify(base.source) !== JSON.stringify(witness.source) ||
           JSON.stringify(base.capture) !== JSON.stringify(witness.capture) ||
           JSON.stringify(base.artifact) !== JSON.stringify(witness.artifact) ||
-          tag(oldTemplate, 'd') !== tag(nextTemplate, 'd') ||
-          tag(oldTemplate, 'published_at') !==
-            tag(nextTemplate, 'published_at') ||
+          (nextTemplate.kind === 5
+            ? record.family !== 'public_operation' ||
+              record.source.type !== 'public_head' ||
+              record.source.wire !== witness.artifact.wire ||
+              JSON.stringify(nextTemplate.tags) !==
+                JSON.stringify([
+                  ['e', witness.artifact.eventId],
+                  ['a', `30402:${scope.owner}:${tag(oldTemplate, 'd')}`],
+                  ['k', '30402']
+                ]) ||
+              nextTemplate.content !== ''
+            : tag(oldTemplate, 'd') !== tag(nextTemplate, 'd') ||
+              tag(oldTemplate, 'published_at') !==
+                tag(nextTemplate, 'published_at')) ||
           nextTemplate.created_at <= oldTemplate.created_at ||
           rows.some((row) => {
             if (
               row.record.family !== 'public_operation' ||
-              row.record.id === base.id ||
-              row.record.capture.kind !== 30402
+              row.record.id === base.id
             )
               return false;
             const other = inspectLocalTemplate(
               row.record.capture.wire,
               scope.owner,
-              30402
+              row.record.capture.kind
             );
             return (
               !!other &&
-              tag(other, 'd') === tag(oldTemplate, 'd') &&
-              other.created_at >= oldTemplate.created_at
+              (other.kind === 5
+                ? other.tags.some(
+                    (value) =>
+                      (value[0] === 'e' &&
+                        value[1] === witness.artifact!.eventId) ||
+                      (value[0] === 'a' &&
+                        value[1] ===
+                          `30402:${scope.owner}:${tag(oldTemplate, 'd')}`)
+                  ) && other.created_at >= oldTemplate.created_at
+                : tag(other, 'd') === tag(oldTemplate, 'd') &&
+                  other.created_at >= oldTemplate.created_at)
             );
           })
         ) {
@@ -441,10 +464,17 @@ function claimOperation(
       );
       if (
         !source ||
-        source.type !== 'draft' ||
+        (source.type !== 'draft' &&
+          !(
+            source.type === 'public_head' &&
+            record.family === 'public_operation' &&
+            record.capture.kind === 5 &&
+            draft.revisionBase
+          )) ||
         draft.expected.owner !== scope.owner ||
-        source.id !== draft.expected.id ||
-        source.revision !== draft.expected.revision ||
+        (source.type === 'draft' &&
+          (source.id !== draft.expected.id ||
+            source.revision !== draft.expected.revision)) ||
         !previousDraft ||
         JSON.stringify(previousDraft.record) !==
           JSON.stringify(draft.expected) ||

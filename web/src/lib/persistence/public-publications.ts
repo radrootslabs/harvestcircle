@@ -173,7 +173,12 @@ export async function savePublicListingIntent(
       custody.repository !== scope.drafts ||
       !row ||
       row.family !== 'public_operation' ||
-      row.source.type !== 'draft'
+      (row.source.type !== 'draft' &&
+        !(
+          row.capture.kind === 5 &&
+          row.source.type === 'public_head' &&
+          revisionBase
+        ))
     )
       return { status: 'invalid_scope' };
     if (

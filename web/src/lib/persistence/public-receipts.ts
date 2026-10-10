@@ -38,7 +38,10 @@ export async function commitPublicListingReceipt(
       !owner ||
       !quota ||
       row?.family !== 'public_operation' ||
-      row.capture.kind !== 30402 ||
+      !(
+        row.capture.kind === 30402 ||
+        (row.capture.kind === 5 && row.source.type === 'public_head')
+      ) ||
       !row.artifact
     )
       return { status: 'invalid' };

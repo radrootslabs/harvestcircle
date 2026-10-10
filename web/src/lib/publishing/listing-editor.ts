@@ -19,6 +19,7 @@ import {
 } from './prepare-listing.ts';
 import { reviewOwnedRevision } from './revise-listing.ts';
 import { reviewMarkSold } from './mark-sold.ts';
+import { reviewOwnedWithdrawal } from './withdraw-listing.ts';
 import { decodeProductReference } from '../nostr/references.ts';
 import {
   openOwnedEditSource,
@@ -102,7 +103,7 @@ type Editor = Readonly<{
   review(
     setup: InboxSetupView | undefined,
     form: PublicDraftForm,
-    status: 'active' | 'sold'
+    status: 'active' | 'sold' | 'withdrawal'
   ): Promise<ListingReviewResult>;
   reviewCurrent(review: ListingReview): boolean;
   source(): OwnedEditSource | undefined;
@@ -192,14 +193,14 @@ export async function openListingEditor(
     | {
         setup: InboxSetupView | undefined;
         proof?: NewListingReadiness;
-        status: 'active' | 'sold';
+        status: 'active' | 'sold' | 'withdrawal';
         review: ListingReview;
       }
     | undefined;
   let reviewing: Promise<ListingReviewResult> | undefined;
   let reviewingForm: string | undefined;
   let reviewingSetup: InboxSetupView | undefined;
-  let reviewingStatus: 'active' | 'sold' | undefined;
+  let reviewingStatus: 'active' | 'sold' | 'withdrawal' | undefined;
   function clearReview() {
     if (reviewed?.proof) closeNewListingReadiness(reviewed.proof);
     if (reviewed) closeListingReview(reviewed.review);
@@ -540,19 +541,26 @@ export async function openListingEditor(
         reviewingStatus = status;
         const prepared =
           route.mode === 'edit' && editSource
-            ? status === 'sold'
-              ? reviewMarkSold(
+            ? status === 'withdrawal'
+              ? reviewOwnedWithdrawal(
                   editSource,
                   original,
                   command,
-                  'reviewed_sold_availability'
+                  'reviewed_owned_withdrawal'
                 )
-              : reviewOwnedRevision(
-                  editSource,
-                  original,
-                  command,
-                  'reviewed_owned_revision'
-                )
+              : status === 'sold'
+                ? reviewMarkSold(
+                    editSource,
+                    original,
+                    command,
+                    'reviewed_sold_availability'
+                  )
+                : reviewOwnedRevision(
+                    editSource,
+                    original,
+                    command,
+                    'reviewed_owned_revision'
+                  )
             : proof
               ? reviewNewListing(
                   publications,
@@ -657,7 +665,7 @@ export function reviewListingEditor(
   editor: ListingEditor,
   setup: InboxSetupView | undefined,
   form: PublicDraftForm,
-  status: 'active' | 'sold' = 'active'
+  status: 'active' | 'sold' | 'withdrawal' = 'active'
 ): Promise<ListingReviewResult> {
   return (
     editors.get(editor)?.review(setup, form, status) ??

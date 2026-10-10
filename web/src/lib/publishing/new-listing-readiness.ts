@@ -224,11 +224,19 @@ export function captureOwnedListingReadiness(
   eventId: string,
   review: unknown
 ): NewListingReadiness | undefined {
-  if (review !== 'reviewed_owned_listing') return;
+  if (
+    review !== 'reviewed_owned_listing' &&
+    review !== 'reviewed_owned_withdrawal'
+  )
+    return;
   const original = authorizeOwnedEditSource(source);
   if (!original) return;
   let active = true;
-  const current = () => active && original.currentRevision(eventId);
+  const current = () =>
+    active &&
+    (review === 'reviewed_owned_withdrawal'
+      ? original.currentWithdrawal(eventId)
+      : original.currentRevision(eventId));
   const token = Object.freeze({}) as NewListingReadiness;
   reviews.set(token, {
     ownership: {
