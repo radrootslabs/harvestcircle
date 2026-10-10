@@ -2,7 +2,7 @@
 name = "harvestcircle_xtask"
 version = "0.1.0-alpha"
 edition = "2024"
-rust-version = "1.97.1"
+rust-version = "1.99.0"
 license = "GPL-3.0-only"
 publish = false
 

@@ -86,7 +86,7 @@ void test('public Food corpus and isolated producer retain exact pinned byte pro
   assert.equal(provenance.corpus.path, 'corpus.v1.json');
   assert.equal(provenance.corpus.sha256, digest(corpusBytes));
   assert.equal(provenance.corpus.bytes, corpusBytes.length);
-  assert.equal(provenance.producer.rust_toolchain, '1.97.1');
+  assert.equal(provenance.producer.rust_toolchain, '1.99.0');
   assert.deepEqual(provenance.producer.files.map((row) => row.path).sort(), [
     'oracle/Cargo.lock',
     'oracle/Cargo.toml',

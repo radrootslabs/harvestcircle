@@ -60,7 +60,7 @@ Controlled browser tests remain separate web package scripts requiring a
 qualified Playwright browser. Browser commands use the web directory before
 Corepack resolves its package manager; no root JavaScript workspace is added.
 
-Native prerequisites include JDK 21, Rust 1.97.1, and platform packaging tools.
+Native prerequisites include JDK 21, Rust 1.99.0, and platform packaging tools.
 Node is not a native prerequisite. The `native-*` targets are recipe-free
 aliases of the existing native targets:
 

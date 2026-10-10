@@ -19,11 +19,11 @@
   },
   "producer": {
     "package": "harvestcircle_food_fixture_oracle",
-    "rust_toolchain": "1.97.1",
+    "rust_toolchain": "1.99.0",
     "files": [
       {
         "path": "oracle/Cargo.toml",
-        "sha256": "5a9a3891ab81af1b82c3f7fb054f25019b41390d84348466993fb158ddc183fe",
+        "sha256": "09c93aea3f1714e9a44a1acbb7afad9300b4c9e5d54ed2ef90637bb39331cdc8",
         "bytes": 693
       },
       {
@@ -33,7 +33,7 @@
       },
       {
         "path": "oracle/rust-toolchain.toml",
-        "sha256": "279d77167cec5426fa80f457cd066dc74a360fbe4e2816f4f3fa01487a918fdc",
+        "sha256": "065388cb682c606d7f02487e70f150afccd2326949c4c6247a9fc59f2334fe05",
         "bytes": 86
       },
       {
@@ -155,5 +155,5 @@
     "revision_cases": 9
   },
   "key_policy": "No private key input, generation, signing or persistence; existing public signed vectors verified by pinned Rust and Applesauce",
-  "qualification_scope": "Shared contract corpus only. Public image fixture semantics are not a prototype image pipeline; prototype outgoing images remain absent. TS Food adapters/template and bidirectional runtime consumer acceptance belong to HCP023\u2013026. No real relay/extension/operator/client/deployment/native qualification."
+  "qualification_scope": "Shared contract corpus only. Public image fixture semantics are not a prototype image pipeline; prototype outgoing images remain absent. TS Food adapters/template and bidirectional runtime consumer acceptance belong to HCP023–026. No real relay/extension/operator/client/deployment/native qualification."
 }

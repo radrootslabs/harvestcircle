@@ -440,7 +440,7 @@ fn decode_hex<const N: usize>(input: &[u8]) -> Result<[u8; N], AvailabilityQuery
         return Err(AvailabilityQueryError::InvalidInput);
     }
     let mut result = [0; N];
-    for (output, pair) in result.iter_mut().zip(input.chunks_exact(2)) {
+    for (output, pair) in result.iter_mut().zip(input.as_chunks::<2>().0) {
         *output = (hex_digit(pair[0])? << 4) | hex_digit(pair[1])?;
     }
     Ok(result)

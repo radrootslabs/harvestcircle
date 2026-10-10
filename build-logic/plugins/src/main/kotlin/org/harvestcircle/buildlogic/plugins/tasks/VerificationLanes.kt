@@ -64,7 +64,7 @@ object VerificationLanes {
     }
 
     fun verifyDevelopmentMakefile(source: String) {
-        check(source.lineSequence().count { it == "override CARGO := cargo +1.97.1" } == 1) {
+        check(source.lineSequence().count { it == "override CARGO := cargo +1.99.0" } == 1) {
             "Development verification must pin the exact Rust toolchain"
         }
         val exactTargetHeaders =

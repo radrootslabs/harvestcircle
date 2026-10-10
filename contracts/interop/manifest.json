@@ -19,8 +19,8 @@
     },
     {
       "path": "contracts/interop/food_availability/provenance.v1.json",
-      "sha256": "4de4a1c7dade633562599cefdabb96993b6b830bb5acd92c9b74c112cbc2c03e",
-      "bytes": 6756
+      "sha256": "ae0ee1ff898a6cc9da3a89fd56d2340bff54297995e5c6add2b9e0f5d20e3f0d",
+      "bytes": 6753
     },
     {
       "path": "contracts/interop/food_availability/oracle/src/main.rs",
@@ -29,7 +29,7 @@
     },
     {
       "path": "contracts/interop/food_availability/oracle/Cargo.toml",
-      "sha256": "5a9a3891ab81af1b82c3f7fb054f25019b41390d84348466993fb158ddc183fe",
+      "sha256": "09c93aea3f1714e9a44a1acbb7afad9300b4c9e5d54ed2ef90637bb39331cdc8",
       "bytes": 693
     },
     {
@@ -39,8 +39,8 @@
     },
     {
       "path": "web/tests/conformance/food-writer-rust.v1.json",
-      "sha256": "6c95f997724ee995861c2402c57f6ab29b5facd12aa15097822592993b9bfe19",
-      "bytes": 29382
+      "sha256": "4978ddc6c1cf3aeeeabb643f5b5d94a57cff292687ab3a676cdf7e74e88e2aa7",
+      "bytes": 35738
     },
     {
       "path": "contracts/interop/food_availability/web_templates.v1.json",

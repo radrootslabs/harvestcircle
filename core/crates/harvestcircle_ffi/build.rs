@@ -125,7 +125,7 @@ fn main() {
         (
             "HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN",
             "HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN",
-            "1.97.1",
+            "1.99.0",
         ),
         (
             "HARVESTCIRCLE_BUILD_JAVA_TOOLCHAIN",

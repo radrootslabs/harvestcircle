@@ -1308,7 +1308,7 @@ fn sqlite_dependency_topology(root: &Path, inventory: &Inventory, findings: &mut
 fn development_integration_policy(root: &Path, findings: &mut Vec<String>) {
     let makefile = read_text(root, "Makefile", findings);
     for required in [
-        "override CARGO := cargo +1.97.1",
+        "override CARGO := cargo +1.99.0",
         "api-check: doctor",
         "development-check: development-provenance-check source-check integration-check",
         "governed-development-check:",
@@ -1332,7 +1332,7 @@ fn development_integration_policy(root: &Path, findings: &mut Vec<String>) {
         findings,
     );
     for required in [
-        "rust:1.97.1-slim-trixie@sha256:fc0648ac2962539be80bd424729a20fd80f7b64bfba7e90bbd642aed6c697c5a",
+        "rust:1.99.0-slim-trixie@sha256:2752b332db73fdbb7dc576f06c82ed1f312005784ef913d7e04a28f5f55dc581",
         "--platform linux/amd64",
         "EXT_BUILD_RUN_ACTIVE",
         "--env JAVA_TOOL_OPTIONS=-Duser.home=/workspace/home",
@@ -2445,7 +2445,7 @@ mod tests {
         write(
             &root,
             "Makefile",
-            "override CARGO := cargo +1.97.1\napi-check: doctor\ndevelopment-check: development-provenance-check source-check integration-check\ngoverned-development-check:\ngoverned-linux-x86_64-development-check: governed-doctor\n",
+            "override CARGO := cargo +1.99.0\napi-check: doctor\ndevelopment-check: development-provenance-check source-check integration-check\ngoverned-development-check:\ngoverned-linux-x86_64-development-check: governed-doctor\n",
         );
         write(
             &root,

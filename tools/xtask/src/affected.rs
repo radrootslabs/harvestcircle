@@ -490,12 +490,12 @@ fn fingerprint(
             json!(tool(
                 root,
                 "rustup",
-                &["run", "1.97.1", "cargo", "--version"]
+                &["run", "1.99.0", "cargo", "--version"]
             )),
         );
         tools.insert(
             "rustc".to_owned(),
-            json!(tool(root, "rustup", &["run", "1.97.1", "rustc", "-vV"])),
+            json!(tool(root, "rustup", &["run", "1.99.0", "rustc", "-vV"])),
         );
         tools.insert("java".to_owned(), json!(tool(root, "java", &["-version"])));
         // Only invoke an already cached distribution, never a downloading wrapper.

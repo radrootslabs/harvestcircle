@@ -37,6 +37,12 @@ class VerificationLanesTest {
 
         VerificationLanes.verifyDevelopmentMakefile(makefile)
         assertFails {
+            VerificationLanes.verifyDevelopmentMakefile(makefile.replace("+1.99.0", "+1.97.1"))
+        }
+        assertFails {
+            VerificationLanes.verifyDevelopmentMakefile(makefile.replace("+1.99.0", "+1.98.0"))
+        }
+        assertFails {
             VerificationLanes.verifyDevelopmentMakefile(
                 makefile.replace(
                     "development-check: development-provenance-check source-check integration-check",
@@ -77,7 +83,7 @@ class VerificationLanesTest {
 
     private val makefile =
         """
-        override CARGO := cargo +1.97.1
+        override CARGO := cargo +1.99.0
 
         source-check: build-logic-check check bindings api-check licenses dev-check
 

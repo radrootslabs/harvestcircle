@@ -27,7 +27,7 @@ const folder = new URL('../../contracts/interop/message/', import.meta.url);
 const revision = '189c49b74b4bafc142b00b76b296477931139e72';
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const cargo = [
-  '+1.97.1',
+  '+1.99.0',
   'run',
   '--manifest-path',
   'contracts/interop/message/oracle/Cargo.toml',
@@ -37,10 +37,10 @@ const cargo = [
   '--'
 ];
 function success(command, argv, cwd = root) {
+  // Compiler and cache waits on a busy host have no outer elapsed cutoff.
   const r = spawnSync(command, argv, {
     cwd,
     encoding: 'utf8',
-    timeout: 1800000,
     maxBuffer: 1024 * 1024
   });
   assert.ifError(r.error);
@@ -69,7 +69,7 @@ await owned('oracle/src/main.rs');
 // Offline actual Cargo/cache identity and exact immutable source, never sibling Lib.
 const metadata = JSON.parse(
   success('cargo', [
-    '+1.97.1',
+    '+1.99.0',
     'metadata',
     '--manifest-path',
     'contracts/interop/message/oracle/Cargo.toml',

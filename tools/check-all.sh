@@ -15,7 +15,7 @@ done
 java_major=$(java -version 2>&1 | sed -n 's/.*version "\([0-9]*\).*/\1/p' | head -n 1)
 [ "$java_major" = 21 ] || fail "selected JDK must be 21; install/select it explicitly"
 # Preflight before any consumer. Neither rustup run nor offline Corepack installs.
-rustup run 1.97.1 cargo --version
+rustup run 1.99.0 cargo --version
 # Refuse a wrapper download when its selected distribution is not installed.
 gradle_version=$(sed -n 's@^distributionUrl=.*\/gradle-\([0-9.]*\)-bin.zip$@\1@p' gradle/wrapper/gradle-wrapper.properties)
 [ -n "$gradle_version" ] || fail "unrecognized pinned Gradle distribution"

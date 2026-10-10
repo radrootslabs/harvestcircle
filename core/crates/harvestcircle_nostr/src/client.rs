@@ -40,7 +40,7 @@ impl SdkNostrClient {
     fn request_id(&self) -> Result<String, SafeError> {
         let sequence = self
             .next_request
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |value| {
                 value.checked_add(1)
             })
             .map_err(|_| relay_connection_failed())?;

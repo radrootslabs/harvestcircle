@@ -68,7 +68,7 @@ git -C "$workspace/source" checkout --detach "$source_commit"
 [ -z "$(git -C "$workspace/source" status --porcelain --untracked-files=all)" ] ||
     fail "isolated source clone is not clean"
 
-runner_image="docker.io/library/rust:1.97.1-slim-trixie@sha256:fc0648ac2962539be80bd424729a20fd80f7b64bfba7e90bbd642aed6c697c5a"
+runner_image="docker.io/library/rust:1.99.0-slim-trixie@sha256:2752b332db73fdbb7dc576f06c82ed1f312005784ef913d7e04a28f5f55dc581"
 
 docker run \
     --rm \
@@ -118,7 +118,7 @@ docker run \
         [ "$(uname -m)" = x86_64 ]
         [ "$(git rev-parse HEAD)" = "$HARVESTCIRCLE_BUILD_SOURCE_COMMIT" ]
         [ -z "$(git status --porcelain --untracked-files=all)" ]
-        rustc --version | grep -Eq "^rustc 1\\.97\\.1 "
+        rustc --version | grep -Eq "^rustc 1\\.99\\.0 "
         java -version 2>&1 | grep -Eq "version \"21\\."
         rustup component add clippy rustfmt
         if ! cargo deny --version 2>/dev/null | grep -Eq "0\\.19\\.8$"; then

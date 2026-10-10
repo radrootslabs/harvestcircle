@@ -74,7 +74,7 @@ public class HarvestCircleRustFfiPlugin : Plugin<Project> {
         val radrootsRevision =
             target.providers.environmentVariable(productEnvironment("BUILD_RADROOTS_REVISION")).orElse("unknown")
         val rustToolchain =
-            target.providers.environmentVariable(productEnvironment("BUILD_RUST_TOOLCHAIN")).orElse("1.97.1")
+            target.providers.environmentVariable(productEnvironment("BUILD_RUST_TOOLCHAIN")).orElse("1.99.0")
         val javaToolchain =
             target.providers.environmentVariable(productEnvironment("BUILD_JAVA_TOOLCHAIN")).orElse(System.getProperty("java.version"))
         val kotlinToolchain =

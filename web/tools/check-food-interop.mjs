@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
   lstat,
   mkdtemp,
@@ -27,10 +28,10 @@ assert.ok(
 );
 assert.equal(process.versions.node, '24.21.0');
 const run = (command, argv, cwd = root) => {
+  // Compiler and cache waits on a busy host have no outer elapsed cutoff.
   const result = spawnSync(command, argv, {
     cwd,
     encoding: 'utf8',
-    timeout: 1800000,
     maxBuffer: 1024 * 1024
   });
   assert.ifError(result.error);
@@ -43,7 +44,7 @@ const success = (command, argv, cwd = root) => {
   return result.stdout;
 };
 const cargo = [
-  '+1.97.1',
+  '+1.99.0',
   'run',
   '--manifest-path',
   'contracts/interop/food_availability/oracle/Cargo.toml',
@@ -58,24 +59,25 @@ const names = [
   'provenance.v1.json',
   'oracle/src/main.rs'
 ];
-const inputs = await Promise.all(
-  names.map(async (name) => {
-    const path = new URL(
-      `../../contracts/interop/food_availability/${name}`,
-      import.meta.url
-    );
-    const info = await lstat(path);
-    assert.ok(
-      info.isFile() &&
-        !info.isSymbolicLink() &&
-        info.size > 0 &&
-        info.size <= 1024 * 1024
-    );
-    const bytes = await readFile(path);
-    assert.equal(bytes.length, info.size);
-    return [name, bytes];
-  })
-);
+async function ownedInput(name) {
+  const path = new URL(
+    `../../contracts/interop/food_availability/${name}`,
+    import.meta.url
+  );
+  const info = await lstat(path);
+  assert.ok(
+    info.isFile() &&
+      !info.isSymbolicLink() &&
+      info.size > 0 &&
+      info.size <= 1024 * 1024
+  );
+  const bytes = await readFile(path);
+  assert.equal(bytes.length, info.size);
+  return bytes;
+}
+const readInputs = () =>
+  Promise.all(names.map(async (name) => [name, await ownedInput(name)]));
+const inputs = await readInputs();
 const corpus = inputs[0][1];
 success(process.execPath, ['tools/check-source.mjs'], web);
 success('cargo', [...cargo, '--check']);
@@ -91,7 +93,6 @@ try {
   const actual = JSON.parse(
     success('cargo', [...cargo, '--consume-web', candidate])
   );
-  const receipt = createFoodReplay(actual, webTemplates, inputs);
   for (const mutation of ['tag', 'amount']) {
     const altered = webTemplates.map((row) => ({
       ...row,
@@ -116,6 +117,50 @@ try {
       rejected.stderr
     );
   }
+  if (args[0] === '--write') {
+    // Refresh producer provenance only after actual Rust corpus equality,
+    // website consumption and hostile-template rejection have succeeded.
+    const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
+    const provenance = JSON.parse(inputs[2][1].toString());
+    assert.equal(provenance.public_source.revision, actual.revision);
+    assert.equal(provenance.source_copy.sha256, digest(inputs[1][1]));
+    assert.equal(provenance.corpus.sha256, digest(corpus));
+    const producerNames = [
+      'oracle/Cargo.toml',
+      'oracle/Cargo.lock',
+      'oracle/rust-toolchain.toml',
+      'oracle/src/main.rs'
+    ];
+    assert.deepEqual(
+      provenance.producer.files.map((row) => row.path).sort(),
+      producerNames.toSorted()
+    );
+    assert.match(
+      success('rustup', ['run', '1.99.0', 'rustc', '--version']),
+      /^rustc 1\.99\.0 /
+    );
+    assert.match(
+      (await ownedInput('oracle/rust-toolchain.toml')).toString(),
+      /^channel = "1\.99\.0"$/m
+    );
+    provenance.producer.rust_toolchain = '1.99.0';
+    provenance.producer.files = await Promise.all(
+      producerNames.map(async (path) => {
+        const bytes = await ownedInput(path);
+        return { path, sha256: digest(bytes), bytes: bytes.length };
+      })
+    );
+    await writeFile(
+      new URL(
+        '../../contracts/interop/food_availability/provenance.v1.json',
+        import.meta.url
+      ),
+      JSON.stringify(provenance, null, 2) + '\n'
+    );
+  }
+  // The replay must bind the refreshed producer provenance, never stale bytes
+  // read before an explicitly requested regeneration.
+  const receipt = createFoodReplay(actual, webTemplates, await readInputs());
   if (args[0] === '--write')
     await writeFile(fixture, JSON.stringify(receipt, null, 2) + '\n');
   else
@@ -124,6 +169,15 @@ try {
       receipt,
       'checked website/Rust replay is stale; regenerate explicitly with --write'
     );
+  // The shared consumer manifest binds these exact provenance/replay bytes.
+  success(
+    process.execPath,
+    [
+      'tools/generate-interop-manifest.mjs',
+      ...(args[0] === '--write' ? ['--write'] : [])
+    ],
+    web
+  );
   const tests = (
     await readdir(new URL('../tests/conformance/', import.meta.url))
   )

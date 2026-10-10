@@ -10,7 +10,7 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-printf '%s\n' '#!/bin/sh' 'if [ "${1:-}" = +1.97.1 ]; then shift; fi' 'if [ "${1:-}" = extbuild ]; then printf "%s\n" "cargo-extbuild unavailable" >&2; else printf "%s\n" "cargo must not be invoked in standalone dry-run" >&2; fi' 'exit 93' > "$fixture/cargo"
+printf '%s\n' '#!/bin/sh' 'if [ "${1:-}" = +1.99.0 ]; then shift; fi' 'if [ "${1:-}" = extbuild ]; then printf "%s\n" "cargo-extbuild unavailable" >&2; else printf "%s\n" "cargo must not be invoked in standalone dry-run" >&2; fi' 'exit 93' > "$fixture/cargo"
 chmod +x "$fixture/cargo"
 
 standalone_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE=standalone -C "$repository_root" check)
@@ -189,7 +189,7 @@ case "$tool" in
         ;;
     npm|pnpm|npx) exit 94 ;;
     cargo)
-        if [ "${1:-}" = +1.97.1 ]; then shift; fi
+        if [ "${1:-}" = +1.99.0 ]; then shift; fi
         if [ "${1:-}" = extbuild ]; then
             case "${2:-}" in
                 doctor) exit 0 ;;
@@ -346,7 +346,7 @@ for mode in standalone governed; do
             }
             $1 == "cargo" {
                 if (mode == "governed" && $3 == "no") {
-                    if ($2 == root && $8 == "+1.97.1" && $9 == "extbuild" && $10 == "doctor" && NF == 10) next
+                    if ($2 == root && $8 == "+1.99.0" && $9 == "extbuild" && $10 == "doctor" && NF == 10) next
                     if ($2 == root "/web" && $8 == "extbuild" && $9 == "run" && $10 == "--" && ($11 == "node" || $11 == "corepack")) next
                 }
                 print "web dispatch invoked unexpected Cargo argv or routing"; exit 1

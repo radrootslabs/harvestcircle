@@ -30,7 +30,7 @@ Food/Message interop and real extension/relay qualification remain pending.
 
 Run commands from this checkout's root, including when the path contains
 spaces; from elsewhere use `make -C "/path/to/HarvestCircle" <target>`.
-Native commands require Rust 1.97.1, the pinned JDK/Gradle wrapper and the
+Native commands require Rust 1.99.0, the pinned JDK/Gradle wrapper and the
 supported host's native prerequisites described in README. They do not require
 Node or pnpm. Browser commands require the pinned Node/Corepack/pnpm inputs,
 Make and ordinary shell/Git utilities; they do not require Rust, Java or Gradle

@@ -10,8 +10,8 @@ done
 cd "$repository_root/web"
 node tools/doctor.mjs
 cd "$repository_root"
-cargo +1.97.1 --version
-cargo +1.97.1 test --manifest-path contracts/interop/food_availability/oracle/Cargo.toml --locked --test native_manifest -- --nocapture
+cargo +1.99.0 --version
+cargo +1.99.0 test --manifest-path contracts/interop/food_availability/oracle/Cargo.toml --locked --test native_manifest -- --nocapture
 cd "$repository_root/web"
 corepack pnpm exec node --test tests/conformance/interop-consumer.test.ts
 printf '%s\n' 'harvestcircle.interop.fixture_consumers=pass' 'harvestcircle.interop.qualification=source_only_no_Message_or_deployed_Tera_claim'
