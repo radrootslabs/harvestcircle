@@ -202,7 +202,7 @@ async function ready(page: Page, existing = false) {
   await page.evaluate(async (existing) => {
     window.hcp106Fixture = await window.hcp106.renderFixture(existing);
   }, existing);
-  await expect(page.locator('[data-enquiry-fixture]')).toBeVisible();
+  await expect(page.locator('[data-enquiry-fixture]')).toBeAttached();
   if (existing)
     await expect
       .poll(() =>
@@ -226,6 +226,27 @@ const open = (page: Page) =>
   panel(page)
     .getByRole('button', { name: 'Message seller', exact: true })
     .click();
+test('HCP108 a sold listing does not remove an original retained conversation or its UUID navigation', async ({
+  page
+}) => {
+  mode = 'sold';
+  await ready(page, true);
+  const actual = await page.evaluate(async () => ({
+    listing: window.hcp106Fixture.viewSnapshot(),
+    thread: window.hcp106Fixture.existingThread(),
+    native: await window.hcp106Fixture.native(),
+    path: await window.hcp106Fixture.resolveExistingThread(),
+    known: window.hcp106Fixture.knownPath()
+  }));
+  expect(actual.listing.outcome).toBe('sold');
+  expect(actual.thread?.status).toBe('ready');
+  expect(actual.thread?.messages.length).toBeGreaterThan(0);
+  expect(actual.native.received.length).toBeGreaterThan(0);
+  expect(actual.native.pairs.length).toBeGreaterThan(0);
+  expect(actual.path).toBe(true);
+  expect(actual.known).toMatch(/^\/messages\/[a-f0-9-]{36}$/);
+  expect(await page.evaluate(() => window.hcp106Fixture.capture())).toBe(false);
+});
 test('explicit guest enquiry captures the signed publisher and readable viewed context without connection or Send', async ({
   page
 }) => {
@@ -408,6 +429,18 @@ for (const rejection of [
     async ({ page }) => {
       mode = rejection;
       await ready(page);
+      expect(
+        await page.evaluate(() => window.hcp106Fixture.viewSnapshot().outcome)
+      ).toBe(
+        rejection === 'sold'
+          ? 'sold'
+          : rejection === 'deleted'
+            ? 'withdrawn'
+            : 'unobserved'
+      );
+      await expect(
+        panel(page).getByRole('button', { name: 'Message seller', exact: true })
+      ).toHaveCount(0);
       expect(await page.evaluate(() => window.hcp106Fixture.capture())).toBe(
         false
       );

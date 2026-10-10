@@ -32,6 +32,10 @@ import {
   createProductView,
   productViewSnapshot,
   closeProductView,
+  acknowledgeProductViewUncertainty,
+  productViewListingOwnership,
+  type ProductView,
+  type ProductStatusAcknowledgement,
   type ProductViewSnapshot
 } from '../../../src/lib/catalog/product-view.ts';
 import { encodeProductReference } from '../../../src/lib/nostr/references.ts';
@@ -211,6 +215,8 @@ export async function renderFixture(qualified = true) {
       for (const callback of observers) callback(value);
     }
   );
+  let otherView: ProductView | undefined;
+  let retainedConsent: ProductStatusAcknowledgement | undefined;
   const target = document.createElement('div');
   document.body.append(target);
   let draft: ProductEnquiry | undefined,
@@ -304,6 +310,54 @@ export async function renderFixture(qualified = true) {
     owner,
     peer,
     viewSnapshot: () => productViewSnapshot(view),
+    captureUncertain(review: unknown) {
+      const acknowledgement = acknowledgeProductViewUncertainty(view, review);
+      return !!captureProductEnquiry(
+        view,
+        'reviewed_product_enquiry',
+        acknowledgement
+      );
+    },
+    createOtherView() {
+      otherView = createProductView(
+        createPublicView(runtime),
+        reference,
+        { nowSeconds: () => 1700000200 },
+        () => {}
+      );
+    },
+    otherViewSnapshot: () => otherView && productViewSnapshot(otherView),
+    consentCases() {
+      retainedConsent = acknowledgeProductViewUncertainty(
+        view,
+        'reviewed_last_known_listing'
+      );
+      return {
+        genuine: !!retainedConsent,
+        current: !!productViewListingOwnership(
+          view,
+          retainedConsent
+        )?.current(),
+        copied: !!productViewListingOwnership(view, {
+          ...retainedConsent
+        } as ProductStatusAcknowledgement),
+        other:
+          !!otherView &&
+          !!productViewListingOwnership(otherView, retainedConsent),
+        otherControl:
+          !!otherView &&
+          !!productViewListingOwnership(
+            otherView,
+            acknowledgeProductViewUncertainty(
+              otherView,
+              'reviewed_last_known_listing'
+            )
+          )?.current(),
+        unreviewed: !!acknowledgeProductViewUncertainty(view, undefined)
+      };
+    },
+    consentCurrent: () =>
+      !!productViewListingOwnership(view, retainedConsent)?.current(),
     identity: () => identityViewSnapshot(context),
     setup: () => inboxSetupViewSnapshot(setup),
     snapshot: () => controller && productRequestSnapshot(controller),
@@ -419,6 +473,7 @@ export async function renderFixture(qualified = true) {
       mode = 'normal';
       release?.();
       closeProductView(view);
+      if (otherView) closeProductView(otherView);
       await unmount(mounted);
       closeIdentityView(context);
       closePublicRuntime(publicContext);

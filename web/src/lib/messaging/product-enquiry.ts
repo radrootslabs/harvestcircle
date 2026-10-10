@@ -1,6 +1,7 @@
 import {
   productViewListingOwnership,
-  type ProductView
+  type ProductView,
+  type ProductStatusAcknowledgement
 } from '../catalog/product-view.ts';
 import {
   captureEnquiryContext,
@@ -37,11 +38,12 @@ const owners = new WeakMap<ProductEnquiry, Owner>();
 // inbox readiness nor Send authority, and performs no network/native/SDK call.
 export function captureProductEnquiry(
   view: ProductView,
-  review: unknown
+  review: unknown,
+  acknowledgement?: ProductStatusAcknowledgement
 ): ProductEnquiry | undefined {
   if (typeof window === 'undefined' || review !== 'reviewed_product_enquiry')
     return;
-  const listing = productViewListingOwnership(view);
+  const listing = productViewListingOwnership(view, acknowledgement);
   if (!listing?.current()) return;
   const context = captureEnquiryContext(listing.proof);
   const observed = context && enquiryContextSnapshot(context);

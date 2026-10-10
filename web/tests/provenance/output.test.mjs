@@ -1098,6 +1098,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'src/lib/components/ProductEnquiry.svelte',
           'src/lib/messaging/product-enquiry.ts',
           'src/lib/messaging/product-request-controller.ts',
+          'src/lib/messaging/enquiry-readiness.ts',
           'src/lib/messaging/resolve-inbox.ts',
           'src/lib/components/CapabilityGate.svelte',
           'src/lib/messaging/enquiry-context.ts',

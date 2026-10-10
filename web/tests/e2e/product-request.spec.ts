@@ -17,6 +17,18 @@ declare global {
 let server: Awaited<ReturnType<typeof createStaticHarness>>;
 let sockets: WebSocketServer, endpoint: string, bundle: string;
 let missingOwn = false;
+let listingStatus: 'active' | 'sold' | 'withdrawn' = 'active';
+let sellerInbox:
+  | 'normal'
+  | 'missing'
+  | 'unsupported'
+  | 'unapproved'
+  | 'malformed'
+  | 'partial' = 'normal';
+let incompleteListing = false;
+let holdListingHead = false;
+let headUpdates: (() => void)[] = [],
+  deletionUpdates: (() => void)[] = [];
 let holdOwnEose = false,
   holdPeerEose = false;
 let waitingEose: (() => void)[] = [];
@@ -97,20 +109,94 @@ test.beforeAll(async () => {
                 ['location', 'Victoria'],
                 ['price', '3.5', 'CAD'],
                 ['radroots:price_unit', 'lb'],
-                ['status', 'active']
+                ['status', listingStatus === 'sold' ? 'sold' : 'active']
               ]
             },
             sellerSecret
           );
           socket.send(JSON.stringify(['EVENT', frame[1], event]));
+          headUpdates.push(() => {
+            if (socket.readyState === 1)
+              socket.send(
+                JSON.stringify([
+                  'EVENT',
+                  frame[1],
+                  finalizeEvent(
+                    {
+                      ...event,
+                      created_at: 1700000080,
+                      tags: event.tags.map((tag) =>
+                        tag[0] === 'status'
+                          ? [
+                              'status',
+                              listingStatus === 'sold' ? 'sold' : 'active'
+                            ]
+                          : tag
+                      )
+                    },
+                    sellerSecret
+                  )
+                ])
+              );
+          });
         }
+        if (filter.kinds?.includes(5))
+          deletionUpdates.push(() => {
+            if (socket.readyState === 1)
+              socket.send(
+                JSON.stringify([
+                  'EVENT',
+                  frame[1],
+                  finalizeEvent(
+                    {
+                      kind: 5,
+                      created_at: 1700000090,
+                      tags: [['a', '30402:' + peer + ':carrots']],
+                      content: ''
+                    },
+                    sellerSecret
+                  )
+                ])
+              );
+          });
+        if (filter.kinds?.includes(5) && listingStatus === 'withdrawn')
+          socket.send(
+            JSON.stringify([
+              'EVENT',
+              frame[1],
+              finalizeEvent(
+                {
+                  kind: 5,
+                  created_at: 1700000070,
+                  tags: [['a', '30402:' + peer + ':carrots']],
+                  content: ''
+                },
+                sellerSecret
+              )
+            ])
+          );
         if (filter.kinds?.includes(10050)) {
-          if (filter.authors?.includes(peer))
+          if (filter.authors?.includes(peer) && sellerInbox !== 'missing')
             socket.send(
               JSON.stringify([
                 'EVENT',
                 frame[1],
-                preference(sellerSecret, 'wss://peer.example.org')
+                sellerInbox === 'normal' || sellerInbox === 'partial'
+                  ? preference(sellerSecret, 'wss://peer.example.org')
+                  : finalizeEvent(
+                      {
+                        kind: 10050,
+                        created_at: 1700000060,
+                        content: '',
+                        tags:
+                          sellerInbox === 'unapproved'
+                            ? [['relay', 'wss://unapproved.example.org']]
+                            : sellerInbox === 'unsupported'
+                              ? [['relay', 'https://unsupported.example.org']]
+                              : [['relay']]
+                      },
+                      sellerSecret
+                    )
               ])
             );
           if (filter.authors?.includes(owner) && (!missingOwn || ownPreference))
@@ -125,11 +211,16 @@ test.beforeAll(async () => {
         }
       }
       if (
+        (holdListingHead &&
+          filters.some((filter) => filter.kinds?.includes(30402))) ||
+        (incompleteListing &&
+          filters.some((filter) => filter.kinds?.includes(5))) ||
         filters.some(
           (filter) =>
             filter.kinds?.includes(10050) &&
             ((holdOwnEose && filter.authors?.includes(owner)) ||
-              (holdPeerEose && filter.authors?.includes(peer)))
+              ((holdPeerEose || sellerInbox === 'partial') &&
+                filter.authors?.includes(peer)))
         )
       )
         waitingEose.push(() => {
@@ -177,6 +268,12 @@ test.afterAll(async () => {
 test.beforeEach(async ({ page }) => {
   events = [];
   missingOwn = false;
+  listingStatus = 'active';
+  sellerInbox = 'normal';
+  incompleteListing = false;
+  holdListingHead = false;
+  headUpdates = [];
+  deletionUpdates = [];
   ownPreference = undefined;
   holdOwnEose = false;
   holdPeerEose = false;
@@ -211,6 +308,150 @@ test.afterEach(async ({ page }) => {
 const panel = (page: Page) => page.locator('[data-request-fixture]');
 const editor = (page: Page) =>
   panel(page).getByRole('textbox', { name: 'Your message', exact: true });
+for (const status of ['sold', 'withdrawn'] as const)
+  test(`HCP108 known ${status} food has no new enquiry and remains readable`, async ({
+    page
+  }) => {
+    listingStatus = status;
+    await page.evaluate(async () => {
+      window.hcp107Fixture = await window.hcp107.renderFixture();
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(() => window.hcp107Fixture.viewSnapshot().outcome)
+      )
+      .toBe(status);
+    await expect(
+      panel(page).getByRole('button', { name: 'Message seller', exact: true })
+    ).toHaveCount(0);
+    expect(
+      await page.evaluate(
+        () => window.hcp107Fixture.viewSnapshot().reference.pubkey
+      )
+    ).toBe(peer);
+    expect(
+      await page.evaluate(() => window.hcp107Fixture.message())
+    ).toBeUndefined();
+    await noPrivate(page);
+  });
+
+test('HCP108 incomplete active terms need explicit original acknowledgement and retain signed citations', async ({
+  page
+}) => {
+  incompleteListing = true;
+  await page.evaluate(async () => {
+    window.hcp107Fixture = await window.hcp107.renderFixture();
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.hcp107Fixture.viewSnapshot().outcome)
+    )
+    .toBe('active');
+  await expect(
+    panel(page).getByRole('button', { name: 'Message seller', exact: true })
+  ).toBeDisabled();
+  expect(
+    await page.evaluate(() => window.hcp107Fixture.captureUncertain(undefined))
+  ).toBe(false);
+  await panel(page)
+    .getByRole('button', {
+      name: 'I understand the listing status is uncertain',
+      exact: true
+    })
+    .click();
+  await panel(page)
+    .getByRole('button', { name: 'Message seller', exact: true })
+    .click();
+  await expect(editor(page)).toBeVisible();
+  const observed = await page.evaluate(() => ({
+    product: window.hcp107Fixture.product(),
+    view: window.hcp107Fixture.viewSnapshot(),
+    message: window.hcp107Fixture.message()
+  }));
+  expect(observed.product?.eventId).toBe(observed.view.eventId);
+  expect(observed.message?.tags).toEqual([['p', peer]]);
+  expect(observed.message?.content).toContain(
+    'nostr:' + observed.product?.nevent
+  );
+  await noPrivate(page);
+  await unlock(page);
+  await panel(page)
+    .getByRole('button', { name: 'Send request', exact: true })
+    .click();
+  await expect
+    .poll(() => events.filter((row) => row.event.kind === 1059).length)
+    .toBe(2);
+  expect(
+    events
+      .filter((row) => row.event.kind === 1059)
+      .map((row) => row.origin)
+      .sort()
+  ).toEqual(['wss://archive.example.org', 'wss://peer.example.org']);
+  await expect
+    .poll(() => page.evaluate(() => window.hcp107Fixture.snapshot()?.state))
+    .toBe('completed');
+});
+
+test('HCP108 connecting as the verified publisher shows Manage and keeps unsent memory without self enquiry', async ({
+  page
+}) => {
+  await ready(page);
+  await editor(page).fill(
+    'Keep this guest text after discovering my own listing'
+  );
+  await page.evaluate(() => window.hcp107Fixture.mode('changed_key'));
+  await panel(page)
+    .getByRole('button', { name: 'Connect extension', exact: true })
+    .click();
+  await expect(
+    panel(page).getByRole('link', { name: 'Manage listing', exact: true })
+  ).toBeVisible();
+  await expect(
+    panel(page).getByRole('button', { name: 'Send request', exact: true })
+  ).toBeDisabled();
+  await expect(editor(page)).toHaveValue(
+    'Keep this guest text after discovering my own listing'
+  );
+  await noPrivate(page);
+});
+
+for (const status of [
+  'missing',
+  'unsupported',
+  'malformed',
+  'partial'
+] as const)
+  test(`HCP108 ${status} seller inbox cannot guess a send destination`, async ({
+    page
+  }) => {
+    sellerInbox = status;
+    await ready(page);
+    await unlock(page);
+    await panel(page)
+      .getByRole('button', { name: 'Send request', exact: true })
+      .click();
+    if (status === 'partial') {
+      await expect
+        .poll(() => page.evaluate(() => window.hcp107Fixture.snapshot()?.state))
+        .toBe('checking');
+      await page.evaluate(() => window.hcp107Fixture.advance());
+    }
+    await expect(panel(page)).toContainText(
+      status === 'missing'
+        ? 'In-app messaging is not available for this seller in this prototype.'
+        : status === 'unsupported' || status === 'malformed'
+          ? 'The seller inbox configuration is unsupported in this prototype.'
+          : 'The seller inbox could not be confirmed from the sources checked.'
+    );
+    await expect(
+      panel(page).getByRole('button', { name: 'Send request', exact: true })
+    ).toBeDisabled();
+    await expect(editor(page)).toBeVisible();
+    expect(
+      await page.evaluate(() => window.hcp107Fixture.viewSnapshot().food?.title)
+    ).toBe('Verified carrots');
+    await noPrivate(page);
+  });
 async function ready(page: Page, qualified = true) {
   await page.evaluate(async (qualified) => {
     window.hcp107Fixture = await window.hcp107.renderFixture(qualified);
@@ -225,6 +466,201 @@ async function ready(page: Page, qualified = true) {
     .click();
   await expect(editor(page)).toBeVisible();
 }
+test('HCP108 a signed but unapproved seller inbox is unavailable without guessed routing', async ({
+  page
+}) => {
+  sellerInbox = 'unapproved';
+  await ready(page);
+  await unlock(page);
+  await panel(page)
+    .getByRole('button', { name: 'Send request', exact: true })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => window.hcp107Fixture.snapshot()?.state))
+    .toBe('needs_action');
+  expect(
+    await page.evaluate(() => window.hcp107Fixture.snapshot()?.copy)
+  ).toContain(
+    'The seller inbox configuration is unsupported in this prototype.'
+  );
+  await noPrivate(page);
+});
+async function uncertain(page: Page) {
+  incompleteListing = true;
+  holdListingHead = true;
+  await page.evaluate(async () => {
+    window.hcp107Fixture = await window.hcp107.renderFixture();
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.hcp107Fixture.viewSnapshot().outcome)
+    )
+    .toBe('active');
+  await panel(page)
+    .getByRole('button', {
+      name: 'I understand the listing status is uncertain',
+      exact: true
+    })
+    .click();
+  await panel(page)
+    .getByRole('button', { name: 'Message seller', exact: true })
+    .click();
+  await expect(editor(page)).toBeVisible();
+}
+test('HCP108 copied consent and genuine consent from another original view cannot acknowledge uncertain terms', async ({
+  page
+}) => {
+  await uncertain(page);
+  await page.evaluate(() => window.hcp107Fixture.createOtherView());
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.hcp107Fixture.otherViewSnapshot()?.outcome)
+    )
+    .toBe('active');
+  expect(
+    await page.evaluate(() => window.hcp107Fixture.consentCases())
+  ).toEqual({
+    genuine: true,
+    current: true,
+    copied: false,
+    other: false,
+    otherControl: true,
+    unreviewed: false
+  });
+  await noPrivate(page);
+});
+for (const change of ['coverage', 'close'] as const)
+  test(`HCP108 original ${change} transition revokes genuine uncertainty consent`, async ({
+    page
+  }) => {
+    await uncertain(page);
+    expect(
+      (await page.evaluate(() => window.hcp107Fixture.consentCases())).current
+    ).toBe(true);
+    await editor(page).fill('uncertainty-memory-marker');
+    if (change === 'coverage')
+      await page.evaluate(() => window.hcp107Fixture.advance());
+    else await page.evaluate(() => window.hcp107Fixture.closeView());
+    expect(
+      await page.evaluate(() => window.hcp107Fixture.consentCurrent())
+    ).toBe(false);
+    expect(
+      await page.evaluate(() => window.hcp107Fixture.message())
+    ).toBeUndefined();
+    if (change === 'coverage')
+      expect(
+        await page.evaluate(() => window.hcp107Fixture.product()?.text)
+      ).toBe('uncertainty-memory-marker');
+    else
+      expect(
+        await page.evaluate(() => window.hcp107Fixture.product())
+      ).toBeUndefined();
+    await noPrivate(page);
+  });
+for (const change of ['sold', 'withdrawn', 'version'] as const)
+  test(`HCP108 a real newer ${change} observation revokes request consent while preserving unsent text`, async ({
+    page
+  }) => {
+    await uncertain(page);
+    expect(
+      (await page.evaluate(() => window.hcp107Fixture.consentCases())).current
+    ).toBe(true);
+    await editor(page).fill('changed-listing-memory-marker');
+    const before = await page.evaluate(
+      () => window.hcp107Fixture.product()?.eventId
+    );
+    if (change === 'withdrawn') {
+      listingStatus = 'withdrawn';
+      for (const update of deletionUpdates) update();
+    } else {
+      listingStatus = change === 'sold' ? 'sold' : 'active';
+      for (const update of headUpdates) update();
+    }
+    if (change === 'version')
+      await expect
+        .poll(() =>
+          page.evaluate(() => window.hcp107Fixture.viewSnapshot().eventId)
+        )
+        .not.toBe(before);
+    else
+      await expect
+        .poll(() =>
+          page.evaluate(() => window.hcp107Fixture.viewSnapshot().outcome)
+        )
+        .toBe(change);
+    expect(
+      await page.evaluate(() => window.hcp107Fixture.consentCurrent())
+    ).toBe(false);
+    expect(
+      await page.evaluate(() => window.hcp107Fixture.product()?.text)
+    ).toBe('changed-listing-memory-marker');
+    expect(
+      await page.evaluate(() => window.hcp107Fixture.message())
+    ).toBeUndefined();
+    await expect(
+      panel(page).getByRole('button', { name: 'Send request', exact: true })
+    ).toBeDisabled();
+    await noPrivate(page);
+  });
+for (const change of ['cancel', 'account'] as const)
+  test(`HCP108 retired peer lookup cannot replace newer ${change} state`, async ({
+    page
+  }) => {
+    await ready(page);
+    await unlock(page);
+    holdPeerEose = true;
+    await panel(page)
+      .getByRole('button', { name: 'Send request', exact: true })
+      .click();
+    await expect.poll(() => waitingEose.length).toBeGreaterThan(0);
+    if (change === 'cancel') {
+      await panel(page)
+        .getByRole('button', { name: 'Cancel', exact: true })
+        .click();
+      await panel(page)
+        .getByRole('button', { name: 'Keep editing', exact: true })
+        .click();
+    } else await page.evaluate(() => window.hcp107Fixture.logout());
+    holdPeerEose = false;
+    for (const release of waitingEose) release();
+    await expect
+      .poll(() => page.evaluate(() => window.hcp107Fixture.snapshot()?.busy))
+      .toBe(false);
+    expect(
+      await page.evaluate(() => window.hcp107Fixture.snapshot()?.copy)
+    ).toContain(
+      change === 'cancel' ? 'Sending is paused.' : 'Connection changed.'
+    );
+    await noPrivate(page);
+  });
+for (const change of ['sold', 'withdrawn', 'version'] as const)
+  test(`HCP108 ${change} during peer lookup reports listing review without relabelling a seller inbox failure`, async ({
+    page
+  }) => {
+    await uncertain(page);
+    await unlock(page);
+    holdPeerEose = true;
+    await panel(page)
+      .getByRole('button', { name: 'Send request', exact: true })
+      .click();
+    await expect
+      .poll(() => page.evaluate(() => window.hcp107Fixture.snapshot()?.state))
+      .toBe('checking');
+    if (change === 'withdrawn') {
+      listingStatus = 'withdrawn';
+      for (const update of deletionUpdates) update();
+    } else {
+      listingStatus = change === 'sold' ? 'sold' : 'active';
+      for (const update of headUpdates) update();
+    }
+    await expect
+      .poll(() => page.evaluate(() => window.hcp107Fixture.snapshot()?.busy))
+      .toBe(false);
+    expect(
+      await page.evaluate(() => window.hcp107Fixture.snapshot()?.copy)
+    ).toContain('Review the current listing before sending.');
+    await noPrivate(page);
+  });
 async function connect(page: Page) {
   await panel(page)
     .getByRole('button', { name: 'Connect extension', exact: true })

@@ -144,10 +144,11 @@
     {#if result.outcome === 'active'}<p>
         Confirm availability with the seller.
       </p>
-      {#if productOwner}<ProductEnquiry
-          view={productOwner}
-          observation={result}
-        />{/if}{/if}
+    {/if}
+    {#if productOwner}<ProductEnquiry
+        view={productOwner}
+        observation={result}
+      />{/if}
     <Disclosure summary="Listing and source details">
       {#if result.eventId}<p>
           Listing version: <code>{result.eventId}</code>

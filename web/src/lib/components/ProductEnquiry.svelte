@@ -41,10 +41,14 @@
     productRequestSnapshot,
     type ProductRequestController
   } from '../messaging/product-request-controller.ts';
-  import type {
-    ProductView,
-    ProductViewSnapshot
+  import {
+    acknowledgeProductViewUncertainty,
+    type ProductStatusAcknowledgement,
+    type ProductView,
+    type ProductViewSnapshot
   } from '../catalog/product-view.ts';
+  import { enquiryReadinessSnapshot } from '../messaging/enquiry-readiness.ts';
+  import { internalHref } from '../navigation-url.ts';
   import {
     captureProductEnquiry,
     productEnquirySnapshot,
@@ -82,6 +86,16 @@
       : { state: 'guest' as const, reason: 'unavailable' as const }
   );
   let runtime: PublicRuntime | undefined;
+  let acknowledgement = $state.raw<ProductStatusAcknowledgement | undefined>();
+  const readiness = $derived.by(() => {
+    void observation;
+    void identity;
+    return enquiryReadinessSnapshot(
+      view,
+      identityContext && identityViewSession(identityContext),
+      acknowledgement
+    );
+  });
   function acquire() {
     if (!identityContext) return;
     identity = identityViewSnapshot(identityContext).identity;
@@ -147,7 +161,11 @@
   });
   function open() {
     if (draft) closeProductEnquiry(draft);
-    draft = captureProductEnquiry(view, 'reviewed_product_enquiry');
+    draft = captureProductEnquiry(
+      view,
+      'reviewed_product_enquiry',
+      acknowledgement
+    );
     captured = draft ? productEnquirySnapshot(draft) : undefined;
     if (draft) oncapture?.(draft);
     request = draft && createProductRequestController(draft, runtime);
@@ -170,6 +188,22 @@
   }
 </script>
 
+{#if readiness.action === 'own'}
+  <p>
+    This is your listing. Manage it rather than sending yourself an enquiry.
+  </p>
+  <a href={internalHref(`/products/${readiness.naddr}/edit`)}>Manage listing</a>
+{:else if readiness.action === 'sold'}
+  <p>
+    The seller marked this listing sold. New requests are unavailable; existing
+    conversations remain in Messages.
+  </p>
+{:else if readiness.action === 'withdrawn'}
+  <p>
+    This listing was withdrawn. New requests are unavailable; existing
+    conversations remain in Messages.
+  </p>
+{/if}
 {#if captured}
   <section class="stack" aria-label="Product request">
     <h2>Message about {captured.title}</h2>
@@ -216,9 +250,24 @@
       </p>{/if}
   </section>
 {:else}
-  <Button
-    label="Message seller"
-    onclick={open}
-    disabled={observation?.outcome !== 'active' || observation.lastKnown}
-  />
+  {#if readiness.action === 'acknowledgement_required'}
+    <p>
+      The listing status check is incomplete. Availability and these last-known
+      terms may have changed.
+    </p>
+    <Button
+      label="I understand the listing status is uncertain"
+      onclick={() => {
+        acknowledgement = acknowledgeProductViewUncertainty(
+          view,
+          'reviewed_last_known_listing'
+        );
+      }}
+    />
+  {/if}
+  {#if readiness.action === 'available' || readiness.action === 'acknowledgement_required'}<Button
+      label="Message seller"
+      onclick={open}
+      disabled={readiness.action !== 'available'}
+    />{/if}
 {/if}

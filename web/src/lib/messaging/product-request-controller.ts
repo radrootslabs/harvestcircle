@@ -16,6 +16,11 @@ import {
 } from './inbox-setup-view.ts';
 import { messagingReadinessSnapshot } from './readiness.ts';
 import {
+  sellerInboxStatus,
+  sellerInboxCopy,
+  type SellerInboxStatus
+} from './enquiry-readiness.ts';
+import {
   createInboxRoutePlan,
   inboxRoutePlanSnapshot
 } from './inbox-routing.ts';
@@ -91,6 +96,7 @@ type Snapshot = Readonly<{
   dirty: boolean;
   revision: number;
   readyToSend: boolean;
+  sellerInbox: SellerInboxStatus;
   copy: string;
   saveCopy: string;
   pairCopy: string;
@@ -213,7 +219,12 @@ export function createProductRequestController(
         ? draft.dirty
         : !!productEnquirySnapshot(enquiry)?.text.trim(),
       revision: actual?.revision ?? 0,
-      readyToSend: !attempted && ready(),
+      readyToSend: !attempted && state !== 'needs_action' && ready(),
+      sellerInbox: sellerInboxStatus(
+        resolver,
+        actual!.peer,
+        inboxSetupViewOwnership(setup)?.policy
+      ),
       copy:
         copy ||
         (state === 'preparing'
@@ -288,7 +299,31 @@ export function createProductRequestController(
       // Resolver observations are asynchronous; sample their original bounded
       // result through the existing readiness projection, without guessing.
       await settleInboxResolver(other, admitted);
-      if (!admitted()) return { status: 'stopped' };
+      if (!admitted()) {
+        const unavailable = sellerInboxCopy(
+          sellerInboxStatus(other, captured.data.peer, captured.own.policy)
+        );
+        if (
+          unavailable &&
+          current() &&
+          generation === originalGeneration &&
+          identity === actor &&
+          setup === originalSetup &&
+          captured.actor.current() &&
+          captured.own.current() &&
+          privateOwner.current() &&
+          productEnquirySnapshot(enquiry)?.revision === captured.data.revision
+        ) {
+          state = 'needs_action';
+          copy =
+            (captured.product.current()
+              ? ''
+              : 'Listing status changed or could not be confirmed. Review the current listing before sending. ') +
+            unavailable +
+            ' Your unsent text stays in memory.';
+        }
+        return { status: 'stopped' };
+      }
       if (
         !messagingReadinessSnapshot(
           actor,
@@ -298,8 +333,17 @@ export function createProductRequestController(
           { author: captured.data.peer, resolver: other },
           captured.own.observeAccess
         ).sendReady
-      )
-        return needsAction();
+      ) {
+        const result = needsAction();
+        const unavailable = sellerInboxCopy(
+          sellerInboxStatus(other, captured.data.peer, captured.own.policy)
+        );
+        if (unavailable)
+          copy =
+            unavailable +
+            ' Your unsent text stays in memory. Optional other contact details may be available on the listing.';
+        return result;
+      }
       const routes = createInboxRoutePlan(
         captured.own.policy,
         captured.actor.owner,

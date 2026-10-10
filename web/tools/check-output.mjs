@@ -412,9 +412,9 @@ async function productPresentationAdmission(web) {
   const producers = hasRequest
     ? {
         'src/routes/products/[naddr=naddr]/+page.svelte':
-          '970f716e5f31bb0a7e463db84876d4f4b0801979e0893ef69fbeed1b17d69b0f',
+          'e63a2c8b3833966a36e4d97aef7726ff3d087703cc9b475e7f52f5478fed5ce7',
         'src/lib/catalog/product-view.ts':
-          'e608bcc5b7918366e2daabd5f5270cabf0ded22e1bbfd413d26450387ebac171',
+          'c2562d1470282c758889e9855f7e7e6c32a6b2eb090e4dace2e94fdfdb6d8363',
         'src/lib/components/ListingFacts.svelte':
           '65d009b4940e7ced61347919689877da9473a2a66a44f61cc5e7bd0b2d217215',
         'src/lib/components/PublisherIdentity.svelte':
@@ -430,17 +430,19 @@ async function productPresentationAdmission(web) {
         'src/lib/catalog/resolve-head.ts':
           '4f1c9f144164580da038d127ab463f9f8ba6b20e882fc31151cb29850782d633',
         'src/lib/components/ProductEnquiry.svelte':
-          'a13db6509100a0db73536211301b22cb42e86b3c2ad06d861f61a679ae6ac635',
+          'b49f555a239ab31253f403cc98eaf82413b2584c71e336262202fe840b9227a2',
         'src/lib/messaging/product-enquiry.ts':
-          '093fe1d5331b81fcf63efeae2b17e5f2c39cbab990e542a13e529a39e28eb8f1',
+          '6652f4af6b45ae14d82bf4d6b56dea7e95af8b254d9b41da9528cf34e87d2052',
         'src/lib/messaging/enquiry-context.ts':
           'fc00bb77f601427fb73defc0c758332c3465c2d583bfa1f7b996f808f508b735',
         'src/lib/messaging/product-request-controller.ts':
-          'd26242d348c6575cfae197833f3cf5a12751cf987c0f36322a647cc55e2bcb22',
+          '9fb8bb41657de661d4fe32d05f78fdc453e215467b08ee7d8036d39093cb0979',
         'src/lib/components/CapabilityGate.svelte':
           '38584846f67135d03ad531199cfd4e5f9dbcede58ca7baa2ee2d14fd9f46d414',
         'src/lib/messaging/resolve-inbox.ts':
-          '6c6438c518f13916a4a5664d8dd0e313338219bd52d5a91db8abab9bbc4a794c'
+          '6c6438c518f13916a4a5664d8dd0e313338219bd52d5a91db8abab9bbc4a794c',
+        'src/lib/messaging/enquiry-readiness.ts':
+          '8c7a526c763d43c0ef04aec8ae00dd5d6858911d9c5a18a87127100c5b57782a'
       }
     : hasEnquiry
       ? {

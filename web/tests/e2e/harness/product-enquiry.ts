@@ -131,6 +131,8 @@ export async function renderFixture(existing = false) {
       };
     },
     knownPath: () => (thread ? '/messages/' + thread.knownId : undefined),
+    existingThread: () => thread?.thread(),
+    resolveExistingThread: () => thread?.resolve(thread.knownId),
     reuse: () =>
       draft && thread
         ? reuseProductEnquiryConversation(

@@ -64,9 +64,20 @@ export type ProductViewSnapshot = Readonly<{
 }>;
 declare const productBrand: unique symbol;
 export type ProductView = Readonly<{ readonly [productBrand]: true }>;
+declare const acknowledgementBrand: unique symbol;
+export type ProductStatusAcknowledgement = Readonly<{
+  readonly [acknowledgementBrand]: true;
+}>;
+const acknowledgements = new WeakMap<
+  ProductStatusAcknowledgement,
+  { view: ProductView; current(this: void): boolean }
+>();
 interface Owner {
   snapshot: () => ProductViewSnapshot;
-  listing: () => ProductListingOwnership | undefined;
+  listing: (
+    acknowledgement?: ProductStatusAcknowledgement
+  ) => ProductListingOwnership | undefined;
+  acknowledge: (review: unknown) => ProductStatusAcknowledgement | undefined;
   close: () => void;
 }
 export type ProductListingOwnership = Readonly<{
@@ -195,11 +206,60 @@ export function createProductView(
     else next();
   }
   const token = Object.freeze({}) as ProductView;
+  function coverageKey(observed: ProductViewSnapshot) {
+    return JSON.stringify({
+      runCurrent: publicViewRunCurrent(view, run),
+      outcome: observed.outcome,
+      eventId: observed.eventId,
+      lastKnown: observed.lastKnown,
+      sources: observed.sources.map((scope) => ({
+        context: scope.result.context,
+        state: scope.state,
+        coverage: scope.result.coverage,
+        sources: scope.result.sources.map(({ source, state }) => ({
+          source,
+          state
+        }))
+      }))
+    });
+  }
   owners.set(token, {
     snapshot,
-    listing() {
+    acknowledge(review) {
       const observed = snapshot();
-      if (observed.outcome !== 'active' || observed.lastKnown || !head) return;
+      if (
+        review !== 'reviewed_last_known_listing' ||
+        observed.outcome !== 'active' ||
+        !observed.lastKnown ||
+        !observed.eventId ||
+        !head ||
+        closed
+      )
+        return;
+      const key = coverageKey(observed);
+      const consent = Object.freeze({}) as ProductStatusAcknowledgement;
+      acknowledgements.set(consent, {
+        view: token,
+        current: () =>
+          !closed &&
+          publicViewOwnsRun(view, run) &&
+          publicViewProjectionAvailable(view) &&
+          coverageKey(snapshot()) === key
+      });
+      return consent;
+    },
+    listing(acknowledgement) {
+      const observed = snapshot();
+      const capturedConsent =
+        acknowledgement && acknowledgements.get(acknowledgement);
+      const consent =
+        capturedConsent?.view === token ? capturedConsent.current : undefined;
+      if (
+        observed.outcome !== 'active' ||
+        (observed.lastKnown && !consent?.()) ||
+        !head
+      )
+        return;
       const selected = publicViewKnownEvidence(view, head).head;
       const metadata = publicHeadSnapshot(selected);
       if (
@@ -219,7 +279,7 @@ export function createProductView(
           return (
             !closed &&
             actual.outcome === 'active' &&
-            !actual.lastKnown &&
+            (!actual.lastKnown || !!consent?.()) &&
             actual.eventId === metadata.id
           );
         }
@@ -316,7 +376,14 @@ export function closeProductView(token: ProductView): void {
 // Only the original current view resolves the observed signed proof. Detached
 // UI snapshots cannot create this witness or select another author/version.
 export function productViewListingOwnership(
-  token: ProductView
+  token: ProductView,
+  acknowledgement?: ProductStatusAcknowledgement
 ): ProductListingOwnership | undefined {
-  return owners.get(token)?.listing();
+  return owners.get(token)?.listing(acknowledgement);
+}
+export function acknowledgeProductViewUncertainty(
+  token: ProductView,
+  review: unknown
+): ProductStatusAcknowledgement | undefined {
+  return owners.get(token)?.acknowledge(review);
 }
