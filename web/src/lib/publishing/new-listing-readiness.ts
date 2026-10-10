@@ -23,6 +23,7 @@ type Ownership = Readonly<{
   identity: IdentitySession;
   policy: RelayPolicy;
   current(this: void): boolean;
+  signingCurrent(this: void): boolean;
 }>;
 const reviews = new WeakMap<
   NewListingReadiness,
@@ -96,7 +97,13 @@ function sample(identity: IdentitySession, setup: InboxSetupView | undefined) {
       !inboxResolverCurrentAfterSample(own.resolver)
     )
       return;
-    return { actor, own, privateOwner, preferenceId: final.knownBase.id };
+    return {
+      actor,
+      own,
+      privateOwner,
+      preferenceId: final.knownBase.id,
+      accessCurrent: () => access?.current() ?? false
+    };
   } catch {
     return;
   }
@@ -126,7 +133,38 @@ export function captureNewListingReadiness(
   if (review !== 'reviewed_new_listing_inbox') return;
   const captured = sample(identity, setup);
   if (!captured) return;
+  const capturedResolver = captured.own.resolver;
+  if (!capturedResolver) return;
   let active = true;
+  // Continuity of an already admitted original signing action. Reacquiring
+  // messaging capability during that action would reject its own busy prompt.
+  // This checks retained original generations/access, never admits a new action.
+  const signingCurrent = () => {
+    const actual = inboxSetupViewOwnership(setup);
+    const state = inboxSetupViewSnapshot(setup);
+    const resolved = inboxResolutionSnapshot(capturedResolver);
+    return (
+      active &&
+      captured.actor.current() &&
+      captured.own.current() &&
+      captured.privateOwner.current() &&
+      captured.accessCurrent() &&
+      !!actual?.current() &&
+      actual.identity === captured.own.identity &&
+      actual.policy === captured.own.policy &&
+      actual.session === captured.own.session &&
+      actual.resolver === captured.own.resolver &&
+      !state.busy &&
+      state.setupComplete &&
+      resolved.status === 'ready' &&
+      resolved.author === captured.actor.owner &&
+      resolved.knownBase?.id === captured.preferenceId &&
+      inboxResolverCurrentAfterSample(capturedResolver) &&
+      active &&
+      captured.actor.current() &&
+      captured.privateOwner.current()
+    );
+  };
   const current = () => {
     if (
       !active ||
@@ -157,7 +195,8 @@ export function captureNewListingReadiness(
       owner: captured.actor.owner,
       identity,
       policy: captured.own.policy,
-      current
+      current,
+      signingCurrent
     },
     close: () => {
       active = false;

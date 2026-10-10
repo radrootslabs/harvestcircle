@@ -74,6 +74,7 @@ export async function runCapturedPublicEffect<T>(
       owner && id ? publicRecordWire(handle, owner, id) : undefined;
     if (
       (review !== 'reviewed_captured_operation' &&
+        review !== 'reviewed_prepared_listing_operation' &&
         review !== 'reviewed_prepared_preference_operation' &&
         review !== 'reviewed_stored_preference_retry') ||
       !owner ||
@@ -88,8 +89,17 @@ export async function runCapturedPublicEffect<T>(
       typeof work !== 'function'
     )
       return { status: 'invalid' };
-    const preferenceMode = review !== 'reviewed_captured_operation';
+    const listingMode = review === 'reviewed_prepared_listing_operation';
+    const preferenceMode =
+      review !== 'reviewed_captured_operation' && !listingMode;
     const storedRetry = review === 'reviewed_stored_preference_retry';
+    if (
+      listingMode &&
+      (row.family !== 'public_operation' ||
+        row.capture.kind !== 30402 ||
+        row.source.type !== 'draft')
+    )
+      return { status: 'invalid' };
     if (
       preferenceMode &&
       (row.family !== 'preference_operation' || row.capture.kind !== 10050)
@@ -135,9 +145,12 @@ export async function runCapturedPublicEffect<T>(
         if (claimed.value.state === 'existing') {
           const stored = publicRecordSnapshot(original, owner, id);
           const prepared =
-            preferenceMode &&
             !storedRetry &&
-            stored?.family === 'preference_operation' &&
+            ((preferenceMode && stored?.family === 'preference_operation') ||
+              (listingMode &&
+                stored?.family === 'public_operation' &&
+                stored.capture.kind === 30402 &&
+                stored.source.type === 'draft')) &&
             stored.revision === 0 &&
             stored.artifact === null;
           const retry =

@@ -72,6 +72,13 @@ export function publicPublicationOwner(
 ): string | undefined {
   return scopeOf(repository)?.owner;
 }
+// Original same-database quota custody only; it does not mint an identity,
+// extension approval, lock lease or public network capability.
+export function publicPublicationQuotaRepository(
+  repository: PublicPublicationRepository
+): PublicQuotaRepository | undefined {
+  return scopeOf(repository)?.quota;
+}
 export type PublicListingSave =
   | Readonly<{ status: 'saved' | 'existing'; record: PublicRecordHandle }>
   | Readonly<{ status: PublicQuotaFailure | 'busy' }>;

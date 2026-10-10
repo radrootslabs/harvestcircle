@@ -155,6 +155,26 @@ export function preparePreferenceSigningTransition(
     return failed('invalid_record');
   return retain(base, { ...base.row, revision: 1 });
 }
+// The acknowledged unsigned revision1 records an original listing attempt.
+// It cannot be reset into permission to prompt again after page/ack loss.
+export function preparePublicListingSigningTransition(
+  record: PublicRecordHandle,
+  owner: unknown,
+  id: unknown
+): Result<PublicOperationTransition> {
+  const base = baseOf(record, owner, id);
+  if (
+    !base ||
+    base.row.family !== 'public_operation' ||
+    base.row.source.type !== 'draft' ||
+    base.row.capture.kind !== 30402 ||
+    base.row.revision !== 0 ||
+    base.row.artifact !== null ||
+    base.row.receipts.length !== 0
+  )
+    return failed('invalid_record');
+  return retain(base, { ...base.row, revision: 1 });
+}
 export function preparePublicArtifactTransition(
   record: PublicRecordHandle,
   owner: unknown,

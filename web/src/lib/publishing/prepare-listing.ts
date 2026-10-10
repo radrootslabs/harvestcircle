@@ -264,6 +264,21 @@ export function listingReviewSnapshot(
   const value = reviews.get(review);
   return value ? (JSON.parse(value.previewWire) as ListingPreview) : undefined;
 }
+// Internal original custody, not a signing or transport permission. The later
+// controller must reread the persisted intent and obtain its own effect lease.
+export function listingReviewOwnership(review: ListingReview) {
+  const original = reviews.get(review);
+  const ready = original && newListingReadinessOwnership(original.readiness);
+  return original && ready && original.current()
+    ? {
+        repository: original.repository,
+        record: original.record,
+        command: original.command,
+        readiness: ready,
+        current: original.current
+      }
+    : undefined;
+}
 // One original review deduplicates simultaneous clicks. Failed/uncertain work
 // remains the same capture for later explicit retry; no fresh ID/time/template.
 export function reserveNewListing(
