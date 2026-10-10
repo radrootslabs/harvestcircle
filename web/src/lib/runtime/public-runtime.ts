@@ -214,6 +214,19 @@ export function publicRuntimeReady(
 ): Promise<PublicRuntime | undefined> {
   return contextOf(context).ready;
 }
+// Original runtime policy observation only, never a pool or effect capability.
+export function publicRuntimePolicy(
+  runtime: PublicRuntime
+): RelayPolicy | undefined {
+  try {
+    const owner = runtimeOf(runtime);
+    return !owner.closed() && owner.projectionValid()
+      ? owner.policy
+      : undefined;
+  } catch {
+    return;
+  }
+}
 export function mountPublicRuntime(
   context: PublicRuntimeContext,
   policy: RelayPolicy = deploymentRelayPolicy,

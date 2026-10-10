@@ -29,6 +29,7 @@ import {
   type PublicOperationTransition
 } from './artifact-records.ts';
 import { decideFrozenTransition } from './operation-transactions.ts';
+import { inspectLocalTemplate } from '../nostr/local-template.ts';
 
 declare const repositoryBrand: unique symbol;
 declare const inventoryBrand: unique symbol;
@@ -294,6 +295,7 @@ type DraftAdmission = Readonly<{
   expected: PublicDraftRecord;
   current(this: void): boolean;
   draftCurrent(this: void): boolean;
+  revisionBase?: Readonly<{ command: string; record: PublicRecordHandle }>;
 }>;
 // Storage-only atomic draft/CAS reservation. Current original account/review
 // ownership is supplied by the public listing command owner, never a UI flag.
@@ -370,6 +372,66 @@ function claimOperation(
       return { ok: true, value: { state: 'existing', record: decoded.value } };
     }
     if (draft) {
+      if (draft.revisionBase) {
+        const revisionBase = draft.revisionBase;
+        const witness = publicRecordSnapshot(
+          revisionBase.record,
+          scope.owner,
+          revisionBase.command
+        );
+        const base = rows.find(
+          (row) =>
+            row.record.family === 'public_operation' &&
+            row.record.id === revisionBase.command
+        )?.record;
+        const oldTemplate =
+          witness?.family === 'public_operation' &&
+          inspectLocalTemplate(witness.capture.wire, scope.owner, 30402);
+        const nextTemplate =
+          record.family === 'public_operation' &&
+          inspectLocalTemplate(record.capture.wire, scope.owner, 30402);
+        const tag = (
+          template: NonNullable<ReturnType<typeof inspectLocalTemplate>>,
+          key: string
+        ) => template.tags.find((value) => value[0] === key)?.[1];
+        if (
+          !witness ||
+          witness.family !== 'public_operation' ||
+          !witness.artifact ||
+          !base ||
+          base.family !== 'public_operation' ||
+          !oldTemplate ||
+          !nextTemplate ||
+          JSON.stringify(base.source) !== JSON.stringify(witness.source) ||
+          JSON.stringify(base.capture) !== JSON.stringify(witness.capture) ||
+          JSON.stringify(base.artifact) !== JSON.stringify(witness.artifact) ||
+          tag(oldTemplate, 'd') !== tag(nextTemplate, 'd') ||
+          tag(oldTemplate, 'published_at') !==
+            tag(nextTemplate, 'published_at') ||
+          nextTemplate.created_at <= oldTemplate.created_at ||
+          rows.some((row) => {
+            if (
+              row.record.family !== 'public_operation' ||
+              row.record.id === base.id ||
+              row.record.capture.kind !== 30402
+            )
+              return false;
+            const other = inspectLocalTemplate(
+              row.record.capture.wire,
+              scope.owner,
+              30402
+            );
+            return (
+              !!other &&
+              tag(other, 'd') === tag(oldTemplate, 'd') &&
+              other.created_at >= oldTemplate.created_at
+            );
+          })
+        ) {
+          refuse('conflict');
+          return;
+        }
+      }
       const source =
         record.family === 'public_operation' ? record.source : undefined;
       const previousDraft = rows.find(

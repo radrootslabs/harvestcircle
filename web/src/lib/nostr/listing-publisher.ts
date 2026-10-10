@@ -198,13 +198,18 @@ export async function withListingDeliveryOwnership<T>(
         if (!lock) return { status: 'busy' };
         if (!(await recheckDeliveryOwner(original.identity, retry?.signal)))
           return { status: 'stopped' };
-        const identity = identityMessagingOwnership(original.identity),
-          operation =
+        const operation =
             signed &&
             identityPublicOperationOwnership(
               original.identity,
               signed.operation
-            );
+            ),
+          // A signed public update retains its original public operation.
+          // New-listing inbox readiness stays in original.current(); edits
+          // do not require a messaging probe. Resumptions keep their gate.
+          identity = signed
+            ? operation
+            : identityMessagingOwnership(original.identity);
         if (
           !identity ||
           (signed && !operation) ||

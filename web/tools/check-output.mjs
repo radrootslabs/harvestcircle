@@ -494,7 +494,13 @@ async function productPresentationAdmission(web) {
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);
     publicText(bytes);
-    if (createHash('sha256').update(bytes).digest('hex') !== pin)
+    if (
+      createHash('sha256').update(bytes).digest('hex') !== pin &&
+      !(
+        name === 'src/lib/runtime/public-runtime.ts' &&
+        (await listingEditorAdmission(web)) === 'owned-revision'
+      )
+    )
       throw new Error('Invalid owned product presentation source');
   }
   return hasRequest ? 'request' : hasEnquiry ? 'enquiry' : true;
@@ -575,7 +581,13 @@ async function listingPublicationAdmission(web) {
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);
     publicText(bytes);
-    if (createHash('sha256').update(bytes).digest('hex') !== pin)
+    if (
+      createHash('sha256').update(bytes).digest('hex') !== pin &&
+      !(
+        name === 'src/lib/nostr/listing-publisher.ts' &&
+        (await listingEditorAdmission(web)) === 'owned-revision'
+      )
+    )
       throw new Error('Invalid owned listing publication source');
   }
   return true;
@@ -660,10 +672,50 @@ async function listingEditorAdmission(web) {
     'src/lib/publishing/edit-source.ts':
       '985634e4c4eb2cd12839409552b1c56cd518021d4f031166a3c1ab8c4a0e7eff'
   };
+  /** @type {Record<string,string>} */
+  const revisionProducers = {
+    'src/routes/sell/+page.svelte':
+      '97f22f9a0309621e9acb5f1b328d3376bc9c5affbe5a7ea1b85ece76097b9c08',
+    'src/routes/selling/drafts/[draftId=local_id]/+page.svelte':
+      '1df59a753fbef2bc2ebf77890a79cbd3d7a5bb0dcef34c219df1b5e8043cf787',
+    'src/routes/products/[naddr=naddr]/edit/+page.svelte':
+      '09c3a6bde766045319cd36a00a82ca565f9f3b5cd5322982be9482836f312998',
+    'src/lib/components/ListingEditor.svelte':
+      'f0f19095619b4b4ab961ac58af86fd0c8e92f2034a55173382929894fe36bd6a',
+    'src/lib/publishing/listing-editor.ts':
+      '03e79904e6eb2dff06067a2e42c8d97b7081f7845221d4804649e9cb7df09f1f',
+    'src/lib/components/ListingReview.svelte':
+      '311d6bafb883f170faa8962698d5cafd4cca7b4a7237a6eca671eb1f19379a99',
+    'src/lib/publishing/editor-workflow.ts':
+      '0f8d718bbdad6697a8f9b519d8eafc80ca415e1d8ce245a3507111cc080f23ef',
+    'src/lib/components/ConflictNotice.svelte':
+      'f0a71cab9e8f1f12a3421402e3bc3b2f96c2ddb35ad8949c6e9599b850c3a17c',
+    'src/lib/publishing/edit-source.ts':
+      'bd0850df99dc0511fc0f9aa8bbb2526cab7a17ada9fd4d60464d5e3c9344811a',
+    'src/lib/publishing/prepare-listing.ts':
+      '0c396643de10d31fb8c28ef46386c3b54f331ddf1e784955139b2f834fce11ed',
+    'src/lib/publishing/new-listing-readiness.ts':
+      '46f4e89b435e732439add225166e80799f192a4f95ff5d8236a66b8614ac4172',
+    'src/lib/runtime/public-runtime.ts':
+      '8d2b840e94448b55642b1481d12785ed76d326735a4461e9795f57a98e8d2530',
+    'src/lib/persistence/public-publications.ts':
+      '58c3c230280616415d03020e0e4de6880afb754544fae205ae03d4a437c0424f',
+    'src/lib/persistence/quota.ts':
+      'c5332782042fa2561b237c8fd1f0c0c930390346c1f31f9b075dd9a0eacdf7e1',
+    'src/lib/publishing/revise-listing.ts':
+      '1f03d43f460feb12a02489226131ec2f7b95df5f534fcbb0b49ccc686a1b0c06',
+    'src/lib/publishing/mark-sold.ts':
+      '80beaf8ad38b396154d5556e50e2cf5cd9f327bcdbc05f0db1ce190bf29f7234',
+    'src/lib/components/ConfirmPanel.svelte':
+      '9e25745303bdf408a14df5153a28e9579bfa019ab083225acb7d874e93a17d59',
+    'src/lib/nostr/listing-publisher.ts':
+      '1d7e1f99fe393626a3dda6796867be0d52ce4bcd064c185c9f4b3a24290183e2'
+  };
   let historical = true,
     current = true,
     reviewed = true,
-    editing = true;
+    editing = true,
+    revising = true;
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);
     publicText(bytes);
@@ -672,6 +724,7 @@ async function listingEditorAdmission(web) {
     current = current && actual === continuity[name];
     reviewed = reviewed && actual === reviewProducers[name];
     editing = editing && actual === editProducers[name];
+    revising = revising && actual === revisionProducers[name];
   }
   if (reviewed) {
     for (const name of [
@@ -701,6 +754,31 @@ async function listingEditorAdmission(web) {
           editProducers[name];
     }
   }
+  if (revising) {
+    for (const name of [
+      'src/lib/components/ListingReview.svelte',
+      'src/lib/publishing/editor-workflow.ts',
+      'src/lib/components/ConflictNotice.svelte',
+      'src/lib/publishing/edit-source.ts',
+      'src/lib/publishing/prepare-listing.ts',
+      'src/lib/publishing/new-listing-readiness.ts',
+      'src/lib/runtime/public-runtime.ts',
+      'src/lib/persistence/public-publications.ts',
+      'src/lib/persistence/quota.ts',
+      'src/lib/publishing/revise-listing.ts',
+      'src/lib/publishing/mark-sold.ts',
+      'src/lib/components/ConfirmPanel.svelte',
+      'src/lib/nostr/listing-publisher.ts'
+    ]) {
+      const bytes = await readOwned(web, name);
+      publicText(bytes);
+      revising =
+        revising &&
+        createHash('sha256').update(bytes).digest('hex') ===
+          revisionProducers[name];
+    }
+  }
+  if (revising) return 'owned-revision';
   if (editing) return 'edit-source';
   if (!historical && !current && !reviewed)
     throw new Error('Invalid owned listing editor source');
@@ -901,7 +979,9 @@ export async function auditOutput(webDirectory) {
   const hasListingEditor = hasFullRoutes && (await listingEditorAdmission(web));
   if (hasListingEditor && !(hasListingPublication && hasInboxSetup))
     throw new Error('Invalid owned listing editor runtime authority');
-  const hasListingEdit = hasListingEditor === 'edit-source';
+  const hasListingRevision = hasListingEditor === 'owned-revision';
+  const hasListingEdit =
+    hasListingEditor === 'edit-source' || hasListingRevision;
   const hasListingReview = hasListingEditor === 'review' || hasListingEdit;
   const hasListingContinuity =
     hasListingEditor === 'continuity' || hasListingReview;
@@ -1017,6 +1097,11 @@ export async function auditOutput(webDirectory) {
       names.add(name);
   }
   if (hasListingEdit) names.add('resolve-head');
+  if (hasListingRevision) {
+    for (const name of ['read', 'public-key', 'resolve-head'])
+      names.delete(name);
+    names.add('rolldown-runtime');
+  }
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();
   for (const [key, record] of Object.entries(manifest)) {
@@ -2768,6 +2853,211 @@ export async function auditOutput(webDirectory) {
           file: '_app/immutable/chunks/HASH.js',
           name: 'publishers',
           imports: ['public-key', 'public-runtime', 'Button', 'resolve-head']
+        }
+      });
+    if (hasListingRevision)
+      Object.assign(expected, {
+        'entry/app': {
+          file: '_app/immutable/entry/app.HASH.js',
+          name: 'entry/app',
+          src: '.svelte-kit/generated/build/client-optimized/app.js',
+          isEntry: true,
+          imports: ['preload-helper', 'shared-errors', 'references'],
+          dynamicImports: [
+            'nodes/0',
+            'nodes/1',
+            'nodes/2',
+            'nodes/3',
+            'nodes/4',
+            'nodes/5',
+            'nodes/6',
+            'nodes/7',
+            'nodes/8',
+            'nodes/9',
+            'nodes/10',
+            'nodes/11',
+            'nodes/12',
+            'error-template'
+          ]
+        },
+        'nodes/0': {
+          file: '_app/immutable/nodes/0.HASH.js',
+          name: 'nodes/0',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/0.js',
+          isEntry: true,
+          imports: [
+            'rolldown-runtime',
+            'public-runtime',
+            'client',
+            'Button',
+            'client.svelte',
+            'state',
+            'CapabilityGate',
+            'Disclosure'
+          ],
+          css: ['_app/immutable/assets/0.HASH.css']
+        },
+        'nodes/10': {
+          file: '_app/immutable/nodes/10.HASH.js',
+          name: 'nodes/10',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/10.js',
+          isEntry: true,
+          imports: [
+            'references',
+            'client',
+            'Button',
+            'client.svelte',
+            'navigation',
+            'state',
+            'legacy',
+            'routes',
+            'ListingEditor'
+          ]
+        },
+        'nodes/12': {
+          file: '_app/immutable/nodes/12.HASH.js',
+          name: 'nodes/12',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/12.js',
+          isEntry: true,
+          imports: [
+            'rolldown-runtime',
+            'client',
+            'client.svelte',
+            'navigation',
+            'state',
+            'ListingEditor'
+          ]
+        },
+        'nodes/5': {
+          file: '_app/immutable/nodes/5.HASH.js',
+          name: 'nodes/5',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/5.js',
+          isEntry: true,
+          imports: [
+            'rolldown-runtime',
+            'references',
+            'public-runtime',
+            'client',
+            'Button',
+            'client.svelte',
+            'state',
+            'legacy',
+            'inbox-view',
+            'InboxStatus',
+            'MessageComposer'
+          ]
+        },
+        'nodes/7': {
+          file: '_app/immutable/nodes/7.HASH.js',
+          name: 'nodes/7',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/7.js',
+          isEntry: true,
+          imports: [
+            'rolldown-runtime',
+            'references',
+            'public-runtime',
+            'client',
+            'Button',
+            'client.svelte',
+            'state',
+            'CapabilityGate',
+            'Disclosure',
+            'InboxSetup',
+            'MessageComposer'
+          ]
+        },
+        'nodes/8': {
+          file: '_app/immutable/nodes/8.HASH.js',
+          name: 'nodes/8',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/8.js',
+          isEntry: true,
+          imports: [
+            'rolldown-runtime',
+            'client',
+            'client.svelte',
+            'navigation',
+            'state',
+            'ListingEditor'
+          ]
+        },
+        'nodes/9': {
+          file: '_app/immutable/nodes/9.HASH.js',
+          name: 'nodes/9',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/9.js',
+          isEntry: true,
+          imports: [
+            'references',
+            'public-runtime',
+            'client',
+            'Button',
+            'client.svelte',
+            'navigation',
+            'state',
+            'Disclosure',
+            'SearchForm',
+            'routes',
+            'publishers'
+          ]
+        },
+        MessageComposer: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'MessageComposer',
+          imports: [
+            'references',
+            'public-runtime',
+            'client',
+            'Button',
+            'navigation',
+            'inbox-view',
+            'publishers'
+          ]
+        },
+        ListingEditor: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'ListingEditor',
+          imports: [
+            'references',
+            'public-runtime',
+            'client',
+            'Button',
+            'CapabilityGate',
+            'InboxSetup'
+          ]
+        },
+        'public-runtime': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'public-runtime',
+          imports: [
+            'rolldown-runtime',
+            'preload-helper',
+            'references',
+            'Button'
+          ],
+          dynamicImports: ['negentropy']
+        },
+        routes: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'routes',
+          imports: ['references', 'Button']
+        },
+        'rolldown-runtime': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'rolldown-runtime'
+        },
+        references: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'references',
+          imports: ['rolldown-runtime']
+        },
+        'inbox-view': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'inbox-view',
+          imports: ['references', 'public-runtime', 'Button']
+        },
+        publishers: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'publishers',
+          imports: ['references', 'public-runtime', 'Button']
         }
       });
     for (const record of Object.values(manifest)) {

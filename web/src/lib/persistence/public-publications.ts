@@ -160,7 +160,8 @@ export async function savePublicListingIntent(
   expected: PublicDraftRecord,
   editVersion: number,
   command: string,
-  current: (this: void) => boolean
+  current: (this: void) => boolean,
+  revisionBase?: Readonly<{ command: string; record: PublicRecordHandle }>
 ): Promise<PublicListingSave> {
   try {
     const scope = scopeOf(repository),
@@ -195,6 +196,7 @@ export async function savePublicListingIntent(
           {
             expected,
             current: fresh,
+            ...(revisionBase ? { revisionBase } : {}),
             draftCurrent: () =>
               custody.current(JSON.stringify(expected), editVersion)
           }

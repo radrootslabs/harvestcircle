@@ -3,6 +3,7 @@
   import { getContext, onMount, tick } from 'svelte';
   import ListingReview from './ListingReview.svelte';
   import ConflictNotice from './ConflictNotice.svelte';
+  import ConfirmPanel from './ConfirmPanel.svelte';
   import InboxSetup from './InboxSetup.svelte';
   import {
     PUBLIC_RUNTIME_CONTEXT,
@@ -21,9 +22,12 @@
     openEditorReview,
     editorReviewSnapshot,
     closeEditorReview,
+    publishEditorRevision,
+    editorPublicationOperation,
     type EditorReview,
     type EditorFormError
   } from '../publishing/editor-workflow.ts';
+  import type { ListingOperationView } from '../publishing/listing-operation-view.ts';
   import CapabilityGate from './CapabilityGate.svelte';
   import Notice from './Notice.svelte';
   import OperationStatus from './OperationStatus.svelte';
@@ -71,6 +75,9 @@
   let setupState = $state(inboxSetupViewSnapshot(undefined));
   let review = $state.raw<EditorReview | undefined>(),
     reviewBusy = $state(false);
+  let soldConfirm = $state(false),
+    publishBusy = $state(false);
+  let publicationOperation = $state.raw<ListingOperationView | undefined>();
   let errors = $state<readonly EditorFormError[]>([]),
     reviewMessage = $state('');
   let identity = $state(identityViewSnapshot(context)),
@@ -111,6 +118,9 @@
       identity.identity.state !== 'pending' &&
       identity.identity.publicKey === snapshot.owner &&
       listingEditorSnapshot(editor)
+  );
+  const editable = $derived(
+    !!(visible && visible.editable && !publicationOperation && !publishBusy)
   );
   onMount(() => {
     mounted = true;
@@ -154,7 +164,13 @@
     };
   });
   const visibleReview = $derived.by(() => {
-    if (!setupState.owner || !snapshot || !visible || !review) return;
+    if (
+      (!setupState.owner && route.mode !== 'edit') ||
+      !snapshot ||
+      !visible ||
+      !review
+    )
+      return;
     return editorReviewSnapshot(review) ? review : undefined;
   });
   $effect(() => {
@@ -181,6 +197,8 @@
     editor = undefined;
     snapshot = undefined;
     review = undefined;
+    publicationOperation = undefined;
+    soldConfirm = false;
     errors = [];
     reviewMessage = '';
     form = blankForm();
@@ -244,6 +262,7 @@
       cancellation.abort();
       off();
       if (owned) closeListingEditor(owned);
+      if (editor === owned && review) closeEditorReview(review);
       form = blankForm();
     };
   });
@@ -253,22 +272,30 @@
     if (review) closeEditorReview(review);
     review = undefined;
     errors = [];
+    soldConfirm = false;
     void editListingEditor(original, { ...form });
   }
-  async function showReview() {
+  async function showReview(status: 'active' | 'sold' = 'active') {
     const original = editor,
       resource = route,
       author = admittedAuthor;
     if (
       reviewBusy ||
       closeBusy ||
+      publishBusy ||
+      publicationOperation ||
       !original ||
       !listingEditorSnapshot(original)?.editable
     )
       return;
     reviewBusy = true;
     try {
-      const result = await openEditorReview(original, setup, { ...form });
+      const result = await openEditorReview(
+        original,
+        setup,
+        { ...form },
+        status
+      );
       if (
         !mounted ||
         editor !== original ||
@@ -306,6 +333,38 @@
     if (mounted && editor && listingEditorSnapshot(editor)?.editable)
       document.querySelector<HTMLInputElement>('#listing-title')?.focus();
   }
+  async function publishChanges() {
+    const original = review,
+      resource = route,
+      author = admittedAuthor;
+    if (
+      !original ||
+      publishBusy ||
+      publicationOperation ||
+      route.mode !== 'edit'
+    )
+      return;
+    publishBusy = true;
+    try {
+      const result = await publishEditorRevision(
+        original,
+        'publish_reviewed_revision'
+      );
+      if (
+        !mounted ||
+        review !== original ||
+        route !== resource ||
+        admittedAuthor !== author
+      )
+        return;
+      publicationOperation = editorPublicationOperation(original);
+      if (result.status !== 'completed')
+        reviewMessage =
+          'The update did not complete. Your proposed draft remains here. Check any retained operation before another attempt.';
+    } finally {
+      publishBusy = false;
+    }
+  }
   function fieldError(field: keyof PublicDraftForm) {
     return errors.find((value) => value.field === field);
   }
@@ -326,7 +385,13 @@
     const original = editor,
       resource = route,
       author = admittedAuthor;
-    if (closeBusy || !original || !listingEditorSnapshot(original)?.editable)
+    if (
+      closeBusy ||
+      publishBusy ||
+      publicationOperation ||
+      !original ||
+      !listingEditorSnapshot(original)?.editable
+    )
       return;
     closeBusy = true;
     try {
@@ -399,12 +464,12 @@
         source={listingEditorEditSource(editor)!}
         proposed={form}
       />
-      {#if visible.editable}<Notice
+      {#if editable}<Notice
           tone="info"
-          text="These changes can be saved locally. Publishing changes is not available."
+          text="Changes stay local until you review and publish them."
         />{/if}
     {/if}
-    {#if !visible.editable}<Notice
+    {#if !editable}<Notice
         tone="info"
         text={route.mode === 'draft'
           ? 'This draft has a retained listing operation. Keep its original outcome for reconciliation.'
@@ -412,11 +477,30 @@
       />{:else}<p>
         Changes are saved in this browser. Browser storage is not a backup.
       </p>{/if}
+    {#if reviewMessage}<Notice tone="warning" text={reviewMessage} />{/if}
+    {#if soldConfirm && editable}<ConfirmPanel
+        title="Confirm sold update"
+        text="Marking this listing as sold is a public availability update, not a payment or stock reservation receipt. Review the exact update before publishing."
+        confirmLabel="Review sold update"
+        onconfirm={() => {
+          soldConfirm = false;
+          void showReview('sold');
+        }}
+        oncancel={() => {
+          soldConfirm = false;
+        }}
+      />{/if}
     {#if visibleReview}<ListingReview
         review={visibleReview}
         onedit={editDetails}
+        onpublish={route.mode === 'edit'
+          ? () => {
+              void publishChanges();
+            }
+          : undefined}
+        publishing={publishBusy}
+        captured={!!publicationOperation}
       />{:else}
-      {#if reviewMessage}<Notice tone="warning" text={reviewMessage} />{/if}
       {#if errors.length}<div
           id="listing-review-errors"
           tabindex="-1"
@@ -449,7 +533,7 @@
               form = { ...form, title: event.currentTarget.value };
               changed();
             }}
-            readonly={!visible.editable}
+            readonly={!editable}
           />
           {#if fieldError('title')}<p id="listing-title-error">
               {fieldError('title')?.message}
@@ -469,7 +553,7 @@
               form = { ...form, description: event.currentTarget.value };
               changed();
             }}
-            readonly={!visible.editable}></textarea>
+            readonly={!editable}></textarea>
           {#if fieldError('description')}<p id="listing-description-error">
               {fieldError('description')?.message}
             </p>{/if}
@@ -492,7 +576,7 @@
               form = { ...form, location: event.currentTarget.value };
               changed();
             }}
-            readonly={!visible.editable}
+            readonly={!editable}
           />
           {#if fieldError('location')}<p id="listing-location-error">
               {fieldError('location')?.message}
@@ -513,7 +597,7 @@
                 form = { ...form, amount: event.currentTarget.value };
                 changed();
               }}
-              readonly={!visible.editable}
+              readonly={!editable}
             />
             {#if fieldError('amount')}<p id="listing-amount-error">
                 {fieldError('amount')?.message}
@@ -533,7 +617,7 @@
                 form = { ...form, currency: event.currentTarget.value };
                 changed();
               }}
-              readonly={!visible.editable}
+              readonly={!editable}
             />
             {#if fieldError('currency')}<p id="listing-currency-error">
                 {fieldError('currency')?.message}
@@ -551,7 +635,7 @@
                 form = { ...form, unit: event.currentTarget.value };
                 changed();
               }}
-              disabled={!visible.editable}
+              disabled={!editable}
               ><option value="">Choose a unit</option
               >{#each foodUnits as unit (unit)}<option value={unit}
                   >{unit}</option
@@ -583,7 +667,7 @@
               form = { ...form, quantity: event.currentTarget.value };
               changed();
             }}
-            readonly={!visible.editable}
+            readonly={!editable}
           />
           {#if fieldError('quantity')}<p id="listing-quantity-error">
               {fieldError('quantity')?.message}
@@ -615,7 +699,7 @@
                     changed();
                   }
                 }}
-                disabled={!visible.editable}
+                disabled={!editable}
                 ><option value="">No public contact</option><option
                   value="email">Email</option
                 ><option value="phone">Phone</option><option value="https"
@@ -641,7 +725,7 @@
                   form = { ...form, contactValue: event.currentTarget.value };
                   changed();
                 }}
-                readonly={!visible.editable}
+                readonly={!editable}
               />
               {#if fieldError('contactValue')}<p
                   id="listing-contact-value-error"
@@ -652,21 +736,40 @@
           </div>
         </details>
       </form>
-      {#if visible.editable && route.mode !== 'edit'}<button
+      {#if editable}<button
           type="button"
-          onclick={showReview}
+          onclick={() => {
+            void showReview();
+          }}
           disabled={reviewBusy || closeBusy}
-          >{reviewBusy ? 'Preparing review' : 'Review listing'}</button
+          >{reviewBusy
+            ? 'Preparing review'
+            : route.mode === 'edit'
+              ? 'Review changes'
+              : 'Review listing'}</button
         >{/if}
     {/if}
-    {#if visible.editable && route.mode !== 'edit' && setup}<InboxSetup
+    {#if editable && route.mode === 'edit' && !visibleReview}<details>
+        <summary>Other listing actions</summary>
+        <button
+          type="button"
+          onclick={() => {
+            soldConfirm = true;
+          }}
+          disabled={reviewBusy || closeBusy}>Mark as sold</button
+        >
+      </details>{/if}
+    {#if publicationOperation}<OperationStatus
+        publicOperation={publicationOperation}
+      />{/if}
+    {#if editable && route.mode !== 'edit' && setup}<InboxSetup
         controller={setup}
         inline
       />{/if}
     {#each visible.operations as operation (operation)}<OperationStatus
         publicOperation={operation}
       />{/each}
-    {#if visible.editable}<button
+    {#if editable}<button
         type="button"
         onclick={saveClose}
         disabled={closeBusy || reviewBusy}>Save and close</button
@@ -675,7 +778,7 @@
         tone="warning"
         text="Navigation did not complete. Your saved local data remains in this browser."
       />{/if}
-    {#if visible.editable}<p role="status">
+    {#if editable}<p role="status">
         {visible.state === 'saved'
           ? 'Saved in this browser.'
           : visible.state === 'saving'

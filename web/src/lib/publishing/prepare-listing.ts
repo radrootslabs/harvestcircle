@@ -7,6 +7,10 @@ import { canonicalLocalId, newLocalId } from '../private-handles.ts';
 import { readRelayPolicy, publicRelayTargets } from '../config/relays.ts';
 import { inspectLocalTemplate } from '../nostr/local-template.ts';
 import {
+  verifyEnvelope,
+  verifiedEnvelopeSnapshot
+} from '../nostr/verified-envelope.ts';
+import {
   decodePublicRecord,
   type PublicRecordHandle
 } from '../persistence/records.ts';
@@ -25,8 +29,18 @@ import {
 } from './draft-controller.ts';
 import {
   newListingReadinessOwnership,
+  captureOwnedListingReadiness,
+  closeNewListingReadiness,
   type NewListingReadiness
 } from './new-listing-readiness.ts';
+import {
+  authorizeOwnedEditSource,
+  type OwnedEditSource
+} from './edit-source.ts';
+import {
+  assessFutureTimestamp,
+  wallClockAvailable
+} from '../catalog/clock-policy.ts';
 
 declare const reviewBrand: unique symbol;
 export type ListingReview = Readonly<{ [reviewBrand]: true }>;
@@ -43,6 +57,11 @@ export type ListingPreview = Readonly<{
   expectedHash: string;
   targets: readonly string[];
   policyFingerprint: string;
+  revision?: Readonly<{
+    coordinate: string;
+    publishedAtSeconds: number;
+    status: 'active' | 'sold';
+  }>;
 }>;
 type Review = Readonly<{
   repository: PublicPublicationRepository;
@@ -51,7 +70,10 @@ type Review = Readonly<{
   editVersion: number;
   command: string;
   readiness: NewListingReadiness;
+  source?: OwnedEditSource;
+  status?: 'active' | 'sold';
   record: PublicRecordHandle;
+  revisionBase?: Readonly<{ command: string; record: PublicRecordHandle }>;
   previewWire: string;
   current(this: void): boolean;
 }>;
@@ -86,6 +108,51 @@ export async function reviewNewListing(
   command: unknown,
   consent: unknown
 ): Promise<ListingReviewResult> {
+  return reviewListing(repository, controller, readiness, command, consent);
+}
+// Pure declared clock policy; production supplies actual Date.now below.
+export function ownedRevisionTimestamp(
+  head: number,
+  now: number
+): number | undefined {
+  if (
+    !Number.isSafeInteger(head) ||
+    head < 0 ||
+    head >= Number.MAX_SAFE_INTEGER ||
+    !wallClockAvailable(now)
+  )
+    return;
+  const next = Math.max(head + 1, Math.floor(now));
+  return assessFutureTimestamp(next, now) === 'within_policy'
+    ? next
+    : undefined;
+}
+export async function reviewOwnedListing(
+  source: OwnedEditSource,
+  controller: PublicDraftController,
+  command: unknown,
+  status: 'active' | 'sold',
+  consent: unknown
+): Promise<ListingReviewResult> {
+  const original = authorizeOwnedEditSource(source);
+  if (!original) return { status: 'blocked', reason: 'invalid_scope' };
+  return reviewListing(
+    original.repository,
+    controller,
+    undefined,
+    command,
+    consent,
+    { source, status }
+  );
+}
+async function reviewListing(
+  repository: PublicPublicationRepository,
+  controller: PublicDraftController,
+  readiness: NewListingReadiness | undefined,
+  command: unknown,
+  consent: unknown,
+  revision?: Readonly<{ source: OwnedEditSource; status: 'active' | 'sold' }>
+): Promise<ListingReviewResult> {
   try {
     const custody = publicDraftControllerOwnership(controller),
       owner = publicPublicationOwner(repository);
@@ -97,12 +164,18 @@ export async function reviewNewListing(
       return { status: 'blocked', reason: 'invalid_scope' };
     const id = canonicalLocalId(command);
     if (!id) return { status: 'blocked', reason: 'invalid_command' };
-    const ready = newListingReadinessOwnership(readiness);
+    const retained = revision && authorizeOwnedEditSource(revision.source);
+    const ready = revision ? retained : newListingReadinessOwnership(readiness);
     if (
       !ready ||
       ready.owner !== owner ||
       !ready.current() ||
-      consent !== 'reviewed_new_listing'
+      consent !==
+        (revision
+          ? revision.status === 'sold'
+            ? 'reviewed_sold_availability'
+            : 'reviewed_owned_revision'
+          : 'reviewed_new_listing')
     )
       return { status: 'blocked', reason: 'unavailable' };
     if (!(await flushPublicDraft(controller)))
@@ -122,7 +195,10 @@ export async function reviewNewListing(
       if (
         original &&
         original.controller === controller &&
-        original.readiness === readiness &&
+        (revision
+          ? original.source === revision.source &&
+            original.status === revision.status
+          : original.readiness === readiness) &&
         JSON.stringify(original.expected) === JSON.stringify(expected) &&
         original.current() &&
         custody.current(JSON.stringify(expected), snapshot.editVersion)
@@ -131,9 +207,22 @@ export async function reviewNewListing(
       }
       return { status: 'blocked', reason: 'conflict' };
     }
-    const identifier = newLocalId(),
-      createdAtSeconds = Math.floor(Date.now() / 1000);
-    if (!identifier) return { status: 'blocked', reason: 'unavailable' };
+    const baseProof = retained && verifyEnvelope(retained.baseWire);
+    const base = baseProof?.ok
+      ? verifiedEnvelopeSnapshot(baseProof.value)
+      : undefined;
+    const identifier = revision
+      ? base?.tags.find((tag) => tag[0] === 'd')?.[1]
+      : newLocalId();
+    const now = Math.floor(Date.now() / 1000);
+    const createdAtSeconds = revision
+      ? base && ownedRevisionTimestamp(base.created_at, now)
+      : now;
+    if (!identifier || createdAtSeconds === undefined)
+      return {
+        status: 'blocked',
+        reason: revision ? 'conflict' : 'unavailable'
+      };
     const form = expected.form;
     if (form.contactType === '' && form.contactValue !== '')
       return { status: 'blocked', reason: 'invalid_form' };
@@ -155,8 +244,8 @@ export async function reviewNewListing(
       unit: form.unit,
       ...(form.quantity === '' ? {} : { quantity: form.quantity }),
       created_at: createdAtSeconds,
-      published_at: createdAtSeconds,
-      status: 'active',
+      published_at: retained ? retained.publishedAtSeconds : createdAtSeconds,
+      status: revision?.status ?? 'active',
       ...(contact ? { contact } : {})
     });
     if (!built.ok) return { status: 'blocked', reason: 'invalid_form' };
@@ -194,7 +283,10 @@ export async function reviewNewListing(
       if (
         original &&
         original.controller === controller &&
-        original.readiness === readiness &&
+        (revision
+          ? original.source === revision.source &&
+            original.status === revision.status
+          : original.readiness === readiness) &&
         JSON.stringify(original.expected) === JSON.stringify(expected) &&
         original.current() &&
         custody.current(JSON.stringify(expected), snapshot.editVersion)
@@ -224,6 +316,16 @@ export async function reviewNewListing(
       id
     );
     if (!admitted.ok) return { status: 'blocked', reason: 'invalid_form' };
+    const proof = revision
+      ? captureOwnedListingReadiness(
+          revision.source,
+          template.hash,
+          'reviewed_owned_listing'
+        )
+      : readiness;
+    const finalReady = newListingReadinessOwnership(proof);
+    if (!proof || !finalReady || !finalReady.current())
+      return { status: 'blocked', reason: 'conflict' };
     const review = Object.freeze({}) as ListingReview;
     reviews.set(review, {
       repository,
@@ -231,8 +333,17 @@ export async function reviewNewListing(
       expected,
       editVersion: snapshot.editVersion,
       command: id,
-      readiness,
+      readiness: proof,
+      ...(revision ? { source: revision.source, status: revision.status } : {}),
       record: admitted.value,
+      ...(retained
+        ? {
+            revisionBase: {
+              command: retained.sourceCommand,
+              record: retained.sourceRecord
+            }
+          }
+        : {}),
       previewWire: JSON.stringify({
         owner,
         command: id,
@@ -245,10 +356,25 @@ export async function reviewNewListing(
         templateWire,
         expectedHash: template.hash,
         targets,
-        policyFingerprint
+        policyFingerprint,
+        ...(retained && revision
+          ? {
+              revision: {
+                coordinate: retained.coordinate,
+                publishedAtSeconds: retained.publishedAtSeconds,
+                status: revision.status
+              }
+            }
+          : {})
       }),
       current: () =>
-        ready.current() && publicPublicationOwner(repository) === owner
+        finalReady.current() &&
+        publicPublicationOwner(repository) === owner &&
+        (!revision ||
+          assessFutureTimestamp(
+            createdAtSeconds,
+            Math.floor(Date.now() / 1000)
+          ) === 'within_policy')
     });
     const cache = commands.get(repository) ?? new Map<string, ListingReview>();
     cache.set(id, review);
@@ -263,6 +389,10 @@ export function listingReviewSnapshot(
 ): ListingPreview | undefined {
   const value = reviews.get(review);
   return value ? (JSON.parse(value.previewWire) as ListingPreview) : undefined;
+}
+export function closeListingReview(review: ListingReview): void {
+  const original = reviews.get(review);
+  if (original) closeNewListingReadiness(original.readiness);
 }
 // Internal original custody, not a signing or transport permission. The later
 // controller must reread the persisted intent and obtain its own effect lease.
@@ -297,7 +427,8 @@ export function reserveNewListing(
     value.expected,
     value.editVersion,
     value.command,
-    value.current
+    value.current,
+    value.revisionBase
   ).finally(() => {
     if (activeReservations.get(review) === work)
       activeReservations.delete(review);

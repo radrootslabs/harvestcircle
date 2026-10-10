@@ -21,7 +21,10 @@ import {
   inspectPublicStorage,
   publicInventorySnapshot
 } from '../persistence/quota.ts';
-import { publicRecordSnapshot } from '../persistence/records.ts';
+import {
+  publicRecordSnapshot,
+  type PublicRecordHandle
+} from '../persistence/records.ts';
 import { readPublicDraft } from '../persistence/drafts.ts';
 import {
   identityViewSession,
@@ -36,6 +39,7 @@ import {
   publicViewOwnsRun,
   publicViewRunCurrent,
   publicViewProjectionAvailable,
+  publicRuntimePolicy,
   type PublicRuntime,
   type PublicView
 } from '../runtime/public-runtime.ts';
@@ -46,7 +50,14 @@ import {
   closeHeadResolver,
   type HeadResolver
 } from '../catalog/resolve-head.ts';
-import { createPublicHeadCandidate, publicHeadKey } from '../catalog/heads.ts';
+import {
+  createPublicHeadCandidate,
+  publicHeadKey,
+  publicHeadSnapshot,
+  selectPublicHead
+} from '../catalog/heads.ts';
+import type { RelayPolicy } from '../config/relays.ts';
+import type { IdentitySession } from '../runtime/identity-session.ts';
 
 declare const sourceBrand: unique symbol;
 export type OwnedEditSource = Readonly<{ [sourceBrand]: true }>;
@@ -72,7 +83,11 @@ type Source = {
         coordinate: string;
         baseWire: string;
         sourceCommand: string;
+        sourceRecord: PublicRecordHandle;
         publishedAtSeconds: number;
+        identity: IdentitySession;
+        policy: RelayPolicy;
+        currentRevision(eventId: string): boolean;
         current(): boolean;
       }>
     | undefined;
@@ -125,7 +140,11 @@ export async function openOwnedEditSource(
       identityViewSession(context) === session &&
       identityViewMatchesOwner(context, owner) &&
       publicPublicationOwner(repository) === owner;
-    off = subscribeIdentityInvalidation(session, close);
+    off = subscribeIdentityInvalidation(session, () => {
+      // A delivery recheck also notifies after observing the unchanged owner.
+      // Only loss of this original mounted owner closes its source custody.
+      if (!current()) close();
+    });
     signal?.addEventListener('abort', close, { once: true });
     const inspected = await inspectPublicStorage(quota);
     if (!current() || !inspected.ok) {
@@ -144,8 +163,10 @@ export async function openOwnedEditSource(
           command: string;
           publishedAt: number;
           eventId: string;
+          record: PublicRecordHandle;
         }>
       | undefined;
+    let captures = Array.from<{ hash: string; createdAt: number }>([]);
     for (const item of inventory.rows) {
       if (item.family !== 'public_operation') continue;
       const read = await readPublicListingIntent(repository, item.id);
@@ -157,16 +178,15 @@ export async function openOwnedEditSource(
         read.status === 'found' &&
         publicRecordSnapshot(read.record, owner, item.id);
       // Incomplete critical storage is not an absence that permits adoption.
-      if (!row || row.family !== 'public_operation') {
+      if (
+        read.status !== 'found' ||
+        !row ||
+        row.family !== 'public_operation'
+      ) {
         close();
         return;
       }
-      if (
-        row.capture.kind !== 30402 ||
-        !row.artifact ||
-        row.source.type !== 'draft'
-      )
-        continue;
+      if (row.capture.kind !== 30402 || row.source.type !== 'draft') continue;
       const template = inspectLocalTemplate(row.capture.wire, owner, 30402),
         projected = template && projectFoodParts(template);
       if (
@@ -176,6 +196,11 @@ export async function openOwnedEditSource(
         projected.projection.identifier !== reference.identifier
       )
         continue;
+      captures = captures.concat({
+        hash: row.capture.hash,
+        createdAt: template.created_at
+      });
+      if (!row.artifact) continue;
       const source = await readPublicDraft(drafts, row.source.id);
       if (!current()) {
         close();
@@ -221,6 +246,7 @@ export async function openOwnedEditSource(
       const verified = verifyEnvelope(row.artifact.wire),
         signed = verified.ok && verifiedEnvelopeSnapshot(verified.value);
       if (
+        !verified.ok ||
         !signed ||
         signed.id !== row.artifact.eventId ||
         signed.id !== row.capture.hash ||
@@ -234,15 +260,30 @@ export async function openOwnedEditSource(
       )
         continue;
       if (retained) {
-        close();
-        return;
+        const priorProof = verifyEnvelope(retained.wire);
+        const prior =
+          priorProof.ok && createPublicHeadCandidate(priorProof.value);
+        const next = createPublicHeadCandidate(verified.value);
+        // Supported revisions have strict advancing time and unchanged initial
+        // publication time. Equal-time/duplicate/unrelated captures are ambiguous.
+        if (
+          !prior ||
+          !next ||
+          retained.publishedAt !== food.published_at ||
+          publicHeadSnapshot(prior).created_at === signed.created_at
+        ) {
+          close();
+          return;
+        }
+        if (selectPublicHead(prior, next).head === prior) continue;
       }
       retained = {
         form,
         wire: row.artifact.wire,
         command: row.id,
         publishedAt: food.published_at,
-        eventId: signed.id
+        eventId: signed.id,
+        record: read.record
       };
     }
     if (!retained || !current()) {
@@ -252,7 +293,14 @@ export async function openOwnedEditSource(
     const base = retained,
       proof = verifyEnvelope(base.wire);
     const head = proof.ok && createPublicHeadCandidate(proof.value);
-    if (!head) {
+    if (
+      !head ||
+      captures.some(
+        (capture) =>
+          capture.hash !== base.eventId &&
+          capture.createdAt >= publicHeadSnapshot(head).created_at
+      )
+    ) {
       close();
       return;
     }
@@ -329,14 +377,54 @@ export async function openOwnedEditSource(
       snapshot,
       close,
       authorize() {
-        if (snapshot()?.status !== 'ready') return;
+        const policy = runtime && publicRuntimePolicy(runtime);
+        if (snapshot()?.status !== 'ready' || !policy) return;
         return {
           repository,
           owner,
           coordinate: reference.naddr,
           baseWire: base.wire,
           sourceCommand: base.command,
+          sourceRecord: base.record,
           publishedAtSeconds: base.publishedAt,
+          identity: session,
+          policy,
+          currentRevision(eventId: string) {
+            const state = snapshot();
+            if (
+              !current() ||
+              !runtime ||
+              publicRuntimePolicy(runtime) !== policy
+            )
+              return false;
+            if (state?.status === 'ready') return true;
+            // Continuity for the original immutable revision capture only. The
+            // independent resolver must verify its exact new event, both scopes
+            // and focused clock/display state; a competing hash remains fenced.
+            const row =
+              resolver && networkOwned()
+                ? headResolutionSnapshot(resolver).find(
+                    (value) => value.key === key
+                  )
+                : undefined;
+            return !!(
+              state?.status === 'conflict' &&
+              state.currentEventId === eventId &&
+              row?.state.food &&
+              row.state.display === 'focused_known' &&
+              row.coverage === 'bounded-eose' &&
+              !row.lastKnown &&
+              row.deletion.outcome !== 'suppressed' &&
+              view &&
+              run &&
+              publicViewRunCurrent(view, run) &&
+              [row.headSources, row.deletionSources].every(
+                (scope) =>
+                  scope?.state === 'eose' &&
+                  scope.result.coverage === 'bounded-eose'
+              )
+            );
+          },
           current: () => snapshot()?.status === 'ready'
         };
       }

@@ -15,6 +15,10 @@ import {
 import { existingInboxSetupSnapshot } from '../messaging/inbox-setup-verification.ts';
 import type { InboxAccessObservation } from '../messaging/readiness.ts';
 import type { RelayPolicy } from '../config/relays.ts';
+import {
+  authorizeOwnedEditSource,
+  type OwnedEditSource
+} from './edit-source.ts';
 
 declare const readinessBrand: unique symbol;
 export type NewListingReadiness = Readonly<{ [readinessBrand]: true }>;
@@ -212,4 +216,31 @@ export function newListingReadinessOwnership(
 }
 export function closeNewListingReadiness(token: NewListingReadiness): void {
   reviews.get(token)?.close();
+}
+// Existing announcements need original source/current-head custody, rather than
+// minting or changing an inbox preference. Final signing still uses its own lease.
+export function captureOwnedListingReadiness(
+  source: OwnedEditSource,
+  eventId: string,
+  review: unknown
+): NewListingReadiness | undefined {
+  if (review !== 'reviewed_owned_listing') return;
+  const original = authorizeOwnedEditSource(source);
+  if (!original) return;
+  let active = true;
+  const current = () => active && original.currentRevision(eventId);
+  const token = Object.freeze({}) as NewListingReadiness;
+  reviews.set(token, {
+    ownership: {
+      owner: original.owner,
+      identity: original.identity,
+      policy: original.policy,
+      current,
+      signingCurrent: current
+    },
+    close: () => {
+      active = false;
+    }
+  });
+  return token;
 }

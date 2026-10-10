@@ -4,8 +4,19 @@
     editorReviewSnapshot,
     type EditorReview
   } from '../publishing/editor-workflow.ts';
-  let { review, onedit }: { review: EditorReview; onedit: () => void } =
-    $props();
+  let {
+    review,
+    onedit,
+    onpublish,
+    publishing = false,
+    captured = false
+  }: {
+    review: EditorReview;
+    onedit: () => void;
+    onpublish?: () => void;
+    publishing?: boolean;
+    captured?: boolean;
+  } = $props();
   const preview = $derived(editorReviewSnapshot(review));
   function tag(name: string) {
     return (
@@ -34,6 +45,14 @@
         <dd>{tag('radroots:quantity')}</dd>{/if}
       <dt>Publisher</dt>
       <dd class="key">{preview.owner}</dd>
+      {#if preview.revision}
+        <dt>Unchanged listing coordinate</dt>
+        <dd class="key">{preview.revision.coordinate}</dd>
+        <dt>Original publication time</dt>
+        <dd>{preview.revision.publishedAtSeconds}</dd>
+        <dt>Proposed availability</dt>
+        <dd>{preview.revision.status === 'sold' ? 'Sold' : 'Available'}</dd>
+      {/if}
       <dt>Public destinations</dt>
       <dd>
         <ul>
@@ -43,9 +62,30 @@
         </ul>
       </dd>
     </dl>
-    <p>Messages: ready to receive replies</p>
-    <p>This review has not requested a signature or published the listing.</p>
-    <button type="button" onclick={onedit}>Edit details</button>
+    {#if !preview.revision}<p>Messages: ready to receive replies</p>{/if}
+    {#if !captured && !publishing}<p>
+        This review has not requested a signature or published the listing.
+      </p>{/if}
+    {#if preview.revision?.status === 'sold'}<p>
+        This is a public availability update, not a payment or stock reservation
+        receipt.
+      </p>{/if}
+    {#if preview.revision && onpublish && !captured}
+      <button
+        type="button"
+        class="button button--primary"
+        onclick={onpublish}
+        disabled={publishing}
+        >{publishing
+          ? 'Publishing update'
+          : preview.revision.status === 'sold'
+            ? 'Publish sold update'
+            : 'Publish changes'}</button
+      >
+    {/if}
+    <button type="button" onclick={onedit} disabled={publishing || captured}
+      >Edit details</button
+    >
   </section>
 {:else}
   <Notice
