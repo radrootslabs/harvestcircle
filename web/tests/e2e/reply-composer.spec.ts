@@ -422,6 +422,9 @@ for (const crossSecond of [false, true]) {
 test('typing is memory only with no autosave SDK discovery publication or order transition', async ({
   page
 }) => {
+  const messages: string[] = [];
+  page.on('console', (message) => messages.push(message.text()));
+  page.on('pageerror', (error) => messages.push(error.message));
   await ready(page);
   const before = await page.evaluate(async () => ({
     native: await window.hcp104Fixture.native(),
@@ -455,6 +458,15 @@ test('typing is memory only with no autosave SDK discovery publication or order 
       sentinel
     )
   ).toBe(false);
+  // This controlled composer is mounted on Search, not a private route.
+  // Real private title/noindex qualification is in privacy-output.spec.ts.
+  expect(await page.locator('head').textContent()).not.toContain(sentinel);
+  expect(page.url()).not.toContain(encodeURIComponent(sentinel));
+  expect(messages.join('\n')).not.toContain(sentinel);
+  await expect(composer(page).getByText(/unsaved memory/)).toBeVisible();
+  await expect(
+    composer(page).getByText('It does not accept an order.', { exact: false })
+  ).toBeVisible();
 });
 
 test('explicit Send creates an actual self-first paired reply with the authenticated peer and direct inner parent', async ({
@@ -717,6 +729,8 @@ test('logout during actual held signer work hides the draft and refuses late pee
   await expect(composer(page).getByLabel('Reply', { exact: true })).toHaveCount(
     0
   );
+  expect(await page.locator('body').textContent()).not.toContain(sentinel);
+  expect(await page.locator('head').textContent()).not.toContain(sentinel);
 });
 
 test('copied controllers and arbitrary private or product hashes cannot borrow reply custody', async ({

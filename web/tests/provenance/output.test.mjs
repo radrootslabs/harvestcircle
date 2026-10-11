@@ -1888,6 +1888,31 @@ import { auditOutput } from '../../tools/check-output.mjs';
             }
           );
         }
+        for (const mutation of [
+          'Order placed. Guaranteed delivery.',
+          'Messages are delivered to the person.'
+        ]) {
+          await check(
+            'privacy copy rejects changed AccountGate ' + mutation,
+            async (t) => {
+              const f = await fixture(t);
+              const file = path.join(
+                f.web,
+                'src/lib/components/AccountGate.svelte'
+              );
+              const source = await readFile(file, 'utf8');
+              const current =
+                'Messages stay hidden until you connect and explicitly unlock your inbox.';
+              assert.ok(source.includes(current));
+              await writeFile(file, source.replace(current, mutation));
+              await refresh(f);
+              await assert.rejects(
+                f.audit,
+                /Invalid owned operational flags source/
+              );
+            }
+          );
+        }
         for (const attribute of [
           'rel="noopener noreferrer"',
           'referrerpolicy="no-referrer"'

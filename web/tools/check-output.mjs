@@ -238,6 +238,10 @@ async function operationalFlagsAdmission(web) {
   if (!shell.includes('../runtime/capabilities.ts')) return false;
   /** @type {Record<string,string>} */
   const producers = {
+    // Exact previous AccountGate remains compatibility history; the only
+    // current alternative changes its obsolete condition copy below.
+    'src/lib/components/AccountGate.svelte':
+      '642925e1819628263810dd42624e97cadf29818f84a42ef49a86ad1f196888ca',
     'src/lib/catalog/observations.ts':
       '7386470e698156f2480de1d6c9fcffacab507f97d2f4006df926db467327120c',
     'src/lib/catalog/product-view.ts':
@@ -440,6 +444,11 @@ async function operationalFlagsAdmission(web) {
         : createHash('sha256').update(bytes).digest('hex');
     if (
       identity !== pin &&
+      !(
+        name === 'src/lib/components/AccountGate.svelte' &&
+        identity ===
+          '95c04e52fdc7c706c84af9d8d842a1b19db2a0ba2e0f5f04e5b68c7d95be1ab0'
+      ) &&
       !(
         name === 'src/routes/products/[naddr=naddr]/+page.svelte' &&
         identity ===

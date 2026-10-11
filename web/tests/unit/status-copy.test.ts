@@ -5,6 +5,43 @@ import {
   type OperationFact
 } from '../../src/lib/presentation/status-copy';
 describe('finite evidence-specific presentation', () => {
+  it('all target facts keep relay acceptance and exact readback distinct from person delivery or remote reading', () => {
+    for (const role of ['public', 'recipient', 'archive'] as const)
+      for (const outcome of [
+        'pending',
+        'accepted',
+        'refused',
+        'timed-out',
+        'unknown'
+      ] as const)
+        for (const readback of [
+          'confirmed',
+          'not-observed',
+          'unknown'
+        ] as const) {
+          const copy = receiptCopy({
+            role,
+            outcome,
+            readback,
+            eventId: 'event-A',
+            destination: 'target-A'
+          });
+          expect(copy.text + ' ' + copy.readback).not.toMatch(
+            /order placed|delivered to|person received|remote (?:seen|read)|guaranteed|complete sync/i
+          );
+          if (outcome !== 'accepted')
+            expect(copy.text).not.toContain(' accepted the event.');
+          if (outcome === 'accepted')
+            expect(copy.text).toContain('relay accepted the event.');
+          expect(copy.readback).toBe(
+            readback === 'confirmed'
+              ? 'Exact read-back is confirmed for this event and target.'
+              : readback === 'not-observed'
+                ? 'Exact read-back was not observed for this event and target.'
+                : 'Exact read-back is unknown.'
+          );
+        }
+  });
   it('never maps unsupported or unknown to success', () => {
     for (const state of ['unknown', 'new-future-state', null, undefined, 42])
       expect(statusCopy(state as OperationFact)).toEqual({

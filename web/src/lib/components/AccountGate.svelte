@@ -46,7 +46,7 @@
     onprobe={view.mounted ? probe : undefined}
   />
   <p class="notice">
-    Private views and editing are unavailable during development.
+    Messages stay hidden until you connect and explicitly unlock your inbox.
   </p>
   <InboxSetup />
 </div>

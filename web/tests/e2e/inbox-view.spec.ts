@@ -454,6 +454,21 @@ test('logout during held actual extension decryption clears presentation and pre
   expect(await page.evaluate(() => window.hcp101Fixture.snapshot().count)).toBe(
     0
   );
+  expect(
+    await page.evaluate(() => window.hcp101Fixture.snapshot())
+  ).toMatchObject({
+    state: 'unavailable',
+    count: 0,
+    queued: 0,
+    lastCheckedAt: null
+  });
+  await expect(
+    page.getByRole('button', { name: 'Read new messages (1)', exact: true })
+  ).toHaveCount(0);
+  await expect(page.getByText(/Last checked at/)).toHaveCount(0);
+  expect(
+    await page.evaluate(() => window.hcp101Fixture.encryptedUnchanged())
+  ).toBe(true);
   expect(events).toEqual([]);
   expect(requests).toEqual([]);
 });
