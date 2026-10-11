@@ -14,6 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { format, resolveConfig } from 'prettier';
 import { webTemplates } from '../tests/conformance/food-writer-cases.ts';
+import { qualifiedTemplates } from '../tests/conformance/food-qualified-matrix.ts';
 import { createFoodReplay } from '../tests/conformance/food-bidirectional.ts';
 
 const web = fileURLToPath(new URL('../', import.meta.url));
@@ -22,10 +23,15 @@ const fixture = new URL(
   '../tests/conformance/food-writer-rust.v1.json',
   import.meta.url
 );
+const qualifiedFixture = new URL(
+  '../tests/conformance/food-qualified-writer-rust.v1.json',
+  import.meta.url
+);
 const args = process.argv.slice(2);
 assert.ok(
-  args.length === 0 || (args.length === 1 && args[0] === '--write'),
-  'expected no arguments or explicit --write'
+  args.length === 0 ||
+    (args.length === 1 && ['--write', '--write-qualified'].includes(args[0])),
+  'expected no arguments, --write or browser-only --write-qualified'
 );
 assert.equal(process.versions.node, '24.21.0');
 const run = (command, argv, cwd = root) => {
@@ -117,6 +123,15 @@ try {
       rejected.stderr.includes('website template rejected:'),
       rejected.stderr
     );
+    console.log(
+      JSON.stringify({
+        direction: 'WEB_TO_RUST_NEGATIVE',
+        batch: 'original',
+        mutation,
+        exit_code: rejected.status,
+        actual_stderr: rejected.stderr
+      })
+    );
   }
   if (args[0] === '--write') {
     // Refresh producer provenance only after actual Rust corpus equality,
@@ -179,6 +194,98 @@ try {
       receipt,
       'checked website/Rust replay is stale; regenerate explicitly with --write'
     );
+  // Qualify a separate browser-owned boundary batch. The original sixteen
+  // recipes/shared manifest remain byte-exact and are still checked above.
+  await writeFile(
+    candidate,
+    JSON.stringify(qualifiedTemplates, null, 2) + '\n'
+  );
+  const qualifiedActual = JSON.parse(
+    success('cargo', [...cargo, '--consume-web', candidate])
+  );
+  const qualifiedControls = [
+    'amount-digits',
+    'fraction-digits',
+    'quantity-zero',
+    'quantity-unit',
+    'published-unsafe',
+    'created-unsafe',
+    'text-format',
+    'identifier-space',
+    'operational-marker',
+    'price-frequency'
+  ];
+  for (const mutation of qualifiedControls) {
+    const altered = qualifiedTemplates.map((row) => ({
+      ...row,
+      wire_parts: {
+        ...row.wire_parts,
+        tags: row.wire_parts.tags.map((tag) => [...tag])
+      }
+    }));
+    const row = altered[0];
+    const tag = (name) => {
+      const found = row.wire_parts.tags.find((value) => value[0] === name);
+      assert.ok(found, `missing qualified ${name}`);
+      return found;
+    };
+    if (mutation === 'amount-digits') tag('price')[1] = '1'.repeat(29);
+    else if (mutation === 'fraction-digits')
+      tag('price')[1] = '0.' + '0'.repeat(27) + '1';
+    else if (mutation === 'quantity-zero') tag('radroots:quantity')[1] = '0';
+    else if (mutation === 'quantity-unit') tag('radroots:quantity')[2] = 'lb';
+    else if (mutation === 'published-unsafe')
+      tag('published_at')[1] = '9007199254740992';
+    else if (mutation === 'created-unsafe') row.created_at = 9007199254740992;
+    else if (mutation === 'text-format') tag('title')[1] = 'Food\u200d';
+    else if (mutation === 'identifier-space')
+      tag('d')[1] = 'invalid identifier';
+    else if (mutation === 'operational-marker')
+      tag('radroots:quantity')[0] = 'radroots:bin';
+    else tag('price').push('weekly');
+    await writeFile(candidate, JSON.stringify(altered, null, 2) + '\n');
+    const rejected = run('cargo', [...cargo, '--consume-web', candidate]);
+    assert.equal(
+      rejected.status,
+      101,
+      `actual Rust accepted qualified ${mutation} or did not execute`
+    );
+    assert.ok(
+      rejected.stderr.includes('website template rejected:'),
+      rejected.stderr
+    );
+    console.log(
+      JSON.stringify({
+        direction: 'WEB_TO_RUST_NEGATIVE',
+        batch: 'qualified',
+        mutation,
+        exit_code: rejected.status,
+        actual_stderr: rejected.stderr
+      })
+    );
+  }
+  const qualifiedReceipt = createFoodReplay(
+    qualifiedActual,
+    qualifiedTemplates,
+    await readInputs()
+  );
+  if (['--write', '--write-qualified'].includes(args[0])) {
+    // Browser-only mode writes only this replay. Native/shared producer and
+    // original fixture/manifest outputs are checked without regeneration.
+    const filepath = fileURLToPath(qualifiedFixture);
+    await writeFile(
+      qualifiedFixture,
+      await format(JSON.stringify(qualifiedReceipt), {
+        ...(await resolveConfig(filepath)),
+        filepath
+      })
+    );
+  } else
+    assert.deepEqual(
+      JSON.parse(await readFile(qualifiedFixture, 'utf8')),
+      qualifiedReceipt,
+      'qualified browser/Rust replay is stale; regenerate explicitly with --write-qualified'
+    );
   // The shared consumer manifest binds these exact provenance/replay bytes.
   success(
     process.execPath,
@@ -198,7 +305,8 @@ try {
     'food-reader.test.ts',
     'food-writer.test.ts',
     'food-corpus.test.ts',
-    'food-bidirectional.test.ts'
+    'food-bidirectional.test.ts',
+    'food-qualified-matrix.test.ts'
   ])
     assert.ok(
       tests.includes(required),
@@ -220,7 +328,9 @@ try {
       revision: receipt.revision,
       reader_cases: readerCases,
       writer_cases: webTemplates.length,
-      deliberate_mutations_rejected_by_actual_rust: 2,
+      qualified_writer_cases: qualifiedTemplates.length,
+      deliberate_mutations_rejected_by_actual_rust:
+        2 + qualifiedControls.length,
       signing: 'NOT_RUN_NO_KEYS'
     })
   );
