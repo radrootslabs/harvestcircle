@@ -474,13 +474,23 @@ test('explicit Send creates an actual self-first paired reply with the authentic
 }) => {
   await ready(page);
   await composer(page).getByLabel('Reply', { exact: true }).fill(sentinel);
+  // This case qualifies successful delivery. The production scenarios above
+  // separately require rejection when the real clock crosses a second.
+  await page.evaluate(() => window.hcp104Fixture.configureSendClock(false));
   const before = await page.evaluate(() => window.hcp104Fixture.delta());
   await composer(page)
     .getByRole('button', { name: 'Send reply', exact: true })
     .click();
   await expect
-    .poll(() => page.evaluate(() => window.hcp104Fixture.snapshot()?.state))
-    .toBe('completed');
+    .poll(() => page.evaluate(() => window.hcp104Fixture.snapshot()?.busy))
+    .toBe(false);
+  const terminal = await page.evaluate(async () => ({
+    snapshot: window.hcp104Fixture.snapshot(),
+    diagnostic: await window.hcp104Fixture.diagnostic()
+  }));
+  expect(terminal, JSON.stringify(terminal)).toMatchObject({
+    snapshot: { state: 'completed', busy: false }
+  });
   expect(events).toHaveLength(2);
   expect(
     events.every((frame) => (frame[1] as { kind: number }).kind === 1059)
