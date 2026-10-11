@@ -1,0 +1,250 @@
+{
+  "schema_version": 1,
+  "revision": "189c49b74b4bafc142b00b76b296477931139e72",
+  "recipe_sha256": "97ac1d122bededd3f84f73d99d239e892b91c59a0d528dfb80c5a516a34d7a5c",
+  "inputs": {
+    "message-qualified-matrix.ts": "1691845f50734191904b25f36fd54a54ddb146550d317b8563ce49a36202f807",
+    "source_profile.v1.json": "bff36b4941decca5471389e0155fb6b4027dac485c3e547be05743a936b5bc5f",
+    "corpus.v1.json": "27fb61b7d06133f6cf42456c0582d1246222755da80e034fa1a4f0c9e1669e19",
+    "oracle/src/main.rs": "290247c9151fb2490dc108a974eae7fe8633d085ee2d22c6aecbfb15306cd611"
+  },
+  "consumed": [
+    {
+      "id": "qualified_message_000",
+      "message": {
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "reply_to": null,
+        "subject": null
+      }
+    },
+    {
+      "id": "qualified_message_001",
+      "message": {
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": "wss://hint.example.org"
+          }
+        ],
+        "reply_to": null,
+        "subject": null
+      }
+    },
+    {
+      "id": "qualified_message_002",
+      "message": {
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "reply_to": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "relays": null
+        },
+        "subject": null
+      }
+    },
+    {
+      "id": "qualified_message_003",
+      "message": {
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "reply_to": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "relays": "wss://hint.example.org"
+        },
+        "subject": null
+      }
+    },
+    {
+      "id": "qualified_message_004",
+      "message": {
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "reply_to": null,
+        "subject": "Carrots"
+      }
+    },
+    {
+      "id": "qualified_message_005",
+      "message": {
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "reply_to": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "relays": null
+        },
+        "subject": "Carrots"
+      }
+    },
+    {
+      "id": "qualified_message_006",
+      "message": {
+        "content": "Fresh café",
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "reply_to": null,
+        "subject": null
+      }
+    },
+    {
+      "id": "qualified_message_007",
+      "message": {
+        "content": "Fresh café",
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "reply_to": null,
+        "subject": null
+      }
+    },
+    {
+      "id": "qualified_message_008",
+      "message": {
+        "content": "Line one\r\nLine two\rLine three\n",
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "reply_to": null,
+        "subject": null
+      }
+    },
+    {
+      "id": "qualified_message_009",
+      "message": {
+        "content": "🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕",
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "reply_to": null,
+        "subject": null
+      }
+    },
+    {
+      "id": "qualified_message_010",
+      "message": {
+        "content": "  Please keep these spaces.  ",
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "reply_to": null,
+        "subject": null
+      }
+    },
+    {
+      "id": "qualified_message_011",
+      "message": {
+        "content": "﻿",
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "reply_to": null,
+        "subject": null
+      }
+    },
+    {
+      "id": "qualified_message_012",
+      "message": {
+        "content": "\u001c",
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "reply_to": null,
+        "subject": null
+      }
+    },
+    {
+      "id": "qualified_message_013",
+      "message": {
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "reply_to": null,
+        "subject": "🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕🥕"
+      }
+    },
+    {
+      "id": "qualified_message_014",
+      "message": {
+        "content": "Enquiry context: nostr:naddr1qvzqqqrkcgpzq7d7vel0nh9m4326qc54e6rskpczn07dktww9rv4nu5ptvt0s9ucqqykxctjwfhhguedvyd6eh6n\nViewed version: nostr:nevent1qvzqqqrkcgpzq7d7vel0nh9m4326qc54e6rskpczn07dktww9rv4nu5ptvt0s9ucqqsrxvenxvenxvenxvenxvenxvenxvenxvenxvenxvenxvenxvenxvcj7a7vp\nEarlier conversation context: nostr:naddr1qvzqqqrkcgpzq7d7vel0nh9m4326qc54e6rskpczn07dktww9rv4nu5ptvt0s9ucqqykxctjwfhhguedvguylat5",
+        "recipients": [
+          {
+            "public_key": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "relay_url": null
+          }
+        ],
+        "reply_to": null,
+        "subject": null
+      }
+    },
+    {
+      "id": "qualified_message_015",
+      "message": {
+        "content": "Could I buy carrots?\nPlease reply here.",
+        "recipients": [
+          {
+            "public_key": "44900586091b284416a0c001f677f9c49f7639a55c3f1e2ec130a8e1a7998e1b",
+            "relay_url": null
+          }
+        ],
+        "reply_to": {
+          "id": "2222222222222222222222222222222222222222222222222222222222222222",
+          "relays": null
+        },
+        "subject": "Another listing, same ordinary message fields"
+      }
+    }
+  ],
+  "qualification": "Actual pinned Rust99 consumes separate browser-owned unsigned kind 14 Message recipes; not independent-client receive/reply, encryption, extension, relay or publication qualification."
+}

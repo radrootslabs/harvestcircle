@@ -16,10 +16,12 @@ import {
   messageReplay,
   actualWebMessage
 } from '../tests/conformance/message-cases.ts';
+import { qualifiedMessageReplay } from '../tests/conformance/message-qualified-matrix.ts';
 const args = process.argv.slice(2);
 assert.ok(
-  args.length === 0 || (args.length === 1 && args[0] === '--write'),
-  'expected no arguments or explicit --write'
+  args.length === 0 ||
+    (args.length === 1 && ['--write', '--write-qualified'].includes(args[0])),
+  'expected no arguments or explicit --write or --write-qualified'
 );
 assert.equal(process.versions.node, '24.21.0');
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -215,23 +217,126 @@ const temporary = await mkdtemp(
   join(tmpdir(), 'harvestcircle-message-interop-')
 );
 try {
-  const replay = messageReplay();
-  assert.ok(replay.length > 0);
-  const file = join(temporary, 'web-to-rust.json');
-  await writeFile(file, JSON.stringify(replay));
-  const result = JSON.parse(success('cargo', [...cargo, '--consume', file]));
-  assert.equal(result.revision, revision);
-  assert.equal(result.consumed.length, replay.length);
-  assert.deepEqual(
-    result.consumed,
-    replay.map((v) => ({ id: v.id, message: v.expected }))
+  async function consume(replay, batch) {
+    assert.ok(replay.length > 0);
+    const file = join(temporary, batch + '.json');
+    await writeFile(file, JSON.stringify(replay));
+    const result = JSON.parse(success('cargo', [...cargo, '--consume', file]));
+    assert.equal(result.revision, revision);
+    assert.equal(result.consumed.length, replay.length);
+    assert.deepEqual(
+      result.consumed,
+      replay.map((v) => ({ id: v.id, message: v.expected }))
+    );
+    return result;
+  }
+  const original = messageReplay();
+  assert.equal(original.length, 11);
+  await consume(original, 'original');
+  assert.equal(qualifiedMessageReplay.length, 16);
+  const qualified = await consume(qualifiedMessageReplay, 'qualified');
+  const recipePath = new URL(
+    '../tests/conformance/message-qualified-matrix.ts',
+    import.meta.url
   );
+  const receiptPath = new URL(
+    '../tests/conformance/message-qualified-writer-rust.v1.json',
+    import.meta.url
+  );
+  const inputs = {
+    'message-qualified-matrix.ts': digest(await readFile(recipePath))
+  };
+  for (const name of [
+    'source_profile.v1.json',
+    'corpus.v1.json',
+    'oracle/src/main.rs'
+  ])
+    inputs[name] = digest(await owned(name));
+  const receipt = {
+    schema_version: 1,
+    revision,
+    recipe_sha256: digest(JSON.stringify(qualifiedMessageReplay)),
+    inputs,
+    consumed: qualified.consumed,
+    qualification:
+      'Actual pinned Rust99 consumes separate browser-owned unsigned kind 14 Message recipes; not independent-client receive/reply, encryption, extension, relay or publication qualification.'
+  };
+  const existing = await lstat(receiptPath);
+  assert.ok(existing.isFile() && !existing.isSymbolicLink());
+  if (args[0] === '--write' || args[0] === '--write-qualified')
+    await writeFile(receiptPath, JSON.stringify(receipt, null, 2) + '\n');
+  assert.deepEqual(JSON.parse(await readFile(receiptPath, 'utf8')), receipt);
+  const controls = [
+    [
+      'standalone-seal-kind',
+      0,
+      (row) => {
+        row.wire_parts.kind = 13;
+      }
+    ],
+    [
+      'missing-recipient',
+      0,
+      (row) => {
+        row.wire_parts.tags = [];
+      }
+    ],
+    [
+      'changed-reply-parent',
+      2,
+      (row) => {
+        row.wire_parts.tags[1][1] = '4'.repeat(64);
+      }
+    ],
+    [
+      'changed-subject',
+      4,
+      (row) => {
+        row.wire_parts.tags[1][1] = 'Different subject';
+      }
+    ]
+  ];
+  for (const [mutation, index, change] of controls) {
+    const originalRow = qualifiedMessageReplay[index];
+    const row = {
+      ...originalRow,
+      wire_parts: {
+        ...originalRow.wire_parts,
+        tags: originalRow.wire_parts.tags.map((tag) => [...tag])
+      }
+    };
+    change(row);
+    const file = join(temporary, mutation + '.json');
+    await writeFile(file, JSON.stringify([row]));
+    const result = spawnSync('cargo', [...cargo, '--consume', file], {
+      cwd: root,
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024
+    });
+    assert.ifError(result.error);
+    assert.equal(result.signal, null);
+    assert.equal(result.status, 101, result.stderr || result.stdout);
+    assert.match(result.stderr, /assertion .* failed/);
+    console.log(
+      JSON.stringify({
+        direction: 'WEB_TO_RUST_NEGATIVE',
+        mutation,
+        exit_code: result.status,
+        actual_stderr: result.stderr
+      })
+    );
+  }
   console.log(
-    'PASS actual Rust->web ' +
-      corpus.vectors.length +
-      ' and web->Rust ' +
-      replay.length +
-      ' Message cases; explicit web policy differences retained'
+    JSON.stringify({
+      result: 'PASS',
+      scope: 'SOURCE_ORACLE_NOT_INDEPENDENT_CLIENT_QUALIFICATION',
+      revision,
+      rust_reader_cases: corpus.vectors.length,
+      original_writer_cases: original.length,
+      qualified_writer_cases: qualifiedMessageReplay.length,
+      negative_controls: controls.length,
+      keys: 'NO_KEYS'
+    })
   );
 } finally {
   await rm(temporary, { recursive: true, force: true });
