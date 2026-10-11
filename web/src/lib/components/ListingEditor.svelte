@@ -8,11 +8,13 @@
   import {
     PUBLIC_RUNTIME_CONTEXT,
     publicRuntimeReady,
+    publicRuntimePolicy,
     type PublicRuntimeContext,
     type PublicRuntime
   } from '../runtime/public-runtime.ts';
   import {
     createRuntimeInboxSetupView,
+    inboxSetupViewOwnership,
     inboxSetupViewSnapshot,
     subscribeInboxSetupView,
     closeInboxSetupView,
@@ -56,6 +58,7 @@
     type ListingEditorSnapshot
   } from '../publishing/listing-editor.ts';
   import { internalHref } from '../navigation-url.ts';
+  import { operationCapabilities } from '../runtime/capabilities.ts';
   let {
     route,
     onfirstsave,
@@ -123,6 +126,12 @@
   );
   const editable = $derived(
     !!(visible && visible.editable && !publicationOperation && !publishBusy)
+  );
+  const availability = $derived(
+    operationCapabilities(
+      (runtime && publicRuntimePolicy(runtime)) ??
+        inboxSetupViewOwnership(setup)?.policy
+    )
   );
   onMount(() => {
     mounted = true;
@@ -290,6 +299,8 @@
       closeBusy ||
       publishBusy ||
       publicationOperation ||
+      !availability.posting ||
+      (route.mode !== 'edit' && !availability.newListing) ||
       !original ||
       !listingEditorSnapshot(original)?.editable
     )
@@ -347,6 +358,7 @@
       !original ||
       publishBusy ||
       publicationOperation ||
+      !availability.posting ||
       route.mode !== 'edit'
     )
       return;
@@ -467,6 +479,13 @@
         Loading local values.
       </p>{/if}
   {:else}
+    {#if !availability.posting}<Notice
+        tone="info"
+        text="Posting is unavailable here. Keep editing your local draft; retained operations still need separate review."
+      />{:else if route.mode !== 'edit' && !availability.newListing}<Notice
+        tone="info"
+        text="New listings require messaging availability as well as inbox readiness. Your local draft remains available."
+      />{/if}
     {#if route.mode === 'edit' && editor && listingEditorEditSource(editor)}
       <ConflictNotice
         source={listingEditorEditSource(editor)!}
@@ -761,7 +780,10 @@
           onclick={() => {
             void showReview();
           }}
-          disabled={reviewBusy || closeBusy}
+          disabled={reviewBusy ||
+            closeBusy ||
+            !availability.posting ||
+            (route.mode !== 'edit' && !availability.newListing)}
           >{reviewBusy
             ? 'Preparing review'
             : route.mode === 'edit'
@@ -776,14 +798,16 @@
           onclick={() => {
             soldConfirm = true;
           }}
-          disabled={reviewBusy || closeBusy}>Mark as sold</button
+          disabled={reviewBusy || closeBusy || !availability.posting}
+          >Mark as sold</button
         >
         <button
           type="button"
           onclick={() => {
             withdrawalConfirm = true;
           }}
-          disabled={reviewBusy || closeBusy}>Request removal</button
+          disabled={reviewBusy || closeBusy || !availability.posting}
+          >Request removal</button
         >
       </details>{/if}
     {#if publishBusy && review && editorReviewSnapshot(review)?.withdrawal}

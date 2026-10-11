@@ -6,6 +6,9 @@
   import type { IdentityViewActionResult } from '../runtime/view-context.ts';
   import type { IdentitySnapshot } from '../runtime/identity-session.ts';
   import Disclosure from './primitives/Disclosure.svelte';
+  import { deploymentRelayPolicy } from '../config/deployment-relays.ts';
+  import { operationCapabilities } from '../runtime/capabilities.ts';
+  const availability = operationCapabilities(deploymentRelayPolicy);
 
   type ShellRoute =
     '/search' | '/sell' | '/selling' | '/messages' | '/about' | '/privacy';
@@ -118,6 +121,25 @@
   </nav>
 </header>
 <main id="main-content" tabindex="-1" class="page">
+  {#if !availability.posting || !availability.messaging}
+    <div class="notice stack" role="note" aria-label="Build availability">
+      {#if !availability.posting}<p>Posting is disabled in this build.</p>{/if}
+      {#if !availability.messaging}<p>
+          Messaging is disabled in this build.
+        </p>{/if}
+      <p>
+        Browsing, local editing and pending-work review remain available where
+        supported. Availability flags do not establish full qualification.
+      </p>
+      <details class="disclosure">
+        <summary>Availability limits</summary>
+        <p>
+          Static build flags do not instantly stop already-open tabs. Urgent
+          stops require relay enforcement.
+        </p>
+      </details>
+    </div>
+  {/if}
   {@render children()}
 </main>
 <footer class="footer">

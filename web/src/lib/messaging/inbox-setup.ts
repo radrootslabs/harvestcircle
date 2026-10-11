@@ -23,6 +23,7 @@ import {
   type PublicRecordHandle
 } from '../persistence/records.ts';
 import { canonicalLocalId } from '../private-handles.ts';
+import { operationEnabled } from '../config/operation-flags.ts';
 import {
   inboxResolutionSnapshot,
   inboxResolverCurrentAfterSample,
@@ -101,8 +102,7 @@ export async function reviewInboxSetup(
     if (
       !capture ||
       !capture.current() ||
-      !manifest.messagingEnabled ||
-      !manifest.postingEnabled
+      !operationEnabled(policy, 'messaging')
     )
       return { status: 'blocked', reason: 'unavailable' };
     const previous = base(resolver, policy, capture.owner);

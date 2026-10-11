@@ -1,3 +1,4 @@
+import { operationEnabled } from '../config/operation-flags.ts';
 import {
   readRelayPolicy,
   inboxRelayTargets,
@@ -331,8 +332,7 @@ export function createInboxSetupView(
         if (
           !review ||
           state.preview === undefined ||
-          !manifest.postingEnabled ||
-          !manifest.messagingEnabled
+          !operationEnabled(input.policy, 'messaging')
         ) {
           update('unavailable');
           return;

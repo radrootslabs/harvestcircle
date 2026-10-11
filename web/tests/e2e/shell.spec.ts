@@ -36,6 +36,8 @@ test.beforeAll(async () => {
       'web/src/lib/components/AppShell.svelte',
       'web/src/lib/components/CapabilityGate.svelte',
       'web/src/lib/runtime/view-context.ts',
+      'web/src/lib/runtime/capabilities.ts',
+      'web/src/lib/config/operation-flags.ts',
       'web/src/app.css',
       'web/src/routes/+layout.svelte',
       'web/tests/unit/components/shell.test.ts',
@@ -314,14 +316,20 @@ for (const width of [320, 1024]) {
       expect(
         connectedClosed.navigation.map((item) => item.label?.split(' ')[0])
       ).toEqual(['HarvestCircle', 'Search', 'Messages', 'Selling', 'Identity']);
-      const summary = page.locator('summary');
+      const summary = page.locator('nav[aria-label="Primary"] summary');
       await summary.focus();
       await page.keyboard.press('Enter');
-      await expect(page.locator('details')).toHaveAttribute('open', '');
+      await expect(
+        page.locator('nav[aria-label="Primary"] details')
+      ).toHaveAttribute('open', '');
       await page.keyboard.press('Space');
-      await expect(page.locator('details')).not.toHaveAttribute('open', '');
+      await expect(
+        page.locator('nav[aria-label="Primary"] details')
+      ).not.toHaveAttribute('open', '');
       await page.keyboard.press('Enter');
-      await expect(page.locator('details')).toHaveAttribute('open', '');
+      await expect(
+        page.locator('nav[aria-label="Primary"] details')
+      ).toHaveAttribute('open', '');
       await expect(page.locator('.key')).toHaveText(
         'HC_TEST_ONLY_PUBLIC_KEY_' + 'a'.repeat(64)
       );
@@ -420,11 +428,13 @@ test('controlled shell callbacks become available only after actual hydration', 
     await expect(
       page.getByRole('status').filter({ hasText: /^Commands:/ })
     ).toHaveText('Commands: 1');
-    const identity = page.locator('summary');
+    const identity = page.locator('nav[aria-label="Primary"] summary');
     await identity.focus();
     await expect(identity).toBeFocused();
     await page.keyboard.press('Enter');
-    await expect(page.locator('details')).toHaveAttribute('open', '');
+    await expect(
+      page.locator('nav[aria-label="Primary"] details')
+    ).toHaveAttribute('open', '');
     await expect(
       page.getByRole('button', { name: 'Disconnect', exact: true })
     ).toBeEnabled();

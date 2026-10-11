@@ -34,14 +34,16 @@ export {
 } from '../../../src/lib/persistence/records.ts';
 export const discovery = 'wss://discovery.example.org',
   inbox = 'wss://inbox.example.org';
-export function fixturePolicy() {
+export function fixturePolicy(
+  flags = { postingEnabled: true, messagingEnabled: true }
+) {
   return validateRelayPolicy(
     JSON.stringify({
       schemaVersion: 1,
       public: [{ origin: discovery, read: true, write: true, nip50: false }],
       inbox: [{ origin: inbox, read: true, write: true }],
-      postingEnabled: true,
-      messagingEnabled: true,
+      postingEnabled: flags.postingEnabled,
+      messagingEnabled: flags.messagingEnabled,
       operatorDenylist: []
     })
   )!;

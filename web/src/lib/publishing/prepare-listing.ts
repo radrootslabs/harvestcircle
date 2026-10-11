@@ -6,6 +6,7 @@ import type {
 import { canonicalLocalId, newLocalId } from '../private-handles.ts';
 import { readRelayPolicy, publicRelayTargets } from '../config/relays.ts';
 import { inspectLocalTemplate } from '../nostr/local-template.ts';
+import { operationEnabled } from '../config/operation-flags.ts';
 import {
   verifyEnvelope,
   verifiedEnvelopeSnapshot
@@ -280,7 +281,11 @@ async function reviewListing(
       owner,
       withdrawal ? 5 : 30402
     );
-    if (!template || !manifest.postingEnabled || targets.length === 0)
+    if (
+      !template ||
+      !operationEnabled(ready.policy, retained ? 'posting' : 'new_listing') ||
+      targets.length === 0
+    )
       return { status: 'blocked', reason: 'unavailable' };
     const digest = await crypto.subtle.digest(
       'SHA-256',

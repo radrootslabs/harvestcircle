@@ -3,12 +3,9 @@ import {
   inboxSetupRecordCurrent,
   type InboxSetupReview
 } from './inbox-setup.ts';
+import { operationEnabled } from '../config/operation-flags.ts';
 import type { InboxResolver } from './resolve-inbox.ts';
-import {
-  publicRelayTargets,
-  readRelayPolicy,
-  type RelayPolicy
-} from '../config/relays.ts';
+import { publicRelayTargets, type RelayPolicy } from '../config/relays.ts';
 import { canonicalLocalId } from '../private-handles.ts';
 import {
   identityMessagingOwnership,
@@ -165,12 +162,10 @@ export async function resumeInboxPreferenceOperation(
     const row = publicRecordSnapshot(read.value, owner.owner, id);
     if (row?.family !== 'preference_operation') return { status: 'invalid' };
     if (row.revision < 2 || !row.artifact) return { status: 'unknown' };
-    const manifest = readRelayPolicy(policy),
-      fingerprint = await preferencePolicyFingerprint(policy),
+    const fingerprint = await preferencePolicyFingerprint(policy),
       resolver = await lookup();
     if (
-      !manifest.messagingEnabled ||
-      !manifest.postingEnabled ||
+      !operationEnabled(policy, 'messaging') ||
       row.capture.policyFingerprint !== fingerprint ||
       JSON.stringify(row.capture.targets) !==
         JSON.stringify(publicRelayTargets(policy, 'write')) ||
@@ -270,10 +265,8 @@ export async function runInboxPreferenceOperation(
         const row = publicRecordSnapshot(claimed, capture.owner, saved.id);
         if (row?.family !== 'preference_operation')
           return { status: 'invalid' };
-        const manifest = readRelayPolicy(saved.policy);
         if (
-          !manifest.messagingEnabled ||
-          !manifest.postingEnabled ||
+          !operationEnabled(saved.policy, 'messaging') ||
           row.capture.policyFingerprint !==
             (await preferencePolicyFingerprint(saved.policy)) ||
           JSON.stringify(row.capture.targets) !==

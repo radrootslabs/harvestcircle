@@ -42,7 +42,9 @@ import { createPublicPublicationRepository } from '../../../src/lib/persistence/
 import { encodeProductReference } from '../../../src/lib/nostr/references.ts';
 import { projectFoodParts } from '../../../src/lib/contracts/food-availability-v1/read.ts';
 import type { PublicDraftForm } from '../../../src/lib/contracts/local-records.ts';
-export async function createFixture() {
+export async function createFixture(
+  flags = { postingEnabled: true, messagingEnabled: true }
+) {
   const original = await originalFixture();
   if ((await original.signed()) !== 'prepared')
     throw Error('actual original signature missing');
@@ -69,7 +71,7 @@ export async function createFixture() {
     repository = createPublicPublicationRepository(database, row.owner);
   if (!repository) throw Error('actual repository missing');
   const publicContext = createPublicRuntimeContext();
-  const runtime = mountPublicRuntime(publicContext, fixturePolicy());
+  const runtime = mountPublicRuntime(publicContext, fixturePolicy(flags));
   if (!runtime) throw Error('actual runtime missing');
   let source: OwnedEditSource | undefined,
     panel: ReturnType<typeof mount> | undefined,

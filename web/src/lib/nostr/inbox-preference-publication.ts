@@ -1,4 +1,5 @@
 import type { NostrEvent } from 'applesauce-core/helpers';
+import { operationEnabled } from '../config/operation-flags.ts';
 import {
   publicRelayTargets,
   readRelayPolicy,
@@ -86,11 +87,9 @@ export async function authorizeStoredInboxPreference(
       session: capture.session
     };
     const fingerprint = await preferencePolicyFingerprint(policy),
-      manifest = readRelayPolicy(policy),
       targets = publicRelayTargets(policy, 'write');
     if (
-      !manifest.messagingEnabled ||
-      !manifest.postingEnabled ||
+      !operationEnabled(policy, 'messaging') ||
       fingerprint !== row.capture.policyFingerprint ||
       JSON.stringify(targets) !== JSON.stringify(row.capture.targets)
     )

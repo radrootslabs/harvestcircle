@@ -157,7 +157,7 @@
       disabled={model.busy ||
         model.state === 'completed' ||
         !text.trim() ||
-        (!!request && !productRequestSnapshot(request)?.readyToSend)}
+        !model.readyToSend}
       onclick={() => {
         void send();
       }}>{request ? 'Send request' : 'Send reply'}</button

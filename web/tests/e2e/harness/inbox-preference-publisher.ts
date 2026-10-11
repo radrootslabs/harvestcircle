@@ -46,7 +46,9 @@ export {
   loadPreferenceOperation
 } from '../../../src/lib/persistence/quota.ts';
 export { publicRecordSnapshot };
-export async function makePublisherFixture() {
+export async function makePublisherFixture(
+  flags = { postingEnabled: true, messagingEnabled: true }
+) {
   const fixture = makeFixture(10050),
     original = publicRecordSnapshot(fixture.record, fixture.owner, fixture.id)!;
   if (original.family !== 'preference_operation' || !original.source.wire)
@@ -77,7 +79,7 @@ export async function makePublisherFixture() {
   });
   await connectIdentity(identity);
   await probeIdentityMessaging(identity, 'reviewed_self_copy');
-  const policy = fixturePolicy(),
+  const policy = fixturePolicy(flags),
     schedulers: ReturnType<typeof createPublicScheduler>[] = [];
   function resolve(event = source, complete = true) {
     const scheduler = createPublicScheduler({

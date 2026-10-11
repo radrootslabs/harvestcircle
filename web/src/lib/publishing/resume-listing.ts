@@ -1,3 +1,4 @@
+import { operationEnabled } from '../config/operation-flags.ts';
 import {
   publicPublicationOwner,
   readPublicListingIntent,
@@ -13,11 +14,7 @@ import {
   recheckIdentityOwner,
   type IdentitySession
 } from '../runtime/identity-session.ts';
-import {
-  publicRelayTargets,
-  readRelayPolicy,
-  type RelayPolicy
-} from '../config/relays.ts';
+import { publicRelayTargets, type RelayPolicy } from '../config/relays.ts';
 import { preferencePolicyFingerprint } from '../nostr/inbox-preference-publication.ts';
 import type { PublicPool } from '../nostr/public-pool.ts';
 import { beginListingRetry } from './retry-listing.ts';
@@ -89,8 +86,7 @@ export async function prepareListingResume(
     const read = await readPublicListingIntent(repository, id);
     const row =
       read.status === 'found' && publicRecordSnapshot(read.record, owner, id);
-    const manifest = readRelayPolicy(policy),
-      targets = publicRelayTargets(policy, 'write'),
+    const targets = publicRelayTargets(policy, 'write'),
       fingerprint = await preferencePolicyFingerprint(policy);
     if (
       !current() ||
@@ -99,8 +95,7 @@ export async function prepareListingResume(
       row.capture.kind !== 30402 ||
       !row.artifact ||
       row.revision < 2 ||
-      !manifest.postingEnabled ||
-      !manifest.messagingEnabled ||
+      !operationEnabled(policy, 'posting') ||
       fingerprint !== row.capture.policyFingerprint ||
       JSON.stringify(targets) !== JSON.stringify(row.capture.targets)
     )

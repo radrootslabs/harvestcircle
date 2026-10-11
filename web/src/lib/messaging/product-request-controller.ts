@@ -15,6 +15,7 @@ import {
   type InboxSetupView
 } from './inbox-setup-view.ts';
 import { messagingReadinessSnapshot } from './readiness.ts';
+import { operationEnabled } from '../config/operation-flags.ts';
 import {
   sellerInboxStatus,
   sellerInboxCopy,
@@ -193,6 +194,7 @@ export function createProductRequestController(
     return (
       !!scope &&
       !!source &&
+      operationEnabled(scope.own.policy, 'messaging') &&
       messagingReadinessSnapshot(
         identity!,
         scope.own.session,
@@ -227,11 +229,14 @@ export function createProductRequestController(
       ),
       copy:
         copy ||
-        (state === 'preparing'
-          ? 'Preparing encryption. The extension may ask for several approvals.'
-          : state === 'publishing'
-            ? 'Publishing encrypted copies to the reviewed inbox relays.'
-            : ''),
+        (inboxSetupViewOwnership(setup)?.policy &&
+        !operationEnabled(inboxSetupViewOwnership(setup)?.policy, 'messaging')
+          ? 'Messaging is disabled in this build. Keep your unsent draft and review existing encrypted work separately.'
+          : state === 'preparing'
+            ? 'Preparing encryption. The extension may ask for several approvals.'
+            : state === 'publishing'
+              ? 'Publishing encrypted copies to the reviewed inbox relays.'
+              : ''),
       saveCopy: draft
         ? draft.copy
         : attempted
@@ -248,6 +253,13 @@ export function createProductRequestController(
     if (!current()) return { status: 'stopped' };
     if (busy) return { status: 'busy' };
     if (attempted) return { status: 'needs_action' };
+    const requestedPolicy = inboxSetupViewOwnership(setup)?.policy;
+    if (requestedPolicy && !operationEnabled(requestedPolicy, 'messaging')) {
+      state = 'needs_action';
+      copy =
+        'Messaging is disabled in this build. Your unsent text remains in memory; existing encrypted work needs its own recovery review.';
+      return { status: 'needs_action' };
+    }
     const captured = ownership();
     if (
       !captured ||

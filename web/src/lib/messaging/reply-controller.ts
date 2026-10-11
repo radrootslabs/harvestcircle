@@ -1,6 +1,7 @@
 import { inboxReplyOwnership, type InboxView } from './inbox-view.ts';
 import { inboxSetupViewOwnership } from './inbox-setup-view.ts';
 import { messagingReadinessSnapshot } from './readiness.ts';
+import { operationEnabled } from '../config/operation-flags.ts';
 import {
   createInboxRoutePlan,
   inboxRoutePlanSnapshot
@@ -78,6 +79,7 @@ type State =
   | 'completed';
 type Snapshot = Readonly<{
   state: State;
+  readyToSend: boolean;
   busy: boolean;
   dirty: boolean;
   copy: string;
@@ -154,15 +156,26 @@ export function createReplyController(
     if (!draft) return;
     return {
       state,
+      readyToSend:
+        !attempted &&
+        operationEnabled(
+          inboxSetupViewOwnership(scope!.setup)?.policy,
+          'messaging'
+        ),
       busy,
       dirty: draft.dirty,
       copy:
         copy ||
-        (state === 'preparing'
-          ? 'Preparing encryption. The extension may ask for several approvals.'
-          : state === 'publishing'
-            ? 'Publishing encrypted copies to the reviewed inbox relays.'
-            : ''),
+        (!operationEnabled(
+          inboxSetupViewOwnership(scope!.setup)?.policy,
+          'messaging'
+        )
+          ? 'Messaging is disabled in this build. Keep your unsent draft and review existing encrypted work separately.'
+          : state === 'preparing'
+            ? 'Preparing encryption. The extension may ask for several approvals.'
+            : state === 'publishing'
+              ? 'Publishing encrypted copies to the reviewed inbox relays.'
+              : ''),
       saveCopy: draft.copy,
       pairCopy: workflow?.pairCopy ?? draft.pairCopy,
       navigation: dirtyNavigationSnapshot(navigation!)?.state ?? 'idle'
@@ -172,6 +185,17 @@ export function createReplyController(
     if (review !== 'reviewed_reply_send') return { status: 'invalid' };
     if (!current()) return { status: 'stopped' };
     if (busy) return { status: 'busy' };
+    if (
+      !operationEnabled(
+        inboxSetupViewOwnership(scope!.setup)?.policy,
+        'messaging'
+      )
+    ) {
+      state = 'needs_action';
+      copy =
+        'Messaging is disabled in this build. Your unsent text remains in memory; existing encrypted work needs its own recovery review.';
+      return { status: 'needs_action' };
+    }
     const text = privateComposerText(composer!);
     if (!text?.trim()) return { status: 'invalid' };
     if (attempted) return { status: 'needs_action' };

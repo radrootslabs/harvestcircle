@@ -1,9 +1,6 @@
 import type { NostrEvent } from 'applesauce-core/helpers';
-import {
-  publicRelayTargets,
-  readRelayPolicy,
-  type RelayPolicy
-} from '../config/relays.ts';
+import { operationEnabled } from '../config/operation-flags.ts';
+import { publicRelayTargets, type RelayPolicy } from '../config/relays.ts';
 import {
   listingPublicationOwnership,
   type ListingPublication
@@ -268,14 +265,12 @@ export async function authorizeListingAttempt(
       original = owner.original;
     const row =
       record && publicRecordSnapshot(record, original.owner, original.command);
-    const manifest = readRelayPolicy(owner.policy),
-      targets = publicRelayTargets(owner.policy, 'write'),
+    const targets = publicRelayTargets(owner.policy, 'write'),
       fingerprint = await preferencePolicyFingerprint(owner.policy);
     if (
       row?.family !== 'public_operation' ||
       !row.artifact ||
-      !manifest.postingEnabled ||
-      !manifest.messagingEnabled ||
+      !operationEnabled(owner.policy, 'posting') ||
       fingerprint !== row.capture.policyFingerprint ||
       JSON.stringify(targets) !== JSON.stringify(row.capture.targets) ||
       !row.capture.targets.includes(origin)

@@ -12,6 +12,12 @@ declare global {
   interface Window {
     hcp107: typeof Fixture;
     hcp107Fixture: Awaited<ReturnType<typeof Fixture.renderFixture>>;
+    hcp108SendClock: {
+      samples: { milliseconds: number; phase: string; stack?: string }[];
+      locks: { captured: number; callback: number; granted: boolean }[];
+      transactions: string[];
+      restore(): void;
+    };
   }
 }
 let server: Awaited<ReturnType<typeof createStaticHarness>>;
@@ -335,62 +341,244 @@ for (const status of ['sold', 'withdrawn'] as const)
     await noPrivate(page);
   });
 
-test('HCP108 incomplete active terms need explicit original acknowledgement and retain signed citations', async ({
-  page
-}) => {
-  incompleteListing = true;
-  await page.evaluate(async () => {
-    window.hcp107Fixture = await window.hcp107.renderFixture();
-  });
-  await expect
-    .poll(() =>
-      page.evaluate(() => window.hcp107Fixture.viewSnapshot().outcome)
-    )
-    .toBe('active');
-  await expect(
-    panel(page).getByRole('button', { name: 'Message seller', exact: true })
-  ).toBeDisabled();
-  expect(
-    await page.evaluate(() => window.hcp107Fixture.captureUncertain(undefined))
-  ).toBe(false);
-  await panel(page)
-    .getByRole('button', {
-      name: 'I understand the listing status is uncertain',
-      exact: true
-    })
-    .click();
-  await panel(page)
-    .getByRole('button', { name: 'Message seller', exact: true })
-    .click();
-  await expect(editor(page)).toBeVisible();
-  const observed = await page.evaluate(() => ({
-    product: window.hcp107Fixture.product(),
-    view: window.hcp107Fixture.viewSnapshot(),
-    message: window.hcp107Fixture.message()
-  }));
-  expect(observed.product?.eventId).toBe(observed.view.eventId);
-  expect(observed.message?.tags).toEqual([['p', peer]]);
-  expect(observed.message?.content).toContain(
-    'nostr:' + observed.product?.nevent
+for (const crossSecond of [false, true])
+  test(
+    crossSecond
+      ? 'HCP126 original product request refuses a real reservation second boundary without native rows or crypto'
+      : 'HCP108 incomplete active terms need explicit original acknowledgement and retain signed citations',
+    async ({ page }) => {
+      incompleteListing = true;
+      await page.evaluate(async () => {
+        window.hcp107Fixture = await window.hcp107.renderFixture();
+      });
+      await expect
+        .poll(() =>
+          page.evaluate(() => window.hcp107Fixture.viewSnapshot().outcome)
+        )
+        .toBe('active');
+      await expect(
+        panel(page).getByRole('button', { name: 'Message seller', exact: true })
+      ).toBeDisabled();
+      expect(
+        await page.evaluate(() =>
+          window.hcp107Fixture.captureUncertain(undefined)
+        )
+      ).toBe(false);
+      await panel(page)
+        .getByRole('button', {
+          name: 'I understand the listing status is uncertain',
+          exact: true
+        })
+        .click();
+      await panel(page)
+        .getByRole('button', { name: 'Message seller', exact: true })
+        .click();
+      await expect(editor(page)).toBeVisible();
+      const observed = await page.evaluate(() => ({
+        product: window.hcp107Fixture.product(),
+        view: window.hcp107Fixture.viewSnapshot(),
+        message: window.hcp107Fixture.message()
+      }));
+      expect(observed.product?.eventId).toBe(observed.view.eventId);
+      expect(observed.message?.tags).toEqual([['p', peer]]);
+      expect(observed.message?.content).toContain(
+        'nostr:' + observed.product?.nevent
+      );
+      await noPrivate(page);
+      if (crossSecond)
+        await editor(page).fill('HC_TEST_ONLY_unsent_boundary_request');
+      await unlock(page);
+      const before = await page.evaluate(async () => ({
+        native: await window.hcp107Fixture.native(),
+        counts: window.hcp107Fixture.counts(),
+        text: window.hcp107Fixture.text()
+      }));
+      await page.evaluate((crossSecond) => {
+        const original = Date.now;
+        const fixed = original();
+        let phase = 'send';
+        let crossed = false;
+        const samples: {
+          milliseconds: number;
+          phase: string;
+          stack?: string;
+        }[] = [];
+        const locks: {
+          captured: number;
+          callback: number;
+          granted: boolean;
+        }[] = [];
+        const transactions: string[] = [];
+        const manager = navigator.locks;
+        const descriptor = Object.getOwnPropertyDescriptor(manager, 'request');
+        const request = Reflect.get(manager, 'request');
+        const owner = window.hcp107Fixture.owner;
+        manager.request = (...args: unknown[]) => {
+          const forwarded = args.slice();
+          const at = args.length - 1;
+          const callback = args[at] as (lock: Lock | null) => unknown;
+          const options =
+            args.length === 3 ? (args[1] as LockOptions) : undefined;
+          forwarded[at] = async (lock: Lock | null) => {
+            if (
+              lock &&
+              options?.ifAvailable &&
+              args[0] === 'harvestcircle:owner:' + owner &&
+              !crossed
+            ) {
+              crossed = true;
+              const captured = samples.at(-1)!.milliseconds;
+              if (crossSecond)
+                await new Promise<void>((resolve) => {
+                  function afterBoundary() {
+                    if (
+                      Math.floor(original() / 1000) ===
+                      Math.floor(captured / 1000)
+                    ) {
+                      window.setTimeout(afterBoundary, 1);
+                      return;
+                    }
+                    resolve();
+                  }
+                  window.setTimeout(
+                    afterBoundary,
+                    Math.max(
+                      1,
+                      (Math.floor(captured / 1000) + 1) * 1000 - original() + 1
+                    )
+                  );
+                });
+              locks.push({ captured, callback: original(), granted: true });
+              phase = 'owner_reservation';
+              try {
+                return await callback(lock);
+              } finally {
+                phase = 'send';
+              }
+            }
+            return callback(lock);
+          };
+          return Reflect.apply(request, manager, forwarded) as Promise<unknown>;
+        };
+        const prototype = IDBDatabase.prototype;
+        const transactionDescriptor = Object.getOwnPropertyDescriptor(
+          prototype,
+          'transaction'
+        )!;
+        const transaction = Reflect.get(prototype, 'transaction');
+        prototype.transaction = function (
+          this: IDBDatabase,
+          ...args: Parameters<IDBDatabase['transaction']>
+        ) {
+          const tx: IDBTransaction = Reflect.apply(transaction, this, args);
+          if (
+            tx.mode === 'readwrite' &&
+            tx.objectStoreNames.contains('private_sends')
+          )
+            for (const outcome of ['abort', 'complete'])
+              tx.addEventListener(outcome, () => transactions.push(outcome));
+          return tx;
+        } as typeof prototype.transaction;
+        Date.now = () => {
+          const milliseconds = crossSecond ? original() : fixed;
+          if (samples.length < 128)
+            samples.push({
+              milliseconds,
+              phase,
+              stack: new Error().stack?.split('\n').slice(0, 5).join('\n')
+            });
+          return milliseconds;
+        };
+        window.hcp108SendClock = {
+          samples,
+          locks,
+          transactions,
+          restore: () => {
+            Date.now = original;
+            if (descriptor)
+              Object.defineProperty(manager, 'request', descriptor);
+            else Reflect.deleteProperty(manager, 'request');
+            Object.defineProperty(
+              prototype,
+              'transaction',
+              transactionDescriptor
+            );
+          }
+        };
+      }, crossSecond);
+      try {
+        await panel(page)
+          .getByRole('button', { name: 'Send request', exact: true })
+          .click();
+        await expect
+          .poll(() =>
+            page.evaluate(() => window.hcp107Fixture.snapshot()?.busy)
+          )
+          .toBe(false);
+        const terminal = await page.evaluate(() => {
+          window.hcp108SendClock.restore();
+          return {
+            snapshot: window.hcp107Fixture.snapshot(),
+            counts: window.hcp107Fixture.counts(),
+            samples: window.hcp108SendClock.samples,
+            locks: window.hcp108SendClock.locks,
+            transactions: window.hcp108SendClock.transactions
+          };
+        });
+        console.log(
+          JSON.stringify({
+            fixture: 'HCP126_ORIGINAL_REQUEST_SEND_DIAGNOSTIC',
+            terminal
+          })
+        );
+        if (crossSecond) {
+          expect(terminal.snapshot?.state).toBe('needs_action');
+          expect(terminal.locks).toHaveLength(1);
+          expect(Math.floor(terminal.locks[0].callback / 1000)).toBeGreaterThan(
+            Math.floor(terminal.locks[0].captured / 1000)
+          );
+          expect(terminal.transactions).toEqual(['abort']);
+          expect(events.filter((row) => row.event.kind === 1059)).toEqual([]);
+          expect(
+            await page.evaluate(() => window.hcp107Fixture.native())
+          ).toEqual(before.native);
+          expect(await page.evaluate(() => window.hcp107Fixture.text())).toBe(
+            before.text
+          );
+          for (const key of ['encrypts', 'decrypts', 'signs'] as const)
+            expect(terminal.counts[key]).toBe(before.counts[key]);
+          await expect(
+            panel(page).getByRole('button', {
+              name: 'Send request',
+              exact: true
+            })
+          ).toBeDisabled();
+          expect(
+            await page.evaluate(() => window.hcp107Fixture.counts())
+          ).toEqual(terminal.counts);
+          expect(events.filter((row) => row.event.kind === 1059)).toEqual([]);
+          return;
+        }
+        expect(terminal.snapshot?.state).toBe('completed');
+        await expect
+          .poll(() => events.filter((row) => row.event.kind === 1059).length)
+          .toBe(2);
+        expect(
+          events
+            .filter((row) => row.event.kind === 1059)
+            .map((row) => row.origin)
+            .sort()
+        ).toEqual(['wss://archive.example.org', 'wss://peer.example.org']);
+        await expect
+          .poll(() =>
+            page.evaluate(() => window.hcp107Fixture.snapshot()?.state)
+          )
+          .toBe('completed');
+      } finally {
+        await page.evaluate(() => window.hcp108SendClock.restore());
+      }
+    }
   );
-  await noPrivate(page);
-  await unlock(page);
-  await panel(page)
-    .getByRole('button', { name: 'Send request', exact: true })
-    .click();
-  await expect
-    .poll(() => events.filter((row) => row.event.kind === 1059).length)
-    .toBe(2);
-  expect(
-    events
-      .filter((row) => row.event.kind === 1059)
-      .map((row) => row.origin)
-      .sort()
-  ).toEqual(['wss://archive.example.org', 'wss://peer.example.org']);
-  await expect
-    .poll(() => page.evaluate(() => window.hcp107Fixture.snapshot()?.state))
-    .toBe('completed');
-});
 
 test('HCP108 connecting as the verified publisher shows Manage and keeps unsent memory without self enquiry', async ({
   page
