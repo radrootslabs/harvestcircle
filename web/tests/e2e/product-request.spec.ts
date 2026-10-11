@@ -18,6 +18,14 @@ declare global {
       transactions: string[];
       restore(): void;
     };
+    hcp126HeldClock: {
+      samples: {
+        milliseconds: number;
+        actualMilliseconds: number;
+        stack?: string;
+      }[];
+      restore(): void;
+    };
   }
 }
 let server: Awaited<ReturnType<typeof createStaticHarness>>;
@@ -1175,20 +1183,83 @@ test('disconnect during held crypto prevents late publication', async ({
   await ready(page);
   await unlock(page);
   await page.evaluate(() => window.hcp107Fixture.mode('hold_encrypt'));
-  await panel(page)
-    .getByRole('button', { name: 'Send request', exact: true })
-    .click();
-  await expect
-    .poll(() => page.evaluate(() => window.hcp107Fixture.pending()))
-    .toBe(true);
+  const before = await page.evaluate(async () => ({
+    native: await window.hcp107Fixture.native(),
+    counts: window.hcp107Fixture.counts()
+  }));
   await page.evaluate(() => {
-    window.hcp107Fixture.logout();
-    window.hcp107Fixture.settle();
+    const original = Date.now;
+    const fixed = original();
+    const samples: {
+      milliseconds: number;
+      actualMilliseconds: number;
+      stack?: string;
+    }[] = [];
+    Date.now = () => {
+      const milliseconds = fixed;
+      if (samples.length < 128)
+        samples.push({
+          milliseconds,
+          actualMilliseconds: original(),
+          stack: new Error().stack?.split('\n').slice(0, 5).join('\n')
+        });
+      return milliseconds;
+    };
+    window.hcp126HeldClock = {
+      samples,
+      restore: () => {
+        Date.now = original;
+      }
+    };
   });
-  await expect
-    .poll(() => page.evaluate(() => window.hcp107Fixture.pending()))
-    .toBe(false);
-  expect(events).toEqual([]);
+  try {
+    await panel(page)
+      .getByRole('button', { name: 'Send request', exact: true })
+      .click();
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const snapshot = window.hcp107Fixture.snapshot();
+          return (
+            window.hcp107Fixture.pending() ||
+            (snapshot?.state === 'needs_action' && !snapshot.busy)
+          );
+        })
+      )
+      .toBe(true);
+    expect(await page.evaluate(() => window.hcp107Fixture.pending())).toBe(
+      true
+    );
+    await page.evaluate(() => {
+      window.hcp126HeldClock.restore();
+      window.hcp107Fixture.logout();
+      window.hcp107Fixture.settle();
+    });
+    await expect
+      .poll(() => page.evaluate(() => window.hcp107Fixture.pending()))
+      .toBe(false);
+    expect(events).toEqual([]);
+  } finally {
+    const terminal = await page.evaluate(async () => {
+      window.hcp126HeldClock.restore();
+      return {
+        snapshot: window.hcp107Fixture.snapshot(),
+        pending: window.hcp107Fixture.pending(),
+        native: await window.hcp107Fixture.native(),
+        counts: window.hcp107Fixture.counts(),
+        text: window.hcp107Fixture.text(),
+        samples: window.hcp126HeldClock.samples
+      };
+    });
+    console.log(
+      JSON.stringify({
+        fixture: 'HCP126_ORIGINAL_HELD_SEND_DIAGNOSTIC',
+        before,
+        terminal,
+        events
+      })
+    );
+  }
 });
 test('dirty Cancel defaults to Keep editing with focus restored', async ({
   page
