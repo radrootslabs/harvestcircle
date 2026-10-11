@@ -96,6 +96,18 @@ await test('navigation fallback serves actual separate output and preserves miss
   assert.notEqual(search, fallback);
   assert.match(search, /<title>Search food — HarvestCircle<\/title>/);
   assert.match(search, /Search sources are unavailable\./);
+  const privacy = prerendered.get('/privacy');
+  assert.ok(privacy);
+  assert.match(privacy, /Hiding a publisher is local/);
+  assert.match(
+    privacy,
+    /does not delete listings, remote copies or your publication receipts/
+  );
+  assert.match(
+    privacy,
+    /Guest browsing\s+does not expose an account inventory/
+  );
+  assert.doesNotMatch(privacy, /Undo hide|[0-9a-f]{64}/);
   const document = { accept: 'text/html', 'sec-fetch-dest': 'document' };
   const server = await createStaticHarness();
   try {

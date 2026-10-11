@@ -10,6 +10,8 @@ import {
   publicViewRunCurrent,
   publicViewOwnsRun,
   publicViewKnownEvidence,
+  publicViewPublisherAllowed,
+  subscribePublicViewVisibility,
   subscribePublicView,
   type PublicView
 } from '../runtime/public-runtime.ts';
@@ -73,6 +75,7 @@ const acknowledgements = new WeakMap<
   { view: ProductView; current(this: void): boolean }
 >();
 interface Owner {
+  publisherProof: () => VerifiedEnvelope | undefined;
   snapshot: () => ProductViewSnapshot;
   listing: (
     acknowledgement?: ProductStatusAcknowledgement
@@ -123,6 +126,7 @@ export function createProductView(
   function snapshot(): ProductViewSnapshot {
     const available =
       !closed &&
+      publicViewPublisherAllowed(view, reference.pubkey) &&
       publicViewProjectionAvailable(view) &&
       publicViewOwnsRun(view, run);
     const row = available ? headResolutionSnapshot(resolver)[0] : undefined;
@@ -171,6 +175,7 @@ export function createProductView(
     const publisher = publisherSnapshot(publishers, reference.pubkey);
     const stillAvailable =
       !closed &&
+      publicViewPublisherAllowed(view, reference.pubkey) &&
       publicViewProjectionAvailable(view) &&
       publicViewOwnsRun(view, run);
     return {
@@ -206,6 +211,7 @@ export function createProductView(
     else next();
   }
   const token = Object.freeze({}) as ProductView;
+  const offVisibility = subscribePublicViewVisibility(view, publish);
   function coverageKey(observed: ProductViewSnapshot) {
     return JSON.stringify({
       runCurrent: publicViewRunCurrent(view, run),
@@ -225,6 +231,18 @@ export function createProductView(
   }
   owners.set(token, {
     snapshot,
+    publisherProof() {
+      const observed = snapshot();
+      if (
+        !head ||
+        closed ||
+        observed.eventId !== publicHeadSnapshot(head).id ||
+        !publicViewOwnsRun(view, run) ||
+        !publicViewProjectionAvailable(view)
+      )
+        return;
+      return publicHeadEnvelope(head);
+    },
     acknowledge(review) {
       const observed = snapshot();
       if (
@@ -288,6 +306,7 @@ export function createProductView(
     close() {
       const notifyTerminal = !closed;
       closed = true;
+      offVisibility();
       const previous = cancel;
       cancel = undefined;
       previous?.();
@@ -313,6 +332,8 @@ export function createProductView(
     }
   });
   try {
+    if (!publicViewPublisherAllowed(view, reference.pubkey))
+      throw Error('public_content_unavailable');
     const filter =
       reference.identifier === ''
         ? {
@@ -369,6 +390,11 @@ export function createProductView(
 }
 export function productViewSnapshot(token: ProductView): ProductViewSnapshot {
   return ownerOf(token).snapshot();
+}
+export function productViewPublisherProof(
+  token: ProductView
+): VerifiedEnvelope | undefined {
+  return owners.get(token)?.publisherProof();
 }
 export function closeProductView(token: ProductView): void {
   ownerOf(token).close();

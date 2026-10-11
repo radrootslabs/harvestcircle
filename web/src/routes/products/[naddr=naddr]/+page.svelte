@@ -25,6 +25,7 @@
   import Disclosure from '../../../lib/components/primitives/Disclosure.svelte';
   import Button from '../../../lib/components/primitives/Button.svelte';
   import ProductEnquiry from '../../../lib/components/ProductEnquiry.svelte';
+  import PublisherHide from '../../../lib/components/PublisherHide.svelte';
   const context = getContext<PublicRuntimeContext>(PUBLIC_RUNTIME_CONTEXT);
   let runtime = $state.raw<PublicRuntime | undefined>(),
     result = $state.raw<ProductViewSnapshot | undefined>(),
@@ -149,6 +150,11 @@
         view={productOwner}
         observation={result}
       />{/if}
+    {#if productOwner && result.eventId}
+      <Disclosure summary="Publisher controls"
+        ><PublisherHide view={productOwner} /></Disclosure
+      >
+    {/if}
     <Disclosure summary="Listing and source details">
       {#if result.eventId}<p>
           Listing version: <code>{result.eventId}</code>
@@ -172,4 +178,5 @@
       href={internalHref(`/products/${reference.naddr}`)}>Public food link</a
     >{/if}
   {#if copyNotice}<p role="status">{copyNotice}</p>{/if}
+  <a href={internalHref('/privacy')}>Privacy and local publisher controls</a>
 </div>

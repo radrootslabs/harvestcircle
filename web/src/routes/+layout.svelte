@@ -6,6 +6,7 @@
     createPublicRuntimeContext,
     mountPublicRuntime,
     closePublicRuntime,
+    bindPublicRuntimeHides,
     PUBLIC_RUNTIME_CONTEXT
   } from '../lib/runtime/public-runtime.ts';
   import { page } from '$app/state';
@@ -21,7 +22,15 @@
     closeIdentityView,
     invalidateIdentityView
   } from '../lib/runtime/view-context.ts';
+  import {
+    createLocalPublicHides,
+    mountLocalPublicHides,
+    closeLocalPublicHides,
+    LOCAL_PUBLIC_HIDES_CONTEXT
+  } from '../lib/persistence/local-public-hides.ts';
   const identityContext = createIdentityViewContext();
+  const publicHides = createLocalPublicHides(identityContext);
+  setContext(LOCAL_PUBLIC_HIDES_CONTEXT, publicHides);
   setContext(IDENTITY_VIEW_CONTEXT, identityContext);
   let identityView = $state(identityViewSnapshot(identityContext));
   $effect(() => {
@@ -50,8 +59,13 @@
   const publicContext = createPublicRuntimeContext();
   setContext(PUBLIC_RUNTIME_CONTEXT, publicContext);
   onMount(() => {
-    mountPublicRuntime(publicContext);
-    return () => closePublicRuntime(publicContext);
+    const runtime = mountPublicRuntime(publicContext);
+    if (runtime) bindPublicRuntimeHides(runtime, publicHides);
+    void mountLocalPublicHides(publicHides);
+    return () => {
+      closeLocalPublicHides(publicHides);
+      closePublicRuntime(publicContext);
+    };
   });
   onMount(() => {
     const off = subscribeIdentityView(identityContext, (next) => {

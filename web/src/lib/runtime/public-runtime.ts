@@ -1,5 +1,10 @@
 import { deploymentRelayPolicy } from '../config/deployment-relays.ts';
-import type { RelayPolicy } from '../config/relays.ts';
+import { readRelayPolicy, type RelayPolicy } from '../config/relays.ts';
+import {
+  localPublicPublisherAllowed,
+  subscribeLocalPublicHides,
+  type LocalPublicHides
+} from '../persistence/local-public-hides.ts';
 import { qualifiedNip50Sources } from '../nostr/search-sources.ts';
 import {
   getPublicPool,
@@ -38,7 +43,10 @@ import {
   type PublicHead
 } from '../catalog/heads.ts';
 import type { KnownPublicEvidence } from '../catalog/retention.ts';
-import type { VerifiedEnvelope } from '../nostr/verified-envelope.ts';
+import {
+  verifiedEnvelopeSnapshot,
+  type VerifiedEnvelope
+} from '../nostr/verified-envelope.ts';
 declare const contextBrand: unique symbol;
 declare const runtimeBrand: unique symbol;
 declare const viewBrand: unique symbol;
@@ -74,6 +82,7 @@ interface ViewOwner {
   readonly settleWith: (refresh: () => void) => void;
   readonly dispose: () => boolean;
 }
+const runtimeHides = new WeakMap<RuntimeOwner, LocalPublicHides>();
 const contexts = new WeakMap<PublicRuntimeContext, ContextOwner>(),
   runtimes = new WeakMap<PublicRuntime, RuntimeOwner>(),
   views = new WeakMap<PublicView, ViewOwner>();
@@ -323,6 +332,38 @@ export function createPublicView(runtime: PublicRuntime): PublicView {
   shared.views.set(token, () => owner.dispose());
   return token;
 }
+// Root-lifetime original local preference custody, never detached UI keys.
+export function bindPublicRuntimeHides(
+  runtime: PublicRuntime,
+  hides: LocalPublicHides
+): void {
+  const owner = runtimeOf(runtime);
+  if (runtimeHides.has(owner) && runtimeHides.get(owner) !== hides)
+    throw Error('public_visibility_already_bound');
+  runtimeHides.set(owner, hides);
+}
+function publisherAllowed(owner: RuntimeOwner, publisher: string): boolean {
+  return (
+    !owner.closed() &&
+    !readRelayPolicy(owner.policy).operatorDenylist.includes(publisher) &&
+    (!runtimeHides.has(owner) ||
+      localPublicPublisherAllowed(runtimeHides.get(owner)!, publisher))
+  );
+}
+export function publicViewPublisherAllowed(
+  view: PublicView,
+  publisher: string
+): boolean {
+  const owner = viewOf(view);
+  return publisherAllowed(owner.runtime, publisher);
+}
+export function subscribePublicViewVisibility(
+  view: PublicView,
+  listener: () => void
+): () => void {
+  const hides = runtimeHides.get(viewOf(view).runtime);
+  return hides ? subscribeLocalPublicHides(hides, listener) : () => {};
+}
 export function beginPublicViewRun(view: PublicView): PublicRun {
   return viewOf(view).begin();
 }
@@ -352,7 +393,18 @@ export function subscribePublicView(
   if (!owner.current(run)) throw new Error('public_view_run_inactive');
   // Copy the request template once before SDK effects; caller mutations cannot
   // retarget this request. Product filter builders remain HCP038 and later.
-  const frozen = JSON.stringify(filters);
+  const copied = JSON.parse(JSON.stringify(filters)) as PublicFilter[];
+  const admitted = copied.flatMap((filter) => {
+    if (!filter.authors) return [filter];
+    const authors = filter.authors.filter((author) =>
+      publisherAllowed(owner.runtime, author)
+    );
+    return authors.length ? [{ ...filter, authors }] : [];
+  });
+  // Refuse known denied author-specific actions before SDK request creation.
+  // Broad discovery still charges verified ingress before publisher admission.
+  if (!admitted.length) throw Error('public_content_unavailable');
+  const frozen = JSON.stringify(admitted);
   return openPublicRequest(
     run,
     kind,
@@ -365,6 +417,9 @@ export function subscribePublicView(
       ),
     (event) => {
       if (!owner.current(run)) return;
+      const received = verifiedEnvelopeSnapshot(event);
+      if (!received || !publisherAllowed(owner.runtime, received.pubkey))
+        return;
       const result = insertPublicEnvelope(owner.runtime.store, event);
       if (result === 'limit' || result === 'rejected' || result === 'closed') {
         owner.runtime.invalidateProjection();

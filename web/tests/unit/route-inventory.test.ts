@@ -150,12 +150,16 @@ describe('thin protected route SSR', () => {
     ]).toEqual([false, false, false, false]);
   });
   it('public shells honestly disclose unavailable content without invented listings or support', () => {
-    for (const component of [About, Privacy]) {
-      const output = render(component);
-      expect(output.body).toContain('unavailable during development.');
+    for (const output of [render(About), render(Privacy)]) {
       expect(output.body).not.toMatch(/<form|<textarea|<input|mailto:|tel:/);
       expect(output.head).not.toContain('noindex');
     }
+    expect(render(About).body).toContain('unavailable during development.');
+    expect(render(Privacy).body).toContain('Hiding a publisher is local');
+    expect(render(Privacy).body.replace(/\s+/g, ' ')).toContain(
+      'Guest browsing does not expose an account inventory'
+    );
+    expect(render(Privacy).body).not.toMatch(/Undo hide|[0-9a-f]{64}/);
     expect(render(About).body).toContain('id="help"');
     const details = render(Product);
     expect(details.body).toContain('This food reference is invalid.');

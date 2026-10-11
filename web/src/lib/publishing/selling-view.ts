@@ -52,6 +52,8 @@ import {
   publicViewOwnsRun,
   publicViewProjectionAvailable,
   publicViewRunCurrent,
+  publicViewPublisherAllowed,
+  subscribePublicViewVisibility,
   type PublicRuntime,
   type PublicView
 } from '../runtime/public-runtime.ts';
@@ -133,6 +135,7 @@ export async function openSellingView(
   let resolver: HeadResolver | undefined, discovery: PublicRequest | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let offIdentity = () => {};
+  let offVisibility = () => {};
   let local: SellingSnapshot['local'] = 'unavailable';
   let remote: SellingSnapshot['remote'] = runtime ? 'checking' : 'unavailable';
   const listeners = new Map<symbol, () => void>();
@@ -159,6 +162,7 @@ export async function openSellingView(
     if (!alive) return;
     alive = false;
     offIdentity();
+    offVisibility();
     if (timer !== undefined) clearTimeout(timer);
     for (const view of operationViews) closeListingOperationView(view);
     try {
@@ -204,7 +208,9 @@ export async function openSellingView(
       const known = remoteByIdentifier.get(group.food.identifier);
       const food = known?.state.food ?? group.food;
       const suppressed = known?.deletion.outcome === 'suppressed';
-      const href = hrefFor(food.identifier);
+      const hidden =
+        publicView && !publicViewPublisherAllowed(publicView, owner ?? '');
+      const href = hidden ? undefined : hrefFor(food.identifier);
       const canEdit = !!(
         href &&
         group.supportedEventId &&
@@ -226,7 +232,9 @@ export async function openSellingView(
                 ? 'Marked sold'
                 : 'Marked available'
               : 'Saved public operation; current availability unconfirmed',
-        provenance: 'Local publication evidence · Remote discovery is bounded',
+        provenance: hidden
+          ? 'Public source hidden here · Local publication evidence retained'
+          : 'Local publication evidence · Remote discovery is bounded',
         ...(href ? { href } : {}),
         ...(canEdit ? { editHref: internalHref(`${href}/edit`) } : {}),
         ...(group.attention &&
@@ -243,6 +251,7 @@ export async function openSellingView(
     for (const row of remoteByIdentifier.values()) {
       if (
         !row.state.food ||
+        (publicView && !publicViewPublisherAllowed(publicView, owner ?? '')) ||
         row.state.head.pubkey !== owner ||
         row.state.display !== 'focused_known' ||
         row.deletion.outcome === 'suppressed'
@@ -472,6 +481,7 @@ export async function openSellingView(
     if (runtime) {
       try {
         publicView = createPublicView(runtime);
+        offVisibility = subscribePublicViewVisibility(publicView, notify);
         run = beginPublicViewRun(publicView);
         resolver = createPublicViewHeadResolver(publicView, run, {
           nowSeconds: () => Math.floor(Date.now() / 1000)

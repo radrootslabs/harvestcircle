@@ -1,4 +1,7 @@
-import type { PublicView } from '../runtime/public-runtime.ts';
+import {
+  subscribePublicViewVisibility,
+  type PublicView
+} from '../runtime/public-runtime.ts';
 import type { PublicHead } from './heads.ts';
 import type { WallClock } from './clock-policy.ts';
 import type { SearchSnapshot } from './search-state.ts';
@@ -98,6 +101,9 @@ export function createSearchView(
     if (updated?.run?.active && updated.run.activeRequests > 0) queue(token);
   }
   const token = Object.freeze({}) as SearchView;
+  const offVisibility = subscribePublicViewVisibility(view, () => {
+    if (!closed && generation) publish(generation);
+  });
   owners.set(token, {
     start(query, known) {
       requireOpen();
@@ -142,6 +148,7 @@ export function createSearchView(
     snapshot: () => foodSearchSnapshot(coordinator),
     close() {
       closed = true;
+      offVisibility();
       stop();
       closeFoodSearchCoordinator(coordinator);
       generation = undefined;

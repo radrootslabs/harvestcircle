@@ -30,6 +30,7 @@ import {
   publicViewRunCurrent,
   publicViewProjectionAvailable,
   publicViewNip50Sources,
+  publicViewPublisherAllowed,
   subscribePublicView,
   disposePublicView,
   type PublicView
@@ -321,7 +322,10 @@ export function beginFoodSearch(
     session.bindModel(model);
     requireCurrent(session);
     session.resolved(seed);
-    if (seed.length) resolveHeads(model, seed);
+    const admitted = seed.filter((head) =>
+      publicViewPublisherAllowed(owner.view, publicHeadSnapshot(head).pubkey)
+    );
+    if (admitted.length) resolveHeads(model, admitted);
     requireCurrent(session);
     return token;
   } catch {
@@ -510,7 +514,11 @@ export function foodSearchSnapshot(
   if (ownedRun && model) {
     const active = publicViewRunCurrent(owner.view, ownedRun);
     if (!current(session)) return undefined;
-    const pending = session.pending();
+    const pending = session
+      .pending()
+      .filter((head) =>
+        publicViewPublisherAllowed(owner.view, publicHeadSnapshot(head).pubkey)
+      );
     if (pending.length) {
       try {
         if (active) resolveHeads(model, pending);
@@ -550,7 +558,13 @@ export function foodSearchSnapshot(
   );
   const continuation = session.continuation().snapshot(),
     page = localSearchPage(
-      available && matched?.ok ? orderFoodRows(matched.rows) : [],
+      available && matched?.ok
+        ? orderFoodRows(
+            matched.rows.filter((row) =>
+              publicViewPublisherAllowed(owner.view, row.state.head.pubkey)
+            )
+          )
+        : [],
       session.pages()
     );
   const listings = new Map<string, ListingView>();

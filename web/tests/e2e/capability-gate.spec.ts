@@ -304,6 +304,9 @@ test.describe('actual shared inline capability component', () => {
     for (const name of [
       'src/lib/components/CapabilityGate.svelte',
       'src/lib/runtime/view-context.ts',
+      'src/lib/runtime/identity-session.ts',
+      'src/lib/runtime/public-runtime.ts',
+      'src/lib/persistence/local-public-hides.ts',
       'src/lib/components/AppShell.svelte',
       'src/lib/components/AccountGate.svelte',
       'src/lib/components/InboxSetup.svelte',

@@ -150,6 +150,28 @@ export function identityMessagingOwnership(
   const adapter = sessions.get(session);
   return adapter && extensionMessagingOwnershipCapture(adapter);
 }
+// Local account metadata uses the original observed extension generation. This
+// grants no signing, messaging, installed account or network effect authority.
+export function identityLocalOwnership(session: IdentitySession) {
+  const observed = identitySessionSnapshot(session);
+  if (!('publicKey' in observed)) return;
+  const adapter = sessions.get(session);
+  const captured = adapter && extensionOwnershipCapture(adapter);
+  return (
+    captured && {
+      owner: captured.owner,
+      session: captured.session,
+      current: () => {
+        const state = identitySessionSnapshot(session);
+        return (
+          captured.current() &&
+          'publicKey' in state &&
+          state.publicKey === captured.owner
+        );
+      }
+    }
+  );
+}
 export function subscribeIdentityInvalidation(
   session: IdentitySession,
   listener: () => void

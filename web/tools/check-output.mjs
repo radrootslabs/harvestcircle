@@ -166,10 +166,172 @@ function objectKeys(value, keys) {
 }
 const sdkNegentropy =
   'node_modules/.pnpm/applesauce-relay@6.2.1_typescript@6.0.3/node_modules/applesauce-relay/dist/negentropy.js';
+// Keep every root byte except ordinary trailing instance-script trivia. This
+// preserves the owned reader-boundary positive without erasing annotations,
+// changing executable source, or normalizing the template or script attributes.
+/** @param {Buffer} bytes */
+export function publicHideRootIdentity(bytes) {
+  const layout = publicText(bytes);
+  const component = parseSvelte(layout);
+  if (!component.instance || component.module)
+    throw new Error('Invalid owned root runtime activation');
+  const { start, end } = component.instance.content;
+  const script = layout.slice(start, end);
+  const source = ts.createSourceFile(
+    'root.ts',
+    script,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  /** @type {unknown} */
+  const diagnostics = Reflect.get(source, 'parseDiagnostics');
+  if (
+    !Array.isArray(diagnostics) ||
+    diagnostics.length ||
+    !source.statements.length
+  )
+    throw new Error('Invalid owned root runtime activation');
+  const last = source.statements[source.statements.length - 1].end;
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    false,
+    ts.LanguageVariant.Standard,
+    script.slice(last)
+  );
+  for (
+    let token = scanner.scan();
+    token !== ts.SyntaxKind.EndOfFileToken;
+    token = scanner.scan()
+  ) {
+    if (
+      token === ts.SyntaxKind.WhitespaceTrivia ||
+      token === ts.SyntaxKind.NewLineTrivia
+    )
+      continue;
+    if (
+      token !== ts.SyntaxKind.MultiLineCommentTrivia ||
+      !scanner.getTokenText().endsWith('*/') ||
+      /[@#<]|PURE|NO_SIDE_EFFECTS|vite|webpack|sourceMappingURL|sourceURL/.test(
+        scanner.getTokenText()
+      )
+    )
+      throw new Error('Invalid owned root runtime activation');
+  }
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        layout.slice(0, start),
+        script.slice(0, last),
+        layout.slice(end)
+      ])
+    )
+    .digest('hex');
+}
 // Compiler admission follows actual root bindings, never copied files or text
 // matches. This is the deliberately fixed lifecycle shape owned by HCP032.
 /** @param {string} web */
+async function publicHidingAdmission(web) {
+  const root = publicText(await readOwned(web, 'src/routes/+layout.svelte'));
+  if (!root.includes('../lib/persistence/local-public-hides.ts')) return false;
+  /** @type {Record<string,string>} */
+  const producers = {
+    'src/routes/sell/+page.svelte':
+      '97f22f9a0309621e9acb5f1b328d3376bc9c5affbe5a7ea1b85ece76097b9c08',
+    'src/routes/selling/drafts/[draftId=local_id]/+page.svelte':
+      '1df59a753fbef2bc2ebf77890a79cbd3d7a5bb0dcef34c219df1b5e8043cf787',
+    'src/routes/products/[naddr=naddr]/edit/+page.svelte':
+      '09c3a6bde766045319cd36a00a82ca565f9f3b5cd5322982be9482836f312998',
+    'src/lib/components/ListingEditor.svelte':
+      '060f4863f6f4f2a4fb1471bb0d5eeedf31ab13b5c83d894f47757cf5a68099e6',
+    'src/lib/publishing/listing-editor.ts':
+      'fe067bc1609f783aeee8ad5a0f3178cff50cae81085377b2bbec7874b5f4349d',
+    'src/lib/components/ListingReview.svelte':
+      'deee41ca6c60b346afc7ed5e62e3101ee03b04fdd2a9aa8fa3f3dec585e3863b',
+    'src/lib/publishing/editor-workflow.ts':
+      'c87e4f46793fd9beeedb5027cdbb06d533cf7e5df7378c030355c4608738e0f6',
+    'src/lib/components/ConflictNotice.svelte':
+      'f0a71cab9e8f1f12a3421402e3bc3b2f96c2ddb35ad8949c6e9599b850c3a17c',
+    'src/lib/publishing/edit-source.ts':
+      '1432a8ada3d822cc9f634d40a7847a4d6d02c202ecfe59a9634543d57202f56b',
+    'src/lib/publishing/prepare-listing.ts':
+      '00b922e8b0bfc73cf5ac59857472e8dd627c8df62d28f1c646c5d7c76ce5ede9',
+    'src/lib/publishing/new-listing-readiness.ts':
+      'ba76be4d7309b1a6beb0c8e0f19b89f2595049e94709486b79eff38953e68893',
+    'src/lib/runtime/public-runtime.ts':
+      '679aa4cd51a1dfdc81459bdfccb29441ac60edfa8b1ddd579425787c85b5cff4',
+    'src/lib/persistence/public-publications.ts':
+      'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
+    'src/lib/persistence/quota.ts':
+      'e261a7c9c81d0685021663639b1bb543192e65580edb64fa58ccbb9a4a04cc95',
+    'src/lib/publishing/revise-listing.ts':
+      '1f03d43f460feb12a02489226131ec2f7b95df5f534fcbb0b49ccc686a1b0c06',
+    'src/lib/publishing/mark-sold.ts':
+      '80beaf8ad38b396154d5556e50e2cf5cd9f327bcdbc05f0db1ce190bf29f7234',
+    'src/lib/components/ConfirmPanel.svelte':
+      '9e25745303bdf408a14df5153a28e9579bfa019ab083225acb7d874e93a17d59',
+    'src/lib/nostr/listing-publisher.ts':
+      '10032c32482a766158d8a69027056e6a822a16b5f68ab9754b0f1cf42d0608f9',
+    'src/lib/publishing/withdraw-listing.ts':
+      '168064a7ce271f8342c7b7cbbf996bd96f8968e405eee0bb3e3dba1bdaf346fb',
+    'src/lib/publishing/sign-listing.ts':
+      'a1c123c40a190699b57378c5569fcbbfbc5e23ab4d4c0df499ca40ff82fe1a10',
+    'src/lib/persistence/artifact-records.ts':
+      'e3b235c5aaf19558b557feb6e17a35b2b1de39c1aa49cb2ef14084d670138d16',
+    'src/lib/publishing/listing-operation-view.ts':
+      '07f94625c0231a62f25c1db98c9459f8939c32505453633b58d2f72a894858ce',
+    'src/lib/components/OperationStatus.svelte':
+      'ca3a007899996f6331fadd2ead4c55dc7116c273626ecd2f36bcd4701065ae5f',
+    'src/lib/runtime/effect-ownership.ts':
+      'a181d1fa8b18d45b3e143de19af4dfdaab91779ac44df972d22e7fada645778b',
+    'src/lib/nostr/public-pool.ts':
+      '220b0b9ca0cea20c1a2e1a08a82fc4b68a1ba4dd6ffff1f45154b54735233806',
+    'src/lib/persistence/public-receipts.ts':
+      '10743a9d855c4f573eb42ca90a13c550dee9620e4ad3aac322858c696152e564',
+    'src/routes/selling/+page.svelte':
+      '65d982bdf3f625a38b6c886a31a2a699c92e9231636debc16d501e78d7c8faa0',
+    'src/lib/components/SellingRow.svelte':
+      'ce00de1bd033860b9c0a85a49c90c8a4d5b8a8223cfd5c0872572e548e79331d',
+    'src/lib/publishing/selling-view.ts':
+      '7d1f07c5b128512d3ed19a73409f1c64ada9988d77ac9bf60799352261797f5b',
+    'src/lib/runtime/identity-session.ts':
+      '7d665f6872bdc780f1f2b56245730adcc90f32cf1fed6997f7e2e44ea2447b49',
+    'src/lib/persistence/local-public-hides.ts':
+      '4f0e64ed0fabbe9f86014a0512e7dbd3c81711f28ca2c626e2dafa5cda349f83',
+    'src/lib/catalog/product-view.ts':
+      '3558230c9f7cd17666e27c032de4ba6f30d2fb6b4d54149a69e5b8f5dc5d5363',
+    'src/lib/catalog/search-run.ts':
+      '213a58cf897456a0dc0e99e46594cba013952ff08212802fb471f0d323c38573',
+    'src/lib/catalog/search-view.ts':
+      'bc4d0160574084a547d54d5ca582b15382f44d4649c255743ebdb4c8b398f795',
+    'src/routes/+layout.svelte':
+      '969a6cd6e25c3da845e897b68298800079b9e5caa8fff5967ed4d231b28b1523',
+    'src/routes/products/[naddr=naddr]/+page.svelte':
+      'd3afe029ad6ed6384a300ad6719f32c324a1841271eddf9baee5b8f31f54e680',
+    'src/routes/privacy/+page.svelte':
+      '48a01a3fba97ae6a21a5bf20383d42fd67fb8e5320bd35b266a4d9c771dccad7',
+    'src/lib/components/PublisherHide.svelte':
+      '0fa30a68b44e9de68c3bb1edc9ed2c7fedefc2dc8a916c0a1df1f15440248927'
+  };
+  for (const [name, pin] of Object.entries(producers)) {
+    const bytes = await readOwned(web, name);
+    publicText(bytes);
+    const identity =
+      name === 'src/routes/+layout.svelte'
+        ? publicHideRootIdentity(bytes)
+        : createHash('sha256').update(bytes).digest('hex');
+    if (identity !== pin)
+      throw new Error(
+        name === 'src/routes/+layout.svelte'
+          ? 'Invalid owned root runtime activation'
+          : 'Invalid owned public hiding source'
+      );
+  }
+  return true;
+}
+/** @param {string} web */
 async function hasOwnedPublicRuntime(web) {
+  const hasHiding = await publicHidingAdmission(web);
   const layout = publicText(await readOwned(web, 'src/routes/+layout.svelte'));
   const component = parseSvelte(layout);
   if (!component.instance) return false;
@@ -204,7 +366,8 @@ async function hasOwnedPublicRuntime(web) {
         'createPublicRuntimeContext',
         'mountPublicRuntime',
         'closePublicRuntime',
-        'PUBLIC_RUNTIME_CONTEXT'
+        'PUBLIC_RUNTIME_CONTEXT',
+        ...(hasHiding ? ['bindPublicRuntimeHides'] : [])
       ]
     ],
     ['svelte', ['onMount', 'setContext']]
@@ -226,6 +389,13 @@ async function hasOwnedPublicRuntime(web) {
       'disconnectIdentityView',
       'closeIdentityView',
       'invalidateIdentityView'
+    ]);
+  if (hasHiding)
+    required.set('../lib/persistence/local-public-hides.ts', [
+      'createLocalPublicHides',
+      'mountLocalPublicHides',
+      'closeLocalPublicHides',
+      'LOCAL_PUBLIC_HIDES_CONTEXT'
     ]);
   const allowedImports = new Set();
   for (const [module, names] of required) {
@@ -267,7 +437,20 @@ async function hasOwnedPublicRuntime(web) {
     printer.printNode(ts.EmitHint.Unspecified, node, file);
   const expected = ts.createSourceFile(
     'expected.ts',
-    `
+    hasHiding
+      ? `
+    const publicContext = createPublicRuntimeContext();
+    setContext(PUBLIC_RUNTIME_CONTEXT, publicContext);
+    onMount(() => {
+      const runtime = mountPublicRuntime(publicContext);
+      if(runtime) bindPublicRuntimeHides(runtime,publicHides);
+      void mountLocalPublicHides(publicHides);
+      return () => {
+        closeLocalPublicHides(publicHides);
+        closePublicRuntime(publicContext);
+      };
+    });`
+      : `
     const publicContext = createPublicRuntimeContext();
     setContext(PUBLIC_RUNTIME_CONTEXT, publicContext);
     onMount(() => {
@@ -294,6 +477,7 @@ async function hasOwnedPublicRuntime(web) {
       'identity-expected.ts',
       `
   const identityContext = createIdentityViewContext();
+  ${hasHiding ? 'const publicHides = createLocalPublicHides(identityContext); setContext(LOCAL_PUBLIC_HIDES_CONTEXT, publicHides);' : ''}
   setContext(IDENTITY_VIEW_CONTEXT, identityContext);
   let identityView = $state(identityViewSnapshot(identityContext));
   $effect(() => {
@@ -360,6 +544,7 @@ async function hasOwnedPublicRuntime(web) {
     ...(hasIdentity
       ? [
           'identityContext',
+          ...(hasHiding ? ['publicHides'] : []),
           'identityView',
           'connect',
           'disconnect',
@@ -497,6 +682,13 @@ async function productPresentationAdmission(web) {
     if (
       createHash('sha256').update(bytes).digest('hex') !== pin &&
       !(
+        [
+          'src/routes/products/[naddr=naddr]/+page.svelte',
+          'src/lib/catalog/product-view.ts',
+          'src/lib/runtime/public-runtime.ts'
+        ].includes(name) && (await publicHidingAdmission(web))
+      ) &&
+      !(
         name === 'src/lib/runtime/public-runtime.ts' &&
         ((await listingEditorAdmission(web)) === 'owned-revision' ||
           (await listingEditorAdmission(web)) === 'owned-withdrawal')
@@ -531,7 +723,13 @@ async function searchPresentationAdmission(web) {
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);
     publicText(bytes);
-    if (createHash('sha256').update(bytes).digest('hex') !== pin)
+    if (
+      createHash('sha256').update(bytes).digest('hex') !== pin &&
+      !(
+        ['src/lib/catalog/search-view.ts'].includes(name) &&
+        (await publicHidingAdmission(web))
+      )
+    )
       throw new Error('Invalid owned search presentation source');
   }
   return true;
@@ -679,7 +877,51 @@ async function sellingWorkspaceAdmission(web) {
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);
     publicText(bytes);
-    if (createHash('sha256').update(bytes).digest('hex') !== pin)
+    if (
+      createHash('sha256').update(bytes).digest('hex') !== pin &&
+      !(
+        [
+          'src/routes/sell/+page.svelte',
+          'src/routes/selling/drafts/[draftId=local_id]/+page.svelte',
+          'src/routes/products/[naddr=naddr]/edit/+page.svelte',
+          'src/lib/components/ListingEditor.svelte',
+          'src/lib/publishing/listing-editor.ts',
+          'src/lib/components/ListingReview.svelte',
+          'src/lib/publishing/editor-workflow.ts',
+          'src/lib/components/ConflictNotice.svelte',
+          'src/lib/publishing/edit-source.ts',
+          'src/lib/publishing/prepare-listing.ts',
+          'src/lib/publishing/new-listing-readiness.ts',
+          'src/lib/runtime/public-runtime.ts',
+          'src/lib/persistence/public-publications.ts',
+          'src/lib/persistence/quota.ts',
+          'src/lib/publishing/revise-listing.ts',
+          'src/lib/publishing/mark-sold.ts',
+          'src/lib/components/ConfirmPanel.svelte',
+          'src/lib/nostr/listing-publisher.ts',
+          'src/lib/publishing/withdraw-listing.ts',
+          'src/lib/publishing/sign-listing.ts',
+          'src/lib/persistence/artifact-records.ts',
+          'src/lib/publishing/listing-operation-view.ts',
+          'src/lib/components/OperationStatus.svelte',
+          'src/lib/runtime/effect-ownership.ts',
+          'src/lib/nostr/public-pool.ts',
+          'src/lib/persistence/public-receipts.ts',
+          'src/routes/selling/+page.svelte',
+          'src/lib/components/SellingRow.svelte',
+          'src/lib/publishing/selling-view.ts',
+          'src/lib/runtime/identity-session.ts',
+          'src/lib/persistence/local-public-hides.ts',
+          'src/lib/catalog/product-view.ts',
+          'src/lib/catalog/search-run.ts',
+          'src/lib/catalog/search-view.ts',
+          'src/routes/+layout.svelte',
+          'src/routes/products/[naddr=naddr]/+page.svelte',
+          'src/routes/privacy/+page.svelte',
+          'src/lib/components/PublisherHide.svelte'
+        ].includes(name) && (await publicHidingAdmission(web))
+      )
+    )
       throw new Error('Invalid owned selling workspace source');
   }
   return true;
@@ -933,7 +1175,10 @@ async function listingEditorAdmission(web) {
       const bytes = await readOwned(web, name);
       publicText(bytes);
       withdrawing =
-        withdrawing && createHash('sha256').update(bytes).digest('hex') === pin;
+        withdrawing &&
+        (createHash('sha256').update(bytes).digest('hex') === pin ||
+          (name === 'src/lib/runtime/public-runtime.ts' &&
+            (await publicHidingAdmission(web))));
     }
   if (withdrawing) return 'owned-withdrawal';
   if (revising) return 'owned-revision';
@@ -1109,6 +1354,7 @@ export async function auditOutput(webDirectory) {
     ])
       await readOwned(web, name);
   }
+  const hasPublicHiding = hasFullRoutes && (await publicHidingAdmission(web));
   const hasPublicRuntime = await hasOwnedPublicRuntime(web);
   if (hasPublicRuntime && !hasFullRoutes)
     throw new Error('Incomplete owned root runtime routes');
@@ -1269,6 +1515,11 @@ export async function auditOutput(webDirectory) {
   if (hasSellingWorkspace) {
     names.delete('AccountGate');
     names.add('OperationStatus');
+  }
+  if (hasPublicHiding) {
+    names.delete('rolldown-runtime');
+    names.add('local-public-hides');
+    names.add('public-key');
   }
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();
@@ -3277,6 +3528,317 @@ export async function auditOutput(webDirectory) {
             'InboxSetup',
             'InboxStatus'
           ]
+        }
+      });
+    }
+    if (hasPublicHiding) {
+      delete expected['rolldown-runtime'];
+      Object.assign(expected, {
+        InboxSetup: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'InboxSetup',
+          imports: ['local-public-hides', 'public-runtime', 'client', 'Button']
+        },
+        InboxStatus: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'InboxStatus',
+          imports: [
+            'local-public-hides',
+            'public-runtime',
+            'client',
+            'Button',
+            'navigation',
+            'CapabilityGate',
+            'InboxSetup',
+            'inbox-view'
+          ]
+        },
+        ListingEditor: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'ListingEditor',
+          imports: [
+            'public-key',
+            'local-public-hides',
+            'public-runtime',
+            'references',
+            'client',
+            'Button',
+            'CapabilityGate',
+            'InboxSetup',
+            'OperationStatus'
+          ]
+        },
+        MessageComposer: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'MessageComposer',
+          imports: [
+            'public-key',
+            'local-public-hides',
+            'public-runtime',
+            'references',
+            'client',
+            'Button',
+            'navigation',
+            'inbox-view',
+            'publishers'
+          ]
+        },
+        OperationStatus: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'OperationStatus',
+          imports: [
+            'public-key',
+            'local-public-hides',
+            'public-runtime',
+            'client'
+          ]
+        },
+        'entry/app': {
+          file: '_app/immutable/entry/app.HASH.js',
+          name: 'entry/app',
+          src: '.svelte-kit/generated/build/client-optimized/app.js',
+          isEntry: true,
+          imports: [
+            'public-key',
+            'preload-helper',
+            'shared-errors',
+            'references'
+          ],
+          dynamicImports: [
+            'nodes/0',
+            'nodes/1',
+            'nodes/2',
+            'nodes/3',
+            'nodes/4',
+            'nodes/5',
+            'nodes/6',
+            'nodes/7',
+            'nodes/8',
+            'nodes/9',
+            'nodes/10',
+            'nodes/11',
+            'nodes/12',
+            'error-template'
+          ]
+        },
+        'inbox-view': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'inbox-view',
+          imports: [
+            'public-key',
+            'local-public-hides',
+            'public-runtime',
+            'references',
+            'Button'
+          ]
+        },
+        'local-public-hides': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'local-public-hides',
+          imports: ['public-key', 'Button']
+        },
+        negentropy: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'negentropy',
+          src: 'node_modules/.pnpm/applesauce-relay@6.2.1_typescript@6.0.3/node_modules/applesauce-relay/dist/negentropy.js',
+          isDynamicEntry: true,
+          imports: ['local-public-hides', 'public-runtime']
+        },
+        'nodes/0': {
+          file: '_app/immutable/nodes/0.HASH.js',
+          name: 'nodes/0',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/0.js',
+          isEntry: true,
+          imports: [
+            'public-key',
+            'local-public-hides',
+            'public-runtime',
+            'client',
+            'Button',
+            'client.svelte',
+            'state',
+            'CapabilityGate',
+            'Disclosure'
+          ],
+          css: ['_app/immutable/assets/0.HASH.css']
+        },
+        'nodes/10': {
+          file: '_app/immutable/nodes/10.HASH.js',
+          name: 'nodes/10',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/10.js',
+          isEntry: true,
+          imports: [
+            'public-key',
+            'client',
+            'Button',
+            'client.svelte',
+            'navigation',
+            'state',
+            'legacy',
+            'routes',
+            'ListingEditor'
+          ]
+        },
+        'nodes/11': {
+          file: '_app/immutable/nodes/11.HASH.js',
+          name: 'nodes/11',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/11.js',
+          isEntry: true,
+          imports: [
+            'local-public-hides',
+            'public-runtime',
+            'references',
+            'client',
+            'Button',
+            'CapabilityGate',
+            'Disclosure',
+            'InboxSetup',
+            'OperationStatus'
+          ]
+        },
+        'nodes/12': {
+          file: '_app/immutable/nodes/12.HASH.js',
+          name: 'nodes/12',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/12.js',
+          isEntry: true,
+          imports: [
+            'public-key',
+            'client',
+            'client.svelte',
+            'navigation',
+            'state',
+            'ListingEditor'
+          ]
+        },
+        'nodes/4': {
+          file: '_app/immutable/nodes/4.HASH.js',
+          name: 'nodes/4',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/4.js',
+          isEntry: true,
+          imports: [
+            'local-public-hides',
+            'client',
+            'CapabilityGate',
+            'InboxSetup',
+            'InboxStatus'
+          ]
+        },
+        'nodes/5': {
+          file: '_app/immutable/nodes/5.HASH.js',
+          name: 'nodes/5',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/5.js',
+          isEntry: true,
+          imports: [
+            'public-key',
+            'local-public-hides',
+            'public-runtime',
+            'references',
+            'client',
+            'Button',
+            'client.svelte',
+            'state',
+            'legacy',
+            'inbox-view',
+            'InboxStatus',
+            'MessageComposer'
+          ]
+        },
+        'nodes/6': {
+          file: '_app/immutable/nodes/6.HASH.js',
+          name: 'nodes/6',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/6.js',
+          isEntry: true,
+          imports: ['local-public-hides', 'client', 'Button']
+        },
+        'nodes/7': {
+          file: '_app/immutable/nodes/7.HASH.js',
+          name: 'nodes/7',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/7.js',
+          isEntry: true,
+          imports: [
+            'public-key',
+            'local-public-hides',
+            'public-runtime',
+            'references',
+            'client',
+            'Button',
+            'client.svelte',
+            'state',
+            'CapabilityGate',
+            'Disclosure',
+            'InboxSetup',
+            'MessageComposer'
+          ]
+        },
+        'nodes/8': {
+          file: '_app/immutable/nodes/8.HASH.js',
+          name: 'nodes/8',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/8.js',
+          isEntry: true,
+          imports: [
+            'public-key',
+            'client',
+            'client.svelte',
+            'navigation',
+            'state',
+            'ListingEditor'
+          ]
+        },
+        'nodes/9': {
+          file: '_app/immutable/nodes/9.HASH.js',
+          name: 'nodes/9',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/9.js',
+          isEntry: true,
+          imports: [
+            'local-public-hides',
+            'public-runtime',
+            'references',
+            'client',
+            'Button',
+            'client.svelte',
+            'navigation',
+            'state',
+            'Disclosure',
+            'SearchForm',
+            'routes',
+            'publishers'
+          ]
+        },
+        'public-key': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'public-key'
+        },
+        'public-runtime': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'public-runtime',
+          imports: [
+            'public-key',
+            'preload-helper',
+            'local-public-hides',
+            'references',
+            'Button'
+          ],
+          dynamicImports: ['negentropy']
+        },
+        publishers: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'publishers',
+          imports: [
+            'public-key',
+            'local-public-hides',
+            'public-runtime',
+            'Button'
+          ]
+        },
+        references: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'references',
+          imports: ['public-key']
+        },
+        routes: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'routes',
+          imports: ['public-key', 'references', 'Button']
         }
       });
     }
