@@ -125,7 +125,7 @@ describe('thin protected route SSR', () => {
           expect(output.body).not.toContain('data-message-id');
         } else
           expect(output.body).toContain(
-            'Private views and editing are unavailable during development.'
+            'Messages stay hidden until you connect and explicitly unlock your inbox.'
           );
         expect(output.body).toMatch(
           /<button[^>]*disabled[^>]*>Connect extension/

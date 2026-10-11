@@ -194,7 +194,11 @@ for (const routeCase of cases) {
                     exact: true
                   })
                 ).toHaveCount(0);
-                const settings = page.locator('main details');
+                const settings = page.locator('main details').filter({
+                  has: page.locator('summary').filter({
+                    hasText: /^Inbox settings$/
+                  })
+                });
                 await expect(settings).toHaveCount(1);
                 await expect(settings).not.toHaveAttribute('open', '');
                 await settings
