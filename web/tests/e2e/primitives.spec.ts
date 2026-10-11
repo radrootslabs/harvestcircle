@@ -226,11 +226,17 @@ for (const width of [320, 1024]) {
         page.getByRole('link', { name: 'Fixture navigation' })
       ).toBeFocused();
       await page.keyboard.press('Tab');
-      await expect(page.getByRole('main').locator('summary')).toBeFocused();
+      const details = page.locator('main details').filter({
+        has: page.locator('summary').filter({
+          hasText: /^Public fixture details$/
+        })
+      });
+      await expect(details).toHaveCount(1);
+      await expect(details.locator('summary')).toBeFocused();
       await page.keyboard.press('Enter');
-      await expect(page.locator('details')).toHaveAttribute('open', '');
+      await expect(details).toHaveAttribute('open', '');
       await page.keyboard.press('Space');
-      await expect(page.locator('details')).not.toHaveAttribute('open', '');
+      await expect(details).not.toHaveAttribute('open', '');
       await page.getByRole('button', { name: 'Review discard' }).click();
       await page.keyboard.press('Tab');
       await expect(

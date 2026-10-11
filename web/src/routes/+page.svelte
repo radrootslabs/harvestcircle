@@ -1,5 +1,6 @@
 <script lang="ts">
   import SearchForm from '../lib/components/SearchForm.svelte';
+  import PageHeading from '../lib/components/primitives/PageHeading.svelte';
   import {
     normalizePublicQuery,
     queryErrorMessage
@@ -27,6 +28,10 @@
   <title>HarvestCircle</title>
 </svelte:head>
 
-<div class="page page--reading">
+<div class="page page--reading stack">
+  <PageHeading
+    title="Find food"
+    description="Browse without connecting. Connect when you want to list food or send a message."
+  />
   <SearchForm onsubmit={search} {error} />
 </div>

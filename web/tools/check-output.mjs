@@ -453,6 +453,16 @@ async function operationalFlagsAdmission(web) {
         name === 'src/routes/products/[naddr=naddr]/+page.svelte' &&
         identity ===
           '10d98f1a306cfe216b57d6b990254335a7b21a8c42e558a54b2d471c49858069'
+      ) &&
+      !(
+        name === 'src/routes/about/+page.svelte' &&
+        identity ===
+          '0f091601ef33ea7fbb1b233a26608427e71cc670cfe654fd04ff37d218b2e47f'
+      ) &&
+      !(
+        name === 'src/routes/privacy/+page.svelte' &&
+        identity ===
+          'aed875eb72755c1a46c30c63f0a4c7266b30029279227bf6c2604305d2cfa318'
       )
     )
       throw new Error(

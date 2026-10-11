@@ -35,7 +35,7 @@
   </section>
   <section id="help" class="stack">
     <h2>Help</h2>
-    <details>
+    <details class="disclosure">
       <summary>Connecting an extension</summary>
       <p>
         Use Connect extension, review the identity shown, and approve only the
@@ -51,7 +51,7 @@
         available. The website does not generate or import an identity secret.
       </p>
     </details>
-    <details>
+    <details class="disclosure">
       <summary>Supported browsers and extensions</summary>
       <p>
         Real browser and extension combinations are still being qualified. No
@@ -62,7 +62,7 @@
         unavailable. Mobile extension support is not implied.
       </p>
     </details>
-    <details>
+    <details class="disclosure">
       <summary>Search sources and inboxes</summary>
       {#if sources.public.length}
         <p>Configured public sources:</p>
@@ -110,6 +110,7 @@
     <SupportLink />
     {#if report}<ReportPreview context={report} />
     {:else}<button
+        class="button button--secondary"
         type="button"
         onclick={() => {
           report = createGeneralReport();

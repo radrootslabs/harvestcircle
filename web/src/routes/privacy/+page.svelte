@@ -143,7 +143,7 @@
     prototype uses no tracking analytics.
   </p>
   <LocalDataReview review={dataReview} />
-  <details>
+  <details class="disclosure">
     <summary>Encryption and device limitations</summary>
     <p>
       Encryption is not anonymity or protection from a compromised device,
