@@ -1,0 +1,194 @@
+{
+  "schema_version": 1,
+  "producer": {
+    "module": "web/tests/conformance/provenance.ts",
+    "generator": "web/tools/generate-qualified-fixture-manifest.mjs",
+    "node": "24.21.0",
+    "pnpm": "12.9.1",
+    "package": "harvestcircle_web",
+    "package_version": "0.1.0",
+    "rust_selection": "1.99.0",
+    "rust_version_meaning": "CHECKED_IN_SELECTION_NOT_AN_EXECUTION_RECEIPT",
+    "applesauce": {
+      "applesauce-core": "6.2.0",
+      "applesauce-relay": "6.2.1",
+      "applesauce-signers": "6.2.3"
+    },
+    "formatter": "3.9.9"
+  },
+  "oracle": {
+    "repository": "https://github.com/radrootslabs/lib",
+    "revision": "189c49b74b4bafc142b00b76b296477931139e72"
+  },
+  "qualification": {
+    "frozen_fixtures": "HASHED_SOURCE_AND_OUTPUT_BYTES",
+    "rust_replays": "CHECKED_VECTORS_NOT_FRESH_NATIVE_EXECUTION",
+    "sdk_roundtrips": "SAME_LIBRARY_NOT_INDEPENDENT_CLIENT",
+    "published_nip17": "PUBLIC_OUTER_SIGNATURES_ONLY_NO_DECRYPTION_CUSTODY",
+    "deployment": "NOT_QUALIFIED",
+    "independent_client_receive_reply": "NOT_QUALIFIED_HCM027_REQUIRED",
+    "signing": "NO_FIXTURE_KEYS_OR_OPERATOR_AUTHORIZATION"
+  },
+  "inputs": [
+    {
+      "path": "contracts/interop/food_availability/corpus.v1.json",
+      "bytes": 265507,
+      "sha256": "a8d23bf128facbb0752c8b78c826ff765ac033d66ab9d29609aba9940ad7b682"
+    },
+    {
+      "path": "contracts/interop/food_availability/source_profile.v1.json",
+      "bytes": 90099,
+      "sha256": "dede1eb1f682ecd548e8cd3ccb251d298762e504e2588a73528e5f7a5b9eff21"
+    },
+    {
+      "path": "contracts/interop/food_availability/provenance.v1.json",
+      "bytes": 6753,
+      "sha256": "ae0ee1ff898a6cc9da3a89fd56d2340bff54297995e5c6add2b9e0f5d20e3f0d"
+    },
+    {
+      "path": "contracts/interop/food_availability/oracle/src/main.rs",
+      "bytes": 21448,
+      "sha256": "fd2ea8f79c72c17a682e9f27fe020e91933475c2a7218937da60fbb2d42e2432"
+    },
+    {
+      "path": "contracts/interop/food_availability/oracle/Cargo.toml",
+      "bytes": 693,
+      "sha256": "09c93aea3f1714e9a44a1acbb7afad9300b4c9e5d54ed2ef90637bb39331cdc8"
+    },
+    {
+      "path": "radroots.lib.source-lock.v1.toml",
+      "bytes": 511,
+      "sha256": "27de73ec96a4764c493afc1f03c15ad9d89cf0dc8ddd07680af24a66487eaffc"
+    },
+    {
+      "path": "web/tests/conformance/food-writer-rust.v1.json",
+      "bytes": 29382,
+      "sha256": "a7920bfe0e1677c215b6f089e5fcf66dd3ce7e57842f0342164ab847c933f859"
+    },
+    {
+      "path": "contracts/interop/food_availability/web_templates.v1.json",
+      "bytes": 33805,
+      "sha256": "afa91541c4a66b715d2c5eeb54a7cacd6e562024c56efc19464a2a11323721c0"
+    },
+    {
+      "path": "contracts/interop/food_availability/numeric_boundaries.v1.json",
+      "bytes": 4741,
+      "sha256": "9789690d06e0453c6f5e85e5f9df57f01fb95cb4872f9dd420081cbeb313a105"
+    },
+    {
+      "path": "contracts/interop/food_availability/oracle/tests/native_manifest.rs",
+      "bytes": 15785,
+      "sha256": "61b8ad6ee64bedd2f72705f7050e244abf744453bfb4305aa2032781baf85d5d"
+    },
+    {
+      "path": "contracts/interop/food_availability/oracle/tests/support/mod.rs",
+      "bytes": 17427,
+      "sha256": "3ae2b0cebc224e5094c3c6a64a4941d88540f8a9a867c18dcdd62b279dc49262"
+    },
+    {
+      "path": "contracts/interop/manifest.json",
+      "bytes": 112732,
+      "sha256": "c0b677114474290181efdbbf1fe92fb50a20dacbc562ae643f198d1c63e61bd6"
+    },
+    {
+      "path": "contracts/interop/food_availability/oracle/Cargo.lock",
+      "bytes": 21648,
+      "sha256": "a0a888bea579a00cbfb85592104381ddd4995352b00742cd788f2436edd859cd"
+    },
+    {
+      "path": "contracts/interop/message/corpus.v1.json",
+      "bytes": 134644,
+      "sha256": "27fb61b7d06133f6cf42456c0582d1246222755da80e034fa1a4f0c9e1669e19"
+    },
+    {
+      "path": "contracts/interop/message/source_profile.v1.json",
+      "bytes": 18884,
+      "sha256": "bff36b4941decca5471389e0155fb6b4027dac485c3e547be05743a936b5bc5f"
+    },
+    {
+      "path": "contracts/interop/message/provenance.v1.json",
+      "bytes": 1243,
+      "sha256": "ec18e9d72bc534af5d9547614169a9964f24f385f662721e3ba25a04b3160999"
+    },
+    {
+      "path": "contracts/interop/message/oracle/Cargo.toml",
+      "bytes": 696,
+      "sha256": "11b7723cf9c13136a6eaecfdab1e0a4325ed1adfc2c27e7371e8f9b772992c1a"
+    },
+    {
+      "path": "contracts/interop/message/oracle/Cargo.lock",
+      "bytes": 21651,
+      "sha256": "5c81a47d5b34ac7f16d2e118c8614f3e89b47abccec9818fceb9491132e2adc3"
+    },
+    {
+      "path": "contracts/interop/message/oracle/src/main.rs",
+      "bytes": 6349,
+      "sha256": "290247c9151fb2490dc108a974eae7fe8633d085ee2d22c6aecbfb15306cd611"
+    },
+    {
+      "path": "web/tests/conformance/food-qualified-matrix.ts",
+      "bytes": 2656,
+      "sha256": "8adfe9a6242fc64f4349480b97f683fb28634006ed3aa495c928ae62948817ea"
+    },
+    {
+      "path": "web/tests/conformance/food-qualified-writer-rust.v1.json",
+      "bytes": 29075,
+      "sha256": "24188e22fe141eb811c87e94ab7d7f1b31b2cf0d6cddd7ded253fcc87f203f32"
+    },
+    {
+      "path": "web/tests/conformance/message-cases.ts",
+      "bytes": 1665,
+      "sha256": "05266fd83dd3d9c4917e39485d0fb8558ba1d23ac77450765b91414807c358a2"
+    },
+    {
+      "path": "web/tests/conformance/message-qualified-matrix.ts",
+      "bytes": 2559,
+      "sha256": "1691845f50734191904b25f36fd54a54ddb146550d317b8563ce49a36202f807"
+    },
+    {
+      "path": "web/tests/conformance/message-qualified-writer-rust.v1.json",
+      "bytes": 12239,
+      "sha256": "60ea810651ae8f44ea217140f70a22711e6fe6edfc3956dd2b405b9ab78ee7aa"
+    },
+    {
+      "path": "web/tests/conformance/provenance.ts",
+      "bytes": 4859,
+      "sha256": "868ddb89ca5301541eb7e08e7274bc3f70cc21ca27c8f5bfba9b437ba003e73a"
+    },
+    {
+      "path": "web/tests/fixtures/independent-nip17/public-outer-wires.v1.json",
+      "bytes": 4339,
+      "sha256": "05158c7e03369bd3b7e589dd797adbec05010578756ddc34a9e40c2cc9e2c424"
+    },
+    {
+      "path": "web/tools/check-food-interop.mjs",
+      "bytes": 11254,
+      "sha256": "8e8fa1419e6d38fc2aa6ce89d7de569ada6bce2186439c53d30a900dd9ade420"
+    },
+    {
+      "path": "web/tools/check-message-interop.mjs",
+      "bytes": 10520,
+      "sha256": "d04f032aeaaffe29c8a522ad287c5e9d4534b949ef5f10500bbf729dd3bd2659"
+    },
+    {
+      "path": "web/tools/generate-qualified-fixture-manifest.mjs",
+      "bytes": 1972,
+      "sha256": "e8caed8677ad86d9b1f82547d77ca411152ec9879f1386bbaf71451205bb45f3"
+    },
+    {
+      "path": "web/package.json",
+      "bytes": 2209,
+      "sha256": "0728b95c9c1411daff56569eb1e80e1e4edf6803c8b3a7b94a811d9c06f4ee9a"
+    },
+    {
+      "path": "web/pnpm-lock.yaml",
+      "bytes": 84588,
+      "sha256": "4212d73467bace66510af351f6f955421794b2cb6dfd1c988d927e68bc76a5fe"
+    },
+    {
+      "path": "core/rust-toolchain.toml",
+      "bytes": 86,
+      "sha256": "065388cb682c606d7f02487e70f150afccd2326949c4c6247a9fc59f2334fe05"
+    }
+  ]
+}

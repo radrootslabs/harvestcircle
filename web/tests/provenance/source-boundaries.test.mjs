@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
   copyFile,
+  cp,
+  lstat,
   link,
   mkdir,
   mkdtemp,
@@ -196,6 +198,24 @@ async function fixture(run) {
     await rm(directory, { recursive: true, force: true });
   }
 }
+/** Package runners regenerate launchers; give them an independent dependency tree.
+ * @param {string} directory
+ */
+async function isolateScriptDependencies(directory) {
+  const target = path.join(directory, 'node_modules');
+  assert.equal((await lstat(target)).isSymbolicLink(), true);
+  assert.equal(
+    await realpath(target),
+    await realpath(path.join(root, 'node_modules'))
+  );
+  await rm(target);
+  await cp(path.join(root, 'node_modules'), target, {
+    recursive: true,
+    verbatimSymlinks: true
+  });
+  assert.equal((await lstat(target)).isDirectory(), true);
+}
+
 /** @param {string} directory */
 async function confineSvelte(directory) {
   await rm(path.join(directory, 'node_modules'));
@@ -635,6 +655,7 @@ for (const script of ['check', 'lint', 'build', 'test:unit', 'dev'])
   test(`actual ${script} stops on unsafe production edge`, async () => {
     await fixture(async ({ directory, put }) => {
       await put('src/routes/+page.ts', "void import('nostr-tools');");
+      await isolateScriptDependencies(directory);
       const result = spawnSync('corepack', ['pnpm', 'run', script], {
         cwd: directory,
         encoding: 'utf8',
@@ -873,6 +894,7 @@ for (const script of ['check', 'lint', 'build', 'test:unit', 'dev'])
         'src/routes/+page.svelte',
         '<svelte:head><script src="/tests/provider.js"></script></svelte:head>'
       );
+      await isolateScriptDependencies(directory);
       const result = spawnSync('corepack', ['pnpm', 'run', script], {
         cwd: directory,
         encoding: 'utf8',
@@ -1628,6 +1650,7 @@ for (const command of ['check', 'lint', 'build', 'test:unit', 'dev'])
         'src/routes/+page.svelte',
         "<a href={'java'+'script:import(\"nostr-tools\")'}>bad</a>"
       );
+      await isolateScriptDependencies(directory);
       const result = spawnSync('corepack', ['pnpm', 'run', command], {
         cwd: directory,
         encoding: 'utf8',
@@ -1926,6 +1949,7 @@ for (const command of ['check', 'lint', 'build', 'test:unit', 'dev'])
   test(`D07 actual ${command} stops before framework dispatch on SVG URL mutation`, async () =>
     fixture(async ({ put, directory }) => {
       await put('src/routes/+page.svelte', smilMutation);
+      await isolateScriptDependencies(directory);
       const result = spawnSync('corepack', ['pnpm', 'run', command], {
         cwd: directory,
         encoding: 'utf8',
@@ -2237,3 +2261,43 @@ test(
     });
   }
 );
+
+test('package-script fixtures preserve the primary generated dependency launcher', async () => {
+  await fixture(async ({ directory, put }) => {
+    const relative = 'node_modules/applesauce-signers/node_modules/.bin/nanoid';
+    const primary = path.join(root, relative);
+    const before = await readFile(primary);
+    const primaryStat = await lstat(primary);
+    assert.equal(primaryStat.isFile(), true);
+    assert.equal(primaryStat.nlink, 1);
+    await isolateScriptDependencies(directory);
+    const isolated = path.join(directory, relative);
+    const isolatedStat = await lstat(isolated);
+    assert.equal(isolatedStat.isFile(), true);
+    assert.equal(isolatedStat.nlink, 1);
+    assert.notEqual(
+      `${isolatedStat.dev}:${isolatedStat.ino}`,
+      `${primaryStat.dev}:${primaryStat.ino}`
+    );
+    assert.deepEqual(await readFile(isolated), before);
+    await writeFile(
+      isolated,
+      Buffer.concat([before, Buffer.from('\n# fixture-only mutation\n')])
+    );
+    assert.deepEqual(await readFile(primary), before);
+    await put('src/routes/+page.ts', "void import('nostr-tools');");
+    const result = spawnSync('corepack', ['pnpm', 'run', 'check'], {
+      cwd: directory,
+      encoding: 'utf8',
+      timeout: 1800000
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stderr, /forbidden production import nostr-tools/);
+    assert.doesNotMatch(
+      result.stdout,
+      /svelte-check found|vite v.*building|RUN\s+v/
+    );
+    assert.deepEqual(await readFile(primary), before);
+  });
+});
