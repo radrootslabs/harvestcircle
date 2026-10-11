@@ -94,6 +94,16 @@ await test('navigation fallback serves actual separate output and preserves miss
     assert.doesNotMatch(html, /<form|<input|<textarea/);
   }
   assert.notEqual(search, fallback);
+  const about = prerendered.get('/about');
+  assert.ok(about);
+  assert.match(about, /About HarvestCircle/);
+  assert.match(about, /Search without connecting\./);
+  assert.match(about, /Support has not been configured\./);
+  assert.match(about, /id="report"/);
+  assert.doesNotMatch(
+    about,
+    /Contact support|Selected report preview|Share message text|mailto:|[0-9a-f]{64}/
+  );
   assert.match(search, /<title>Search food — HarvestCircle<\/title>/);
   assert.match(search, /Search sources are unavailable\./);
   const privacy = prerendered.get('/privacy');

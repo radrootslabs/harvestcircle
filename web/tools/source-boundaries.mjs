@@ -119,7 +119,8 @@ function mutationAdmission(
   identity = () => null,
   reviewedScroll = false,
   reviewedCopy = false,
-  reviewedVisibility = false
+  reviewedVisibility = false,
+  reviewedReport = false
 ) {
   // Bind this admitted AST only, without libs, module resolution, file reads,
   // config loading or evaluation. Symbols distinguish aliases and shadowing.
@@ -886,14 +887,15 @@ function mutationAdmission(
         const action = node.parent;
         const call = action.parent;
         if (
-          !reviewedCopy ||
-          !global(node.expression, ['navigator']) ||
-          !ts.isPropertyAccessExpression(action) ||
-          action.expression !== node ||
-          action.name.text !== 'writeText' ||
-          !ts.isCallExpression(call) ||
-          call.expression !== action ||
-          call.arguments.length !== 1
+          !reviewedReport &&
+          (!reviewedCopy ||
+            !global(node.expression, ['navigator']) ||
+            !ts.isPropertyAccessExpression(action) ||
+            action.expression !== node ||
+            action.name.text !== 'writeText' ||
+            !ts.isCallExpression(call) ||
+            call.expression !== action ||
+            call.arguments.length !== 1)
         )
           report(
             'clipboard capability requires the exact reviewed public copy action'
@@ -1054,7 +1056,11 @@ function mutationAdmission(
       )
         report('escaped goto capability is forbidden');
       if (!propertyName && !typeName && !symbol) {
-        if (node.text === 'navigator' && !navigatorLeaf(node))
+        if (
+          node.text === 'navigator' &&
+          !navigatorLeaf(node) &&
+          !(reviewedReport && ts.isTypeOfExpression(parent))
+        )
           report('opaque navigator capabilities cannot expose worker loaders');
         if (
           node.text === 'document' &&
@@ -1107,6 +1113,16 @@ function mutationAdmission(
             !ts.isCallExpression(parent.parent) ||
             parent.parent.expression !== parent ||
             (!descriptorRead(parent) &&
+              !(
+                reviewedReport &&
+                node.text === 'Reflect' &&
+                parent.name.text === 'get' &&
+                parent.parent.arguments.length === 2 &&
+                ts.isIdentifier(parent.parent.arguments[0]) &&
+                parent.parent.arguments[0].text === 'clipboard' &&
+                ts.isStringLiteralLike(parent.parent.arguments[1]) &&
+                parent.parent.arguments[1].text === 'writeText'
+              ) &&
               !parent.parent.arguments.every((argument) => pure(argument)))
           )
             report(
@@ -1580,6 +1596,19 @@ export async function auditSource(root) {
     complain(
       copyFile,
       'copy helper source identity does not match reviewed pin'
+    );
+  // This report owner grants only the explicit reviewed selected-copy action.
+  // Its complete bytes pin original-context fences and memory retirement too;
+  // altered or copied producers receive no clipboard/reflection exception.
+  const reportFile = path.join(root, 'src/lib/support/report.ts');
+  const reportTrusted =
+    files.has(reportFile) &&
+    createHash('sha256').update(files.get(reportFile)).digest('hex') ===
+      'd02ebbfa82cf415c1af192f691b5464fbbc51f898207263bf1422f049a5d9dec';
+  if (files.has(reportFile) && !reportTrusted)
+    complain(
+      reportFile,
+      'report copy source identity does not match reviewed pin'
     );
   const scrollFile = path.join(root, 'src/lib/navigation-scroll.ts');
   const scrollTrusted =
@@ -2086,7 +2115,8 @@ export async function auditSource(root) {
         },
         file === scrollFile && scrollTrusted,
         file === copyFile && copyTrusted,
-        file === visibilityFile && visibilityTrusted
+        file === visibilityFile && visibilityTrusted,
+        file === reportFile && reportTrusted
       );
       if (ast.referencedFiles.length || ast.typeReferenceDirectives.length)
         complain(file, 'source reference directives are forbidden');

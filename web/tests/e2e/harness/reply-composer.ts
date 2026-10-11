@@ -36,8 +36,12 @@ import {
   probeIdentityMessaging,
   disconnectIdentity
 } from '../../../src/lib/runtime/identity-session.ts';
-import { inboxSetupViewOwnership } from '../../../src/lib/messaging/inbox-setup-view.ts';
+import {
+  inboxSetupViewOwnership,
+  inboxSetupViewSnapshot
+} from '../../../src/lib/messaging/inbox-setup-view.ts';
 import { createInboxResolver } from '../../../src/lib/messaging/resolve-inbox.ts';
+import { browserDatabaseTransaction } from '../../../src/lib/persistence/database.ts';
 import {
   createPublicScheduler,
   createPublicRun,
@@ -63,16 +67,110 @@ export function goto(destination: string | URL) {
 export async function renderReplyFixture(qualified = true, production = false) {
   navigation.length = 0;
   destinations = [];
+  const manager = navigator.locks;
+  const originalDescriptor = Object.getOwnPropertyDescriptor(
+    manager,
+    'request'
+  );
+  const originalRequest = Reflect.get(manager, 'request');
+  let fixedWallTime: number | undefined;
+  let crossOwnerSecond: string | undefined;
+  let nativeTransactions: {
+    stores: string[];
+    outcome: 'abort' | 'complete';
+  }[] = [];
+  let restoreTransaction = () => {};
+  let commandIds: string[] = [];
+  let lockAttempts: { name: string; ifAvailable: boolean; granted: boolean }[] =
+    [];
+  const observedRequest = ((...args: unknown[]) => {
+    const callbackIndex = args.length - 1;
+    const callback = args[callbackIndex] as (lock: Lock | null) => unknown;
+    const options = args.length === 3 ? (args[1] as LockOptions) : undefined;
+    const forwarded = args.slice();
+    forwarded[callbackIndex] = (lock: Lock | null) => {
+      lockAttempts = lockAttempts.concat({
+        name: String(args[0]),
+        ifAvailable: options?.ifAvailable === true,
+        granted: lock !== null
+      });
+      if (lock && options?.ifAvailable && args[0] === crossOwnerSecond) {
+        crossOwnerSecond = undefined;
+        const capturedSecond = Math.floor(clockSamples.at(-1)!.value / 1000);
+        return (async () => {
+          await new Promise<void>((resolve) => {
+            function forwardAfterBoundary() {
+              if (Math.floor(originalNow() / 1000) === capturedSecond) {
+                window.setTimeout(forwardAfterBoundary, 1);
+                return;
+              }
+              resolve();
+            }
+            window.setTimeout(
+              forwardAfterBoundary,
+              Math.max(1, (capturedSecond + 1) * 1000 - originalNow() + 1)
+            );
+          });
+          return callback(lock);
+        })();
+      }
+      return callback(lock);
+    };
+    return Reflect.apply(
+      originalRequest,
+      manager,
+      forwarded
+    ) as Promise<unknown>;
+  }) as typeof manager.request;
+  manager.request = observedRequest;
+  const originalNowDescriptor = Object.getOwnPropertyDescriptor(Date, 'now');
+  const originalNow = Reflect.get(Date, 'now');
+  let clockSamples: { value: number; stack: string | undefined }[] = [];
+  const observedNow = () => {
+    const value = fixedWallTime ?? originalNow();
+    clockSamples = clockSamples.concat({
+      value,
+      stack: new Error().stack?.split('\n').slice(1, 5).join('\n')
+    });
+    return value;
+  };
+  Date.now = observedNow;
+  function restoreSendClock() {
+    fixedWallTime = undefined;
+    crossOwnerSecond = undefined;
+    restoreTransaction();
+    restoreTransaction = () => {};
+    if (Date.now === observedNow && originalNowDescriptor)
+      Object.defineProperty(Date, 'now', originalNowDescriptor);
+  }
+
   let clockOffset = 0,
     alive = true;
+  let nextTimer = 0;
+  const timers = new Map<number, { at: number; callback: () => void }>();
   const ownSchedulers: ReturnType<typeof createPublicScheduler>[] = [];
   const clock: RequestClock = {
-    now: () => performance.now() + clockOffset,
+    now: () => clockOffset,
     schedule(callback, delay) {
-      const timer = setTimeout(callback, delay);
-      return () => clearTimeout(timer);
+      const id = ++nextTimer;
+      timers.set(id, { at: clockOffset + delay, callback });
+      return () => timers.delete(id);
     }
   };
+  function advanceClock() {
+    const target = clockOffset + 15_001;
+    for (;;) {
+      const next = [...timers]
+        .filter(([, timer]) => timer.at <= target)
+        .sort((a, b) => a[1].at - b[1].at || a[0] - b[0])[0];
+      if (!next) break;
+      const [id, timer] = next;
+      timers.delete(id);
+      clockOffset = timer.at;
+      timer.callback();
+    }
+    clockOffset = target;
+  }
   const freshOwn: NonNullable<Parameters<typeof renderThread>[3]> = (
     owner,
     policy
@@ -166,6 +264,14 @@ export async function renderReplyFixture(qualified = true, production = false) {
   const controller = candidate;
   const target = document.createElement('div');
   document.body.append(target);
+  let clicks = 0;
+  target.addEventListener(
+    'click',
+    () => {
+      clicks++;
+    },
+    { capture: true }
+  );
   const mounted = mount(Panel, { target, props: { controller } });
   let unmounted = false,
     held = false,
@@ -196,14 +302,83 @@ export async function renderReplyFixture(qualified = true, production = false) {
     parent: thread.firstRumor,
     conversationId: thread.conversationId,
     snapshot: () => replySnapshot(controller),
+    diagnostic: async () => ({
+      setup: inboxSetupViewSnapshot(scope?.setup),
+      locks: await navigator.locks.query(),
+      lockAttempts: lockAttempts.slice(),
+      clicks,
+      clockSamples: clockSamples.slice(),
+      nativeTransactions: nativeTransactions.slice(),
+      commandIds: commandIds.slice()
+    }),
+    resetDiagnostics: () => {
+      lockAttempts = [];
+      clicks = 0;
+      clockSamples = [];
+      nativeTransactions = [];
+      commandIds = [];
+    },
+    configureSendClock(crossSecond: boolean) {
+      if (!scope) throw Error('no original reply scope');
+      fixedWallTime = crossSecond ? undefined : originalNow();
+      crossOwnerSecond = crossSecond
+        ? 'harvestcircle:owner:' + scope.owner
+        : undefined;
+      Date.now = observedNow;
+      const db = browserDatabaseTransaction(
+        scope.database,
+        ['private_sends'],
+        'readonly'
+      ).db;
+      const descriptor = Object.getOwnPropertyDescriptor(db, 'transaction');
+      const original = Reflect.get(db, 'transaction');
+      const uuidDescriptor = Object.getOwnPropertyDescriptor(
+        crypto,
+        'randomUUID'
+      );
+      const originalUuid = Reflect.get(crypto, 'randomUUID');
+      const observedUuid = () => {
+        const id = Reflect.apply(originalUuid, crypto, []);
+        commandIds = commandIds.concat(id);
+        return id;
+      };
+      crypto.randomUUID = observedUuid;
+      const observed = ((...args: Parameters<IDBDatabase['transaction']>) => {
+        const tx = Reflect.apply(original, db, args);
+        if (
+          tx.mode === 'readwrite' &&
+          tx.objectStoreNames.contains('private_sends')
+        ) {
+          for (const outcome of ['abort', 'complete'] as const)
+            tx.addEventListener(outcome, () => {
+              nativeTransactions = nativeTransactions.concat({
+                stores: Array.from(tx.objectStoreNames),
+                outcome
+              });
+            });
+        }
+        return tx;
+      }) as typeof db.transaction;
+      db.transaction = observed;
+      restoreTransaction = () => {
+        if (db.transaction === observed) {
+          if (descriptor) Object.defineProperty(db, 'transaction', descriptor);
+          else Reflect.deleteProperty(db, 'transaction');
+        }
+        if (crypto.randomUUID === observedUuid) {
+          if (uuidDescriptor)
+            Object.defineProperty(crypto, 'randomUUID', uuidDescriptor);
+          else Reflect.deleteProperty(crypto, 'randomUUID');
+        }
+      };
+    },
+    restoreSendClock,
     text: () => replyText(controller),
     native: thread.native,
     delta: thread.delta,
     list: () => inboxListSnapshot(thread.controller),
     lookups: () => lookups,
-    advance: () => {
-      clockOffset += 15_001;
-    },
+    advance: advanceClock,
     refreshSetup: thread.checkSetup,
     gate: (value: boolean) => {
       gate = value;
@@ -292,13 +467,22 @@ export async function renderReplyFixture(qualified = true, production = false) {
     closeComposer,
     logout: thread.logout,
     async close() {
+      restoreSendClock();
       release?.();
       provider.signEvent = nativeSign;
       await closeComposer();
       if (publicContext) closePublicRuntime(publicContext);
       await thread.close();
+      if (manager.request === observedRequest) {
+        if (originalDescriptor)
+          Object.defineProperty(manager, 'request', originalDescriptor);
+        else Reflect.deleteProperty(manager, 'request');
+      }
+      if (Date.now === observedNow && originalNowDescriptor)
+        Object.defineProperty(Date, 'now', originalNowDescriptor);
       alive = false;
       for (const scheduler of ownSchedulers) closePublicScheduler(scheduler);
+      timers.clear();
     }
   };
 }

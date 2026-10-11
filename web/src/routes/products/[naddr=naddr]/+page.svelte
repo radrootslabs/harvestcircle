@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getContext, onMount } from 'svelte';
+  import { getContext, onMount, untrack } from 'svelte';
   import { page } from '$app/state';
   import {
     PUBLIC_RUNTIME_CONTEXT,
@@ -26,12 +26,19 @@
   import Button from '../../../lib/components/primitives/Button.svelte';
   import ProductEnquiry from '../../../lib/components/ProductEnquiry.svelte';
   import PublisherHide from '../../../lib/components/PublisherHide.svelte';
+  import ReportPreview from '../../../lib/components/ReportPreview.svelte';
+  import {
+    createListingReport,
+    closeReportContext,
+    type ReportContext
+  } from '../../../lib/support/report.ts';
   const context = getContext<PublicRuntimeContext>(PUBLIC_RUNTIME_CONTEXT);
   let runtime = $state.raw<PublicRuntime | undefined>(),
     result = $state.raw<ProductViewSnapshot | undefined>(),
     error = $state<string | undefined>(),
     copyNotice = $state<string | undefined>();
   let productOwner = $state.raw<ProductView | undefined>();
+  let report = $state.raw<ReportContext | undefined>();
   const reference = $derived(decodeProductReference(page.params.naddr));
   const contact = $derived(readPublicContact(result?.food?.content));
   let disposed = false;
@@ -61,6 +68,10 @@
     result = undefined;
     productOwner = undefined;
     copyNotice = undefined;
+    untrack(() => {
+      if (report) closeReportContext(report);
+      report = undefined;
+    });
     if (!selected || !shared) return;
     let active = true,
       acquired: PublicView | undefined,
@@ -154,6 +165,17 @@
       <Disclosure summary="Publisher controls"
         ><PublisherHide view={productOwner} /></Disclosure
       >
+      <button
+        type="button"
+        onclick={() => {
+          if (report) closeReportContext(report);
+          report = productOwner && createListingReport(productOwner);
+        }}>Report listing</button
+      >
+      {#if report}{#key result.eventId}{#key report}<ReportPreview
+              context={report}
+            />{/key}{/key}{/if}
+      <a href={internalHref('/about#report')}>Report instructions</a>
     {/if}
     <Disclosure summary="Listing and source details">
       {#if result.eventId}<p>

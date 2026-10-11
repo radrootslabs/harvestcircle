@@ -19,7 +19,8 @@
     "test:integration": "corepack pnpm build && node --test --test-timeout=1800000 tests/integration/*.test.ts",
     "test:e2e": "corepack pnpm build && playwright test",
     "test:conformance:oracle": "node tools/check-food-interop.mjs",
-    "check:launch-relays": "node tools/check-source.mjs && node tools/check-launch-relays.mjs"
+    "check:launch-relays": "node tools/check-source.mjs && node tools/check-launch-relays.mjs",
+    "check:launch-support": "node tools/check-source.mjs && node tools/check-launch-support.mjs"
   },
   "dependencies": {
     "@noble/curves": "1.2.0",

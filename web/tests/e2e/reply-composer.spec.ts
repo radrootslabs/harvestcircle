@@ -3,10 +3,11 @@ import { build } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type WebSocket } from 'ws';
 import { createStaticHarness } from '../integration/harness/static.ts';
 import type * as Fixture from './harness/reply-composer.ts';
 import { finalizeEvent } from 'applesauce-core/helpers';
+import { buildCanonicalPairRumor } from '../../src/lib/nostr/rumor-template.ts';
 declare global {
   interface Window {
     hcp104: typeof Fixture;
@@ -21,6 +22,19 @@ let server: Awaited<ReturnType<typeof createStaticHarness>>,
 let events: unknown[][] = [],
   requests: unknown[][] = [];
 let servePeerPreference = false;
+let holdPeerEose = false;
+let heldPeerRequest:
+  | {
+      socket: WebSocket;
+      id: string;
+      filter: unknown;
+      eventSent: boolean;
+      eoseSent: boolean;
+      closed: boolean;
+      closedBeforeEose: boolean;
+      disconnectedBeforeCompletion: boolean;
+    }
+  | undefined;
 const peerPreference = finalizeEvent(
   {
     kind: 10050,
@@ -41,7 +55,11 @@ test.beforeAll(async () => {
   const address = sockets.address();
   if (!address || typeof address === 'string') throw Error('no loopback');
   endpoint = 'ws://127.0.0.1:' + address.port;
-  sockets.on('connection', (socket) =>
+  sockets.on('connection', (socket) => {
+    socket.on('close', () => {
+      if (heldPeerRequest?.socket === socket && !heldPeerRequest.closed)
+        heldPeerRequest.disconnectedBeforeCompletion = true;
+    });
     socket.on('message', (bytes) => {
       const raw = Buffer.isBuffer(bytes)
           ? bytes
@@ -49,6 +67,14 @@ test.beforeAll(async () => {
             ? Buffer.concat(bytes)
             : Buffer.from(bytes),
         frame = JSON.parse(raw.toString()) as unknown[];
+      if (
+        frame[0] === 'CLOSE' &&
+        heldPeerRequest?.socket === socket &&
+        heldPeerRequest.id === frame[1]
+      ) {
+        if (heldPeerRequest.eoseSent) heldPeerRequest.closed = true;
+        else heldPeerRequest.closedBeforeEose = true;
+      }
       if (frame[0] === 'EVENT') {
         events.push(frame);
         const event = frame[1] as { id: string };
@@ -61,12 +87,27 @@ test.beforeAll(async () => {
           servePeerPreference &&
           filter.kinds?.includes(10050) &&
           filter.authors?.includes(peerPreference.pubkey)
-        )
+        ) {
+          if (holdPeerEose) {
+            if (heldPeerRequest) throw Error('duplicate held peer request');
+            heldPeerRequest = {
+              socket,
+              id: String(frame[1]),
+              filter: frame[2],
+              eventSent: true,
+              eoseSent: false,
+              closed: false,
+              closedBeforeEose: false,
+              disconnectedBeforeCompletion: false
+            };
+          }
           socket.send(JSON.stringify(['EVENT', frame[1], peerPreference]));
+          if (holdPeerEose) return;
+        }
         socket.send(JSON.stringify(['EOSE', frame[1]]));
       }
-    })
-  );
+    });
+  });
   const result = await build({
     configFile: false,
     logLevel: 'silent',
@@ -129,6 +170,8 @@ test.beforeEach(async ({ page }) => {
   events = [];
   requests = [];
   servePeerPreference = false;
+  holdPeerEose = false;
+  heldPeerRequest = undefined;
   await load(page);
 });
 test.afterEach(async ({ page }) => {
@@ -174,65 +217,207 @@ const composer = (page: import('@playwright/test').Page) =>
   page.locator('[data-reply-fixture]');
 const sentinel = 'HCP104_UNSENT_MEMORY_ONLY & <private>\nThursday pickup?';
 
-test('production explicit Send renews an expired peer lookup without losing the draft or automatically sending', async ({
-  page
-}) => {
-  await ready(page, true, true);
-  await composer(page).getByLabel('Reply', { exact: true }).fill(sentinel);
-  const before = await page.evaluate(async () => ({
-    native: await window.hcp104Fixture.native(),
-    delta: window.hcp104Fixture.delta()
-  }));
-  expect(requests).toEqual([]);
-  expect(await page.evaluate(() => window.hcp104Fixture.send())).toEqual({
-    status: 'needs_action'
-  });
-  await expect.poll(() => requests.length).toBe(1);
-  expect(requests[0][2]).toMatchObject({
-    kinds: [10050],
-    authors: [peerPreference.pubkey],
-    limit: 200
-  });
-  // An active missing-peer run is reused. Neither its EOSE nor another Send
-  // silently resets the bounded lookup or invents private readiness.
-  expect(await page.evaluate(() => window.hcp104Fixture.send())).toEqual({
-    status: 'needs_action'
-  });
-  expect(requests).toHaveLength(1);
-  expect(events).toEqual([]);
-  await page.evaluate(async () => {
-    window.hcp104Fixture.advance();
-    await window.hcp104Fixture.refreshSetup();
-  });
-  expect(requests).toHaveLength(1);
-  expect(await page.evaluate(() => window.hcp104Fixture.text())).toBe(sentinel);
-  expect(
-    await page.evaluate(async () => ({
-      native: await window.hcp104Fixture.native(),
-      delta: window.hcp104Fixture.delta()
-    }))
-  ).toEqual(before);
-  servePeerPreference = true;
-  expect(await page.evaluate(() => window.hcp104Fixture.send())).toEqual({
-    status: 'needs_action'
-  });
-  // The unchanged producer never issues this second original runtime query.
-  await expect.poll(() => requests.length).toBe(2);
-  expect(requests[1][2]).toEqual(requests[0][2]);
-  expect(events).toEqual([]);
-  expect(await page.evaluate(() => window.hcp104Fixture.text())).toBe(sentinel);
-  await composer(page)
-    .getByRole('button', { name: 'Send reply', exact: true })
-    .click();
-  await expect
-    .poll(() => page.evaluate(() => window.hcp104Fixture.snapshot()?.state))
-    .toBe('completed');
-  expect(requests).toHaveLength(2);
-  expect(events).toHaveLength(2);
-  expect(await page.evaluate(() => window.hcp104Fixture.delta())).toMatchObject(
-    { encrypts: before.delta.encrypts + 2, signs: before.delta.signs + 2 }
+for (const crossSecond of [false, true]) {
+  test(
+    crossSecond
+      ? 'production reply reservation rejects a real second-boundary crossing without persisting or sending the draft'
+      : 'production explicit Send renews an expired peer lookup without losing the draft or automatically sending',
+    async ({ page }) => {
+      await ready(page, true, true);
+      await composer(page).getByLabel('Reply', { exact: true }).fill(sentinel);
+      const before = await page.evaluate(async () => ({
+        native: await window.hcp104Fixture.native(),
+        delta: window.hcp104Fixture.delta()
+      }));
+      expect(requests).toEqual([]);
+      expect(await page.evaluate(() => window.hcp104Fixture.send())).toEqual({
+        status: 'needs_action'
+      });
+      await expect.poll(() => requests.length).toBe(1);
+      expect(requests[0][2]).toMatchObject({
+        kinds: [10050],
+        authors: [peerPreference.pubkey],
+        limit: 200
+      });
+      // An active missing-peer run is reused. Neither its EOSE nor another Send
+      // silently resets the bounded lookup or invents private readiness.
+      expect(await page.evaluate(() => window.hcp104Fixture.send())).toEqual({
+        status: 'needs_action'
+      });
+      expect(requests).toHaveLength(1);
+      expect(events).toEqual([]);
+      await page.evaluate(async () => {
+        window.hcp104Fixture.advance();
+        await window.hcp104Fixture.refreshSetup();
+      });
+      expect(requests).toHaveLength(1);
+      expect(await page.evaluate(() => window.hcp104Fixture.text())).toBe(
+        sentinel
+      );
+      expect(
+        await page.evaluate(async () => ({
+          native: await window.hcp104Fixture.native(),
+          delta: window.hcp104Fixture.delta()
+        }))
+      ).toEqual(before);
+      servePeerPreference = true;
+      holdPeerEose = true;
+      expect(await page.evaluate(() => window.hcp104Fixture.send())).toEqual({
+        status: 'needs_action'
+      });
+      // The unchanged producer never issues this second original runtime query.
+      await expect.poll(() => requests.length).toBe(2);
+      expect(requests[1][2]).toEqual(requests[0][2]);
+      expect(events).toEqual([]);
+      expect(await page.evaluate(() => window.hcp104Fixture.text())).toBe(
+        sentinel
+      );
+      expect(heldPeerRequest?.id).toBe(requests[1][1]);
+      expect(heldPeerRequest?.filter).toEqual(requests[1][2]);
+      expect(heldPeerRequest).toMatchObject({
+        eventSent: true,
+        eoseSent: false,
+        closed: false,
+        closedBeforeEose: false,
+        disconnectedBeforeCompletion: false
+      });
+      expect(
+        await page.evaluate(() => window.hcp104Fixture.snapshot()?.state)
+      ).toBe('needs_action');
+      expect(
+        await page.evaluate(async () => ({
+          native: await window.hcp104Fixture.native(),
+          delta: window.hcp104Fixture.delta()
+        }))
+      ).toEqual(before);
+      // Server REQ arrival is not consumer readiness. With the original run's
+      // virtual clock held, this exact subscription can finish only after its
+      // actual signed EVENT and released EOSE are consumed and cleaned up.
+      const originalPeerRequest = heldPeerRequest;
+      if (!originalPeerRequest) throw Error('missing original peer request');
+      originalPeerRequest.eoseSent = true;
+      originalPeerRequest.socket.send(
+        JSON.stringify(['EOSE', originalPeerRequest.id])
+      );
+      await expect.poll(() => originalPeerRequest.closed).toBe(true);
+      expect(originalPeerRequest.closedBeforeEose).toBe(false);
+      expect(originalPeerRequest.disconnectedBeforeCompletion).toBe(false);
+      expect(requests).toHaveLength(2);
+      expect(events).toEqual([]);
+      await page.evaluate(
+        (crossSecond) => window.hcp104Fixture.configureSendClock(crossSecond),
+        crossSecond
+      );
+      await page.evaluate(() => window.hcp104Fixture.resetDiagnostics());
+      const beforeSend = await page.evaluate(() =>
+        window.hcp104Fixture.diagnostic()
+      );
+      await composer(page)
+        .getByRole('button', { name: 'Send reply', exact: true })
+        .click();
+      // Once busy clears, needs_action is terminal until another explicit Send.
+      // Observe completion of the attempt before asserting its complete outcome.
+      await expect
+        .poll(() => page.evaluate(() => window.hcp104Fixture.snapshot()?.busy))
+        .toBe(false);
+      await page.evaluate(() => window.hcp104Fixture.restoreSendClock());
+      const terminal = await page.evaluate(async () => ({
+        snapshot: window.hcp104Fixture.snapshot(),
+        diagnostic: await window.hcp104Fixture.diagnostic(),
+        native: await window.hcp104Fixture.native(),
+        delta: window.hcp104Fixture.delta()
+      }));
+      if (crossSecond) {
+        expect(terminal.snapshot).toMatchObject({
+          state: 'needs_action',
+          busy: false,
+          dirty: true
+        });
+        expect(terminal.native).toEqual(before.native);
+        expect(terminal.delta).toEqual(before.delta);
+        expect(events).toEqual([]);
+        expect(await page.evaluate(() => window.hcp104Fixture.text())).toBe(
+          sentinel
+        );
+        expect(terminal.diagnostic.clicks).toBe(1);
+        expect(terminal.diagnostic.lockAttempts).toEqual([
+          {
+            name: 'harvestcircle:owner:' + terminal.diagnostic.setup.owner,
+            ifAvailable: true,
+            granted: true
+          }
+        ]);
+        expect(terminal.diagnostic.nativeTransactions).toEqual([
+          { stores: ['private_sends'], outcome: 'abort' }
+        ]);
+        expect(terminal.diagnostic.clockSamples).toHaveLength(2);
+        const [rumorTime, reservationTime] = terminal.diagnostic.clockSamples;
+        expect(rumorTime.stack).toContain('at Object.send');
+        expect(reservationTime.stack).toContain('<anonymous>');
+        expect(Math.floor(reservationTime.value / 1000)).toBeGreaterThan(
+          Math.floor(rumorTime.value / 1000)
+        );
+        expect(terminal.diagnostic.commandIds).toHaveLength(1);
+        const actualCommand = terminal.diagnostic.commandIds[0];
+        const pair = await page.evaluate(() => ({
+          owner: window.hcp104Fixture.owner,
+          peer: window.hcp104Fixture.peer,
+          parent: window.hcp104Fixture.parent
+        }));
+        const expectedRumor = buildCanonicalPairRumor(
+          JSON.stringify({
+            recipients: [{ public_key: pair.peer, relay_url: null }],
+            content: sentinel,
+            reply_to: { id: pair.parent, relays: null },
+            subject: null
+          }),
+          pair.owner,
+          Math.floor(rumorTime.value / 1000)
+        );
+        if (!expectedRumor) throw Error('missing canonical fixture rumor');
+        for (const row of before.native.sends) {
+          const wire = JSON.parse((row as { wire: string }).wire) as {
+            id: string;
+            rumorHash: string;
+          };
+          expect(wire.id).not.toBe(actualCommand);
+          expect(wire.rumorHash).not.toBe(expectedRumor.id);
+        }
+        const settledTrace = terminal.diagnostic;
+        expect(await page.evaluate(() => window.hcp104Fixture.send())).toEqual({
+          status: 'needs_action'
+        });
+        const afterRetry = await page.evaluate(async () => ({
+          native: await window.hcp104Fixture.native(),
+          delta: window.hcp104Fixture.delta(),
+          diagnostic: await window.hcp104Fixture.diagnostic(),
+          text: window.hcp104Fixture.text()
+        }));
+        expect(afterRetry.native).toEqual(before.native);
+        expect(afterRetry.delta).toEqual(before.delta);
+        expect(afterRetry.diagnostic).toEqual(settledTrace);
+        expect(afterRetry.text).toBe(sentinel);
+        expect(requests).toHaveLength(2);
+        expect(events).toEqual([]);
+        return;
+      }
+      expect(
+        terminal,
+        JSON.stringify({ beforeSend, terminal, published: events.length })
+      ).toMatchObject({
+        snapshot: { state: 'completed', busy: false }
+      });
+      expect(requests).toHaveLength(2);
+      expect(events).toHaveLength(2);
+      expect(
+        await page.evaluate(() => window.hcp104Fixture.delta())
+      ).toMatchObject({
+        encrypts: before.delta.encrypts + 2,
+        signs: before.delta.signs + 2
+      });
+    }
   );
-});
+}
 
 test('typing is memory only with no autosave SDK discovery publication or order transition', async ({
   page

@@ -105,6 +105,50 @@ test('HCP044 clipboard access is confined to the exact public copy producer', as
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 /** @typedef {{directory: string, put: (name: string, content: string | Uint8Array) => Promise<void>, execute: (args?: string[]) => import('node:child_process').SpawnSyncReturns<string>, pkg: Record<string, unknown>}} Fixture */
+test('HCP124 selected report clipboard is confined to the exact original producer', async () => {
+  await fixture(async ({ put, execute }) => {
+    const report = await readFile(
+      path.join(root, 'src/lib/support/report.ts'),
+      'utf8'
+    );
+    // Source grammar only. These inert exports cannot qualify runtime ownership.
+    await put(
+      'src/lib/catalog/product-view.ts',
+      'export function productViewSnapshot(){return undefined;} export function productViewPublisherProof(){return undefined;} export type ProductView = {};'
+    );
+    await put(
+      'src/lib/nostr/verified-envelope.ts',
+      'export function verifiedEnvelopeSnapshot(){return undefined;}'
+    );
+    await put(
+      'src/lib/messaging/inbox-view.ts',
+      'export function inboxThreadSnapshot(){return undefined;} export function inboxReplyOwnership(){return undefined;} export function subscribeInboxView(){return ()=>{};} export type InboxView = {};'
+    );
+    await put('src/lib/support/report.ts', report);
+    const positive = execute();
+    assert.equal(positive.status, 0, positive.stdout + positive.stderr);
+    for (const code of [
+      'navigator.clipboard.writeText("private");',
+      'const clipboard=navigator.clipboard;clipboard.writeText("private");',
+      'navigator.clipboard.readText();',
+      'Reflect.get(navigator.clipboard,"writeText")("private");',
+      'window.navigator.clipboard.writeText("private");'
+    ]) {
+      await put('src/routes/+page.ts', code);
+      reject(execute(), /clipboard|navigator|reflection/);
+    }
+    await put('src/routes/+page.ts', 'export const value=1;');
+    await put(
+      'src/lib/support/report.ts',
+      report + '\nnavigator.clipboard.readText();'
+    );
+    reject(execute(), /report.*identity|clipboard/);
+    await put('src/lib/support/report.ts', report);
+    await put('src/lib/support/copied-report.ts', report);
+    reject(execute(), /clipboard|navigator|reflection/);
+  });
+});
+
 /** @param {(context: Fixture) => Promise<void>} run */
 async function fixture(run) {
   const directory = await realpath(

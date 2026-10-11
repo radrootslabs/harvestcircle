@@ -154,7 +154,16 @@ describe('thin protected route SSR', () => {
       expect(output.body).not.toMatch(/<form|<textarea|<input|mailto:|tel:/);
       expect(output.head).not.toContain('noindex');
     }
-    expect(render(About).body).toContain('unavailable during development.');
+    expect(render(About).body).toContain('About HarvestCircle');
+    expect(render(About).body).toContain('Search without connecting.');
+    expect(render(About).body).toContain(
+      'Messages do not reserve food or confirm an order.'
+    );
+    expect(render(About).body).toContain('Support has not been configured.');
+    expect(render(About).body).toContain('id="report"');
+    expect(render(About).body).not.toMatch(
+      /Contact support|Selected report preview|Share message text|[0-9a-f]{64}/
+    );
     expect(render(Privacy).body).toContain('Hiding a publisher is local');
     expect(render(Privacy).body).toContain('Blocking a person is local');
     expect(render(Privacy).body.replace(/\s+/g, ' ')).toContain(

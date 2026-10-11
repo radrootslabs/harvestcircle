@@ -131,6 +131,26 @@ import { auditOutput } from '../../tools/check-output.mjs';
   async function restoreHistoricalPublicProducers(web) {
     for (const [name, value] of Object.entries({
       ...{
+        'src/routes/about/+page.svelte': {
+          source:
+            '<svelte:head><title>About \u2014 HarvestCircle</title></svelte:head>\n<div class="page page--reading stack">\n  <h1>About</h1>\n  <p class="notice">\n    Information about HarvestCircle is unavailable during development.\n  </p>\n  <section id="help">\n    <h2>Help / report</h2>\n    <p>Help and reporting are unavailable during development.</p>\n  </section>\n</div>\n',
+          sha256:
+            'eb405489e948426aee5716354304e8d6fb4dffcfefc9f6836470e3f5e02623a7'
+        },
+        'src/routes/products/[naddr=naddr]/+page.svelte': {
+          source:
+            "<script lang=\"ts\">\n  import { getContext, onMount } from 'svelte';\n  import { page } from '$app/state';\n  import {\n    PUBLIC_RUNTIME_CONTEXT,\n    publicRuntimeReady,\n    createPublicView,\n    disposePublicView,\n    type PublicView,\n    type PublicRuntime,\n    type PublicRuntimeContext\n  } from '../../../lib/runtime/public-runtime.ts';\n  import {\n    createProductView,\n    closeProductView,\n    type ProductView,\n    type ProductViewSnapshot\n  } from '../../../lib/catalog/product-view.ts';\n  import { decodeProductReference } from '../../../lib/nostr/references.ts';\n  import { readPublicContact } from '../../../lib/contracts/food-availability-v1/contact-read.ts';\n  import { copyProductReference } from '../../../lib/navigation-copy.ts';\n  import { internalHref, navigationHref } from '../../../lib/navigation-url.ts';\n  import ListingFacts from '../../../lib/components/ListingFacts.svelte';\n  import PublisherIdentity from '../../../lib/components/PublisherIdentity.svelte';\n  import Disclosure from '../../../lib/components/primitives/Disclosure.svelte';\n  import Button from '../../../lib/components/primitives/Button.svelte';\n  import ProductEnquiry from '../../../lib/components/ProductEnquiry.svelte';\n  import PublisherHide from '../../../lib/components/PublisherHide.svelte';\n  const context = getContext<PublicRuntimeContext>(PUBLIC_RUNTIME_CONTEXT);\n  let runtime = $state.raw<PublicRuntime | undefined>(),\n    result = $state.raw<ProductViewSnapshot | undefined>(),\n    error = $state<string | undefined>(),\n    copyNotice = $state<string | undefined>();\n  let productOwner = $state.raw<ProductView | undefined>();\n  const reference = $derived(decodeProductReference(page.params.naddr));\n  const contact = $derived(readPublicContact(result?.food?.content));\n  let disposed = false;\n  onMount(() => {\n    const unavailable = () => {\n      if (!disposed) error = 'Food sources are unavailable.';\n    };\n    try {\n      void publicRuntimeReady(context)\n        .then((value) => {\n          if (!disposed) {\n            runtime = value;\n            if (!value) unavailable();\n          }\n        })\n        .catch(unavailable);\n    } catch {\n      unavailable();\n    }\n    return () => {\n      disposed = true;\n    };\n  });\n  $effect(() => {\n    const selected = reference,\n      shared = runtime;\n    result = undefined;\n    productOwner = undefined;\n    copyNotice = undefined;\n    if (!selected || !shared) return;\n    let active = true,\n      acquired: PublicView | undefined,\n      owner: ProductView | undefined;\n    try {\n      acquired = createPublicView(shared);\n      owner = createProductView(\n        acquired,\n        selected.naddr,\n        { nowSeconds: () => Math.floor(Date.now() / 1000) },\n        (value) => {\n          if (active && !disposed) result = value;\n        }\n      );\n      productOwner = owner;\n      error = undefined;\n    } catch {\n      error = 'Food sources are unavailable.';\n      if (acquired)\n        try {\n          disposePublicView(acquired);\n        } catch {\n          /* Shared runtime keeps a failed disposer retryable. */\n        }\n    }\n    return () => {\n      active = false;\n      if (owner) closeProductView(owner);\n    };\n  });\n  async function copyLink() {\n    const selected = reference;\n    if (!selected) return;\n    const copied = await copyProductReference(selected.naddr, page.url.origin);\n    if (!disposed && reference?.naddr === selected.naddr)\n      copyNotice = copied\n        ? 'Link copied.'\n        : 'Copy was unavailable. Select the public link below.';\n  }\n</script>\n\n<svelte:head\n  ><title>{result?.food?.title ?? 'Food'} \u2014 HarvestCircle</title></svelte:head\n>\n<div class=\"page page--reading stack\">\n  <a href={internalHref('/search')}>Search food</a>\n  <h1>{result?.food?.title ?? 'Food'}</h1>\n  {#if !reference}<p class=\"notice\">This food reference is invalid.</p>\n  {:else if error || result?.outcome === 'unavailable'}<p class=\"notice\">\n      Food sources are unavailable.\n    </p>\n  {:else if !result || result.outcome === 'checking'}<p>\n      Checking food sources\u2026\n    </p>\n  {:else if result.outcome === 'unobserved'}<p class=\"notice\">\n      This listing was not observed in the sources checked. It may be\n      unavailable or missing from these sources.\n    </p>\n  {:else if result.outcome === 'withdrawn'}<p class=\"notice\">\n      This listing was withdrawn by its publisher.\n    </p>\n  {:else if result.outcome === 'unsupported'}<p class=\"notice\">\n      The latest known listing uses an unsupported food format.\n    </p>\n  {:else if result.outcome === 'future_quarantined' || result.outcome === 'clock_unavailable'}<p\n      class=\"notice\"\n    >\n      Listing time could not be confirmed. Food details are unavailable.\n    </p>{/if}\n  {#if result}\n    <PublisherIdentity publisher={result.publisher} />\n    {#if result.lastKnown}<p class=\"notice\">\n        This is last-known information. The listing status check is incomplete.\n      </p>{/if}\n    {#if result.food && result.createdAt !== undefined}<ListingFacts\n        food={result.food}\n        createdAt={result.createdAt}\n      />{/if}\n    {#if result.outcome === 'sold'}<p class=\"notice\">\n        The seller marked this listing sold.\n      </p>{/if}\n    {#if result.outcome === 'active'}<p>\n        Confirm availability with the seller.\n      </p>\n    {/if}\n    {#if productOwner}<ProductEnquiry\n        view={productOwner}\n        observation={result}\n      />{/if}\n    {#if productOwner && result.eventId}\n      <Disclosure summary=\"Publisher controls\"\n        ><PublisherHide view={productOwner} /></Disclosure\n      >\n    {/if}\n    <Disclosure summary=\"Listing and source details\">\n      {#if result.eventId}<p>\n          Listing version: <code>{result.eventId}</code>\n        </p>{/if}\n      {#each result.sources as source (source.result.context)}<p>\n          {source.kind}: {source.state}. Coverage: {source.result.coverage}.\n        </p>\n        {#each source.result.sources as relay (relay.source)}<p>\n            {relay.source}: {relay.state}.\n          </p>{/each}{/each}\n      <p>\n        These bounded checks do not prove complete coverage or current stock.\n      </p>\n    </Disclosure>\n    {#if contact && result.outcome === 'active'}<Disclosure\n        summary=\"Other contact details\"\n        ><a href={navigationHref(contact.href)}>{contact.href}</a></Disclosure\n      >{/if}\n  {/if}\n  {#if reference}<Button label=\"Copy link\" onclick={copyLink} /><a\n      href={internalHref(`/products/${reference.naddr}`)}>Public food link</a\n    >{/if}\n  {#if copyNotice}<p role=\"status\">{copyNotice}</p>{/if}\n  <a href={internalHref('/privacy')}>Privacy and local publisher controls</a>\n</div>\n",
+          sha256:
+            'd3afe029ad6ed6384a300ad6719f32c324a1841271eddf9baee5b8f31f54e680'
+        },
+        'src/lib/components/ConversationOptions.svelte': {
+          source:
+            "<script lang=\"ts\">\n  import { onMount } from 'svelte';\n  import {\n    subscribeInboxView,\n    blockInboxConversation,\n    type InboxView\n  } from '../messaging/inbox-view.ts';\n  import {\n    conversationOptionsSnapshot,\n    requestConversationOption\n  } from '../messaging/cited-product.ts';\n  let {\n    controller,\n    conversationId,\n    onblock,\n    onreport\n  }: {\n    controller: InboxView;\n    conversationId: string;\n    onblock?: (peer: string) => void;\n    onreport?: (peer: string) => void;\n  } = $props();\n  let revision = $state(0);\n  let reviewing = $state(false),\n    busy = $state(false),\n    notice = $state<string | undefined>();\n  async function confirmBlock() {\n    if (!reviewing || busy) return;\n    busy = true;\n    const result = await blockInboxConversation(\n      controller,\n      conversationId,\n      'reviewed_local_private_block'\n    );\n    busy = false;\n    reviewing = false;\n    notice =\n      result.status === 'saved' || result.status === 'existing'\n        ? 'Person blocked in this browser.'\n        : 'Block was not confirmed. Existing local data has not been reset.';\n  }\n  const actual = $derived.by(() => {\n    void revision;\n    return conversationOptionsSnapshot(controller, conversationId);\n  });\n  onMount(() =>\n    subscribeInboxView(controller, () => {\n      revision++;\n    })\n  );\n</script>\n\n{#if actual}\n  <details>\n    <summary>Identity and conversation options</summary>\n    <p>Authenticated conversation peer: {actual.peer}</p>\n    <button\n      type=\"button\"\n      onclick={() => {\n        if (onblock)\n          requestConversationOption(\n            controller,\n            conversationId,\n            'block',\n            onblock,\n            'reviewed_conversation_option'\n          );\n        else reviewing = true;\n      }}>Block person</button\n    >\n    {#if reviewing}\n      <p>\n        Blocking hides messages and previews for this account in this browser\n        and may discard unsaved private text. Encrypted evidence, delivery\n        receipts and remote copies remain. It sends no report or sender\n        notification and does not accept or reject an order. Undo is available\n        in Privacy.\n      </p>\n      <button type=\"button\" disabled={busy} onclick={() => void confirmBlock()}\n        >Confirm local block</button\n      >\n      <button\n        type=\"button\"\n        disabled={busy}\n        onclick={() => {\n          reviewing = false;\n        }}>Cancel</button\n      >\n    {/if}\n    {#if notice}<p role=\"status\">{notice}</p>{/if}\n    {#if onreport}<button\n        type=\"button\"\n        onclick={() => {\n          if (onreport)\n            requestConversationOption(\n              controller,\n              conversationId,\n              'report',\n              onreport,\n              'reviewed_conversation_option'\n            );\n        }}>Report conversation</button\n      >{/if}\n  </details>\n{/if}\n",
+          sha256:
+            'b40915c0b11456fbc852d67591fd4c629a33d5b271e79b79dd042fcf2c0f74cb'
+        }
+      },
+      ...{
         'src/lib/runtime/identity-session.ts': {
           source:
             "import {\n  createExtensionAdapter,\n  extensionSnapshot,\n  connectExtensionAdapter,\n  recheckExtensionAdapter,\n  probeExtensionAdapter,\n  disconnectExtensionAdapter,\n  extensionOwnershipCapture,\n  extensionMessagingOwnershipCapture,\n  subscribeExtensionInvalidation,\n  signApprovedExtensionAdapter,\n  markApprovedSigningWaitExpired,\n  type ApprovedSignResult,\n  type ExtensionAdapter,\n  type ExtensionSnapshot,\n  type ExtensionGuestReason\n} from '../nostr/extension.ts';\nimport { approveCapturedPublicSigning } from '../nostr/approved-signing.ts';\nimport {\n  publicRecordSnapshot,\n  publicRecordWire,\n  type PublicRecordHandle\n} from '../persistence/records.ts';\nimport {\n  stopPublicEffect,\n  type PublicEffectLease,\n  type PublicEffectCapture\n} from './effect-ownership.ts';\nimport {\n  bindLatePublicResponse,\n  latePublicResultIdentity,\n  reviewLatePublicArtifact,\n  type LatePublicArtifact\n} from './late-results.ts';\nimport {\n  capturedArtifactSnapshot,\n  type CapturedArtifact\n} from '../persistence/artifact-records.ts';\n\ndeclare const sessionBrand: unique symbol;\nexport type IdentitySession = Readonly<{ [sessionBrand]: true }>;\nexport type IdentitySnapshot = (\n  | Readonly<{ state: 'guest'; reason: ExtensionGuestReason }>\n  | Readonly<{ state: 'pending'; action: 'connect' | 'recheck' | 'probe' }>\n  | Readonly<{\n      state: 'connected' | 'signing_only' | 'messaging_capable';\n      publicKey: string;\n      messaging: 'not_probed' | 'unsupported' | 'refused' | 'capable';\n    }>\n) &\n  Readonly<{ admission?: 'busy' }>;\n// Per-client opaque session, never a module-global server user. A public key is\n// an extension observation, not installed-account or publishing authorization.\nconst sessions = new WeakMap<IdentitySession, ExtensionAdapter>();\ntype ViewController = { stamp(): symbol; invalidate(): void };\nconst views = new WeakMap<IdentitySession, ViewController>();\ndeclare const operationBrand: unique symbol;\nexport type IdentityPublicOperation = Readonly<{ [operationBrand]: true }>;\ntype OperationController = {\n  session: IdentitySession;\n  ownership(): PublicEffectCapture | undefined;\n  sign(lease: PublicEffectLease): Promise<ApprovedSignResult>;\n  stop(expired: boolean): void;\n  snapshot(): Readonly<{\n    owner: string;\n    id: string;\n    revision: number;\n    hash: string;\n    current: boolean;\n    lateAvailable: boolean;\n    outcome: ApprovedSignResult['status'] | 'not_started' | 'pending';\n  }>;\n  review(\n    record: PublicRecordHandle,\n    review: unknown\n  ): CapturedArtifact | undefined;\n};\nconst operations = new WeakMap<IdentityPublicOperation, OperationController>();\nexport function createIdentitySession(): IdentitySession {\n  const session = Object.freeze({}) as IdentitySession;\n  sessions.set(session, createExtensionAdapter());\n  let stamp = Symbol();\n  views.set(session, {\n    stamp: () => stamp,\n    invalidate() {\n      stamp = Symbol();\n    }\n  });\n  return session;\n}\nfunction mapIdentitySnapshot(snapshot: ExtensionSnapshot): IdentitySnapshot {\n  if (snapshot.state !== 'connected') return { ...snapshot };\n  const state: IdentitySnapshot = {\n    state:\n      snapshot.messaging === 'capable' && snapshot.signingCandidate\n        ? 'messaging_capable'\n        : snapshot.signingCandidate\n          ? 'signing_only'\n          : 'connected',\n    publicKey: snapshot.publicKey,\n    messaging: snapshot.messaging\n  };\n  return snapshot.admission === 'busy'\n    ? { ...state, admission: 'busy' }\n    : state;\n}\nexport function identitySessionSnapshot(\n  session: IdentitySession\n): IdentitySnapshot {\n  const adapter = sessions.get(session);\n  return adapter\n    ? mapIdentitySnapshot(extensionSnapshot(adapter))\n    : { state: 'guest', reason: 'unavailable' };\n}\nexport async function connectIdentity(\n  session: IdentitySession\n): Promise<IdentitySnapshot> {\n  const adapter = sessions.get(session);\n  if (adapter)\n    return mapIdentitySnapshot(await connectExtensionAdapter(adapter));\n  return identitySessionSnapshot(session);\n}\nexport async function recheckIdentityOwner(\n  session: IdentitySession\n): Promise<IdentitySnapshot> {\n  const adapter = sessions.get(session);\n  if (adapter)\n    return mapIdentitySnapshot(await recheckExtensionAdapter(adapter));\n  return identitySessionSnapshot(session);\n}\nexport async function probeIdentityMessaging(\n  session: IdentitySession,\n  review: unknown\n): Promise<IdentitySnapshot> {\n  const adapter = sessions.get(session);\n  if (adapter)\n    return mapIdentitySnapshot(await probeExtensionAdapter(adapter, review));\n  return identitySessionSnapshot(session);\n}\nexport function disconnectIdentity(session: IdentitySession): void {\n  views.get(session)?.invalidate();\n  const adapter = sessions.get(session);\n  if (adapter) disconnectExtensionAdapter(adapter);\n}\n// Internal messaging lifecycle ports. Captured observation is not an inbox\n// configuration, AUTH, private store or publication permission.\nexport function identityMessagingOwnership(\n  session: IdentitySession\n): PublicEffectCapture | undefined {\n  const adapter = sessions.get(session);\n  return adapter && extensionMessagingOwnershipCapture(adapter);\n}\nexport function subscribeIdentityInvalidation(\n  session: IdentitySession,\n  listener: () => void\n): () => void {\n  const adapter = sessions.get(session);\n  return adapter ? subscribeExtensionInvalidation(adapter, listener) : () => {};\n}\n// Explicit route/input lifecycle event. No draft, DB, reconnect or SDK effect.\nexport function invalidateIdentityOperations(session: IdentitySession): void {\n  views.get(session)?.invalidate();\n}\n// Internal public operation capability, never an unrestricted UI template signer.\n// Current-head/inbox/IDB preparation and publication retain their typed owners.\nexport function captureIdentityPublicOperation(\n  session: IdentitySession,\n  record: PublicRecordHandle,\n  id: unknown,\n  review: unknown\n): IdentityPublicOperation | undefined {\n  const adapter = sessions.get(session),\n    view = views.get(session);\n  const captured = adapter && extensionOwnershipCapture(adapter);\n  if (!adapter || !view || !captured) return undefined;\n  const row = publicRecordSnapshot(record, captured.owner, id),\n    recordWire = publicRecordWire(record, captured.owner, id);\n  const approval = approveCapturedPublicSigning(\n    record,\n    captured.owner,\n    id,\n    review\n  );\n  if (\n    !row ||\n    !recordWire ||\n    !approval ||\n    row.family === 'public_draft' ||\n    row.revision !== 0\n  )\n    return undefined;\n  const owner = row.owner,\n    command = row.id,\n    epoch = view.stamp(),\n    originalSession = captured.session;\n  let stopped = false,\n    pending = false;\n  let lease: PublicEffectLease | undefined,\n    late: LatePublicArtifact | undefined;\n  let outcome: ApprovedSignResult['status'] | 'not_started' | 'pending' =\n    'not_started';\n  const current = () =>\n    !stopped && view.stamp() === epoch && captured.current();\n  const token = Object.freeze({}) as IdentityPublicOperation;\n  operations.set(token, {\n    session,\n    ownership: () =>\n      current() ? { owner, session: originalSession, current } : undefined,\n    async sign(originalLease) {\n      if (pending) return { status: 'busy' };\n      if (!current()) return { status: 'stale' };\n      pending = true;\n      lease = originalLease;\n      outcome = 'pending';\n      try {\n        let result = await signApprovedExtensionAdapter(\n          adapter,\n          approval,\n          originalLease\n        );\n        // The adapter's promise can settle before this continuation runs.\n        // Recheck this view before disclosing a normal signed result.\n        if (result.status === 'signed' && !current()) {\n          const artifact = capturedArtifactSnapshot(result.artifact);\n          const originalLate =\n            artifact &&\n            bindLatePublicResponse(\n              approval,\n              JSON.parse(artifact.wire),\n              originalSession\n            );\n          result = originalLate\n            ? { status: 'unknown', late: originalLate }\n            : { status: 'unknown' };\n        }\n        outcome = result.status;\n        if (result.status === 'unknown' && result.late) {\n          const original = latePublicResultIdentity(result.late);\n          if (\n            original?.owner === owner &&\n            original.id === command &&\n            original.recordWire === recordWire &&\n            original.session === originalSession\n          )\n            late = result.late;\n        }\n        // Only disclosure/explicit original-operation review can obtain a late\n        // artifact. A normal signing result never returns it after invalidation.\n        return result.status === 'unknown' ? { status: 'unknown' } : result;\n      } finally {\n        pending = false;\n        lease = undefined;\n      }\n    },\n    stop(expired) {\n      stopped = true;\n      if (lease) {\n        if (expired) markApprovedSigningWaitExpired(adapter, approval, lease);\n        stopPublicEffect(lease);\n      }\n    },\n    snapshot: () => ({\n      owner,\n      id: command,\n      revision: row.revision,\n      hash: row.capture.hash,\n      current: current(),\n      lateAvailable: late !== undefined,\n      outcome\n    }),\n    review(original, consent) {\n      const observed = extensionSnapshot(adapter);\n      return late &&\n        observed.state === 'connected' &&\n        observed.publicKey === owner\n        ? reviewLatePublicArtifact(late, original, owner, command, consent)\n        : undefined;\n    }\n  });\n  return token;\n}\nfunction operationOf(session: IdentitySession, token: IdentityPublicOperation) {\n  const operation = operations.get(token);\n  return operation?.session === session ? operation : undefined;\n}\nexport function identityPublicOperationOwnership(\n  session: IdentitySession,\n  operation: IdentityPublicOperation\n): PublicEffectCapture | undefined {\n  return operationOf(session, operation)?.ownership();\n}\nexport function identityPublicOperationSnapshot(\n  session: IdentitySession,\n  operation: IdentityPublicOperation\n) {\n  return operationOf(session, operation)?.snapshot();\n}\nexport function signIdentityPublicOperation(\n  session: IdentitySession,\n  operation: IdentityPublicOperation,\n  lease: PublicEffectLease\n): Promise<ApprovedSignResult> {\n  return (\n    operationOf(session, operation)?.sign(lease) ??\n    Promise.resolve({ status: 'invalid_approval' })\n  );\n}\nexport function stopIdentityPublicOperation(\n  session: IdentitySession,\n  operation: IdentityPublicOperation\n): void {\n  operationOf(session, operation)?.stop(false);\n}\n// UI supplies expiry; existing scheduler owns its actual pending promise.\nexport function expireIdentityPublicOperationWait(\n  session: IdentitySession,\n  operation: IdentityPublicOperation\n): void {\n  operationOf(session, operation)?.stop(true);\n}\n// Pure same-author original review, not fresh author/CAS/resume/publish proof.\nexport function reviewIdentityLatePublicArtifact(\n  session: IdentitySession,\n  operation: IdentityPublicOperation,\n  original: PublicRecordHandle,\n  review: unknown\n): CapturedArtifact | undefined {\n  return operationOf(session, operation)?.review(original, review);\n}\n",
@@ -683,7 +703,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             const f = await fixture(t);
             const files = await f.audit();
             // Exact eleven-route module/page/static admission; CSS stays once-imported.
-            assert.equal(files.length, 55);
+            assert.equal(files.length, 57);
             // The actual SDK payload crosses the reader scratch boundary; a reused
             // scratch buffer must still preserve every compiler/static byte exactly.
             const sizes = await Promise.all(
@@ -754,7 +774,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
               await refresh(f);
               await assert.rejects(
                 f.audit,
-                /inbox presentation source|Invalid owned private blocking source/
+                /inbox presentation source|Invalid owned private blocking source|Invalid owned support reporting source/
               );
             }
           );
@@ -930,7 +950,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
               await refresh(f);
               await assert.rejects(
                 f.audit,
-                /inbox compiler source|Invalid owned private blocking source/
+                /inbox compiler source|Invalid owned private blocking source|Invalid owned support reporting source/
               );
             }
           );
@@ -973,7 +993,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             assert.ok(Buffer.byteLength(expanded) > 64 * 1024);
             await writeFile(file, expanded);
             await refresh(f);
-            assert.equal((await f.audit()).length, 55);
+            assert.equal((await f.audit()).length, 57);
           }
         );
 
@@ -1461,7 +1481,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
           }
         );
         await check(
-          'actual shared budgets chunk has owned consumers and counterpart',
+          'actual shared budgets/navigation validator chunk has owned consumers and counterpart',
           async (t) => {
             const f = await fixture(t);
             const manifest = JSON.parse(
@@ -1474,34 +1494,27 @@ import { auditOutput } from '../../tools/check-output.mjs';
               )
             );
             const entries = Object.entries(manifest).filter(
-              ([, record]) => record.name === 'Button'
+              ([, record]) => record.name === 'navigation-url'
             );
             assert.equal(entries.length, 1);
             const [key, budget] = entries[0];
-            assert.deepEqual(Object.keys(budget).sort(), [
-              'file',
-              'imports',
-              'name'
-            ]);
-            const client = Object.entries(manifest).find(
-              ([, record]) => record.name === 'client'
-            );
-            assert.ok(client);
-            assert.deepEqual(budget.imports, [client[0]]);
+            assert.deepEqual(Object.keys(budget).sort(), ['file', 'name']);
             for (const name of [
-              Object.values(manifest).some(
-                (row) => row.name === 'public-runtime'
-              )
-                ? 'public-runtime'
-                : 'Disclosure',
+              'public-runtime',
               'nodes/9',
-              'routes'
-            ])
-              assert.ok(
-                Object.values(manifest)
-                  .find((record) => record.name === name)
-                  .imports.includes(key)
+              'routes',
+              'Button',
+              'ReportPreview'
+            ]) {
+              const consumer = Object.values(manifest).find(
+                (record) => record.name === name
               );
+              assert.ok(consumer, 'Missing actual budget consumer ' + name);
+              assert.ok(
+                consumer.imports.includes(key),
+                'Missing actual shared budget edge from ' + name
+              );
+            }
             assert.deepEqual(
               await readFile(path.join(f.web, 'build', budget.file)),
               await readFile(
@@ -1610,7 +1623,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
               await refresh(f);
               await assert.rejects(
                 f.audit,
-                /Invalid owned listing editor source|Invalid owned public hiding source|Invalid owned private blocking source/
+                /Invalid owned listing editor source|Invalid owned public hiding source|Invalid owned private blocking source|Invalid owned support reporting source/
               );
             }
           );
@@ -1632,7 +1645,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
               await refresh(f);
               await assert.rejects(
                 f.audit,
-                /Invalid owned selling workspace source|Invalid owned public hiding source|Invalid owned private blocking source/
+                /Invalid owned selling workspace source|Invalid owned public hiding source|Invalid owned private blocking source|Invalid owned support reporting source/
               );
             }
           );
@@ -1662,7 +1675,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
               await refresh(f);
               await assert.rejects(
                 f.audit,
-                /Invalid owned (public hiding source|private blocking source|root runtime activation)/
+                /Invalid owned (public hiding source|private blocking source|support reporting source|root runtime activation)/
               );
             }
           );
@@ -1700,7 +1713,48 @@ import { auditOutput } from '../../tools/check-output.mjs';
               await refresh(f);
               await assert.rejects(
                 f.audit,
-                /Invalid owned (private blocking source|root runtime activation)/
+                /Invalid owned (private blocking source|support reporting source|root runtime activation)/
+              );
+            }
+          );
+        }
+        for (const producer of [
+          'src/lib/config/support.ts',
+          'src/lib/config/deployment-support.ts',
+          'src/lib/support/report.ts',
+          'src/lib/components/ReportPreview.svelte',
+          'src/lib/components/SupportLink.svelte',
+          'src/routes/about/+page.svelte',
+          'src/routes/products/[naddr=naddr]/+page.svelte',
+          'src/lib/components/ConversationOptions.svelte',
+          'src/lib/navigation-url.ts'
+        ]) {
+          await check(
+            'support reporting rejects changed owned producer ' + producer,
+            async (t) => {
+              const f = await fixture(t);
+              const file = path.join(f.web, producer);
+              await writeFile(
+                file,
+                (await readFile(file, 'utf8')) +
+                  '\n// changed support reporting producer\n'
+              );
+              await refresh(f);
+              await assert.rejects(
+                f.audit,
+                /Invalid owned support reporting source/
+              );
+            }
+          );
+          await check(
+            'support reporting rejects missing owned producer ' + producer,
+            async (t) => {
+              const f = await fixture(t);
+              await rm(path.join(f.web, producer));
+              await refresh(f);
+              await assert.rejects(
+                f.audit,
+                /ENOENT|support reporting|incomplete route source/
               );
             }
           );
@@ -1723,7 +1777,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
               await refresh(f);
               await assert.rejects(
                 f.audit,
-                /Invalid owned listing editor activation|Invalid owned public hiding source|Invalid owned private blocking source/
+                /Invalid owned listing editor activation|Invalid owned public hiding source|Invalid owned private blocking source|Invalid owned support reporting source/
               );
             }
           );
@@ -1759,8 +1813,8 @@ import { auditOutput } from '../../tools/check-output.mjs';
               await assert.rejects(
                 f.audit,
                 producer === 'src/lib/runtime/public-runtime.ts'
-                  ? /Invalid owned (product presentation|listing editor) source|Invalid owned public hiding source|Invalid owned private blocking source/
-                  : /Invalid owned product presentation source|Invalid owned public hiding source|Invalid owned private blocking source/
+                  ? /Invalid owned (product presentation|listing editor) source|Invalid owned public hiding source|Invalid owned private blocking source|Invalid owned support reporting source/
+                  : /Invalid owned product presentation source|Invalid owned public hiding source|Invalid owned private blocking source|Invalid owned support reporting source/
               );
             }
           );
@@ -1866,6 +1920,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
                   '.svelte-kit/output/client/.vite/manifest.json'
                 );
               const manifest = JSON.parse(await readFile(file, 'utf8'));
+              const original = JSON.stringify(manifest);
               const records = Object.entries(manifest);
               const find = (/** @type {string} */ name) => {
                 const row = records.find(([, v]) => v.name === name);
@@ -1888,7 +1943,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
                     key !==
                     find(
                       mutation === 'publisher-budget'
-                        ? 'Button'
+                        ? 'navigation-url'
                         : Object.values(manifest).some(
                               (row) => row.name === 'public-runtime'
                             )
@@ -1901,7 +1956,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
                   mutation === 'search-publisher'
                     ? 'nodes/9'
                     : mutation === 'product-publisher'
-                      ? 'MessageComposer'
+                      ? 'ReportPreview'
                       : 'nodes/7';
                 const dependency =
                   mutation === 'product-shared'
@@ -1913,6 +1968,11 @@ import { auditOutput } from '../../tools/check-output.mjs';
                   (/** @type {string} */ key) => key !== find(dependency)[0]
                 );
               }
+              assert.notEqual(
+                JSON.stringify(manifest),
+                original,
+                'Every product graph mutation must change the actual input'
+              );
               await writeFile(file, JSON.stringify(manifest));
               await assert.rejects(f.audit, /compiler|budgets/);
             }
@@ -1938,7 +1998,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
               await refresh(f);
               await assert.rejects(
                 f.audit,
-                /Invalid owned search presentation source|Invalid owned public hiding source|Invalid owned private blocking source/
+                /Invalid owned search presentation source|Invalid owned public hiding source|Invalid owned private blocking source|Invalid owned support reporting source/
               );
             }
           );
@@ -1963,6 +2023,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
               '.svelte-kit/output/client/.vite/manifest.json'
             );
             const manifest = JSON.parse(await readFile(file, 'utf8'));
+            const original = JSON.stringify(manifest);
             const records = Object.entries(manifest);
             const find = (/** @type {string} */ name) => {
               const entry = records.find(([, v]) => v.name === name);
@@ -1976,7 +2037,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
                 ? 'public-runtime'
                 : 'Disclosure'
             );
-            const [budgetKey] = find('Button');
+            const [budgetKey] = find('navigation-url');
             if (mutation === 'missing-shared') delete manifest[sharedKey];
             else if (mutation === 'missing-navigation')
               delete manifest[find('navigation')[0]];
@@ -2007,6 +2068,11 @@ import { auditOutput } from '../../tools/check-output.mjs';
                 (/** @type {string} */ k) => k !== find('references')[0]
               );
             else shared.dynamicImports = [];
+            assert.notEqual(
+              JSON.stringify(manifest),
+              original,
+              'Every search graph mutation must change the actual input'
+            );
             await writeFile(file, JSON.stringify(manifest));
             await assert.rejects(f.audit, /compiler|SDK|budgets/);
           });
@@ -2028,8 +2094,9 @@ import { auditOutput } from '../../tools/check-output.mjs';
               '.svelte-kit/output/client/.vite/manifest.json'
             );
             const manifest = JSON.parse(await readFile(file, 'utf8'));
+            const original = JSON.stringify(manifest);
             const entry = Object.entries(manifest).find(
-              ([, record]) => record.name === 'Button'
+              ([, record]) => record.name === 'navigation-url'
             );
             assert.ok(entry);
             const [key, budget] = entry;
@@ -2058,6 +2125,14 @@ import { auditOutput } from '../../tools/check-output.mjs';
               await writeFile(
                 path.join(f.web, 'build', budget.file),
                 'changed counterpart'
+              );
+            if (
+              !['missing-counterpart', 'changed-counterpart'].includes(mutation)
+            )
+              assert.notEqual(
+                JSON.stringify(manifest),
+                original,
+                'Every budgets graph mutation must change the actual input'
               );
             await writeFile(file, JSON.stringify(manifest));
             await assert.rejects(
@@ -2167,7 +2242,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
                 (dependency) => manifest[dependency].name === 'client'
               )
             );
-            for (const consumer of ['nodes/0', 'nodes/2']) {
+            for (const consumer of ['nodes/0', 'nodes/9']) {
               assert.ok(
                 Object.values(manifest).some(
                   (record) =>

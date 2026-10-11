@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import {
     subscribeInboxView,
     blockInboxConversation,
@@ -9,6 +9,12 @@
     conversationOptionsSnapshot,
     requestConversationOption
   } from '../messaging/cited-product.ts';
+  import ReportPreview from './ReportPreview.svelte';
+  import {
+    createConversationReport,
+    closeReportContext,
+    type ReportContext
+  } from '../support/report.ts';
   let {
     controller,
     conversationId,
@@ -21,6 +27,19 @@
     onreport?: (peer: string) => void;
   } = $props();
   let revision = $state(0);
+  let report = $state.raw<ReportContext | undefined>();
+  let reportOwner = $state.raw<{ view: InboxView; id: string } | undefined>();
+  $effect(() => {
+    const view = controller,
+      id = conversationId;
+    untrack(() => {
+      if (reportOwner && (reportOwner.view !== view || reportOwner.id !== id)) {
+        if (report) closeReportContext(report);
+        report = undefined;
+        reportOwner = undefined;
+      }
+    });
+  });
   let reviewing = $state(false),
     busy = $state(false),
     notice = $state<string | undefined>();
@@ -43,11 +62,15 @@
     void revision;
     return conversationOptionsSnapshot(controller, conversationId);
   });
-  onMount(() =>
-    subscribeInboxView(controller, () => {
+  onMount(() => {
+    const off = subscribeInboxView(controller, () => {
       revision++;
-    })
-  );
+    });
+    return () => {
+      off();
+      if (report) closeReportContext(report);
+    };
+  });
 </script>
 
 {#if actual}
@@ -88,18 +111,26 @@
       >
     {/if}
     {#if notice}<p role="status">{notice}</p>{/if}
-    {#if onreport}<button
-        type="button"
-        onclick={() => {
-          if (onreport)
-            requestConversationOption(
-              controller,
-              conversationId,
-              'report',
-              onreport,
-              'reviewed_conversation_option'
-            );
-        }}>Report conversation</button
-      >{/if}
+    <button
+      type="button"
+      onclick={() => {
+        if (onreport)
+          requestConversationOption(
+            controller,
+            conversationId,
+            'report',
+            onreport,
+            'reviewed_conversation_option'
+          );
+        else {
+          if (report) closeReportContext(report);
+          report = createConversationReport(controller, conversationId);
+          reportOwner = report
+            ? { view: controller, id: conversationId }
+            : undefined;
+        }
+      }}>Report conversation</button
+    >
+    {#if report}{#key report}<ReportPreview context={report} />{/key}{/if}
   </details>
 {/if}
