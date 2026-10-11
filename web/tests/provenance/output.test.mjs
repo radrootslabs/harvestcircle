@@ -1888,6 +1888,29 @@ import { auditOutput } from '../../tools/check-output.mjs';
             }
           );
         }
+        for (const attribute of [
+          'rel="noopener noreferrer"',
+          'referrerpolicy="no-referrer"'
+        ]) {
+          await check(
+            'bounded contact rejects removed ' + attribute,
+            async (t) => {
+              const f = await fixture(t);
+              const file = path.join(
+                f.web,
+                'src/routes/products/[naddr=naddr]/+page.svelte'
+              );
+              const source = await readFile(file, 'utf8');
+              assert.ok(source.includes(attribute));
+              await writeFile(file, source.replace(attribute, ''));
+              await refresh(f);
+              await assert.rejects(
+                f.audit,
+                /Invalid owned operational flags source/
+              );
+            }
+          );
+        }
         for (const producer of [
           'src/lib/config/operation-flags.ts',
           'src/lib/runtime/capabilities.ts',

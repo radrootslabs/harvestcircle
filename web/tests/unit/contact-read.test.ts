@@ -25,4 +25,23 @@ describe('dedicated optional public contact', () => {
     ])
       expect(readPublicContact(content)).toBeUndefined();
   });
+  it('rejects hinted relays, remote resource schemes and nested contact injection', () => {
+    for (const href of [
+      'wss://relay.example.org',
+      'http://contact.example.org',
+      'data:text/html,hello',
+      'blob:https://contact.example.org/id',
+      '//contact.example.org',
+      'https://user@contact.example.org',
+      'https://contact.example.org/%0d%0aHeader:value',
+      'mailto:seller@example.org?body=private',
+      'mailto:seller@example.org%0aBcc:other@example.org',
+      'tel:+12025550123;ext=1',
+      'tel:12025550123',
+      'https://contact.example.org/' + 'a'.repeat(8192)
+    ])
+      expect(
+        readPublicContact(`Carrots\n\nPublic contact: ${href}`)
+      ).toBeUndefined();
+  });
 });

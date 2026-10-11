@@ -315,6 +315,14 @@ test('real product reload renders verified facts, safe guest contact, explicit c
         exact: true
       })
     ).toHaveAttribute('href', 'https://contact.example.org/collect');
+    const contactLink = page.getByRole('link', {
+      name: 'https://contact.example.org/collect',
+      exact: true
+    });
+    expect(await contactLink.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(await contactLink.getAttribute('referrerpolicy')).toBe(
+      'no-referrer'
+    );
     await page.getByRole('button', { name: 'Copy link', exact: true }).click();
     await expect(page.getByRole('main').getByRole('status')).toHaveText(
       'Link copied.'

@@ -193,7 +193,11 @@
     </Disclosure>
     {#if contact && result.outcome === 'active'}<Disclosure
         summary="Other contact details"
-        ><a href={navigationHref(contact.href)}>{contact.href}</a></Disclosure
+        ><a
+          href={navigationHref(contact.href)}
+          rel="noopener noreferrer"
+          referrerpolicy="no-referrer">{contact.href}</a
+        ></Disclosure
       >{/if}
   {/if}
   {#if reference}<Button label="Copy link" onclick={copyLink} /><a

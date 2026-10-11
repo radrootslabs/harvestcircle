@@ -43,13 +43,19 @@ function acceptsHtml(accept: string) {
 }
 
 export async function createStaticHarness(
-  options: { buildRoot?: string } = {}
+  options: {
+    buildRoot?: string;
+    headers?: Readonly<Record<string, string>>;
+  } = {}
 ) {
   const root = await realpath(
     options.buildRoot ??
       fileURLToPath(new URL('../../../build/', import.meta.url))
   );
+  const headers = { ...options.headers };
   const server = createServer((request, response) => {
+    for (const [name, value] of Object.entries(headers))
+      response.setHeader(name, value);
     void (async () => {
       if (request.method !== 'GET') {
         response.writeHead(405).end();
