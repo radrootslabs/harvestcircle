@@ -7,6 +7,8 @@ import {
   readNewInboxView,
   inboxViewSetup,
   closeInboxView,
+  blockInboxConversation,
+  inboxConversationBlocked,
   type InboxView
 } from '../../src/lib/messaging/inbox-view.ts';
 import { createIdentitySession } from '../../src/lib/runtime/identity-session.ts';
@@ -50,6 +52,25 @@ describe('inbox page requires original browser owners', () => {
   it('forged continuation cannot approve any decrypt batch', async () => {
     expect(
       await readNewInboxView({} as InboxView, 'reviewed_decrypt_batch')
+    ).toBe(false);
+  });
+  it('copied controllers cannot import a peer block or a private block inventory', async () => {
+    const copied = { ...inboxViewSnapshot(undefined) } as unknown as InboxView;
+    expect(
+      await blockInboxConversation(
+        copied,
+        '12345678-1234-4234-8234-123456789abc',
+        'reviewed_local_private_block'
+      )
+    ).toEqual({ status: 'invalid' });
+    expect(
+      inboxConversationBlocked(copied, '12345678-1234-4234-8234-123456789abc')
+    ).toBe(false);
+    expect(
+      inboxConversationBlocked(
+        undefined,
+        '12345678-1234-4234-8234-123456789abc'
+      )
     ).toBe(false);
   });
   it('copied or absent owners cannot expose the shared setup token', () => {

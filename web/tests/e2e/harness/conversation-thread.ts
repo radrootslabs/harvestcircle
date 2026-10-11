@@ -365,6 +365,7 @@ export async function renderFixture(
     readLockPending = undefined;
   }
   return {
+    identity: f.identity,
     holdReadLock,
     releaseRead,
     controller,

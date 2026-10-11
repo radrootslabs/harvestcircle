@@ -37,6 +37,7 @@
     closeInboxView,
     inboxThreadSnapshot,
     inboxThreadRevision,
+    inboxConversationBlocked,
     markInboxConversationDisplayed,
     type InboxView
   } from '../messaging/inbox-view.ts';
@@ -204,6 +205,12 @@
           controller={reply}
           focusScope="conversation"
         />{/key}{/if}
+  {:else if owned && inboxConversationBlocked(owned, conversationId)}
+    <p>
+      This person is blocked locally. Messages and previews are hidden;
+      encrypted evidence and remote copies remain.
+    </p>
+    <a href="/privacy">Review local blocks and Undo</a>
   {:else}<p>
       This conversation is unavailable until it is unlocked in the matching
       browser and account.

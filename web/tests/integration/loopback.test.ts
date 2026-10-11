@@ -99,6 +99,11 @@ await test('navigation fallback serves actual separate output and preserves miss
   const privacy = prerendered.get('/privacy');
   assert.ok(privacy);
   assert.match(privacy, /Hiding a publisher is local/);
+  assert.match(privacy, /Blocking a person is local/);
+  assert.match(
+    privacy,
+    /Private messages have no forward secrecy or post-compromise security\./
+  );
   assert.match(
     privacy,
     /does not delete listings, remote copies or your publication receipts/
@@ -107,7 +112,7 @@ await test('navigation fallback serves actual separate output and preserves miss
     privacy,
     /Guest browsing\s+does not expose an account inventory/
   );
-  assert.doesNotMatch(privacy, /Undo hide|[0-9a-f]{64}/);
+  assert.doesNotMatch(privacy, /Undo hide|Undo block|[0-9a-f]{64}/);
   const document = { accept: 'text/html', 'sec-fetch-dest': 'document' };
   const server = await createStaticHarness();
   try {

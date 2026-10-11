@@ -1,5 +1,11 @@
 import { planDecryptBatch } from './inbox-state.ts';
 import { canonicalPublicKey } from '../contracts/public-key.ts';
+import {
+  privateBlocksForIdentity,
+  mountLocalPrivateBlocks,
+  localPrivateBlocksSnapshot,
+  localPrivatePeerAllowed
+} from '../persistence/local-private-blocks.ts';
 import { LOCAL_PERSISTENCE_BUDGETS } from '../config/budgets.ts';
 import {
   privateSessionOwnership,
@@ -86,6 +92,8 @@ export function captureDecryptionQueue(
   const capture = observed,
     identityOwner = owner,
     unlockedOwner = cache;
+  const preferences = privateBlocksForIdentity(identity);
+  if (!preferences) return;
   let visibility;
   try {
     visibility = getPrivateVisibilityScope(session);
@@ -114,6 +122,7 @@ export function captureDecryptionQueue(
   let active: ReceivedUnwrap | undefined,
     off = () => {},
     unlockOff = () => {};
+  const excluded = new Map<string, string>();
   function current() {
     return (
       !stopped &&
@@ -134,6 +143,7 @@ export function captureDecryptionQueue(
     accepted = [];
     pending = [];
     processed = [];
+    excluded.clear();
     off();
     unlockOff();
     if (sessions.get(session) === token) sessions.delete(session);
@@ -188,7 +198,15 @@ export function captureDecryptionQueue(
       invalid,
       busy
     }),
-    rooms: () => (current() ? accepted.slice() : []),
+    rooms: () =>
+      current()
+        ? accepted.filter((room) => {
+            const message = conversationSnapshot(room);
+            return (
+              !!message && localPrivatePeerAllowed(preferences, message.peer)
+            );
+          })
+        : [],
     stop,
     expire,
     async refresh() {
@@ -222,6 +240,23 @@ export function captureDecryptionQueue(
       admitted = 0;
       invalid = 0;
       try {
+        await mountLocalPrivateBlocks(preferences);
+        const initial = localPrivateBlocksSnapshot(preferences);
+        if (!current() || initial.state !== 'ready') {
+          pause('local_preferences_unavailable');
+          return false;
+        }
+        // Undo alone does nothing. Only this newly reviewed batch may revisit
+        // previously identified ciphertext, without resetting unrelated IDs.
+        for (const [id, peer] of excluded) {
+          if (
+            localPrivatePeerAllowed(preferences, peer) &&
+            !exclusions.includes(peer)
+          ) {
+            processed = processed.filter((value) => value !== id);
+            excluded.delete(id);
+          }
+        }
         if (!(await load()) || paused || !current()) return false;
         const plan = planDecryptBatch(pending);
         for (const id of plan.selected) {
@@ -230,6 +265,18 @@ export function captureDecryptionQueue(
             return false;
           }
           if (paused) return false;
+          const before = localPrivateBlocksSnapshot(preferences);
+          if (
+            before.state !== 'ready' ||
+            before.revision !== initial.revision
+          ) {
+            pause(
+              before.state === 'ready'
+                ? 'local_block_changed'
+                : 'local_preferences_unavailable'
+            );
+            return false;
+          }
           // Cost reservation occurs before unwrap/admission/dedup/blocked sender.
           attempted++;
           active = captureReceivedUnwrap(
@@ -261,8 +308,12 @@ export function captureDecryptionQueue(
             if (!room || !message) {
               invalid++;
               stopReceivedUnwrap(reader);
-            } else if (exclusions.includes(message.peer)) {
+            } else if (
+              exclusions.includes(message.peer) ||
+              !localPrivatePeerAllowed(preferences, message.peer)
+            ) {
               blocked++;
+              excluded.set(id, message.peer);
               stopReceivedUnwrap(reader);
             } else {
               const projection = acceptUnlockedConversation(unlocked, room);
@@ -294,6 +345,18 @@ export function captureDecryptionQueue(
           if (!current() || paused) return false;
           processed = processed.concat(id);
           pending = pending.filter((next) => next !== id);
+          const actual = localPrivateBlocksSnapshot(preferences);
+          if (
+            actual.state !== 'ready' ||
+            actual.revision !== initial.revision
+          ) {
+            pause(
+              actual.state === 'ready'
+                ? 'local_block_changed'
+                : 'local_preferences_unavailable'
+            );
+            return false;
+          }
         }
         if (!(await load()) || paused || !current()) return false;
         state = pending.length ? 'needs_action' : 'idle';

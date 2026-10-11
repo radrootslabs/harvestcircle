@@ -307,6 +307,7 @@ test.describe('actual shared inline capability component', () => {
       'src/lib/runtime/identity-session.ts',
       'src/lib/runtime/public-runtime.ts',
       'src/lib/persistence/local-public-hides.ts',
+      'src/lib/persistence/local-private-blocks.ts',
       'src/lib/components/AppShell.svelte',
       'src/lib/components/AccountGate.svelte',
       'src/lib/components/InboxSetup.svelte',

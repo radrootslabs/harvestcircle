@@ -231,7 +231,184 @@ export function publicHideRootIdentity(bytes) {
 // Compiler admission follows actual root bindings, never copied files or text
 // matches. This is the deliberately fixed lifecycle shape owned by HCP032.
 /** @param {string} web */
+async function privateBlockingAdmission(web) {
+  const root = publicText(await readOwned(web, 'src/routes/+layout.svelte'));
+  if (!root.includes('../lib/persistence/local-private-blocks.ts'))
+    return false;
+  /** @type {Record<string,string>} */
+  const producers = {
+    'src/lib/catalog/observations.ts':
+      '7386470e698156f2480de1d6c9fcffacab507f97d2f4006df926db467327120c',
+    'src/lib/catalog/product-view.ts':
+      '3558230c9f7cd17666e27c032de4ba6f30d2fb6b4d54149a69e5b8f5dc5d5363',
+    'src/lib/catalog/search-run.ts':
+      '213a58cf897456a0dc0e99e46594cba013952ff08212802fb471f0d323c38573',
+    'src/lib/catalog/search-view.ts':
+      'bc4d0160574084a547d54d5ca582b15382f44d4649c255743ebdb4c8b398f795',
+    'src/lib/components/ConfirmPanel.svelte':
+      '9e25745303bdf408a14df5153a28e9579bfa019ab083225acb7d874e93a17d59',
+    'src/lib/components/ConflictNotice.svelte':
+      'f0a71cab9e8f1f12a3421402e3bc3b2f96c2ddb35ad8949c6e9599b850c3a17c',
+    'src/lib/components/ConversationOptions.svelte':
+      'b40915c0b11456fbc852d67591fd4c629a33d5b271e79b79dd042fcf2c0f74cb',
+    'src/lib/components/ConversationRow.svelte':
+      'c5d0926ac9cdda18a6befe365227dfe62405f71598f59964ff36af9a0e85d743',
+    'src/lib/components/ConversationThread.svelte':
+      '07d7421ca00f5f0c6e68b38b790f863ca5c0d01de6567ac3875ef719b83462f4',
+    'src/lib/components/InboxStatus.svelte':
+      'a1015aac1d6c9ebb7a54bd5746e4cbcb4b93e376a30a2cbd7f7df212713fc930',
+    'src/lib/components/ListingEditor.svelte':
+      '060f4863f6f4f2a4fb1471bb0d5eeedf31ab13b5c83d894f47757cf5a68099e6',
+    'src/lib/components/ListingReview.svelte':
+      'deee41ca6c60b346afc7ed5e62e3101ee03b04fdd2a9aa8fa3f3dec585e3863b',
+    'src/lib/components/MessageComposer.svelte':
+      'bc8ac0e2123b60957f1c289acbb2b8740e171097029f640f657cd79f5aa8423b',
+    'src/lib/components/MessageItem.svelte':
+      '5c9af10ece18deeddd85e11453239c2a0b8e741cb84529e15c4ad87864704517',
+    'src/lib/components/OperationStatus.svelte':
+      'ca3a007899996f6331fadd2ead4c55dc7116c273626ecd2f36bcd4701065ae5f',
+    'src/lib/components/PublisherHide.svelte':
+      '0fa30a68b44e9de68c3bb1edc9ed2c7fedefc2dc8a916c0a1df1f15440248927',
+    'src/lib/components/SellingRow.svelte':
+      'ce00de1bd033860b9c0a85a49c90c8a4d5b8a8223cfd5c0872572e548e79331d',
+    'src/lib/config/budgets.ts':
+      'e61806f1c2b580340e862b8dc7dd8063e90f74e03c64c721a7d112b0872f935d',
+    'src/lib/config/deployment-relays.ts':
+      '14443151ff819a11a4f9c71e4ff756d1fbdd7cf6c36242ac712c378e68583aa2',
+    'src/lib/config/relays.ts':
+      'f54a4e91c6561cf02e5aebfb7b62a7913faa4416a5664f2d14d2e3f3f9886f55',
+    'src/lib/contracts/local-records.ts':
+      '04ddd51339a439665a94d4a4de7b23c2257d4a673873a672d4427e9764d21f3f',
+    'src/lib/contracts/public-key.ts':
+      'd36d4001c2f4835e24d50f00460a35c9cf9fa6b86cc3b4a6937d8b4e10afdeb9',
+    'src/lib/messaging/admit-conversation.ts':
+      '3e1b0044c2269eb62fa0485db61d3159e4e779e36c309278863d56cba9f677c3',
+    'src/lib/messaging/cited-product.ts':
+      'bed076c0902f6453971f88f107766c331b5737e488cb8c3c5f6c941e3428778d',
+    'src/lib/messaging/conversation-thread.ts':
+      '7367f0e6d96a9f249514f66c2459274e856eb83462523e37264d4cd97d2e36d1',
+    'src/lib/messaging/decryption-queue.ts':
+      'be704e6cbe777722c3eb80ec9843f00afd7bac8c52af0c2af7294f2437414553',
+    'src/lib/messaging/inbox-list.ts':
+      '9cc82877bfa8dbb2a7fa41bceb842793349416271f19569f49fdd5cfc1de07e5',
+    'src/lib/messaging/inbox-setup-view.ts':
+      '4ec9025232bb1355fef1ba039b46ce0a2be10e02e348e1b4eaadc3d1f3c2fd84',
+    'src/lib/messaging/inbox-sync.ts':
+      '84f9b3bb165a81878bb281c51d245aff7eb06a0fa55b857a49b13d0cb1cff8ae',
+    'src/lib/messaging/inbox-view.ts':
+      '6871707ae7395d3679856a01e87c7d8f273848e0b9ef0dc7b94f450d8417528c',
+    'src/lib/messaging/reply-controller.ts':
+      'c13f1395b5317febcd23396babbcc116065ff96e8cbeb29c8eadfdfc14e45c2d',
+    'src/lib/messaging/rumor-plan.ts':
+      '8ecfa4b8238027f9011a657015da10cc2cc3691d03afa32b9a5064a6ccc56cd9',
+    'src/lib/messaging/unlocked-session.ts':
+      'b7ecc1acea5ed210b39cfe9ec82b3d02c75f6092c5c31dd3e0f79946b319ef4e',
+    'src/lib/nostr/enquiry-references.ts':
+      'a17175337ee53279f898a7c6fa1af7e77ad26c0d2c0da46f26a9766fa701d365',
+    'src/lib/nostr/envelope-bounds.ts':
+      'b1e1d4a0d0673f358321c978726747ddaba3ebf94dd65e67adac408bb6574dae',
+    'src/lib/nostr/exports.ts':
+      '683fc933fadc515bd9999ddd337d85b408e0ad4fe891832f2825c35ffbe26f89',
+    'src/lib/nostr/ingress.ts':
+      'c433d459ad650c1fa9aa81aca24ddfaad8c251de9e43f92502e83fd5b673e772',
+    'src/lib/nostr/listing-publisher.ts':
+      '10032c32482a766158d8a69027056e6a822a16b5f68ab9754b0f1cf42d0608f9',
+    'src/lib/nostr/public-pool.ts':
+      '220b0b9ca0cea20c1a2e1a08a82fc4b68a1ba4dd6ffff1f45154b54735233806',
+    'src/lib/nostr/public-store.ts':
+      '330f7599f601956ed44795df1e016945e3564bbb7da6491c48f628d407de3d14',
+    'src/lib/nostr/request-result.ts':
+      '9bed0e13f94d38c3db471c0e750ef18d685776cb8832fedf7ddb7f92f663c2ac',
+    'src/lib/nostr/request-scope.ts':
+      'c6aa1005264e8ded37870c95f937d891afe67b8e07ef62dd137097c4ebb2388b',
+    'src/lib/nostr/verified-envelope.ts':
+      '01eb6224ece812fcafed5203c2cd117058a3d45cb8a2175b370e8cd74cdc0f77',
+    'src/lib/persistence/artifact-records.ts':
+      'e3b235c5aaf19558b557feb6e17a35b2b1de39c1aa49cb2ef14084d670138d16',
+    'src/lib/persistence/database.ts':
+      'd37d53378f531de376fb6d1b307b9b99e54736299a04eff56a66b4036261e170',
+    'src/lib/persistence/local-private-blocks.ts':
+      'd7e76c1122ff5479f261293db458a3240438ce0471c788c2f07ffaf854449cbc',
+    'src/lib/persistence/local-public-hides.ts':
+      '4f0e64ed0fabbe9f86014a0512e7dbd3c81711f28ca2c626e2dafa5cda349f83',
+    'src/lib/persistence/private-storage.ts':
+      'e45a95c9b12e8534a6ab0a4ec8ee1c86e730bba2f252dc1947954439720f2bfc',
+    'src/lib/persistence/public-publications.ts':
+      'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
+    'src/lib/persistence/public-receipts.ts':
+      '10743a9d855c4f573eb42ca90a13c550dee9620e4ad3aac322858c696152e564',
+    'src/lib/persistence/quota.ts':
+      'e261a7c9c81d0685021663639b1bb543192e65580edb64fa58ccbb9a4a04cc95',
+    'src/lib/publishing/edit-source.ts':
+      '1432a8ada3d822cc9f634d40a7847a4d6d02c202ecfe59a9634543d57202f56b',
+    'src/lib/publishing/editor-workflow.ts':
+      'c87e4f46793fd9beeedb5027cdbb06d533cf7e5df7378c030355c4608738e0f6',
+    'src/lib/publishing/listing-editor.ts':
+      'fe067bc1609f783aeee8ad5a0f3178cff50cae81085377b2bbec7874b5f4349d',
+    'src/lib/publishing/listing-operation-view.ts':
+      '07f94625c0231a62f25c1db98c9459f8939c32505453633b58d2f72a894858ce',
+    'src/lib/publishing/mark-sold.ts':
+      '80beaf8ad38b396154d5556e50e2cf5cd9f327bcdbc05f0db1ce190bf29f7234',
+    'src/lib/publishing/new-listing-readiness.ts':
+      'ba76be4d7309b1a6beb0c8e0f19b89f2595049e94709486b79eff38953e68893',
+    'src/lib/publishing/prepare-listing.ts':
+      '00b922e8b0bfc73cf5ac59857472e8dd627c8df62d28f1c646c5d7c76ce5ede9',
+    'src/lib/publishing/revise-listing.ts':
+      '1f03d43f460feb12a02489226131ec2f7b95df5f534fcbb0b49ccc686a1b0c06',
+    'src/lib/publishing/selling-view.ts':
+      '7d1f07c5b128512d3ed19a73409f1c64ada9988d77ac9bf60799352261797f5b',
+    'src/lib/publishing/sign-listing.ts':
+      'a1c123c40a190699b57378c5569fcbbfbc5e23ab4d4c0df499ca40ff82fe1a10',
+    'src/lib/publishing/withdraw-listing.ts':
+      '168064a7ce271f8342c7b7cbbf996bd96f8968e405eee0bb3e3dba1bdaf346fb',
+    'src/lib/runtime/effect-ownership.ts':
+      'a181d1fa8b18d45b3e143de19af4dfdaab91779ac44df972d22e7fada645778b',
+    'src/lib/runtime/identity-session.ts':
+      '7d665f6872bdc780f1f2b56245730adcc90f32cf1fed6997f7e2e44ea2447b49',
+    'src/lib/runtime/private-session.ts':
+      '4ba4250e2a96c077b19144517b1f091934a124916108afe73871ccb00d9b47ab',
+    'src/lib/runtime/public-runtime.ts':
+      '679aa4cd51a1dfdc81459bdfccb29441ac60edfa8b1ddd579425787c85b5cff4',
+    'src/lib/runtime/view-context.ts':
+      'e2329113e29db35e983270217c47d38a44d4e0491fd710395e008786b5ae7033',
+    'src/routes/+layout.svelte':
+      'b013d2d2bba40ee894c122fbb352dc78110e35ad17ec7ebb830a4556d3204ff7',
+    'src/routes/messages/+page.svelte':
+      '8279a92770f38858e197e790839bc98b4d7889214ebecdf47e542d632afbc84f',
+    'src/routes/messages/[conversationId=local_id]/+page.svelte':
+      'b06c6189adee80b68bc6657fa0e8504551fe9a8b1655a6d81807ebee9930a5e7',
+    'src/routes/privacy/+page.svelte':
+      'b16f21dddcff172b837ab9980a5d8e93b59d5ddb5fa15ce463e07affdee79547',
+    'src/routes/products/[naddr=naddr]/+page.svelte':
+      'd3afe029ad6ed6384a300ad6719f32c324a1841271eddf9baee5b8f31f54e680',
+    'src/routes/products/[naddr=naddr]/edit/+page.svelte':
+      '09c3a6bde766045319cd36a00a82ca565f9f3b5cd5322982be9482836f312998',
+    'src/routes/sell/+page.svelte':
+      '97f22f9a0309621e9acb5f1b328d3376bc9c5affbe5a7ea1b85ece76097b9c08',
+    'src/routes/selling/+page.svelte':
+      '65d982bdf3f625a38b6c886a31a2a699c92e9231636debc16d501e78d7c8faa0',
+    'src/routes/selling/drafts/[draftId=local_id]/+page.svelte':
+      '1df59a753fbef2bc2ebf77890a79cbd3d7a5bb0dcef34c219df1b5e8043cf787'
+  };
+  for (const [name, pin] of Object.entries(producers)) {
+    const bytes = await readOwned(web, name);
+    publicText(bytes);
+    const identity =
+      name === 'src/routes/+layout.svelte'
+        ? publicHideRootIdentity(bytes)
+        : createHash('sha256').update(bytes).digest('hex');
+    if (identity !== pin)
+      throw new Error(
+        name === 'src/routes/+layout.svelte'
+          ? 'Invalid owned root runtime activation'
+          : 'Invalid owned private blocking source'
+      );
+  }
+  return true;
+}
+/** @param {string} web */
 async function publicHidingAdmission(web) {
+  if (await privateBlockingAdmission(web)) return true;
   const root = publicText(await readOwned(web, 'src/routes/+layout.svelte'));
   if (!root.includes('../lib/persistence/local-public-hides.ts')) return false;
   /** @type {Record<string,string>} */
@@ -331,6 +508,7 @@ async function publicHidingAdmission(web) {
 }
 /** @param {string} web */
 async function hasOwnedPublicRuntime(web) {
+  if (await privateBlockingAdmission(web)) return 'public_identity';
   const hasHiding = await publicHidingAdmission(web);
   const layout = publicText(await readOwned(web, 'src/routes/+layout.svelte'));
   const component = parseSvelte(layout);
@@ -1257,7 +1435,10 @@ async function inboxPresentationAdmission(web) {
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);
     publicText(bytes);
-    if (createHash('sha256').update(bytes).digest('hex') !== pin)
+    if (
+      createHash('sha256').update(bytes).digest('hex') !== pin &&
+      !(await privateBlockingAdmission(web))
+    )
       throw new Error('Invalid owned inbox presentation source');
   }
   return true;
@@ -1354,6 +1535,8 @@ export async function auditOutput(webDirectory) {
     ])
       await readOwned(web, name);
   }
+  const hasPrivateBlocking =
+    hasFullRoutes && (await privateBlockingAdmission(web));
   const hasPublicHiding = hasFullRoutes && (await publicHidingAdmission(web));
   const hasPublicRuntime = await hasOwnedPublicRuntime(web);
   if (hasPublicRuntime && !hasFullRoutes)
@@ -1520,6 +1703,11 @@ export async function auditOutput(webDirectory) {
     names.delete('rolldown-runtime');
     names.add('local-public-hides');
     names.add('public-key');
+  }
+  if (hasPrivateBlocking) {
+    names.delete('local-public-hides');
+    names.add('local-private-blocks');
+    names.add('private-session');
   }
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();
@@ -3839,6 +4027,233 @@ export async function auditOutput(webDirectory) {
           file: '_app/immutable/chunks/HASH.js',
           name: 'routes',
           imports: ['public-key', 'references', 'Button']
+        }
+      });
+    }
+    if (hasPrivateBlocking) {
+      delete expected['local-public-hides'];
+      Object.assign(expected, {
+        InboxSetup: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'InboxSetup',
+          imports: ['private-session', 'client', 'Button', 'public-runtime']
+        },
+        InboxStatus: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'InboxStatus',
+          imports: [
+            'private-session',
+            'client',
+            'Button',
+            'public-runtime',
+            'navigation',
+            'CapabilityGate',
+            'InboxSetup',
+            'inbox-view'
+          ]
+        },
+        ListingEditor: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'ListingEditor',
+          imports: [
+            'public-key',
+            'private-session',
+            'references',
+            'client',
+            'Button',
+            'public-runtime',
+            'CapabilityGate',
+            'InboxSetup',
+            'OperationStatus'
+          ]
+        },
+        MessageComposer: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'MessageComposer',
+          imports: [
+            'public-key',
+            'private-session',
+            'references',
+            'client',
+            'Button',
+            'public-runtime',
+            'navigation',
+            'local-private-blocks',
+            'inbox-view',
+            'publishers'
+          ]
+        },
+        OperationStatus: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'OperationStatus',
+          imports: ['public-key', 'private-session', 'client', 'public-runtime']
+        },
+        'inbox-view': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'inbox-view',
+          imports: [
+            'public-key',
+            'private-session',
+            'references',
+            'Button',
+            'public-runtime',
+            'local-private-blocks'
+          ]
+        },
+        'local-private-blocks': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'local-private-blocks',
+          imports: ['public-key', 'private-session', 'Button']
+        },
+        negentropy: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'negentropy',
+          src: 'node_modules/.pnpm/applesauce-relay@6.2.1_typescript@6.0.3/node_modules/applesauce-relay/dist/negentropy.js',
+          isDynamicEntry: true,
+          imports: ['private-session', 'public-runtime']
+        },
+        'nodes/0': {
+          file: '_app/immutable/nodes/0.HASH.js',
+          name: 'nodes/0',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/0.js',
+          isEntry: true,
+          imports: [
+            'public-key',
+            'private-session',
+            'client',
+            'Button',
+            'public-runtime',
+            'client.svelte',
+            'state',
+            'CapabilityGate',
+            'Disclosure',
+            'local-private-blocks'
+          ],
+          css: ['_app/immutable/assets/0.HASH.css']
+        },
+        'nodes/11': {
+          file: '_app/immutable/nodes/11.HASH.js',
+          name: 'nodes/11',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/11.js',
+          isEntry: true,
+          imports: [
+            'private-session',
+            'references',
+            'client',
+            'Button',
+            'public-runtime',
+            'CapabilityGate',
+            'Disclosure',
+            'InboxSetup',
+            'OperationStatus'
+          ]
+        },
+        'nodes/4': {
+          file: '_app/immutable/nodes/4.HASH.js',
+          name: 'nodes/4',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/4.js',
+          isEntry: true,
+          imports: [
+            'private-session',
+            'client',
+            'CapabilityGate',
+            'InboxSetup',
+            'InboxStatus'
+          ]
+        },
+        'nodes/5': {
+          file: '_app/immutable/nodes/5.HASH.js',
+          name: 'nodes/5',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/5.js',
+          isEntry: true,
+          imports: [
+            'public-key',
+            'private-session',
+            'references',
+            'client',
+            'Button',
+            'public-runtime',
+            'client.svelte',
+            'state',
+            'legacy',
+            'inbox-view',
+            'InboxStatus',
+            'MessageComposer'
+          ]
+        },
+        'nodes/6': {
+          file: '_app/immutable/nodes/6.HASH.js',
+          name: 'nodes/6',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/6.js',
+          isEntry: true,
+          imports: [
+            'private-session',
+            'client',
+            'Button',
+            'local-private-blocks'
+          ]
+        },
+        'nodes/7': {
+          file: '_app/immutable/nodes/7.HASH.js',
+          name: 'nodes/7',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/7.js',
+          isEntry: true,
+          imports: [
+            'public-key',
+            'private-session',
+            'references',
+            'client',
+            'Button',
+            'public-runtime',
+            'client.svelte',
+            'state',
+            'CapabilityGate',
+            'Disclosure',
+            'InboxSetup',
+            'MessageComposer'
+          ]
+        },
+        'nodes/9': {
+          file: '_app/immutable/nodes/9.HASH.js',
+          name: 'nodes/9',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/9.js',
+          isEntry: true,
+          imports: [
+            'private-session',
+            'references',
+            'client',
+            'Button',
+            'public-runtime',
+            'client.svelte',
+            'navigation',
+            'state',
+            'Disclosure',
+            'SearchForm',
+            'routes',
+            'publishers'
+          ]
+        },
+        'private-session': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'private-session',
+          imports: ['public-key', 'Button']
+        },
+        'public-runtime': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'public-runtime',
+          imports: [
+            'public-key',
+            'preload-helper',
+            'private-session',
+            'references',
+            'Button'
+          ],
+          dynamicImports: ['negentropy']
+        },
+        publishers: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'publishers',
+          imports: ['public-key', 'private-session', 'Button', 'public-runtime']
         }
       });
     }

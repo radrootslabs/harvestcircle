@@ -5,6 +5,15 @@ import {
   type ThreadMessage
 } from './conversation-thread.ts';
 import type { PrivateRecordHandle } from '../persistence/private-records.ts';
+import {
+  privateBlocksForIdentity,
+  mountLocalPrivateBlocks,
+  localPrivateBlocksSnapshot,
+  localPrivatePeerAllowed,
+  subscribeLocalPrivateBlocks,
+  blockLocalPrivatePeer,
+  type PrivateBlockResult
+} from '../persistence/local-private-blocks.ts';
 import { canonicalPublicKey } from '../contracts/public-key.ts';
 import {
   groupInboxMessages,
@@ -135,6 +144,8 @@ export type InboxReplyOwnership = Readonly<{
   ): Promise<boolean>;
 }>;
 type Controller = {
+  block(id: unknown, review: unknown): Promise<PrivateBlockResult>;
+  blocked(id: unknown): boolean;
   reply(id: unknown, rumor: unknown): InboxReplyOwnership | undefined;
   snapshot(): InboxViewSnapshot;
   thread(id: unknown): ThreadSnapshot;
@@ -186,6 +197,9 @@ export function createInboxView(input: Inputs): InboxView | undefined {
     return;
   const capture = original,
     token = Object.freeze({}) as InboxView;
+  const capturedPreferences = privateBlocksForIdentity(input.identity);
+  if (!capturedPreferences) return;
+  const preferences = capturedPreferences;
   let closed = false,
     busy = false,
     epoch = 0,
@@ -224,6 +238,7 @@ export function createInboxView(input: Inputs): InboxView | undefined {
   let off = () => {},
     privateOff = () => {},
     setupOff = () => {},
+    preferencesOff = () => {},
     pendingCleanup = Array.from<() => void>([]);
   const listeners = new Map<symbol, (view: InboxViewSnapshot) => void>();
   function current(generation = epoch) {
@@ -249,6 +264,7 @@ export function createInboxView(input: Inputs): InboxView | undefined {
     if (
       id !== threadId ||
       !threadPeer ||
+      !localPrivatePeerAllowed(preferences, threadPeer) ||
       !privateCurrent() ||
       !unlocked ||
       !queue
@@ -307,6 +323,7 @@ export function createInboxView(input: Inputs): InboxView | undefined {
       !actual ||
       actual.owner !== capture.owner ||
       actual.peer !== threadPeer ||
+      !localPrivatePeerAllowed(preferences, actual.peer) ||
       actual.rumorId !== rumor
     )
       return;
@@ -329,6 +346,25 @@ export function createInboxView(input: Inputs): InboxView | undefined {
           status: 'ready',
           messages: messages.filter((row) => row !== undefined)
         };
+  }
+  async function block(
+    id: unknown,
+    review: unknown
+  ): Promise<PrivateBlockResult> {
+    const room = threadRooms(id)?.[0];
+    if (!room || !unlocked || review !== 'reviewed_local_private_block')
+      return { status: 'invalid' };
+    return blockLocalPrivatePeer(preferences, room, unlocked, review);
+  }
+  function blocked(id: unknown): boolean {
+    const actual = localPrivateBlocksSnapshot(preferences);
+    return (
+      current() &&
+      id === threadId &&
+      !!threadPeer &&
+      actual.state === 'ready' &&
+      actual.peers.includes(threadPeer)
+    );
   }
   function replyOwnership(
     id: unknown,
@@ -485,6 +521,7 @@ export function createInboxView(input: Inputs): InboxView | undefined {
       !actual ||
       actual.owner !== capture.owner ||
       actual.peer !== peer ||
+      !localPrivatePeerAllowed(preferences, actual.peer) ||
       actual.rumorId !== proof.data.latest.rumorId
     )
       return;
@@ -495,8 +532,14 @@ export function createInboxView(input: Inputs): InboxView | undefined {
       return { status: 'locked', requests: [], conversations: [] };
     if (list.status !== 'ready')
       return { status: list.status, requests: [], conversations: [] };
-    const requests = list.requests.map((row) => rowSnapshot(row.peer)),
-      conversations = list.conversations.map((row) => rowSnapshot(row.peer));
+    if (localPrivateBlocksSnapshot(preferences).state !== 'ready')
+      return { status: 'unavailable', requests: [], conversations: [] };
+    const requests = list.requests
+        .filter((row) => localPrivatePeerAllowed(preferences, row.peer))
+        .map((row) => rowSnapshot(row.peer)),
+      conversations = list.conversations
+        .filter((row) => localPrivatePeerAllowed(preferences, row.peer))
+        .map((row) => rowSnapshot(row.peer));
     if (requests.some((row) => !row) || conversations.some((row) => !row))
       return { status: 'unavailable', requests: [], conversations: [] };
     return {
@@ -540,7 +583,9 @@ export function createInboxView(input: Inputs): InboxView | undefined {
       }
       list = groupInboxMessages(
         capture.owner,
-        cached.messages,
+        cached.messages.filter((message) =>
+          localPrivatePeerAllowed(preferences, message.peer)
+        ),
         local.readRumors
       );
       rowProofs.clear();
@@ -605,6 +650,7 @@ export function createInboxView(input: Inputs): InboxView | undefined {
       !canonicalPublicKey(peer)
     )
       return;
+    if (!localPrivatePeerAllowed(preferences, peer as string)) return;
     const room = decryptionQueueConversations(queue).find(
       (value) => conversationSnapshot(value)?.peer === peer
     );
@@ -706,6 +752,7 @@ export function createInboxView(input: Inputs): InboxView | undefined {
       ).ownAccess === 'qualified_exercised';
     if (!privateCurrent()) return unavailable();
     const partial =
+      localPrivateBlocksSnapshot(preferences).state !== 'ready' ||
       reason !== null ||
       !exercised ||
       cached.status !== 'ready' ||
@@ -726,6 +773,9 @@ export function createInboxView(input: Inputs): InboxView | undefined {
               ? 'empty'
               : 'ready',
       reason:
+        (localPrivateBlocksSnapshot(preferences).state !== 'ready'
+          ? 'local_preferences_unavailable'
+          : null) ??
         reason ??
         listReason ??
         paging?.reason ??
@@ -736,7 +786,9 @@ export function createInboxView(input: Inputs): InboxView | undefined {
       owner: capture.owner,
       identity,
       queued: decrypt.queued,
-      count: cached.messages.length,
+      count: cached.messages.filter((message) =>
+        localPrivatePeerAllowed(preferences, message.peer)
+      ).length,
       lastCheckedAt,
       historyComplete: false,
       cleanupRequired: pendingCleanup.length > 0
@@ -927,6 +979,14 @@ export function createInboxView(input: Inputs): InboxView | undefined {
     const generation = epoch;
     notify();
     try {
+      await mountLocalPrivateBlocks(preferences);
+      if (
+        !current(generation) ||
+        localPrivateBlocksSnapshot(preferences).state !== 'ready'
+      ) {
+        reason = 'local_preferences_unavailable';
+        return false;
+      }
       await unlockInboxSetupView(input.setup);
       if (!current(generation)) return false;
       const original = inboxSetupViewOwnership(input.setup),
@@ -1074,6 +1134,8 @@ export function createInboxView(input: Inputs): InboxView | undefined {
     return current(generation) && privateCurrent();
   }
   views.set(token, {
+    block,
+    blocked,
     reply: replyOwnership,
     snapshot,
     thread: threadSnapshot,
@@ -1110,6 +1172,7 @@ export function createInboxView(input: Inputs): InboxView | undefined {
         clearInterval(timer);
         off();
         setupOff();
+        preferencesOff();
       }
       releasePrivate();
       // Cleanup retains the original genuine setup independently of current
@@ -1141,6 +1204,11 @@ export function createInboxView(input: Inputs): InboxView | undefined {
     }
   });
   setupOff = subscribeInboxSetupView(input.setup, notify);
+  preferencesOff = subscribeLocalPrivateBlocks(preferences, () => {
+    refreshThread();
+    listRevision++;
+    notify();
+  });
   const timer = setInterval(() => {
     void sample();
   }, 200);
@@ -1272,4 +1340,19 @@ export function inboxReplyOwnership(
   rumor: unknown
 ): InboxReplyOwnership | undefined {
   return views.get(token)?.reply(id, rumor);
+}
+export function blockInboxConversation(
+  view: InboxView,
+  id: unknown,
+  review: unknown
+): Promise<PrivateBlockResult> {
+  return (
+    views.get(view)?.block(id, review) ?? Promise.resolve({ status: 'invalid' })
+  );
+}
+export function inboxConversationBlocked(
+  view: InboxView | undefined,
+  id: unknown
+): boolean {
+  return !!view && !!views.get(view)?.blocked(id);
 }

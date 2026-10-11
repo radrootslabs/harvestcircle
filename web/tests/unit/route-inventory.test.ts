@@ -156,10 +156,16 @@ describe('thin protected route SSR', () => {
     }
     expect(render(About).body).toContain('unavailable during development.');
     expect(render(Privacy).body).toContain('Hiding a publisher is local');
+    expect(render(Privacy).body).toContain('Blocking a person is local');
+    expect(render(Privacy).body.replace(/\s+/g, ' ')).toContain(
+      'Private messages have no forward secrecy or post-compromise security.'
+    );
     expect(render(Privacy).body.replace(/\s+/g, ' ')).toContain(
       'Guest browsing does not expose an account inventory'
     );
-    expect(render(Privacy).body).not.toMatch(/Undo hide|[0-9a-f]{64}/);
+    expect(render(Privacy).body).not.toMatch(
+      /Undo hide|Undo block|[0-9a-f]{64}/
+    );
     expect(render(About).body).toContain('id="help"');
     const details = render(Product);
     expect(details.body).toContain('This food reference is invalid.');

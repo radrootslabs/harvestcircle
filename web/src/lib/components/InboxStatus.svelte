@@ -152,6 +152,10 @@
     panel.owner ? panel.identity : identity.identity
   );
   const reasons: Record<string, string> = {
+    local_preferences_unavailable:
+      'Local private block preferences could not be checked. Private messages and decryption continuation are unavailable; encrypted evidence is preserved.',
+    local_block_changed:
+      'Local block preferences changed during this batch. Further decryption needs another explicit reviewed action.',
     access_unavailable:
       'Inbox access has not been qualified and exercised. Unlocked local copies do not prove a successful relay check.',
     storage_unavailable:

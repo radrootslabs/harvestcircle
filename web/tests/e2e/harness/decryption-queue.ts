@@ -7,6 +7,25 @@ import {
   expireDecryptionQueueWait,
   type DecryptionQueue
 } from '../../../src/lib/messaging/decryption-queue.ts';
+import { decryptionQueueConversations } from '../../../src/lib/messaging/decryption-queue.ts';
+import {
+  privateBlocksForIdentity,
+  mountLocalPrivateBlocks,
+  blockLocalPrivatePeer,
+  undoLocalPrivatePeer,
+  localPrivateBlocksSnapshot
+} from '../../../src/lib/persistence/local-private-blocks.ts';
+import {
+  captureReceivedUnwrap,
+  unwrapReceivedEnvelope,
+  stopReceivedUnwrap,
+  type ReceivedUnwrap
+} from '../../../src/lib/nostr/unwrap-admission.ts';
+import {
+  admitReceivedConversation,
+  conversationSnapshot
+} from '../../../src/lib/messaging/admit-conversation.ts';
+import { acceptUnlockedConversation } from '../../../src/lib/messaging/unlocked-session.ts';
 import { makeFixture as makeRecoveryFixture } from './resume-preparation.ts';
 import {
   createPrivateSession,
@@ -147,10 +166,52 @@ export async function makeFixture(count = 21, unknownSender = false) {
   const originalReceived = JSON.stringify(await retained()),
     baseline = f.counts();
   let queue: DecryptionQueue | undefined;
+  let warmReader: ReceivedUnwrap | undefined;
+  const blocks = privateBlocksForIdentity(f.identity);
+  if (!blocks) throw Error('original native preference owner unavailable');
+  const preferences = blocks;
   return {
     ...f,
     stranger,
     disposable,
+    async persistInnerBlock() {
+      await mountLocalPrivateBlocks(preferences);
+      const rows = await listPrivateReceivedRecords(f.repository);
+      const record =
+        rows.ok && rows.value[0] && privateRecordIdentity(rows.value[0]);
+      if (!record) throw Error('original opaque ciphertext unavailable');
+      warmReader = captureReceivedUnwrap(
+        f.repository,
+        f.identity,
+        record.id,
+        'reviewed_inbox_unlock'
+      );
+      if (!warmReader) throw Error('original nested reader unavailable');
+      const result = await unwrapReceivedEnvelope(warmReader);
+      const room =
+        result.status === 'authenticated' &&
+        (admitReceivedConversation(result.envelope, 'inbound') ??
+          admitReceivedConversation(result.envelope, 'self_archive'));
+      if (!room || acceptUnlockedConversation(unlocked, room) !== 'added')
+        throw Error('original inner room unavailable');
+      return blockLocalPrivatePeer(
+        preferences,
+        room,
+        unlocked,
+        'reviewed_local_private_block'
+      );
+    },
+    undoInnerBlock: () =>
+      undoLocalPrivatePeer(
+        preferences,
+        unknownSender ? stranger : f.peer,
+        'reviewed_local_private_undo'
+      ),
+    preferences: () => localPrivateBlocksSnapshot(preferences),
+    visibleRooms: () =>
+      queue
+        ? decryptionQueueConversations(queue).map(conversationSnapshot)
+        : [],
     capture(review: unknown = 'reviewed_inbox_unlock') {
       queue = captureDecryptionQueue(
         f.repository,
@@ -255,6 +316,7 @@ export async function makeFixture(count = 21, unknownSender = false) {
       );
     },
     close() {
+      if (warmReader) stopReceivedUnwrap(warmReader);
       if (queue) stopDecryptionQueue(queue);
       closePrivateSession(session);
       f.close();

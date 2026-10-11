@@ -5,6 +5,7 @@ import {
   inboxMessageSnapshot,
   inboxReplyOwnership,
   inboxThreadSnapshot,
+  subscribeInboxView,
   type InboxReplyOwnership,
   type InboxView
 } from './inbox-view.ts';
@@ -136,12 +137,14 @@ export function captureCitedProduct(
   let privateScope: InboxReplyOwnership | undefined = original;
   const requests = new Map<PublicRequest, true>();
   let offPrivate = () => {},
+    offInbox = () => {},
     offIdentity = () => {};
   function close() {
     if (closed) return;
     closed = true;
     privateScope = undefined;
     offPrivate();
+    offInbox();
     offIdentity();
     try {
       closeHeadResolver(resolver);
@@ -211,6 +214,9 @@ export function captureCitedProduct(
   });
   offPrivate = subscribePrivateSessionClose(original.session, close);
   offIdentity = subscribeIdentityInvalidation(original.identity, close);
+  offInbox = subscribeInboxView(inbox, () => {
+    if (!owned()) close();
+  });
   function admit(
     proof: Parameters<typeof createPublicHeadCandidate>[0],
     exactOnly: boolean

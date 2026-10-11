@@ -29,6 +29,14 @@
     LOCAL_PUBLIC_HIDES_CONTEXT
   } from '../lib/persistence/local-public-hides.ts';
   const identityContext = createIdentityViewContext();
+  import {
+    createLocalPrivateBlocks,
+    mountLocalPrivateBlocksView,
+    closeLocalPrivateBlocksView,
+    LOCAL_PRIVATE_BLOCKS_CONTEXT
+  } from '../lib/persistence/local-private-blocks.ts';
+  const privateBlocks = createLocalPrivateBlocks(identityContext);
+  setContext(LOCAL_PRIVATE_BLOCKS_CONTEXT, privateBlocks);
   const publicHides = createLocalPublicHides(identityContext);
   setContext(LOCAL_PUBLIC_HIDES_CONTEXT, publicHides);
   setContext(IDENTITY_VIEW_CONTEXT, identityContext);
@@ -62,8 +70,10 @@
     const runtime = mountPublicRuntime(publicContext);
     if (runtime) bindPublicRuntimeHides(runtime, publicHides);
     void mountLocalPublicHides(publicHides);
+    void mountLocalPrivateBlocksView(privateBlocks);
     return () => {
       closeLocalPublicHides(publicHides);
+      closeLocalPrivateBlocksView(privateBlocks);
       closePublicRuntime(publicContext);
     };
   });
