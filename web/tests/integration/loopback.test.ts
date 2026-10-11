@@ -86,9 +86,12 @@ await test('navigation fallback serves actual separate output and preserves miss
         /No listings yet\.|<h2>Needs attention|<h2>Drafts|<h2>Listings/
       );
     } else {
+      assert.match(html, /Messaging is disabled in this build\./);
+      assert.match(html, /Connect to continue/);
+      assert.match(html, /<button[^>]*disabled[^>]*>Connect extension/);
       assert.match(
         html,
-        /Private views and editing are unavailable during development/
+        /Messages stay hidden until you connect and explicitly unlock your inbox\./
       );
     }
     assert.doesNotMatch(html, /<form|<input|<textarea/);

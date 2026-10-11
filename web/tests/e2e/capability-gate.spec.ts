@@ -95,7 +95,11 @@ test('explicit Connect is enabled after hydration and never repeats Send', async
     expect(await main.textContent()).not.toContain(
       'HC_TEST_RAW_PROVIDER_DIAGNOSTIC'
     );
-    await page.locator('summary').click();
+    await page
+      .getByRole('navigation', { name: 'Primary', exact: true })
+      .locator('summary')
+      .filter({ hasText: /^Identity$/ })
+      .click();
     await page.getByRole('button', { name: 'Disconnect', exact: true }).click();
     await expect(connect).toBeEnabled();
     expect(await page.evaluate(() => window.hcp056Counts.keys)).toBe(1);
@@ -259,7 +263,12 @@ test('Disconnect while approval is pending keeps the real slot and fences late c
     ).toBeVisible();
     expect(await page.evaluate(() => window.hcp056Counts.keys)).toBe(1);
     await page.evaluate(() => window.hcp056Release?.());
-    await expect(page.locator('summary')).toHaveCount(0);
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Primary', exact: true })
+        .locator('summary')
+        .filter({ hasText: /^Identity$/ })
+    ).toHaveCount(0);
     await expect(main.locator('input, textarea, form')).toHaveCount(0);
     expect(await page.evaluate(() => window.hcp056Counts)).toEqual({
       keys: 1,

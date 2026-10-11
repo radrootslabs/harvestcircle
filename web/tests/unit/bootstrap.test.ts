@@ -36,7 +36,8 @@ describe('static guest shell', () => {
     expect(html).toMatch(/<button[^>]*type="submit"[^>]*disabled[^>]*>Search/);
     expect(html).toMatch(/<textarea[^>]*disabled/);
     expect(html).not.toContain('Search is unavailable during development.');
-    expect(html).not.toContain('<h1>');
+    expect(html.match(/<h1\b/g)).toHaveLength(1);
+    expect(html).toContain('<h1>Find food</h1>');
   });
   it('composes the actual shared shell and preserves the route body without a global h1', () => {
     const output = render(Shell);
