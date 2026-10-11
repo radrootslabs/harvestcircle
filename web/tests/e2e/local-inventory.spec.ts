@@ -34,6 +34,53 @@ const form = {
   contactType: '' as const,
   contactValue: ''
 };
+test('explicit cleanup cancellation before admission acquires no transaction and retains the original draft', async ({
+  page
+}) => {
+  await load(page);
+  const result = await page.evaluate(async (form) => {
+    const api = window.hcp049;
+    const draft = await api.createPublicDraft(window.hcp049Repository, form);
+    if (!draft.ok) throw Error('original draft absent');
+    const scan = await api.inspectPublicStorage(window.hcp049Quota);
+    if (!scan.ok) throw Error('original inventory absent');
+    const cleanup = api.reviewPublicCleanup(window.hcp049Quota, scan.value, [
+      'public_draft:' + draft.value.id
+    ]);
+    if (!cleanup.ok) throw Error('original cleanup absent');
+    const cancellation = new AbortController();
+    cancellation.abort();
+    const descriptor = Object.getOwnPropertyDescriptor(
+      IDBDatabase.prototype,
+      'transaction'
+    );
+    if (!descriptor) throw Error('native transaction method absent');
+    const native = descriptor.value as IDBDatabase['transaction'];
+    let acquisitions = 0;
+    IDBDatabase.prototype.transaction = function (...args) {
+      acquisitions++;
+      return native.apply(this, args);
+    };
+    let committed: Awaited<ReturnType<typeof api.commitPublicCleanup>>;
+    try {
+      committed = await api.commitPublicCleanup(
+        window.hcp049Quota,
+        cleanup.value,
+        cancellation.signal
+      );
+    } finally {
+      Object.defineProperty(IDBDatabase.prototype, 'transaction', descriptor);
+    }
+    const retained = await api.readPublicDraft(
+      window.hcp049Repository,
+      draft.value.id
+    );
+    return { committed, acquisitions, retained, original: draft };
+  }, form);
+  expect(result.committed).toEqual({ ok: false, reason: 'aborted' });
+  expect(result.acquisitions).toBe(0);
+  expect(result.retained).toEqual(result.original);
+});
 let server: Awaited<ReturnType<typeof createStaticHarness>>;
 let bundle: string;
 test.beforeAll(async () => {

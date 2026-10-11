@@ -1,6 +1,19 @@
 <script lang="ts">
   import { getContext, onMount } from 'svelte';
   import Button from '../../lib/components/primitives/Button.svelte';
+  import LocalDataReview from '../../lib/components/LocalDataReview.svelte';
+  import SupportLink from '../../lib/components/SupportLink.svelte';
+  import {
+    IDENTITY_VIEW_CONTEXT,
+    type IdentityViewContext
+  } from '../../lib/runtime/view-context.ts';
+  import {
+    createLocalDataReview,
+    closeLocalDataReview
+  } from '../../lib/persistence/local-data-review.ts';
+  const identity = getContext<IdentityViewContext>(IDENTITY_VIEW_CONTEXT);
+  const dataReview = createLocalDataReview(identity);
+  onMount(() => () => closeLocalDataReview(dataReview));
   import {
     LOCAL_PUBLIC_HIDES_CONTEXT,
     PUBLIC_HIDE_DISCLOSURE,
@@ -99,11 +112,47 @@
 <svelte:head><title>Privacy — HarvestCircle</title></svelte:head>
 <div class="page page--reading stack">
   <h1>Privacy</h1>
+  <h2>Public listings</h2>
+  <p>
+    Listing descriptions, public areas and contact details that you choose to
+    add are public.
+  </p>
+  <h2>Private messages</h2>
+  <p>
+    Message contents are encrypted. Participants can retain or share what they
+    receive. Relay operators can still see connection and routing information,
+    including IP addresses and authentication identity when used.
+  </p>
+  <h2>In this browser</h2>
+  <p>
+    Listing drafts and publication records are stored locally. Saved messages
+    are encrypted copies with limited metadata that may expose peers and times
+    on this device. Unsent message text is not automatically saved. Browser data
+    can be cleared or lost; it is not a backup.
+  </p>
+  <h2>Removing information</h2>
+  <p>
+    Clearing browser data does not remove other people's copies or guarantee
+    removal from relays. Local deletion does not reverse an accepted publication
+    or send. Actual relay retention varies; this prototype makes no universal
+    retention guarantee.
+  </p>
   <p>
     Listings are public. Relay queries can reveal your search or publisher
     interest; search URLs may remain in browser history and hosting logs. This
     prototype uses no tracking analytics.
   </p>
+  <LocalDataReview review={dataReview} />
+  <details>
+    <summary>Encryption and device limitations</summary>
+    <p>
+      Encryption is not anonymity or protection from a compromised device,
+      extension or key. Messages have no forward secrecy or post-compromise
+      security. JavaScript cannot guarantee secure zeroization. Logout discards
+      private session projections; copies already shared or copied outside this
+      site can remain.
+    </p>
+  </details>
   <p>{PUBLIC_HIDE_DISCLOSURE}</p>
   <h2>Local publisher controls</h2>
   {#if snapshot.state === 'ready'}
@@ -167,4 +216,6 @@
     </p>
   {/if}
   {#if privateNotice}<p role="status">{privateNotice}</p>{/if}
+  <p>Privacy questions?</p>
+  <SupportLink />
 </div>

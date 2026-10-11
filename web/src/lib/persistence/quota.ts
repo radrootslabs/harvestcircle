@@ -146,8 +146,10 @@ function transaction<T>(
     rows: readonly Row[],
     transaction: IDBTransaction,
     refuse: (reason: PublicQuotaFailure) => void
-  ) => PublicQuotaResult<T> | undefined
+  ) => PublicQuotaResult<T> | undefined,
+  signal?: AbortSignal
 ): Promise<PublicQuotaResult<T>> {
+  if (signal?.aborted) return Promise.resolve(failed('aborted'));
   let active: IDBTransaction;
   try {
     active = browserDatabaseTransaction(scope.database, stores, mode);
@@ -168,12 +170,20 @@ function transaction<T>(
         result = failed('unknown_completion');
       }
     }
-    active.addEventListener('complete', () =>
-      resolve(result ?? failed('unknown_completion'))
-    );
-    active.addEventListener('abort', () =>
-      resolve(result && !result.ok ? result : failed('aborted'))
-    );
+    const cancel = () => refuse('aborted');
+    signal?.addEventListener('abort', cancel, { once: true });
+    active.addEventListener('complete', () => {
+      signal?.removeEventListener('abort', cancel);
+      resolve(result ?? failed('unknown_completion'));
+    });
+    active.addEventListener('abort', () => {
+      signal?.removeEventListener('abort', cancel);
+      resolve(result && !result.ok ? result : failed('aborted'));
+    });
+    if (signal?.aborted) {
+      cancel();
+      return;
+    }
     function scan(index: number): void {
       try {
         const store = stores[index];
@@ -597,42 +607,48 @@ export function publicCleanupSnapshot(
 }
 export function commitPublicCleanup(
   repository: PublicQuotaRepository,
-  handle: PublicCleanup
+  handle: PublicCleanup,
+  signal?: AbortSignal
 ): Promise<PublicQuotaResult<readonly string[]>> {
   const cleanup = cleanups.get(handle),
     scope = scopeOf(repository);
   if (!scope || cleanup?.inventory.repository !== repository)
     return Promise.resolve(failed('invalid_scope'));
-  return transaction(scope, 'readwrite', (rows, active, refuse) => {
-    const before = cleanup.inventory.rows;
-    if (
-      rows.length !== before.length ||
-      rows.some(
-        (row, i) =>
-          row.store !== before[i].store ||
-          row.record.id !== before[i].record.id ||
-          row.wire !== before[i].wire
-      )
-    ) {
-      refuse('conflict');
-      return;
-    }
-    const selected = rows.filter((row) =>
-      cleanup.selected.includes(publicInventoryRow(row.record, row.bytes).key)
-    );
-    if (
-      selected.length !== cleanup.selected.length ||
-      selected.some(
-        (row) => publicInventoryRow(row.record, row.bytes).state !== 'settled'
-      )
-    ) {
-      refuse('protected');
-      return;
-    }
-    for (const row of selected)
-      active.objectStore(row.store).delete([scope.owner, row.record.id]);
-    return { ok: true, value: Array.from(cleanup.selected) };
-  });
+  return transaction(
+    scope,
+    'readwrite',
+    (rows, active, refuse) => {
+      const before = cleanup.inventory.rows;
+      if (
+        rows.length !== before.length ||
+        rows.some(
+          (row, i) =>
+            row.store !== before[i].store ||
+            row.record.id !== before[i].record.id ||
+            row.wire !== before[i].wire
+        )
+      ) {
+        refuse('conflict');
+        return;
+      }
+      const selected = rows.filter((row) =>
+        cleanup.selected.includes(publicInventoryRow(row.record, row.bytes).key)
+      );
+      if (
+        selected.length !== cleanup.selected.length ||
+        selected.some(
+          (row) => publicInventoryRow(row.record, row.bytes).state !== 'settled'
+        )
+      ) {
+        refuse('protected');
+        return;
+      }
+      for (const row of selected)
+        active.objectStore(row.store).delete([scope.owner, row.record.id]);
+      return { ok: true, value: Array.from(cleanup.selected) };
+    },
+    signal
+  );
 }
 
 // No signer/network await exists inside this transaction. It consumes only a
