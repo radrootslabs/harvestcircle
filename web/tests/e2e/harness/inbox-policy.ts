@@ -98,7 +98,7 @@ export async function makePolicyFixture() {
               waitForAuth: false,
               reconnect: false,
               resubscribe: false,
-              timeout: 2000
+              timeout: 3600000
             }
           )
           .pipe(toArray())

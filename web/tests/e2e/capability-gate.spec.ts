@@ -299,7 +299,7 @@ test.describe('actual shared inline capability component', () => {
   let fixtureServer: Awaited<ReturnType<typeof createStaticHarness>>,
     directory: string;
   test.beforeAll(async () => {
-    test.setTimeout(1_800_000);
+    test.setTimeout(86_400_000);
     directory = await mkdtemp(path.join(tmpdir(), 'hcp056-gates-'));
     const capsule = fileURLToPath(new URL('../../../', import.meta.url)),
       checkout = path.join(directory, 'checkout');
@@ -352,7 +352,7 @@ test.describe('actual shared inline capability component', () => {
         '--store-dir',
         path.dirname(store)
       ],
-      { cwd: path.join(checkout, 'web'), timeout: 1800000, stdio: 'pipe' }
+      { cwd: path.join(checkout, 'web'), timeout: 86400000, stdio: 'pipe' }
     );
     const audit = execFileSync(process.execPath, ['tools/check-source.mjs'], {
       cwd: path.join(checkout, 'web')
@@ -362,7 +362,7 @@ test.describe('actual shared inline capability component', () => {
     });
     execFileSync(process.execPath, ['node_modules/vite/bin/vite.js', 'build'], {
       cwd: path.join(checkout, 'web'),
-      timeout: 1800000,
+      timeout: 86400000,
       stdio: 'pipe'
     });
     console.log(

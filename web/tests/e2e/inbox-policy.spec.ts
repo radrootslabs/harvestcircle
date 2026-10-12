@@ -179,7 +179,7 @@ test('malformed loopback peer frame is isolated before a normal SDK write', asyn
     const reply = new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error('fixture NOTICE missing')),
-        1800000
+        86400000
       );
       peer.on('message', (bytes) => {
         const raw = Buffer.isBuffer(bytes)

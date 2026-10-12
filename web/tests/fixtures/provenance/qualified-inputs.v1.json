@@ -177,8 +177,8 @@
     },
     {
       "path": "web/package.json",
-      "bytes": 2209,
-      "sha256": "0728b95c9c1411daff56569eb1e80e1e4edf6803c8b3a7b94a811d9c06f4ee9a"
+      "bytes": 2211,
+      "sha256": "127007fccc1b550bda58f457790b450ee14b7ec4ce58756b442aa8b271e773fc"
     },
     {
       "path": "web/pnpm-lock.yaml",

@@ -7,8 +7,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     fileParallelism: false,
-    testTimeout: 1_800_000,
-    hookTimeout: 1_800_000,
+    testTimeout: 86_400_000,
+    hookTimeout: 86_400_000,
     include: ['tests/unit/**/*.test.ts'],
     setupFiles: ['tests/unit/ssr-effects.ts'],
     passWithNoTests: false

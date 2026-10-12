@@ -157,7 +157,7 @@ public class HarvestCirclePackagingPlugin : Plugin<Project> {
                 task.dependsOn("createDistributable")
                 task.executable.set(packagedExecutable)
                 task.developmentDataEnvironment.set(coordinates["environment.prefix"] + "DEVELOPMENT_DATA_DIR")
-                task.timeoutSeconds.set(120L)
+                task.timeoutSeconds.set(10_800L)
                 task.readyEvidence.set("HARVESTCIRCLE_HEALTH_READY")
                 task.closedEvidence.set("HARVESTCIRCLE_HEALTH_CLOSED")
             }

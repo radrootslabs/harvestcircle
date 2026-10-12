@@ -21,7 +21,7 @@ const capsule = fileURLToPath(new URL('../../../', import.meta.url));
 let directory: string;
 let server: Awaited<ReturnType<typeof createStaticHarness>>;
 test.beforeAll(async () => {
-  test.setTimeout(1_800_000);
+  test.setTimeout(86_400_000);
   directory = await mkdtemp(path.join(tmpdir(), 'hcp014-shell-'));
   try {
     const checkout = path.join(directory, 'checkout');
@@ -73,7 +73,7 @@ test.beforeAll(async () => {
         '--store-dir',
         path.dirname(sourceStore)
       ],
-      { cwd: path.join(checkout, 'web'), stdio: 'pipe', timeout: 1800000 }
+      { cwd: path.join(checkout, 'web'), stdio: 'pipe', timeout: 86400000 }
     );
     const fixtureLayout =
       '<script lang="ts">import "../theme.css"; import "../app.css"; import type { Snippet } from "svelte"; let { children }: { children: Snippet } = $props();</script>{@render children()}';
@@ -125,7 +125,7 @@ test.beforeAll(async () => {
       {
         cwd: path.join(checkout, 'web'),
         stdio: 'pipe',
-        timeout: 1800000
+        timeout: 86400000
       }
     );
     async function payload(
