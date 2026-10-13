@@ -58,7 +58,7 @@
     {
       "path": "radroots.lib.source-lock.v1.toml",
       "bytes": 511,
-      "sha256": "27de73ec96a4764c493afc1f03c15ad9d89cf0dc8ddd07680af24a66487eaffc"
+      "sha256": "c680d4b6d60b36d4bbcf677307d7ed36b48786938b851ca5b7a86f5ab0b1ac14"
     },
     {
       "path": "web/tests/conformance/food-writer-rust.v1.json",
@@ -88,7 +88,7 @@
     {
       "path": "contracts/interop/manifest.json",
       "bytes": 112732,
-      "sha256": "c0b677114474290181efdbbf1fe92fb50a20dacbc562ae643f198d1c63e61bd6"
+      "sha256": "817f3152ec7447e6ac2e6b9dade2ff96d5b73282aa0c7caf0f1a8445b05e2ee3"
     },
     {
       "path": "contracts/interop/food_availability/oracle/Cargo.lock",
