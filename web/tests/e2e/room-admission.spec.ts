@@ -72,6 +72,69 @@ test('actual SDK-authenticated inbound selects sender and rejects forged or copi
   expect(r.forged).toBeUndefined();
   expect(r.copied).toBeUndefined();
 });
+
+for (const [scenario, role] of [
+  ['inbound_extensions', 'inbound'],
+  ['self_archive_extensions', 'self_archive']
+] as const)
+  test(`actual received ${scenario} retains original identity across hints/q/tag-order projection`, async ({
+    page
+  }) => {
+    const sockets: string[] = [];
+    page.on('websocket', (socket) => sockets.push(socket.url()));
+    const result = await page.evaluate(
+      async ({ scenario, role }) => {
+        const f = (window.hcp092Fixture =
+          await window.hcp092.makeFixture(scenario));
+        return {
+          unlocked: await f.unlock(),
+          room: f.admit(role),
+          id: f.rumorId,
+          owner: f.owner,
+          peer: f.peer,
+          opposite: f.admit(role === 'inbound' ? 'self_archive' : 'inbound')
+        };
+      },
+      { scenario, role }
+    );
+    expect(result.unlocked).toBe('authenticated');
+    expect(result.room).toMatchObject({
+      owner: result.owner,
+      peer: result.peer,
+      role,
+      rumorId: result.id,
+      content: 'Actual encrypted room fixture',
+      subject: 'Original subject',
+      replyTo: 'a'.repeat(64)
+    });
+    expect(result.opposite).toBeUndefined();
+    expect(sockets.some((url) => url.includes('untrusted.example.org'))).toBe(
+      false
+    );
+  });
+for (const scenario of [
+  'duplicate_recipient',
+  'duplicate_subject',
+  'duplicate_parent',
+  'expiration',
+  'file'
+] as const)
+  test(`fresh genuine encryption cannot admit unsupported/ambiguous ${scenario}`, async ({
+    page
+  }) => {
+    const result = await page.evaluate(async (scenario) => {
+      const f = (window.hcp092Fixture =
+        await window.hcp092.makeFixture(scenario));
+      return {
+        unlocked: await f.unlock(),
+        inbound: f.admit('inbound'),
+        archive: f.admit('self_archive')
+      };
+    }, scenario);
+    expect(result.unlocked).toBe('mismatch');
+    expect(result.inbound).toBeUndefined();
+    expect(result.archive).toBeUndefined();
+  });
 test('actual authenticated self archive preserves original peer recipient and rumor id', async ({
   page
 }) => {

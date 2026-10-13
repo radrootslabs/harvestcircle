@@ -1950,7 +1950,8 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'src/lib/messaging/inbox-setup-view.ts',
           'src/lib/messaging/reply-controller.ts',
           'src/lib/messaging/product-request-controller.ts',
-          'src/lib/nostr/inbox-preference-publication.ts'
+          'src/lib/nostr/inbox-preference-publication.ts',
+          'src/lib/nostr/incoming-wire.ts'
         ]) {
           await check(
             'operational flags rejects changed owned producer ' + producer,

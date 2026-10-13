@@ -170,10 +170,10 @@ await test('finite adversarial nested matrix refuses altered IDs, signatures, au
         15
       ],
       [
-        'unknown-tag',
+        'unsupported-expiration',
         [
           ['p', f.owner],
-          ['order', 'unsupported']
+          ['expiration', '1700000001']
         ],
         14
       ]
@@ -190,6 +190,23 @@ await test('finite adversarial nested matrix refuses altered IDs, signatures, au
       });
     }
     assert.equal(candidates.length, 40);
+    // D09 accepts this former negative as inert incoming metadata. Detached
+    // parsing proves no ciphertext correspondence, order flow or effect authority.
+    const inert: UnsignedEvent = {
+      ...f.rumor,
+      tags: [
+        ['p', f.owner],
+        ['order', 'unsupported']
+      ]
+    };
+    assert.equal(
+      f.check([
+        f.wire[0],
+        f.wire[1],
+        JSON.stringify({ ...inert, id: getEventHash(inert) })
+      ]),
+      true
+    );
     for (const row of candidates) {
       const values = [...f.wire];
       values[row.layer] = row.value;

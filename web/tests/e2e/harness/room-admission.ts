@@ -29,6 +29,13 @@ import {
 type Scenario =
   | 'inbound'
   | 'self_archive'
+  | 'inbound_extensions'
+  | 'self_archive_extensions'
+  | 'duplicate_recipient'
+  | 'duplicate_subject'
+  | 'duplicate_parent'
+  | 'expiration'
+  | 'file'
   | 'third_party'
   | 'hostile_text'
   | 'missing_parent';
@@ -43,18 +50,35 @@ export async function makeFixture(scenario: Scenario = 'inbound') {
     peerSecret = new Uint8Array(32).fill(84),
     outerSecret = new Uint8Array(32).fill(85),
     other = getPublicKey(outerSecret);
-  const senderSecret = scenario === 'self_archive' ? ownerSecret : peerSecret,
+  const archive =
+      scenario === 'self_archive' || scenario === 'self_archive_extensions',
+    extensions =
+      scenario === 'inbound_extensions' ||
+      scenario === 'self_archive_extensions';
+  const senderSecret = archive ? ownerSecret : peerSecret,
     sender = getPublicKey(senderSecret),
-    recipient =
-      scenario === 'self_archive'
-        ? f.peer
-        : scenario === 'third_party'
-          ? other
-          : f.owner;
+    recipient = archive ? f.peer : scenario === 'third_party' ? other : f.owner;
   const tags: string[][] = [['p', recipient]];
+  if (scenario === 'duplicate_recipient') tags.push(['p', recipient]);
+  if (scenario === 'duplicate_subject')
+    tags.push(['subject', 'A'], ['subject', 'B']);
+  if (scenario === 'duplicate_parent')
+    tags.push(['e', 'a'.repeat(64)], ['e', 'b'.repeat(64)]);
+  if (scenario === 'expiration') tags.push(['expiration', '1700000001']);
+  if (scenario === 'file') tags.push(['file', 'https://untrusted.example.org']);
   if (scenario === 'hostile_text') tags.push(['subject', other]);
   if (scenario === 'missing_parent')
     tags.push(['e', 'a'.repeat(64), 'wss://untrusted.example.org']);
+  if (extensions)
+    tags.splice(
+      0,
+      tags.length,
+      ['subject', 'Original subject'],
+      ['q', 'b'.repeat(64), 'wss://untrusted.example.org', other],
+      ['vendor', 'untrusted inert metadata'],
+      ['e', 'a'.repeat(64), 'wss://untrusted.example.org'],
+      ['p', recipient, 'wss://untrusted.example.org']
+    );
   const template: UnsignedEvent = {
       pubkey: sender,
       kind: 14,
@@ -87,7 +111,12 @@ export async function makeFixture(scenario: Scenario = 'inbound') {
     {
       kind: 1059,
       created_at: 1699999800,
-      tags: [['p', f.owner]],
+      tags: extensions
+        ? [
+            ['nonce', '3', '8'],
+            ['p', f.owner, 'wss://untrusted.example.org']
+          ]
+        : [['p', f.owner]],
       content: encrypt(outerSecret, f.owner, JSON.stringify(seal))
     },
     outerSecret

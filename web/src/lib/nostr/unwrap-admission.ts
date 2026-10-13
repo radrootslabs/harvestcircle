@@ -1,13 +1,13 @@
 import { ExtensionSigner } from 'applesauce-signers';
-import { getEventHash, type UnsignedEvent } from 'applesauce-core/helpers';
+import type { UnsignedEvent } from 'applesauce-core/helpers';
 import { PRIVATE_TRANSPORT_BUDGETS } from '../config/budgets.ts';
 import { canonicalPublicKey } from '../contracts/public-key.ts';
 import { exactLocalFields } from '../contracts/local-records.ts';
-import { boundedUtf8 } from '../contracts/food-availability-v1/text.ts';
 import {
-  messageFromWireParts,
-  messageToWireParts
-} from '../contracts/message-v1/index.ts';
+  incomingGiftWrapTags,
+  parseIncomingLayer,
+  readIncomingPairRumor
+} from './incoming-wire.ts';
 import {
   identityMessagingOwnership,
   subscribeIdentityInvalidation,
@@ -23,7 +23,6 @@ import {
   privateRecordSnapshot,
   privateRecordWire
 } from '../persistence/private-records.ts';
-import { safeUnsignedInteger } from './envelope-bounds.ts';
 import {
   verifyEnvelope,
   verifiedEnvelopeSnapshot
@@ -47,111 +46,15 @@ const unsignedFields = [
   'content'
 ];
 const signedFields = [...unsignedFields, 'sig'];
-// Syntax-only duplicate detection precedes ordinary JSON semantics. Escaped
-// field aliases count as the same key; harmless whitespace stays supported.
-function uniqueJSONFields(raw: string): boolean {
-  type Frame = {
-    array: boolean;
-    key: boolean;
-    parent: Frame | undefined;
-    accept: (name: string) => boolean;
-  };
-  function frame(parent: Frame | undefined, array: boolean): Frame {
-    const names = new Set<string>();
-    return {
-      parent,
-      array,
-      key: !array,
-      accept: (name: string) => {
-        if (names.has(name)) return false;
-        names.add(name);
-        return true;
-      }
-    };
-  }
-  let current: Frame | undefined;
-  try {
-    for (let index = 0; index < raw.length; index++) {
-      const character = raw[index];
-      if (character === '"') {
-        let end = index + 1;
-        while (end < raw.length) {
-          if (raw[end] === '\\') {
-            end += 2;
-            continue;
-          }
-          if (raw[end] === '"') break;
-          end++;
-        }
-        if (end >= raw.length) return false;
-        if (current && !current.array && current.key) {
-          const name: unknown = JSON.parse(raw.slice(index, end + 1));
-          if (typeof name !== 'string' || !current.accept(name)) return false;
-          current = {
-            parent: current.parent,
-            array: current.array,
-            accept: current.accept,
-            key: false
-          };
-        }
-        index = end;
-      } else if (character === '{' || character === '[')
-        current = frame(current, character === '[');
-      else if (character === '}' || character === ']') {
-        if (!current) return false;
-        current = current.parent;
-      } else if (character === ',' && current && !current.array)
-        current = {
-          parent: current.parent,
-          array: current.array,
-          accept: current.accept,
-          key: true
-        };
-    }
-    return current === undefined;
-  } catch {
-    return false;
-  }
-}
-function layer(raw: unknown, bytes: number): unknown {
-  if (
-    typeof raw !== 'string' ||
-    !boundedUtf8(raw, bytes) ||
-    !uniqueJSONFields(raw)
-  )
-    return undefined;
-  try {
-    let invalid = false;
-    const parsed: unknown = JSON.parse(
-      raw,
-      function (key: string, value: unknown, context?: { source?: string }) {
-        if (
-          !key.isWellFormed() ||
-          (typeof value === 'string' && !value.isWellFormed())
-        )
-          invalid = true;
-        if (
-          typeof value === 'number' &&
-          (!Number.isFinite(value) ||
-            ((key === 'kind' || key === 'created_at') &&
-              (context?.source === undefined ||
-                !/^[0-9]+$/u.test(context.source))))
-        )
-          invalid = true;
-        return value;
-      }
-    );
-    return invalid ? undefined : parsed;
-  } catch {
-    return undefined;
-  }
-}
 function outerLayer(raw: unknown, owner: string) {
-  const parsed = layer(raw, PRIVATE_TRANSPORT_BUDGETS.envelopeBytes);
+  const parsed = parseIncomingLayer(
+    raw,
+    PRIVATE_TRANSPORT_BUDGETS.envelopeBytes
+  );
   if (
     !exactLocalFields(parsed, signedFields) ||
     parsed.kind !== 1059 ||
-    JSON.stringify(parsed.tags) !== JSON.stringify([['p', owner]]) ||
+    !incomingGiftWrapTags(parsed.tags, owner) ||
     !sealCiphertextV2(parsed.content)
   )
     return undefined;
@@ -159,7 +62,7 @@ function outerLayer(raw: unknown, owner: string) {
   return verified.ok ? verifiedEnvelopeSnapshot(verified.value) : undefined;
 }
 function sealLayer(raw: unknown) {
-  const parsed = layer(raw, PRIVATE_TRANSPORT_BUDGETS.sealBytes);
+  const parsed = parseIncomingLayer(raw, PRIVATE_TRANSPORT_BUDGETS.sealBytes);
   if (
     !exactLocalFields(parsed, signedFields) ||
     parsed.kind !== 13 ||
@@ -175,38 +78,7 @@ function rumorLayer(
   raw: unknown,
   sender: string
 ): Readonly<UnsignedEvent & { id: string }> | undefined {
-  const parsed = layer(raw, PRIVATE_TRANSPORT_BUDGETS.rumorBytes);
-  if (
-    !exactLocalFields(parsed, unsignedFields) ||
-    parsed.kind !== 14 ||
-    parsed.pubkey !== sender ||
-    canonicalPublicKey(parsed.pubkey) !== sender ||
-    safeUnsignedInteger(parsed.created_at) === undefined ||
-    typeof parsed.id !== 'string' ||
-    !/^[0-9a-f]{64}$/u.test(parsed.id)
-  )
-    return undefined;
-  const parts = { kind: 14, tags: parsed.tags, content: parsed.content };
-  const decoded = messageFromWireParts(JSON.stringify(parts));
-  if (
-    !decoded ||
-    decoded.recipients.length !== 1 ||
-    decoded.recipients[0].public_key === sender
-  )
-    return undefined;
-  const canonical = messageToWireParts(JSON.stringify(decoded));
-  if (!canonical || JSON.stringify(canonical) !== JSON.stringify(parts))
-    return undefined;
-  const template: UnsignedEvent = {
-    pubkey: sender,
-    kind: 14,
-    created_at: parsed.created_at as number,
-    tags: canonical.tags.map((row) => [...row]),
-    content: canonical.content
-  };
-  return getEventHash(template) === parsed.id
-    ? { id: parsed.id, ...template }
-    : undefined;
+  return readIncomingPairRumor(raw, sender)?.original;
 }
 // Detached inspection only: supplied plaintext cannot prove ciphertext
 // correspondence. Only the scoped actual SDK issuer below mints nested custody.

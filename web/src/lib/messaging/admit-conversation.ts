@@ -1,12 +1,5 @@
-import { buildCanonicalPairRumor } from '../nostr/rumor-template.ts';
 import { canonicalPublicKey } from '../contracts/public-key.ts';
-import { exactLocalFields } from '../contracts/local-records.ts';
-import { boundedUtf8 } from '../contracts/food-availability-v1/text.ts';
-import {
-  messageFromWireParts,
-  messageToWireParts
-} from '../contracts/message-v1/index.ts';
-import { safeUnsignedInteger } from '../nostr/envelope-bounds.ts';
+import { readIncomingPairRumor } from '../nostr/incoming-wire.ts';
 import {
   receivedNestedEnvelopeSnapshot,
   receivedNestedEnvelopeOwnership,
@@ -37,44 +30,18 @@ export function inspectConversationData(
   if (
     !owner ||
     (expectedRole !== 'inbound' && expectedRole !== 'self_archive') ||
-    typeof raw !== 'string' ||
-    !boundedUtf8(raw, 8192)
+    typeof raw !== 'string'
   )
     return undefined;
   try {
-    const rumor: unknown = JSON.parse(raw);
-    if (
-      !exactLocalFields(rumor, [
-        'id',
-        'pubkey',
-        'created_at',
-        'kind',
-        'tags',
-        'content'
-      ]) ||
-      rumor.kind !== 14 ||
-      typeof rumor.id !== 'string' ||
-      !/^[0-9a-f]{64}$/u.test(rumor.id) ||
-      safeUnsignedInteger(rumor.created_at) === undefined
-    )
-      return undefined;
-    const sender = canonicalPublicKey(rumor.pubkey);
-    if (!sender) return undefined;
-    const parts = { kind: 14, tags: rumor.tags, content: rumor.content };
-    const decoded = messageFromWireParts(JSON.stringify(parts));
-    if (!decoded || decoded.recipients.length !== 1) return undefined;
+    const incoming = readIncomingPairRumor(raw);
+    if (!incoming) return undefined;
+    const rumor = incoming.original,
+      decoded = incoming.message,
+      sender = rumor.pubkey;
     const recipient = decoded.recipients[0].public_key;
     if (sender === recipient || (owner !== sender && owner !== recipient))
       return undefined;
-    const canonical = messageToWireParts(JSON.stringify(decoded));
-    if (!canonical || JSON.stringify(canonical) !== JSON.stringify(parts))
-      return undefined;
-    const template = buildCanonicalPairRumor(
-      JSON.stringify(decoded),
-      sender,
-      rumor.created_at
-    );
-    if (!template || template.id !== rumor.id) return undefined;
     const role = sender === owner ? 'self_archive' : 'inbound';
     if (role !== expectedRole) return undefined;
     return {
@@ -84,8 +51,8 @@ export function inspectConversationData(
       recipient,
       role,
       rumorId: rumor.id,
-      createdAt: template.created_at,
-      content: canonical.content,
+      createdAt: rumor.created_at,
+      content: decoded.content,
       subject: decoded.subject,
       // Private parent hash only; no hint, URL or public lookup is authorized.
       replyTo: decoded.reply_to?.id ?? null

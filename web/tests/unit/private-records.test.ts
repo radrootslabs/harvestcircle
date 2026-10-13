@@ -12,7 +12,7 @@ import {
   inspectPrivateSendReservation
 } from '../../src/lib/persistence/private-records.ts';
 const command = '12345678-1234-4234-8234-123456789abc';
-function fixture() {
+function fixture(extended = false) {
   const key = generateSecretKey(),
     peerKey = generateSecretKey();
   let conversation: Uint8Array | undefined,
@@ -25,7 +25,12 @@ function fixture() {
       {
         kind: 1059,
         created_at: 1700000000,
-        tags: [['p', owner]],
+        tags: extended
+          ? [
+              ['nonce', '3', '8'],
+              ['p', owner, 'wss://untrusted.example.org']
+            ]
+          : [['p', owner]],
         content: nip44.v2.encrypt(
           'Ciphertext structure fixture only',
           conversation
@@ -87,6 +92,23 @@ function fixture() {
   }
 }
 describe('ciphertext-only private local codecs, not nested authenticity or effect authority', () => {
+  it('retains original receive hints/inert tags but keeps stored outgoing artifacts strict', () => {
+    const f = fixture(true),
+      decoded = decodePrivateRecord(
+        JSON.stringify(f.received),
+        f.owner,
+        f.received.id
+      );
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) throw Error('bounded extended received wire rejected');
+    expect(
+      privateRecordSnapshot(decoded.value, f.owner, f.received.id)
+    ).toEqual(f.received);
+    expect(
+      decodePrivateRecord(JSON.stringify(f.operation), f.owner, f.operation.id)
+        .ok
+    ).toBe(false);
+  });
   it('rejects duplicate or escaped-alias outer content fields instead of persisting hidden plaintext', () => {
     const f = fixture();
     for (const name of ['"content"', '"\\u0063ontent"']) {

@@ -9,7 +9,7 @@ import {
 } from 'applesauce-core/helpers';
 import { nip44 } from 'applesauce-core/helpers/encryption';
 import { verifyReceivedLayerData } from '../../src/lib/nostr/unwrap-admission.ts';
-function fixture() {
+function fixture(extended = false) {
   const keys = [generateSecretKey(), generateSecretKey(), generateSecretKey()],
     sender = getPublicKey(keys[0]),
     owner = getPublicKey(keys[1]);
@@ -17,7 +17,15 @@ function fixture() {
     pubkey: sender,
     kind: 14,
     created_at: 1700000000,
-    tags: [['p', owner]],
+    tags: extended
+      ? [
+          ['subject', 'Original subject'],
+          ['q', 'b'.repeat(64), 'wss://untrusted.example.org', sender],
+          ['vendor', 'inert metadata'],
+          ['e', 'a'.repeat(64), 'wss://untrusted.example.org'],
+          ['p', owner, 'wss://untrusted.example.org']
+        ]
+      : [['p', owner]],
     content: 'Bounded inbound enquiry'
   };
   const rumor = { id: getEventHash(template), ...template };
@@ -43,7 +51,12 @@ function fixture() {
     {
       kind: 1059,
       created_at: 1699999800,
-      tags: [['p', owner]],
+      tags: extended
+        ? [
+            ['nonce', '3', '8'],
+            ['p', owner, 'wss://untrusted.example.org']
+          ]
+        : [['p', owner]],
       content: outerContent
     },
     keys[2]
@@ -85,6 +98,56 @@ await vector(
   'actual signed layers and freshly hashed unsigned pair rumor pass detached inspection',
   (f) => assert.equal(f.check(), true)
 );
+await test('fresh SDK nested extended wires retain original hashes and reject ambiguous/unsupported routing', () => {
+  const f = fixture(true);
+  try {
+    assert.equal(f.check(), true);
+    assert.equal(getEventHash(f.rumor), f.rumor.id);
+    for (const extra of [
+      ['p', f.owner],
+      ['p', f.sender],
+      ['subject', 'Another subject'],
+      ['e', 'c'.repeat(64)],
+      ['expiration', '1700000001'],
+      ['file', 'https://untrusted.example.org'],
+      ['imeta', 'url https://untrusted.example.org']
+    ]) {
+      const rumor = { ...f.rumor, tags: [...f.rumor.tags, extra] };
+      rumor.id = getEventHash(rumor);
+      assert.equal(f.check(rumor), false);
+    }
+    for (const tags of [
+      [
+        ['p', f.owner],
+        ['p', f.owner]
+      ],
+      [
+        ['p', f.owner],
+        ['p', f.sender]
+      ],
+      [['p', f.sender, 'wss://untrusted.example.org']],
+      [
+        ['p', f.owner],
+        ['expiration', '1700000001']
+      ]
+    ])
+      assert.equal(
+        f.check(
+          f.rumor,
+          f.seal,
+          finalizeEvent({ ...f.outer, tags }, f.keys[2])
+        ),
+        false
+      );
+    assert.equal(
+      f.check({ ...f.rumor, tags: [...f.rumor.tags].reverse() }),
+      false
+    );
+    assert.equal(f.check(f.rumor, { ...f.seal, sig: '0'.repeat(128) }), false);
+  } finally {
+    f.close();
+  }
+});
 await vector(
   'forged inner author fails even after recomputing rumor hash',
   (f) => {
@@ -153,6 +216,32 @@ await vector(
       ),
       false
     )
+);
+await vector(
+  'signed original layers accept exact raw UTF8 byte limits and reject one-byte excess',
+  (f) => {
+    const wires = [
+      JSON.stringify(f.outer),
+      JSON.stringify(f.seal),
+      JSON.stringify(f.rumor)
+    ];
+    const limits = [32768, 16384, 8192];
+    for (let index = 0; index < wires.length; index++) {
+      const boundary = [...wires];
+      boundary[index] += ' '.repeat(
+        limits[index] - Buffer.byteLength(boundary[index])
+      );
+      assert.equal(
+        verifyReceivedLayerData(boundary[0], boundary[1], boundary[2], f.owner),
+        true
+      );
+      boundary[index] += ' ';
+      assert.equal(
+        verifyReceivedLayerData(boundary[0], boundary[1], boundary[2], f.owner),
+        false
+      );
+    }
+  }
 );
 await vector('body and layer bounds are checked without truncation', (f) => {
   const r = { ...f.rumor, content: 'x'.repeat(4097) };

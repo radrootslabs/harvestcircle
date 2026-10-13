@@ -8,6 +8,7 @@ import {
   verifiedEnvelopeSnapshot
 } from '../nostr/verified-envelope.ts';
 import { canonicalRelayOrigin } from '../config/relays.ts';
+import { incomingGiftWrapTags } from '../nostr/incoming-wire.ts';
 import type { InboxRouteSnapshot } from '../messaging/inbox-routing.ts';
 import {
   LOCAL_PERSISTENCE_BUDGETS,
@@ -326,7 +327,11 @@ export function inspectPrivateSendReservation(
     return undefined;
   }
 }
-function outer(raw: unknown, destination: string): string | undefined {
+function outer(
+  raw: unknown,
+  destination: string,
+  received = false
+): string | undefined {
   if (
     typeof raw !== 'string' ||
     !boundedUtf8(raw, PRIVATE_TRANSPORT_BUDGETS.envelopeBytes)
@@ -348,7 +353,9 @@ function outer(raw: unknown, destination: string): string | undefined {
       'sig'
     ]) ||
     event.kind !== 1059 ||
-    JSON.stringify(event.tags) !== JSON.stringify([['p', destination]])
+    !(received
+      ? incomingGiftWrapTags(event.tags, destination)
+      : JSON.stringify(event.tags) === JSON.stringify([['p', destination]]))
   )
     return undefined;
   // Structural standard-v2 preflight only. No SDK decrypt or nested admission;
@@ -539,7 +546,7 @@ export function decodePrivateRecord(
           'read'
         ]) ||
         !unsigned(fields.revision) ||
-        outer(fields.outer, owner) !== id ||
+        outer(fields.outer, owner, true) !== id ||
         !unsigned(fields.observedAtMilliseconds) ||
         !Array.isArray(fields.sources) ||
         fields.sources.length === 0 ||
