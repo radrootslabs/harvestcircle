@@ -7,7 +7,10 @@ import {
 import { inboxProbePolicyMatches } from '../nostr/inbox-access.ts';
 import {
   recoveredInboxProbeBinding,
-  type RecoveredInboxProbe
+  inboxProbeNonceVerificationEvidence,
+  type RecoveredInboxProbe,
+  type InboxProbeNonceProof,
+  type RecoveredInboxProbeNonceProof
 } from '../nostr/self-recovery-reader.ts';
 import type { InboxAccessController } from '../messaging/inbox-access-controller.ts';
 import type { InboxOperatorQualification } from '../config/inbox-operators.ts';
@@ -40,7 +43,9 @@ import {
   decodePrivateRecord,
   privateRecordWire,
   privateRecordSnapshot,
-  type PrivateAccessProbe
+  type PrivateAccessProbe,
+  type PrivateAccessProbeReceipt,
+  type PrivateRecordHandle
 } from './private-records.ts';
 import {
   verifyEnvelope,
@@ -793,4 +798,379 @@ export function commitInboxProbeReadbackAttempt(
   result: InboxProbeReadbackAttemptResult
 ): Promise<InboxProbeArchiveCommitResult> {
   return commitProbeAttempt(repository, result, 'access_readback');
+}
+
+declare const nonceAcknowledgementBrand: unique symbol;
+export type InboxProbeNonceAcknowledgement = Readonly<{
+  [nonceAcknowledgementBrand]: true;
+}>;
+export type InboxProbeNonceCommitResult = Readonly<{
+  status:
+    | 'saved'
+    | 'existing'
+    | 'reconciled'
+    | PrivateStorageFailure
+    | 'invalid'
+    | 'busy'
+    | 'stopped';
+  disposition: 'original_protected';
+  acknowledgement?: InboxProbeNonceAcknowledgement;
+  provenance?: 'current' | 'historical_only';
+}>;
+type NonceProof = InboxProbeNonceProof | RecoveredInboxProbeNonceProof;
+type NonceOperationInput = Readonly<{
+  repository: PrivateStorageRepository;
+  session: PrivateSession;
+  policy: RelayPolicy;
+  proof: NonceProof;
+  acknowledgement: InboxProbeAcknowledgement;
+  observation: InboxProbeReadbackAttemptResult;
+  lineage: Lineage;
+  baseWire: string;
+  nextWire: string;
+  nextRecord: PrivateAccessProbe;
+  nextHandle: PrivateRecordHandle;
+}>;
+type NonceOperation = NonceOperationInput &
+  Readonly<{
+    uncertain(): boolean;
+    applied(): boolean;
+    markAttempted(): void;
+    markDefiniteFailure(): void;
+    markApplied(): void;
+    acknowledgementToken(): InboxProbeNonceAcknowledgement | undefined;
+    issueAcknowledgement(): InboxProbeNonceAcknowledgement;
+  }>;
+function createNonceOperation(input: NonceOperationInput): NonceOperation {
+  let uncertain = false,
+    applied = false,
+    acknowledgement: InboxProbeNonceAcknowledgement | undefined;
+  return {
+    ...input,
+    uncertain: () => uncertain,
+    applied: () => applied,
+    markAttempted() {
+      uncertain = true;
+    },
+    markDefiniteFailure() {
+      uncertain = false;
+    },
+    markApplied() {
+      applied = true;
+    },
+    acknowledgementToken: () => acknowledgement,
+    issueAcknowledgement() {
+      return (acknowledgement ??= Object.freeze(
+        {}
+      ) as InboxProbeNonceAcknowledgement);
+    }
+  };
+}
+const nonceOperations = new WeakMap<NonceProof, NonceOperation>();
+const nonceAcknowledgements = new WeakMap<
+  InboxProbeNonceAcknowledgement,
+  NonceOperation
+>();
+function currentNonceOperation(operation: NonceOperation): boolean {
+  const evidence = inboxProbeNonceVerificationEvidence(
+    operation.proof,
+    operation.repository,
+    operation.session,
+    operation.policy
+  );
+  return (
+    !!evidence &&
+    evidence.acknowledgement === operation.acknowledgement &&
+    evidence.observation === operation.observation &&
+    evidence.current() &&
+    acknowledgements.get(evidence.acknowledgement)?.lineage ===
+      operation.lineage &&
+    appliedArchiveEvidence.get(evidence.observation) === operation.lineage
+  );
+}
+function nonceSuccess(
+  operation: NonceOperation,
+  status: 'saved' | 'existing' | 'reconciled'
+): InboxProbeNonceCommitResult {
+  if (!currentNonceOperation(operation))
+    return {
+      status,
+      disposition: 'original_protected',
+      provenance: 'historical_only'
+    };
+  let acknowledgement = operation.acknowledgementToken();
+  if (!acknowledgement) {
+    acknowledgement = operation.issueAcknowledgement();
+    nonceAcknowledgements.set(acknowledgement, operation);
+  }
+  return {
+    status,
+    disposition: 'original_protected',
+    provenance: 'current',
+    acknowledgement
+  };
+}
+
+// Persist a genuine local nonce observation, never a caller receipt/status.
+// A source-admitted native operation may settle after loss as history only.
+export async function commitInboxProbeNonceVerification(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  proof: NonceProof
+): Promise<InboxProbeNonceCommitResult> {
+  const refuse = (
+    status: InboxProbeNonceCommitResult['status']
+  ): InboxProbeNonceCommitResult => ({
+    status,
+    disposition: 'original_protected'
+  });
+  try {
+    if (typeof window === 'undefined') return refuse('invalid');
+    const evidence = inboxProbeNonceVerificationEvidence(
+        proof,
+        repository,
+        session,
+        policy
+      ),
+      saved = evidence && acknowledgements.get(evidence.acknowledgement),
+      effect =
+        evidence && inboxProbeReadbackAttemptEvidence(evidence.observation);
+    // All strong nonce/read/ACK associations precede passive ownership or DB.
+    if (
+      !evidence ||
+      !saved ||
+      !effect ||
+      effect.repository !== repository ||
+      effect.acknowledgement !== evidence.acknowledgement ||
+      saved.repository !== repository ||
+      saved.session !== session ||
+      appliedArchiveEvidence.get(evidence.observation) !== saved.lineage ||
+      !evidence.current()
+    )
+      return refuse('invalid');
+    const fact = JSON.parse(effect.receiptWire) as PrivateAccessProbeReceipt;
+    const lineage = saved.lineage;
+    if (
+      fact.role !== 'access_readback' ||
+      fact.status !== 'readback' ||
+      fact.eventId !== evidence.eventId ||
+      !lineage.record().self ||
+      evidence.command !== lineage.record().id ||
+      evidence.owner !== lineage.record().owner ||
+      !Number.isSafeInteger(evidence.verifiedAtMilliseconds) ||
+      evidence.verifiedAtMilliseconds < 0
+    )
+      return refuse('invalid');
+    const original = lineage;
+    if (!original.begin()) return refuse('busy');
+    // Only the owner that actually acquired begin may finish this lineage.
+    try {
+      if (!navigator.locks?.request) return refuse('unavailable');
+      return await navigator.locks.request(
+        'harvestcircle:owner:' + evidence.owner,
+        { mode: 'exclusive', ifAvailable: true },
+        async (lock): Promise<InboxProbeNonceCommitResult> => {
+          if (!lock) return refuse('busy');
+          if (!evidence.current()) return refuse('stopped');
+          const job = await withIdlePrivateLocalStorage(
+            session,
+            async (): Promise<InboxProbeNonceCommitResult> => {
+              if (!evidence.current()) return refuse('stopped');
+              const observed = await observePrivateRecord(
+                repository,
+                'private_sends',
+                evidence.command
+              );
+              if (!evidence.current()) return refuse('stopped');
+              if (!observed.ok) return refuse(observed.reason);
+              let operation = nonceOperations.get(proof);
+              if (
+                operation &&
+                (operation.repository !== repository ||
+                  operation.session !== session ||
+                  operation.policy !== policy ||
+                  operation.lineage !== original ||
+                  operation.acknowledgement !== evidence.acknowledgement ||
+                  operation.observation !== evidence.observation)
+              )
+                return refuse('invalid_scope');
+              if (
+                privateRecordWire(
+                  observed.value.handle,
+                  evidence.owner,
+                  evidence.command
+                ) !== observed.value.wire
+              )
+                return refuse('conflict');
+              if (operation?.applied()) {
+                if (observed.value.wire !== original.wire())
+                  return refuse('conflict');
+                return nonceSuccess(operation, 'existing');
+              }
+              if (
+                operation?.uncertain() &&
+                observed.value.wire === operation.nextWire
+              ) {
+                if (original.wire() !== operation.baseWire)
+                  return refuse('conflict');
+                original.admit(operation.nextRecord, operation.nextWire);
+                operation.markApplied();
+                return nonceSuccess(operation, 'reconciled');
+              }
+              if (
+                observed.value.wire !== original.wire() ||
+                (operation && operation.baseWire !== original.wire())
+              )
+                return refuse('conflict');
+              if (!operation) {
+                if (original.record().revision === Number.MAX_SAFE_INTEGER)
+                  return refuse('invalid_record');
+                const candidate = decodePrivateRecord(
+                  JSON.stringify({
+                    ...original.record(),
+                    revision: original.record().revision + 1,
+                    receipts: [
+                      ...original.record().receipts,
+                      {
+                        ...fact,
+                        status: 'nonce_verified',
+                        observedAtMilliseconds: evidence.verifiedAtMilliseconds
+                      }
+                    ]
+                  }),
+                  evidence.owner,
+                  evidence.command
+                );
+                if (!candidate.ok) return refuse('invalid_record');
+                const nextWire = privateRecordWire(
+                    candidate.value,
+                    evidence.owner,
+                    evidence.command
+                  ),
+                  nextRecord = privateRecordSnapshot(
+                    candidate.value,
+                    evidence.owner,
+                    evidence.command
+                  );
+                if (
+                  !nextWire ||
+                  !nextRecord ||
+                  nextRecord.family !== 'private_access_probe'
+                )
+                  return refuse('invalid_record');
+                operation = createNonceOperation({
+                  repository,
+                  session,
+                  policy,
+                  proof,
+                  acknowledgement: evidence.acknowledgement,
+                  observation: evidence.observation,
+                  lineage: original,
+                  baseWire: original.wire(),
+                  nextWire,
+                  nextRecord,
+                  nextHandle: candidate.value
+                });
+              }
+              // This is the actual append-admission boundary. Before it, stale
+              // proof has no write. After it, only bounded history may settle.
+              if (!currentNonceOperation(operation)) return refuse('stopped');
+              nonceOperations.set(proof, operation);
+              const previousUncertainty = operation.uncertain();
+              operation.markAttempted();
+              const committed = await commitPrivateRecord(
+                repository,
+                operation.nextHandle,
+                observed.value.handle
+              );
+              if (!committed.ok && committed.reason !== 'unknown_completion') {
+                operation.markDefiniteFailure();
+                return refuse(committed.reason);
+              }
+              if (
+                committed.ok &&
+                committed.value.state === 'existing' &&
+                !previousUncertainty
+              ) {
+                // A matching handwritten successor is not our completed append.
+                operation.markDefiniteFailure();
+                return refuse('conflict');
+              }
+              const after = await observePrivateRecord(
+                repository,
+                'private_sends',
+                evidence.command
+              );
+              if (!after.ok) return refuse('unknown_completion');
+              if (
+                after.value.wire !== operation.nextWire ||
+                privateRecordWire(
+                  after.value.handle,
+                  evidence.owner,
+                  evidence.command
+                ) !== operation.nextWire
+              )
+                return refuse('conflict');
+              original.admit(operation.nextRecord, operation.nextWire);
+              operation.markApplied();
+              return nonceSuccess(
+                operation,
+                !committed.ok
+                  ? 'reconciled'
+                  : committed.value.state === 'existing'
+                    ? 'existing'
+                    : 'saved'
+              );
+            }
+          );
+          if (!job.ok) return refuse(evidence.current() ? 'busy' : 'stopped');
+          if (job.value.acknowledgement && !evidence.current())
+            return {
+              status: job.value.status,
+              disposition: 'original_protected',
+              provenance: 'historical_only'
+            };
+          return job.value;
+        }
+      );
+    } finally {
+      original.finish();
+    }
+  } catch {
+    return refuse('unknown_completion');
+  }
+}
+
+// Local source provenance only. Later cleanup/readiness must independently
+// reobserve native custody and all required genuine current target effects.
+export function inboxProbeNonceAcknowledgementBinding(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  acknowledgement: InboxProbeNonceAcknowledgement,
+  policy: RelayPolicy
+) {
+  const saved = nonceAcknowledgements.get(acknowledgement);
+  if (
+    !saved ||
+    saved.repository !== repository ||
+    saved.session !== session ||
+    saved.policy !== policy ||
+    !saved.applied() ||
+    !currentNonceOperation(saved)
+  )
+    return undefined;
+  return {
+    owner: saved.lineage.record().owner,
+    command: saved.lineage.record().id,
+    eventId: saved.lineage.record().self!.eventId,
+    probeAcknowledgement: saved.acknowledgement,
+    proof: saved.proof,
+    observation: saved.observation,
+    record: JSON.parse(
+      JSON.stringify(saved.lineage.record())
+    ) as PrivateAccessProbe,
+    wire: saved.lineage.wire(),
+    current: () => currentNonceOperation(saved)
+  };
 }

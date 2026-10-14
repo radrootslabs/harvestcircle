@@ -317,7 +317,7 @@ async function operationalFlagsAdmission(web) {
     'src/lib/messaging/inbox-setup-operation.ts':
       '245c6ce88b146dc731e7ace4f16dc9b5002a87a997f5568e4811b0c4a2daf035',
     'src/lib/nostr/self-recovery-reader.ts':
-      '51758a11383ca5851f16d99628470cef333afbdc37e794e25f9891762c531b8b',
+      'a7a5b0e874c65620cd80ccb9a6a50f82a31833adb496a88f9f0daa5b74c06dfd',
     'src/lib/nostr/private-publisher.ts':
       'e02cdbba35b8a9c7fc5f805c8c21432d4f6eab42c6d098411613189cb6ac7caf',
     'src/lib/nostr/private-pool.ts':
@@ -325,7 +325,7 @@ async function operationalFlagsAdmission(web) {
     'src/lib/nostr/inbox-ingress.ts':
       'f860a094a8ba767585124c795d44b7620064f73a5b3a0170041c581c0fc64ecb',
     'src/lib/persistence/inbox-probes.ts':
-      '77949b8350b33182bdd226e4f5507600e220dbfc571410ecdd8210f523d1a5c8',
+      '6f359ac6f6184d8bf52745b2d1ea79654e55e272c89c62a48d8a1a5605a2dcb0',
     'src/lib/nostr/inbox-access.ts':
       '16eef55d0ffcf2c3291573ddcb0b6a1432bb77abce0017a69e9b6f82414609a7',
     'src/lib/nostr/seal-builder.ts':
@@ -595,7 +595,7 @@ async function privacyDataAdmission(web) {
     'src/lib/messaging/inbox-list.ts':
       '9cc82877bfa8dbb2a7fa41bceb842793349416271f19569f49fdd5cfc1de07e5',
     'src/lib/nostr/self-recovery-reader.ts':
-      '51758a11383ca5851f16d99628470cef333afbdc37e794e25f9891762c531b8b',
+      'a7a5b0e874c65620cd80ccb9a6a50f82a31833adb496a88f9f0daa5b74c06dfd',
     'src/lib/nostr/private-publisher.ts':
       'e02cdbba35b8a9c7fc5f805c8c21432d4f6eab42c6d098411613189cb6ac7caf',
     'src/lib/nostr/private-pool.ts':
@@ -603,7 +603,7 @@ async function privacyDataAdmission(web) {
     'src/lib/nostr/inbox-ingress.ts':
       'f860a094a8ba767585124c795d44b7620064f73a5b3a0170041c581c0fc64ecb',
     'src/lib/persistence/inbox-probes.ts':
-      '77949b8350b33182bdd226e4f5507600e220dbfc571410ecdd8210f523d1a5c8',
+      '6f359ac6f6184d8bf52745b2d1ea79654e55e272c89c62a48d8a1a5605a2dcb0',
     'src/lib/nostr/inbox-access.ts':
       '16eef55d0ffcf2c3291573ddcb0b6a1432bb77abce0017a69e9b6f82414609a7',
     'src/lib/nostr/seal-builder.ts':
@@ -2171,7 +2171,7 @@ async function inboxProbeStorageAdmission(web) {
     'src/lib/persistence/private-storage.ts':
       'ba4a61dd1fa08fc89d00adac3c258c1f6ae7e5c1b15165facffe76ddd71d5e91',
     'src/lib/persistence/inbox-probes.ts':
-      '77949b8350b33182bdd226e4f5507600e220dbfc571410ecdd8210f523d1a5c8'
+      '6f359ac6f6184d8bf52745b2d1ea79654e55e272c89c62a48d8a1a5605a2dcb0'
   };
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);

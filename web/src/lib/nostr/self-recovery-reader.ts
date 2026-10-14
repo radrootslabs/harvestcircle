@@ -10,6 +10,7 @@ import {
 } from './private-pool.ts';
 import {
   inboxProbePublicationBinding,
+  recoveredInboxProbePublicationBinding,
   type InboxProbeAcknowledgement
 } from '../persistence/inbox-probes.ts';
 import { inboxProbeRumorWire, inboxProbeRumorMatches } from './inbox-access.ts';
@@ -420,11 +421,30 @@ export type InboxProbeNonceResult =
         | 'mismatch'
         | 'lost_evidence';
     }>;
+declare const recoveredProbeNonceReaderBrand: unique symbol;
+export type RecoveredInboxProbeNonceReader = Readonly<{
+  [recoveredProbeNonceReaderBrand]: true;
+}>;
+declare const recoveredProbeNonceProofBrand: unique symbol;
+export type RecoveredInboxProbeNonceProof = Readonly<{
+  [recoveredProbeNonceProofBrand]: true;
+}>;
+export type RecoveredInboxProbeNonceResult =
+  | Exclude<InboxProbeNonceResult, { status: 'nonce_verified' }>
+  | Readonly<{
+      status: 'nonce_verified';
+      proof: RecoveredInboxProbeNonceProof;
+    }>;
+type NonceResult = InboxProbeNonceResult | RecoveredInboxProbeNonceResult;
+type NonceReader = InboxProbeNonceReader | RecoveredInboxProbeNonceReader;
+type NonceProof = InboxProbeNonceProof | RecoveredInboxProbeNonceProof;
+type NonceSource = 'construction' | 'recovered';
 type ProbeReader = {
-  run(): Promise<InboxProbeNonceResult>;
+  source: NonceSource;
+  run(): Promise<NonceResult>;
   stop(expired: boolean): void;
 };
-const probeReaders = new WeakMap<InboxProbeNonceReader, ProbeReader>();
+const probeReaders = new WeakMap<NonceReader, ProbeReader>();
 const probeObservationReaders = new WeakMap<
   InboxProbeReadbackAttemptResult,
   Readonly<{
@@ -432,20 +452,24 @@ const probeObservationReaders = new WeakMap<
     identity: IdentitySession;
     session: PrivateSession;
     policy: RelayPolicy;
-    reader: InboxProbeNonceReader;
+    source: NonceSource;
+    reader: NonceReader;
   }>
 >();
-const probeNonceProofs = new WeakMap<
-  InboxProbeNonceProof,
-  Readonly<{
-    repository: PrivateStorageRepository;
-    session: PrivateSession;
-    policy: RelayPolicy;
-    observation: InboxProbeReadbackAttemptResult;
-    acknowledgement: InboxProbeAcknowledgement;
-    original: string;
-    current(): boolean;
-  }>
+type SavedNonceProof = Readonly<{
+  repository: PrivateStorageRepository;
+  session: PrivateSession;
+  policy: RelayPolicy;
+  observation: InboxProbeReadbackAttemptResult;
+  acknowledgement: InboxProbeAcknowledgement;
+  original: string;
+  verifiedAtMilliseconds: number;
+  current(): boolean;
+}>;
+const probeNonceProofs = new WeakMap<InboxProbeNonceProof, SavedNonceProof>();
+const recoveredNonceProofs = new WeakMap<
+  RecoveredInboxProbeNonceProof,
+  SavedNonceProof
 >();
 function immutableProbe(
   record: import('../persistence/private-records.ts').PrivateAccessProbe
@@ -461,14 +485,15 @@ function immutableProbe(
 }
 // Genuine positive source transport, actual identity/private session, original
 // nonce and native custody are all required. Capture never calls the provider.
-export function captureInboxProbeNonceReader(
+function captureProbeNonceReader(
+  source: NonceSource,
   repository: PrivateStorageRepository,
   identity: IdentitySession,
   session: PrivateSession,
   policy: RelayPolicy,
   observation: InboxProbeReadbackAttemptResult,
   review: unknown
-): InboxProbeNonceReader | undefined {
+): NonceReader | undefined {
   if (
     typeof window === 'undefined' ||
     review !== 'reviewed_inbox_probe_nonce_decryption'
@@ -478,13 +503,32 @@ export function captureInboxProbeNonceReader(
     const effect = inboxProbeReadbackAttemptEvidence(observation);
     if (!effect || effect.repository !== repository) return undefined;
     const acknowledgement = effect.acknowledgement,
-      binding = inboxProbePublicationBinding(
+      lookup =
+        source === 'construction'
+          ? inboxProbePublicationBinding
+          : recoveredInboxProbePublicationBinding,
+      binding = lookup(repository, session, acknowledgement, policy);
+    if (!binding?.record.self) return undefined;
+    function expectedRumor(): string | undefined {
+      if (source === 'construction')
+        return inboxProbeRumorWire(
+          binding!.identity as Parameters<typeof inboxProbeRumorWire>[0],
+          session
+        );
+      const recovered = binding!.identity as RecoveredInboxProbe,
+        original = recoveredProbes.get(recovered);
+      if (!original || original.identity !== identity) return undefined;
+      return recoveredInboxProbeRumorWire(
+        recovered,
         repository,
         session,
-        acknowledgement,
-        policy
+        original.access,
+        policy,
+        original.operator
       );
-    if (!binding?.record.self) return undefined;
+    }
+    // Strong recovered associations precede passive private-session ownership.
+    if (!expectedRumor()) return undefined;
     const identityOwner = identityMessagingOwnership(identity);
     if (
       !identityOwner?.current() ||
@@ -511,33 +555,29 @@ export function captureInboxProbeNonceReader(
         binding.record.owner,
         fact.readbackWire
       ) ||
-      !inboxProbeRumorWire(binding.identity, session)
+      !expectedRumor()
     )
       return undefined;
     const previous = probeObservationReaders.get(observation);
     if (previous)
-      return previous.repository === repository &&
+      return previous.source === source &&
+        previous.repository === repository &&
         previous.identity === identity &&
         previous.session === session &&
         previous.policy === policy
         ? previous.reader
         : undefined;
     const original = immutableProbe(binding.record),
-      token = Object.freeze({}) as InboxProbeNonceReader;
+      token = Object.freeze({}) as NonceReader;
     let stopped = false,
       started = false,
       pending = false,
       active: ExtensionAction | undefined,
-      proof: InboxProbeNonceProof | undefined,
-      last: InboxProbeNonceResult | undefined;
+      proof: NonceProof | undefined,
+      last: NonceResult | undefined;
     const listeners = new Map<symbol, () => void>();
     function current() {
-      const fresh = inboxProbePublicationBinding(
-        repository,
-        session,
-        acknowledgement,
-        policy
-      );
+      const fresh = lookup(repository, session, acknowledgement, policy);
       return (
         !stopped &&
         identityOwner!.current() &&
@@ -545,7 +585,7 @@ export function captureInboxProbeNonceReader(
         !!fresh &&
         fresh.identity === binding!.identity &&
         immutableProbe(fresh.record) === original &&
-        !!inboxProbeRumorWire(fresh.identity, session)
+        !!expectedRumor()
       );
     }
     function stop(expired: boolean) {
@@ -554,7 +594,10 @@ export function captureInboxProbeNonceReader(
         if (expired) markExtensionWaitExpired(active);
         else stopExtensionAction(active);
       }
-      if (proof) probeNonceProofs.delete(proof);
+      if (proof) {
+        probeNonceProofs.delete(proof as InboxProbeNonceProof);
+        recoveredNonceProofs.delete(proof as RecoveredInboxProbeNonceProof);
+      }
       proof = undefined;
       for (const [id, off] of listeners) {
         off();
@@ -571,7 +614,7 @@ export function captureInboxProbeNonceReader(
       identityOwner.owner,
       current
     );
-    async function run(): Promise<InboxProbeNonceResult> {
+    async function run(): Promise<NonceResult> {
       if (!current()) {
         stop(false);
         return { status: 'stopped' };
@@ -586,10 +629,10 @@ export function captureInboxProbeNonceReader(
         last = await navigator.locks.request(
           'harvestcircle:owner:' + identityOwner!.owner,
           { mode: 'exclusive', ifAvailable: true },
-          async (lock): Promise<InboxProbeNonceResult> => {
+          async (lock): Promise<NonceResult> => {
             if (!lock) return { status: 'busy' };
             if (!current()) return { status: 'stopped' };
-            const captured = inboxProbePublicationBinding(
+            const captured = lookup(
               repository,
               session,
               acknowledgement,
@@ -610,12 +653,8 @@ export function captureInboxProbeNonceReader(
                 captured.record.owner,
                 captured.record.id
               ) !== captured.wire ||
-              inboxProbePublicationBinding(
-                repository,
-                session,
-                acknowledgement,
-                policy
-              )?.wire !== captured.wire
+              lookup(repository, session, acknowledgement, policy)?.wire !==
+                captured.wire
             )
               return { status: 'conflict' };
             const checked = verifyEnvelope(captured.record.self.wire),
@@ -648,15 +687,12 @@ export function captureInboxProbeNonceReader(
                 operation: Symbol()
               },
               current,
-              async (action): Promise<InboxProbeNonceResult> => {
+              async (action): Promise<NonceResult> => {
                 active = action;
                 const opened = await decryptor.open(action, outer);
                 if (!current()) return { status: 'stopped' };
                 if (opened.status !== 'opened') return opened;
-                const expected = inboxProbeRumorWire(
-                  captured.identity,
-                  session
-                );
+                const expected = expectedRumor();
                 if (!expected || opened.rumorWire !== expected)
                   return { status: 'mismatch' };
                 const rumor = JSON.parse(opened.rumorWire) as {
@@ -674,6 +710,13 @@ export function captureInboxProbeNonceReader(
                 // final physical read. No extension callback follows that read.
                 if (!(await decryptor.fresh(action)))
                   return { status: 'stopped' };
+                const verifiedAtMilliseconds = Date.now();
+                if (!current()) return { status: 'stopped' };
+                if (
+                  !Number.isSafeInteger(verifiedAtMilliseconds) ||
+                  verifiedAtMilliseconds < 0
+                )
+                  return { status: 'mismatch' };
                 const after = await observePrivateRecord(
                   repository,
                   'private_sends',
@@ -688,31 +731,40 @@ export function captureInboxProbeNonceReader(
                     captured.record.owner,
                     captured.record.id
                   ) !== captured.wire ||
-                  inboxProbePublicationBinding(
-                    repository,
-                    session,
-                    acknowledgement,
-                    policy
-                  )?.wire !== captured.wire
+                  lookup(repository, session, acknowledgement, policy)?.wire !==
+                    captured.wire
                 )
                   return { status: 'conflict' };
-                if (
-                  !current() ||
-                  inboxProbeRumorWire(captured.identity, session) !== expected
-                )
+                if (!current() || expectedRumor() !== expected)
                   return { status: 'stopped' };
-                const issued = Object.freeze({}) as InboxProbeNonceProof;
-                probeNonceProofs.set(issued, {
+                const issued = Object.freeze({}) as NonceProof;
+                const saved = {
                   repository,
                   session,
                   policy,
                   observation,
                   acknowledgement,
                   original,
+                  verifiedAtMilliseconds,
                   current
-                });
+                };
+                if (source === 'construction')
+                  probeNonceProofs.set(issued as InboxProbeNonceProof, saved);
+                else
+                  recoveredNonceProofs.set(
+                    issued as RecoveredInboxProbeNonceProof,
+                    saved
+                  );
                 proof = issued;
-                return { status: 'nonce_verified', proof: issued };
+                return source === 'construction'
+                  ? {
+                      status: 'nonce_verified',
+                      proof: issued as InboxProbeNonceProof
+                    }
+                  : {
+                      status: 'nonce_verified',
+                      proof: issued as RecoveredInboxProbeNonceProof
+                    };
               }
             );
             if (!current()) return { status: 'stopped' };
@@ -732,10 +784,11 @@ export function captureInboxProbeNonceReader(
         pending = false;
       }
     }
-    probeReaders.set(token, { run, stop });
+    probeReaders.set(token, { source, run, stop });
     // Reserve before callback-capable subscriptions; reentrant capture reuses
     // this exact original reader and cannot reset or start another SDK action.
     probeObservationReaders.set(observation, {
+      source,
       repository,
       identity,
       session,
@@ -753,18 +806,77 @@ export function captureInboxProbeNonceReader(
     return undefined;
   }
 }
+export function captureInboxProbeNonceReader(
+  repository: PrivateStorageRepository,
+  identity: IdentitySession,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  observation: InboxProbeReadbackAttemptResult,
+  review: unknown
+): InboxProbeNonceReader | undefined {
+  return captureProbeNonceReader(
+    'construction',
+    repository,
+    identity,
+    session,
+    policy,
+    observation,
+    review
+  ) as InboxProbeNonceReader | undefined;
+}
+export function captureRecoveredInboxProbeNonceReader(
+  repository: PrivateStorageRepository,
+  identity: IdentitySession,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  observation: InboxProbeReadbackAttemptResult,
+  review: unknown
+): RecoveredInboxProbeNonceReader | undefined {
+  return captureProbeNonceReader(
+    'recovered',
+    repository,
+    identity,
+    session,
+    policy,
+    observation,
+    review
+  ) as RecoveredInboxProbeNonceReader | undefined;
+}
 export function readInboxProbeNonce(
   reader: InboxProbeNonceReader
 ): Promise<InboxProbeNonceResult> {
-  return (
-    probeReaders.get(reader)?.run() ?? Promise.resolve({ status: 'invalid' })
-  );
+  const saved = probeReaders.get(reader);
+  return saved?.source === 'construction'
+    ? (saved.run() as Promise<InboxProbeNonceResult>)
+    : Promise.resolve({ status: 'invalid' });
 }
 export function stopInboxProbeNonceReader(reader: InboxProbeNonceReader) {
-  probeReaders.get(reader)?.stop(false);
+  const saved = probeReaders.get(reader);
+  if (saved?.source === 'construction') saved.stop(false);
 }
 export function expireInboxProbeNonceReaderWait(reader: InboxProbeNonceReader) {
-  probeReaders.get(reader)?.stop(true);
+  const saved = probeReaders.get(reader);
+  if (saved?.source === 'construction') saved.stop(true);
+}
+export function readRecoveredInboxProbeNonce(
+  reader: RecoveredInboxProbeNonceReader
+): Promise<RecoveredInboxProbeNonceResult> {
+  const saved = probeReaders.get(reader);
+  return saved?.source === 'recovered'
+    ? (saved.run() as Promise<RecoveredInboxProbeNonceResult>)
+    : Promise.resolve({ status: 'invalid' });
+}
+export function stopRecoveredInboxProbeNonceReader(
+  reader: RecoveredInboxProbeNonceReader
+) {
+  const saved = probeReaders.get(reader);
+  if (saved?.source === 'recovered') saved.stop(false);
+}
+export function expireRecoveredInboxProbeNonceReaderWait(
+  reader: RecoveredInboxProbeNonceReader
+) {
+  const saved = probeReaders.get(reader);
+  if (saved?.source === 'recovered') saved.stop(true);
 }
 export function inboxProbeNonceProofBinding(
   proof: InboxProbeNonceProof,
@@ -799,6 +911,73 @@ export function inboxProbeNonceProofBinding(
     eventId: binding.record.self!.eventId,
     current: () => saved.current()
   };
+}
+
+export function recoveredInboxProbeNonceProofBinding(
+  proof: RecoveredInboxProbeNonceProof,
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy
+) {
+  const saved = recoveredNonceProofs.get(proof);
+  if (
+    !saved ||
+    saved.repository !== repository ||
+    saved.session !== session ||
+    saved.policy !== policy ||
+    !saved.current()
+  )
+    return undefined;
+  const binding = recoveredInboxProbePublicationBinding(
+    repository,
+    session,
+    saved.acknowledgement,
+    policy
+  );
+  if (!binding || immutableProbe(binding.record) !== saved.original)
+    return undefined;
+  return {
+    acknowledgement: saved.acknowledgement,
+    observation: saved.observation,
+    identity: binding.identity,
+    owner: binding.record.owner,
+    command: binding.record.id,
+    rumorHash: binding.record.rumorHash,
+    eventId: binding.record.self!.eventId,
+    current: () => saved.current()
+  };
+}
+// Local genuine nonce verification only; caller copies of this projection are
+// never accepted by the append owner in place of the original opaque proof.
+export function inboxProbeNonceVerificationEvidence(
+  proof: InboxProbeNonceProof | RecoveredInboxProbeNonceProof,
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy
+) {
+  const original = probeNonceProofs.get(proof as InboxProbeNonceProof),
+    recovered = recoveredNonceProofs.get(
+      proof as RecoveredInboxProbeNonceProof
+    ),
+    saved = original ?? recovered,
+    binding = original
+      ? inboxProbeNonceProofBinding(
+          proof as InboxProbeNonceProof,
+          repository,
+          session,
+          policy
+        )
+      : recovered
+        ? recoveredInboxProbeNonceProofBinding(
+            proof as RecoveredInboxProbeNonceProof,
+            repository,
+            session,
+            policy
+          )
+        : undefined;
+  return saved && binding && binding.current()
+    ? { ...binding, verifiedAtMilliseconds: saved.verifiedAtMilliseconds }
+    : undefined;
 }
 
 declare const probeRecoveryReaderBrand: unique symbol;
