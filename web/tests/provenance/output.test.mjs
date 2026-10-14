@@ -1937,6 +1937,9 @@ import { auditOutput } from '../../tools/check-output.mjs';
           );
         }
         for (const producer of [
+          'src/lib/nostr/inbox-access.ts',
+          'src/lib/nostr/seal-builder.ts',
+          'src/lib/nostr/giftwrap-builder.ts',
           'src/lib/config/inbox-operators.ts',
           'src/lib/persistence/private-sends.ts',
           'src/lib/nostr/self-recovery-reader.ts',

@@ -1618,7 +1618,7 @@ export async function auditSource(root) {
   const giftwrapTrusted =
     files.has(giftwrapFile) &&
     createHash('sha256').update(files.get(giftwrapFile)).digest('hex') ===
-      '866d53d993f40edc15828fcf279c03b35258cc3e5de8f555ac95339f846ac9f3';
+      'faf54dd80a0995ac94b4b994d3cfd015516e5e201a1fbb6340e13c836ce49e98';
   if (files.has(giftwrapFile) && !giftwrapTrusted)
     complain(
       giftwrapFile,

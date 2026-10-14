@@ -11,9 +11,13 @@ import { safeUnsignedInteger } from './envelope-bounds.ts';
 import { verifyEnvelope } from './verified-envelope.ts';
 import {
   privateSealSnapshot,
+  inboxProbeSealSnapshot,
+  type InboxProbeRecipientSeal,
   type PrivateRecipientSeal
 } from './seal-builder.ts';
 
+declare const probeWrapBrand: unique symbol;
+export type InboxProbeGiftwrap = Readonly<{ [probeWrapBrand]: true }>;
 declare const giftwrapBrand: unique symbol;
 export type PrivateGiftwrap = Readonly<{ [giftwrapBrand]: true }>;
 type Saved = Readonly<{
@@ -32,45 +36,45 @@ function own(value: object, name: string): unknown {
   const descriptor = Object.getOwnPropertyDescriptor(value, name);
   return descriptor && 'value' in descriptor ? descriptor.value : undefined;
 }
-// Only genuine current sender seals enter this lower-level construction. It
-// grants no readiness, durable preparation receipt, nested admission or Send.
-// All secret primitives below are public pinned Applesauce exports. Disposable
-// keys are local to this synchronous factory; they never become identity keys.
-export function buildPrivateGiftwrap(
-  seal: PrivateRecipientSeal,
-  review: unknown
-): PrivateGiftwrap | undefined {
-  if (typeof window === 'undefined' || review !== 'reviewed_private_wrap')
-    return undefined;
-  const record = privateSealSnapshot(seal);
-  if (
-    !record ||
-    !boundedUtf8(record.wire, 16384) ||
-    record.destination !== (record.role === 'self' ? record.owner : record.peer)
-  )
-    return undefined;
+type SavedProbeWrap = Readonly<{
+  owner: string;
+  destination: string;
+  command: string;
+  rumorHash: string;
+  createdAt: number;
+  kind: 1059;
+  wire: string;
+  seal: InboxProbeRecipientSeal;
+}>;
+const probeWraps = new WeakMap<InboxProbeGiftwrap, SavedProbeWrap>();
+const originalProbeWraps = new WeakMap<
+  InboxProbeRecipientSeal,
+  InboxProbeGiftwrap | null
+>();
+// Module-private stock SDK wrapper construction; only genuine ordinary/probe
+// seal factories below can supply the binding. No exported callback/key port.
+function constructGiftwrap(
+  record: Readonly<{ destination: string; wire: string }>,
+  current: () => boolean
+): string | undefined {
   let secret: Uint8Array | undefined, conversation: Uint8Array | undefined;
   try {
     const milliseconds = safeUnsignedInteger(Date.now());
-    if (milliseconds === undefined || !privateSealSnapshot(seal))
-      return undefined;
+    if (milliseconds === undefined || !current()) return undefined;
     const random = crypto.getRandomValues(new Uint32Array(1))[0],
       time = Math.max(0, Math.floor(milliseconds / 1000) - (random % 3600));
-    if (!privateSealSnapshot(seal)) return undefined;
+    if (!current()) return undefined;
     secret = generateSecretKey();
-    if (!privateSealSnapshot(seal)) return undefined;
+    if (!current()) return undefined;
     const author = getPublicKey(secret);
     conversation = nip44.v2.utils.getConversationKey(
       secret,
       record.destination
     );
-    if (!privateSealSnapshot(seal)) return undefined;
+    if (!current()) return undefined;
     const content = nip44.v2.encrypt(record.wire, conversation);
-    if (!privateSealSnapshot(seal)) return undefined;
-    if (
-      nip44.v2.decrypt(content, conversation) !== record.wire ||
-      !privateSealSnapshot(seal)
-    )
+    if (!current()) return undefined;
+    if (nip44.v2.decrypt(content, conversation) !== record.wire || !current())
       return undefined;
     const captured = JSON.stringify({
       pubkey: author,
@@ -117,25 +121,9 @@ export function buildPrivateGiftwrap(
       id,
       sig
     });
-    if (
-      !boundedUtf8(wire, 32768) ||
-      !verifyEnvelope(wire).ok ||
-      !privateSealSnapshot(seal)
-    )
+    if (!boundedUtf8(wire, 32768) || !verifyEnvelope(wire).ok || !current())
       return undefined;
-    const token = Object.freeze({}) as PrivateGiftwrap;
-    wraps.set(token, {
-      owner: record.owner,
-      peer: record.peer,
-      destination: record.destination,
-      role: record.role,
-      command: record.command,
-      rumorHash: record.rumorHash,
-      kind: 1059,
-      wire,
-      seal
-    });
-    return token;
+    return wire;
   } catch {
     return undefined;
   } finally {
@@ -144,6 +132,73 @@ export function buildPrivateGiftwrap(
     conversation?.fill(0);
     secret?.fill(0);
   }
+}
+// Genuine ordinary sender seals only; probe casts grant no ordinary token.
+export function buildPrivateGiftwrap(
+  seal: PrivateRecipientSeal,
+  review: unknown
+): PrivateGiftwrap | undefined {
+  if (typeof window === 'undefined' || review !== 'reviewed_private_wrap')
+    return undefined;
+  const record = privateSealSnapshot(seal);
+  if (
+    !record ||
+    !boundedUtf8(record.wire, 16384) ||
+    record.destination !== (record.role === 'self' ? record.owner : record.peer)
+  )
+    return undefined;
+  const wire = constructGiftwrap(record, () => !!privateSealSnapshot(seal));
+  if (!wire || !privateSealSnapshot(seal)) return undefined;
+  const token = Object.freeze({}) as PrivateGiftwrap;
+  wraps.set(token, { ...record, kind: 1059, wire, seal });
+  return token;
+}
+// One self-only immutable crypto artifact per genuine diagnostic seal. Failed
+// construction cannot silently generate a replacement artifact in this action.
+export function buildInboxProbeGiftwrap(
+  seal: InboxProbeRecipientSeal,
+  review: unknown
+): InboxProbeGiftwrap | undefined {
+  if (typeof window === 'undefined' || review !== 'reviewed_inbox_probe_wrap')
+    return undefined;
+  const record = inboxProbeSealSnapshot(seal);
+  if (
+    !record ||
+    record.destination !== record.owner ||
+    !boundedUtf8(record.wire, 16384)
+  )
+    return undefined;
+  if (originalProbeWraps.has(seal))
+    return originalProbeWraps.get(seal) ?? undefined;
+  originalProbeWraps.set(seal, null);
+  const wire = constructGiftwrap(record, () => !!inboxProbeSealSnapshot(seal));
+  if (!wire || !inboxProbeSealSnapshot(seal)) return undefined;
+  const token = Object.freeze({}) as InboxProbeGiftwrap;
+  probeWraps.set(token, { ...record, kind: 1059, wire, seal });
+  originalProbeWraps.set(seal, token);
+  return token;
+}
+export function inboxProbeGiftwrapSeal(
+  token: InboxProbeGiftwrap
+): InboxProbeRecipientSeal | undefined {
+  const saved = probeWraps.get(token);
+  return saved && inboxProbeSealSnapshot(saved.seal) ? saved.seal : undefined;
+}
+export function inboxProbeGiftwrapSnapshot(
+  token: InboxProbeGiftwrap
+): Readonly<Omit<SavedProbeWrap, 'seal'>> | undefined {
+  const saved = probeWraps.get(token);
+  return saved && inboxProbeSealSnapshot(saved.seal)
+    ? {
+        owner: saved.owner,
+        destination: saved.destination,
+        command: saved.command,
+        rumorHash: saved.rumorHash,
+        createdAt: saved.createdAt,
+        kind: 1059,
+        wire: saved.wire
+      }
+    : undefined;
 }
 // Returns only the genuine original capability, never disposable key material.
 export function privateGiftwrapSeal(

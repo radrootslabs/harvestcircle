@@ -34,6 +34,7 @@ export type InboxAccessController = Readonly<{ [accessBrand]: true }>;
 type Binding = Readonly<{
   owner: string;
   preferenceId: string;
+  preferenceCreatedAt: number;
   readTargets: string[];
   archiveTargets: string[];
 }>;
@@ -47,6 +48,8 @@ export type InboxAccessSnapshot = Readonly<
   }
 >;
 type Control = {
+  session: PrivateSession;
+  subscribe(listener: () => void): () => void;
   policy: RelayPolicy;
   binding: string;
   current(): boolean;
@@ -109,6 +112,7 @@ function binding(
     return {
       owner: capture.owner,
       preferenceId: preference.id,
+      preferenceCreatedAt: preference.createdAt,
       readTargets,
       archiveTargets
     };
@@ -143,8 +147,10 @@ export function createInboxAccessController(
   if (prior && (!prior.closed() || prior.cleanupRequired())) return undefined;
   const token = Object.freeze({}) as InboxAccessController;
   const auth = new Map<string, InboxAuthAction>();
+  const constructionClosures = new Map<symbol, () => void>();
   let pool: PrivatePool | undefined,
     closed = false,
+    closing = false,
     cleaned = false,
     busy = false,
     epoch = 0,
@@ -154,28 +160,44 @@ export function createInboxAccessController(
     !closed && JSON.stringify(binding(session, policy, own)) === wire;
   function close(): boolean {
     closed = true;
-    epoch++;
-    phase = 'stopped';
-    let failed = false;
-    for (const [origin, action] of auth) {
-      try {
-        closeInboxAuthentication(action);
-        auth.delete(origin);
-      } catch {
-        failed = true;
+    if (closing) return false;
+    closing = true;
+    try {
+      epoch++;
+      phase = 'stopped';
+      let failed = false;
+      // Revoke construction before any asynchronous/throwing transport cleanup.
+      // Only failed original closures remain registered for an honest retry.
+      for (const [id, listener] of constructionClosures) {
+        try {
+          listener();
+          constructionClosures.delete(id);
+        } catch {
+          failed = true;
+        }
       }
-    }
-    if (pool) {
-      try {
-        closePrivatePool(pool);
-      } catch {
-        failed = true;
+      for (const [origin, action] of auth) {
+        try {
+          closeInboxAuthentication(action);
+          auth.delete(origin);
+        } catch {
+          failed = true;
+        }
       }
-      if (privatePoolCleanupRequired(pool)) failed = true;
+      if (pool) {
+        try {
+          closePrivatePool(pool);
+        } catch {
+          failed = true;
+        }
+        if (privatePoolCleanupRequired(pool)) failed = true;
+      }
+      cleaned = !failed;
+      if (cleaned) off();
+      return cleaned;
+    } finally {
+      closing = false;
     }
-    cleaned = !failed;
-    if (cleaned) off();
-    return cleaned;
   }
   async function authenticate(
     origin: unknown,
@@ -247,6 +269,23 @@ export function createInboxAccessController(
     }
   }
   controllers.set(token, {
+    session,
+    subscribe(listener) {
+      const id = Symbol();
+      constructionClosures.set(id, listener);
+      if (closed) {
+        try {
+          listener();
+          constructionClosures.delete(id);
+        } catch (error) {
+          cleaned = false;
+          throw error;
+        }
+      }
+      return () => {
+        constructionClosures.delete(id);
+      };
+    },
     policy,
     binding: wire,
     current,
@@ -311,4 +350,47 @@ export function closeInboxAccessController(
   token: InboxAccessController
 ): boolean {
   return controllers.get(token)?.close() ?? false;
+}
+
+// Narrow source-owned construction binding. It authenticates current discovery
+// metadata only; it grants neither readiness nor a socket/sign/publication port.
+export function inboxAccessConstructionBinding(
+  token: InboxAccessController,
+  session: PrivateSession,
+  policy: RelayPolicy
+): Readonly<Binding & { session: symbol; current(): boolean }> | undefined {
+  const state = controllers.get(token),
+    ownership = privateSessionOwnership(session);
+  if (
+    !state ||
+    state.session !== session ||
+    state.policy !== policy ||
+    !ownership?.current() ||
+    !state.current()
+  )
+    return undefined;
+  const captured = state.snapshot();
+  if (
+    captured.owner !== ownership.owner ||
+    !state.current() ||
+    !ownership.current()
+  )
+    return undefined;
+  return {
+    owner: captured.owner,
+    preferenceId: captured.preferenceId,
+    preferenceCreatedAt: captured.preferenceCreatedAt,
+    readTargets: [...captured.readTargets],
+    archiveTargets: [...captured.archiveTargets],
+    session: ownership.session,
+    current: () => ownership.current() && state.current()
+  };
+}
+export function subscribeInboxAccessControllerClose(
+  token: InboxAccessController,
+  listener: () => void
+): () => void {
+  const state = controllers.get(token);
+  if (!state) throw Error('inbox_access_controller_invalid');
+  return state.subscribe(listener);
 }

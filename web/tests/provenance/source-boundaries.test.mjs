@@ -2246,6 +2246,14 @@ test(
           "review !== 'reviewed_private_wrap'",
           "review !== 'connect'"
         ),
+        source.replace(
+          "review !== 'reviewed_inbox_probe_wrap'",
+          "review !== 'connect'"
+        ),
+        source.replace(
+          'record.destination !== record.owner',
+          'record.destination !== record.destination'
+        ),
         source.replace("'applesauce-core/helpers'", "'nostr-tools/pure'")
       ]) {
         assert.notEqual(alteration, source);

@@ -1,3 +1,14 @@
+import {
+  inboxProbeSnapshot,
+  inboxProbeRumorWire,
+  stopInboxProbeIdentity,
+  type InboxProbeIdentity
+} from './inbox-access.ts';
+import {
+  privateSessionOwnership,
+  invalidatePrivateSessionGeneration,
+  type PrivateSession
+} from '../runtime/private-session.ts';
 import { ExtensionSigner } from 'applesauce-signers';
 import type { UnsignedEvent } from 'applesauce-core/helpers';
 import {
@@ -24,18 +35,24 @@ import {
   captureSealTemplate,
   bindSealResponse
 } from './seal-template.ts';
+declare const probeOperationBrand: unique symbol;
+declare const probeSealBrand: unique symbol;
 declare const operationBrand: unique symbol;
 declare const sealBrand: unique symbol;
 export type PrivateSealOperation = Readonly<{ [operationBrand]: true }>;
 export type PrivateRecipientSeal = Readonly<{ [sealBrand]: true }>;
-export type PrivateSealResult =
-  | Readonly<{ status: 'sealed'; seal: PrivateRecipientSeal }>
+export type InboxProbeSealOperation = Readonly<{ [probeOperationBrand]: true }>;
+export type InboxProbeRecipientSeal = Readonly<{ [probeSealBrand]: true }>;
+export type PrivateSealResult = SealResult<PrivateRecipientSeal>;
+export type InboxProbeSealResult = SealResult<InboxProbeRecipientSeal>;
+type SealResult<T> =
+  | Readonly<{ status: 'sealed'; seal: T }>
   | Readonly<{
       status:
         'invalid' | 'busy' | 'unavailable' | 'refused' | 'stopped' | 'mismatch';
     }>;
-type State = {
-  run(): Promise<PrivateSealResult>;
+type State<T> = {
+  run(): Promise<SealResult<T>>;
   stop(expired: boolean): void;
 };
 type SavedSeal = Readonly<{
@@ -49,50 +66,50 @@ type SavedSeal = Readonly<{
   reserved: ReservedSendIdentity;
   current(): boolean;
 }>;
-const operations = new WeakMap<PrivateSealOperation, State>();
+const operations = new WeakMap<
+  PrivateSealOperation,
+  State<PrivateRecipientSeal>
+>();
 const seals = new WeakMap<PrivateRecipientSeal, SavedSeal>();
-// Explicit lower-level crypto preparation, not inbox readiness, durable CAS,
-// saved-encrypted evidence, a Send controller or a public/private publisher.
-export function capturePrivateSealOperation(
-  session: IdentitySession,
-  reserved: ReservedSendIdentity,
-  role: unknown,
-  review: unknown
-): PrivateSealOperation | undefined {
-  if (
-    review !== 'reviewed_private_seal' ||
-    (role !== 'peer' && role !== 'self')
-  )
-    return undefined;
-  const inputRecord = reservedSendSnapshot(reserved),
-    inputOwnership = identityMessagingOwnership(session);
-  if (
-    !inputRecord ||
-    !inputOwnership ||
-    inputRecord.owner !== inputOwnership.owner ||
-    !inputOwnership.current()
-  )
-    return undefined;
-  const record = inputRecord,
-    ownership = inputOwnership,
-    capturedRole = role;
-  const target = capturedRole === 'self' ? record.owner : record.peer;
+type SavedProbeSeal = Readonly<{
+  owner: string;
+  destination: string;
+  command: string;
+  rumorHash: string;
+  createdAt: number;
+  wire: string;
+  identity: InboxProbeIdentity;
+  current(): boolean;
+}>;
+const probeOperations = new WeakMap<
+  InboxProbeSealOperation,
+  State<InboxProbeRecipientSeal>
+>();
+const probeSeals = new WeakMap<InboxProbeRecipientSeal, SavedProbeSeal>();
+const originalProbeOperations = new WeakMap<
+  InboxProbeIdentity,
+  InboxProbeSealOperation
+>();
+type SealSource<T> = Readonly<{
+  owner: string;
+  destination: string;
+  session: symbol;
+  current(): boolean;
+  rumorWire(): string | undefined;
+  invalidate(): void;
+  retire?(): void;
+  accept(wire: string, current: () => boolean): T;
+}>;
+// Module-private construction port. Only the two genuine capability factories
+// below can supply it; callers cannot pass a signer, plaintext or current flag.
+function createSealOperation<T>(source: SealSource<T>): State<T> {
   let stopped = false,
     started = false,
     active: ExtensionAction | undefined;
-  const current = () => {
-    const observed = reservedSendSnapshot(reserved);
-    return (
-      !stopped &&
-      ownership.current() &&
-      observed?.owner === record.owner &&
-      observed.id === record.id &&
-      observed.peer === record.peer &&
-      observed.rumorHash === record.rumorHash
-    );
-  };
+  const current = () => !stopped && source.current();
   function stop(expired: boolean) {
     stopped = true;
+    source.retire?.();
     if (active) {
       if (expired) markExtensionWaitExpired(active);
       else stopExtensionAction(active);
@@ -132,34 +149,34 @@ export function capturePrivateSealOperation(
     if (
       result.status !== 'settled' ||
       !result.current ||
-      result.value !== record.owner
+      result.value !== source.owner
     ) {
-      disconnectIdentity(session);
+      source.invalidate();
       return false;
     }
     const cipher = cipherPort();
     if (!current()) return false;
     if (!cipher) {
-      disconnectIdentity(session);
+      source.invalidate();
       return false;
     }
     return current();
   }
-  async function work(action: ExtensionAction): Promise<PrivateSealResult> {
+  async function work(action: ExtensionAction): Promise<SealResult<T>> {
     active = action;
     const initial = cipherPort();
     if (!current()) return { status: 'stopped' };
     if (!initial) {
-      disconnectIdentity(session);
+      source.invalidate();
       return { status: 'unavailable' };
     }
     if (!(await fresh(action))) return { status: 'stopped' };
-    const wire = reservedSendRumorWire(reserved),
+    const wire = source.rumorWire(),
       cipher = cipherPort();
-    if (!cipher && current()) disconnectIdentity(session);
+    if (!cipher && current()) source.invalidate();
     if (!wire || !cipher || !current()) return { status: 'stopped' };
     const encrypted = await callExtension(action, 'encrypt', () =>
-      cipher.encrypt(target, wire)
+      cipher.encrypt(source.destination, wire)
     );
     if (!current()) return { status: 'stopped' };
     if (encrypted.status !== 'settled' || !encrypted.current)
@@ -169,12 +186,12 @@ export function capturePrivateSealOperation(
     const decryptPort = cipherPort();
     if (!decryptPort || !current()) return { status: 'stopped' };
     const decrypted = await callExtension(action, 'decrypt', () =>
-      decryptPort.decrypt(target, encrypted.value)
+      decryptPort.decrypt(source.destination, encrypted.value)
     );
     if (!current()) return { status: 'stopped' };
     if (decrypted.status !== 'settled' || !decrypted.current)
       return { status: decrypted.status === 'denied' ? 'refused' : 'stopped' };
-    if (decrypted.value !== wire || reservedSendRumorWire(reserved) !== wire)
+    if (decrypted.value !== wire || source.rumorWire() !== wire)
       return { status: 'mismatch' };
     if (!(await fresh(action))) return { status: 'stopped' };
     const milliseconds = safeUnsignedInteger(Date.now());
@@ -184,7 +201,7 @@ export function capturePrivateSealOperation(
     const random = crypto.getRandomValues(new Uint32Array(1))[0],
       now = Math.floor(milliseconds / 1000),
       time = Math.max(0, now - (random % 3600));
-    const captured = captureSealTemplate(record.owner, encrypted.value, time);
+    const captured = captureSealTemplate(source.owner, encrypted.value, time);
     if (!captured || !current()) return { status: 'mismatch' };
     const response = await callExtension(action, 'sign', () =>
       new ExtensionSigner().signEvent(JSON.parse(captured) as UnsignedEvent)
@@ -196,30 +213,19 @@ export function capturePrivateSealOperation(
     if (!signed) return { status: 'mismatch' };
     if (!(await fresh(action))) return { status: 'stopped' };
     if (!current()) return { status: 'stopped' };
-    const seal = Object.freeze({}) as PrivateRecipientSeal;
-    seals.set(seal, {
-      owner: record.owner,
-      peer: record.peer,
-      destination: target,
-      role: capturedRole,
-      command: record.id,
-      rumorHash: record.rumorHash,
-      wire: signed,
-      reserved,
-      current
-    });
+    const seal = source.accept(signed, current);
     return { status: 'sealed', seal };
   }
-  async function run(): Promise<PrivateSealResult> {
+  async function run(): Promise<SealResult<T>> {
     if (started || !current()) return { status: 'stopped' };
     started = true;
     if (typeof window === 'undefined' || !navigator.locks?.request)
       return { status: 'unavailable' };
     try {
       return await navigator.locks.request(
-        'harvestcircle:owner:' + record.owner,
+        'harvestcircle:owner:' + source.owner,
         { mode: 'exclusive', ifAvailable: true },
-        async (lock): Promise<PrivateSealResult> => {
+        async (lock): Promise<SealResult<T>> => {
           if (!lock) return { status: 'busy' };
           if (!current()) return { status: 'stopped' };
           const scheduler = browserExtensionScheduler();
@@ -227,8 +233,8 @@ export function capturePrivateSealOperation(
           const result = await runExtensionAction(
             scheduler,
             {
-              owner: record.owner,
-              session: ownership.session,
+              owner: source.owner,
+              session: source.session,
               operation: Symbol()
             },
             current,
@@ -249,9 +255,159 @@ export function capturePrivateSealOperation(
       active = undefined;
     }
   }
+  return { run, stop };
+}
+// Explicit ordinary preparation; probe identities never enter this factory.
+export function capturePrivateSealOperation(
+  session: IdentitySession,
+  reserved: ReservedSendIdentity,
+  role: unknown,
+  review: unknown
+): PrivateSealOperation | undefined {
+  if (
+    review !== 'reviewed_private_seal' ||
+    (role !== 'peer' && role !== 'self')
+  )
+    return undefined;
+  const record = reservedSendSnapshot(reserved),
+    ownership = identityMessagingOwnership(session);
+  if (!record || !ownership?.current() || record.owner !== ownership.owner)
+    return undefined;
+  const current = () => {
+    const observed = reservedSendSnapshot(reserved);
+    return (
+      ownership.current() &&
+      observed?.owner === record.owner &&
+      observed.id === record.id &&
+      observed.peer === record.peer &&
+      observed.rumorHash === record.rumorHash
+    );
+  };
+  const destination = role === 'self' ? record.owner : record.peer;
+  const state = createSealOperation({
+    owner: record.owner,
+    destination,
+    session: ownership.session,
+    current,
+    rumorWire: () => reservedSendRumorWire(reserved),
+    invalidate: () => disconnectIdentity(session),
+    accept(wire, available) {
+      const seal = Object.freeze({}) as PrivateRecipientSeal;
+      seals.set(seal, {
+        owner: record.owner,
+        peer: record.peer,
+        destination,
+        role,
+        command: record.id,
+        rumorHash: record.rumorHash,
+        wire,
+        reserved,
+        current: available
+      });
+      return seal;
+    }
+  });
   const operation = Object.freeze({}) as PrivateSealOperation;
-  operations.set(operation, { run, stop });
+  operations.set(operation, state);
   return operation;
+}
+
+// Distinct self-only diagnostic construction. An ordinary identity or copied
+// snapshot cannot enter; one original crypto operation belongs to this issuer.
+export function captureInboxProbeSealOperation(
+  session: PrivateSession,
+  identity: InboxProbeIdentity,
+  review: unknown
+): InboxProbeSealOperation | undefined {
+  if (review !== 'reviewed_inbox_probe_seal') return undefined;
+  const record = inboxProbeSnapshot(identity),
+    ownership = privateSessionOwnership(session);
+  if (
+    !record ||
+    !ownership?.current() ||
+    record.owner !== ownership.owner ||
+    !inboxProbeRumorWire(identity, session)
+  )
+    return undefined;
+  const prior = originalProbeOperations.get(identity);
+  if (prior) return prior;
+  const current = () => {
+    const observed = inboxProbeSnapshot(identity);
+    return (
+      ownership.current() &&
+      !!inboxProbeRumorWire(identity, session) &&
+      observed?.owner === record.owner &&
+      observed.id === record.id &&
+      observed.rumorHash === record.rumorHash &&
+      observed.createdAt === record.createdAt
+    );
+  };
+  const state = createSealOperation({
+    owner: record.owner,
+    destination: record.owner,
+    session: ownership.session,
+    current,
+    rumorWire: () => inboxProbeRumorWire(identity, session),
+    invalidate: () => {
+      invalidatePrivateSessionGeneration(session);
+    },
+    retire: () => stopInboxProbeIdentity(identity),
+    accept(wire, available) {
+      const seal = Object.freeze({}) as InboxProbeRecipientSeal;
+      probeSeals.set(seal, {
+        owner: record.owner,
+        destination: record.owner,
+        command: record.id,
+        rumorHash: record.rumorHash,
+        createdAt: record.createdAt,
+        wire,
+        identity,
+        current: available
+      });
+      return seal;
+    }
+  });
+  const operation = Object.freeze({}) as InboxProbeSealOperation;
+  probeOperations.set(operation, state);
+  originalProbeOperations.set(identity, operation);
+  return operation;
+}
+export function buildInboxProbeSeal(
+  operation: InboxProbeSealOperation
+): Promise<InboxProbeSealResult> {
+  return (
+    probeOperations.get(operation)?.run() ??
+    Promise.resolve({ status: 'invalid' })
+  );
+}
+export function stopInboxProbeSeal(operation: InboxProbeSealOperation): void {
+  probeOperations.get(operation)?.stop(false);
+}
+export function expireInboxProbeSealWait(
+  operation: InboxProbeSealOperation
+): void {
+  probeOperations.get(operation)?.stop(true);
+}
+export function inboxProbeSealSnapshot(
+  seal: InboxProbeRecipientSeal
+): Readonly<Omit<SavedProbeSeal, 'current' | 'identity'>> | undefined {
+  const saved = probeSeals.get(seal);
+  return saved?.current()
+    ? {
+        owner: saved.owner,
+        destination: saved.destination,
+        command: saved.command,
+        rumorHash: saved.rumorHash,
+        createdAt: saved.createdAt,
+        wire: saved.wire
+      }
+    : undefined;
+}
+export function inboxProbeSealIdentity(
+  seal: InboxProbeRecipientSeal
+): InboxProbeIdentity | undefined {
+  const saved = probeSeals.get(seal);
+  return saved?.current() ? saved.identity : undefined;
 }
 export function buildPrivateSeal(
   operation: PrivateSealOperation

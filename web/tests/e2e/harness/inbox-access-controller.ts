@@ -39,7 +39,7 @@ export const origins = [
 ];
 // Genuine actors/SDK discovery/AUTH with controlled loopback/provided identity;
 // no installed extension, access probe, operator or full qualification claim.
-export async function makeControllerFixture() {
+export async function makeControllerFixture(actualCrypto = false) {
   const capturedPolicy = validateRelayPolicy(
     JSON.stringify({
       schemaVersion: 1,
@@ -59,7 +59,7 @@ export async function makeControllerFixture() {
   );
   if (!capturedPolicy) throw Error('fixture policy');
   const policy = capturedPolicy;
-  const fixture = await makeAuthFixture(policy);
+  const fixture = await makeAuthFixture(policy, actualCrypto);
   const context = createPublicRuntimeContext(),
     runtime = mountPublicRuntime(context, policy);
   if (!runtime) throw Error('actual public runtime');

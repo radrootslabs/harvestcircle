@@ -322,8 +322,14 @@ async function operationalFlagsAdmission(web) {
       'b4c718364625b3caacbc5cc5f98bd79a575a5d66dddb2d7f59f03351a1308a6d',
     'src/lib/nostr/inbox-ingress.ts':
       'f860a094a8ba767585124c795d44b7620064f73a5b3a0170041c581c0fc64ecb',
+    'src/lib/nostr/inbox-access.ts':
+      'fcd0a3aa216bd092b84e8ea1f4824f047367eaec6ed4e16715612554244eab0b',
+    'src/lib/nostr/seal-builder.ts':
+      '3ccc967cc348e63857243ff6f0302c1a68da2afe85ca2c37e00d5a894785fc53',
+    'src/lib/nostr/giftwrap-builder.ts':
+      'faf54dd80a0995ac94b4b994d3cfd015516e5e201a1fbb6340e13c836ce49e98',
     'src/lib/messaging/inbox-access-controller.ts':
-      'c3093fe329575aba43333675c28352a6c0ddf24bcbc380c27f3a1ebab6252c5b',
+      '103c22b4cd721f7e3371ff887f4e7ca5df6a535688b9e9d0c67241db21430f9a',
     'src/lib/messaging/inbox-setup-view.ts':
       'e85238d20f1bbcb23599b36e67910f3df784efa43f0fa0b0b7f3da7e7fd33c79',
     'src/lib/messaging/inbox-setup.ts':
@@ -590,8 +596,14 @@ async function privacyDataAdmission(web) {
       'b4c718364625b3caacbc5cc5f98bd79a575a5d66dddb2d7f59f03351a1308a6d',
     'src/lib/nostr/inbox-ingress.ts':
       'f860a094a8ba767585124c795d44b7620064f73a5b3a0170041c581c0fc64ecb',
+    'src/lib/nostr/inbox-access.ts':
+      'fcd0a3aa216bd092b84e8ea1f4824f047367eaec6ed4e16715612554244eab0b',
+    'src/lib/nostr/seal-builder.ts':
+      '3ccc967cc348e63857243ff6f0302c1a68da2afe85ca2c37e00d5a894785fc53',
+    'src/lib/nostr/giftwrap-builder.ts':
+      'faf54dd80a0995ac94b4b994d3cfd015516e5e201a1fbb6340e13c836ce49e98',
     'src/lib/messaging/inbox-access-controller.ts':
-      'c3093fe329575aba43333675c28352a6c0ddf24bcbc380c27f3a1ebab6252c5b',
+      '103c22b4cd721f7e3371ff887f4e7ca5df6a535688b9e9d0c67241db21430f9a',
     'src/lib/messaging/inbox-setup-view.ts':
       '4ec9025232bb1355fef1ba039b46ce0a2be10e02e348e1b4eaadc3d1f3c2fd84',
     'src/lib/messaging/inbox-sync.ts':

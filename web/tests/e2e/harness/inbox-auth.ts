@@ -45,7 +45,10 @@ export {
   closePublicPool
 } from '../../../src/lib/nostr/public-pool.ts';
 export { inbox, fixturePolicy };
-export async function makeAuthFixture(selectedPolicy?: RelayPolicy) {
+export async function makeAuthFixture(
+  selectedPolicy?: RelayPolicy,
+  actualCrypto = false
+) {
   const fixture = makeFixture(10050),
     identity = createIdentitySession();
   let mode: 'exact' | 'author' | 'relay' | 'challenge' | 'cached' | 'denied' =
@@ -77,10 +80,14 @@ export async function makeAuthFixture(selectedPolicy?: RelayPolicy) {
         );
       },
       nip44: {
-        encrypt: (_peer: string, value: string) =>
-          Promise.resolve('fixture:' + value),
-        decrypt: (_peer: string, value: string) =>
-          Promise.resolve(value.slice(8))
+        encrypt: (peer: string, value: string) =>
+          Promise.resolve(
+            actualCrypto ? fixture.encrypt(peer, value) : 'fixture:' + value
+          ),
+        decrypt: (peer: string, value: string) =>
+          Promise.resolve(
+            actualCrypto ? fixture.decrypt(peer, value) : value.slice(8)
+          )
       }
     }
   });

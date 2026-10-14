@@ -11,7 +11,8 @@ const state = vi.hoisted(() => ({
   response: 'normal'
 }));
 vi.mock('../../src/lib/nostr/seal-builder.ts', () => ({
-  privateSealSnapshot: (token: object) => state.seals.get(token)
+  privateSealSnapshot: (token: object) => state.seals.get(token),
+  inboxProbeSealSnapshot: () => undefined
 }));
 vi.mock('applesauce-core/helpers', async (original) => {
   const sdk = await original<typeof import('applesauce-core/helpers')>();
