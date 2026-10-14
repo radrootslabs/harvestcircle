@@ -8,6 +8,11 @@ import { exactLocalFields } from '../contracts/local-records.ts';
 import { LOCAL_PERSISTENCE_BUDGETS, RELAY_BUDGETS } from '../config/budgets.ts';
 import { privateRecordSettlement } from './local-inventory.ts';
 import {
+  inboxProbeCleanupAdmission,
+  type InboxProbeNativeCleanup
+} from './inbox-probe-cleanup.ts';
+import type { InboxProbeCleanupSelection } from './inbox-probes.ts';
+import {
   browserDatabaseState,
   browserDatabaseTransaction,
   type BrowserDatabase
@@ -44,6 +49,34 @@ type Row = Readonly<{
   bytes: number;
 }>;
 const repositories = new WeakMap<PrivateStorageRepository, Scope>();
+declare const probeRemovalBrand: unique symbol;
+export type PrivateProbeRemovalProof = Readonly<{ [probeRemovalBrand]: true }>;
+const probeRemovals = new WeakMap<
+  PrivateProbeRemovalProof,
+  Readonly<{
+    repository: PrivateStorageRepository;
+    session: PrivateSession;
+    selection: InboxProbeCleanupSelection;
+    owner: string;
+    id: string;
+    wire: string;
+  }>
+>();
+export function privateProbeRemovalEvidence(
+  proof: PrivateProbeRemovalProof,
+  repository: PrivateStorageRepository,
+  session: PrivateSession
+) {
+  const saved = probeRemovals.get(proof);
+  return saved?.repository === repository && saved.session === session
+    ? {
+        selection: saved.selection,
+        owner: saved.owner,
+        id: saved.id,
+        wire: saved.wire
+      }
+    : undefined;
+}
 type ValidatedWire = Readonly<{
   wire: string;
   handle: PrivateRecordHandle;
@@ -821,4 +854,109 @@ export function removePrivateSettledSendRecords(
       };
     }
   );
+}
+
+// The only admission is a genuine ticket minted inside the cleanup owner's
+// actual WebLock/idle SDK job. Ordinary settlement still protects all probes.
+// No asynchronous/provider work occurs inside the native readwrite transaction.
+export async function removePrivateInboxProbe(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  ticket: InboxProbeNativeCleanup
+): Promise<
+  | Readonly<{ ok: true; value: PrivateProbeRemovalProof }>
+  | Readonly<{
+      ok: false;
+      reason: PrivateStorageFailure;
+      disposition: 'not_removed' | 'may_have_removed';
+    }>
+> {
+  const denied = (reason: PrivateStorageFailure, uncertain = false) => ({
+    ok: false as const,
+    reason,
+    disposition: uncertain
+      ? ('may_have_removed' as const)
+      : ('not_removed' as const)
+  });
+  const admitted = inboxProbeCleanupAdmission(ticket, repository, session);
+  if (!admitted) return denied('invalid_scope');
+  const scope = scopeOf(repository),
+    ownership = privateSessionOwnership(session);
+  if (
+    !scope ||
+    !ownership?.current() ||
+    scope.owner !== ownership.owner ||
+    admitted.owner !== scope.owner ||
+    !admitted.current() ||
+    !admitted.take()
+  )
+    return denied('invalid_scope');
+  const committed = await transaction<Readonly<{ removed: number }>>(
+    scope,
+    'private_sends',
+    'readwrite',
+    (rows, tx, refuse) => {
+      if (
+        !admitted.current() ||
+        !ownership.current() ||
+        admitted.signal.aborted
+      ) {
+        refuse('invalid_scope');
+        return;
+      }
+      const selected = rows.find((row) => row.record.id === admitted.id);
+      if (
+        !selected ||
+        selected.record.family !== 'private_access_probe' ||
+        selected.wire !== admitted.wire
+      ) {
+        refuse('conflict');
+        return;
+      }
+      const store = tx.objectStore('private_sends'),
+        remove = store.delete.bind(store);
+      if (
+        !admitted.current() ||
+        !ownership.current() ||
+        admitted.signal.aborted
+      ) {
+        refuse('invalid_scope');
+        return;
+      }
+      remove([scope.owner, admitted.id]);
+      return { ok: true, value: { removed: 1 } };
+    },
+    (refuse) => {
+      const abort = () => refuse('invalid_scope'),
+        off = subscribePrivateSessionClose(session, abort);
+      admitted.signal.addEventListener('abort', abort, { once: true });
+      if (admitted.signal.aborted) abort();
+      return () => {
+        off();
+        admitted.signal.removeEventListener('abort', abort);
+      };
+    }
+  );
+  if (!committed.ok)
+    return denied(committed.reason, committed.reason === 'unknown_completion');
+  // Actual complete is necessary; separate complete-owner readonly absence is
+  // also necessary. Preexisting/manual absence can never reach proof issuance.
+  const readback = await listPrivateSendRecords(repository);
+  if (!readback.ok) return denied('unknown_completion', true);
+  if (
+    readback.value.some(
+      (handle) => privateRecordIdentity(handle)?.id === admitted.id
+    )
+  )
+    return denied('conflict', true);
+  const proof = Object.freeze({}) as PrivateProbeRemovalProof;
+  probeRemovals.set(proof, {
+    repository,
+    session,
+    selection: admitted.selection,
+    owner: admitted.owner,
+    id: admitted.id,
+    wire: admitted.wire
+  });
+  return { ok: true, value: proof };
 }

@@ -2,18 +2,28 @@ import {
   inboxProbePublicationBinding,
   recoveredInboxProbePublicationBinding,
   verifyInboxProbeAcknowledgement,
+  inboxProbeCleanupSelectionBinding,
+  retireInboxProbeCleanupSelection,
+  appliedInboxProbeArchiveAdmission,
+  type InboxProbeCleanupSelection,
   type InboxProbeAcknowledgement
 } from '../persistence/inbox-probes.ts';
 import {
   inboxProbeActionOwner,
+  stopInboxProbeIdentity,
   type InboxProbeIdentity
 } from './inbox-access.ts';
-import type { RecoveredInboxProbe } from './self-recovery-reader.ts';
+import {
+  disposeRecoveredInboxProbe,
+  type RecoveredInboxProbe
+} from './self-recovery-reader.ts';
 import {
   inboxAccessControllerSnapshot,
+  inboxAccessConstructionBinding,
   type InboxAccessController
 } from '../messaging/inbox-access-controller.ts';
 import { privatePoolProbeRetryIdle } from './private-pool.ts';
+import type { InboxProbeArchiveAttemptResult } from './private-pool.ts';
 import {
   privateSessionOwnership,
   withIdlePrivateLocalStorage,
@@ -25,7 +35,11 @@ import {
   verifyPairedDeliveryAcknowledgement,
   type PairedDeliveryAcknowledgement
 } from '../persistence/private-sends.ts';
-import type { PrivateStorageRepository } from '../persistence/private-storage.ts';
+import {
+  privateProbeRemovalEvidence,
+  type PrivateProbeRemovalProof,
+  type PrivateStorageRepository
+} from '../persistence/private-storage.ts';
 import type { PairedDeliveryContext } from '../messaging/prepare-send.ts';
 import {
   inboxRoutePlanSnapshot,
@@ -88,6 +102,9 @@ function networkMeter(probe: boolean) {
   const actionId = newLocalId();
   if (!actionId) return undefined;
   const counts = new Map<string, number>();
+  // Probe-only causal obligations survive finish and controller replacement.
+  // The existing three origins/three combined attempts bound this map to nine.
+  const pendingArchives = new Map<string, true>();
   let used = 0,
     running = false,
     broken = false,
@@ -104,6 +121,18 @@ function networkMeter(probe: boolean) {
   return {
     current: () => !broken,
     idle: () => !running,
+    archivesApplied: () => pendingArchives.size === 0,
+    applyArchive(
+      action: string,
+      origin: string,
+      eventId: string,
+      attempt: number
+    ) {
+      if (probe && action === actionId)
+        pendingArchives.delete(
+          JSON.stringify([action, origin, eventId, attempt])
+        );
+    },
     probeAvailable: (origin: string, eventId: string) =>
       probe &&
       !broken &&
@@ -133,6 +162,11 @@ function networkMeter(probe: boolean) {
       const start = clock();
       if (start === undefined) return undefined;
       counts.set(key, count + 1);
+      if (probe && role === 'access_archive')
+        pendingArchives.set(
+          JSON.stringify([actionId, origin, eventId, count + 1]),
+          true
+        );
       running = true;
       let finished = false;
       function remaining() {
@@ -482,6 +516,15 @@ type ProbeMeterOwner = {
   original: string;
   meter: ProbeMeter;
   current(): boolean;
+  held(): boolean;
+  claim(): boolean;
+  release(): void;
+  retain(
+    identity: InboxProbeIdentity | RecoveredInboxProbe,
+    source: ProbeAction['source'],
+    repository: PrivateStorageRepository
+  ): void;
+  dispose(session: PrivateSession, policy: RelayPolicy): void;
 };
 // Bounded within an actual private-session lifetime, never persisted authority.
 // Retired action replacement reuses the slot; it cannot grow action history.
@@ -509,7 +552,9 @@ function probeMeter(
     if (
       !replace ||
       previous.current() ||
+      previous.held() ||
       !previous.meter.idle() ||
+      !previous.meter.archivesApplied() ||
       retired?.state !== 'stopped' ||
       retired.cleanupRequired ||
       !privatePoolProbeRetryIdle(session, policy) ||
@@ -531,8 +576,258 @@ function probeMeter(
     (replace && !privatePoolProbeRetryIdle(session, policy))
   )
     return undefined;
-  registry.set(command, { access, original, meter, current });
+  let held = false;
+  // At most one original and one recovered identity per actual controller.
+  // This is the same bounded command entry, never a historical identity list.
+  const identities = new Map<
+    ProbeAction['source'],
+    Readonly<{
+      identity: InboxProbeIdentity | RecoveredInboxProbe;
+      repository: PrivateStorageRepository;
+    }>
+  >();
+  registry.set(command, {
+    access,
+    original,
+    meter,
+    current,
+    held: () => held,
+    claim() {
+      if (held) return false;
+      held = true;
+      return true;
+    },
+    release() {
+      held = false;
+    },
+    retain(identity, source, repository) {
+      identities.set(source, { identity, repository });
+    },
+    dispose(session, policy) {
+      for (const [source, saved] of identities) {
+        if (source === 'construction')
+          stopInboxProbeIdentity(saved.identity as InboxProbeIdentity);
+        else
+          disposeRecoveredInboxProbe(
+            saved.identity as RecoveredInboxProbe,
+            saved.repository,
+            session,
+            policy
+          );
+      }
+      identities.clear();
+    }
+  });
   return meter;
+}
+function probeCommandAvailable(
+  session: PrivateSession,
+  command: string,
+  meter: ProbeMeter
+) {
+  const saved = commandMeters.get(session)?.get(command);
+  return !!saved && saved.meter === meter && !saved.held();
+}
+
+declare const probeCleanupLeaseBrand: unique symbol;
+export type InboxProbeCleanupLease = Readonly<{
+  [probeCleanupLeaseBrand]: true;
+}>;
+type CleanupLease = Readonly<{
+  repository: PrivateStorageRepository;
+  session: PrivateSession;
+  policy: RelayPolicy;
+  selection: InboxProbeCleanupSelection;
+  entry: ProbeMeterOwner;
+  command: string;
+  wire: string;
+  current(): boolean;
+  scopeCurrent(): boolean;
+  retired(): boolean;
+  markRetired(): void;
+}>;
+const cleanupLeases = new WeakMap<InboxProbeCleanupLease, CleanupLease>();
+
+// Only genuine native-applied source evidence can discharge an actual charge.
+// This works after controller loss without creating current network authority.
+export function reconcileInboxProbeArchiveAdmission(
+  result: InboxProbeArchiveAttemptResult
+): void {
+  const applied = appliedInboxProbeArchiveAdmission(result);
+  if (!applied) return;
+  commandMeters
+    .get(applied.session)
+    ?.get(applied.command)
+    ?.meter.applyArchive(
+      applied.actionId,
+      applied.origin,
+      applied.eventId,
+      applied.attempt
+    );
+}
+
+function cleanupLeaseBinding(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  selection: InboxProbeCleanupSelection
+) {
+  if (typeof window === 'undefined') return undefined;
+  try {
+    const binding = inboxProbeCleanupSelectionBinding(
+      selection,
+      repository,
+      session,
+      policy
+    );
+    if (!binding) return undefined;
+    const entry = commandMeters.get(session)?.get(binding.record.id),
+      action = identityActions.get(binding.identity),
+      scope = inboxAccessConstructionBinding(binding.access, session, policy);
+    if (
+      !entry ||
+      !action ||
+      !scope ||
+      entry.access !== binding.access ||
+      action.repository !== repository ||
+      action.session !== session ||
+      action.policy !== policy ||
+      action.meter !== entry.meter ||
+      action.original !== entry.original ||
+      entry.original !== probeImmutable(binding.record) ||
+      !entry.meter.idle() ||
+      !entry.meter.archivesApplied() ||
+      !entry.meter.current() ||
+      entry.held() ||
+      !binding.current()
+    )
+      return undefined;
+    function scopeCurrent() {
+      const snapshot = inboxAccessControllerSnapshot(binding!.access);
+      return (
+        scope!.current() &&
+        !!snapshot &&
+        !snapshot.busy &&
+        !snapshot.cleanupRequired &&
+        snapshot.state !== 'stopped' &&
+        privatePoolProbeRetryIdle(session, policy)
+      );
+    }
+    if (!scopeCurrent()) return undefined;
+    return { binding, entry, scopeCurrent };
+  } catch {
+    return undefined;
+  }
+}
+
+// Pure source/resource preflight before any fresh provider request. The lease
+// repeats admission after the callback-capable provider wait and native reads.
+export function inboxProbeCleanupReady(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  selection: InboxProbeCleanupSelection
+): boolean {
+  return !!cleanupLeaseBinding(repository, session, policy, selection);
+}
+
+export function acquireInboxProbeCleanupLease(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  selection: InboxProbeCleanupSelection
+): InboxProbeCleanupLease | undefined {
+  try {
+    const selected = cleanupLeaseBinding(
+      repository,
+      session,
+      policy,
+      selection
+    );
+    if (!selected || !selected.entry.claim()) return undefined;
+    const { binding, entry, scopeCurrent } = selected;
+    let retired = false;
+    const token = Object.freeze({}) as InboxProbeCleanupLease;
+    cleanupLeases.set(token, {
+      repository,
+      session,
+      policy,
+      selection,
+      entry,
+      command: binding.record.id,
+      wire: binding.wire,
+      scopeCurrent,
+      current: () =>
+        !retired &&
+        commandMeters.get(session)?.get(binding.record.id) === entry &&
+        entry.held() &&
+        entry.meter.idle() &&
+        entry.meter.archivesApplied() &&
+        entry.meter.current() &&
+        binding.current() &&
+        scopeCurrent(),
+      retired: () => retired,
+      markRetired() {
+        retired = true;
+      }
+    });
+    return token;
+  } catch {
+    return undefined;
+  }
+}
+export function inboxProbeCleanupLeaseCurrent(
+  lease: InboxProbeCleanupLease
+): boolean {
+  return cleanupLeases.get(lease)?.current() ?? false;
+}
+export function releaseInboxProbeCleanupLease(
+  lease: InboxProbeCleanupLease
+): void {
+  const saved = cleanupLeases.get(lease);
+  if (
+    saved &&
+    !saved.retired() &&
+    commandMeters.get(saved.session)?.get(saved.command) === saved.entry
+  ) {
+    saved.entry.release();
+    cleanupLeases.delete(lease);
+  }
+}
+export function retireInboxProbeCleanupLease(
+  lease: InboxProbeCleanupLease,
+  proof: PrivateProbeRemovalProof
+): boolean {
+  const saved = cleanupLeases.get(lease);
+  if (!saved?.current()) return false;
+  const removed = privateProbeRemovalEvidence(
+    proof,
+    saved.repository,
+    saved.session
+  );
+  if (
+    !removed ||
+    removed.selection !== saved.selection ||
+    removed.wire !== saved.wire ||
+    removed.id !== saved.command ||
+    !saved.current()
+  )
+    return false;
+  if (!retireInboxProbeCleanupSelection(saved.selection, proof)) return false;
+  saved.entry.dispose(saved.session, saved.policy);
+  // Deliberate nonce disposal invalidates old ACKs, not this actual C7 scope.
+  // Loss during disposal cannot free a protected slot or mint current success.
+  if (
+    !saved.scopeCurrent() ||
+    !saved.entry.meter.idle() ||
+    !saved.entry.meter.archivesApplied() ||
+    commandMeters.get(saved.session)?.get(saved.command) !== saved.entry
+  )
+    return false;
+  commandMeters.get(saved.session)!.delete(saved.command);
+  saved.markRetired();
+  cleanupLeases.delete(lease);
+  return true;
 }
 function probeImmutable(
   row: NonNullable<ReturnType<typeof inboxProbePublicationBinding>>['record']
@@ -601,11 +896,18 @@ export function captureInboxProbePublicationAction(
       policy,
       identity: binding.identity,
       original,
-      current: () => meter.current() && binding.current(),
+      current: () =>
+        meter.current() &&
+        binding.current() &&
+        probeCommandAvailable(session, binding.record.id, meter),
       meter
     };
     identityActions.set(binding.identity, captured);
     probeActions.set(token, captured);
+    commandMeters
+      .get(session)
+      ?.get(binding.record.id)
+      ?.retain(binding.identity, 'construction', repository);
     return token;
   } catch {
     return undefined;
@@ -712,11 +1014,18 @@ export async function captureRecoveredInboxProbeRetryAction(
             policy,
             identity: binding.identity,
             original,
-            current: () => meter.current() && binding.current(),
+            current: () =>
+              meter.current() &&
+              binding.current() &&
+              probeCommandAvailable(session, binding.record.id, meter),
             meter
           };
           identityActions.set(binding.identity, captured);
           probeActions.set(token, captured);
+          commandMeters
+            .get(session)
+            ?.get(binding.record.id)
+            ?.retain(binding.identity, 'recovered', repository);
           return token;
         });
         if (!idle.ok) retryBusy = true;

@@ -5,14 +5,20 @@ import {
   type InboxProbeReadbackAttemptResult
 } from '../nostr/private-pool.ts';
 import { inboxProbePolicyMatches } from '../nostr/inbox-access.ts';
+import { reconcileInboxProbeArchiveAdmission } from '../nostr/private-publisher.ts';
 import {
   recoveredInboxProbeBinding,
   inboxProbeNonceVerificationEvidence,
+  disposeInboxProbeNonceProof,
+  disposeRecoveredInboxProbe,
   type RecoveredInboxProbe,
   type InboxProbeNonceProof,
   type RecoveredInboxProbeNonceProof
 } from '../nostr/self-recovery-reader.ts';
-import type { InboxAccessController } from '../messaging/inbox-access-controller.ts';
+import {
+  inboxAccessConstructionBinding,
+  type InboxAccessController
+} from '../messaging/inbox-access-controller.ts';
 import type { InboxOperatorQualification } from '../config/inbox-operators.ts';
 import type { RelayPolicy } from '../config/relays.ts';
 import {
@@ -25,6 +31,8 @@ import {
   inboxProbeSnapshot,
   inboxProbeRumorWire,
   inboxProbeReservationHandle,
+  inboxProbeActionOwner,
+  stopInboxProbeIdentity,
   type InboxProbeIdentity
 } from '../nostr/inbox-access.ts';
 import {
@@ -36,6 +44,8 @@ import {
   privateStorageOwner,
   commitPrivateRecord,
   observePrivateRecord,
+  privateProbeRemovalEvidence,
+  type PrivateProbeRemovalProof,
   type PrivateStorageRepository,
   type PrivateStorageFailure
 } from './private-storage.ts';
@@ -73,6 +83,8 @@ type Lineage = {
   wire(): string;
   begin(): boolean;
   finish(): void;
+  active(): boolean;
+  retire(): void;
   admit(record: PrivateAccessProbe, wire: string): void;
 };
 function createLineage(
@@ -84,7 +96,8 @@ function createLineage(
 ): Lineage {
   let record = originalRecord,
     wire = originalWire,
-    pending = false;
+    pending = false,
+    retired = false;
   return {
     repository,
     session,
@@ -92,12 +105,16 @@ function createLineage(
     record: () => record,
     wire: () => wire,
     begin() {
-      if (pending) return false;
+      if (pending || retired) return false;
       pending = true;
       return true;
     },
     finish() {
       pending = false;
+    },
+    active: () => !retired,
+    retire() {
+      retired = true;
     },
     admit(next, nextWire) {
       record = next;
@@ -333,7 +350,7 @@ export async function commitInboxProbe(
               session,
               identity: original.identity,
               lineage,
-              current: () => !revoked && original.current(),
+              current: () => !revoked && lineage.active() && original.current(),
               revoke: () => {
                 revoked = true;
               }
@@ -593,7 +610,7 @@ export async function adoptRecoveredInboxProbe(
               policy,
               operator,
               lineage,
-              current: () => !revoked && current(),
+              current: () => !revoked && lineage.active() && current(),
               revoke: () => {
                 revoked = true;
               }
@@ -662,6 +679,31 @@ const appliedArchiveEvidence = new WeakMap<
   InboxProbeArchiveAttemptResult | InboxProbeReadbackAttemptResult,
   Lineage
 >();
+// This query authenticates the exact result's native-applied Lineage. Labels,
+// cloned receipts and merely settled network attempts cannot release a charge.
+export function appliedInboxProbeArchiveAdmission(
+  result: InboxProbeArchiveAttemptResult
+) {
+  const effect = inboxProbeArchiveAttemptEvidence(result),
+    lineage = appliedArchiveEvidence.get(result);
+  if (!effect || !lineage || effect.repository !== lineage.repository)
+    return undefined;
+  const saved = acknowledgements.get(effect.acknowledgement);
+  if (!saved || saved.lineage !== lineage) return undefined;
+  const record = lineage.record(),
+    fact = record.receipts.find(
+      (receipt) => JSON.stringify(receipt) === effect.receiptWire
+    );
+  if (!fact || fact.role !== 'access_archive') return undefined;
+  return {
+    session: lineage.session,
+    command: record.id,
+    actionId: fact.actionId,
+    origin: fact.origin,
+    eventId: fact.eventId,
+    attempt: fact.attempt
+  };
+}
 // Only actual SDK attempt observations can advance memory-only provenance.
 // This bookkeeping can settle after owner loss, but cannot authorize traffic.
 async function commitProbeAttempt(
@@ -716,8 +758,13 @@ async function commitProbeAttempt(
           privateRecordWire(observed.value.handle, owner, id) !== lineage.wire()
         )
           return refuse('conflict');
-        if (appliedArchiveEvidence.get(result) === lineage)
+        if (appliedArchiveEvidence.get(result) === lineage) {
+          if (role === 'access_archive')
+            reconcileInboxProbeArchiveAdmission(
+              result as InboxProbeArchiveAttemptResult
+            );
           return refuse('existing');
+        }
         if (
           effect.predecessorWire !== lineage.wire() ||
           lineage.record().revision === Number.MAX_SAFE_INTEGER
@@ -771,6 +818,10 @@ async function commitProbeAttempt(
         // refresh live ACKs. A decoded receipt or metadata label never can.
         lineage.admit(next, nextWire);
         appliedArchiveEvidence.set(result, lineage);
+        if (role === 'access_archive')
+          reconcileInboxProbeArchiveAdmission(
+            result as InboxProbeArchiveAttemptResult
+          );
         return refuse(
           !committed.ok
             ? 'reconciled'
@@ -1173,4 +1224,233 @@ export function inboxProbeNonceAcknowledgementBinding(
     wire: saved.lineage.wire(),
     current: () => currentNonceOperation(saved)
   };
+}
+
+declare const cleanupSelectionBrand: unique symbol;
+export type InboxProbeCleanupSelection = Readonly<{
+  [cleanupSelectionBrand]: true;
+}>;
+type CleanupSelection = Readonly<{
+  repository: PrivateStorageRepository;
+  session: PrivateSession;
+  policy: RelayPolicy;
+  operation: NonceOperation;
+  access: InboxAccessController;
+  record: PrivateAccessProbe;
+  wire: string;
+  current(): boolean;
+}>;
+const cleanupSelections = new WeakMap<
+  InboxProbeCleanupSelection,
+  CleanupSelection
+>();
+
+// A positive label is not an effect. Only exact source results already applied
+// to this very Lineage can resolve a historical archive attempt or qualify a
+// required target. Array membership does not confer provenance.
+export function captureInboxProbeCleanupSelection(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  nonce: InboxProbeNonceAcknowledgement,
+  observations: unknown,
+  review: unknown
+): InboxProbeCleanupSelection | undefined {
+  if (
+    typeof window === 'undefined' ||
+    review !== 'reviewed_inbox_probe_cleanup_selection'
+  )
+    return undefined;
+  try {
+    const operation = nonceAcknowledgements.get(nonce);
+    if (
+      !operation ||
+      operation.repository !== repository ||
+      operation.session !== session ||
+      operation.policy !== policy ||
+      !operation.applied() ||
+      !currentNonceOperation(operation)
+    )
+      return undefined;
+    const saved = acknowledgements.get(operation.acknowledgement),
+      record = operation.lineage.record(),
+      wire = operation.lineage.wire();
+    if (!saved || !record.self || !Array.isArray(observations))
+      return undefined;
+    // Array length does not bound a custom iterator. Inspect only a fixed
+    // number of own data elements; descriptor traps may invalidate authority,
+    // so the exact Lineage/nonce/C7 fence below still follows every inspection.
+    function ownObservation(value: object, name: string): unknown {
+      const field = Object.getOwnPropertyDescriptor(value, name);
+      return field && 'value' in field ? field.value : undefined;
+    }
+    const length = ownObservation(observations, 'length');
+    if (
+      typeof length !== 'number' ||
+      !Number.isSafeInteger(length) ||
+      length < 1 ||
+      length > record.receipts.length
+    )
+      return undefined;
+    const positives = new Map<string, true>();
+    for (let index = 0; index < length; index++) {
+      const value = ownObservation(observations, String(index));
+      if (
+        !value ||
+        typeof value !== 'object' ||
+        appliedArchiveEvidence.get(value as InboxProbeArchiveAttemptResult) !==
+          operation.lineage
+      )
+        return undefined;
+      const effect =
+        inboxProbeArchiveAttemptEvidence(
+          value as InboxProbeArchiveAttemptResult
+        ) ??
+        inboxProbeReadbackAttemptEvidence(
+          value as InboxProbeReadbackAttemptResult
+        );
+      if (
+        !effect ||
+        effect.repository !== repository ||
+        acknowledgements.get(effect.acknowledgement)?.lineage !==
+          operation.lineage
+      )
+        return undefined;
+      positives.set(effect.receiptWire, true);
+    }
+    if (appliedArchiveEvidence.get(operation.observation) !== operation.lineage)
+      return undefined;
+    const nonceFact = operation.nextRecord.receipts.at(-1);
+    if (
+      !nonceFact ||
+      nonceFact.status !== 'nonce_verified' ||
+      !record.receipts.some(
+        (fact) => JSON.stringify(fact) === JSON.stringify(nonceFact)
+      )
+    )
+      return undefined;
+    const accepted = new Map<string, number>(),
+      unresolved = new Map<string, number>();
+    let read = false;
+    for (const [index, fact] of record.receipts.entries()) {
+      const key = JSON.stringify([fact.role, fact.origin, fact.eventId]);
+      if (fact.role === 'access_archive') {
+        if (fact.status === 'accepted') {
+          if (positives.has(JSON.stringify(fact))) accepted.set(key, index);
+        } else unresolved.set(key, index);
+      } else if (
+        fact.status === 'readback' &&
+        positives.has(JSON.stringify(fact)) &&
+        inboxProbeReadbackAttemptEvidence(operation.observation)
+          ?.receiptWire === JSON.stringify(fact)
+      ) {
+        read = true;
+      }
+    }
+    if (
+      !read ||
+      record.binding.archiveTargets.some(
+        (origin) =>
+          !accepted.has(
+            JSON.stringify(['access_archive', origin, record.self!.eventId])
+          )
+      )
+    )
+      return undefined;
+    for (const [key, index] of unresolved)
+      if ((accepted.get(key) ?? -1) <= index) return undefined;
+    const access =
+        saved.source === 'construction'
+          ? inboxProbeActionOwner(saved.identity, session, policy)
+          : saved.access,
+      scope = access && inboxAccessConstructionBinding(access, session, policy);
+    if (!access || !scope) return undefined;
+    function current() {
+      return (
+        operation!.lineage.active() &&
+        operation!.lineage.wire() === wire &&
+        currentNonceOperation(operation!) &&
+        scope!.current()
+      );
+    }
+    if (!current()) return undefined;
+    const token = Object.freeze({}) as InboxProbeCleanupSelection;
+    cleanupSelections.set(token, {
+      repository,
+      session,
+      policy,
+      operation,
+      access,
+      record: JSON.parse(JSON.stringify(record)) as PrivateAccessProbe,
+      wire,
+      current
+    });
+    return token;
+  } catch {
+    return undefined;
+  }
+}
+
+export function inboxProbeCleanupSelectionBinding(
+  token: InboxProbeCleanupSelection,
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy
+) {
+  const saved = cleanupSelections.get(token);
+  if (
+    !saved ||
+    saved.repository !== repository ||
+    saved.session !== session ||
+    saved.policy !== policy ||
+    !saved.current()
+  )
+    return undefined;
+  return {
+    identity: saved.operation.lineage.identity,
+    source: acknowledgements.get(saved.operation.acknowledgement)!.source,
+    access: saved.access,
+    nonce: saved.operation.acknowledgementToken()!,
+    record: JSON.parse(JSON.stringify(saved.record)) as PrivateAccessProbe,
+    wire: saved.wire,
+    current: saved.current,
+    begin: () => saved.current() && saved.operation.lineage.begin(),
+    finish: () => saved.operation.lineage.finish()
+  };
+}
+
+// Native proof, not an absent ID or decoded row, permits disposal of this exact
+// genuine source lineage. No controller is closed and no readiness is granted.
+export function retireInboxProbeCleanupSelection(
+  token: InboxProbeCleanupSelection,
+  proof: PrivateProbeRemovalProof
+): boolean {
+  const saved = cleanupSelections.get(token);
+  if (!saved || !saved.current()) return false;
+  const removed = privateProbeRemovalEvidence(
+    proof,
+    saved.repository,
+    saved.session
+  );
+  if (!removed || removed.selection !== token || removed.wire !== saved.wire)
+    return false;
+  disposeInboxProbeNonceProof(
+    saved.operation.proof,
+    saved.repository,
+    saved.session,
+    saved.policy
+  );
+  const origin = acknowledgements.get(saved.operation.acknowledgement)!;
+  if (origin.source === 'construction') stopInboxProbeIdentity(origin.identity);
+  else
+    disposeRecoveredInboxProbe(
+      origin.identity,
+      saved.repository,
+      saved.session,
+      saved.policy
+    );
+  saved.operation.lineage.retire();
+  origin.revoke();
+  cleanupSelections.delete(token);
+  return true;
 }

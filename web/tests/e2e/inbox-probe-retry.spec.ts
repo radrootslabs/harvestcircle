@@ -1443,7 +1443,12 @@ for (const fault of ['held', 'failed'] as const)
         failed = true;
       }
       const effect = await window.ptPending,
-        before = f.host.counts(),
+        applied = await f.append(effect as Parameters<typeof f.append>[0]);
+      if (!['saved', 'existing', 'reconciled'].includes(applied.status))
+        throw Error(
+          'actual stopped archive native bookkeeping ' + applied.status
+        );
+      const before = f.host.counts(),
         held = window.ptHeldClose?.length ?? 0;
       const idle = f.idle(),
         selected = await window.pt.captureRecoveredInboxProbeRetryAction(

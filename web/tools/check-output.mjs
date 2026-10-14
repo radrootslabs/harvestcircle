@@ -317,15 +317,17 @@ async function operationalFlagsAdmission(web) {
     'src/lib/messaging/inbox-setup-operation.ts':
       '245c6ce88b146dc731e7ace4f16dc9b5002a87a997f5568e4811b0c4a2daf035',
     'src/lib/nostr/self-recovery-reader.ts':
-      'a7a5b0e874c65620cd80ccb9a6a50f82a31833adb496a88f9f0daa5b74c06dfd',
+      'e6bd782a80dedc2b8b0e5650f717af3e9516c4e66d15f2361b73adcb2763a3d5',
     'src/lib/nostr/private-publisher.ts':
-      'e02cdbba35b8a9c7fc5f805c8c21432d4f6eab42c6d098411613189cb6ac7caf',
+      '13fba9d8c93e6c530d97bbac79debc60892069daaee47cabd879e3aa7ab4910a',
     'src/lib/nostr/private-pool.ts':
       '2ed123596f26bedb8aab5ec7694be6e264616429e00f745f1614c83f52de9825',
     'src/lib/nostr/inbox-ingress.ts':
       'f860a094a8ba767585124c795d44b7620064f73a5b3a0170041c581c0fc64ecb',
     'src/lib/persistence/inbox-probes.ts':
-      '6f359ac6f6184d8bf52745b2d1ea79654e55e272c89c62a48d8a1a5605a2dcb0',
+      '3c891f5a540f2cae07bed29a53f73feb8cacc0bef3a75c8c22acb015c4b519fa',
+    'src/lib/persistence/inbox-probe-cleanup.ts':
+      '44a7988b4a52e0a2c5971d7d9ee3c268ffa316d14c920cf2fb75be0d5a7fc375',
     'src/lib/nostr/inbox-access.ts':
       '16eef55d0ffcf2c3291573ddcb0b6a1432bb77abce0017a69e9b6f82414609a7',
     'src/lib/nostr/seal-builder.ts':
@@ -405,7 +407,7 @@ async function operationalFlagsAdmission(web) {
     'src/lib/persistence/private-sends.ts':
       '6696f4179370cad373c06debf57b919598d53b3d25b6d2a6054a557608e4eb9c',
     'src/lib/persistence/private-storage.ts':
-      'ba4a61dd1fa08fc89d00adac3c258c1f6ae7e5c1b15165facffe76ddd71d5e91',
+      '9cdac5a1f00678d83bdf4a9b7bfb7c8bd04dc234afb140fc19e0156ad4a064a3',
     'src/lib/persistence/public-publications.ts':
       'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
     'src/lib/persistence/public-receipts.ts':
@@ -595,15 +597,17 @@ async function privacyDataAdmission(web) {
     'src/lib/messaging/inbox-list.ts':
       '9cc82877bfa8dbb2a7fa41bceb842793349416271f19569f49fdd5cfc1de07e5',
     'src/lib/nostr/self-recovery-reader.ts':
-      'a7a5b0e874c65620cd80ccb9a6a50f82a31833adb496a88f9f0daa5b74c06dfd',
+      'e6bd782a80dedc2b8b0e5650f717af3e9516c4e66d15f2361b73adcb2763a3d5',
     'src/lib/nostr/private-publisher.ts':
-      'e02cdbba35b8a9c7fc5f805c8c21432d4f6eab42c6d098411613189cb6ac7caf',
+      '13fba9d8c93e6c530d97bbac79debc60892069daaee47cabd879e3aa7ab4910a',
     'src/lib/nostr/private-pool.ts':
       '2ed123596f26bedb8aab5ec7694be6e264616429e00f745f1614c83f52de9825',
     'src/lib/nostr/inbox-ingress.ts':
       'f860a094a8ba767585124c795d44b7620064f73a5b3a0170041c581c0fc64ecb',
     'src/lib/persistence/inbox-probes.ts':
-      '6f359ac6f6184d8bf52745b2d1ea79654e55e272c89c62a48d8a1a5605a2dcb0',
+      '3c891f5a540f2cae07bed29a53f73feb8cacc0bef3a75c8c22acb015c4b519fa',
+    'src/lib/persistence/inbox-probe-cleanup.ts':
+      '44a7988b4a52e0a2c5971d7d9ee3c268ffa316d14c920cf2fb75be0d5a7fc375',
     'src/lib/nostr/inbox-access.ts':
       '16eef55d0ffcf2c3291573ddcb0b6a1432bb77abce0017a69e9b6f82414609a7',
     'src/lib/nostr/seal-builder.ts':
@@ -677,7 +681,7 @@ async function privacyDataAdmission(web) {
     'src/lib/persistence/private-sends.ts':
       '6696f4179370cad373c06debf57b919598d53b3d25b6d2a6054a557608e4eb9c',
     'src/lib/persistence/private-storage.ts':
-      'ba4a61dd1fa08fc89d00adac3c258c1f6ae7e5c1b15165facffe76ddd71d5e91',
+      '9cdac5a1f00678d83bdf4a9b7bfb7c8bd04dc234afb140fc19e0156ad4a064a3',
     'src/lib/persistence/public-publications.ts':
       'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
     'src/lib/persistence/public-receipts.ts':
@@ -2169,9 +2173,11 @@ async function inboxProbeStorageAdmission(web) {
     'src/lib/persistence/private-records.ts':
       '821ef96740cf644bff4ffe5c7816c6aa097aa419bd16b8b301809b963294dafe',
     'src/lib/persistence/private-storage.ts':
-      'ba4a61dd1fa08fc89d00adac3c258c1f6ae7e5c1b15165facffe76ddd71d5e91',
+      '9cdac5a1f00678d83bdf4a9b7bfb7c8bd04dc234afb140fc19e0156ad4a064a3',
     'src/lib/persistence/inbox-probes.ts':
-      '6f359ac6f6184d8bf52745b2d1ea79654e55e272c89c62a48d8a1a5605a2dcb0'
+      '3c891f5a540f2cae07bed29a53f73feb8cacc0bef3a75c8c22acb015c4b519fa',
+    'src/lib/persistence/inbox-probe-cleanup.ts':
+      '44a7988b4a52e0a2c5971d7d9ee3c268ffa316d14c920cf2fb75be0d5a7fc375'
   };
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);
@@ -2521,7 +2527,14 @@ export async function auditOutput(webDirectory) {
     names.add('navigation-url');
   }
   if (hasPrivacyData) names.add('SupportLink');
-  if (hasOperationalFlags) names.add('capabilities');
+  if (hasOperationalFlags) {
+    names.add('capabilities');
+    // The exact pinned probe-cleanup source cycle joins these shared owners.
+    // Admit its actual current compiler graph, not arbitrary extra modules.
+    names.delete('private-session');
+    names.delete('public-key');
+    names.add('rolldown-runtime');
+  }
   const admitted = new Map([['build-info.json', expectedMetadata]]);
   const seen = new Set();
   for (const [key, record] of Object.entries(manifest)) {
@@ -5430,6 +5443,437 @@ export async function auditOutput(webDirectory) {
             'local-private-blocks'
           ],
           css: ['_app/immutable/assets/0.HASH.css']
+        }
+      });
+    // Exact current cleanup-source graph; predecessor profiles above stay fixed.
+    // Full names, flags, sources and ordered edges remain fail-closed.
+    if (hasOperationalFlags)
+      Object.assign(expected, {
+        'entry/app': {
+          file: '_app/immutable/entry/app.HASH.js',
+          name: 'entry/app',
+          src: '.svelte-kit/generated/build/client-optimized/app.js',
+          isEntry: true,
+          imports: ['preload-helper', 'shared-errors', 'references'],
+          dynamicImports: [
+            'nodes/0',
+            'nodes/1',
+            'nodes/2',
+            'nodes/3',
+            'nodes/4',
+            'nodes/5',
+            'nodes/6',
+            'nodes/7',
+            'nodes/8',
+            'nodes/9',
+            'nodes/10',
+            'nodes/11',
+            'nodes/12',
+            'error-template'
+          ]
+        },
+        'nodes/0': {
+          file: '_app/immutable/nodes/0.HASH.js',
+          name: 'nodes/0',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/0.js',
+          isEntry: true,
+          imports: [
+            'rolldown-runtime',
+            'public-runtime',
+            'client',
+            'navigation-url',
+            'client.svelte',
+            'state',
+            'Button',
+            'CapabilityGate',
+            'Disclosure',
+            'capabilities',
+            'local-private-blocks'
+          ],
+          css: ['_app/immutable/assets/0.HASH.css']
+        },
+        'nodes/1': {
+          file: '_app/immutable/nodes/1.HASH.js',
+          name: 'nodes/1',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/1.js',
+          isEntry: true,
+          imports: ['client', 'client.svelte', 'state', 'legacy']
+        },
+        'nodes/10': {
+          file: '_app/immutable/nodes/10.HASH.js',
+          name: 'nodes/10',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/10.js',
+          isEntry: true,
+          imports: [
+            'references',
+            'client',
+            'navigation-url',
+            'client.svelte',
+            'navigation',
+            'state',
+            'legacy',
+            'routes',
+            'ListingEditor'
+          ]
+        },
+        'nodes/11': {
+          file: '_app/immutable/nodes/11.HASH.js',
+          name: 'nodes/11',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/11.js',
+          isEntry: true,
+          imports: [
+            'references',
+            'public-runtime',
+            'client',
+            'navigation-url',
+            'CapabilityGate',
+            'Disclosure',
+            'InboxSetup',
+            'OperationStatus'
+          ]
+        },
+        'nodes/12': {
+          file: '_app/immutable/nodes/12.HASH.js',
+          name: 'nodes/12',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/12.js',
+          isEntry: true,
+          imports: [
+            'rolldown-runtime',
+            'client',
+            'client.svelte',
+            'navigation',
+            'state',
+            'ListingEditor'
+          ]
+        },
+        'nodes/2': {
+          file: '_app/immutable/nodes/2.HASH.js',
+          name: 'nodes/2',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/2.js',
+          isEntry: true,
+          imports: ['client', 'navigation-url', 'SearchForm', 'routes']
+        },
+        'nodes/3': {
+          file: '_app/immutable/nodes/3.HASH.js',
+          name: 'nodes/3',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/3.js',
+          isEntry: true,
+          imports: ['public-runtime', 'client', 'SupportLink', 'ReportPreview']
+        },
+        'nodes/4': {
+          file: '_app/immutable/nodes/4.HASH.js',
+          name: 'nodes/4',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/4.js',
+          isEntry: true,
+          imports: [
+            'public-runtime',
+            'client',
+            'CapabilityGate',
+            'InboxSetup',
+            'InboxStatus'
+          ]
+        },
+        'nodes/5': {
+          file: '_app/immutable/nodes/5.HASH.js',
+          name: 'nodes/5',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/5.js',
+          isEntry: true,
+          imports: [
+            'rolldown-runtime',
+            'references',
+            'public-runtime',
+            'client',
+            'navigation-url',
+            'client.svelte',
+            'state',
+            'Button',
+            'local-private-blocks',
+            'legacy',
+            'ReportPreview',
+            'inbox-view',
+            'InboxStatus',
+            'MessageComposer'
+          ]
+        },
+        'nodes/6': {
+          file: '_app/immutable/nodes/6.HASH.js',
+          name: 'nodes/6',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/6.js',
+          isEntry: true,
+          imports: [
+            'references',
+            'public-runtime',
+            'client',
+            'navigation-url',
+            'Button',
+            'local-private-blocks',
+            'SupportLink'
+          ]
+        },
+        'nodes/7': {
+          file: '_app/immutable/nodes/7.HASH.js',
+          name: 'nodes/7',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/7.js',
+          isEntry: true,
+          imports: [
+            'rolldown-runtime',
+            'references',
+            'public-runtime',
+            'client',
+            'navigation-url',
+            'client.svelte',
+            'state',
+            'Button',
+            'CapabilityGate',
+            'Disclosure',
+            'ReportPreview',
+            'InboxSetup',
+            'MessageComposer'
+          ]
+        },
+        'nodes/8': {
+          file: '_app/immutable/nodes/8.HASH.js',
+          name: 'nodes/8',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/8.js',
+          isEntry: true,
+          imports: [
+            'rolldown-runtime',
+            'client',
+            'client.svelte',
+            'navigation',
+            'state',
+            'ListingEditor'
+          ]
+        },
+        'nodes/9': {
+          file: '_app/immutable/nodes/9.HASH.js',
+          name: 'nodes/9',
+          src: '.svelte-kit/generated/build/client-optimized/nodes/9.js',
+          isEntry: true,
+          imports: [
+            'references',
+            'public-runtime',
+            'client',
+            'navigation-url',
+            'client.svelte',
+            'navigation',
+            'state',
+            'Button',
+            'Disclosure',
+            'SearchForm',
+            'routes',
+            'publishers'
+          ]
+        },
+        'error-template': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'error-template',
+          src: '.svelte-kit/generated/build/shared/error-template.js',
+          isDynamicEntry: true
+        },
+        SearchForm: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'SearchForm',
+          imports: ['client', 'Button']
+        },
+        capabilities: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'capabilities',
+          imports: ['public-runtime']
+        },
+        legacy: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'legacy',
+          imports: ['client']
+        },
+        InboxSetup: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'InboxSetup',
+          imports: ['public-runtime', 'client', 'Button']
+        },
+        'preload-helper': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'preload-helper'
+        },
+        'public-runtime': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'public-runtime',
+          imports: [
+            'rolldown-runtime',
+            'preload-helper',
+            'references',
+            'navigation-url'
+          ],
+          dynamicImports: ['negentropy']
+        },
+        Disclosure: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'Disclosure',
+          imports: ['client']
+        },
+        'navigation-url': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'navigation-url'
+        },
+        'inbox-view': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'inbox-view',
+          imports: [
+            'references',
+            'public-runtime',
+            'navigation-url',
+            'local-private-blocks'
+          ]
+        },
+        SupportLink: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'SupportLink',
+          imports: ['public-runtime', 'client', 'navigation-url']
+        },
+        state: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'state',
+          imports: ['client.svelte']
+        },
+        publishers: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'publishers',
+          imports: ['references', 'public-runtime', 'navigation-url']
+        },
+        ReportPreview: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'ReportPreview',
+          imports: [
+            'references',
+            'public-runtime',
+            'client',
+            'navigation-url',
+            'SupportLink',
+            'publishers',
+            'inbox-view'
+          ]
+        },
+        Button: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'Button',
+          imports: ['client', 'navigation-url']
+        },
+        'local-private-blocks': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'local-private-blocks',
+          imports: ['references', 'public-runtime', 'navigation-url']
+        },
+        ListingEditor: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'ListingEditor',
+          imports: [
+            'references',
+            'public-runtime',
+            'client',
+            'navigation-url',
+            'CapabilityGate',
+            'capabilities',
+            'InboxSetup',
+            'OperationStatus'
+          ]
+        },
+        navigation: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'navigation',
+          imports: ['entry/payload', 'shared-errors', 'client', 'client.svelte']
+        },
+        'shared-errors': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'shared-errors'
+        },
+        InboxStatus: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'InboxStatus',
+          imports: [
+            'public-runtime',
+            'client',
+            'navigation-url',
+            'navigation',
+            'Button',
+            'CapabilityGate',
+            'inbox-view',
+            'InboxSetup'
+          ]
+        },
+        CapabilityGate: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'CapabilityGate',
+          imports: ['client', 'navigation-url', 'Button']
+        },
+        'client.svelte': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'client.svelte',
+          imports: ['entry/payload', 'shared-errors', 'client']
+        },
+        client: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'client'
+        },
+        routes: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'routes',
+          imports: ['references', 'navigation-url']
+        },
+        MessageComposer: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'MessageComposer',
+          imports: [
+            'references',
+            'public-runtime',
+            'client',
+            'navigation-url',
+            'navigation',
+            'local-private-blocks',
+            'ReportPreview',
+            'inbox-view'
+          ]
+        },
+        OperationStatus: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'OperationStatus',
+          imports: ['references', 'public-runtime', 'client']
+        },
+        'rolldown-runtime': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'rolldown-runtime'
+        },
+        references: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'references',
+          imports: ['rolldown-runtime']
+        },
+        'client-entry': {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'client-entry',
+          src: 'node_modules/.pnpm/@sveltejs+kit@3.0.0_@opentelemetry+api@1.9.1_@sveltejs+vite-plugin-svelte@7.3.1_svelte@_6edc02734bfa45cbf85e92e62b52fb36/node_modules/@sveltejs/kit/src/runtime/client/client-entry.js',
+          isDynamicEntry: true,
+          imports: ['navigation']
+        },
+        'entry/start': {
+          file: '_app/immutable/entry/start.HASH.js',
+          name: 'entry/start',
+          src: 'node_modules/.pnpm/@sveltejs+kit@3.0.0_@opentelemetry+api@1.9.1_@sveltejs+vite-plugin-svelte@7.3.1_svelte@_6edc02734bfa45cbf85e92e62b52fb36/node_modules/@sveltejs/kit/src/runtime/client/entry.js',
+          isEntry: true,
+          imports: ['entry/payload', 'preload-helper'],
+          dynamicImports: ['client-entry']
+        },
+        'entry/payload': {
+          file: '_app/immutable/entry/payload.HASH.js',
+          name: 'entry/payload',
+          src: 'node_modules/.pnpm/@sveltejs+kit@3.0.0_@opentelemetry+api@1.9.1_@sveltejs+vite-plugin-svelte@7.3.1_svelte@_6edc02734bfa45cbf85e92e62b52fb36/node_modules/@sveltejs/kit/src/runtime/client/payload.js',
+          isEntry: true
+        },
+        negentropy: {
+          file: '_app/immutable/chunks/HASH.js',
+          name: 'negentropy',
+          src: 'node_modules/.pnpm/applesauce-relay@6.2.1_typescript@6.0.3/node_modules/applesauce-relay/dist/negentropy.js',
+          isDynamicEntry: true,
+          imports: ['public-runtime']
         }
       });
     for (const record of Object.values(manifest)) {

@@ -465,6 +465,7 @@ type SavedNonceProof = Readonly<{
   original: string;
   verifiedAtMilliseconds: number;
   current(): boolean;
+  dispose(): void;
 }>;
 const probeNonceProofs = new WeakMap<InboxProbeNonceProof, SavedNonceProof>();
 const recoveredNonceProofs = new WeakMap<
@@ -746,7 +747,8 @@ function captureProbeNonceReader(
                   acknowledgement,
                   original,
                   verifiedAtMilliseconds,
-                  current
+                  current,
+                  dispose: () => stop(false)
                 };
                 if (source === 'construction')
                   probeNonceProofs.set(issued as InboxProbeNonceProof, saved);
@@ -978,6 +980,28 @@ export function inboxProbeNonceVerificationEvidence(
   return saved && binding && binding.current()
     ? { ...binding, verifiedAtMilliseconds: saved.verifiedAtMilliseconds }
     : undefined;
+}
+
+// A genuine selected source proof can clear its own reader after native local
+// removal. This grants no removal, signing, replacement identity or readiness.
+export function disposeInboxProbeNonceProof(
+  proof: InboxProbeNonceProof | RecoveredInboxProbeNonceProof,
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy
+): boolean {
+  const saved =
+    probeNonceProofs.get(proof as InboxProbeNonceProof) ??
+    recoveredNonceProofs.get(proof as RecoveredInboxProbeNonceProof);
+  if (
+    !saved ||
+    saved.repository !== repository ||
+    saved.session !== session ||
+    saved.policy !== policy
+  )
+    return false;
+  saved.dispose();
+  return true;
 }
 
 declare const probeRecoveryReaderBrand: unique symbol;
@@ -1419,4 +1443,30 @@ export function recoveredInboxProbeRumorWire(
   )
     ? recoveredProbes.get(proof)?.rumor()
     : undefined;
+}
+
+export function disposeRecoveredInboxProbe(
+  proof: RecoveredInboxProbe,
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy
+): boolean {
+  const saved = recoveredProbes.get(proof);
+  if (
+    !saved ||
+    saved.repository !== repository ||
+    saved.session !== session ||
+    saved.policy !== policy
+  )
+    return false;
+  const original = accessRecoveryReaders.get(saved.access);
+  if (
+    !original ||
+    original.repository !== repository ||
+    original.session !== session ||
+    original.policy !== policy
+  )
+    return false;
+  recoveryReaders.get(original.reader)?.stop(false);
+  return !recoveredProbes.has(proof);
 }

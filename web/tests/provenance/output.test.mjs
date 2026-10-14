@@ -614,6 +614,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
         for (const producer of [
           'src/lib/persistence/private-storage.ts',
           'src/lib/persistence/inbox-probes.ts',
+          'src/lib/persistence/inbox-probe-cleanup.ts',
           'src/lib/persistence/private-records.ts'
         ]) {
           for (const change of ['changed', 'missing']) {
@@ -823,7 +824,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             const f = await fixture(t);
             const files = await f.audit();
             // Exact eleven-route module/page/static admission; CSS stays once-imported.
-            assert.equal(files.length, 59);
+            assert.equal(files.length, 58);
             // The actual SDK payload crosses the reader scratch boundary; a reused
             // scratch buffer must still preserve every compiler/static byte exactly.
             const sizes = await Promise.all(
@@ -1113,7 +1114,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
             assert.ok(Buffer.byteLength(expanded) > 64 * 1024);
             await writeFile(file, expanded);
             await refresh(f);
-            assert.equal((await f.audit()).length, 59);
+            assert.equal((await f.audit()).length, 58);
           }
         );
 
@@ -1971,6 +1972,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
         for (const producer of [
           'src/lib/nostr/private-publisher.ts',
           'src/lib/persistence/inbox-probes.ts',
+          'src/lib/persistence/inbox-probe-cleanup.ts',
           'src/lib/nostr/inbox-access.ts',
           'src/lib/nostr/seal-builder.ts',
           'src/lib/nostr/giftwrap-builder.ts',
@@ -2057,7 +2059,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
                   (record) => record.name === 'nodes/6'
                 ),
                 owner = Object.entries(manifest).find(
-                  ([, record]) => record.name === 'public-key'
+                  ([, record]) => record.name === 'public-runtime'
                 )?.[0];
               assert.ok(row && owner && row.imports.includes(owner));
               if (mutation === 'missing-owner')
