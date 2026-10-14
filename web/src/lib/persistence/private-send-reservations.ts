@@ -11,7 +11,8 @@ import {
 } from './database.ts';
 import {
   inspectPrivateSendReservation,
-  inspectPrivateSendRecord,
+  decodePrivateRecord,
+  privateRecordSnapshot,
   type PrivateSendReservation
 } from './private-records.ts';
 export {
@@ -177,13 +178,26 @@ export function reservePrivateSendReservation(
               refuse('corrupt_record');
               return;
             }
-            const value = inspectPrivateSendRecord(row.wire, scope.owner, id);
-            if (!value) {
+            const decoded = decodePrivateRecord(row.wire, scope.owner, id),
+              value =
+                decoded.ok &&
+                privateRecordSnapshot(decoded.value, scope.owner, id);
+            if (!value || value.family === 'received_envelope') {
               refuse('corrupt_record');
               return;
             }
             count += 1;
-            if (value.id === candidate.id)
+            if (
+              value.id === candidate.id &&
+              value.family === 'private_access_probe'
+            ) {
+              refuse('conflict');
+              return;
+            }
+            if (
+              value.id === candidate.id &&
+              value.family !== 'private_access_probe'
+            )
               existing = {
                 schema: 1,
                 family: 'private_send_reservation',
@@ -194,7 +208,11 @@ export function reservePrivateSendReservation(
                 rumorHash: value.rumorHash,
                 createdAt: value.createdAt
               };
-            if (value.rumorHash === candidate.rumorHash) collision = true;
+            if (
+              value.family !== 'private_access_probe' &&
+              value.rumorHash === candidate.rumorHash
+            )
+              collision = true;
             bytes += new TextEncoder().encode(JSON.stringify(row)).length;
             if (
               count > LOCAL_PERSISTENCE_BUDGETS.unfinishedPrivateSends ||

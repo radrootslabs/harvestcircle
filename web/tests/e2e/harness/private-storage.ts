@@ -96,6 +96,59 @@ export async function makeFixture() {
       peerArtifact: padded ? outer(peer, index, padded) : null
     };
   }
+  function probe(index: number, prepared = false, padded = false) {
+    const origin = 'wss://inbox.example.org',
+      policyWire = JSON.stringify({
+        schemaVersion: 1,
+        public: [
+          {
+            origin: 'wss://public.example.org',
+            read: true,
+            write: false,
+            nip50: false
+          }
+        ],
+        inbox: [{ origin, read: true, write: true }],
+        postingEnabled: false,
+        messagingEnabled: true,
+        operatorDenylist: []
+      });
+    return {
+      schema: 1,
+      family: 'private_access_probe',
+      owner,
+      id: id(index),
+      revision: prepared ? 1 : 0,
+      rumorHash: index.toString(16).padStart(64, '0'),
+      createdAt: 1700000000,
+      binding: {
+        preferenceId: 'f'.repeat(64),
+        preferenceCreatedAt: 1699999999,
+        readTargets: [origin],
+        archiveTargets: [origin],
+        policyWire,
+        operatorWire: JSON.stringify({
+          schemaVersion: 1,
+          revision: 1,
+          authority: 'source_fixture',
+          policyWire,
+          evidenceSha256: 'a'.repeat(64),
+          relays: [
+            {
+              origin,
+              auth: 'not_required',
+              recipientRead: 'supported',
+              namedArchiveAck: 'supported',
+              exactReadback: 'supported',
+              retention: 'operator_defined'
+            }
+          ]
+        })
+      },
+      self: prepared ? outer(owner, index, padded) : null,
+      receipts: []
+    };
+  }
   function received(index: number, padded = false) {
     const artifact = outer(owner, index, padded);
     return {
@@ -110,7 +163,7 @@ export async function makeFixture() {
       read: null
     };
   }
-  function handle(record: { owner: string; id: string }) {
+  function handle<T extends { owner: string; id: string }>(record: T) {
     const result = decodePrivateRecord(
       JSON.stringify(record),
       record.owner,
@@ -147,6 +200,7 @@ export async function makeFixture() {
     repository: repo,
     reservation,
     operation,
+    probe,
     received,
     handle,
     rows,

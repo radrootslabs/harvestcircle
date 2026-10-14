@@ -285,9 +285,11 @@ function validTransition(
 ): boolean {
   if (!base)
     return (
-      next.family === 'received_envelope' &&
       next.revision === 0 &&
-      next.read === null
+      ((next.family === 'received_envelope' && next.read === null) ||
+        (next.family === 'private_access_probe' &&
+          next.self === null &&
+          next.receipts.length === 0))
     );
   if (
     base.owner !== next.owner ||
@@ -303,6 +305,19 @@ function validTransition(
       base.sources.every((source) => next.sources.includes(source))
     );
   }
+  if (base.family === 'private_access_probe')
+    return (
+      next.family === base.family &&
+      next.rumorHash === base.rumorHash &&
+      next.createdAt === base.createdAt &&
+      JSON.stringify(next.binding) === JSON.stringify(base.binding) &&
+      (base.self === null ||
+        JSON.stringify(base.self) === JSON.stringify(next.self)) &&
+      base.receipts.every(
+        (fact, index) =>
+          JSON.stringify(fact) === JSON.stringify(next.receipts[index])
+      )
+    );
   if (
     next.family !== 'private_send_operation' ||
     base.peer !== next.peer ||

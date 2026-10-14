@@ -158,7 +158,12 @@ export function captureSelfRecoveryReader(
               id
             ),
             storedWire = privateRecordWire(loaded.value, ownership.owner, id);
-          if (!record || !storedWire || record.family === 'received_envelope')
+          if (
+            !record ||
+            !storedWire ||
+            (record.family !== 'private_send_reservation' &&
+              record.family !== 'private_send_operation')
+          )
             return { status: 'invalid_scope' };
           if (record.family !== 'private_send_operation')
             return { status: 'lost_evidence' };

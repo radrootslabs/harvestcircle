@@ -7,7 +7,15 @@ import {
   verifyEnvelope,
   verifiedEnvelopeSnapshot
 } from '../nostr/verified-envelope.ts';
-import { canonicalRelayOrigin } from '../config/relays.ts';
+import {
+  canonicalRelayOrigin,
+  readRelayPolicy,
+  validateRelayPolicy
+} from '../config/relays.ts';
+import {
+  inboxOperatorQualificationSnapshot,
+  validateInboxOperatorQualification
+} from '../config/inbox-operators.ts';
 import { incomingGiftWrapTags } from '../nostr/incoming-wire.ts';
 import type { InboxRouteSnapshot } from '../messaging/inbox-routing.ts';
 import {
@@ -77,8 +85,50 @@ export type ReceivedEnvelopeRecord = Readonly<{
   sources: readonly string[];
   read: Readonly<{ rumorHash: string; atMilliseconds: number }> | null;
 }>;
+export type PrivateAccessProbeBinding = Readonly<{
+  preferenceId: string;
+  preferenceCreatedAt: number;
+  readTargets: readonly string[];
+  archiveTargets: readonly string[];
+  policyWire: string;
+  operatorWire: string;
+}>;
+export type PrivateAccessProbeReceipt = Readonly<{
+  actionId: string;
+  origin: string;
+  role: 'access_archive' | 'access_readback';
+  attempt: number;
+  eventId: string;
+  status:
+    | 'accepted'
+    | 'refused'
+    | 'timed_out'
+    | 'unknown'
+    | 'stopped'
+    | 'readback'
+    | 'nonce_verified';
+  observedAtMilliseconds: number;
+  readbackWire: string | null;
+}>;
+// Ciphertext/status bookkeeping only. Neither this record nor a receipt label
+// is a genuine probe issuer, nested proof, effect or suppression capability.
+export type PrivateAccessProbe = Readonly<{
+  schema: 1;
+  family: 'private_access_probe';
+  owner: string;
+  id: string;
+  revision: number;
+  rumorHash: string;
+  createdAt: number;
+  binding: PrivateAccessProbeBinding;
+  self: PrivateCiphertextArtifact | null;
+  receipts: readonly PrivateAccessProbeReceipt[];
+}>;
 export type PrivateRecord =
-  PrivateSendReservation | PrivateSendOperation | ReceivedEnvelopeRecord;
+  | PrivateSendReservation
+  | PrivateSendOperation
+  | ReceivedEnvelopeRecord
+  | PrivateAccessProbe;
 declare const recordBrand: unique symbol;
 export type PrivateRecordHandle = Readonly<{ [recordBrand]: true }>;
 const records = new WeakMap<
@@ -445,6 +495,96 @@ function receipt(
       : value.readbackWire === null)
   );
 }
+function probeBinding(value: unknown): value is PrivateAccessProbeBinding {
+  if (
+    !exactLocalFields(value, [
+      'preferenceId',
+      'preferenceCreatedAt',
+      'readTargets',
+      'archiveTargets',
+      'policyWire',
+      'operatorWire'
+    ]) ||
+    !hash(value.preferenceId) ||
+    !unsigned(value.preferenceCreatedAt) ||
+    typeof value.policyWire !== 'string' ||
+    typeof value.operatorWire !== 'string'
+  )
+    return false;
+  const policy = validateRelayPolicy(value.policyWire),
+    qualified = validateInboxOperatorQualification(value.operatorWire),
+    declaration = qualified && inboxOperatorQualificationSnapshot(qualified);
+  if (
+    !policy ||
+    !declaration ||
+    declaration.authority === 'unconfigured' ||
+    declaration.policyWire !== value.policyWire
+  )
+    return false;
+  const manifest = readRelayPolicy(policy);
+  if (JSON.stringify(manifest) !== value.policyWire) return false;
+  function targets(raw: unknown, role: 'read' | 'write'): boolean {
+    return (
+      Array.isArray(raw) &&
+      raw.length >= 1 &&
+      raw.length <= RELAY_BUDGETS.inbox &&
+      new Set(raw).size === raw.length &&
+      (raw as unknown[]).every(
+        (origin) =>
+          typeof origin === 'string' &&
+          canonicalRelayOrigin(origin) === origin &&
+          manifest.inbox.some(
+            (entry) => entry.origin === origin && entry[role]
+          ) &&
+          declaration!.relays.some((entry) => entry.origin === origin)
+      )
+    );
+  }
+  return (
+    targets(value.readTargets, 'read') && targets(value.archiveTargets, 'write')
+  );
+}
+function probeReceipt(
+  value: unknown,
+  self: PrivateCiphertextArtifact,
+  binding: PrivateAccessProbeBinding
+): value is PrivateAccessProbeReceipt {
+  if (
+    !exactLocalFields(value, [
+      'actionId',
+      'origin',
+      'role',
+      'attempt',
+      'eventId',
+      'status',
+      'observedAtMilliseconds',
+      'readbackWire'
+    ]) ||
+    !canonicalLocalId(value.actionId) ||
+    typeof value.origin !== 'string' ||
+    canonicalRelayOrigin(value.origin) !== value.origin ||
+    !unsigned(value.attempt) ||
+    value.attempt < 1 ||
+    value.attempt > PRIVATE_PUBLICATION_BUDGETS.attemptsPerTargetAction ||
+    value.eventId !== self.eventId ||
+    !unsigned(value.observedAtMilliseconds)
+  )
+    return false;
+  if (value.role === 'access_archive')
+    return (
+      binding.archiveTargets.includes(value.origin) &&
+      ['accepted', 'refused', 'timed_out', 'unknown', 'stopped'].includes(
+        value.status as string
+      ) &&
+      value.readbackWire === null
+    );
+  return (
+    value.role === 'access_readback' &&
+    binding.readTargets.includes(value.origin) &&
+    (value.status === 'readback' || value.status === 'nonce_verified') &&
+    value.readbackWire === self.wire
+  );
+}
 // Strict local storage codec only, never installed-account/effect authorization,
 // genuine sender factory proof, nested authenticity, read receipt or Send.
 export function decodePrivateRecord(
@@ -536,6 +676,53 @@ export function decodePrivateRecord(
         ...(fields.receipts === undefined
           ? {}
           : { receipts: fields.receipts as PrivateTargetReceipt[] })
+      };
+    } else if (fields.family === 'private_access_probe') {
+      if (
+        !canonicalLocalId(id) ||
+        !exactLocalFields(fields, [
+          'schema',
+          'family',
+          'owner',
+          'id',
+          'revision',
+          'rumorHash',
+          'createdAt',
+          'binding',
+          'self',
+          'receipts'
+        ]) ||
+        !hash(fields.rumorHash) ||
+        !unsigned(fields.createdAt) ||
+        !unsigned(fields.revision) ||
+        !probeBinding(fields.binding) ||
+        !Array.isArray(fields.receipts) ||
+        (fields.revision === 0
+          ? fields.self !== null || fields.receipts.length !== 0
+          : !artifact(fields.self, owner) ||
+            !fields.receipts.every((fact) =>
+              probeReceipt(
+                fact,
+                fields.self as PrivateCiphertextArtifact,
+                fields.binding as PrivateAccessProbeBinding
+              )
+            ))
+      )
+        return failed('malformed');
+      record = {
+        schema: 1,
+        family: 'private_access_probe',
+        owner,
+        id,
+        revision: fields.revision,
+        rumorHash: fields.rumorHash,
+        createdAt: fields.createdAt,
+        binding: fields.binding,
+        self:
+          fields.self === null
+            ? null
+            : (fields.self as PrivateCiphertextArtifact),
+        receipts: fields.receipts as PrivateAccessProbeReceipt[]
       };
     } else if (fields.family === 'received_envelope') {
       outerMetadata = outer(fields.outer, owner, true);
@@ -648,5 +835,8 @@ export function inspectPrivateSendRecord(
   const decoded = decodePrivateRecord(raw, owner, id);
   if (!decoded.ok) return undefined;
   const value = privateRecordSnapshot(decoded.value, owner, id);
-  return value?.family !== 'received_envelope' ? value : undefined;
+  return value?.family === 'private_send_reservation' ||
+    value?.family === 'private_send_operation'
+    ? value
+    : undefined;
 }

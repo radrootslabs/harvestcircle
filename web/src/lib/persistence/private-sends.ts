@@ -84,7 +84,8 @@ export async function readSelfRecoveryBase(
   const row = privateRecordSnapshot(loaded.value, record.owner, record.id);
   if (
     !row ||
-    row.family === 'received_envelope' ||
+    (row.family !== 'private_send_reservation' &&
+      row.family !== 'private_send_operation') ||
     row.peer !== record.peer ||
     row.rumorHash !== record.rumorHash ||
     row.createdAt !== record.createdAt
@@ -168,7 +169,11 @@ export async function commitSelfRecovery(
       captured.record.owner,
       captured.record.id
     );
-    if (!base || base.family === 'received_envelope')
+    if (
+      !base ||
+      (base.family !== 'private_send_reservation' &&
+        base.family !== 'private_send_operation')
+    )
       return { status: 'invalid_record' };
     if (
       captured.recoveryWire !== undefined &&

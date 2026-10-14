@@ -292,6 +292,8 @@ async function operationalFlagsAdmission(web) {
       'c698313143943749bb457674825b648f6af29477f07cae960f3435c035cd6bd8',
     'src/lib/config/operation-flags.ts':
       'd5e0ce74a17de7a06100dcc75886616655fbd398c657027e7d6990d97aa8a0c1',
+    'src/lib/config/inbox-operators.ts':
+      '52a4a739bf7434e3dea529858456ab49bbbbd517de789dac7f6407b687e5c07a',
     'src/lib/config/relays.ts':
       'ca8c63df89509728a7b87e65232f1da751621ed4777993a079730472a0923957',
     'src/lib/config/support.ts':
@@ -314,6 +316,8 @@ async function operationalFlagsAdmission(web) {
       '9cc82877bfa8dbb2a7fa41bceb842793349416271f19569f49fdd5cfc1de07e5',
     'src/lib/messaging/inbox-setup-operation.ts':
       '245c6ce88b146dc731e7ace4f16dc9b5002a87a997f5568e4811b0c4a2daf035',
+    'src/lib/nostr/self-recovery-reader.ts':
+      'b15be31d13499b6e397f8b8dc691076e2b41b4157bf62013e5105cdd03875fa6',
     'src/lib/nostr/private-pool.ts':
       'b4c718364625b3caacbc5cc5f98bd79a575a5d66dddb2d7f59f03351a1308a6d',
     'src/lib/nostr/inbox-ingress.ts':
@@ -335,7 +339,7 @@ async function operationalFlagsAdmission(web) {
     'src/lib/messaging/rumor-plan.ts':
       'b622889e96f911501524cd86f9fca9f2207ce853767494fb30799b00ae8275ed',
     'src/lib/persistence/private-send-reservations.ts':
-      '825188b71265162676d363ae25d98adfad0d3128c48012f993b2dad4a3161c32',
+      '5a57522fdb5acabecf836fb8d642a2adfb4bc7e041843b38fd1b96b673b3942d',
     'src/lib/messaging/send-identity.ts':
       'cc840afbf155e18030bea9b475884ca3e0068b79ef3da1459b661fe2822499df',
     'src/lib/messaging/unlocked-session.ts':
@@ -387,9 +391,11 @@ async function operationalFlagsAdmission(web) {
     'src/lib/persistence/local-public-hides.ts':
       '4f0e64ed0fabbe9f86014a0512e7dbd3c81711f28ca2c626e2dafa5cda349f83',
     'src/lib/persistence/private-records.ts':
-      'a9a7c450808ea363594f2cce5d50c48b8a614197dd0b9690c4860d8387419dcf',
+      '2e5947e19df337ac1a7cd76b0f2cd6ec11cdb85d3fd38128e127fa8e3f30723a',
+    'src/lib/persistence/private-sends.ts':
+      '6696f4179370cad373c06debf57b919598d53b3d25b6d2a6054a557608e4eb9c',
     'src/lib/persistence/private-storage.ts':
-      '49b9ef328e569e93c2e88f4c0e8e3e927985fb9ac53daa6814b7471451b81104',
+      '66bab9a0a0a699b70ecba75c002ac0de20a84f3d015f5caefbe1697d0f6456bf',
     'src/lib/persistence/public-publications.ts':
       'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
     'src/lib/persistence/public-receipts.ts':
@@ -556,6 +562,8 @@ async function privacyDataAdmission(web) {
       '14443151ff819a11a4f9c71e4ff756d1fbdd7cf6c36242ac712c378e68583aa2',
     'src/lib/config/deployment-support.ts':
       'c698313143943749bb457674825b648f6af29477f07cae960f3435c035cd6bd8',
+    'src/lib/config/inbox-operators.ts':
+      '52a4a739bf7434e3dea529858456ab49bbbbd517de789dac7f6407b687e5c07a',
     'src/lib/config/relays.ts':
       'ca8c63df89509728a7b87e65232f1da751621ed4777993a079730472a0923957',
     'src/lib/config/support.ts':
@@ -576,6 +584,8 @@ async function privacyDataAdmission(web) {
       'be704e6cbe777722c3eb80ec9843f00afd7bac8c52af0c2af7294f2437414553',
     'src/lib/messaging/inbox-list.ts':
       '9cc82877bfa8dbb2a7fa41bceb842793349416271f19569f49fdd5cfc1de07e5',
+    'src/lib/nostr/self-recovery-reader.ts':
+      'b15be31d13499b6e397f8b8dc691076e2b41b4157bf62013e5105cdd03875fa6',
     'src/lib/nostr/private-pool.ts':
       'b4c718364625b3caacbc5cc5f98bd79a575a5d66dddb2d7f59f03351a1308a6d',
     'src/lib/nostr/inbox-ingress.ts':
@@ -593,7 +603,7 @@ async function privacyDataAdmission(web) {
     'src/lib/messaging/rumor-plan.ts':
       'b622889e96f911501524cd86f9fca9f2207ce853767494fb30799b00ae8275ed',
     'src/lib/persistence/private-send-reservations.ts':
-      '825188b71265162676d363ae25d98adfad0d3128c48012f993b2dad4a3161c32',
+      '5a57522fdb5acabecf836fb8d642a2adfb4bc7e041843b38fd1b96b673b3942d',
     'src/lib/messaging/send-identity.ts':
       'cc840afbf155e18030bea9b475884ca3e0068b79ef3da1459b661fe2822499df',
     'src/lib/messaging/unlocked-session.ts':
@@ -643,9 +653,11 @@ async function privacyDataAdmission(web) {
     'src/lib/persistence/local-public-hides.ts':
       '4f0e64ed0fabbe9f86014a0512e7dbd3c81711f28ca2c626e2dafa5cda349f83',
     'src/lib/persistence/private-records.ts':
-      'a9a7c450808ea363594f2cce5d50c48b8a614197dd0b9690c4860d8387419dcf',
+      '2e5947e19df337ac1a7cd76b0f2cd6ec11cdb85d3fd38128e127fa8e3f30723a',
+    'src/lib/persistence/private-sends.ts':
+      '6696f4179370cad373c06debf57b919598d53b3d25b6d2a6054a557608e4eb9c',
     'src/lib/persistence/private-storage.ts':
-      '49b9ef328e569e93c2e88f4c0e8e3e927985fb9ac53daa6814b7471451b81104',
+      '66bab9a0a0a699b70ecba75c002ac0de20a84f3d015f5caefbe1697d0f6456bf',
     'src/lib/persistence/public-publications.ts':
       'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
     'src/lib/persistence/public-receipts.ts':
@@ -812,7 +824,7 @@ async function supportReportingAdmission(web) {
     'src/lib/messaging/rumor-plan.ts':
       'b622889e96f911501524cd86f9fca9f2207ce853767494fb30799b00ae8275ed',
     'src/lib/persistence/private-send-reservations.ts':
-      '825188b71265162676d363ae25d98adfad0d3128c48012f993b2dad4a3161c32',
+      '5a57522fdb5acabecf836fb8d642a2adfb4bc7e041843b38fd1b96b673b3942d',
     'src/lib/messaging/send-identity.ts':
       'cc840afbf155e18030bea9b475884ca3e0068b79ef3da1459b661fe2822499df',
     'src/lib/messaging/unlocked-session.ts':
@@ -848,7 +860,7 @@ async function supportReportingAdmission(web) {
     'src/lib/persistence/local-public-hides.ts':
       '4f0e64ed0fabbe9f86014a0512e7dbd3c81711f28ca2c626e2dafa5cda349f83',
     'src/lib/persistence/private-storage.ts':
-      '49b9ef328e569e93c2e88f4c0e8e3e927985fb9ac53daa6814b7471451b81104',
+      '66bab9a0a0a699b70ecba75c002ac0de20a84f3d015f5caefbe1697d0f6456bf',
     'src/lib/persistence/public-publications.ts':
       'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
     'src/lib/persistence/public-receipts.ts':
@@ -1001,7 +1013,7 @@ async function privateBlockingAdmission(web) {
     'src/lib/messaging/rumor-plan.ts':
       'b622889e96f911501524cd86f9fca9f2207ce853767494fb30799b00ae8275ed',
     'src/lib/persistence/private-send-reservations.ts':
-      '825188b71265162676d363ae25d98adfad0d3128c48012f993b2dad4a3161c32',
+      '5a57522fdb5acabecf836fb8d642a2adfb4bc7e041843b38fd1b96b673b3942d',
     'src/lib/messaging/send-identity.ts':
       'cc840afbf155e18030bea9b475884ca3e0068b79ef3da1459b661fe2822499df',
     'src/lib/messaging/unlocked-session.ts':
@@ -1035,7 +1047,7 @@ async function privateBlockingAdmission(web) {
     'src/lib/persistence/local-public-hides.ts':
       '4f0e64ed0fabbe9f86014a0512e7dbd3c81711f28ca2c626e2dafa5cda349f83',
     'src/lib/persistence/private-storage.ts':
-      '49b9ef328e569e93c2e88f4c0e8e3e927985fb9ac53daa6814b7471451b81104',
+      '66bab9a0a0a699b70ecba75c002ac0de20a84f3d015f5caefbe1697d0f6456bf',
     'src/lib/persistence/public-publications.ts':
       'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
     'src/lib/persistence/public-receipts.ts':
@@ -2158,7 +2170,7 @@ async function inboxPresentationAdmission(web) {
     'src/lib/messaging/conversation-thread.ts':
       '7367f0e6d96a9f249514f66c2459274e856eb83462523e37264d4cd97d2e36d1',
     'src/lib/persistence/private-storage.ts':
-      '49b9ef328e569e93c2e88f4c0e8e3e927985fb9ac53daa6814b7471451b81104',
+      '66bab9a0a0a699b70ecba75c002ac0de20a84f3d015f5caefbe1697d0f6456bf',
     'src/routes/messages/[conversationId=local_id]/+page.svelte':
       'b06c6189adee80b68bc6657fa0e8504551fe9a8b1655a6d81807ebee9930a5e7',
     'src/lib/components/MessageComposer.svelte':
@@ -2168,7 +2180,7 @@ async function inboxPresentationAdmission(web) {
     'src/lib/messaging/rumor-plan.ts':
       'b622889e96f911501524cd86f9fca9f2207ce853767494fb30799b00ae8275ed',
     'src/lib/persistence/private-send-reservations.ts':
-      '825188b71265162676d363ae25d98adfad0d3128c48012f993b2dad4a3161c32',
+      '5a57522fdb5acabecf836fb8d642a2adfb4bc7e041843b38fd1b96b673b3942d',
     'src/lib/messaging/send-identity.ts':
       'cc840afbf155e18030bea9b475884ca3e0068b79ef3da1459b661fe2822499df',
     'src/lib/components/ConversationOptions.svelte':
