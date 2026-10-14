@@ -7,6 +7,8 @@ import {
 import { nip44 } from 'applesauce-core/helpers/encryption';
 import {
   decodePrivateRecord,
+  privateReceivedOuterMetadata,
+  type PrivateRecordHandle,
   privateRecordSnapshot,
   privateRecordWire,
   inspectPrivateSendReservation
@@ -92,6 +94,68 @@ function fixture(extended = false) {
   }
 }
 describe('ciphertext-only private local codecs, not nested authenticity or effect authority', () => {
+  it('CR005 transport metadata belongs only to the genuine received handle and exact owner/id', () => {
+    const f = fixture(true),
+      decoded = decodePrivateRecord(
+        JSON.stringify(f.received),
+        f.owner,
+        f.received.id
+      );
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok) throw Error('strict fixture rejected');
+    expect(
+      privateReceivedOuterMetadata(decoded.value, f.owner, f.received.id)
+    ).toEqual({ id: f.received.id, createdAt: 1700000000 });
+    expect(
+      privateReceivedOuterMetadata(decoded.value, f.peer, f.received.id)
+    ).toBeUndefined();
+    expect(
+      privateReceivedOuterMetadata(decoded.value, f.owner, command)
+    ).toBeUndefined();
+    expect(
+      privateReceivedOuterMetadata(
+        Object.freeze({ ...decoded.value }) as PrivateRecordHandle,
+        f.owner,
+        f.received.id
+      )
+    ).toBeUndefined();
+    expect(
+      privateReceivedOuterMetadata(
+        Object.freeze({}) as PrivateRecordHandle,
+        undefined,
+        undefined
+      )
+    ).toBeUndefined();
+    const copy = privateReceivedOuterMetadata(
+      decoded.value,
+      f.owner,
+      f.received.id
+    )!;
+    Object.assign(copy, { createdAt: 0 });
+    const detached = privateRecordSnapshot(
+      decoded.value,
+      f.owner,
+      f.received.id
+    )!;
+    Object.assign(detached, { outer: 'untrusted changed snapshot' });
+    expect(
+      privateReceivedOuterMetadata(decoded.value, f.owner, f.received.id)
+    ).toEqual({ id: f.received.id, createdAt: 1700000000 });
+    const sender = fixture();
+    for (const record of [sender.operation, sender.reservation]) {
+      const other = decodePrivateRecord(
+        JSON.stringify(record),
+        sender.owner,
+        record.id
+      );
+      expect(other.ok).toBe(true);
+      if (!other.ok) throw Error('strict sender fixture rejected');
+      expect(
+        privateReceivedOuterMetadata(other.value, sender.owner, record.id)
+      ).toBeUndefined();
+    }
+  });
+
   it('retains original receive hints/inert tags but keeps stored outgoing artifacts strict', () => {
     const f = fixture(true),
       decoded = decodePrivateRecord(

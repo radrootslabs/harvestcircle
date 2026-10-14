@@ -16,6 +16,7 @@ import {
 } from '../nostr/private-pool.ts';
 import {
   admitInboxEnvelope,
+  inboxEnvelopeSnapshot,
   retainInboxEnvelope
 } from '../persistence/inbox-envelope-repository.ts';
 import {
@@ -48,6 +49,7 @@ export function captureOlderInbox(
   if (!ownership?.current()) return undefined;
   const original: InboxHistoryOwnership = ownership;
   const token = Object.freeze({}) as OlderInbox;
+  const cancellation = new AbortController();
   let stopped = false,
     busy = false,
     cleanupRequired = false,
@@ -59,6 +61,7 @@ export function captureOlderInbox(
   const current = () => !stopped && original.current();
   function stop() {
     stopped = true;
+    cancellation.abort();
     state = 'stopped';
     let failure = false;
     try {
@@ -73,7 +76,7 @@ export function captureOlderInbox(
     }
     cursors = [];
     cleanupRequired = failure;
-    if (!failure) syncs.delete(sync);
+    if (!failure && syncs.get(sync) === token) syncs.delete(sync);
     if (failure) throw Error('private_history_cleanup_required');
   }
   async function page(
@@ -85,8 +88,8 @@ export function captureOlderInbox(
       let queue = Promise.resolve(),
         finished = false,
         failure: string | undefined;
-      let ids = Array.from<string>([]),
-        acceptedDeliveries = 0;
+      const ids = new Map<string, true>();
+      let acceptedDeliveries = 0;
       function receive(message: PrivatePageMessage) {
         if (finished) return;
         if (message.type === 'end') {
@@ -99,8 +102,8 @@ export function captureOlderInbox(
                 acceptedDeliveries < (message.deliveries ?? acceptedDeliveries)
                   ? 'unsupported'
                   : message.reason),
-              deliveries: message.deliveries ?? ids.length,
-              ids: ids.slice()
+              deliveries: message.deliveries ?? ids.size,
+              ids: Array.from(ids.keys())
             })
           );
           return;
@@ -128,7 +131,8 @@ export function captureOlderInbox(
             const retained = await retainInboxEnvelope(
               original.repository,
               original.session,
-              admitted
+              admitted,
+              cancellation.signal
             );
             if (!current()) return;
             if (
@@ -139,8 +143,12 @@ export function captureOlderInbox(
               return;
             }
             acceptedDeliveries++;
-            const parsed = JSON.parse(message.wire) as { id: string };
-            if (!ids.includes(parsed.id)) ids = ids.concat(parsed.id);
+            const parsed = inboxEnvelopeSnapshot(admitted);
+            if (!parsed) {
+              failure = 'unsupported';
+              return;
+            }
+            ids.set(parsed.id, true);
           })
           .catch(() => {
             failure = 'unknown_completion';
@@ -264,7 +272,7 @@ export function captureOlderInbox(
               ? 'partial'
               : 'older_available';
         }
-        return true;
+        return current();
       } catch {
         if (!stopped) {
           state = 'needs_action';

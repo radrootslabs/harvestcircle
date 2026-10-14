@@ -5,7 +5,7 @@ import {
 } from '../runtime/private-session.ts';
 import { canonicalPublicKey } from '../contracts/public-key.ts';
 import { exactLocalFields } from '../contracts/local-records.ts';
-import { LOCAL_PERSISTENCE_BUDGETS } from '../config/budgets.ts';
+import { LOCAL_PERSISTENCE_BUDGETS, RELAY_BUDGETS } from '../config/budgets.ts';
 import { privateRecordSettlement } from './local-inventory.ts';
 import {
   browserDatabaseState,
@@ -39,19 +39,80 @@ type Scope = Readonly<{ database: BrowserDatabase; owner: string }>;
 type Row = Readonly<{
   store: Store;
   record: PrivateRecord;
+  handle: PrivateRecordHandle;
   wire: string;
   bytes: number;
 }>;
 const repositories = new WeakMap<PrivateStorageRepository, Scope>();
+type ValidatedWire = Readonly<{
+  wire: string;
+  handle: PrivateRecordHandle;
+  bytes: number;
+}>;
+type ValidationState = Readonly<{
+  entries: Map<string, ValidatedWire>;
+  bytes: number;
+}>;
+// Ephemeral ciphertext proofs belong to the genuine repository scope. Every
+// operation still visits every native owner row and checks all keys/headers and
+// quotas. Neither persisted summaries nor cached count/absence is trusted.
+const validations = new WeakMap<
+  Scope,
+  Readonly<Record<Store, ValidationState>>
+>();
+function remember(
+  scope: Scope,
+  store: Store,
+  id: string,
+  value: ValidatedWire
+): void {
+  const countCap =
+      store === 'private_sends'
+        ? LOCAL_PERSISTENCE_BUDGETS.unfinishedPrivateSends
+        : LOCAL_PERSISTENCE_BUDGETS.receivedEnvelopes,
+    byteCap =
+      store === 'private_sends'
+        ? LOCAL_PERSISTENCE_BUDGETS.privateSendBytes
+        : LOCAL_PERSISTENCE_BUDGETS.receivedCiphertextBytes;
+  if (value.bytes > byteCap) return;
+  const stores = validations.get(scope) ?? {
+      private_sends: { entries: new Map<string, ValidatedWire>(), bytes: 0 },
+      received_envelopes: {
+        entries: new Map<string, ValidatedWire>(),
+        bytes: 0
+      }
+    },
+    state = stores[store],
+    entries = state.entries;
+  let bytes = state.bytes;
+  const old = entries.get(id);
+  if (old) {
+    entries.delete(id);
+    bytes -= old.bytes;
+  }
+  while (entries.size >= countCap || bytes + value.bytes > byteCap) {
+    const first = entries.keys().next().value;
+    if (first === undefined) break;
+    bytes -= entries.get(first)!.bytes;
+    entries.delete(first);
+  }
+  entries.set(id, value);
+  validations.set(scope, {
+    ...stores,
+    [store]: { entries, bytes: bytes + value.bytes }
+  });
+}
+
 const failed = (
   reason: PrivateStorageFailure
 ): PrivateStorageResult<never> => ({ ok: false, reason });
 function scopeOf(repository: PrivateStorageRepository): Scope | undefined {
   const scope = repositories.get(repository);
   try {
-    return scope && browserDatabaseState(scope.database).state === 'ready'
-      ? scope
-      : undefined;
+    if (scope && browserDatabaseState(scope.database).state === 'ready')
+      return scope;
+    if (scope) validations.delete(scope);
+    return undefined;
   } catch {
     return undefined;
   }
@@ -72,7 +133,13 @@ export function createPrivateStorageRepository(
     return undefined;
   }
 }
+export function privateStorageOwner(
+  repository: PrivateStorageRepository
+): string | undefined {
+  return scopeOf(repository)?.owner;
+}
 function stored(
+  scope: Scope,
   value: unknown,
   store: Store,
   owner: string,
@@ -82,10 +149,15 @@ function stored(
     !exactLocalFields(value, ['owner', 'id', 'wire']) ||
     value.owner !== owner ||
     value.id !== id ||
-    typeof value.wire !== 'string'
+    typeof value.wire !== 'string' ||
+    typeof id !== 'string'
   )
     return undefined;
-  const decoded = decodePrivateRecord(value.wire, owner, id);
+  const cached = validations.get(scope)?.[store].entries.get(id);
+  const decoded =
+    cached?.wire === value.wire
+      ? { ok: true as const, value: cached.handle }
+      : decodePrivateRecord(value.wire, owner, id);
   if (!decoded.ok) return undefined;
   const record = privateRecordSnapshot(decoded.value, owner, id);
   if (
@@ -93,12 +165,19 @@ function stored(
     (record.family === 'received_envelope') !== (store === 'received_envelopes')
   )
     return undefined;
-  return {
-    store,
-    record,
-    wire: value.wire,
-    bytes: new TextEncoder().encode(JSON.stringify(value)).length
-  };
+  // Equal original wire plus the three exact validated header fields fixes the
+  // encoded row length; property ordering does not change that length.
+  const bytes =
+    cached?.wire === value.wire
+      ? cached.bytes
+      : new TextEncoder().encode(JSON.stringify(value)).length;
+  if (cached?.wire !== value.wire)
+    remember(scope, store, id, {
+      wire: value.wire,
+      handle: decoded.value,
+      bytes
+    });
+  return { store, record, handle: decoded.value, wire: value.wire, bytes };
 }
 // Each store has an independent owner-scoped scan/quota. A corrupt received
 // namespace cannot reset or consume the outbox, and no uncertain row is evicted.
@@ -130,7 +209,7 @@ function transaction<T>(
   return new Promise((resolve) => {
     let result: PrivateStorageResult<T> | undefined,
       bytes = 0;
-    let rows = Array.from<Row>([]);
+    const rows = new Map<number, Row>();
     function refuse(reason: PrivateStorageFailure) {
       if (result && !result.ok) return;
       result = failed(reason);
@@ -171,22 +250,22 @@ function transaction<T>(
         try {
           const cursor = cursorRequest.result;
           if (!cursor) {
-            const outcome = finish(rows, tx, refuse);
+            const outcome = finish(Array.from(rows.values()), tx, refuse);
             if (outcome) result = outcome;
             return;
           }
           const key = cursor.primaryKey;
           const row =
             Array.isArray(key) && key.length === 2 && key[0] === scope.owner
-              ? stored(cursor.value, store, scope.owner, key[1])
+              ? stored(scope, cursor.value, store, scope.owner, key[1])
               : undefined;
           if (!row) {
             refuse('corrupt_record');
             return;
           }
-          rows = rows.concat(row);
+          rows.set(rows.size, row);
           bytes += row.bytes;
-          if (rows.length > countCap || bytes > byteCap) {
+          if (rows.size > countCap || bytes > byteCap) {
             refuse('capacity');
             return;
           }
@@ -331,6 +410,140 @@ export function commitPrivateRecord(
     };
   });
 }
+// Combine received lookup/merge/write only. The caller holds the actual owner
+// lock. Complete namespace validation and native completion remain mandatory;
+// changed writes require the caller's later exact readonly verification.
+export function retainPrivateReceivedRecord(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  incoming: PrivateRecordHandle,
+  cancellation?: AbortSignal
+): Promise<
+  PrivateStorageResult<
+    Readonly<{
+      record: PrivateRecordHandle;
+      status: 'retained' | 'duplicate';
+      changed: boolean;
+    }>
+  >
+> {
+  const scope = scopeOf(repository),
+    ownership = privateSessionOwnership(session),
+    identity = privateRecordIdentity(incoming),
+    candidate =
+      scope &&
+      identity &&
+      privateRecordSnapshot(incoming, scope.owner, identity.id);
+  // Pre-admission cancellation is not evidence of a native rollback.
+  if (cancellation?.aborted) return Promise.resolve(failed('invalid_scope'));
+  if (!scope || !ownership?.current() || ownership.owner !== scope.owner)
+    return Promise.resolve(failed('invalid_scope'));
+  if (
+    !identity ||
+    candidate?.family !== 'received_envelope' ||
+    candidate.revision !== 0 ||
+    candidate.read !== null ||
+    candidate.sources.length !== 1
+  )
+    return Promise.resolve(failed('invalid_record'));
+  return transaction<
+    Readonly<{
+      record: PrivateRecordHandle;
+      status: 'retained' | 'duplicate';
+      changed: boolean;
+    }>
+  >(
+    scope,
+    'received_envelopes',
+    'readwrite',
+    (rows, tx, refuse) => {
+      if (cancellation?.aborted) {
+        refuse('aborted');
+        return;
+      }
+      if (!ownership.current()) {
+        refuse('invalid_scope');
+        return;
+      }
+      const previous = rows.find((row) => row.record.id === identity.id);
+      let record = incoming,
+        status: 'retained' | 'duplicate' = 'retained';
+      if (previous) {
+        if (previous.record.family !== 'received_envelope') {
+          refuse('conflict');
+          return;
+        }
+        status = 'duplicate';
+        if (previous.record.sources.includes(candidate.sources[0]))
+          return {
+            ok: true,
+            value: { record: previous.handle, status, changed: false }
+          };
+        if (
+          previous.record.sources.length >= RELAY_BUDGETS.inbox ||
+          previous.record.revision === Number.MAX_SAFE_INTEGER
+        ) {
+          refuse('capacity');
+          return;
+        }
+        const decoded = decodePrivateRecord(
+          JSON.stringify({
+            ...previous.record,
+            revision: previous.record.revision + 1,
+            sources: [...previous.record.sources, candidate.sources[0]]
+          }),
+          scope.owner,
+          identity.id
+        );
+        if (!decoded.ok) {
+          refuse('invalid_record');
+          return;
+        }
+        record = decoded.value;
+      }
+      const wire = privateRecordWire(record, scope.owner, identity.id);
+      if (!wire) {
+        refuse('invalid_record');
+        return;
+      }
+      const row = { owner: scope.owner, id: identity.id, wire },
+        bytes = new TextEncoder().encode(JSON.stringify(row)).length;
+      if (
+        (!previous &&
+          rows.length >= LOCAL_PERSISTENCE_BUDGETS.receivedEnvelopes) ||
+        rows.reduce((total, item) => total + item.bytes, bytes) -
+          (previous?.bytes ?? 0) >
+          LOCAL_PERSISTENCE_BUDGETS.receivedCiphertextBytes
+      ) {
+        refuse('capacity');
+        return;
+      }
+      if (cancellation?.aborted) {
+        refuse('aborted');
+        return;
+      }
+      if (!ownership.current()) {
+        refuse('invalid_scope');
+        return;
+      }
+      tx.objectStore('received_envelopes').put(row);
+      return { ok: true, value: { record, status, changed: true } };
+    },
+    (refuse) => {
+      const abort = () => refuse('aborted'),
+        off = subscribePrivateSessionClose(session, () =>
+          refuse('invalid_scope')
+        );
+      cancellation?.addEventListener('abort', abort, { once: true });
+      if (cancellation?.aborted) abort();
+      return () => {
+        off();
+        cancellation?.removeEventListener('abort', abort);
+      };
+    }
+  );
+}
+
 export function loadPrivateRecord(
   repository: PrivateStorageRepository,
   store: Store,
@@ -343,11 +556,10 @@ export function loadPrivateRecord(
     typeof id !== 'string'
   )
     return Promise.resolve(failed('invalid_record'));
-  return transaction(scope, store, 'readonly', (rows) => {
+  return transaction<PrivateRecordHandle>(scope, store, 'readonly', (rows) => {
     const row = rows.find((row) => row.record.id === id);
     if (!row) return failed('invalid_record');
-    const decoded = decodePrivateRecord(row.wire, scope.owner, id);
-    return decoded.ok ? decoded : failed('corrupt_record');
+    return { ok: true, value: row.handle };
   });
 }
 export function inspectPrivateStorage(
@@ -379,17 +591,7 @@ export function listPrivateReceivedRecords(
     'received_envelopes',
     'readonly',
     (rows) => {
-      let handles = Array.from<PrivateRecordHandle>([]);
-      for (const row of rows) {
-        const decoded = decodePrivateRecord(
-          row.wire,
-          scope.owner,
-          row.record.id
-        );
-        if (!decoded.ok) return failed('corrupt_record');
-        handles = handles.concat(decoded.value);
-      }
-      return { ok: true, value: handles };
+      return { ok: true, value: rows.map((row) => row.handle) };
     }
   );
 }
@@ -405,17 +607,7 @@ export function listPrivateSendRecords(
     'private_sends',
     'readonly',
     (rows) => {
-      let handles = Array.from<PrivateRecordHandle>([]);
-      for (const row of rows) {
-        const decoded = decodePrivateRecord(
-          row.wire,
-          scope.owner,
-          row.record.id
-        );
-        if (!decoded.ok) return failed('corrupt_record');
-        handles = handles.concat(decoded.value);
-      }
-      return { ok: true, value: handles };
+      return { ok: true, value: rows.map((row) => row.handle) };
     }
   );
 }

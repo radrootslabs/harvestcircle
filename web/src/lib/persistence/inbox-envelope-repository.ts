@@ -1,6 +1,6 @@
 import { canonicalPublicKey } from '../contracts/public-key.ts';
 import { canonicalRelayOrigin } from '../config/relays.ts';
-import { PRIVATE_TRANSPORT_BUDGETS, RELAY_BUDGETS } from '../config/budgets.ts';
+import { PRIVATE_TRANSPORT_BUDGETS } from '../config/budgets.ts';
 import { boundedUtf8 } from '../contracts/food-availability-v1/text.ts';
 import { safeUnsignedInteger } from '../nostr/envelope-bounds.ts';
 import {
@@ -19,7 +19,7 @@ import {
 } from './private-records.ts';
 import {
   loadPrivateRecord,
-  commitPrivateRecord,
+  retainPrivateReceivedRecord,
   type PrivateStorageRepository,
   type PrivateStorageFailure
 } from './private-storage.ts';
@@ -92,7 +92,8 @@ export type InboxRetentionResult = Readonly<{
 export async function retainInboxEnvelope(
   repository: PrivateStorageRepository,
   session: PrivateSession,
-  envelope: InboxEnvelope
+  envelope: InboxEnvelope,
+  cancellation?: AbortSignal
 ): Promise<InboxRetentionResult> {
   const admitted = envelopes.get(envelope),
     ownership = privateSessionOwnership(session);
@@ -104,70 +105,39 @@ export async function retainInboxEnvelope(
     !navigator.locks?.request
   )
     return { status: 'invalid' };
+  if (cancellation?.aborted) return { status: 'stopped' };
   try {
     return await navigator.locks.request(
       'harvestcircle:owner:' + admitted.owner,
       { mode: 'exclusive', ifAvailable: true },
       async (lock) => {
         if (!lock) return { status: 'busy' };
-        if (!ownership.current()) return { status: 'stopped' };
-        const loaded = await loadPrivateRecord(
+        if (!ownership.current() || cancellation?.aborted)
+          return { status: 'stopped' };
+        const committed = await retainPrivateReceivedRecord(
           repository,
-          'received_envelopes',
-          admitted.id
+          session,
+          admitted.record,
+          cancellation
         );
-        if (!ownership.current()) return { status: 'stopped' };
-        let next = admitted.record,
-          base: PrivateRecordHandle | null = null,
-          duplicate = false;
-        if (loaded.ok) {
-          const row = privateRecordSnapshot(
-            loaded.value,
-            admitted.owner,
-            admitted.id
-          );
-          if (!row || row.family !== 'received_envelope')
-            return { status: 'conflict' };
-          // Keep the first valid signed outer and first observation. Equal outer
-          // IDs are deduplication, not trusted inner-message identity/display.
-          duplicate = true;
-          base = loaded.value;
-          if (row.sources.includes(admitted.source))
-            return { status: 'duplicate' };
-          if (
-            row.sources.length >= RELAY_BUDGETS.inbox ||
-            row.revision === Number.MAX_SAFE_INTEGER
-          )
-            return { status: 'capacity' };
-          const decoded = decodePrivateRecord(
-            JSON.stringify({
-              ...row,
-              revision: row.revision + 1,
-              sources: [...row.sources, admitted.source]
-            }),
-            admitted.owner,
-            admitted.id
-          );
-          if (!decoded.ok) return { status: 'invalid' };
-          next = decoded.value;
-        } else if (loaded.reason !== 'invalid_record')
-          return { status: loaded.reason };
-        if (!ownership.current()) return { status: 'stopped' };
-        const committed = await commitPrivateRecord(repository, next, base);
+        if (!ownership.current() || cancellation?.aborted)
+          return { status: 'stopped' };
         if (!committed.ok) return { status: committed.reason };
+        if (!committed.value.changed) return { status: committed.value.status };
         const readback = await loadPrivateRecord(
           repository,
           'received_envelopes',
           admitted.id
         );
-        if (!ownership.current()) return { status: 'stopped' };
+        if (!ownership.current() || cancellation?.aborted)
+          return { status: 'stopped' };
         if (!readback.ok) return { status: 'unknown_completion' };
         if (
           privateRecordWire(readback.value, admitted.owner, admitted.id) !==
-          privateRecordWire(next, admitted.owner, admitted.id)
+          privateRecordWire(committed.value.record, admitted.owner, admitted.id)
         )
           return { status: 'conflict' };
-        return { status: duplicate ? 'duplicate' : 'retained' };
+        return { status: committed.value.status };
       }
     );
   } catch {

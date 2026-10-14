@@ -83,7 +83,12 @@ declare const recordBrand: unique symbol;
 export type PrivateRecordHandle = Readonly<{ [recordBrand]: true }>;
 const records = new WeakMap<
   PrivateRecordHandle,
-  Readonly<{ owner: string; id: string; wire: string }>
+  Readonly<{
+    owner: string;
+    id: string;
+    wire: string;
+    outerMetadata?: Readonly<{ id: string; createdAt: number }>;
+  }>
 >();
 export type PrivateRecordFailure =
   | 'invalid_scope'
@@ -331,7 +336,7 @@ function outer(
   raw: unknown,
   destination: string,
   received = false
-): string | undefined {
+): Readonly<{ id: string; createdAt: number }> | undefined {
   if (
     typeof raw !== 'string' ||
     !boundedUtf8(raw, PRIVATE_TRANSPORT_BUDGETS.envelopeBytes)
@@ -376,7 +381,7 @@ function outer(
   } catch {
     return undefined;
   }
-  return event.id;
+  return { id: event.id, createdAt: event.created_at };
 }
 function artifact(
   value: unknown,
@@ -385,7 +390,7 @@ function artifact(
   return (
     exactLocalFields(value, ['eventId', 'wire']) &&
     hash(value.eventId) &&
-    outer(value.wire, destination) === value.eventId
+    outer(value.wire, destination)?.id === value.eventId
   );
 }
 function receipt(
@@ -465,6 +470,7 @@ export function decodePrivateRecord(
     if (fields.owner !== owner) return failed('owner_mismatch');
     if (fields.id !== id) return failed('id_mismatch');
     let record: PrivateRecord;
+    let outerMetadata: Readonly<{ id: string; createdAt: number }> | undefined;
     if (fields.family === 'private_send_reservation') {
       const reservation = inspectPrivateSendReservation(raw, owner, id);
       if (!reservation) return failed('malformed');
@@ -532,6 +538,7 @@ export function decodePrivateRecord(
           : { receipts: fields.receipts as PrivateTargetReceipt[] })
       };
     } else if (fields.family === 'received_envelope') {
+      outerMetadata = outer(fields.outer, owner, true);
       if (
         !hash(id) ||
         !exactLocalFields(fields, [
@@ -546,7 +553,7 @@ export function decodePrivateRecord(
           'read'
         ]) ||
         !unsigned(fields.revision) ||
-        outer(fields.outer, owner, true) !== id ||
+        outerMetadata?.id !== id ||
         !unsigned(fields.observedAtMilliseconds) ||
         !Array.isArray(fields.sources) ||
         fields.sources.length === 0 ||
@@ -582,7 +589,12 @@ export function decodePrivateRecord(
       };
     } else return failed('malformed');
     const token = Object.freeze({}) as PrivateRecordHandle;
-    records.set(token, { owner, id, wire: JSON.stringify(record) });
+    records.set(token, {
+      owner,
+      id,
+      wire: JSON.stringify(record),
+      ...(outerMetadata ? { outerMetadata } : {})
+    });
     return { ok: true, value: token };
   } catch {
     return failed('malformed');
@@ -605,6 +617,21 @@ export function privateRecordSnapshot(
 ): PrivateRecord | undefined {
   const wire = privateRecordWire(token, owner, id);
   return wire === undefined ? undefined : (JSON.parse(wire) as PrivateRecord);
+}
+// Strict original codec transport metadata only. A detached record or wrong
+// owner/ID cannot borrow a verified outer; this is never inner/room permission.
+export function privateReceivedOuterMetadata(
+  token: PrivateRecordHandle,
+  owner: unknown,
+  id: unknown
+): Readonly<{ id: string; createdAt: number }> | undefined {
+  const saved = records.get(token);
+  return saved &&
+    saved.owner === owner &&
+    saved.id === id &&
+    saved.outerMetadata
+    ? { ...saved.outerMetadata }
+    : undefined;
 }
 // Handle identity contains no private body; callers must still match namespace.
 export function privateRecordIdentity(

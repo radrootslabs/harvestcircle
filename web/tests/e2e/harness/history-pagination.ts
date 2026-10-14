@@ -18,6 +18,12 @@ import {
 import { createInboxResolver } from '../../../src/lib/messaging/resolve-inbox.ts';
 import { outerHistoryPlan } from '../../../src/lib/messaging/history-cursor.ts';
 import { finalizeEvent } from 'applesauce-core/helpers';
+import {
+  browserDatabaseTransaction,
+  openBrowserDatabase,
+  closeBrowserDatabase
+} from '../../../src/lib/persistence/database.ts';
+import { decodePrivateRecord } from '../../../src/lib/persistence/private-records.ts';
 import { nip44 } from 'applesauce-core/helpers/encryption';
 import {
   captureUnlockedSession,
@@ -45,7 +51,10 @@ import {
   inboxSyncSnapshot,
   type InboxSync
 } from '../../../src/lib/messaging/inbox-sync.ts';
-import { loadPrivateRecord } from '../../../src/lib/persistence/private-storage.ts';
+import {
+  loadPrivateRecord,
+  inspectPrivateStorage
+} from '../../../src/lib/persistence/private-storage.ts';
 import { privateRecordSnapshot } from '../../../src/lib/persistence/private-records.ts';
 import {
   getPublicStore,
@@ -136,6 +145,8 @@ export async function makeFixture(
   const self = (await f.row())!.record.self;
   let ingress: InboxSync | undefined;
   let older: OlderInbox | undefined;
+  let capacityWires: string[] = [],
+    capacityWrites = 0;
   let authorized = true;
   let restoreFault = () => {};
   let releaseKey: (() => void) | undefined;
@@ -216,6 +227,22 @@ export async function makeFixture(
     loadOlder(review: unknown = 'reviewed_load_older') {
       return older ? loadOlderInbox(older, review) : Promise.resolve(false);
     },
+    oldStopAfterSuccessor() {
+      if (!older || !ingress) throw Error('original history controller absent');
+      const old = older;
+      stopOlderInbox(old);
+      const successor = captureOlderInbox(ingress, 'reviewed_load_older');
+      if (!successor) throw Error('genuine successor absent');
+      older = successor;
+      stopOlderInbox(old);
+      const third = captureOlderInbox(ingress, 'reviewed_load_older');
+      if (third) stopOlderInbox(third);
+      return {
+        successor: !!successor,
+        third: !!third,
+        current: olderInboxSnapshot(successor)
+      };
+    },
     copiedOlderStart() {
       return older
         ? loadOlderInbox(Object.freeze({ ...older }), 'reviewed_load_older')
@@ -224,6 +251,80 @@ export async function makeFixture(
     olderSnapshot: () => older && olderInboxSnapshot(older),
     stopOlder() {
       if (older) stopOlderInbox(older);
+    },
+    // Source-only bulk strict ciphertext, not new inner-message/delivery proof.
+    async seedCapacity(source = 'wss://archive.example.org') {
+      const records = Array.from({ length: 2000 }, (_, index) => {
+        const outer =
+            index === 0
+              ? self.wire
+              : this.oldSignedOuter(Math.floor(Date.now() / 1000) - index),
+          event = JSON.parse(outer) as { id: string };
+        const wire = JSON.stringify({
+          schema: 1,
+          family: 'received_envelope',
+          owner: f.owner,
+          id: event.id,
+          revision: 0,
+          outer,
+          observedAtMilliseconds: Date.now(),
+          sources: [source],
+          read: null
+        });
+        if (!decodePrivateRecord(wire, f.owner, event.id).ok)
+          throw Error('strict capacity outer rejected');
+        return { owner: f.owner, id: event.id, wire };
+      });
+      capacityWires = records.map(
+        (row) => (JSON.parse(row.wire) as { outer: string }).outer
+      );
+      if (new Set(records.map((row) => row.id)).size !== 2000)
+        throw Error('capacity fixture IDs collide');
+      const opened = await openBrowserDatabase();
+      if (opened.state !== 'ready')
+        throw Error('owned capacity connection unavailable');
+      try {
+        const tx = browserDatabaseTransaction(
+          opened.owner,
+          ['received_envelopes'],
+          'readwrite'
+        );
+        for (const row of records)
+          tx.objectStore('received_envelopes').put(row);
+        await new Promise<void>((resolve, reject) => {
+          tx.addEventListener('complete', () => resolve());
+          tx.addEventListener('abort', () =>
+            reject(Error('capacity seed aborted'))
+          );
+        });
+      } finally {
+        closeBrowserDatabase(opened.owner);
+      }
+      const checked = await inspectPrivateStorage(
+        f.repository,
+        'received_envelopes'
+      );
+      if (!checked.ok || checked.value.count !== 2000)
+        throw Error('actual committed capacity absent');
+      return checked.value;
+    },
+    capacityOuterWires: () => capacityWires.slice(0, 500),
+    capacityWriteCount: () => capacityWrites,
+    observeCapacityWrites() {
+      const nativePut = Reflect.get<IDBObjectStore, 'put'>(
+          IDBObjectStore.prototype,
+          'put'
+        ),
+        priorRestore = restoreFault;
+      IDBObjectStore.prototype.put = function (...args) {
+        const request = Reflect.apply(nativePut, this, args);
+        if (this.name === 'received_envelopes') capacityWrites++;
+        return request;
+      };
+      restoreFault = () => {
+        IDBObjectStore.prototype.put = nativePut;
+        priorRestore();
+      };
     },
     async seed(wire: string, origin = 'wss://archive.example.org') {
       const envelope = admitInboxEnvelope(wire, f.owner, origin, Date.now());

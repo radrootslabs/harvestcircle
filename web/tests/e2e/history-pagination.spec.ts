@@ -21,7 +21,8 @@ let requests: { origin: string; frame: unknown[] }[] = [],
 let frames: Record<string, unknown>[][] = [[], []],
   fault: number | undefined,
   hold: number | undefined,
-  ignoreLimit = false;
+  ignoreLimit = false,
+  ignoreWindow = false;
 test.beforeAll(async () => {
   server = await createStaticHarness();
   for (let i = 0; i < 2; i++) {
@@ -63,8 +64,9 @@ test.beforeAll(async () => {
         const rows = frames[i]
           .filter(
             (e) =>
-              (f.since === undefined || Number(e.created_at) >= f.since) &&
-              (f.until === undefined || Number(e.created_at) <= f.until)
+              ignoreWindow ||
+              ((f.since === undefined || Number(e.created_at) >= f.since) &&
+                (f.until === undefined || Number(e.created_at) <= f.until))
           )
           .sort(
             (a, b) =>
@@ -112,6 +114,7 @@ test.beforeEach(async ({ page }) => {
   fault = undefined;
   hold = undefined;
   ignoreLimit = false;
+  ignoreWindow = false;
   await page.addInitScript(
     ({ origins, endpoints }) => {
       const Native = window.WebSocket;
@@ -422,5 +425,114 @@ test('budget pause requires a new explicit review and starts a fresh bounded act
     state: 'older_available',
     reason: null,
     historyComplete: false
+  });
+});
+
+test('CR005500 retained-capacity duplicate deliveries keep bounded budget facts', async ({
+  page
+}) => {
+  const capacity = await page.evaluate(() =>
+    window.hcp097Fixture.seedCapacity()
+  );
+  expect(capacity.count).toBe(2000);
+  expect(capacity.bytes).toBeLessThanOrEqual(50331648);
+  const wire = await page.evaluate(() => window.hcp097Fixture.outer);
+  frames[0] = Array.from({ length: 501 }, () => event(wire));
+  ignoreLimit = true;
+  ignoreWindow = true;
+  const started = performance.now();
+  await page.evaluate(async () => {
+    window.hcp097Fixture.captureOlder();
+    await window.hcp097Fixture.loadOlder();
+  });
+  const snapshot = await page.evaluate(() =>
+    window.hcp097Fixture.olderSnapshot()
+  );
+  expect(requests).toHaveLength(1);
+  expect(snapshot).toMatchObject({
+    state: 'needs_action',
+    reason: 'budget',
+    historyComplete: false
+  });
+  console.log(
+    JSON.stringify({
+      fixture: 'CR005_TEST_ONLY_500_DELIVERIES_AT_2000_CAPACITY',
+      capacity,
+      wireDeliveriesSent: 501,
+      logicalActionCap: 500,
+      milliseconds: performance.now() - started,
+      snapshot,
+      qualification:
+        'Actual source controller/IDB; hostile controlled relay ignores window/limit to charge500 before dedup; no access/operator/fullQ'
+    })
+  );
+});
+test('CR005 stop during capacity-scale queued history fences remaining writes and owns teardown', async ({
+  page
+}) => {
+  await page.evaluate(() =>
+    window.hcp097Fixture.seedCapacity('wss://peer.example.org')
+  );
+  const wires = await page.evaluate(() =>
+    window.hcp097Fixture.capacityOuterWires()
+  );
+  expect(wires).toHaveLength(500);
+  frames[0] = wires.map((wire) => event(wire));
+  await page.evaluate(() => window.hcp097Fixture.observeCapacityWrites());
+  ignoreLimit = true;
+  hold = 0;
+  await page.evaluate(() => {
+    window.hcp097Fixture.captureOlder();
+    window.hcp097Pending = window.hcp097Fixture.loadOlder();
+  });
+  await expect.poll(() => requests.length).toBeGreaterThan(0);
+  await expect
+    .poll(() => page.evaluate(() => window.hcp097Fixture.capacityWriteCount()))
+    .toBeGreaterThan(0);
+  const result = await page.evaluate(async () => {
+    const started = performance.now(),
+      writesBeforeStop = window.hcp097Fixture.capacityWriteCount();
+    window.hcp097Fixture.stopOlder();
+    const immediate = window.hcp097Fixture.olderSnapshot();
+    const completed = await window.hcp097Pending;
+    return {
+      immediate,
+      completed,
+      writesBeforeStop,
+      writesAfterDrain: window.hcp097Fixture.capacityWriteCount(),
+      milliseconds: performance.now() - started
+    };
+  });
+  expect(result.immediate).toMatchObject({
+    state: 'stopped',
+    historyComplete: false
+  });
+  expect(result.completed).toBe(false);
+  expect(result.writesBeforeStop).toBeGreaterThan(0);
+  expect(result.writesBeforeStop).toBeLessThan(500);
+  expect(result.writesAfterDrain).toBe(result.writesBeforeStop);
+  await expect.poll(() => closes.length).toBeGreaterThan(0);
+  console.log(
+    JSON.stringify({
+      fixture: 'CR005_TEST_ONLY_CAPACITY_STOP',
+      deliveriesSent: 500,
+      ...result,
+      qualification:
+        'Stop/owned controller teardown only, no rolled-back in-flight write or operator/fullQ claim'
+    })
+  );
+});
+
+test('CR005 retained old Stop cannot retire the genuine successor history registry owner', async ({
+  page
+}) => {
+  const result = await page.evaluate(() => {
+    window.hcp097Fixture.captureOlder();
+    return window.hcp097Fixture.oldStopAfterSuccessor();
+  });
+  expect(result).toMatchObject({
+    successor: true,
+    third: false,
+    current: { state: 'ready', historyComplete: false }
   });
 });

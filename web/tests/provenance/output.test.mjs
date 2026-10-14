@@ -1958,6 +1958,10 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'src/lib/persistence/local-inventory.ts',
           'src/lib/persistence/private-storage.ts',
           'src/lib/persistence/private-outbox-cleanup.ts',
+          'src/lib/persistence/private-records.ts',
+          'src/lib/persistence/inbox-envelope-repository.ts',
+          'src/lib/persistence/history-metadata-repository.ts',
+          'src/lib/messaging/history-pagination.ts',
           'src/lib/runtime/private-session.ts',
           'src/lib/components/LocalDataReview.svelte'
         ]) {

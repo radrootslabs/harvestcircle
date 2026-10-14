@@ -366,6 +366,12 @@ async function operationalFlagsAdmission(web) {
       '8bcc73be03321e60a6fbbe7ba58de14eb8fb34db5d5cdce0adee31b5467d7bb9',
     'src/lib/persistence/local-data-review.ts':
       '90379b183d0a1d8885076fbfc593d7c9ac1e351b16ce7800890107014e5cb0e4',
+    'src/lib/persistence/inbox-envelope-repository.ts':
+      'd3613a098c93c8881d53de12f91ffb689827926217cabcba66894885d49cb095',
+    'src/lib/persistence/history-metadata-repository.ts':
+      'afe4656e59bd6b365444fbda64fe6572ffa4c5323c474ee862e3cf19252b6f6d',
+    'src/lib/messaging/history-pagination.ts':
+      '79b22b312a126b55c80a3c6ca22724bd2c5f3ad766f8600f3647028a2624c255',
     'src/lib/persistence/private-outbox-cleanup.ts':
       '13f4e7d771b3a8d4ec7703f2026a1c8ff71582a2d2a810b9d402d58684b2e2b6',
     'src/lib/persistence/local-inventory.ts':
@@ -375,9 +381,9 @@ async function operationalFlagsAdmission(web) {
     'src/lib/persistence/local-public-hides.ts':
       '4f0e64ed0fabbe9f86014a0512e7dbd3c81711f28ca2c626e2dafa5cda349f83',
     'src/lib/persistence/private-records.ts':
-      '3389fe2fc5b9b84b292b4340fe1edda16a2eb365c1b0fb00d965827dd9b02ce6',
+      'a9a7c450808ea363594f2cce5d50c48b8a614197dd0b9690c4860d8387419dcf',
     'src/lib/persistence/private-storage.ts':
-      'a5587d3d1e8af689355e170e19d3b8572eba35b0698dab15f0b97294a0ad6e1e',
+      '49b9ef328e569e93c2e88f4c0e8e3e927985fb9ac53daa6814b7471451b81104',
     'src/lib/persistence/public-publications.ts':
       'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
     'src/lib/persistence/public-receipts.ts':
@@ -610,6 +616,12 @@ async function privacyDataAdmission(web) {
       '8bcc73be03321e60a6fbbe7ba58de14eb8fb34db5d5cdce0adee31b5467d7bb9',
     'src/lib/persistence/local-data-review.ts':
       '90379b183d0a1d8885076fbfc593d7c9ac1e351b16ce7800890107014e5cb0e4',
+    'src/lib/persistence/inbox-envelope-repository.ts':
+      'd3613a098c93c8881d53de12f91ffb689827926217cabcba66894885d49cb095',
+    'src/lib/persistence/history-metadata-repository.ts':
+      'afe4656e59bd6b365444fbda64fe6572ffa4c5323c474ee862e3cf19252b6f6d',
+    'src/lib/messaging/history-pagination.ts':
+      '79b22b312a126b55c80a3c6ca22724bd2c5f3ad766f8600f3647028a2624c255',
     'src/lib/persistence/private-outbox-cleanup.ts':
       '13f4e7d771b3a8d4ec7703f2026a1c8ff71582a2d2a810b9d402d58684b2e2b6',
     'src/lib/persistence/local-inventory.ts':
@@ -619,9 +631,9 @@ async function privacyDataAdmission(web) {
     'src/lib/persistence/local-public-hides.ts':
       '4f0e64ed0fabbe9f86014a0512e7dbd3c81711f28ca2c626e2dafa5cda349f83',
     'src/lib/persistence/private-records.ts':
-      '3389fe2fc5b9b84b292b4340fe1edda16a2eb365c1b0fb00d965827dd9b02ce6',
+      'a9a7c450808ea363594f2cce5d50c48b8a614197dd0b9690c4860d8387419dcf',
     'src/lib/persistence/private-storage.ts':
-      'a5587d3d1e8af689355e170e19d3b8572eba35b0698dab15f0b97294a0ad6e1e',
+      '49b9ef328e569e93c2e88f4c0e8e3e927985fb9ac53daa6814b7471451b81104',
     'src/lib/persistence/public-publications.ts':
       'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
     'src/lib/persistence/public-receipts.ts':
@@ -824,7 +836,7 @@ async function supportReportingAdmission(web) {
     'src/lib/persistence/local-public-hides.ts':
       '4f0e64ed0fabbe9f86014a0512e7dbd3c81711f28ca2c626e2dafa5cda349f83',
     'src/lib/persistence/private-storage.ts':
-      'a5587d3d1e8af689355e170e19d3b8572eba35b0698dab15f0b97294a0ad6e1e',
+      '49b9ef328e569e93c2e88f4c0e8e3e927985fb9ac53daa6814b7471451b81104',
     'src/lib/persistence/public-publications.ts':
       'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
     'src/lib/persistence/public-receipts.ts':
@@ -1011,7 +1023,7 @@ async function privateBlockingAdmission(web) {
     'src/lib/persistence/local-public-hides.ts':
       '4f0e64ed0fabbe9f86014a0512e7dbd3c81711f28ca2c626e2dafa5cda349f83',
     'src/lib/persistence/private-storage.ts':
-      'a5587d3d1e8af689355e170e19d3b8572eba35b0698dab15f0b97294a0ad6e1e',
+      '49b9ef328e569e93c2e88f4c0e8e3e927985fb9ac53daa6814b7471451b81104',
     'src/lib/persistence/public-publications.ts':
       'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
     'src/lib/persistence/public-receipts.ts':
@@ -2134,7 +2146,7 @@ async function inboxPresentationAdmission(web) {
     'src/lib/messaging/conversation-thread.ts':
       '7367f0e6d96a9f249514f66c2459274e856eb83462523e37264d4cd97d2e36d1',
     'src/lib/persistence/private-storage.ts':
-      'a5587d3d1e8af689355e170e19d3b8572eba35b0698dab15f0b97294a0ad6e1e',
+      '49b9ef328e569e93c2e88f4c0e8e3e927985fb9ac53daa6814b7471451b81104',
     'src/routes/messages/[conversationId=local_id]/+page.svelte':
       'b06c6189adee80b68bc6657fa0e8504551fe9a8b1655a6d81807ebee9930a5e7',
     'src/lib/components/MessageComposer.svelte':
