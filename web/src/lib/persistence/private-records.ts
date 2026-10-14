@@ -16,7 +16,10 @@ import {
   inboxOperatorQualificationSnapshot,
   validateInboxOperatorQualification
 } from '../config/inbox-operators.ts';
-import { incomingGiftWrapTags } from '../nostr/incoming-wire.ts';
+import {
+  incomingGiftWrapTags,
+  parseIncomingLayer
+} from '../nostr/incoming-wire.ts';
 import type { InboxRouteSnapshot } from '../messaging/inbox-routing.ts';
 import {
   LOCAL_PERSISTENCE_BUDGETS,
@@ -544,10 +547,43 @@ function probeBinding(value: unknown): value is PrivateAccessProbeBinding {
     targets(value.readTargets, 'read') && targets(value.archiveTargets, 'write')
   );
 }
+// Pure bounded metadata comparison only. This does not prove a relay effect,
+// original websocket bytes, nonce decryption, readiness or live ACK lineage.
+export function inboxProbeReadbackMatches(
+  self: PrivateCiphertextArtifact,
+  owner: string,
+  observedWire: unknown
+): boolean {
+  if (
+    !artifact(self, owner) ||
+    parseIncomingLayer(
+      observedWire,
+      PRIVATE_TRANSPORT_BUDGETS.envelopeBytes
+    ) === undefined
+  )
+    return false;
+  const original = verifyEnvelope(self.wire),
+    observed = verifyEnvelope(observedWire),
+    before = original.ok && verifiedEnvelopeSnapshot(original.value),
+    after = observed.ok && verifiedEnvelopeSnapshot(observed.value);
+  if (!before || !after) return false;
+  const core = (event: typeof before) =>
+    JSON.stringify([
+      event.id,
+      event.pubkey,
+      event.kind,
+      event.created_at,
+      event.tags,
+      event.content,
+      event.sig
+    ]);
+  return core(before) === core(after);
+}
 function probeReceipt(
   value: unknown,
   self: PrivateCiphertextArtifact,
-  binding: PrivateAccessProbeBinding
+  binding: PrivateAccessProbeBinding,
+  owner: string
 ): value is PrivateAccessProbeReceipt {
   if (
     !exactLocalFields(value, [
@@ -582,7 +618,7 @@ function probeReceipt(
     value.role === 'access_readback' &&
     binding.readTargets.includes(value.origin) &&
     (value.status === 'readback' || value.status === 'nonce_verified') &&
-    value.readbackWire === self.wire
+    inboxProbeReadbackMatches(self, owner, value.readbackWire)
   );
 }
 // Strict local storage codec only, never installed-account/effect authorization,
@@ -704,7 +740,8 @@ export function decodePrivateRecord(
               probeReceipt(
                 fact,
                 fields.self as PrivateCiphertextArtifact,
-                fields.binding as PrivateAccessProbeBinding
+                fields.binding as PrivateAccessProbeBinding,
+                owner
               )
             ))
       )

@@ -613,7 +613,8 @@ import { auditOutput } from '../../tools/check-output.mjs';
         assert.ok((await f.audit()).length > 0);
         for (const producer of [
           'src/lib/persistence/private-storage.ts',
-          'src/lib/persistence/inbox-probes.ts'
+          'src/lib/persistence/inbox-probes.ts',
+          'src/lib/persistence/private-records.ts'
         ]) {
           for (const change of ['changed', 'missing']) {
             await t.test(

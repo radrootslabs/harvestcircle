@@ -1,6 +1,8 @@
 import {
   inboxProbeArchiveAttemptEvidence,
-  type InboxProbeArchiveAttemptResult
+  type InboxProbeArchiveAttemptResult,
+  inboxProbeReadbackAttemptEvidence,
+  type InboxProbeReadbackAttemptResult
 } from '../nostr/private-pool.ts';
 import { inboxProbePolicyMatches } from '../nostr/inbox-access.ts';
 import type { RelayPolicy } from '../config/relays.ts';
@@ -413,14 +415,15 @@ export type InboxProbeArchiveCommitResult = Readonly<{
   disposition: 'original_protected';
 }>;
 const appliedArchiveEvidence = new WeakMap<
-  InboxProbeArchiveAttemptResult,
+  InboxProbeArchiveAttemptResult | InboxProbeReadbackAttemptResult,
   Lineage
 >();
 // Only actual SDK attempt observations can advance memory-only provenance.
 // This bookkeeping can settle after owner loss, but cannot authorize traffic.
-export async function commitInboxProbeArchiveAttempt(
+async function commitProbeAttempt(
   repository: PrivateStorageRepository,
-  result: InboxProbeArchiveAttemptResult
+  result: InboxProbeArchiveAttemptResult | InboxProbeReadbackAttemptResult,
+  role: 'access_archive' | 'access_readback'
 ): Promise<InboxProbeArchiveCommitResult> {
   const refuse = (
     status: InboxProbeArchiveCommitResult['status']
@@ -428,7 +431,14 @@ export async function commitInboxProbeArchiveAttempt(
     status,
     disposition: 'original_protected'
   });
-  const effect = inboxProbeArchiveAttemptEvidence(result);
+  const effect =
+    role === 'access_archive'
+      ? inboxProbeArchiveAttemptEvidence(
+          result as InboxProbeArchiveAttemptResult
+        )
+      : inboxProbeReadbackAttemptEvidence(
+          result as InboxProbeReadbackAttemptResult
+        );
   if (!effect || effect.repository !== repository) return refuse('invalid');
   const saved = acknowledgements.get(effect.acknowledgement),
     lineage = saved?.lineage;
@@ -486,9 +496,13 @@ export async function commitInboxProbeArchiveAttempt(
           return refuse('invalid_record');
         const last = next.receipts[next.receipts.length - 1];
         if (
-          last.role !== 'access_archive' ||
+          last.role !== role ||
           last.eventId !== lineage.record().self!.eventId ||
-          !lineage.record().binding.archiveTargets.includes(last.origin)
+          !(
+            role === 'access_archive'
+              ? lineage.record().binding.archiveTargets
+              : lineage.record().binding.readTargets
+          ).includes(last.origin)
         )
           return refuse('invalid_record');
         const committed = await commitPrivateRecord(
@@ -527,4 +541,17 @@ export async function commitInboxProbeArchiveAttempt(
   } finally {
     lineage.finish();
   }
+}
+
+export function commitInboxProbeArchiveAttempt(
+  repository: PrivateStorageRepository,
+  result: InboxProbeArchiveAttemptResult
+): Promise<InboxProbeArchiveCommitResult> {
+  return commitProbeAttempt(repository, result, 'access_archive');
+}
+export function commitInboxProbeReadbackAttempt(
+  repository: PrivateStorageRepository,
+  result: InboxProbeReadbackAttemptResult
+): Promise<InboxProbeArchiveCommitResult> {
+  return commitProbeAttempt(repository, result, 'access_readback');
 }

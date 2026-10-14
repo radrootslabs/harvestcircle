@@ -519,6 +519,7 @@ export function captureInboxProbePublicationAction(
   }
 }
 type ProbePermission = {
+  role: 'access_archive' | 'access_readback';
   action: ProbeAction;
   acknowledgement: InboxProbeAcknowledgement;
   wire: string;
@@ -531,18 +532,21 @@ type ProbePermission = {
   take(): boolean;
 };
 const probePermissions = new WeakMap<InboxProbePublication, ProbePermission>();
-export function captureInboxProbePublication(
+declare const probeReadbackBrand: unique symbol;
+export type InboxProbeReadback = Readonly<{ [probeReadbackBrand]: true }>;
+const probeReadbacks = new WeakMap<InboxProbeReadback, ProbePermission>();
+function captureProbePermission(
   repository: PrivateStorageRepository,
   session: PrivateSession,
   policy: RelayPolicy,
   acknowledgement: InboxProbeAcknowledgement,
   action: InboxProbePublicationAction,
   origin: string,
-  review: unknown
-): InboxProbePublication | undefined {
+  role: ProbePermission['role']
+): ProbePermission | undefined {
   if (
     typeof window === 'undefined' ||
-    review !== 'reviewed_inbox_probe_publication'
+    (role !== 'access_archive' && role !== 'access_readback')
   )
     return undefined;
   try {
@@ -563,12 +567,17 @@ export function captureInboxProbePublication(
       !captured.current() ||
       captured.original !== probeImmutable(binding.record) ||
       !binding.record.self ||
-      !binding.record.binding.archiveTargets.includes(origin)
+      !(
+        role === 'access_archive'
+          ? binding.record.binding.archiveTargets
+          : binding.record.binding.readTargets
+      ).includes(origin)
     )
       return undefined;
     if (
       !readRelayPolicy(policy).inbox.some(
-        ({ origin: allowed, write }) => allowed === origin && write
+        ({ origin: allowed, read, write }) =>
+          allowed === origin && (role === 'access_archive' ? write : read)
       )
     )
       return undefined;
@@ -600,8 +609,8 @@ export function captureInboxProbePublication(
         probeImmutable(fresh.record) === captured!.original
       );
     }
-    const token = Object.freeze({}) as InboxProbePublication;
-    probePermissions.set(token, {
+    return {
+      role,
       action: captured,
       acknowledgement,
       wire: artifact.wire,
@@ -616,11 +625,70 @@ export function captureInboxProbePublication(
         consumed = true;
         return true;
       }
-    });
-    return token;
+    };
   } catch {
     return undefined;
   }
+}
+export function captureInboxProbePublication(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  acknowledgement: InboxProbeAcknowledgement,
+  action: InboxProbePublicationAction,
+  origin: string,
+  review: unknown
+): InboxProbePublication | undefined {
+  if (review !== 'reviewed_inbox_probe_publication') return undefined;
+  const saved = captureProbePermission(
+    repository,
+    session,
+    policy,
+    acknowledgement,
+    action,
+    origin,
+    'access_archive'
+  );
+  if (!saved) return undefined;
+  const token = Object.freeze({}) as InboxProbePublication;
+  probePermissions.set(token, saved);
+  return token;
+}
+export function captureInboxProbeReadback(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  acknowledgement: InboxProbeAcknowledgement,
+  action: InboxProbePublicationAction,
+  origin: string,
+  review: unknown
+): InboxProbeReadback | undefined {
+  if (review !== 'reviewed_inbox_probe_readback') return undefined;
+  const saved = captureProbePermission(
+    repository,
+    session,
+    policy,
+    acknowledgement,
+    action,
+    origin,
+    'access_readback'
+  );
+  if (!saved) return undefined;
+  const token = Object.freeze({}) as InboxProbeReadback;
+  probeReadbacks.set(token, saved);
+  return token;
+}
+export function inboxProbeReadbackSnapshot(permission: InboxProbeReadback) {
+  const saved = probeReadbacks.get(permission);
+  return saved?.current()
+    ? {
+        owner: saved.owner,
+        command: saved.command,
+        role: 'access_readback' as const,
+        origin: saved.origin,
+        eventId: saved.eventId
+      }
+    : undefined;
 }
 export function inboxProbePublicationSnapshot(
   permission: InboxProbePublication
@@ -636,13 +704,12 @@ export function inboxProbePublicationSnapshot(
       }
     : undefined;
 }
-export async function takeInboxProbePublication(
-  permission: InboxProbePublication,
+async function takeProbePermission(
+  saved: ProbePermission | undefined,
   session: PrivateSession,
   policy: RelayPolicy,
   origin: string
 ) {
-  const saved = probePermissions.get(permission);
   if (
     !saved ||
     saved.action.session !== session ||
@@ -679,13 +746,42 @@ export async function takeInboxProbePublication(
     current: () => saved.current(),
     owner: saved.owner,
     command: saved.command,
-    role: 'access_archive' as const,
+    role: saved.role,
     origin,
     eventId: saved.eventId,
     networkMetered: true,
     beginNetwork: () =>
-      saved.action.meter.begin('access_archive', origin, saved.eventId, () =>
+      saved.action.meter.begin(saved.role, origin, saved.eventId, () =>
         saved.current()
       )
   };
+}
+
+export async function takeInboxProbePublication(
+  permission: InboxProbePublication,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  origin: string
+) {
+  const admitted = await takeProbePermission(
+    probePermissions.get(permission),
+    session,
+    policy,
+    origin
+  );
+  return admitted && { ...admitted, role: 'access_archive' as const };
+}
+export async function takeInboxProbeReadback(
+  permission: InboxProbeReadback,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  origin: string
+) {
+  const admitted = await takeProbePermission(
+    probeReadbacks.get(permission),
+    session,
+    policy,
+    origin
+  );
+  return admitted && { ...admitted, role: 'access_readback' as const };
 }

@@ -319,13 +319,13 @@ async function operationalFlagsAdmission(web) {
     'src/lib/nostr/self-recovery-reader.ts':
       'b15be31d13499b6e397f8b8dc691076e2b41b4157bf62013e5105cdd03875fa6',
     'src/lib/nostr/private-publisher.ts':
-      'f7032c8a138adf70331b690cbf88eaac695facc9fd58bb0f12f9461e46edd51b',
+      '2f939dda3504b760dbf3758632cda6ce38d3e16c6d142b814e40a0e295a77d90',
     'src/lib/nostr/private-pool.ts':
-      '4d5f5c671aefc5439ed2d4f1e7619e1a348598f98a81862ee8aed41ed03df286',
+      'c5d7884b33ea8dcde6aea495c92e7a53db12cf650f4476f2b66adc4165e771c2',
     'src/lib/nostr/inbox-ingress.ts':
       'f860a094a8ba767585124c795d44b7620064f73a5b3a0170041c581c0fc64ecb',
     'src/lib/persistence/inbox-probes.ts':
-      '857c2cf7e5cbf9253ad4b60b0f0e9a84cd99a1648d3b05d8e3013c695ac227fa',
+      'b4d3089bcf08a5c9ac3a99dfcf8e2c2e2160a2c8996c19fccb2670614f7b4d7a',
     'src/lib/nostr/inbox-access.ts':
       'd39f218b66fb51833e962b20152a2df81adf3097ba434a4cf2172ee4a7c8e3bc',
     'src/lib/nostr/seal-builder.ts':
@@ -401,7 +401,7 @@ async function operationalFlagsAdmission(web) {
     'src/lib/persistence/local-public-hides.ts':
       '4f0e64ed0fabbe9f86014a0512e7dbd3c81711f28ca2c626e2dafa5cda349f83',
     'src/lib/persistence/private-records.ts':
-      '2e5947e19df337ac1a7cd76b0f2cd6ec11cdb85d3fd38128e127fa8e3f30723a',
+      '821ef96740cf644bff4ffe5c7816c6aa097aa419bd16b8b301809b963294dafe',
     'src/lib/persistence/private-sends.ts':
       '6696f4179370cad373c06debf57b919598d53b3d25b6d2a6054a557608e4eb9c',
     'src/lib/persistence/private-storage.ts':
@@ -597,13 +597,13 @@ async function privacyDataAdmission(web) {
     'src/lib/nostr/self-recovery-reader.ts':
       'b15be31d13499b6e397f8b8dc691076e2b41b4157bf62013e5105cdd03875fa6',
     'src/lib/nostr/private-publisher.ts':
-      'f7032c8a138adf70331b690cbf88eaac695facc9fd58bb0f12f9461e46edd51b',
+      '2f939dda3504b760dbf3758632cda6ce38d3e16c6d142b814e40a0e295a77d90',
     'src/lib/nostr/private-pool.ts':
-      '4d5f5c671aefc5439ed2d4f1e7619e1a348598f98a81862ee8aed41ed03df286',
+      'c5d7884b33ea8dcde6aea495c92e7a53db12cf650f4476f2b66adc4165e771c2',
     'src/lib/nostr/inbox-ingress.ts':
       'f860a094a8ba767585124c795d44b7620064f73a5b3a0170041c581c0fc64ecb',
     'src/lib/persistence/inbox-probes.ts':
-      '857c2cf7e5cbf9253ad4b60b0f0e9a84cd99a1648d3b05d8e3013c695ac227fa',
+      'b4d3089bcf08a5c9ac3a99dfcf8e2c2e2160a2c8996c19fccb2670614f7b4d7a',
     'src/lib/nostr/inbox-access.ts':
       'd39f218b66fb51833e962b20152a2df81adf3097ba434a4cf2172ee4a7c8e3bc',
     'src/lib/nostr/seal-builder.ts':
@@ -673,7 +673,7 @@ async function privacyDataAdmission(web) {
     'src/lib/persistence/local-public-hides.ts':
       '4f0e64ed0fabbe9f86014a0512e7dbd3c81711f28ca2c626e2dafa5cda349f83',
     'src/lib/persistence/private-records.ts':
-      '2e5947e19df337ac1a7cd76b0f2cd6ec11cdb85d3fd38128e127fa8e3f30723a',
+      '821ef96740cf644bff4ffe5c7816c6aa097aa419bd16b8b301809b963294dafe',
     'src/lib/persistence/private-sends.ts':
       '6696f4179370cad373c06debf57b919598d53b3d25b6d2a6054a557608e4eb9c',
     'src/lib/persistence/private-storage.ts':
@@ -2166,10 +2166,12 @@ async function inboxSetupAdmission(web) {
 /** @param {string} web */
 async function inboxProbeStorageAdmission(web) {
   const producers = {
+    'src/lib/persistence/private-records.ts':
+      '821ef96740cf644bff4ffe5c7816c6aa097aa419bd16b8b301809b963294dafe',
     'src/lib/persistence/private-storage.ts':
       'ba4a61dd1fa08fc89d00adac3c258c1f6ae7e5c1b15165facffe76ddd71d5e91',
     'src/lib/persistence/inbox-probes.ts':
-      '857c2cf7e5cbf9253ad4b60b0f0e9a84cd99a1648d3b05d8e3013c695ac227fa'
+      'b4d3089bcf08a5c9ac3a99dfcf8e2c2e2160a2c8996c19fccb2670614f7b4d7a'
   };
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);

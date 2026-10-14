@@ -1,3 +1,5 @@
+import { RelayClosedError } from 'applesauce-relay/relay';
+import { inboxProbeReadbackMatches } from '../persistence/private-records.ts';
 import { privateInboxQueries } from './inbox-queries.ts';
 import { createScopedRelayPool } from './pool-factory.ts';
 import { NEVER } from 'rxjs';
@@ -8,7 +10,10 @@ import {
   type PrivateDeliveryRole,
   inboxProbePublicationSnapshot,
   takeInboxProbePublication,
-  type InboxProbePublication
+  type InboxProbePublication,
+  inboxProbeReadbackSnapshot,
+  takeInboxProbeReadback,
+  type InboxProbeReadback
 } from './private-publisher.ts';
 import {
   takeInboxAuthAdmission,
@@ -56,6 +61,38 @@ export type InboxProbeArchiveAttemptResult = Readonly<{
   actionId?: string;
   attempt?: number;
 }>;
+export type InboxProbeReadbackAttemptResult = Readonly<{
+  status:
+    | 'readback'
+    | 'empty'
+    | 'refused'
+    | 'error'
+    | 'budget'
+    | 'unknown'
+    | 'timed_out'
+    | 'stopped';
+  role?: 'access_readback';
+  origin?: string;
+  eventId?: string;
+  actionId?: string;
+  attempt?: number;
+  deliveries?: number;
+}>;
+const probeReadEvidence = new WeakMap<
+  InboxProbeReadbackAttemptResult,
+  Readonly<{
+    repository: PrivateStorageRepository;
+    acknowledgement: import('../persistence/inbox-probes.ts').InboxProbeAcknowledgement;
+    predecessorWire: string;
+    receiptWire: string;
+  }>
+>();
+export function inboxProbeReadbackAttemptEvidence(
+  result: InboxProbeReadbackAttemptResult
+) {
+  const evidence = probeReadEvidence.get(result);
+  return evidence && { ...evidence };
+}
 type PublicationAttemptResult =
   PrivateGiftWrapAttemptResult | InboxProbeArchiveAttemptResult;
 const probeAttemptEvidence = new WeakMap<
@@ -159,6 +196,16 @@ type Owner = {
     ) => boolean,
     retainPublicationCleanup?: (cleanup: () => void) => () => void
   ): Promise<PublicationAttemptResult>;
+  readProbe(
+    permission: InboxProbeReadback,
+    signal: AbortSignal,
+    scopeCurrent?: () => boolean,
+    retainConnection?: (
+      origin: string,
+      cleanup: ScopedConnectionCleanup
+    ) => boolean,
+    retainCleanup?: (cleanup: () => void) => () => void
+  ): Promise<InboxProbeReadbackAttemptResult>;
   auth(
     origin: string,
     admission: InboxAuthAdmission,
@@ -313,6 +360,23 @@ function scopedPool(
                   };
                 }
               : undefined
+          )
+        : Promise.resolve({ status: 'stopped' });
+    },
+    readProbe(permission, signal) {
+      const view = inboxProbeReadbackSnapshot(permission);
+      return current() && view && readOrigins.includes(view.origin)
+        ? base.readProbe(
+            permission,
+            AbortSignal.any([signal, life.signal]),
+            current,
+            retainConnection,
+            (cleanup) => {
+              probePublicationStops.set(cleanup, true);
+              return () => {
+                probePublicationStops.delete(cleanup);
+              };
+            }
           )
         : Promise.resolve({ status: 'stopped' });
     },
@@ -501,10 +565,15 @@ export function getPrivatePool(
   const connections = new Map<string, Connection>();
   function probeRelayAuthReady(
     relay: ReturnType<typeof sdk.relay>,
-    origin: string
+    origin: string,
+    role: 'publish' | 'read' = 'publish'
   ) {
     let required: boolean | undefined;
-    const observation = relay.authRequiredForPublish$.subscribe((value) => {
+    const observation = (
+      role === 'read'
+        ? relay.authRequiredForRead$
+        : relay.authRequiredForPublish$
+    ).subscribe((value) => {
       required = value;
     });
     observation.unsubscribe();
@@ -1011,6 +1080,388 @@ export function getPrivatePool(
                 finish('unknown');
               }
             });
+          }
+        );
+      } catch {
+        return { status: 'stopped' };
+      } finally {
+        publishing = false;
+      }
+    },
+    async readProbe(
+      permission,
+      signal,
+      scopeCurrent = () => true,
+      retainConnection,
+      retainCleanup
+    ) {
+      const view = inboxProbeReadbackSnapshot(permission);
+      if (!view) return { status: 'stopped' };
+      function stopped() {
+        return (
+          closed ||
+          cleanupRequired ||
+          publicationCleanupRequired ||
+          signal.aborted ||
+          !scopeCurrent() ||
+          !capture.current() ||
+          authRetiring.has(view!.origin) ||
+          authFailed.has(view!.origin)
+        );
+      }
+      if (
+        publishing ||
+        stopped() ||
+        view.owner !== capture.owner ||
+        !readOrigins.includes(view.origin) ||
+        typeof window === 'undefined' ||
+        !navigator.locks?.request
+      )
+        return { status: 'stopped' };
+      publishing = true;
+      try {
+        const previous = connections.get(view.origin);
+        if (previous) {
+          if (previous.retiring()) return { status: 'stopped' };
+          const observation = previous.reserve();
+          try {
+            if (
+              !observation.current() ||
+              !probeRelayAuthReady(observation.relay, view.origin, 'read')
+            )
+              return { status: 'stopped' };
+          } finally {
+            observation.close();
+          }
+        }
+        if (!(await recheckPrivateSession(session)) || stopped())
+          return { status: 'stopped' };
+        return await navigator.locks.request(
+          'harvestcircle:owner:' + capture.owner,
+          { mode: 'exclusive', ifAvailable: true },
+          async (lock) => {
+            if (!lock || stopped()) return { status: 'stopped' as const };
+            const admitted = await takeInboxProbeReadback(
+              permission,
+              session,
+              policy,
+              view.origin
+            );
+            if (!admitted || stopped() || !admitted.current())
+              return { status: 'stopped' as const };
+            const connection = leaseConnection(view.origin);
+            if (
+              !connection.current() ||
+              !probeRelayAuthReady(connection.relay, view.origin, 'read') ||
+              stopped() ||
+              !admitted.current()
+            ) {
+              connection.close();
+              return { status: 'stopped' as const };
+            }
+            const network = admitted.beginNetwork();
+            if (!network) {
+              connection.close();
+              return { status: 'stopped' as const };
+            }
+            return await new Promise<InboxProbeReadbackAttemptResult>(
+              (resolve) => {
+                const budget = finiteBudget();
+                let ended = false,
+                  attempted = false,
+                  installing = false,
+                  releasing = false,
+                  retainedConnection = false,
+                  release = () => {},
+                  forgetCleanup = () => {},
+                  pending:
+                    InboxProbeReadbackAttemptResult['status'] | undefined,
+                  observedWire: string | undefined,
+                  timer: ReturnType<typeof setTimeout> | undefined,
+                  fenceTimer: ReturnType<typeof setTimeout> | undefined;
+                const pageStarted = performance.now();
+                let lastClock = pageStarted;
+                function stale() {
+                  return (
+                    stopped() || !admitted!.current() || !connection.current()
+                  );
+                }
+                function remainingPage() {
+                  const now = performance.now();
+                  if (
+                    !Number.isFinite(now) ||
+                    now < lastClock ||
+                    !Number.isFinite(pageStarted)
+                  )
+                    return 0;
+                  lastClock = now;
+                  return Math.max(
+                    0,
+                    PRIVATE_TRANSPORT_BUDGETS.pageMilliseconds -
+                      (now - pageStarted)
+                  );
+                }
+                function expired() {
+                  return remainingPage() <= 0 || network!.remaining() <= 0;
+                }
+                function disposeOriginal() {
+                  if (installing || releasing)
+                    throw Error('private_probe_read_cleanup_pending');
+                  releasing = true;
+                  try {
+                    release();
+                    if (!retainedConnection) connection.close();
+                    publicationStops.delete(stop);
+                    publicationFailures.delete(stop);
+                    publicationCleanupRequired = publicationFailures.size !== 0;
+                    forgetCleanup();
+                  } finally {
+                    releasing = false;
+                  }
+                }
+                function retainFailure() {
+                  publicationStops.set(stop, true);
+                  publicationFailures.set(stop, true);
+                  publicationCleanupRequired = true;
+                  forgetCleanup = retainCleanup?.(stop) ?? (() => {});
+                }
+                function finish(
+                  status: InboxProbeReadbackAttemptResult['status']
+                ) {
+                  if (ended) return;
+                  if (installing) {
+                    pending ??= status;
+                    return;
+                  }
+                  ended = true;
+                  network!.finish();
+                  if (timer !== undefined) clearTimeout(timer);
+                  if (fenceTimer !== undefined) clearTimeout(fenceTimer);
+                  signal.removeEventListener('abort', onAbort);
+                  try {
+                    disposeOriginal();
+                  } catch {
+                    retainFailure();
+                    status = 'unknown';
+                  }
+                  if (!attempted) status = 'stopped';
+                  const result: InboxProbeReadbackAttemptResult = {
+                    status,
+                    role: 'access_readback',
+                    origin: admitted!.origin,
+                    eventId: admitted!.eventId,
+                    deliveries: budget.count(),
+                    ...(attempted
+                      ? {
+                          actionId: network!.actionId,
+                          attempt: network!.attempt
+                        }
+                      : {})
+                  };
+                  if (
+                    attempted &&
+                    status === 'readback' &&
+                    observedWire !== undefined
+                  ) {
+                    probeReadEvidence.set(result, {
+                      repository: admitted!.repository,
+                      acknowledgement: admitted!.acknowledgement,
+                      predecessorWire: admitted!.predecessorWire,
+                      receiptWire: JSON.stringify({
+                        actionId: network!.actionId,
+                        role: 'access_readback',
+                        origin: admitted!.origin,
+                        eventId: admitted!.eventId,
+                        attempt: network!.attempt,
+                        status: 'readback',
+                        observedAtMilliseconds: Date.now(),
+                        readbackWire: observedWire
+                      })
+                    });
+                  }
+                  resolve(result);
+                }
+                // Abort dispatch cannot propagate a synchronous cleanup exception.
+                // Explicit retained Stop still reports pending original installation.
+                function onAbort() {
+                  finish('stopped');
+                }
+                function stop() {
+                  if (ended) {
+                    disposeOriginal();
+                    return;
+                  }
+                  finish('stopped');
+                  if (installing)
+                    throw Error('private_probe_read_cleanup_pending');
+                }
+                function fence() {
+                  if (ended) return;
+                  if (stale()) {
+                    finish('stopped');
+                    return;
+                  }
+                  if (expired()) {
+                    finish('timed_out');
+                    return;
+                  }
+                  fenceTimer = setTimeout(fence, 50);
+                }
+                try {
+                  publicationStops.set(stop, true);
+                  forgetCleanup = retainCleanup?.(stop) ?? (() => {});
+                  signal.addEventListener('abort', onAbort, { once: true });
+                  if (stale() || expired()) {
+                    finish(stale() ? 'stopped' : 'timed_out');
+                    return;
+                  }
+                  connection.start();
+                  retainedConnection =
+                    retainConnection?.(view.origin, {
+                      current: connection.current,
+                      close: connection.close
+                    }) ?? false;
+                  if (
+                    stale() ||
+                    !probeRelayAuthReady(connection.relay, view.origin, 'read')
+                  ) {
+                    finish('stopped');
+                    return;
+                  }
+                  if (expired()) {
+                    finish('timed_out');
+                    return;
+                  }
+                  installing = true;
+                  attempted = true;
+                  // Exact original self artifact/recipient only. SDK owns transport;
+                  // no caller filter, socket, key or auto AUTH/retry port is exposed.
+                  const subscription = sdk
+                    .req(
+                      [view.origin],
+                      [
+                        {
+                          kinds: [1059],
+                          ids: [admitted.eventId],
+                          '#p': [admitted.owner],
+                          limit: 1
+                        }
+                      ],
+                      {
+                        waitForAuth: false,
+                        reconnect: false,
+                        resubscribe: false
+                      }
+                    )
+                    .subscribe({
+                      next(message) {
+                        if (ended || pending !== undefined) return;
+                        if (stale()) {
+                          finish('stopped');
+                          return;
+                        }
+                        if (expired()) {
+                          finish('timed_out');
+                          return;
+                        }
+                        if (
+                          message.type !== 'EVENT' &&
+                          message.from !== view.origin &&
+                          message.from !== view.origin + '/'
+                        ) {
+                          finish('error');
+                          return;
+                        }
+                        if (message.type === 'EVENT') {
+                          const wire = JSON.stringify(message.event);
+                          if (
+                            typeof wire !== 'string' ||
+                            !boundedUtf8(wire, budget.remainingBytes())
+                          ) {
+                            budget.charge(budget.remainingBytes() + 1);
+                            finish('budget');
+                            return;
+                          }
+                          if (
+                            !budget.charge(
+                              new TextEncoder().encode(wire).length
+                            )
+                          ) {
+                            finish('budget');
+                            return;
+                          }
+                          // Charge delivered work before source or signature rejection.
+                          if (
+                            message.from !== view.origin &&
+                            message.from !== view.origin + '/'
+                          ) {
+                            finish('error');
+                            return;
+                          }
+                          if (
+                            !boundedUtf8(
+                              wire,
+                              PRIVATE_TRANSPORT_BUDGETS.envelopeBytes
+                            )
+                          )
+                            return;
+                          if (
+                            inboxProbeReadbackMatches(
+                              {
+                                eventId: admitted.eventId,
+                                wire: JSON.stringify(admitted.event)
+                              },
+                              admitted.owner,
+                              wire
+                            )
+                          ) {
+                            observedWire = wire;
+                            finish('readback');
+                          }
+                        } else if (message.type === 'EOSE') finish('empty');
+                        else if (message.type === 'CLOSED') finish('refused');
+                        else if (message.type === 'ERROR')
+                          finish(
+                            message.error instanceof RelayClosedError
+                              ? 'refused'
+                              : 'error'
+                          );
+                      },
+                      error: (error: unknown) =>
+                        finish(
+                          stale()
+                            ? 'stopped'
+                            : error instanceof RelayClosedError
+                              ? 'refused'
+                              : 'error'
+                        ),
+                      complete: () => finish(stale() ? 'stopped' : 'empty')
+                    });
+                  release = () => subscription.unsubscribe();
+                  installing = false;
+                  if (pending !== undefined) {
+                    finish(pending);
+                    return;
+                  }
+                  if (stale()) {
+                    finish('stopped');
+                    return;
+                  }
+                  if (expired()) {
+                    finish('timed_out');
+                    return;
+                  }
+                  timer = setTimeout(
+                    () => finish(stale() ? 'stopped' : 'timed_out'),
+                    Math.min(remainingPage(), network.remaining())
+                  );
+                  fence();
+                } catch {
+                  installing = false;
+                  finish(stale() ? 'stopped' : 'unknown');
+                }
+              }
+            );
           }
         );
       } catch {
@@ -1959,6 +2410,19 @@ export function publishInboxProbeArchiveAttempt(
       permission,
       signal
     ) as Promise<InboxProbeArchiveAttemptResult>;
+  } catch {
+    return Promise.resolve({ status: 'stopped' });
+  }
+}
+export function readInboxProbeAttempt(
+  pool: PrivatePool,
+  permission: InboxProbeReadback,
+  signal: AbortSignal
+): Promise<InboxProbeReadbackAttemptResult> {
+  try {
+    if (!inboxProbeReadbackSnapshot(permission))
+      return Promise.resolve({ status: 'stopped' });
+    return ownerOf(pool).readProbe(permission, signal);
   } catch {
     return Promise.resolve({ status: 'stopped' });
   }

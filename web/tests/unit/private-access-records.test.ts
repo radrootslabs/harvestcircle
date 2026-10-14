@@ -310,7 +310,6 @@ describe('CR008 S2 strict separate probe journal codec', () => {
     for (const patch of [
       { origin: archiveOrigin },
       { readbackWire: null },
-      { readbackWire: row.self!.wire + '\n' },
       { status: 'accepted' },
       { status: 'nonce_verified', readbackWire: artifact().wire }
     ])
@@ -321,6 +320,22 @@ describe('CR008 S2 strict separate probe journal codec', () => {
           receipts: [{ ...fact(row, 'readback'), ...patch }]
         }).ok
       ).toBe(false);
+  });
+  it('retains harmless serialized observation bytes for probe readback metadata without effect authority', () => {
+    const row = prepared(),
+      wire = row.self!.wire + '\n';
+    const observed = {
+      ...row,
+      revision: 2,
+      receipts: [{ ...fact(row, 'readback'), readbackWire: wire }]
+    };
+    const result = decode(observed);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw Error('bounded signed-equivalent observation');
+    expect(privateRecordSnapshot(result.value, owner, command)).toEqual(
+      observed
+    );
+    expect(privateRecordSettlement(observed)).toBe('protected');
   });
   it('rejects plaintext, unknown/missing fields and duplicate aliases at every nested level', () => {
     const row = prepared();
