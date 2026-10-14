@@ -23,19 +23,23 @@ import {
   reservedSendRumorWire
 } from '../../../src/lib/messaging/send-identity.ts';
 export { reserveSendIdentity, reservedSendSnapshot, reservedSendRumorWire };
+export { stopRumorPlan } from '../../../src/lib/messaging/rumor-plan.ts';
 export const owner =
   '79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798';
 export const command = '12345678-1234-4234-8234-123456789abc';
 export type Shared = { event: NostrEvent; milliseconds: number };
 // Controlled source-only clock/provider fixtures; real browser IDB/WebLocks,
 // never installed extensions, cryptographic messaging or real clock Q evidence.
-export async function makeFixture(shared?: Shared) {
+export async function makeFixture(
+  shared?: Shared,
+  clock: 'controlled' | 'real' = 'controlled'
+) {
   const previousNow = Date.now;
   let milliseconds = shared?.milliseconds ?? previousNow(),
     signs = 0,
     encrypts = 0,
     decrypts = 0;
-  Date.now = () => milliseconds;
+  if (clock === 'controlled') Date.now = () => milliseconds;
   function publicFood() {
     const key = crypto.getRandomValues(new Uint8Array(32));
     try {
@@ -98,7 +102,7 @@ export async function makeFixture(shared?: Shared) {
   if (!repository) throw Error('invalid source repository');
   function plan(
     text = 'Private reservation sentinel',
-    seconds = Math.floor(milliseconds / 1000)
+    seconds = Math.floor(Date.now() / 1000)
   ) {
     const value = captureEnquiryRumor(identity, capturedContext, text, seconds);
     if (!value) throw Error('expected local source plan');
@@ -144,6 +148,7 @@ export async function makeFixture(shared?: Shared) {
     inject,
     shared: (): Shared => ({ event, milliseconds }),
     setTime: (value: number) => {
+      if (clock !== 'controlled') throw Error('real clock cannot be frozen');
       milliseconds = value;
     },
     counts: () => ({ signs, encrypts, decrypts }),

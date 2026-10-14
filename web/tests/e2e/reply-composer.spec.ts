@@ -7,7 +7,6 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { createStaticHarness } from '../integration/harness/static.ts';
 import type * as Fixture from './harness/reply-composer.ts';
 import { finalizeEvent } from 'applesauce-core/helpers';
-import { buildCanonicalPairRumor } from '../../src/lib/nostr/rumor-template.ts';
 declare global {
   interface Window {
     hcp104: typeof Fixture;
@@ -220,7 +219,7 @@ const sentinel = 'HCP104_UNSENT_MEMORY_ONLY & <private>\nThursday pickup?';
 for (const crossSecond of [false, true]) {
   test(
     crossSecond
-      ? 'production reply reservation rejects a real second-boundary crossing without persisting or sending the draft'
+      ? 'CR003 production reply reserves across a real owner second boundary'
       : 'production explicit Send renews an expired peer lookup without losing the draft or automatically sending',
     async ({ page }) => {
       await ready(page, true, true);
@@ -315,7 +314,7 @@ for (const crossSecond of [false, true]) {
       await composer(page)
         .getByRole('button', { name: 'Send reply', exact: true })
         .click();
-      // Once busy clears, needs_action is terminal until another explicit Send.
+      // Observe actual completion before inspecting the owned operation.
       // Observe completion of the attempt before asserting its complete outcome.
       await expect
         .poll(() => page.evaluate(() => window.hcp104Fixture.snapshot()?.busy))
@@ -328,78 +327,18 @@ for (const crossSecond of [false, true]) {
         delta: window.hcp104Fixture.delta()
       }));
       if (crossSecond) {
-        expect(terminal.snapshot).toMatchObject({
-          state: 'needs_action',
-          busy: false,
-          dirty: true
-        });
-        expect(terminal.native).toEqual(before.native);
-        expect(terminal.delta).toEqual(before.delta);
-        expect(events).toEqual([]);
-        expect(await page.evaluate(() => window.hcp104Fixture.text())).toBe(
-          sentinel
+        const samples = terminal.diagnostic.clockSamples;
+        expect(Math.floor(samples[1].value / 1000)).toBeGreaterThan(
+          Math.floor(samples[0].value / 1000)
         );
-        expect(terminal.diagnostic.clicks).toBe(1);
-        expect(terminal.diagnostic.lockAttempts).toEqual([
-          {
-            name: 'harvestcircle:owner:' + terminal.diagnostic.setup.owner,
-            ifAvailable: true,
-            granted: true
-          }
-        ]);
-        expect(terminal.diagnostic.nativeTransactions).toEqual([
-          { stores: ['private_sends'], outcome: 'abort' }
-        ]);
-        expect(terminal.diagnostic.clockSamples).toHaveLength(2);
-        const [rumorTime, reservationTime] = terminal.diagnostic.clockSamples;
-        expect(rumorTime.stack).toContain('at Object.send');
-        expect(reservationTime.stack).toContain('<anonymous>');
-        expect(Math.floor(reservationTime.value / 1000)).toBeGreaterThan(
-          Math.floor(rumorTime.value / 1000)
+        expect(terminal.diagnostic.nativeTransactions.length).toBeGreaterThan(
+          0
         );
-        expect(terminal.diagnostic.commandIds).toHaveLength(1);
-        const actualCommand = terminal.diagnostic.commandIds[0];
-        const pair = await page.evaluate(() => ({
-          owner: window.hcp104Fixture.owner,
-          peer: window.hcp104Fixture.peer,
-          parent: window.hcp104Fixture.parent
-        }));
-        const expectedRumor = buildCanonicalPairRumor(
-          JSON.stringify({
-            recipients: [{ public_key: pair.peer, relay_url: null }],
-            content: sentinel,
-            reply_to: { id: pair.parent, relays: null },
-            subject: null
-          }),
-          pair.owner,
-          Math.floor(rumorTime.value / 1000)
-        );
-        if (!expectedRumor) throw Error('missing canonical fixture rumor');
-        for (const row of before.native.sends) {
-          const wire = JSON.parse((row as { wire: string }).wire) as {
-            id: string;
-            rumorHash: string;
-          };
-          expect(wire.id).not.toBe(actualCommand);
-          expect(wire.rumorHash).not.toBe(expectedRumor.id);
-        }
-        const settledTrace = terminal.diagnostic;
-        expect(await page.evaluate(() => window.hcp104Fixture.send())).toEqual({
-          status: 'needs_action'
-        });
-        const afterRetry = await page.evaluate(async () => ({
-          native: await window.hcp104Fixture.native(),
-          delta: window.hcp104Fixture.delta(),
-          diagnostic: await window.hcp104Fixture.diagnostic(),
-          text: window.hcp104Fixture.text()
-        }));
-        expect(afterRetry.native).toEqual(before.native);
-        expect(afterRetry.delta).toEqual(before.delta);
-        expect(afterRetry.diagnostic).toEqual(settledTrace);
-        expect(afterRetry.text).toBe(sentinel);
-        expect(requests).toHaveLength(2);
-        expect(events).toEqual([]);
-        return;
+        expect(
+          terminal.diagnostic.nativeTransactions.every(
+            (row) => row.outcome === 'complete'
+          )
+        ).toBe(true);
       }
       expect(
         terminal,
@@ -474,8 +413,8 @@ test('explicit Send creates an actual self-first paired reply with the authentic
 }) => {
   await ready(page);
   await composer(page).getByLabel('Reply', { exact: true }).fill(sentinel);
-  // This case qualifies successful delivery. The production scenarios above
-  // separately require rejection when the real clock crosses a second.
+  // This controlled-provider source case exercises successful paired delivery.
+  // The production scenarios above also use an advancing actual wall clock.
   await page.evaluate(() => window.hcp104Fixture.configureSendClock(false));
   const before = await page.evaluate(() => window.hcp104Fixture.delta());
   await composer(page)
@@ -558,6 +497,142 @@ test('explicit Send creates an actual self-first paired reply with the authentic
   expect(rumors[0]).toEqual(rumors[1]);
   expect(requests).toEqual([]);
 });
+
+for (const outcome of [
+  'busy',
+  'confirmed_abort',
+  'unknown_after_commit'
+] as const)
+  test(`CR003 actual reply ${outcome} retains draft with the correct retry disposition`, async ({
+    page
+  }) => {
+    await ready(page);
+    await composer(page).getByLabel('Reply', { exact: true }).fill(sentinel);
+    const before = await page.evaluate(async () => ({
+      native: await window.hcp104Fixture.native(),
+      delta: window.hcp104Fixture.delta()
+    }));
+    await page.evaluate(async (outcome) => {
+      let restore = () => {};
+      if (outcome === 'busy') {
+        let entered = () => {},
+          release = () => {};
+        const ready = new Promise<void>((resolve) => {
+          entered = resolve;
+        });
+        const held = navigator.locks.request(
+          'harvestcircle:owner:' + window.hcp104Fixture.owner,
+          () =>
+            new Promise<void>((resolve) => {
+              release = resolve;
+              entered();
+            })
+        );
+        await ready;
+        Reflect.set(window, 'cr003ReplyRelease', async () => {
+          release();
+          await held;
+        });
+      } else {
+        const originalPut = Reflect.get<IDBObjectStore, 'put'>(
+            IDBObjectStore.prototype,
+            'put'
+          ),
+          originalAbort = Reflect.get<IDBTransaction, 'abort'>(
+            IDBTransaction.prototype,
+            'abort'
+          );
+        let intercepted = false;
+        IDBObjectStore.prototype.put = function (...args) {
+          if (this.name !== 'private_sends' || intercepted)
+            return Reflect.apply(originalPut, this, args);
+          intercepted = true;
+          const request = Reflect.apply(originalPut, this, args);
+          if (outcome === 'confirmed_abort')
+            request.addEventListener(
+              'success',
+              () => Reflect.apply(originalAbort, this.transaction, []),
+              { once: true }
+            );
+          else {
+            this.transaction.abort = () => {
+              throw Error('controlled lost abort capability');
+            };
+            throw Error('controlled lost result after actual queued write');
+          }
+          return request;
+        };
+        restore = () => {
+          IDBObjectStore.prototype.put = originalPut;
+        };
+      }
+      Reflect.set(window, 'cr003ReplyRestore', restore);
+    }, outcome);
+    try {
+      await composer(page)
+        .getByRole('button', { name: 'Send reply', exact: true })
+        .click();
+      await expect
+        .poll(() => page.evaluate(() => window.hcp104Fixture.snapshot()?.busy))
+        .toBe(false);
+    } finally {
+      await page.evaluate(async () => {
+        (Reflect.get(window, 'cr003ReplyRestore') as () => void)();
+        const release = Reflect.get(window, 'cr003ReplyRelease') as
+          (() => Promise<void>) | undefined;
+        await release?.();
+        Reflect.deleteProperty(window, 'cr003ReplyRestore');
+        Reflect.deleteProperty(window, 'cr003ReplyRelease');
+      });
+    }
+    const terminal = await page.evaluate(async () => ({
+      snapshot: window.hcp104Fixture.snapshot(),
+      text: window.hcp104Fixture.text(),
+      native: await window.hcp104Fixture.native(),
+      delta: window.hcp104Fixture.delta()
+    }));
+    expect(terminal.text).toBe(sentinel);
+    expect(terminal.delta).toEqual(before.delta);
+    expect(events).toEqual([]);
+    if (outcome === 'unknown_after_commit') {
+      expect(terminal.snapshot).toMatchObject({
+        state: 'needs_action',
+        readyToSend: false
+      });
+      expect(terminal.native.sends).toHaveLength(
+        before.native.sends.length + 1
+      );
+      expect(
+        await page.evaluate(() =>
+          window.hcp104Fixture.update('different attempted body')
+        )
+      ).toBe(false);
+      expect(await page.evaluate(() => window.hcp104Fixture.send())).toEqual({
+        status: 'needs_action'
+      });
+      expect(await page.evaluate(() => window.hcp104Fixture.native())).toEqual(
+        terminal.native
+      );
+    } else {
+      expect(terminal.snapshot).toMatchObject({
+        state: 'idle',
+        readyToSend: true
+      });
+      expect(terminal.native).toEqual(before.native);
+      expect(
+        await page.evaluate(() =>
+          window.hcp104Fixture.update('CR003_TEST_ONLY_edited_reply')
+        )
+      ).toBe(true);
+      await composer(page)
+        .getByRole('button', { name: 'Send reply', exact: true })
+        .click();
+      await expect
+        .poll(() => page.evaluate(() => window.hcp104Fixture.snapshot()?.state))
+        .toBe('completed');
+      expect(events).toHaveLength(2);
+    }
+  });
 
 test('cancelled same-page setup retains the exact draft and clearing the gate never auto-sends', async ({
   page

@@ -73,7 +73,6 @@ export async function renderReplyFixture(qualified = true, production = false) {
     'request'
   );
   const originalRequest = Reflect.get(manager, 'request');
-  let fixedWallTime: number | undefined;
   let crossOwnerSecond: string | undefined;
   let nativeTransactions: {
     stores: string[];
@@ -127,7 +126,7 @@ export async function renderReplyFixture(qualified = true, production = false) {
   const originalNow = Reflect.get(Date, 'now');
   let clockSamples: { value: number; stack: string | undefined }[] = [];
   const observedNow = () => {
-    const value = fixedWallTime ?? originalNow();
+    const value = originalNow();
     clockSamples = clockSamples.concat({
       value,
       stack: new Error().stack?.split('\n').slice(1, 5).join('\n')
@@ -136,7 +135,6 @@ export async function renderReplyFixture(qualified = true, production = false) {
   };
   Date.now = observedNow;
   function restoreSendClock() {
-    fixedWallTime = undefined;
     crossOwnerSecond = undefined;
     restoreTransaction();
     restoreTransaction = () => {};
@@ -320,7 +318,6 @@ export async function renderReplyFixture(qualified = true, production = false) {
     },
     configureSendClock(crossSecond: boolean) {
       if (!scope) throw Error('no original reply scope');
-      fixedWallTime = crossSecond ? undefined : originalNow();
       crossOwnerSecond = crossSecond
         ? 'harvestcircle:owner:' + scope.owner
         : undefined;

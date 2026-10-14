@@ -4,7 +4,12 @@ import {
   identityMessagingOwnership,
   type IdentitySession
 } from '../runtime/identity-session.ts';
-import { rumorPlanSnapshot, type RumorPlan } from './rumor-plan.ts';
+import {
+  bindFirstRumorReservation,
+  rumorReservationCommand,
+  rumorPlanSnapshot,
+  type RumorPlan
+} from './rumor-plan.ts';
 import {
   recoveredSelfEnvelopeSnapshot,
   type RecoveredSelfEnvelope
@@ -22,14 +27,27 @@ export type SendIdentityResult =
   | Readonly<{
       status: 'reserved' | 'existing';
       identity: ReservedSendIdentity;
+      disposition: 'stored_original';
     }>
-  | Readonly<{ status: ReservationFailure | 'busy' }>;
+  | Readonly<{
+      status: ReservationFailure | 'busy';
+      disposition: 'not_created' | 'may_exist';
+    }>;
 type Controller = {
   record: PrivateSendReservation;
   plan: RumorPlan;
   current(): boolean;
 };
 const identities = new WeakMap<ReservedSendIdentity, Controller>();
+// Metadata only, shared by every call using the same genuine plan. Retain the
+// last actual storage disposition even when its plaintext capability is stopped.
+const possibleOriginals = new WeakMap<RumorPlan, boolean>();
+function originalMayExist(plan: RumorPlan): boolean {
+  return (
+    possibleOriginals.get(plan) ??
+    (!rumorPlanSnapshot(plan) || rumorReservationCommand(plan) !== undefined)
+  );
+}
 // Explicit reviewed local reservation only. No plaintext persistence or SDK
 // effect; later owners revalidate this identity before encryption/preparation.
 export async function reserveSendIdentity(
@@ -42,64 +60,99 @@ export async function reserveSendIdentity(
   const id = canonicalLocalId(commandId),
     ownership = identityMessagingOwnership(session),
     snapshot = rumorPlanSnapshot(plan);
-  if (review !== 'reviewed_private_intent' || !id) return { status: 'invalid' };
-  if (!ownership || !ownership.current() || !snapshot)
-    return { status: 'stopped' };
+  if (
+    snapshot &&
+    rumorReservationCommand(plan) === undefined &&
+    !possibleOriginals.has(plan)
+  )
+    possibleOriginals.set(plan, false);
+  // A previous owner-locked binding may already have reached storage. Early
+  // failure during its explicit reconciliation cannot certify a new draft.
+  const failure = (
+    status: ReservationFailure | 'busy'
+  ): SendIdentityResult => ({
+    status,
+    disposition: originalMayExist(plan) ? 'may_exist' : 'not_created'
+  });
+  if (review !== 'reviewed_private_intent' || !id) return failure('invalid');
+  if (!ownership?.current() || !snapshot) return failure('stopped');
   if (
     snapshot.owner !== ownership.owner ||
     privateSendReservationOwner(repository) !== ownership.owner
   )
-    return { status: 'invalid_scope' };
-  const captured = {
-    schema: 1 as const,
-    family: 'private_send_reservation' as const,
-    owner: ownership.owner,
-    id,
-    revision: 0 as const,
-    peer: snapshot.peer,
-    rumorHash: snapshot.id,
-    createdAt: snapshot.createdAt
-  };
-  const current = () => {
-    const observed = rumorPlanSnapshot(plan);
-    return (
-      ownership.current() &&
-      observed?.owner === captured.owner &&
-      observed.peer === captured.peer &&
-      observed.id === captured.rumorHash
-    );
-  };
+    return failure('invalid_scope');
+  const actor = ownership;
   try {
     if (typeof window === 'undefined' || !navigator.locks?.request)
-      return { status: 'unavailable' };
+      return failure('unavailable');
     return await navigator.locks.request(
-      'harvestcircle:owner:' + captured.owner,
+      'harvestcircle:owner:' + snapshot.owner,
       { mode: 'exclusive', ifAvailable: true },
       async (lock): Promise<SendIdentityResult> => {
-        if (!lock) return { status: 'busy' };
-        if (!current()) return { status: 'stopped' };
+        if (!lock) return failure('busy');
+        if (!actor.current()) return failure('stopped');
+        if (!rumorPlanSnapshot(plan)) return failure('stopped');
         const milliseconds = safeUnsignedInteger(Date.now());
-        if (milliseconds === undefined) return { status: 'clock_conflict' };
+        if (milliseconds === undefined) return failure('clock_conflict');
+        const seconds = Math.floor(milliseconds / 1000);
+        const previouslyPossible = originalMayExist(plan);
+        const bound = bindFirstRumorReservation(plan, id, seconds);
+        if (!bound)
+          return failure(previouslyPossible ? 'conflict' : 'clock_conflict');
+        const captured: PrivateSendReservation = {
+          schema: 1,
+          family: 'private_send_reservation',
+          owner: bound.owner,
+          id,
+          revision: 0,
+          peer: bound.peer,
+          rumorHash: bound.id,
+          createdAt: bound.createdAt
+        };
+        const current = () => {
+          const observed = rumorPlanSnapshot(plan);
+          return (
+            actor.current() &&
+            observed?.owner === captured.owner &&
+            observed.peer === captured.peer &&
+            observed.id === captured.rumorHash &&
+            observed.createdAt === captured.createdAt &&
+            observed.wire === bound.wire &&
+            rumorReservationCommand(plan) === id
+          );
+        };
+        if (!current()) return failure('stopped');
+        possibleOriginals.set(plan, true);
         const result = await reservePrivateSendReservation(
           repository,
           JSON.stringify(captured),
-          Math.floor(milliseconds / 1000),
+          seconds,
           current
         );
-        if (!result.ok) return { status: result.reason };
-        if (!current()) return { status: 'stopped' };
+        if (!result.ok) {
+          possibleOriginals.set(
+            plan,
+            result.disposition === 'not_attempted'
+              ? previouslyPossible
+              : result.disposition !== 'not_created'
+          );
+          return failure(result.reason);
+        }
+        if (!current()) return failure('stopped');
         const identity = Object.freeze({}) as ReservedSendIdentity;
         identities.set(identity, { record: result.value, plan, current });
         return {
           status: result.state === 'created' ? 'reserved' : 'existing',
+          disposition: 'stored_original',
           identity
         };
       }
     );
   } catch {
-    return { status: 'unavailable' };
+    return failure('unavailable');
   }
 }
+
 export function reservedSendSnapshot(
   identity: ReservedSendIdentity
 ): PrivateSendReservation | undefined {

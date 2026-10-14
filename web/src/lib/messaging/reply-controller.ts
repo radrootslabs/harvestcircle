@@ -205,10 +205,15 @@ export function createReplyController(
       'Checking the authenticated peer inbox. Your text remains in memory.';
     const captured = scope!;
     const admitted = () => current() && scope === captured;
-    function needsAction(): Result {
-      state = 'needs_action';
-      copy =
-        'Send needs review. Keep this draft; check inbox setup or connection, then explicitly send again. Existing encrypted work needs its own recovery review.';
+    function needsAction(definitePreEffect = false): Result {
+      state = attempted || !definitePreEffect ? 'needs_action' : 'idle';
+      if (!attempted) {
+        if (plan) stopRumorPlan(plan);
+        plan = undefined;
+      }
+      copy = attempted
+        ? 'Send needs review. Keep this draft; check inbox setup or connection, then explicitly send again. Existing encrypted work needs its own recovery review.'
+        : 'No private send was reserved. Your text stays in memory. Review inbox setup or storage, then explicitly try Send again.';
       return { status: 'needs_action' };
     }
     try {
@@ -252,7 +257,7 @@ export function createReplyController(
         Math.floor(Date.now() / 1000)
       );
       const command = newLocalId();
-      if (!plan || !command || !admitted()) return needsAction();
+      if (!plan || !command || !admitted()) return needsAction(true);
       // After a native intent may exist, repeated Send never creates another
       // rumor or silently replays this command. Recovery has its own owner.
       attempted = true;
@@ -264,7 +269,11 @@ export function createReplyController(
         'reviewed_private_intent'
       );
       if (!admitted()) return { status: 'stopped' };
-      if (!('identity' in reserved)) return needsAction();
+      if (!('identity' in reserved)) {
+        if (reserved.disposition !== 'not_created') return needsAction();
+        attempted = false;
+        return needsAction(true);
+      }
       preparation = captureSelfRecoveryPreparation(
         captured.repository,
         captured.identity,

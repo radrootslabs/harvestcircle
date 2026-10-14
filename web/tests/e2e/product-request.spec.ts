@@ -352,7 +352,7 @@ for (const status of ['sold', 'withdrawn'] as const)
 for (const crossSecond of [false, true])
   test(
     crossSecond
-      ? 'HCP126 original product request refuses a real reservation second boundary without native rows or crypto'
+      ? 'CR003 original product request reserves across a real owner second boundary'
       : 'HCP108 incomplete active terms need explicit original acknowledgement and retain signed citations',
     async ({ page }) => {
       incompleteListing = true;
@@ -403,7 +403,6 @@ for (const crossSecond of [false, true])
       }));
       await page.evaluate((crossSecond) => {
         const original = Date.now;
-        const fixed = original();
         let phase = 'send';
         let crossed = false;
         const samples: {
@@ -488,7 +487,7 @@ for (const crossSecond of [false, true])
           return tx;
         } as typeof prototype.transaction;
         Date.now = () => {
-          const milliseconds = crossSecond ? original() : fixed;
+          const milliseconds = original();
           if (samples.length < 128)
             samples.push({
               milliseconds,
@@ -535,39 +534,25 @@ for (const crossSecond of [false, true])
         });
         console.log(
           JSON.stringify({
-            fixture: 'HCP126_ORIGINAL_REQUEST_SEND_DIAGNOSTIC',
+            fixture: 'CR003_REAL_CLOCK_PRODUCT_REQUEST_DIAGNOSTIC',
             terminal
           })
         );
         if (crossSecond) {
-          expect(terminal.snapshot?.state).toBe('needs_action');
           expect(terminal.locks).toHaveLength(1);
           expect(Math.floor(terminal.locks[0].callback / 1000)).toBeGreaterThan(
             Math.floor(terminal.locks[0].captured / 1000)
           );
-          expect(terminal.transactions).toEqual(['abort']);
-          expect(events.filter((row) => row.event.kind === 1059)).toEqual([]);
+          expect(terminal.transactions.length).toBeGreaterThan(0);
           expect(
-            await page.evaluate(() => window.hcp107Fixture.native())
-          ).toEqual(before.native);
-          expect(await page.evaluate(() => window.hcp107Fixture.text())).toBe(
-            before.text
-          );
-          for (const key of ['encrypts', 'decrypts', 'signs'] as const)
-            expect(terminal.counts[key]).toBe(before.counts[key]);
-          await expect(
-            panel(page).getByRole('button', {
-              name: 'Send request',
-              exact: true
-            })
-          ).toBeDisabled();
-          expect(
-            await page.evaluate(() => window.hcp107Fixture.counts())
-          ).toEqual(terminal.counts);
-          expect(events.filter((row) => row.event.kind === 1059)).toEqual([]);
-          return;
+            terminal.transactions.every((outcome) => outcome === 'complete')
+          ).toBe(true);
         }
         expect(terminal.snapshot?.state).toBe('completed');
+        expect(terminal.counts).toMatchObject({
+          signs: before.counts.signs + 2,
+          encrypts: before.counts.encrypts + 2
+        });
         await expect
           .poll(() => events.filter((row) => row.event.kind === 1059).length)
           .toBe(2);
@@ -1538,3 +1523,152 @@ test('native unload warns for unsaved private text without saving', async ({
   ).toBe(true);
   await noPrivate(page, 'unload-private-marker');
 });
+
+for (const outcome of [
+  'storage_denied',
+  'busy',
+  'confirmed_abort',
+  'unknown_after_commit'
+] as const)
+  test(`CR003 actual ${outcome} keeps draft and permits only truthful explicit retry`, async ({
+    page
+  }) => {
+    await ready(page);
+    await unlock(page);
+    await editor(page).fill('CR003_TEST_ONLY_original_unsent_question');
+    const before = await page.evaluate(async () => ({
+      counts: window.hcp107Fixture.counts(),
+      native: await window.hcp107Fixture.native()
+    }));
+    await page.evaluate(async (outcome) => {
+      if (outcome === 'storage_denied') {
+        const descriptor = Object.getOwnPropertyDescriptor(indexedDB, 'open');
+        indexedDB.open = () => {
+          throw new DOMException('Controlled denied storage', 'SecurityError');
+        };
+        Reflect.set(window, 'cr003RestorePut', () => {
+          if (descriptor) Object.defineProperty(indexedDB, 'open', descriptor);
+          else Reflect.deleteProperty(indexedDB, 'open');
+        });
+        return;
+      }
+      if (outcome === 'busy') {
+        let entered = () => {},
+          release = () => {};
+        const ready = new Promise<void>((resolve) => {
+          entered = resolve;
+        });
+        const held = navigator.locks.request(
+          'harvestcircle:owner:' + window.hcp107Fixture.owner,
+          () =>
+            new Promise<void>((resolve) => {
+              release = resolve;
+              entered();
+            })
+        );
+        await ready;
+        Reflect.set(window, 'cr003RestorePut', async () => {
+          release();
+          await held;
+        });
+        return;
+      }
+      const originalPut = Reflect.get<IDBObjectStore, 'put'>(
+        IDBObjectStore.prototype,
+        'put'
+      );
+      const originalAbort = Reflect.get<IDBTransaction, 'abort'>(
+        IDBTransaction.prototype,
+        'abort'
+      );
+      let intercepted = false;
+      IDBObjectStore.prototype.put = function (...args) {
+        if (this.name !== 'private_sends' || intercepted)
+          return Reflect.apply(originalPut, this, args);
+        intercepted = true;
+        const request = Reflect.apply(originalPut, this, args);
+        if (outcome === 'confirmed_abort')
+          request.addEventListener(
+            'success',
+            () => Reflect.apply(originalAbort, this.transaction, []),
+            { once: true }
+          );
+        else {
+          this.transaction.abort = () => {
+            throw Error('controlled lost abort capability');
+          };
+          throw Error('controlled lost put result after actual queued write');
+        }
+        return request;
+      };
+      // Only the actual trusted prototype's put is intercepted for one command.
+      Reflect.set(window, 'cr003RestorePut', () => {
+        IDBObjectStore.prototype.put = originalPut;
+      });
+    }, outcome);
+    try {
+      await panel(page)
+        .getByRole('button', { name: 'Send request', exact: true })
+        .click();
+      await expect
+        .poll(() => page.evaluate(() => window.hcp107Fixture.snapshot()?.busy))
+        .toBe(false);
+    } finally {
+      await page.evaluate(async () => {
+        const restore = Reflect.get(
+          window,
+          'cr003RestorePut'
+        ) as () => void | Promise<void>;
+        await restore();
+        Reflect.deleteProperty(window, 'cr003RestorePut');
+      });
+    }
+    const terminal = await page.evaluate(async () => ({
+      snapshot: window.hcp107Fixture.snapshot(),
+      text: window.hcp107Fixture.text(),
+      counts: window.hcp107Fixture.counts(),
+      native: await window.hcp107Fixture.native()
+    }));
+    expect(terminal.text).toBe('CR003_TEST_ONLY_original_unsent_question');
+    expect(terminal.counts).toEqual(before.counts);
+    expect(events.filter((row) => row.event.kind === 1059)).toEqual([]);
+    if (outcome !== 'unknown_after_commit') {
+      expect(terminal.snapshot).toMatchObject({
+        state: 'idle',
+        readyToSend: true
+      });
+      expect(terminal.native).toEqual(before.native);
+      expect(
+        await page.evaluate(() =>
+          window.hcp107Fixture.update('CR003_TEST_ONLY_edited_after_abort')
+        )
+      ).toBe(true);
+      await panel(page)
+        .getByRole('button', { name: 'Send request', exact: true })
+        .click();
+      await expect
+        .poll(() => page.evaluate(() => window.hcp107Fixture.snapshot()?.state))
+        .toBe('completed');
+      expect(events.filter((row) => row.event.kind === 1059)).toHaveLength(2);
+    } else {
+      expect(terminal.snapshot).toMatchObject({
+        state: 'needs_action',
+        readyToSend: false
+      });
+      expect(terminal.native.sends).toHaveLength(
+        before.native.sends.length + 1
+      );
+      expect(
+        await page.evaluate(() =>
+          window.hcp107Fixture.update('attempted different body')
+        )
+      ).toBe(false);
+      expect(await page.evaluate(() => window.hcp107Fixture.send())).toEqual({
+        status: 'needs_action'
+      });
+      expect(await page.evaluate(() => window.hcp107Fixture.native())).toEqual(
+        terminal.native
+      );
+      expect(events.filter((row) => row.event.kind === 1059)).toEqual([]);
+    }
+  });

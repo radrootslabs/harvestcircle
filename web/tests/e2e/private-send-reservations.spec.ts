@@ -48,14 +48,21 @@ test.beforeAll(async () => {
   );
 });
 test.afterAll(async () => server.close());
-async function load(page: Page, shared?: Reservations.Shared) {
+async function load(
+  page: Page,
+  shared?: Reservations.Shared,
+  clock: 'controlled' | 'real' = 'controlled'
+) {
   await page.goto(server.url + '/search');
   await page.addScriptTag({ content: bundle });
-  return page.evaluate(async (shared) => {
-    window.hcp074Fixture = await window.hcp074.makeFixture(shared);
-    window.hcp074Plan = window.hcp074Fixture.plan();
-    return window.hcp074Fixture.shared();
-  }, shared);
+  return page.evaluate(
+    async ({ shared, clock }) => {
+      window.hcp074Fixture = await window.hcp074.makeFixture(shared, clock);
+      window.hcp074Plan = window.hcp074Fixture.plan();
+      return window.hcp074Fixture.shared();
+    },
+    { shared, clock }
+  );
 }
 test('one command retries the identical rumor and stores only bounded metadata', async ({
   page
@@ -161,7 +168,7 @@ test('actual observed clock progress permits a distinct intent without future ti
     count: 2
   });
 });
-test('new future or stale template fails safely before metadata changes', async ({
+test('future clock is rejected and an old provisional plan binds the actual reservation second', async ({
   page
 }) => {
   await load(page);
@@ -184,8 +191,8 @@ test('new future or stale template fails safely before metadata changes', async 
   });
   expect(result).toEqual({
     future: 'clock_conflict',
-    stale: 'clock_conflict',
-    count: 0
+    stale: 'reserved',
+    count: 1
   });
 });
 test('two tabs share owner CAS and only one distinct identical intent can reserve', async ({
@@ -222,6 +229,150 @@ test('two tabs share owner CAS and only one distinct identical intent can reserv
   expect(
     await page.evaluate(async () => (await window.hcp074Fixture.rows()).length)
   ).toBe(1);
+});
+test('concurrent calls on one genuine plan keep a busy loser protected after the winner binds', async ({
+  page
+}) => {
+  await load(page);
+  const result = await page.evaluate(async () => {
+    const manager = navigator.locks,
+      original = Reflect.get<LockManager, 'request'>(manager, 'request');
+    let release = () => {},
+      entered = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const committed = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    manager.request = (...args: unknown[]) => {
+      const index = args.length - 1,
+        callback = args[index] as (lock: Lock | null) => Promise<unknown>;
+      const forwarded = args.slice();
+      forwarded[index] = async (lock: Lock | null) => {
+        const value = await callback(lock);
+        if (lock) {
+          entered();
+          await held;
+        }
+        return value;
+      };
+      return Reflect.apply(original, manager, forwarded) as Promise<unknown>;
+    };
+    try {
+      const f = window.hcp074Fixture,
+        s = window.hcp074;
+      // Both calls enter the boundary before the actual first lock callback.
+      const winner = f.reserve(s.command, window.hcp074Plan),
+        loser = f.reserve(s.command, window.hcp074Plan);
+      const refused = await loser;
+      await committed;
+      const rows = await f.rows();
+      release();
+      const accepted = await winner;
+      return { accepted: accepted.status, refused, count: rows.length };
+    } finally {
+      release();
+      manager.request = original;
+    }
+  });
+  expect(result).toEqual({
+    accepted: 'reserved',
+    refused: { status: 'busy', disposition: 'may_exist' },
+    count: 1
+  });
+});
+
+test('stopping a fresh original before its real owner callback proves no attempt and permits a new draft', async ({
+  page
+}) => {
+  await load(page);
+  const result = await page.evaluate(async () => {
+    const f = window.hcp074Fixture,
+      s = window.hcp074,
+      before = f.counts(),
+      manager = navigator.locks,
+      original = Reflect.get<LockManager, 'request'>(manager, 'request');
+    manager.request = (...args: unknown[]) => {
+      const index = args.length - 1,
+        callback = args[index] as (lock: Lock | null) => Promise<unknown>,
+        forwarded = args.slice();
+      forwarded[index] = (lock: Lock | null) => {
+        if (lock) s.stopRumorPlan(window.hcp074Plan);
+        return callback(lock);
+      };
+      return Reflect.apply(original, manager, forwarded) as Promise<unknown>;
+    };
+    let stopped: Awaited<ReturnType<typeof f.reserve>>;
+    try {
+      stopped = await f.reserve(s.command, window.hcp074Plan);
+    } finally {
+      manager.request = original;
+    }
+    const absent = (await f.rows()).length === 0;
+    const next = await f.reserve(s.command, f.plan('New deliberate body'));
+    return {
+      stopped,
+      absent,
+      next: next.status,
+      count: (await f.rows()).length,
+      unchangedSdk: JSON.stringify(before) === JSON.stringify(f.counts())
+    };
+  });
+  expect(result).toEqual({
+    stopped: { status: 'stopped', disposition: 'not_created' },
+    absent: true,
+    next: 'reserved',
+    count: 1,
+    unchangedSdk: true
+  });
+});
+
+test('an actual unknown completion reconciles the original full row without a second command', async ({
+  page
+}) => {
+  await load(page);
+  const result = await page.evaluate(async () => {
+    const original = Reflect.get<IDBObjectStore, 'put'>(
+      IDBObjectStore.prototype,
+      'put'
+    );
+    IDBObjectStore.prototype.put = function (...args) {
+      const request = Reflect.apply(original, this, args);
+      this.transaction.abort = () => {
+        throw Error('controlled lost abort capability');
+      };
+      throw Error(
+        'controlled lost result after queued write ' +
+          String(request.readyState)
+      );
+    };
+    const f = window.hcp074Fixture,
+      s = window.hcp074;
+    let uncertain: Awaited<ReturnType<typeof f.reserve>>;
+    try {
+      uncertain = await f.reserve(s.command, window.hcp074Plan);
+    } finally {
+      IDBObjectStore.prototype.put = original;
+    }
+    const before = await f.rows(),
+      retry = await f.reserve(s.command, window.hcp074Plan),
+      after = await f.rows();
+    return {
+      uncertain,
+      retry: retry.status,
+      count: after.length,
+      unchanged: JSON.stringify(before) === JSON.stringify(after),
+      counts: f.counts()
+    };
+  });
+  expect(result).toMatchObject({
+    uncertain: { status: 'unknown_completion', disposition: 'may_exist' },
+    retry: 'existing',
+    count: 1,
+    unchanged: true,
+    counts: { signs: 0, encrypts: 1, decrypts: 1 }
+  });
 });
 test('held origin owner lock reports busy and identity disconnect cannot mint a reservation', async ({
   page
@@ -356,12 +507,14 @@ test('real transaction abort never grants a reserved identity or leaves metadata
     }
     return {
       status: value.status,
+      disposition: value.disposition,
       identityPresent: 'identity' in value,
       count: (await window.hcp074Fixture.rows()).length
     };
   });
   expect(['aborted', 'unknown_completion']).toContain(result.status);
   expect(result.identityPresent).toBe(false);
+  expect(result.disposition).toBe('not_created');
   expect(result.count).toBe(0);
 });
 test('100 unfinished metadata reservations enforce the existing count cap without eviction', async ({
@@ -382,4 +535,39 @@ test('100 unfinished metadata reservations enforce the existing count cap withou
     return { status: value.status, count: (await f.rows()).length };
   });
   expect(result).toEqual({ status: 'capacity', count: 100 });
+});
+
+test('actual advancing browser wall clock reserves once at the owner boundary and preserves original retry identity', async ({
+  page
+}) => {
+  await load(page, undefined, 'real');
+  const result = await page.evaluate(async () => {
+    const f = window.hcp074Fixture,
+      s = window.hcp074;
+    const before = Date.now();
+    await new Promise<void>((resolve) => setTimeout(resolve, 1100));
+    const lower = Math.floor(Date.now() / 1000);
+    const first = await f.reserve(s.command, window.hcp074Plan);
+    if (first.status !== 'reserved')
+      throw Error('advancing real-clock reservation failed');
+    const original = s.reservedSendSnapshot(first.identity)!;
+    const upper = Math.floor(Date.now() / 1000);
+    await new Promise<void>((resolve) => setTimeout(resolve, 1100));
+    const retry = await f.reserve(s.command, window.hcp074Plan);
+    if (retry.status !== 'existing')
+      throw Error('original reconciliation failed');
+    return {
+      advanced: Date.now() - before >= 2200,
+      lower,
+      upper,
+      original,
+      repeated: s.reservedSendSnapshot(retry.identity),
+      count: (await f.rows()).length
+    };
+  });
+  expect(result.advanced).toBe(true);
+  expect(result.original.createdAt).toBeGreaterThanOrEqual(result.lower);
+  expect(result.original.createdAt).toBeLessThanOrEqual(result.upper);
+  expect(result.repeated).toEqual(result.original);
+  expect(result.count).toBe(1);
 });

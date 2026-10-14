@@ -416,6 +416,9 @@ export async function renderFixture(qualified = true) {
     revokeView() {
       closeProductView(view);
     },
+    send: () =>
+      controller &&
+      sendProductRequest(controller, 'reviewed_product_request_send'),
     unreviewed: () => controller && sendProductRequest(controller, undefined),
     copied: async () => ({
       create: !!createProductRequestController({} as ProductEnquiry),

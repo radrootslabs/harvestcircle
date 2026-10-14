@@ -1,5 +1,7 @@
 import { buildCanonicalPairRumor } from '../nostr/rumor-template.ts';
 import { messageFromWireParts } from '../contracts/message-v1/index.ts';
+import { canonicalLocalId } from '../private-handles.ts';
+import { safeUnsignedInteger } from '../nostr/envelope-bounds.ts';
 import {
   identityMessagingOwnership,
   subscribeIdentityInvalidation,
@@ -34,6 +36,8 @@ export type RumorPlanSnapshot = Readonly<{
   wire: string;
 }>;
 type Controller = RumorPlanSnapshot & {
+  reservationCommand?: string;
+  recovered?: boolean;
   current(): boolean;
   unsubscribe(): void;
 };
@@ -201,10 +205,59 @@ export function restoreRecoveredRumor(
     id: snapshot.record.rumorHash,
     createdAt: snapshot.record.createdAt,
     wire: snapshot.rumorWire,
+    recovered: true,
+    reservationCommand: snapshot.record.id,
     current,
     unsubscribe
   });
   return current() ? token : undefined;
+}
+// Planning is memory-only. The first owner-locked reservation binds the actual
+// wall second once; every possible durable attempt keeps that original wire.
+// Recovered ciphertext never enters this new-intent clock boundary.
+export function bindFirstRumorReservation(
+  plan: RumorPlan,
+  commandId: unknown,
+  observedSeconds: unknown
+): RumorPlanSnapshot | undefined {
+  const value = plans.get(plan),
+    command = canonicalLocalId(commandId),
+    seconds = safeUnsignedInteger(observedSeconds);
+  if (!value?.current() || value.recovered || !command || seconds === undefined)
+    return undefined;
+  if (value.reservationCommand)
+    return value.reservationCommand === command
+      ? rumorPlanSnapshot(plan)
+      : undefined;
+  if (seconds < value.createdAt) return undefined;
+  const original = JSON.parse(value.wire) as {
+    kind: number;
+    tags: string[][];
+    content: string;
+  };
+  const message = messageFromWireParts(
+    JSON.stringify({
+      kind: original.kind,
+      tags: original.tags,
+      content: original.content
+    })
+  );
+  const rumor =
+    message &&
+    buildCanonicalPairRumor(JSON.stringify(message), value.owner, seconds);
+  if (!rumor || !value.current()) return undefined;
+  plans.set(plan, {
+    ...value,
+    id: rumor.id,
+    createdAt: rumor.created_at,
+    wire: JSON.stringify(rumor),
+    reservationCommand: command
+  });
+  return rumorPlanSnapshot(plan);
+}
+export function rumorReservationCommand(plan: RumorPlan): string | undefined {
+  const value = plans.get(plan);
+  return value?.current() ? value.reservationCommand : undefined;
 }
 export function rumorPlanSnapshot(
   plan: RumorPlan

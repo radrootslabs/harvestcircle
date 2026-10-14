@@ -290,10 +290,20 @@ export function createProductRequestController(
       privateOwner.current() &&
       productEnquirySnapshot(enquiry)?.revision === captured.data.revision &&
       inboxSetupViewOwnership(originalSetup)?.session === captured.own.session;
-    function needsAction(): Result {
-      state = 'needs_action';
-      copy =
-        'Send needs review. Your unsent text stays in memory. Existing encrypted work requires its own recovery review.';
+    function needsAction(definitePreEffect = false): Result {
+      state = attempted || !definitePreEffect ? 'needs_action' : 'idle';
+      if (!attempted) {
+        sentRevision = undefined;
+        if (plan) stopRumorPlan(plan);
+        plan = undefined;
+        if (composer) closePrivateComposer(composer);
+        composer = undefined;
+        if (database) closeBrowserDatabase(database);
+        database = undefined;
+      }
+      copy = attempted
+        ? 'Send needs review. Your unsent text stays in memory. Existing encrypted work requires its own recovery review.'
+        : 'No private send was reserved. Your text stays in memory. Review inbox setup or storage, then explicitly try Send again.';
       return { status: 'needs_action' };
     }
     busy = true;
@@ -366,7 +376,7 @@ export function createProductRequestController(
       const routeData = routes && inboxRoutePlanSnapshot(routes);
       if (!routes || !routeData || !admitted()) return needsAction();
       const opened = await openBrowserDatabase();
-      if (opened.state !== 'ready') return needsAction();
+      if (opened.state !== 'ready') return needsAction(true);
       database = opened.owner;
       if (!admitted()) return { status: 'stopped' };
       const repository = createPrivateStorageRepository(
@@ -389,7 +399,7 @@ export function createProductRequestController(
           'reviewed_private_text'
         )
       )
-        return needsAction();
+        return needsAction(true);
       plan = captureEnquiryRumor(
         actor,
         captured.product.context,
@@ -398,7 +408,7 @@ export function createProductRequestController(
         admitted
       );
       const command = newLocalId();
-      if (!plan || !command || !admitted()) return needsAction();
+      if (!plan || !command || !admitted()) return needsAction(true);
       attempted = true;
       const reserved = await reserveSendIdentity(
         reservations,
@@ -407,8 +417,25 @@ export function createProductRequestController(
         plan,
         'reviewed_private_intent'
       );
+      if (!('identity' in reserved)) {
+        // Stop can revoke this run while its original draft remains mounted.
+        // A confirmed no-row result releases only that draft's latch; stale
+        // key/account/body observations cannot restore or retarget another one.
+        if (
+          reserved.disposition === 'not_created' &&
+          current() &&
+          identity === actor &&
+          setup === originalSetup &&
+          captured.actor.current() &&
+          privateOwner.current() &&
+          productEnquirySnapshot(enquiry)?.revision === captured.data.revision
+        ) {
+          attempted = false;
+          return needsAction(true);
+        }
+        return admitted() ? needsAction() : { status: 'stopped' };
+      }
       if (!admitted()) return { status: 'stopped' };
-      if (!('identity' in reserved)) return needsAction();
       preparation = captureSelfRecoveryPreparation(
         repository,
         actor,

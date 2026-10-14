@@ -19,6 +19,8 @@ import {
   rumorPlanSnapshot,
   rumorEnvelopePlan,
   stopRumorPlan,
+  bindFirstRumorReservation,
+  rumorReservationCommand,
   type RumorPlan
 } from '../../src/lib/messaging/rumor-plan.ts';
 const buyer =
@@ -264,6 +266,56 @@ it('explicit release and identity invalidation erase reachable plan plaintext an
   expect(
     captureReplyRumor(owner.session, second, 'After disconnect', 102)
   ).toBeUndefined();
+});
+it('memory-only first reservation timing advances once and freezes the original command/hash/wire', async () => {
+  const f = food(),
+    actor = await identity(),
+    plan = required(
+      captureEnquiryRumor(actor.session, f.context, 'Original body', 100)
+    );
+  const before = rumorPlanSnapshot(plan)!,
+    counts = actor.counts();
+  const command = '12345678-1234-4234-8234-123456789abc';
+  const bound = bindFirstRumorReservation(plan, command, 105)!;
+  expect(bound.createdAt).toBe(105);
+  expect(bound.id).not.toBe(before.id);
+  const old = JSON.parse(before.wire) as Record<string, unknown>,
+    fresh = JSON.parse(bound.wire) as Record<string, unknown>;
+  expect(fresh).toEqual({ ...old, id: bound.id, created_at: 105 });
+  expect(rumorReservationCommand(plan)).toBe(command);
+  expect(bindFirstRumorReservation(plan, command, 110)).toEqual(bound);
+  expect(
+    bindFirstRumorReservation(plan, '12345678-1234-4234-8234-123456789abd', 110)
+  ).toBeUndefined();
+  expect(rumorPlanSnapshot(plan)).toEqual(bound);
+  expect(actor.counts()).toEqual(counts);
+  stopRumorPlan(plan);
+  expect(rumorReservationCommand(plan)).toBeUndefined();
+  expect(bindFirstRumorReservation(plan, command, 111)).toBeUndefined();
+});
+it('invalid or backwards initial reservation observations cannot rewrite a plan', async () => {
+  const f = food(),
+    actor = await identity(),
+    plan = required(captureEnquiryRumor(actor.session, f.context, 'Body', 100));
+  const before = rumorPlanSnapshot(plan)!;
+  for (const seconds of [
+    99,
+    -1,
+    NaN,
+    Infinity,
+    1.5,
+    '101',
+    Number.MAX_SAFE_INTEGER + 1
+  ])
+    expect(
+      bindFirstRumorReservation(
+        plan,
+        '12345678-1234-4234-8234-123456789abc',
+        seconds
+      )
+    ).toBeUndefined();
+  expect(rumorPlanSnapshot(plan)).toEqual(before);
+  expect(rumorReservationCommand(plan)).toBeUndefined();
 });
 it('reply body objects cannot execute conversion or become trusted plain text', async () => {
   const f = food(),

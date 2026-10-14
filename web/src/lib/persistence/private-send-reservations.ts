@@ -39,12 +39,20 @@ export type ReservationResult =
       state: 'created' | 'existing';
       value: PrivateSendReservation;
     }>
-  | Readonly<{ ok: false; reason: ReservationFailure }>;
+  | Readonly<{
+      ok: false;
+      reason: ReservationFailure;
+      disposition: 'not_attempted' | 'not_created' | 'may_exist';
+    }>;
 type Scope = { database: BrowserDatabase; owner: string };
 const repositories = new WeakMap<PrivateSendReservationRepository, Scope>();
-const failed = (reason: ReservationFailure): ReservationResult => ({
+const failed = (
+  reason: ReservationFailure,
+  disposition: 'not_attempted' | 'not_created' | 'may_exist' = 'not_attempted'
+): ReservationResult => ({
   ok: false,
-  reason
+  reason,
+  disposition
 });
 export function createPrivateSendReservationRepository(
   database: BrowserDatabase,
@@ -115,25 +123,33 @@ export function reservePrivateSendReservation(
   return new Promise((resolve) => {
     let outcome: ReservationResult | undefined;
     let existing: PrivateSendReservation | undefined;
+    let candidateAbsent = false;
     let count = 0,
       bytes = 0,
       collision = false;
     function refuse(reason: ReservationFailure) {
-      outcome = failed(reason);
+      outcome = failed(reason, 'may_exist');
       try {
         transaction.abort();
       } catch {
-        outcome = failed('unknown_completion');
+        outcome = failed('unknown_completion', 'may_exist');
       }
     }
     transaction.addEventListener('complete', () =>
-      resolve(outcome ?? failed('unknown_completion'))
+      resolve(outcome ?? failed('unknown_completion', 'may_exist'))
     );
-    transaction.addEventListener('abort', () =>
-      resolve(outcome && !outcome.ok ? outcome : failed('aborted'))
-    );
+    transaction.addEventListener('abort', () => {
+      const reason = outcome && !outcome.ok ? outcome.reason : 'aborted';
+      resolve(failed(reason, candidateAbsent ? 'not_created' : 'may_exist'));
+    });
     try {
       const store = transaction.objectStore('private_sends');
+      // Same transaction and owner lock: absence plus actual abort proves no
+      // original row survived. Request success alone never credits a write.
+      const candidateRequest = store.get([scope.owner, candidate.id]);
+      candidateRequest.addEventListener('success', () => {
+        candidateAbsent = candidateRequest.result === undefined;
+      });
       const request = store
         .index('by_owner')
         .openCursor(IDBKeyRange.only(scope.owner));
@@ -198,7 +214,7 @@ export function reservePrivateSendReservation(
             outcome = { ok: true, state: 'existing', value: existing };
             return;
           }
-          if (candidate.createdAt !== seconds || collision) {
+          if (candidate.createdAt > seconds || collision) {
             refuse('clock_conflict');
             return;
           }
