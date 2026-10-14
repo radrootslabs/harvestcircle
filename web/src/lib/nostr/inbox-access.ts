@@ -49,6 +49,7 @@ export type InboxProbeReservationResult =
     }>;
 type Saved = {
   session: PrivateSession;
+  access: InboxAccessController;
   policy: RelayPolicy;
   record: PrivateAccessProbe;
   handle: PrivateRecordHandle;
@@ -251,6 +252,7 @@ export async function reserveInboxProbeIdentity(
               offAccess = () => {};
             const saved: Saved = {
               session,
+              access,
               policy,
               record,
               handle: handle.value,
@@ -378,6 +380,19 @@ export function inboxProbePolicyMatches(
     saved.policy === policy &&
     saved.current()
   );
+}
+
+// Only the genuine original construction chain can name its action owner.
+// Recovery has a separate proof family and cannot enter seal/wrap construction.
+export function inboxProbeActionOwner(
+  identity: InboxProbeIdentity,
+  session: PrivateSession,
+  policy: RelayPolicy
+): InboxAccessController | undefined {
+  const saved = identities.get(identity);
+  return saved && inboxProbePolicyMatches(identity, session, policy)
+    ? saved.access
+    : undefined;
 }
 
 // Detached inspection only. Actual SDK decryption and original native/current

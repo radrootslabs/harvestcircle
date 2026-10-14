@@ -36,6 +36,7 @@ import {
 } from '../config/budgets.ts';
 import {
   privateSessionOwnership,
+  privateSessionSnapshot,
   subscribePrivateSessionClose,
   recheckPrivateSession,
   invalidatePrivateSessionGeneration,
@@ -261,6 +262,7 @@ type AuthControl = {
 };
 const authConnections = new WeakMap<PrivateAuthConnection, AuthControl>();
 const pools = new WeakMap<PrivatePool, Owner>();
+const probeRetryIdle = new WeakMap<Owner, () => boolean>();
 let lifetime: Owner | undefined;
 type ScopeRole = 'receive' | 'delivery' | 'access';
 const scopes = new WeakMap<Owner, WeakMap<object, Map<string, PrivatePool>>>();
@@ -2265,6 +2267,10 @@ export function getPrivatePool(
   // Install ownership before observer registration; reentry cannot allocate a
   // second private SDK. A failed close retains this unavailable page lifetime.
   pools.set(token, owner);
+  probeRetryIdle.set(
+    owner,
+    () => !closed && !publishing && !busy && !liveBusy && !owner.unavailable()
+  );
   lifetime = owner;
   off = subscribePrivateSessionClose(session, () => owner.close());
   if (!capture.current()) {
@@ -2277,6 +2283,29 @@ function ownerOf(token: PrivatePool): Owner {
   const owner = pools.get(token);
   if (!owner) throw new Error('private_pool_invalid');
   return owner;
+}
+
+// Read only the actual lifetime. This does not acquire a scope, invoke a
+// provider, reserve/start a connection or retry another owner's cleanup.
+export function privatePoolProbeRetryIdle(
+  session: PrivateSession,
+  policy: RelayPolicy
+): boolean {
+  try {
+    if (!privateSessionSnapshot(session)?.current) return false;
+    readRelayPolicy(policy);
+    const original = lifetime;
+    if (!original || original.cleaned()) return true;
+    return (
+      original.session === session &&
+      original.policy === policy &&
+      !original.closed() &&
+      !original.unavailable() &&
+      probeRetryIdle.get(original)?.() === true
+    );
+  } catch {
+    return false;
+  }
 }
 export function privatePoolOrigins(token: PrivatePool): readonly string[] {
   return [...ownerOf(token).origins];

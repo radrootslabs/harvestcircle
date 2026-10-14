@@ -1976,8 +1976,8 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'src/lib/nostr/giftwrap-builder.ts',
           'src/lib/config/inbox-operators.ts',
           'src/lib/persistence/private-sends.ts',
-          // CR008-S4C2A: current admissions bind the shared guarded self
-          // engine, distinct persisted-probe recovery and controller admission.
+          // CR008-S4C2B: current admissions also bind genuine recovered
+          // lineage, shared Retry metering and actual private-pool idle state.
           'src/lib/nostr/self-recovery-reader.ts',
           'src/lib/config/operation-flags.ts',
           'src/lib/nostr/private-pool.ts',

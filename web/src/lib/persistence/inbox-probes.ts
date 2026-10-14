@@ -5,6 +5,12 @@ import {
   type InboxProbeReadbackAttemptResult
 } from '../nostr/private-pool.ts';
 import { inboxProbePolicyMatches } from '../nostr/inbox-access.ts';
+import {
+  recoveredInboxProbeBinding,
+  type RecoveredInboxProbe
+} from '../nostr/self-recovery-reader.ts';
+import type { InboxAccessController } from '../messaging/inbox-access-controller.ts';
+import type { InboxOperatorQualification } from '../config/inbox-operators.ts';
 import type { RelayPolicy } from '../config/relays.ts';
 import {
   inboxProbeGiftwrapSnapshot,
@@ -57,7 +63,7 @@ export type InboxProbeCommitResult =
 type Lineage = {
   repository: PrivateStorageRepository;
   session: PrivateSession;
-  identity: InboxProbeIdentity;
+  identity: InboxProbeIdentity | RecoveredInboxProbe;
   record(): PrivateAccessProbe;
   wire(): string;
   begin(): boolean;
@@ -67,7 +73,7 @@ type Lineage = {
 function createLineage(
   repository: PrivateStorageRepository,
   session: PrivateSession,
-  identity: InboxProbeIdentity,
+  identity: InboxProbeIdentity | RecoveredInboxProbe,
   originalRecord: PrivateAccessProbe,
   originalWire: string
 ): Lineage {
@@ -98,11 +104,20 @@ const lineages = new WeakMap<InboxProbeIdentity, Lineage>();
 type Saved = Readonly<{
   repository: PrivateStorageRepository;
   session: PrivateSession;
-  identity: InboxProbeIdentity;
   lineage: Lineage;
   current(): boolean;
   revoke(): void;
-}>;
+}> &
+  (
+    | Readonly<{ source: 'construction'; identity: InboxProbeIdentity }>
+    | Readonly<{
+        source: 'recovered';
+        identity: RecoveredInboxProbe;
+        access: InboxAccessController;
+        policy: RelayPolicy;
+        operator: InboxOperatorQualification;
+      }>
+  );
 const acknowledgements = new WeakMap<InboxProbeAcknowledgement, Saved>();
 const actions = new WeakMap<
   InboxProbeGiftwrap,
@@ -127,15 +142,18 @@ function input(
     seal = inboxProbeGiftwrapSeal(wrap),
     identity = seal && inboxProbeSealIdentity(seal),
     reservation = identity && inboxProbeSnapshot(identity),
-    handle = identity && inboxProbeReservationHandle(identity),
-    ownership = privateSessionOwnership(session);
+    handle = identity && inboxProbeReservationHandle(identity);
   if (
     !artifact ||
     !identity ||
     !reservation ||
     !handle ||
+    !inboxProbeRumorWire(identity, session)
+  )
+    return undefined;
+  const ownership = privateSessionOwnership(session);
+  if (
     !ownership?.current() ||
-    !inboxProbeRumorWire(identity, session) ||
     privateStorageOwner(repository) !== ownership.owner ||
     reservation.owner !== ownership.owner ||
     artifact.owner !== reservation.owner ||
@@ -305,6 +323,7 @@ export async function commitInboxProbe(
             ) as InboxProbeAcknowledgement;
             let revoked = false;
             acknowledgements.set(acknowledgement, {
+              source: 'construction',
               repository,
               session,
               identity: original.identity,
@@ -387,6 +406,7 @@ export function inboxProbePublicationBinding(
   const saved = acknowledgements.get(acknowledgement);
   if (
     !saved ||
+    saved.source !== 'construction' ||
     saved.repository !== repository ||
     saved.session !== session ||
     !saved.current() ||
@@ -402,6 +422,225 @@ export function inboxProbePublicationBinding(
     current: () =>
       saved.current() &&
       inboxProbePolicyMatches(saved.identity, session, policy)
+  };
+}
+
+export type RecoveredInboxProbeAdoptionResult =
+  | Readonly<{
+      status: 'adopted' | 'existing';
+      acknowledgement: InboxProbeAcknowledgement;
+    }>
+  | Readonly<{
+      status: PrivateStorageFailure | 'invalid' | 'busy' | 'stopped';
+      disposition: 'original_protected';
+    }>;
+function createRecoveryAdoption() {
+  let pending = false,
+    result: RecoveredInboxProbeAdoptionResult | undefined;
+  return {
+    pending: () => pending,
+    result: () => result,
+    begin() {
+      pending = true;
+    },
+    finish() {
+      pending = false;
+    },
+    admit(value: RecoveredInboxProbeAdoptionResult) {
+      result = value;
+      return value;
+    }
+  };
+}
+type RecoveryAdoption = ReturnType<typeof createRecoveryAdoption>;
+const recoveredAdoptions = new WeakMap<RecoveredInboxProbe, RecoveryAdoption>();
+
+// A recovered proof is not a construction identity. Its acknowledgement adopts
+// only complete current native custody; old receipt labels remain unverified.
+export async function adoptRecoveredInboxProbe(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  access: InboxAccessController,
+  policy: RelayPolicy,
+  operator: InboxOperatorQualification,
+  proof: RecoveredInboxProbe,
+  review: unknown
+): Promise<RecoveredInboxProbeAdoptionResult> {
+  const refuse = (
+    status: PrivateStorageFailure | 'invalid' | 'busy' | 'stopped'
+  ): RecoveredInboxProbeAdoptionResult => ({
+    status,
+    disposition: 'original_protected'
+  });
+  if (
+    typeof window === 'undefined' ||
+    review !== 'reviewed_original_inbox_probe_retry'
+  )
+    return refuse('invalid');
+  let action: RecoveryAdoption | undefined,
+    issued: InboxProbeAcknowledgement | undefined;
+  try {
+    // Authenticate the proof and all lexical associations before any passive
+    // private ownership or callback-capable native/SDK admission.
+    const original = recoveredInboxProbeBinding(
+      proof,
+      repository,
+      session,
+      access,
+      policy,
+      operator
+    );
+    if (!original || privateStorageOwner(repository) !== original.owner)
+      return refuse('invalid_scope');
+    const previous = recoveredAdoptions.get(proof);
+    if (previous?.pending()) return refuse('busy');
+    const previousResult = previous?.result();
+    if (previousResult && !('acknowledgement' in previousResult))
+      return previousResult;
+    action = previous ?? createRecoveryAdoption();
+    action.begin();
+    recoveredAdoptions.set(proof, action);
+    const known = action.result();
+    const prior =
+      known && 'acknowledgement' in known ? known.acknowledgement : undefined;
+    const saved = prior && acknowledgements.get(prior);
+    function current() {
+      const now = recoveredInboxProbeBinding(
+        proof,
+        repository,
+        session,
+        access,
+        policy,
+        operator
+      );
+      return (
+        !!now &&
+        now.storedWire === original!.storedWire &&
+        now.command === original!.command &&
+        now.eventId === original!.eventId &&
+        (!saved || saved.current())
+      );
+    }
+    if (!current()) return action.admit(refuse('stopped'));
+    if (!navigator.locks?.request) return action.admit(refuse('unavailable'));
+    const result = await navigator.locks.request(
+      'harvestcircle:owner:' + original.owner,
+      { mode: 'exclusive', ifAvailable: true },
+      async (lock): Promise<RecoveredInboxProbeAdoptionResult> => {
+        if (!lock) return refuse('busy');
+        if (!current()) return refuse('stopped');
+        const idle = await withIdlePrivateLocalStorage(
+          session,
+          async (): Promise<RecoveredInboxProbeAdoptionResult> => {
+            if (!current()) return refuse('stopped');
+            const observed = await observePrivateRecord(
+              repository,
+              'private_sends',
+              original.command
+            );
+            if (!current()) return refuse('stopped');
+            if (!observed.ok) return refuse(observed.reason);
+            const expected = saved?.lineage.wire() ?? original.storedWire;
+            if (
+              observed.value.wire !== expected ||
+              privateRecordWire(
+                observed.value.handle,
+                original.owner,
+                original.command
+              ) !== expected
+            ) {
+              saved?.revoke();
+              return refuse('conflict');
+            }
+            if (prior) return { status: 'existing', acknowledgement: prior };
+            const record = privateRecordSnapshot(
+              observed.value.handle,
+              original.owner,
+              original.command
+            );
+            if (
+              !record ||
+              record.family !== 'private_access_probe' ||
+              !record.self ||
+              record.self.eventId !== original.eventId ||
+              record.rumorHash !== original.rumorHash ||
+              !current()
+            )
+              return refuse('invalid_record');
+            const lineage = createLineage(
+              repository,
+              session,
+              proof,
+              record,
+              expected
+            );
+            let revoked = false;
+            const acknowledgement = Object.freeze(
+              {}
+            ) as InboxProbeAcknowledgement;
+            issued = acknowledgement;
+            acknowledgements.set(acknowledgement, {
+              source: 'recovered',
+              repository,
+              session,
+              identity: proof,
+              access,
+              policy,
+              operator,
+              lineage,
+              current: () => !revoked && current(),
+              revoke: () => {
+                revoked = true;
+              }
+            });
+            return { status: 'adopted', acknowledgement };
+          }
+        );
+        return idle.ok ? idle.value : refuse(current() ? 'busy' : 'stopped');
+      }
+    );
+    // Busy before admission can retry this same original proof. No failed
+    // custody or stopped acknowledgement can be recaptured as a new lineage.
+    if (result.status !== 'busy') action.admit(result);
+    if (!('acknowledgement' in result) && issued)
+      acknowledgements.get(issued)?.revoke();
+    return result;
+  } catch {
+    if (issued) acknowledgements.get(issued)?.revoke();
+    const result = refuse('unavailable');
+    action?.admit(result);
+    return result;
+  } finally {
+    action?.finish();
+  }
+}
+
+// Separate recovered binding: unchanged original/C1 factories cannot accept it.
+// This is memory lineage only; every effect must reread exact native custody.
+export function recoveredInboxProbePublicationBinding(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  acknowledgement: InboxProbeAcknowledgement,
+  policy: RelayPolicy
+) {
+  const saved = acknowledgements.get(acknowledgement);
+  if (
+    !saved ||
+    saved.source !== 'recovered' ||
+    saved.repository !== repository ||
+    saved.session !== session ||
+    saved.policy !== policy ||
+    !saved.current()
+  )
+    return undefined;
+  return {
+    identity: saved.identity,
+    access: saved.access,
+    record: JSON.parse(
+      JSON.stringify(saved.lineage.record())
+    ) as PrivateAccessProbe,
+    wire: saved.lineage.wire(),
+    current: () => saved.current()
   };
 }
 export type InboxProbeArchiveCommitResult = Readonly<{

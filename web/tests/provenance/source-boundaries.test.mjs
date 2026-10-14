@@ -18,7 +18,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
-test('CR007 and CR008-S4B exact private SDK removal cannot become an arbitrary remove capability', async () => {
+test('CR007 and CR008-S4B exact private SDK removal and CR008-S4C2B Retry lifecycle cannot become an arbitrary remove capability', async () => {
   await fixture(async ({ directory, put, execute }) => {
     await isolateScriptDependencies(directory);
     await cp(path.join(root, 'src'), path.join(directory, 'src'), {
@@ -28,11 +28,13 @@ test('CR007 and CR008-S4B exact private SDK removal cannot become an arbitrary r
     const file = 'src/lib/nostr/private-pool.ts';
     const source = await readFile(path.join(root, file), 'utf8');
     assert.ok(source.includes('sdk.remove(relay)'));
+    assert.ok(source.includes('!publishing && !busy && !liveBusy'));
     for (const mutation of [
       source + '\n export const unreviewedChange=1;\n',
       source.replace('sdk.remove(relay)', 'sdk["remove"](relay)'),
       source.replace('sdk.remove(relay)', 'sdk.remove(document.body)'),
-      source.replace('sdk.remove(relay)', '(sdk.remove)(relay)')
+      source.replace('sdk.remove(relay)', '(sdk.remove)(relay)'),
+      source.replace('!publishing && !busy && !liveBusy', 'true')
     ]) {
       await put(file, mutation);
       const result = execute();

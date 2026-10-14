@@ -1664,7 +1664,7 @@ export async function auditSource(root) {
   const relayRemovalTrusted =
     files.has(relayRemovalFile) &&
     createHash('sha256').update(files.get(relayRemovalFile)).digest('hex') ===
-      'c5d7884b33ea8dcde6aea495c92e7a53db12cf650f4476f2b66adc4165e771c2';
+      '2ed123596f26bedb8aab5ec7694be6e264616429e00f745f1614c83f52de9825';
   if (files.has(relayRemovalFile) && !relayRemovalTrusted)
     complain(
       relayRemovalFile,

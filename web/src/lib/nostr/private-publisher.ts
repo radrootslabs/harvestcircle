@@ -1,11 +1,22 @@
 import {
   inboxProbePublicationBinding,
+  recoveredInboxProbePublicationBinding,
   verifyInboxProbeAcknowledgement,
   type InboxProbeAcknowledgement
 } from '../persistence/inbox-probes.ts';
-import type { InboxProbeIdentity } from './inbox-access.ts';
+import {
+  inboxProbeActionOwner,
+  type InboxProbeIdentity
+} from './inbox-access.ts';
+import type { RecoveredInboxProbe } from './self-recovery-reader.ts';
+import {
+  inboxAccessControllerSnapshot,
+  type InboxAccessController
+} from '../messaging/inbox-access-controller.ts';
+import { privatePoolProbeRetryIdle } from './private-pool.ts';
 import {
   privateSessionOwnership,
+  withIdlePrivateLocalStorage,
   type PrivateSession
 } from '../runtime/private-session.ts';
 import {
@@ -23,7 +34,8 @@ import {
 import { readRelayPolicy, type RelayPolicy } from '../config/relays.ts';
 import {
   PRIVATE_TRANSPORT_BUDGETS,
-  PRIVATE_PUBLICATION_BUDGETS
+  PRIVATE_PUBLICATION_BUDGETS,
+  LOCAL_PERSISTENCE_BUDGETS
 } from '../config/budgets.ts';
 import { newLocalId } from '../private-handles.ts';
 import { boundedUtf8 } from '../contracts/food-availability-v1/text.ts';
@@ -91,6 +103,14 @@ function networkMeter(probe: boolean) {
   }
   return {
     current: () => !broken,
+    idle: () => !running,
+    probeAvailable: (origin: string, eventId: string) =>
+      probe &&
+      !broken &&
+      !running &&
+      used < PRIVATE_PUBLICATION_BUDGETS.networkActionMilliseconds &&
+      (counts.get(JSON.stringify([origin, eventId])) ?? 0) <
+        PRIVATE_PUBLICATION_BUDGETS.attemptsPerTargetAction,
     begin(
       role: PrivateDeliveryRole | 'access_archive' | 'access_readback',
       origin: string,
@@ -441,17 +461,79 @@ export type InboxProbePublicationAction = Readonly<{
 declare const probePublicationBrand: unique symbol;
 export type InboxProbePublication = Readonly<{ [probePublicationBrand]: true }>;
 type ProbeAction = {
+  source: 'construction' | 'recovered';
   token: InboxProbePublicationAction;
   repository: PrivateStorageRepository;
   session: PrivateSession;
   policy: RelayPolicy;
-  identity: InboxProbeIdentity;
+  identity: InboxProbeIdentity | RecoveredInboxProbe;
   original: string;
   current(): boolean;
   meter: NonNullable<ReturnType<typeof networkMeter>>;
 };
 const probeActions = new WeakMap<InboxProbePublicationAction, ProbeAction>();
-const identityActions = new WeakMap<InboxProbeIdentity, ProbeAction | null>();
+const identityActions = new WeakMap<
+  InboxProbeIdentity | RecoveredInboxProbe,
+  ProbeAction | null
+>();
+type ProbeMeter = NonNullable<ReturnType<typeof networkMeter>>;
+type ProbeMeterOwner = {
+  access: InboxAccessController;
+  original: string;
+  meter: ProbeMeter;
+  current(): boolean;
+};
+// Bounded within an actual private-session lifetime, never persisted authority.
+// Retired action replacement reuses the slot; it cannot grow action history.
+const commandMeters = new WeakMap<
+  PrivateSession,
+  Map<string, ProbeMeterOwner | null>
+>();
+function probeMeter(
+  session: PrivateSession,
+  policy: RelayPolicy,
+  access: InboxAccessController,
+  command: string,
+  original: string,
+  current: () => boolean,
+  replace: boolean
+): ProbeMeter | undefined {
+  const registry =
+    commandMeters.get(session) ?? new Map<string, ProbeMeterOwner | null>();
+  commandMeters.set(session, registry);
+  const previous = registry.get(command);
+  if (registry.has(command)) {
+    if (!previous || previous.original !== original) return undefined;
+    if (previous.access === access) return previous.meter;
+    const retired = inboxAccessControllerSnapshot(previous.access);
+    if (
+      !replace ||
+      previous.current() ||
+      !previous.meter.idle() ||
+      retired?.state !== 'stopped' ||
+      retired.cleanupRequired ||
+      !privatePoolProbeRetryIdle(session, policy) ||
+      !current()
+    )
+      return undefined;
+  } else if (
+    registry.size >= LOCAL_PERSISTENCE_BUDGETS.unfinishedPrivateSends
+  ) {
+    return undefined;
+  }
+  // UUID creation can reenter. No parallel original or recovered capture may
+  // allocate another meter while this exact command's slot is reserved.
+  registry.set(command, null);
+  const meter = networkMeter(true);
+  if (
+    !meter ||
+    !current() ||
+    (replace && !privatePoolProbeRetryIdle(session, policy))
+  )
+    return undefined;
+  registry.set(command, { access, original, meter, current });
+  return meter;
+}
 function probeImmutable(
   row: NonNullable<ReturnType<typeof inboxProbePublicationBinding>>['record']
 ) {
@@ -484,6 +566,8 @@ export function captureInboxProbePublicationAction(
       policy
     );
     if (!binding || !binding.record.self) return undefined;
+    const access = inboxProbeActionOwner(binding.identity, session, policy);
+    if (!access || !binding.current()) return undefined;
     const original = probeImmutable(binding.record),
       prior = identityActions.get(binding.identity);
     if (identityActions.has(binding.identity))
@@ -498,10 +582,19 @@ export function captureInboxProbePublicationAction(
     // Reserve this original identity before callback-capable UUID creation.
     // Reentrant capture refuses; failed admission never grants a new meter.
     identityActions.set(binding.identity, null);
-    const meter = networkMeter(true);
+    const meter = probeMeter(
+      session,
+      policy,
+      access,
+      binding.record.id,
+      original,
+      binding.current,
+      false
+    );
     if (!meter || !binding.current()) return undefined;
     const token = Object.freeze({}) as InboxProbePublicationAction;
     const captured: ProbeAction = {
+      source: 'construction',
       token,
       repository,
       session,
@@ -516,6 +609,127 @@ export function captureInboxProbePublicationAction(
     return token;
   } catch {
     return undefined;
+  }
+}
+
+// Fresh deliberate Retry adopts the same ciphertext, not a construction
+// identity. Admission is local readonly work; EVENT/REQ need later permissions.
+export async function captureRecoveredInboxProbeRetryAction(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  acknowledgement: InboxProbeAcknowledgement,
+  review: unknown
+): Promise<InboxProbePublicationAction | undefined> {
+  if (
+    typeof window === 'undefined' ||
+    review !== 'reviewed_original_inbox_probe_retry'
+  )
+    return undefined;
+  let identity: RecoveredInboxProbe | undefined,
+    retryBusy = false;
+  try {
+    const binding = recoveredInboxProbePublicationBinding(
+      repository,
+      session,
+      acknowledgement,
+      policy
+    );
+    if (!binding || !binding.record.self) return undefined;
+    identity = binding.identity;
+    const original = probeImmutable(binding.record),
+      previous = identityActions.get(identity);
+    if (identityActions.has(identity))
+      return previous &&
+        previous.repository === repository &&
+        previous.session === session &&
+        previous.policy === policy &&
+        previous.original === original &&
+        previous.current()
+        ? previous.token
+        : undefined;
+    identityActions.set(identity, null);
+    if (!navigator.locks?.request) return undefined;
+    const result = await navigator.locks.request(
+      'harvestcircle:owner:' + binding.record.owner,
+      { mode: 'exclusive', ifAvailable: true },
+      async (lock) => {
+        if (!lock) {
+          retryBusy = true;
+          return undefined;
+        }
+        if (!binding.current()) return undefined;
+        const idle = await withIdlePrivateLocalStorage(session, async () => {
+          if (!binding.current()) return undefined;
+          if (!privatePoolProbeRetryIdle(session, policy)) {
+            retryBusy = true;
+            return undefined;
+          }
+          if (
+            !(await verifyInboxProbeAcknowledgement(
+              repository,
+              session,
+              acknowledgement
+            )) ||
+            !binding.current() ||
+            !privatePoolProbeRetryIdle(session, policy)
+          )
+            return undefined;
+          const meter = probeMeter(
+            session,
+            policy,
+            binding.access,
+            binding.record.id,
+            original,
+            binding.current,
+            true
+          );
+          // UUID/currentness callbacks finish before separate final native
+          // custody observation. A failed admission cannot mint a permission.
+          if (
+            !meter ||
+            ![
+              ...binding.record.binding.archiveTargets,
+              ...binding.record.binding.readTargets
+            ].some((origin) =>
+              meter.probeAvailable(origin, binding.record.self!.eventId)
+            ) ||
+            !(await verifyInboxProbeAcknowledgement(
+              repository,
+              session,
+              acknowledgement
+            )) ||
+            !binding.current() ||
+            !privatePoolProbeRetryIdle(session, policy)
+          )
+            return undefined;
+          const token = Object.freeze({}) as InboxProbePublicationAction;
+          const captured: ProbeAction = {
+            source: 'recovered',
+            token,
+            repository,
+            session,
+            policy,
+            identity: binding.identity,
+            original,
+            current: () => meter.current() && binding.current(),
+            meter
+          };
+          identityActions.set(binding.identity, captured);
+          probeActions.set(token, captured);
+          return token;
+        });
+        if (!idle.ok) retryBusy = true;
+        return idle.ok ? idle.value : undefined;
+      }
+    );
+    return result;
+  } catch {
+    return undefined;
+  } finally {
+    // Only actual pre-admission busy can explicitly retry this same proof.
+    if (retryBusy && identity && identityActions.get(identity) === null)
+      identityActions.delete(identity);
   }
 }
 type ProbePermission = {
@@ -551,12 +765,11 @@ function captureProbePermission(
     return undefined;
   try {
     const captured = probeActions.get(action),
-      binding = inboxProbePublicationBinding(
-        repository,
-        session,
-        acknowledgement,
-        policy
-      );
+      bind =
+        captured?.source === 'recovered'
+          ? recoveredInboxProbePublicationBinding
+          : inboxProbePublicationBinding,
+      binding = bind(repository, session, acknowledgement, policy);
     if (
       !captured ||
       !binding ||
@@ -567,6 +780,8 @@ function captureProbePermission(
       !captured.current() ||
       captured.original !== probeImmutable(binding.record) ||
       !binding.record.self ||
+      (captured.source === 'recovered' &&
+        !captured.meter.probeAvailable(origin, binding.record.self.eventId)) ||
       !(
         role === 'access_archive'
           ? binding.record.binding.archiveTargets
@@ -595,15 +810,13 @@ function captureProbePermission(
     const predecessorWire = binding.wire;
     let consumed = false;
     function current() {
-      const fresh = inboxProbePublicationBinding(
-        repository,
-        session,
-        acknowledgement,
-        policy
-      );
+      const fresh = bind(repository, session, acknowledgement, policy);
       return (
         captured!.current() &&
         !!fresh &&
+        (captured!.source !== 'recovered' ||
+          consumed ||
+          captured!.meter.probeAvailable(origin, artifact.eventId)) &&
         fresh.identity === captured!.identity &&
         fresh.wire === predecessorWire &&
         probeImmutable(fresh.record) === captured!.original
