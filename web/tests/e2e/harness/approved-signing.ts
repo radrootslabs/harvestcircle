@@ -4,6 +4,7 @@ import {
   verifiedSymbol,
   type EventTemplate
 } from 'applesauce-core/helpers';
+import { nip44 } from 'applesauce-core/helpers/encryption';
 import {
   decodePublicRecord,
   publicRecordSnapshot,
@@ -176,6 +177,22 @@ export function makeFixture(kind: 30402 | 5 | 10050 = 30402) {
     owner: row.owner,
     id,
     template,
+    encrypt(peer: string, text: string) {
+      const conversation = nip44.v2.utils.getConversationKey(key, peer);
+      try {
+        return nip44.v2.encrypt(text, conversation);
+      } finally {
+        conversation.fill(0);
+      }
+    },
+    decrypt(peer: string, ciphertext: string) {
+      const conversation = nip44.v2.utils.getConversationKey(key, peer);
+      try {
+        return nip44.v2.decrypt(ciphertext, conversation);
+      } finally {
+        conversation.fill(0);
+      }
+    },
     sign(input: EventTemplate, mode: Mode = 'exact') {
       if (mode === 'denied') throw new Error('test-only refusal');
       const copy = { ...input, tags: input.tags.map((tag) => [...tag]) };

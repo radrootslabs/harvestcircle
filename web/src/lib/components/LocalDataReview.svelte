@@ -13,7 +13,8 @@
   let { review }: { review: LocalDataReview } = $props();
   let snapshot = $state.raw(untrack(() => localDataReviewSnapshot(review)));
   let selectedPublic = $state.raw<string[]>([]),
-    selectedReceived = $state.raw<string[]>([]);
+    selectedReceived = $state.raw<string[]>([]),
+    selectedOutbox = $state.raw<string[]>([]);
   let feedback = $state<string | undefined>();
   const family = (value: string) =>
     value === 'public_draft'
@@ -24,6 +25,7 @@
   function reset() {
     selectedPublic = [];
     selectedReceived = [];
+    selectedOutbox = [];
     feedback = undefined;
   }
   onMount(() => {
@@ -33,26 +35,36 @@
       if (snapshot.state !== 'ready') reset();
     });
   });
-  function toggle(category: 'public' | 'received', id: string) {
+  function toggle(category: 'public' | 'received' | 'outbox', id: string) {
     feedback = undefined;
     if (category === 'public')
       selectedPublic = selectedPublic.includes(id)
         ? selectedPublic.filter((value) => value !== id)
         : [...selectedPublic, id];
-    else
+    else if (category === 'received')
       selectedReceived = selectedReceived.includes(id)
         ? selectedReceived.filter((value) => value !== id)
         : [...selectedReceived, id];
+    else
+      selectedOutbox = selectedOutbox.includes(id)
+        ? selectedOutbox.filter((value) => value !== id)
+        : [...selectedOutbox, id];
   }
   async function inspect() {
     reset();
     await reviewLocalData(review, 'reviewed_local_inventory');
   }
-  async function preview(category: 'public' | 'received') {
+  async function preview(category: 'public' | 'received' | 'outbox') {
     const result = await previewLocalDataRemoval(
       review,
       category,
-      JSON.stringify(category === 'public' ? selectedPublic : selectedReceived)
+      JSON.stringify(
+        category === 'public'
+          ? selectedPublic
+          : category === 'received'
+            ? selectedReceived
+            : selectedOutbox
+      )
     );
     feedback = result
       ? undefined
@@ -99,7 +111,9 @@
         {snapshot.preview.selected} selected {snapshot.preview.category ===
         'public'
           ? 'public records'
-          : 'encrypted received copies'}.
+          : snapshot.preview.category === 'outbox'
+            ? 'settled send records'
+            : 'encrypted received copies'}.
       </p>
       <p>{snapshot.preview.consequences}</p>
       <div class="row">
@@ -171,11 +185,45 @@
       />
       <h3>Private send recovery</h3>
       <p>
-        {snapshot.outbox.count} protected records · {snapshot.outbox.bytes} logical
-        bytes. This control preserves all private outbox recovery records, including
-        pending or uncertain work. Return to Messages for an explicit original-operation
-        review.
+        {snapshot.outbox.count} retained records · {snapshot.outbox.bytes} logical
+        bytes. This browser retains at most 100 send records. Settled records also
+        occupy that capacity. Unsettled send records stay protected.
       </p>
+      {#if !snapshot.receivedRemoval}<p>
+          Enable messaging explicitly before reviewing settled-send removal.
+          Reviewing data does not probe or enable messaging.
+        </p>{/if}
+      {#if snapshot.outboxRows.length}
+        <ul class="stack">
+          {#each snapshot.outboxRows as row (row.id)}
+            <li class="stack">
+              <label class="row"
+                ><input
+                  type="checkbox"
+                  checked={selectedOutbox.includes(row.id)}
+                  onchange={() => toggle('outbox', row.id)}
+                  disabled={!snapshot.receivedRemoval ||
+                    row.state === 'protected' ||
+                    snapshot.busy}
+                />Encrypted send recovery · {row.logicalBytes} logical bytes · {row.state ===
+                'protected'
+                  ? 'Protected'
+                  : 'Eligible settled send'}</label
+              >
+              <p class="key">{row.id}</p>
+            </li>
+          {/each}
+        </ul>
+      {:else}<p>
+          No private send recovery records for this account in this browser.
+        </p>{/if}
+      <Button
+        label="Review settled send removal"
+        onclick={() => preview('outbox')}
+        disabled={!snapshot.receivedRemoval ||
+          !selectedOutbox.length ||
+          snapshot.busy}
+      />
     {/if}
     {#if snapshot.busy}<p role="status">
         Checking the selected local action…

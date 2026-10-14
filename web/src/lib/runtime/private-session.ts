@@ -6,6 +6,10 @@ import {
   type IdentitySession
 } from './identity-session.ts';
 import type { PublicEffectCapture } from './effect-ownership.ts';
+import {
+  browserExtensionScheduler,
+  runExtensionAction
+} from '../nostr/extension-scheduler.ts';
 declare const privateBrand: unique symbol;
 export type PrivateSession = Readonly<{ [privateBrand]: true }>;
 type Controller = {
@@ -166,4 +170,28 @@ export async function recheckPrivateSession(
     checked.publicKey === state.capture.owner &&
     checked.admission !== 'busy'
   );
+}
+
+// A short local-storage action reserves the actual shared SDK slot without
+// invoking the provider. No permission/network work belongs inside this job.
+export async function withIdlePrivateLocalStorage<T>(
+  token: PrivateSession,
+  work: (this: void) => Promise<T>
+): Promise<Readonly<{ ok: true; value: T }> | Readonly<{ ok: false }>> {
+  const state = sessions.get(token),
+    scheduler = browserExtensionScheduler();
+  if (!state?.current() || !scheduler) return { ok: false };
+  const result = await runExtensionAction(
+    scheduler,
+    {
+      owner: state.capture.owner,
+      session: state.capture.session,
+      operation: Symbol()
+    },
+    () => state.current(),
+    () => work()
+  );
+  return result.status === 'completed' && 'value' in result && state.current()
+    ? { ok: true, value: result.value as T }
+    : { ok: false };
 }

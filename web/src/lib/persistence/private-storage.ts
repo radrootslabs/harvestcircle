@@ -6,6 +6,7 @@ import {
 import { canonicalPublicKey } from '../contracts/public-key.ts';
 import { exactLocalFields } from '../contracts/local-records.ts';
 import { LOCAL_PERSISTENCE_BUDGETS } from '../config/budgets.ts';
+import { privateRecordSettlement } from './local-inventory.ts';
 import {
   browserDatabaseState,
   browserDatabaseTransaction,
@@ -490,6 +491,91 @@ export function removePrivateReceivedRecords(
     (refuse) => {
       const abort = () => refuse('invalid_scope');
       const off = subscribePrivateSessionClose(session, abort);
+      cancellation?.addEventListener('abort', abort, { once: true });
+      if (cancellation?.aborted) abort();
+      return () => {
+        off();
+        cancellation?.removeEventListener('abort', abort);
+      };
+    }
+  );
+}
+
+// Reviewed settled-send loss only; the cleanup owner holds the owner WebLock
+// and idle SDK slot. Revalidate the full namespace and immutable selection in
+// the same short transaction; native complete requires separate absence proof.
+export function removePrivateSettledSendRecords(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  handles: readonly PrivateRecordHandle[],
+  review: unknown,
+  cancellation?: AbortSignal
+): Promise<PrivateStorageResult<Readonly<{ removed: number }>>> {
+  const scope = scopeOf(repository),
+    ownership = privateSessionOwnership(session);
+  if (
+    review !== 'reviewed_delete_local_settled_sends' ||
+    !scope ||
+    cancellation?.aborted ||
+    !ownership?.current() ||
+    scope.owner !== ownership.owner
+  )
+    return Promise.resolve(failed('invalid_scope'));
+  if (
+    !Array.isArray(handles) ||
+    !handles.length ||
+    handles.length > LOCAL_PERSISTENCE_BUDGETS.unfinishedPrivateSends
+  )
+    return Promise.resolve(failed('invalid_record'));
+  const selected = handles.map((handle: PrivateRecordHandle) => {
+    const identity = privateRecordIdentity(handle),
+      record =
+        identity && privateRecordSnapshot(handle, scope.owner, identity.id),
+      wire = identity && privateRecordWire(handle, scope.owner, identity.id);
+    return identity &&
+      record &&
+      privateRecordSettlement(record) === 'settled' &&
+      wire
+      ? { id: identity.id, wire }
+      : undefined;
+  });
+  if (
+    selected.some((x) => !x) ||
+    new Set(selected.map((x) => x?.id)).size !== selected.length
+  )
+    return Promise.resolve(failed('invalid_record'));
+  return transaction<Readonly<{ removed: number }>>(
+    scope,
+    'private_sends',
+    'readwrite',
+    (rows, tx, refuse) => {
+      if (!ownership.current() || cancellation?.aborted) {
+        refuse('invalid_scope');
+        return;
+      }
+      for (const item of selected) {
+        const actual = item && rows.find((row) => row.record.id === item.id);
+        if (
+          !item ||
+          actual?.wire !== item.wire ||
+          privateRecordSettlement(actual.record) !== 'settled'
+        ) {
+          refuse('conflict');
+          return;
+        }
+      }
+      if (!ownership.current() || cancellation?.aborted) {
+        refuse('invalid_scope');
+        return;
+      }
+      for (const item of selected)
+        if (item)
+          tx.objectStore('private_sends').delete([scope.owner, item.id]);
+      return { ok: true, value: { removed: selected.length } };
+    },
+    (refuse) => {
+      const abort = () => refuse('invalid_scope'),
+        off = subscribePrivateSessionClose(session, abort);
       cancellation?.addEventListener('abort', abort, { once: true });
       if (cancellation?.aborted) abort();
       return () => {

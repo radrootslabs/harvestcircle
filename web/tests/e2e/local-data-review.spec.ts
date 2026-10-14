@@ -396,4 +396,191 @@ test.describe('HCP125 original local data workflow and native storage', () => {
         )
       ).toBe(true);
     });
+
+  test('CR004 reviewed settled removal frees actual capacity while preserving other namespaces', async ({
+    page
+  }) => {
+    await load(page, 'outbox');
+    const before = await page.evaluate(() => window.hcp125Fixture.rows());
+    expect(before).toMatchObject({
+      outbox: 100,
+      publicDrafts: 2,
+      publicOperations: 1,
+      received: 2,
+      foreignReceived: 1
+    });
+    expect(await page.evaluate(() => window.hcp125Fixture.reserveNext())).toBe(
+      'capacity'
+    );
+    await page
+      .getByRole('button', { name: 'Review data in this browser', exact: true })
+      .click();
+    await expect(
+      page.getByRole('checkbox', { name: /Eligible settled send/ })
+    ).toHaveCount(100);
+    await page
+      .getByRole('checkbox', { name: /Eligible settled send/ })
+      .first()
+      .check();
+    await page
+      .getByRole('button', { name: 'Review settled send removal', exact: true })
+      .click();
+    await expect(
+      page.getByText('duplicate-prevention evidence', { exact: false })
+    ).toBeVisible();
+    await page
+      .getByRole('button', { name: 'Confirm removal', exact: true })
+      .click();
+    await expect(page.getByRole('status').last()).toContainText(
+      'Removed 1 selected settled send record'
+    );
+    const removed = await page.evaluate(() => window.hcp125Fixture.rows());
+    expect(removed).toEqual({ ...before, outbox: 99 });
+    expect(
+      await page.evaluate(() => window.hcp125Fixture.effects())
+    ).toMatchObject({ signs: 0, encrypts: 0, decrypts: 0 });
+    const fresh = await page.evaluate(() => window.hcp125Fixture.freshSend());
+    expect(fresh).toMatchObject({
+      reservation: 'reserved',
+      self: 'saved',
+      pair: 'prepared',
+      paired: true
+    });
+    expect(
+      await page.evaluate(() => window.hcp125Fixture.settledIds())
+    ).not.toContain(fresh.id);
+    expect(
+      await page.evaluate(() => window.hcp125Fixture.effects())
+    ).toMatchObject({ signs: 2, encrypts: 2 });
+    expect(await page.evaluate(() => window.hcp125Fixture.rows())).toEqual(
+      before
+    );
+    expect(await page.evaluate(() => window.hcp125Fixture.reserveNext())).toBe(
+      'capacity'
+    );
+  });
+
+  test('CR004 a second same-origin tab holding the actual owner lock prevents cleanup', async ({
+    page,
+    context
+  }) => {
+    await load(page, 'outbox');
+    expect(
+      await page.evaluate(() => window.hcp125Fixture.reviewAndPreviewOutbox())
+    ).toBe(true);
+    const owner = await page.evaluate(() => window.hcp125Fixture.owner),
+      other = await context.newPage();
+    try {
+      await other.goto(server.url + '/about');
+      await other.evaluate(async (owner) => {
+        const state = window as typeof window & {
+          cr004Release?: () => void;
+          cr004Held?: Promise<void>;
+        };
+        let entered = () => {};
+        const ready = new Promise<void>((resolve) => {
+          entered = resolve;
+        });
+        state.cr004Held = navigator.locks.request(
+          'harvestcircle:owner:' + owner,
+          async () => {
+            entered();
+            await new Promise<void>((resolve) => {
+              state.cr004Release = resolve;
+            });
+          }
+        );
+        await ready;
+      }, owner);
+      expect(await page.evaluate(() => window.hcp125Fixture.confirm())).toBe(
+        false
+      );
+      expect(
+        (await page.evaluate(() => window.hcp125Fixture.rows())).outbox
+      ).toBe(100);
+      expect(
+        await page.evaluate(() => window.hcp125Fixture.effects())
+      ).toMatchObject({ signs: 0, encrypts: 0, decrypts: 0 });
+    } finally {
+      if (!other.isClosed()) {
+        await other.evaluate(async () => {
+          const state = window as typeof window & {
+            cr004Release?: () => void;
+            cr004Held?: Promise<void>;
+          };
+          state.cr004Release?.();
+          await state.cr004Held;
+        });
+        await other.close();
+      }
+    }
+  });
+
+  for (const outcome of [
+    'changed',
+    'lock_busy',
+    'sdk_busy',
+    'key_changed',
+    'aborted',
+    'unknown'
+  ] as const)
+    test(
+      'CR004 actual ' +
+        outcome +
+        ' cannot certify removal of the reviewed original',
+      async ({ page }) => {
+        await load(page, 'outbox');
+        expect(
+          await page.evaluate(() =>
+            window.hcp125Fixture.reviewAndPreviewOutbox()
+          )
+        ).toBe(true);
+        const result = await page.evaluate(async (outcome) => {
+          const f = window.hcp125Fixture;
+          if (outcome === 'changed') await f.changeOutbox();
+          if (outcome === 'key_changed') f.switchKey();
+          const fault =
+            outcome === 'aborted' || outcome === 'unknown'
+              ? await f.abortOutboxDelete(outcome === 'unknown')
+              : undefined;
+          const confirmed =
+            fault?.confirmed ??
+            (outcome === 'lock_busy'
+              ? await f.confirmWhileLocked()
+              : outcome === 'sdk_busy'
+                ? await f.confirmWhileSdkBusy()
+                : await f.confirm());
+          return {
+            confirmed,
+            fault,
+            rows: await f.rows(),
+            effects: f.effects()
+          };
+        }, outcome);
+        expect(result.confirmed).toBe(false);
+        expect(result.rows.outbox).toBe(outcome === 'unknown' ? 99 : 100);
+        expect(result.rows).toMatchObject({
+          publicDrafts: 2,
+          publicOperations: 1,
+          received: 2,
+          foreignReceived: 1
+        });
+        expect(result.effects).toMatchObject({
+          signs: 0,
+          encrypts: 0,
+          decrypts: 0
+        });
+        if (outcome === 'aborted')
+          expect(result.fault).toMatchObject({
+            deletes: 1,
+            aborts: 1,
+            nativeTerminal: 'abort'
+          });
+        if (outcome === 'unknown')
+          expect(result.fault).toMatchObject({
+            aborts: 0,
+            nativeTerminal: 'complete'
+          });
+      }
+    );
 });

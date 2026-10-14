@@ -26,11 +26,22 @@ import {
 } from './quota.ts';
 import {
   createPrivateStorageRepository,
-  inspectPrivateStorage,
+  listPrivateSendRecords,
   listPrivateReceivedRecords,
   type PrivateStorageRepository
 } from './private-storage.ts';
-import { privateRecordIdentity, privateRecordWire } from './private-records.ts';
+import {
+  privateRecordIdentity,
+  privateRecordWire,
+  privateRecordSnapshot,
+  type PrivateRecordHandle
+} from './private-records.ts';
+import {
+  capturePrivateOutboxCleanup,
+  deleteReviewedSettledSends,
+  stopPrivateOutboxCleanup,
+  type PrivateOutboxCleanup
+} from './private-outbox-cleanup.ts';
 import {
   captureReceivedCleanup,
   deleteReviewedReceivedCopies,
@@ -39,13 +50,16 @@ import {
 } from './inbox-retention.ts';
 import {
   PUBLIC_CLEANUP_CONSEQUENCES,
-  type PublicInventoryRow
+  PRIVATE_OUTBOX_CLEANUP_CONSEQUENCES,
+  privateInventoryRow,
+  type PublicInventoryRow,
+  type PrivateInventoryRow
 } from './local-inventory.ts';
 import { LOCAL_PERSISTENCE_BUDGETS } from '../config/budgets.ts';
 
 declare const reviewBrand: unique symbol;
 export type LocalDataReview = Readonly<{ [reviewBrand]: true }>;
-type Category = 'public' | 'received';
+type Category = 'public' | 'received' | 'outbox';
 type Preview = Readonly<{
   category: Category;
   selected: number;
@@ -56,6 +70,7 @@ type Inventory = Readonly<{
   publicRows: readonly PublicInventoryRow[];
   received: readonly Readonly<{ id: string; logicalBytes: number }>[];
   outbox: Readonly<{ count: number; bytes: number }>;
+  outboxRows: readonly PrivateInventoryRow[];
   receivedRemoval: boolean;
 }>;
 export type LocalDataReviewSnapshot =
@@ -83,6 +98,23 @@ const receivedConsequences =
   'Removing selected encrypted copies loses those local messages. Relay recovery is not guaranteed. Other participants and relays may retain copies. Outbox recovery records stay unchanged. Browser-local storage is not a backup.';
 const unavailable =
   'Local inventory or removal was not confirmed. Existing local data has not been reset. You can still browse public food. Review current data before trying again; an unknown completion may have changed selected local copies.';
+
+function outboxInventory(
+  handles: readonly PrivateRecordHandle[],
+  owner: string
+): PrivateInventoryRow[] {
+  return handles.map((handle) => {
+    const identity = privateRecordIdentity(handle),
+      record = identity && privateRecordSnapshot(handle, owner, identity.id),
+      wire = identity && privateRecordWire(handle, owner, identity.id);
+    if (!record || !wire) throw Error('outbox inventory unavailable');
+    return privateInventoryRow(
+      record,
+      new TextEncoder().encode(JSON.stringify({ owner, id: record.id, wire }))
+        .length
+    );
+  });
+}
 
 function selection(value: unknown, maximum: number): string[] | undefined {
   if (
@@ -127,6 +159,7 @@ export function createLocalDataReview(
   let privateRepository: PrivateStorageRepository | undefined;
   let publicCleanup: PublicCleanup | undefined,
     receivedCleanup: ReceivedCleanup | undefined;
+  let outboxCleanup: PrivateOutboxCleanup | undefined;
   let offIdentity = () => {};
   function notify() {
     for (const listener of listeners.values()) {
@@ -141,6 +174,8 @@ export function createLocalDataReview(
     publicCleanup = undefined;
     if (receivedCleanup) stopReceivedCleanup(receivedCleanup);
     receivedCleanup = undefined;
+    if (outboxCleanup) stopPrivateOutboxCleanup(outboxCleanup);
+    outboxCleanup = undefined;
     if (state.state === 'ready') state = { ...state, preview: undefined };
   }
   function retire() {
@@ -202,7 +237,7 @@ export function createLocalDataReview(
       const publicState = publicInventorySnapshot(pub, scan.value);
       const received = await listPrivateReceivedRecords(priv);
       if (!current(original)) return;
-      const outbox = await inspectPrivateStorage(priv, 'private_sends');
+      const outbox = await listPrivateSendRecords(priv);
       if (!current(original)) return;
       if (!publicState || !received.ok || !outbox.ok)
         throw Error('private inventory unavailable');
@@ -218,6 +253,7 @@ export function createLocalDataReview(
           ).length
         };
       });
+      const outboxRows = outboxInventory(outbox.value, captured.owner);
       publicRepository = pub;
       privateRepository = priv;
       inventory = scan.value;
@@ -227,7 +263,11 @@ export function createLocalDataReview(
         owner: captured.owner,
         publicRows: publicState.rows,
         received: copies,
-        outbox: outbox.value,
+        outbox: {
+          count: outboxRows.length,
+          bytes: outboxRows.reduce((sum, row) => sum + row.logicalBytes, 0)
+        },
+        outboxRows,
         receivedRemoval:
           identitySessionSnapshot(identity).state === 'messaging_capable'
       };
@@ -250,6 +290,7 @@ export function createLocalDataReview(
             publicRows: state.publicRows.map((row) => ({ ...row })),
             received: state.received.map((row) => ({ ...row })),
             outbox: { ...state.outbox },
+            outboxRows: state.outboxRows.map((row) => ({ ...row })),
             preview: state.preview && { ...state.preview }
           }
         : { ...state };
@@ -264,7 +305,9 @@ export function createLocalDataReview(
         category === 'public'
           ? LOCAL_PERSISTENCE_BUDGETS.publicDrafts +
               LOCAL_PERSISTENCE_BUDGETS.publicOperations
-          : LOCAL_PERSISTENCE_BUDGETS.receivedEnvelopes
+          : category === 'outbox'
+            ? LOCAL_PERSISTENCE_BUDGETS.unfinishedPrivateSends
+            : LOCAL_PERSISTENCE_BUDGETS.receivedEnvelopes
       );
       cancelPreview();
       if (!ids) {
@@ -292,13 +335,17 @@ export function createLocalDataReview(
         return true;
       }
       if (
-        category !== 'received' ||
+        (category !== 'received' && category !== 'outbox') ||
         !privateRepository ||
         !state.receivedRemoval ||
         !ids.every(
           (id) =>
             state.state === 'ready' &&
-            state.received.some((row) => row.id === id)
+            (category === 'received'
+              ? state.received.some((row) => row.id === id)
+              : state.outboxRows.some(
+                  (row) => row.id === id && row.state === 'settled'
+                ))
         )
       ) {
         notify();
@@ -315,6 +362,30 @@ export function createLocalDataReview(
           'reviewed_private_session'
         );
         if (!session || !current(original)) return false;
+        if (category === 'outbox') {
+          const cleanup = await capturePrivateOutboxCleanup(
+            privateRepository,
+            session,
+            ids,
+            'reviewed_settled_outbox_selection'
+          );
+          if (!current(original)) {
+            if (cleanup) stopPrivateOutboxCleanup(cleanup);
+            return false;
+          }
+          if (!cleanup || state.state !== 'ready') return false;
+          outboxCleanup = cleanup;
+          state = {
+            ...state,
+            preview: {
+              category: 'outbox',
+              selected: ids.length,
+              consequences: PRIVATE_OUTBOX_CLEANUP_CONSEQUENCES
+            },
+            notice: undefined
+          };
+          return true;
+        }
         const cleanup = await captureReceivedCleanup(
           privateRepository,
           session,
@@ -364,10 +435,12 @@ export function createLocalDataReview(
         owner = ownership.owner;
       const pub = publicCleanup,
         received = receivedCleanup,
+        outbox = outboxCleanup,
         repo = publicRepository,
         signal = cancellation.signal;
       publicCleanup = undefined;
       receivedCleanup = undefined;
+      outboxCleanup = undefined;
       busy = true;
       state = { ...state, busy: true, preview: undefined };
       notify();
@@ -402,6 +475,34 @@ export function createLocalDataReview(
               return true;
             }
           );
+        } else if (preview.category === 'outbox' && outbox) {
+          outboxCleanup = outbox;
+          const result = await deleteReviewedSettledSends(
+            outbox,
+            'reviewed_delete_local_settled_sends'
+          );
+          if (
+            result.status === 'removed' &&
+            current(original) &&
+            privateRepository
+          ) {
+            const scan = await listPrivateSendRecords(privateRepository);
+            if (scan.ok && current(original) && state.state === 'ready') {
+              const remaining = outboxInventory(scan.value, owner);
+              state = {
+                ...state,
+                outboxRows: remaining,
+                outbox: {
+                  count: remaining.length,
+                  bytes: remaining.reduce(
+                    (sum, row) => sum + row.logicalBytes,
+                    0
+                  )
+                }
+              };
+              confirmed = true;
+            }
+          }
         } else if (preview.category === 'received' && received) {
           // Keep the owned action available to synchronous retirement while running.
           receivedCleanup = received;
@@ -433,6 +534,8 @@ export function createLocalDataReview(
       } finally {
         if (received) stopReceivedCleanup(received);
         if (receivedCleanup === received) receivedCleanup = undefined;
+        if (outbox) stopPrivateOutboxCleanup(outbox);
+        if (outboxCleanup === outbox) outboxCleanup = undefined;
         if (generation === original) {
           busy = false;
           if (state.state === 'ready')
@@ -444,7 +547,9 @@ export function createLocalDataReview(
                   preview.selected +
                   (preview.category === 'public'
                     ? ' selected public record'
-                    : ' selected received encrypted copy') +
+                    : preview.category === 'outbox'
+                      ? ' selected settled send record'
+                      : ' selected received encrypted copy') +
                   (preview.selected === 1 ? '.' : ' entries.') +
                   ' Other local categories and remote copies are unchanged.'
                 : unavailable

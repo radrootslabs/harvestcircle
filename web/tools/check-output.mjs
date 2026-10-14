@@ -269,7 +269,7 @@ async function operationalFlagsAdmission(web) {
     'src/lib/components/ListingReview.svelte':
       'deee41ca6c60b346afc7ed5e62e3101ee03b04fdd2a9aa8fa3f3dec585e3863b',
     'src/lib/components/LocalDataReview.svelte':
-      '662e77b3c7df48baeed317628c848bfc50f0b5643145e04cdaf017a1cc078ff5',
+      '63b259ed2c7daa552a6c54665da74f45275ec45c60b415207a008a4ac1aa5b37',
     'src/lib/components/MessageComposer.svelte':
       'c3ab09ae9a2dc5ac8268cc45218140c5480dcb9bcf8b8bce54d2ae35ffdb2d14',
     'src/lib/components/MessageItem.svelte':
@@ -365,9 +365,11 @@ async function operationalFlagsAdmission(web) {
     'src/lib/persistence/inbox-retention.ts':
       '8bcc73be03321e60a6fbbe7ba58de14eb8fb34db5d5cdce0adee31b5467d7bb9',
     'src/lib/persistence/local-data-review.ts':
-      '80c786bcce36f84b79775eea1710611ea77a1ee666fedb0067be4341949eb5df',
+      '90379b183d0a1d8885076fbfc593d7c9ac1e351b16ce7800890107014e5cb0e4',
+    'src/lib/persistence/private-outbox-cleanup.ts':
+      '13f4e7d771b3a8d4ec7703f2026a1c8ff71582a2d2a810b9d402d58684b2e2b6',
     'src/lib/persistence/local-inventory.ts':
-      '2ff3ca31cee4eec65b56a8f87d8ecdd0238cb86ef4bbe18d74518f299570adc1',
+      'cd44ed47548453f0443400894c57c364b544781c028c4dba6e9fa096034c5965',
     'src/lib/persistence/local-private-blocks.ts':
       'd7e76c1122ff5479f261293db458a3240438ce0471c788c2f07ffaf854449cbc',
     'src/lib/persistence/local-public-hides.ts':
@@ -375,7 +377,7 @@ async function operationalFlagsAdmission(web) {
     'src/lib/persistence/private-records.ts':
       '3389fe2fc5b9b84b292b4340fe1edda16a2eb365c1b0fb00d965827dd9b02ce6',
     'src/lib/persistence/private-storage.ts':
-      'e45a95c9b12e8534a6ab0a4ec8ee1c86e730bba2f252dc1947954439720f2bfc',
+      'a5587d3d1e8af689355e170e19d3b8572eba35b0698dab15f0b97294a0ad6e1e',
     'src/lib/persistence/public-publications.ts':
       'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
     'src/lib/persistence/public-receipts.ts':
@@ -413,7 +415,7 @@ async function operationalFlagsAdmission(web) {
     'src/lib/runtime/identity-session.ts':
       '7d665f6872bdc780f1f2b56245730adcc90f32cf1fed6997f7e2e44ea2447b49',
     'src/lib/runtime/private-session.ts':
-      '4ba4250e2a96c077b19144517b1f091934a124916108afe73871ccb00d9b47ab',
+      'ecffe8a4a735478669f46e666e96add6d4b32c615e3741fcc2277a07ca2ef6c3',
     'src/lib/runtime/public-runtime.ts':
       '679aa4cd51a1dfdc81459bdfccb29441ac60edfa8b1ddd579425787c85b5cff4',
     'src/lib/runtime/view-context.ts':
@@ -521,7 +523,7 @@ async function privacyDataAdmission(web) {
     'src/lib/components/ListingReview.svelte':
       'deee41ca6c60b346afc7ed5e62e3101ee03b04fdd2a9aa8fa3f3dec585e3863b',
     'src/lib/components/LocalDataReview.svelte':
-      '662e77b3c7df48baeed317628c848bfc50f0b5643145e04cdaf017a1cc078ff5',
+      '63b259ed2c7daa552a6c54665da74f45275ec45c60b415207a008a4ac1aa5b37',
     'src/lib/components/MessageComposer.svelte':
       'bc8ac0e2123b60957f1c289acbb2b8740e171097029f640f657cd79f5aa8423b',
     'src/lib/components/MessageItem.svelte':
@@ -607,9 +609,11 @@ async function privacyDataAdmission(web) {
     'src/lib/persistence/inbox-retention.ts':
       '8bcc73be03321e60a6fbbe7ba58de14eb8fb34db5d5cdce0adee31b5467d7bb9',
     'src/lib/persistence/local-data-review.ts':
-      '80c786bcce36f84b79775eea1710611ea77a1ee666fedb0067be4341949eb5df',
+      '90379b183d0a1d8885076fbfc593d7c9ac1e351b16ce7800890107014e5cb0e4',
+    'src/lib/persistence/private-outbox-cleanup.ts':
+      '13f4e7d771b3a8d4ec7703f2026a1c8ff71582a2d2a810b9d402d58684b2e2b6',
     'src/lib/persistence/local-inventory.ts':
-      '2ff3ca31cee4eec65b56a8f87d8ecdd0238cb86ef4bbe18d74518f299570adc1',
+      'cd44ed47548453f0443400894c57c364b544781c028c4dba6e9fa096034c5965',
     'src/lib/persistence/local-private-blocks.ts':
       'd7e76c1122ff5479f261293db458a3240438ce0471c788c2f07ffaf854449cbc',
     'src/lib/persistence/local-public-hides.ts':
@@ -617,7 +621,7 @@ async function privacyDataAdmission(web) {
     'src/lib/persistence/private-records.ts':
       '3389fe2fc5b9b84b292b4340fe1edda16a2eb365c1b0fb00d965827dd9b02ce6',
     'src/lib/persistence/private-storage.ts':
-      'e45a95c9b12e8534a6ab0a4ec8ee1c86e730bba2f252dc1947954439720f2bfc',
+      'a5587d3d1e8af689355e170e19d3b8572eba35b0698dab15f0b97294a0ad6e1e',
     'src/lib/persistence/public-publications.ts':
       'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
     'src/lib/persistence/public-receipts.ts':
@@ -651,7 +655,7 @@ async function privacyDataAdmission(web) {
     'src/lib/runtime/identity-session.ts':
       '7d665f6872bdc780f1f2b56245730adcc90f32cf1fed6997f7e2e44ea2447b49',
     'src/lib/runtime/private-session.ts':
-      '4ba4250e2a96c077b19144517b1f091934a124916108afe73871ccb00d9b47ab',
+      'ecffe8a4a735478669f46e666e96add6d4b32c615e3741fcc2277a07ca2ef6c3',
     'src/lib/runtime/public-runtime.ts':
       '679aa4cd51a1dfdc81459bdfccb29441ac60edfa8b1ddd579425787c85b5cff4',
     'src/lib/runtime/view-context.ts':
@@ -820,7 +824,7 @@ async function supportReportingAdmission(web) {
     'src/lib/persistence/local-public-hides.ts':
       '4f0e64ed0fabbe9f86014a0512e7dbd3c81711f28ca2c626e2dafa5cda349f83',
     'src/lib/persistence/private-storage.ts':
-      'e45a95c9b12e8534a6ab0a4ec8ee1c86e730bba2f252dc1947954439720f2bfc',
+      'a5587d3d1e8af689355e170e19d3b8572eba35b0698dab15f0b97294a0ad6e1e',
     'src/lib/persistence/public-publications.ts':
       'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
     'src/lib/persistence/public-receipts.ts':
@@ -854,7 +858,7 @@ async function supportReportingAdmission(web) {
     'src/lib/runtime/identity-session.ts':
       '7d665f6872bdc780f1f2b56245730adcc90f32cf1fed6997f7e2e44ea2447b49',
     'src/lib/runtime/private-session.ts':
-      '4ba4250e2a96c077b19144517b1f091934a124916108afe73871ccb00d9b47ab',
+      'ecffe8a4a735478669f46e666e96add6d4b32c615e3741fcc2277a07ca2ef6c3',
     'src/lib/runtime/public-runtime.ts':
       '679aa4cd51a1dfdc81459bdfccb29441ac60edfa8b1ddd579425787c85b5cff4',
     'src/lib/runtime/view-context.ts':
@@ -1007,7 +1011,7 @@ async function privateBlockingAdmission(web) {
     'src/lib/persistence/local-public-hides.ts':
       '4f0e64ed0fabbe9f86014a0512e7dbd3c81711f28ca2c626e2dafa5cda349f83',
     'src/lib/persistence/private-storage.ts':
-      'e45a95c9b12e8534a6ab0a4ec8ee1c86e730bba2f252dc1947954439720f2bfc',
+      'a5587d3d1e8af689355e170e19d3b8572eba35b0698dab15f0b97294a0ad6e1e',
     'src/lib/persistence/public-publications.ts':
       'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
     'src/lib/persistence/public-receipts.ts':
@@ -1041,7 +1045,7 @@ async function privateBlockingAdmission(web) {
     'src/lib/runtime/identity-session.ts':
       '7d665f6872bdc780f1f2b56245730adcc90f32cf1fed6997f7e2e44ea2447b49',
     'src/lib/runtime/private-session.ts':
-      '4ba4250e2a96c077b19144517b1f091934a124916108afe73871ccb00d9b47ab',
+      'ecffe8a4a735478669f46e666e96add6d4b32c615e3741fcc2277a07ca2ef6c3',
     'src/lib/runtime/public-runtime.ts':
       '679aa4cd51a1dfdc81459bdfccb29441ac60edfa8b1ddd579425787c85b5cff4',
     'src/lib/runtime/view-context.ts':
@@ -2130,7 +2134,7 @@ async function inboxPresentationAdmission(web) {
     'src/lib/messaging/conversation-thread.ts':
       '7367f0e6d96a9f249514f66c2459274e856eb83462523e37264d4cd97d2e36d1',
     'src/lib/persistence/private-storage.ts':
-      'e45a95c9b12e8534a6ab0a4ec8ee1c86e730bba2f252dc1947954439720f2bfc',
+      'a5587d3d1e8af689355e170e19d3b8572eba35b0698dab15f0b97294a0ad6e1e',
     'src/routes/messages/[conversationId=local_id]/+page.svelte':
       'b06c6189adee80b68bc6657fa0e8504551fe9a8b1655a6d81807ebee9930a5e7',
     'src/lib/components/MessageComposer.svelte':
@@ -5293,6 +5297,7 @@ export async function auditOutput(webDirectory) {
           src: '.svelte-kit/generated/build/client-optimized/nodes/6.js',
           isEntry: true,
           imports: [
+            ...(hasOperationalFlags ? ['public-key'] : []),
             'private-session',
             'client',
             'navigation-url',

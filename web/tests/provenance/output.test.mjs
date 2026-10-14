@@ -1953,7 +1953,13 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'src/lib/nostr/inbox-preference-publication.ts',
           'src/lib/nostr/incoming-wire.ts',
           'src/lib/messaging/send-identity.ts',
-          'src/lib/persistence/private-send-reservations.ts'
+          'src/lib/persistence/private-send-reservations.ts',
+          'src/lib/persistence/local-data-review.ts',
+          'src/lib/persistence/local-inventory.ts',
+          'src/lib/persistence/private-storage.ts',
+          'src/lib/persistence/private-outbox-cleanup.ts',
+          'src/lib/runtime/private-session.ts',
+          'src/lib/components/LocalDataReview.svelte'
         ]) {
           await check(
             'operational flags rejects changed owned producer ' + producer,
@@ -1982,6 +1988,43 @@ import { auditOutput } from '../../tools/check-output.mjs';
             }
           );
         }
+        for (const mutation of [
+          'missing-owner',
+          'duplicate-owner',
+          'dynamic-edge'
+        ])
+          await check(
+            'settled cleanup compiler rejects ' + mutation,
+            async (t) => {
+              const f = await fixture(t),
+                file = path.join(
+                  f.web,
+                  '.svelte-kit/output/client/.vite/manifest.json'
+                ),
+                manifest = JSON.parse(await readFile(file, 'utf8')),
+                row = Object.values(manifest).find(
+                  (record) => record.name === 'nodes/6'
+                ),
+                owner = Object.entries(manifest).find(
+                  ([, record]) => record.name === 'public-key'
+                )?.[0];
+              assert.ok(row && owner && row.imports.includes(owner));
+              if (mutation === 'missing-owner')
+                row.imports = row.imports.filter(
+                  (/** @type {string} */ key) => key !== owner
+                );
+              if (mutation === 'duplicate-owner')
+                row.imports = [...row.imports, owner];
+              if (mutation === 'dynamic-edge') row.dynamicImports = [owner];
+              await writeFile(file, JSON.stringify(manifest));
+              await assert.rejects(
+                f.audit,
+                mutation === 'duplicate-owner'
+                  ? /Invalid compiler references/
+                  : /Invalid owned listing editor compiler graph/
+              );
+            }
+          );
         for (const route of [
           'src/routes/sell/+page.svelte',
           'src/routes/selling/drafts/[draftId=local_id]/+page.svelte',
