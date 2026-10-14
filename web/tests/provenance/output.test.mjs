@@ -1938,6 +1938,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
         }
         for (const producer of [
           'src/lib/config/operation-flags.ts',
+          'src/lib/config/relays.ts',
           'src/lib/runtime/capabilities.ts',
           'src/lib/components/AppShell.svelte',
           'src/lib/components/ListingEditor.svelte',

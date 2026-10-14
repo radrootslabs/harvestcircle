@@ -17,6 +17,30 @@ const raw = (fields: Record<string, unknown> = {}) =>
   JSON.stringify({ ...fixture, ...fields });
 
 describe('HCP124 original bounded deployment support configuration', () => {
+  it.each([
+    '3fff::1',
+    '3fff:fff:ffff:ffff:ffff:ffff:ffff:ffff',
+    '2001:db8::1',
+    '2001:1f::1',
+    '2001:3f::1',
+    '2002::1',
+    '2620:4f:8000::1',
+    '::ffff:808:808',
+    'fc00::1'
+  ])('CR006 rejects special IPv6 support destination %s', (address) => {
+    expect(
+      validateSupportPolicy(raw({ destination: `https://[${address}]/report` }))
+    ).toBeUndefined();
+  });
+  it.each(['2606:4700:4700::1111', '3fff:1000::1', '2001:200::1'])(
+    'CR006 preserves canonical public IPv6 HTTPS support destination %s',
+    (address) => {
+      const href = `https://[${address}]:8443/report`;
+      const policy = validateSupportPolicy(raw({ destination: href }));
+      expect(policy).toBeDefined();
+      expect(policy && readSupportPolicy(policy).destination).toBe(href);
+    }
+  );
   it('admits the exact inert fixture and returns a detached snapshot', () => {
     const policy = validateSupportPolicy(raw());
     expect(policy).toBeDefined();

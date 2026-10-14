@@ -33,6 +33,95 @@ const input = () => ({
   operatorDenylist: []
 });
 
+// Frozen IANA IPv6 Special-Purpose registry revision 2025-10-09, reviewed
+// 2026-10-14: https://www.iana.org/assignments/iana-ipv6-special-registry/.
+// RFC4291 defines 128-bit prefixes; RFC9637 reserves the full 3fff::/20.
+// Conservative relay literals exclude special services even where IANA marks
+// a specific service globally reachable. No DNS/connect/operator claim follows.
+describe('CR006 complete binary IPv6 literal policy', () => {
+  it.each([
+    '2001::',
+    '2001:1ff:ffff:ffff:ffff:ffff:ffff:ffff',
+    '2001:1::1',
+    '2001:1::2',
+    '2001:1::3',
+    '2001:2::1',
+    '2001:3::1',
+    '2001:4:112::1',
+    '2001:10::1',
+    '2001:1f:ffff:ffff:ffff:ffff:ffff:ffff',
+    '2001:20::1',
+    '2001:2f:ffff:ffff:ffff:ffff:ffff:ffff',
+    '2001:30::1',
+    '2001:3f:ffff:ffff:ffff:ffff:ffff:ffff',
+    '2001:db8::',
+    '2001:db8:ffff:ffff:ffff:ffff:ffff:ffff',
+    '2002::',
+    '2002:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+    '2620:4f:8000::',
+    '2620:4f:8000:ffff:ffff:ffff:ffff:ffff',
+    '3fff::',
+    '3fff:fff:ffff:ffff:ffff:ffff:ffff:ffff',
+    '::',
+    '::1',
+    '::ffff:808:808',
+    '64:ff9b::808:808',
+    '64:ff9b:1::1',
+    '100::1',
+    '100:0:0:1::1',
+    '5f00::1',
+    'fc00::1',
+    'fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+    'fe80::1',
+    'febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+    'ff02::1',
+    '4000::1'
+  ])('excludes reviewed special-purpose literal %s', (address) => {
+    expect(canonicalRelayOrigin(`wss://[${address}]`)).toBeUndefined();
+  });
+  it.each([
+    '2000::',
+    '2000:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+    '2001:200::',
+    '2001:db7:ffff:ffff:ffff:ffff:ffff:ffff',
+    '2001:db9::',
+    '2001:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+    '2003::',
+    '2620:4f:7fff:ffff:ffff:ffff:ffff:ffff',
+    '2620:4f:8001::',
+    '3ffe:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+    '3fff:1000::',
+    '3fff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+    '2606:4700:4700::1111',
+    '2606:4700:4700:1:2:3:4:5',
+    '2606:0:1:2:3:4:5:6',
+    '2606::1:2:3:4:5'
+  ])(
+    'keeps ordinary public literal outside excluded prefixes %s',
+    (address) => {
+      const origin = `wss://[${address}]:8443`;
+      expect(canonicalRelayOrigin(origin)).toBe(origin);
+    }
+  );
+  it.each([
+    'wss://[2606:4700:4700:0:0:0:0:1111]',
+    'wss://[2606::1:2:3:4:5:6]',
+    'wss://[2606:4700:4700::01111]',
+    'wss://[2606::1::2]',
+    'wss://[2606:4700:4700::1111%25eth0]',
+    'wss://[2606:4700:4700::1111]:443',
+    'wss://[2606:4700:4700::1111]:0',
+    'wss://[2606:4700:4700::1111]:65536',
+    'wss://[2606:4700:4700::1111]/',
+    'wss://[2606:4700:4700::1111]/path',
+    'wss://user@[2606:4700:4700::1111]',
+    'wss://[2606:4700:4700::1111]?q=x',
+    'wss://[2606:4700:4700::1111]#fragment'
+  ])('retains canonical URL admission before binary policy %s', (origin) => {
+    expect(canonicalRelayOrigin(origin)).toBeUndefined();
+  });
+});
+
 describe('fixed relay policy', () => {
   it('admits canonical WSS origins and explicit optional NIP50 capability', () => {
     expect(canonicalRelayOrigin('wss://relay.example.org:8443')).toBe(

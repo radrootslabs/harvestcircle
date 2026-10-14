@@ -293,7 +293,7 @@ async function operationalFlagsAdmission(web) {
     'src/lib/config/operation-flags.ts':
       'd5e0ce74a17de7a06100dcc75886616655fbd398c657027e7d6990d97aa8a0c1',
     'src/lib/config/relays.ts':
-      'f54a4e91c6561cf02e5aebfb7b62a7913faa4416a5664f2d14d2e3f3f9886f55',
+      'ca8c63df89509728a7b87e65232f1da751621ed4777993a079730472a0923957',
     'src/lib/config/support.ts':
       'a5b4c179db6f13ebf85081960e2f7c330c3e894666fbf8f0472edb1c5c818872',
     'src/lib/contracts/local-records.ts':
@@ -551,7 +551,7 @@ async function privacyDataAdmission(web) {
     'src/lib/config/deployment-support.ts':
       'c698313143943749bb457674825b648f6af29477f07cae960f3435c035cd6bd8',
     'src/lib/config/relays.ts':
-      'f54a4e91c6561cf02e5aebfb7b62a7913faa4416a5664f2d14d2e3f3f9886f55',
+      'ca8c63df89509728a7b87e65232f1da751621ed4777993a079730472a0923957',
     'src/lib/config/support.ts':
       'a5b4c179db6f13ebf85081960e2f7c330c3e894666fbf8f0472edb1c5c818872',
     'src/lib/contracts/local-records.ts':
@@ -770,7 +770,7 @@ async function supportReportingAdmission(web) {
     'src/lib/config/deployment-support.ts':
       'c698313143943749bb457674825b648f6af29477f07cae960f3435c035cd6bd8',
     'src/lib/config/relays.ts':
-      'f54a4e91c6561cf02e5aebfb7b62a7913faa4416a5664f2d14d2e3f3f9886f55',
+      'ca8c63df89509728a7b87e65232f1da751621ed4777993a079730472a0923957',
     'src/lib/config/support.ts':
       'a5b4c179db6f13ebf85081960e2f7c330c3e894666fbf8f0472edb1c5c818872',
     'src/lib/contracts/local-records.ts':
@@ -961,7 +961,7 @@ async function privateBlockingAdmission(web) {
     'src/lib/config/deployment-relays.ts':
       '14443151ff819a11a4f9c71e4ff756d1fbdd7cf6c36242ac712c378e68583aa2',
     'src/lib/config/relays.ts':
-      'f54a4e91c6561cf02e5aebfb7b62a7913faa4416a5664f2d14d2e3f3f9886f55',
+      'ca8c63df89509728a7b87e65232f1da751621ed4777993a079730472a0923957',
     'src/lib/contracts/local-records.ts':
       '04ddd51339a439665a94d4a4de7b23c2257d4a673873a672d4427e9764d21f3f',
     'src/lib/contracts/public-key.ts':

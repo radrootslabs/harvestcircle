@@ -38,19 +38,57 @@ function fields(
   return count === names.length;
 }
 
+// URL admission supplies canonical bracketed hex, never a zone or dotted
+// IPv4 tail. Independently bound/validate all eight words before BigInt work.
+function ipv6Bits(value: string): bigint | undefined {
+  if (value.length > 39 || !/^[0-9a-f:]{2,39}$/.test(value)) return undefined;
+  const halves = value.split('::');
+  if (halves.length > 2) return undefined;
+  const left = halves[0] ? halves[0].split(':') : [];
+  const right = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const present = left.length + right.length;
+  if (
+    (halves.length === 1 ? present !== 8 : present >= 8) ||
+    ![...left, ...right].every((word) => /^[0-9a-f]{1,4}$/.test(word))
+  )
+    return undefined;
+  const words = [...left, ...Array<string>(8 - present).fill('0'), ...right];
+  return words.reduce((bits, word) => (bits << 16n) | BigInt('0x' + word), 0n);
+}
+function ipv6Prefix(bits: bigint, network: bigint, length: number): boolean {
+  const shift = BigInt(128 - length);
+  return bits >> shift === network >> shift;
+}
+function publicIpv6(host: string): boolean {
+  if (!host.endsWith(']')) return false;
+  const bits = ipv6Bits(host.slice(1, -1));
+  if (
+    bits === undefined ||
+    !ipv6Prefix(bits, 0x20000000000000000000000000000000n, 3)
+  )
+    return false;
+  // Frozen IANA IPv6 Special-Purpose registry revision 2025-10-09:
+  // https://www.iana.org/assignments/iana-ipv6-special-registry/.
+  // RFC4291 prefix bits, RFC9637 documentation /20. Conservative relay policy
+  // excludes special protocol/service allocations including globally reachable
+  // exceptions within 2001::/23 and AS112; this is not a routability assertion.
+  // Other registry rows (mapped, translation, local, multicast, SRv6, discard)
+  // are already outside 2000::/3. IPv4/DNS admission is independent below.
+  const special: readonly (readonly [bigint, number])[] = [
+    [0x20010000000000000000000000000000n, 23],
+    [0x20010db8000000000000000000000000n, 32],
+    [0x20020000000000000000000000000000n, 16],
+    [0x2620004f800000000000000000000000n, 48],
+    [0x3fff0000000000000000000000000000n, 20]
+  ];
+  // Literal configuration only; browser resolution/connection and actual
+  // operator access still require their separate qualification.
+  return !special.some(([network, length]) =>
+    ipv6Prefix(bits, network, length)
+  );
+}
 function publicAddress(host: string): boolean {
-  if (host.startsWith('[')) {
-    // Canonical global-unicast IPv6 only; mapped IPv4, local, multicast and
-    // unspecified forms fail closed. This is literal admission, never DNS or
-    // IP-at-connect enforcement (the browser owns connection resolution).
-    const head = host.slice(1, -1).split(':');
-    const first = Number.parseInt(head[0], 16);
-    return (
-      first >= 0x2000 &&
-      first <= 0x3fff &&
-      !(first === 0x2001 && ['db8', '0', '2', '10', '20'].includes(head[1]))
-    );
-  }
+  if (host.startsWith('[')) return publicIpv6(host);
   if (/^[0-9.]+$/.test(host)) {
     const [a, b, c] = host.split('.').map(Number);
     return (
