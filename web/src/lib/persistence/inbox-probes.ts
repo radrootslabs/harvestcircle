@@ -1,4 +1,10 @@
 import {
+  inboxProbeArchiveAttemptEvidence,
+  type InboxProbeArchiveAttemptResult
+} from '../nostr/private-pool.ts';
+import { inboxProbePolicyMatches } from '../nostr/inbox-access.ts';
+import type { RelayPolicy } from '../config/relays.ts';
+import {
   inboxProbeGiftwrapSnapshot,
   inboxProbeGiftwrapSeal,
   type InboxProbeGiftwrap
@@ -25,6 +31,7 @@ import {
 import {
   decodePrivateRecord,
   privateRecordWire,
+  privateRecordSnapshot,
   type PrivateAccessProbe
 } from './private-records.ts';
 import {
@@ -45,12 +52,52 @@ export type InboxProbeCommitResult =
       status: PrivateStorageFailure | 'invalid' | 'busy' | 'stopped';
       disposition: 'original_protected';
     }>;
+type Lineage = {
+  repository: PrivateStorageRepository;
+  session: PrivateSession;
+  identity: InboxProbeIdentity;
+  record(): PrivateAccessProbe;
+  wire(): string;
+  begin(): boolean;
+  finish(): void;
+  admit(record: PrivateAccessProbe, wire: string): void;
+};
+function createLineage(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  identity: InboxProbeIdentity,
+  originalRecord: PrivateAccessProbe,
+  originalWire: string
+): Lineage {
+  let record = originalRecord,
+    wire = originalWire,
+    pending = false;
+  return {
+    repository,
+    session,
+    identity,
+    record: () => record,
+    wire: () => wire,
+    begin() {
+      if (pending) return false;
+      pending = true;
+      return true;
+    },
+    finish() {
+      pending = false;
+    },
+    admit(next, nextWire) {
+      record = next;
+      wire = nextWire;
+    }
+  };
+}
+const lineages = new WeakMap<InboxProbeIdentity, Lineage>();
 type Saved = Readonly<{
   repository: PrivateStorageRepository;
   session: PrivateSession;
   identity: InboxProbeIdentity;
-  record: PrivateAccessProbe;
-  wire: string;
+  lineage: Lineage;
   current(): boolean;
   revoke(): void;
 }>;
@@ -197,11 +244,19 @@ export async function commitInboxProbe(
               );
             if (!original.current()) return refuse('stopped');
             if (!loaded.ok) return refuse(loaded.reason);
+            const previous = lineages.get(original.identity);
+            if (
+              previous &&
+              (previous.repository !== repository ||
+                previous.session !== session)
+            )
+              return refuse('invalid_scope');
+            const expectedWire = previous?.wire() ?? original.wire;
             let status: 'prepared' | 'existing' | 'reconciled';
-            if (loaded.value.wire === original.wire) {
+            if (loaded.value.wire === expectedWire) {
               status = 'existing';
             } else {
-              if (loaded.value.wire !== original.reservationWire)
+              if (previous || loaded.value.wire !== original.reservationWire)
                 return refuse('conflict');
               const committed = await commitPrivateRecord(
                 repository,
@@ -224,16 +279,25 @@ export async function commitInboxProbe(
             );
             if (!original.current()) return refuse('stopped');
             if (!readback.ok) return refuse(readback.reason);
-            if (readback.value.wire !== original.wire)
-              return refuse('conflict');
+            if (readback.value.wire !== expectedWire) return refuse('conflict');
             // The handle and physical wire have both passed complete-owner
             // validation. Their equality is checked independently of metadata
             // normalization; equivalent raw JSON changes cannot be hidden.
             if (
               privateRecordWire(readback.value.handle, owner, id) !==
-              original.wire
+              expectedWire
             )
               return refuse('conflict');
+            const lineage =
+              previous ??
+              createLineage(
+                repository,
+                session,
+                original.identity,
+                original.record,
+                original.wire
+              );
+            lineages.set(original.identity, lineage);
             const acknowledgement = Object.freeze(
               {}
             ) as InboxProbeAcknowledgement;
@@ -242,8 +306,7 @@ export async function commitInboxProbe(
               repository,
               session,
               identity: original.identity,
-              record: original.record,
-              wire: original.wire,
+              lineage,
               current: () => !revoked && original.current(),
               revoke: () => {
                 revoked = true;
@@ -273,7 +336,9 @@ export function inboxProbeAcknowledgementSnapshot(
   const saved = acknowledgements.get(acknowledgement);
   return saved?.current()
     ? {
-        record: JSON.parse(JSON.stringify(saved.record)) as PrivateAccessProbe,
+        record: JSON.parse(
+          JSON.stringify(saved.lineage.record())
+        ) as PrivateAccessProbe,
         fact: 'acknowledged_local_probe_ciphertext_only' as const
       }
     : undefined;
@@ -295,17 +360,171 @@ export async function verifyInboxProbeAcknowledgement(
   const readback = await observePrivateRecord(
     repository,
     'private_sends',
-    saved.record.id
+    saved.lineage.record().id
   );
   const valid =
     saved.current() &&
     readback.ok &&
-    readback.value.wire === saved.wire &&
+    readback.value.wire === saved.lineage.wire() &&
     privateRecordWire(
       readback.value.handle,
-      saved.record.owner,
-      saved.record.id
-    ) === saved.wire;
+      saved.lineage.record().owner,
+      saved.lineage.record().id
+    ) === saved.lineage.wire();
   if (!valid) saved.revoke();
   return valid;
+}
+
+// Genuine lexical associations only. Detached row fields cannot mint a binding.
+export function inboxProbePublicationBinding(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  acknowledgement: InboxProbeAcknowledgement,
+  policy: RelayPolicy
+) {
+  const saved = acknowledgements.get(acknowledgement);
+  if (
+    !saved ||
+    saved.repository !== repository ||
+    saved.session !== session ||
+    !saved.current() ||
+    !inboxProbePolicyMatches(saved.identity, session, policy)
+  )
+    return undefined;
+  return {
+    identity: saved.identity,
+    record: JSON.parse(
+      JSON.stringify(saved.lineage.record())
+    ) as PrivateAccessProbe,
+    wire: saved.lineage.wire(),
+    current: () =>
+      saved.current() &&
+      inboxProbePolicyMatches(saved.identity, session, policy)
+  };
+}
+export type InboxProbeArchiveCommitResult = Readonly<{
+  status:
+    | 'saved'
+    | 'existing'
+    | 'reconciled'
+    | PrivateStorageFailure
+    | 'invalid'
+    | 'busy';
+  disposition: 'original_protected';
+}>;
+const appliedArchiveEvidence = new WeakMap<
+  InboxProbeArchiveAttemptResult,
+  Lineage
+>();
+// Only actual SDK attempt observations can advance memory-only provenance.
+// This bookkeeping can settle after owner loss, but cannot authorize traffic.
+export async function commitInboxProbeArchiveAttempt(
+  repository: PrivateStorageRepository,
+  result: InboxProbeArchiveAttemptResult
+): Promise<InboxProbeArchiveCommitResult> {
+  const refuse = (
+    status: InboxProbeArchiveCommitResult['status']
+  ): InboxProbeArchiveCommitResult => ({
+    status,
+    disposition: 'original_protected'
+  });
+  const effect = inboxProbeArchiveAttemptEvidence(result);
+  if (!effect || effect.repository !== repository) return refuse('invalid');
+  const saved = acknowledgements.get(effect.acknowledgement),
+    lineage = saved?.lineage;
+  if (
+    !saved ||
+    !lineage ||
+    lineage.repository !== repository ||
+    privateStorageOwner(repository) !== lineage.record().owner ||
+    !lineage.record().self
+  )
+    return refuse('invalid');
+  if (!lineage.begin()) return refuse('busy');
+  try {
+    if (typeof window === 'undefined' || !navigator.locks?.request)
+      return refuse('unavailable');
+    return await navigator.locks.request(
+      'harvestcircle:owner:' + lineage.record().owner,
+      { mode: 'exclusive', ifAvailable: true },
+      async (lock) => {
+        if (!lock) return refuse('busy');
+        const owner = lineage.record().owner,
+          id = lineage.record().id,
+          observed = await observePrivateRecord(
+            repository,
+            'private_sends',
+            id
+          );
+        if (!observed.ok) return refuse(observed.reason);
+        if (
+          observed.value.wire !== lineage.wire() ||
+          privateRecordWire(observed.value.handle, owner, id) !== lineage.wire()
+        )
+          return refuse('conflict');
+        if (appliedArchiveEvidence.get(result) === lineage)
+          return refuse('existing');
+        if (
+          effect.predecessorWire !== lineage.wire() ||
+          lineage.record().revision === Number.MAX_SAFE_INTEGER
+        )
+          return refuse('conflict');
+        const fact: unknown = JSON.parse(effect.receiptWire);
+        const candidate = decodePrivateRecord(
+          JSON.stringify({
+            ...lineage.record(),
+            revision: lineage.record().revision + 1,
+            receipts: [...lineage.record().receipts, fact]
+          }),
+          owner,
+          id
+        );
+        if (!candidate.ok) return refuse('invalid_record');
+        const nextWire = privateRecordWire(candidate.value, owner, id),
+          next = privateRecordSnapshot(candidate.value, owner, id);
+        if (!nextWire || !next || next.family !== 'private_access_probe')
+          return refuse('invalid_record');
+        const last = next.receipts[next.receipts.length - 1];
+        if (
+          last.role !== 'access_archive' ||
+          last.eventId !== lineage.record().self!.eventId ||
+          !lineage.record().binding.archiveTargets.includes(last.origin)
+        )
+          return refuse('invalid_record');
+        const committed = await commitPrivateRecord(
+          repository,
+          candidate.value,
+          observed.value.handle
+        );
+        if (!committed.ok && committed.reason !== 'unknown_completion')
+          return refuse(committed.reason);
+        const readback = await observePrivateRecord(
+          repository,
+          'private_sends',
+          id
+        );
+        if (!readback.ok) return refuse('unknown_completion');
+        if (
+          readback.value.wire !== nextWire ||
+          privateRecordWire(readback.value.handle, owner, id) !== nextWire
+        )
+          return refuse('conflict');
+        // Only this actual append/native completion/fresh physical observation can
+        // refresh live ACKs. A decoded receipt or metadata label never can.
+        lineage.admit(next, nextWire);
+        appliedArchiveEvidence.set(result, lineage);
+        return refuse(
+          !committed.ok
+            ? 'reconciled'
+            : committed.value.state === 'existing'
+              ? 'existing'
+              : 'saved'
+        );
+      }
+    );
+  } catch {
+    return refuse('unknown_completion');
+  } finally {
+    lineage.finish();
+  }
 }

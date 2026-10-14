@@ -1,4 +1,10 @@
 import {
+  inboxProbePublicationBinding,
+  verifyInboxProbeAcknowledgement,
+  type InboxProbeAcknowledgement
+} from '../persistence/inbox-probes.ts';
+import type { InboxProbeIdentity } from './inbox-access.ts';
+import {
   privateSessionOwnership,
   type PrivateSession
 } from '../runtime/private-session.ts';
@@ -64,38 +70,9 @@ function immutablePair(receipt: PairedDeliveryAcknowledgement) {
     })
   );
 }
-// One explicit action has one network meter, including all artifacts/targets.
-// SDK identity approval and persisted readback happen before an attempt starts.
-export function capturePrivatePublicationAction(
-  repository: PrivateStorageRepository,
-  session: PrivateSession,
-  receipt: PairedDeliveryAcknowledgement,
-  context: PairedDeliveryContext,
-  review: unknown
-): PrivatePublicationAction | undefined {
-  if (review !== 'reviewed_private_retry') return undefined;
-  const row = pairedDeliveryAcknowledgementSnapshot(receipt),
-    original = immutablePair(receipt),
-    ownership = privateSessionOwnership(session);
-  if (!row || !original || !ownership?.current()) return undefined;
-  for (const route of [
-    row.deliveryPlan.routes.peer,
-    row.deliveryPlan.routes.archive
-  ])
-    for (const origin of route.targets) {
-      if (
-        !capturePrivatePublication(
-          repository,
-          session,
-          receipt,
-          context,
-          route.role,
-          origin,
-          'reviewed_private_delivery'
-        )
-      )
-        return undefined;
-    }
+// Source-owned meter shared by ordinary actions and the original probe action.
+// Provider/native custody waits happen before begin; no caller clock or reset.
+function networkMeter(probe: boolean) {
   const actionId = newLocalId();
   if (!actionId) return undefined;
   const counts = new Map<string, number>();
@@ -112,33 +89,24 @@ export function capturePrivatePublicationAction(
     last = now;
     return now;
   }
-  function current() {
-    return (
-      !broken &&
-      ownership!.current() &&
-      immutablePair(receipt) === original &&
-      recheckInboxRoutePlan(
-        context.plan,
-        context.policy,
-        context.own,
-        context.other
-      ) === 'unchanged'
-    );
-  }
-  const token = Object.freeze({}) as PrivatePublicationAction;
-  actions.set(token, {
-    session,
-    receipt,
-    context,
-    current,
-    begin(role, origin, eventId) {
+  return {
+    current: () => !broken,
+    begin(
+      role: PrivateDeliveryRole | 'access_archive' | 'access_readback',
+      origin: string,
+      eventId: string,
+      current: () => boolean
+    ): NetworkAttempt | undefined {
       if (
+        broken ||
         !current() ||
         running ||
         used >= PRIVATE_PUBLICATION_BUDGETS.networkActionMilliseconds
       )
         return undefined;
-      const key = JSON.stringify([role, origin, eventId]),
+      const key = JSON.stringify(
+          probe ? [origin, eventId] : [role, origin, eventId]
+        ),
         count = counts.get(key) ?? 0;
       if (count >= PRIVATE_PUBLICATION_BUDGETS.attemptsPerTargetAction)
         return undefined;
@@ -177,6 +145,63 @@ export function capturePrivatePublicationAction(
         }
       };
     }
+  };
+}
+// One explicit action has one network meter, including all artifacts/targets.
+// SDK identity approval and persisted readback happen before an attempt starts.
+export function capturePrivatePublicationAction(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  receipt: PairedDeliveryAcknowledgement,
+  context: PairedDeliveryContext,
+  review: unknown
+): PrivatePublicationAction | undefined {
+  if (review !== 'reviewed_private_retry') return undefined;
+  const row = pairedDeliveryAcknowledgementSnapshot(receipt),
+    original = immutablePair(receipt),
+    ownership = privateSessionOwnership(session);
+  if (!row || !original || !ownership?.current()) return undefined;
+  for (const route of [
+    row.deliveryPlan.routes.peer,
+    row.deliveryPlan.routes.archive
+  ])
+    for (const origin of route.targets) {
+      if (
+        !capturePrivatePublication(
+          repository,
+          session,
+          receipt,
+          context,
+          route.role,
+          origin,
+          'reviewed_private_delivery'
+        )
+      )
+        return undefined;
+    }
+  const meter = networkMeter(false);
+  if (!meter) return undefined;
+  function current() {
+    return (
+      meter!.current() &&
+      ownership!.current() &&
+      immutablePair(receipt) === original &&
+      recheckInboxRoutePlan(
+        context.plan,
+        context.policy,
+        context.own,
+        context.other
+      ) === 'unchanged'
+    );
+  }
+  const token = Object.freeze({}) as PrivatePublicationAction;
+  actions.set(token, {
+    session,
+    receipt,
+    context,
+    current,
+    begin: (role, origin, eventId) =>
+      meter.begin(role, origin, eventId, current)
   });
   return token;
 }
@@ -407,4 +432,260 @@ export async function takePrivatePublication(
   } catch {
     return undefined;
   }
+}
+
+declare const probeActionBrand: unique symbol;
+export type InboxProbePublicationAction = Readonly<{
+  [probeActionBrand]: true;
+}>;
+declare const probePublicationBrand: unique symbol;
+export type InboxProbePublication = Readonly<{ [probePublicationBrand]: true }>;
+type ProbeAction = {
+  token: InboxProbePublicationAction;
+  repository: PrivateStorageRepository;
+  session: PrivateSession;
+  policy: RelayPolicy;
+  identity: InboxProbeIdentity;
+  original: string;
+  current(): boolean;
+  meter: NonNullable<ReturnType<typeof networkMeter>>;
+};
+const probeActions = new WeakMap<InboxProbePublicationAction, ProbeAction>();
+const identityActions = new WeakMap<InboxProbeIdentity, ProbeAction | null>();
+function probeImmutable(
+  row: NonNullable<ReturnType<typeof inboxProbePublicationBinding>>['record']
+) {
+  return JSON.stringify({
+    owner: row.owner,
+    id: row.id,
+    rumorHash: row.rumorHash,
+    createdAt: row.createdAt,
+    binding: row.binding,
+    self: row.self
+  });
+}
+export function captureInboxProbePublicationAction(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  acknowledgement: InboxProbeAcknowledgement,
+  review: unknown
+): InboxProbePublicationAction | undefined {
+  if (
+    typeof window === 'undefined' ||
+    review !== 'reviewed_inbox_probe_network'
+  )
+    return undefined;
+  try {
+    const binding = inboxProbePublicationBinding(
+      repository,
+      session,
+      acknowledgement,
+      policy
+    );
+    if (!binding || !binding.record.self) return undefined;
+    const original = probeImmutable(binding.record),
+      prior = identityActions.get(binding.identity);
+    if (identityActions.has(binding.identity))
+      return prior &&
+        prior.repository === repository &&
+        prior.session === session &&
+        prior.policy === policy &&
+        prior.original === original &&
+        prior.current()
+        ? prior.token
+        : undefined;
+    // Reserve this original identity before callback-capable UUID creation.
+    // Reentrant capture refuses; failed admission never grants a new meter.
+    identityActions.set(binding.identity, null);
+    const meter = networkMeter(true);
+    if (!meter || !binding.current()) return undefined;
+    const token = Object.freeze({}) as InboxProbePublicationAction;
+    const captured: ProbeAction = {
+      token,
+      repository,
+      session,
+      policy,
+      identity: binding.identity,
+      original,
+      current: () => meter.current() && binding.current(),
+      meter
+    };
+    identityActions.set(binding.identity, captured);
+    probeActions.set(token, captured);
+    return token;
+  } catch {
+    return undefined;
+  }
+}
+type ProbePermission = {
+  action: ProbeAction;
+  acknowledgement: InboxProbeAcknowledgement;
+  wire: string;
+  predecessorWire: string;
+  owner: string;
+  command: string;
+  origin: string;
+  eventId: string;
+  current(): boolean;
+  take(): boolean;
+};
+const probePermissions = new WeakMap<InboxProbePublication, ProbePermission>();
+export function captureInboxProbePublication(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  acknowledgement: InboxProbeAcknowledgement,
+  action: InboxProbePublicationAction,
+  origin: string,
+  review: unknown
+): InboxProbePublication | undefined {
+  if (
+    typeof window === 'undefined' ||
+    review !== 'reviewed_inbox_probe_publication'
+  )
+    return undefined;
+  try {
+    const captured = probeActions.get(action),
+      binding = inboxProbePublicationBinding(
+        repository,
+        session,
+        acknowledgement,
+        policy
+      );
+    if (
+      !captured ||
+      !binding ||
+      captured.repository !== repository ||
+      captured.session !== session ||
+      captured.policy !== policy ||
+      captured.identity !== binding.identity ||
+      !captured.current() ||
+      captured.original !== probeImmutable(binding.record) ||
+      !binding.record.self ||
+      !binding.record.binding.archiveTargets.includes(origin)
+    )
+      return undefined;
+    if (
+      !readRelayPolicy(policy).inbox.some(
+        ({ origin: allowed, write }) => allowed === origin && write
+      )
+    )
+      return undefined;
+    const artifact = binding.record.self,
+      verified = verifyEnvelope(artifact.wire),
+      event = verified.ok && verifiedEnvelopeSnapshot(verified.value);
+    if (
+      !event ||
+      event.kind !== 1059 ||
+      event.id !== artifact.eventId ||
+      JSON.stringify(event.tags) !==
+        JSON.stringify([['p', binding.record.owner]])
+    )
+      return undefined;
+    const predecessorWire = binding.wire;
+    let consumed = false;
+    function current() {
+      const fresh = inboxProbePublicationBinding(
+        repository,
+        session,
+        acknowledgement,
+        policy
+      );
+      return (
+        captured!.current() &&
+        !!fresh &&
+        fresh.identity === captured!.identity &&
+        fresh.wire === predecessorWire &&
+        probeImmutable(fresh.record) === captured!.original
+      );
+    }
+    const token = Object.freeze({}) as InboxProbePublication;
+    probePermissions.set(token, {
+      action: captured,
+      acknowledgement,
+      wire: artifact.wire,
+      predecessorWire,
+      owner: binding.record.owner,
+      command: binding.record.id,
+      origin,
+      eventId: event.id,
+      current,
+      take() {
+        if (consumed) return false;
+        consumed = true;
+        return true;
+      }
+    });
+    return token;
+  } catch {
+    return undefined;
+  }
+}
+export function inboxProbePublicationSnapshot(
+  permission: InboxProbePublication
+) {
+  const saved = probePermissions.get(permission);
+  return saved?.current()
+    ? {
+        owner: saved.owner,
+        command: saved.command,
+        role: 'access_archive' as const,
+        origin: saved.origin,
+        eventId: saved.eventId
+      }
+    : undefined;
+}
+export async function takeInboxProbePublication(
+  permission: InboxProbePublication,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  origin: string
+) {
+  const saved = probePermissions.get(permission);
+  if (
+    !saved ||
+    saved.action.session !== session ||
+    saved.action.policy !== policy ||
+    saved.origin !== origin ||
+    !saved.current() ||
+    !saved.take()
+  )
+    return undefined;
+  if (
+    !(await verifyInboxProbeAcknowledgement(
+      saved.action.repository,
+      session,
+      saved.acknowledgement
+    )) ||
+    !saved.current()
+  )
+    return undefined;
+  const verified = verifyEnvelope(saved.wire),
+    event = verified.ok && verifiedEnvelopeSnapshot(verified.value);
+  if (
+    !event ||
+    event.kind !== 1059 ||
+    event.id !== saved.eventId ||
+    JSON.stringify(event.tags) !== JSON.stringify([['p', saved.owner]]) ||
+    !saved.current()
+  )
+    return undefined;
+  return {
+    event,
+    repository: saved.action.repository,
+    acknowledgement: saved.acknowledgement,
+    predecessorWire: saved.predecessorWire,
+    current: () => saved.current(),
+    owner: saved.owner,
+    command: saved.command,
+    role: 'access_archive' as const,
+    origin,
+    eventId: saved.eventId,
+    networkMetered: true,
+    beginNetwork: () =>
+      saved.action.meter.begin('access_archive', origin, saved.eventId, () =>
+        saved.current()
+      )
+  };
 }

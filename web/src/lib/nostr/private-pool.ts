@@ -5,7 +5,10 @@ import {
   privatePublicationSnapshot,
   takePrivatePublication,
   type PrivatePublication,
-  type PrivateDeliveryRole
+  type PrivateDeliveryRole,
+  inboxProbePublicationSnapshot,
+  takeInboxProbePublication,
+  type InboxProbePublication
 } from './private-publisher.ts';
 import {
   takeInboxAuthAdmission,
@@ -45,6 +48,31 @@ export type PrivateGiftWrapAttemptResult = Readonly<{
   actionId?: string;
   attempt?: number;
 }>;
+export type InboxProbeArchiveAttemptResult = Readonly<{
+  status: PrivateGiftWrapAttemptResult['status'];
+  role?: 'access_archive';
+  origin?: string;
+  eventId?: string;
+  actionId?: string;
+  attempt?: number;
+}>;
+type PublicationAttemptResult =
+  PrivateGiftWrapAttemptResult | InboxProbeArchiveAttemptResult;
+const probeAttemptEvidence = new WeakMap<
+  InboxProbeArchiveAttemptResult,
+  Readonly<{
+    repository: PrivateStorageRepository;
+    acknowledgement: import('../persistence/inbox-probes.ts').InboxProbeAcknowledgement;
+    predecessorWire: string;
+    receiptWire: string;
+  }>
+>();
+export function inboxProbeArchiveAttemptEvidence(
+  result: InboxProbeArchiveAttemptResult
+) {
+  const evidence = probeAttemptEvidence.get(result);
+  return evidence && { ...evidence };
+}
 type AttemptEvidence = Readonly<{
   repository: PrivateStorageRepository;
   owner: string;
@@ -122,14 +150,15 @@ type Owner = {
   cleaned(): boolean;
   unavailable(): boolean;
   publish(
-    permission: PrivatePublication,
+    permission: PrivatePublication | InboxProbePublication,
     signal: AbortSignal,
     scopeCurrent?: () => boolean,
     retainConnection?: (
       origin: string,
       cleanup: ScopedConnectionCleanup
-    ) => boolean
-  ): Promise<PrivateGiftWrapAttemptResult>;
+    ) => boolean,
+    retainPublicationCleanup?: (cleanup: () => void) => () => void
+  ): Promise<PublicationAttemptResult>;
   auth(
     origin: string,
     admission: InboxAuthAdmission,
@@ -217,6 +246,7 @@ function scopedPool(
   const life = new AbortController();
   const stops = new Map<symbol, () => void>();
   const authStops = new Map<string, () => void>();
+  const probePublicationStops = new Map<() => void, true>();
   const connections = new Map<string, ScopedConnectionCleanup>();
   let closed = false,
     cleaned = false;
@@ -266,13 +296,23 @@ function scopedPool(
     cleaned: () => (cleaned && !base.unavailable()) || base.cleaned(),
     unavailable: () => base.unavailable() || (closed && !cleaned),
     publish(permission, signal) {
-      const view = privatePublicationSnapshot(permission);
+      const view =
+        privatePublicationSnapshot(permission as PrivatePublication) ??
+        inboxProbePublicationSnapshot(permission as InboxProbePublication);
       return current() && view && origins.includes(view.origin)
         ? base.publish(
             permission,
             AbortSignal.any([signal, life.signal]),
             current,
-            retainConnection
+            retainConnection,
+            inboxProbePublicationSnapshot(permission as InboxProbePublication)
+              ? (cleanup) => {
+                  probePublicationStops.set(cleanup, true);
+                  return () => {
+                    probePublicationStops.delete(cleanup);
+                  };
+                }
+              : undefined
           )
         : Promise.resolve({ status: 'stopped' });
     },
@@ -334,6 +374,14 @@ function scopedPool(
         try {
           stop();
           stops.delete(id);
+        } catch {
+          failed = true;
+        }
+      }
+      for (const cleanup of probePublicationStops.keys()) {
+        try {
+          cleanup();
+          probePublicationStops.delete(cleanup);
         } catch {
           failed = true;
         }
@@ -435,6 +483,7 @@ export function getPrivatePool(
   const authFailed = new Map<string, true>();
   const authRetiring = new Map<string, true>();
   const publicationStops = new Map<() => void, true>();
+  const publicationFailures = new Map<() => void, true>();
   let publishing = false,
     publicationCleanupRequired = false;
   type Connection = Readonly<{
@@ -450,6 +499,25 @@ export function getPrivatePool(
     }>;
   }>;
   const connections = new Map<string, Connection>();
+  function probeRelayAuthReady(
+    relay: ReturnType<typeof sdk.relay>,
+    origin: string
+  ) {
+    let required: boolean | undefined;
+    const observation = relay.authRequiredForPublish$.subscribe((value) => {
+      required = value;
+    });
+    observation.unsubscribe();
+    return (
+      required !== undefined &&
+      !(
+        (required || authCleanup.has(origin)) &&
+        (!relay.authenticated || relay.authenticatedAs !== capture.owner)
+      ) &&
+      (!relay.authenticated || relay.authenticatedAs === capture.owner)
+    );
+  }
+
   function leaseConnection(origin: string) {
     const previous = connections.get(origin);
     if (previous) {
@@ -591,9 +659,14 @@ export function getPrivatePool(
       permission,
       signal,
       scopeCurrent = () => true,
-      retainConnection
+      retainConnection,
+      retainPublicationCleanup
     ) {
-      const observed = privatePublicationSnapshot(permission);
+      const probe = inboxProbePublicationSnapshot(
+        permission as InboxProbePublication
+      );
+      const observed =
+        probe ?? privatePublicationSnapshot(permission as PrivatePublication);
       if (!observed) return { status: 'stopped' };
       const view = observed;
       if (
@@ -619,6 +692,25 @@ export function getPrivatePool(
         return { status: 'stopped' };
       publishing = true;
       try {
+        // A genuine C7 AUTH provider job may occupy the shared SDK scheduler.
+        // Observe that original connection before queueing another fresh-key
+        // job, so known waiting refuses without a probe prompt/meter/effect.
+        if (probe) {
+          const originalConnection = connections.get(view.origin);
+          if (originalConnection) {
+            if (originalConnection.retiring()) return { status: 'stopped' };
+            const observation = originalConnection.reserve();
+            try {
+              if (
+                !observation.current() ||
+                !probeRelayAuthReady(observation.relay, view.origin)
+              )
+                return { status: 'stopped' };
+            } finally {
+              observation.close();
+            }
+          }
+        }
         // No owner lock is held across the serialized fresh extension job.
         if (
           !(await recheckPrivateSession(session)) ||
@@ -644,12 +736,19 @@ export function getPrivatePool(
               authFailed.has(view.origin)
             )
               return { status: 'stopped' as const };
-            const admitted = await takePrivatePublication(
-              permission,
-              session,
-              policy,
-              view.origin
-            );
+            const admitted = probe
+              ? await takeInboxProbePublication(
+                  permission as InboxProbePublication,
+                  session,
+                  policy,
+                  view.origin
+                )
+              : await takePrivatePublication(
+                  permission as PrivatePublication,
+                  session,
+                  policy,
+                  view.origin
+                );
             if (
               !admitted ||
               closed ||
@@ -662,6 +761,18 @@ export function getPrivatePool(
             )
               return { status: 'stopped' as const };
             const connection = leaseConnection(view.origin);
+            // Stock SDK EVENT can wait behind known AUTH. Refuse probe work
+            // before starting its meter; only separate explicit C7 AUTH signs.
+            if (probe) {
+              if (
+                !probeRelayAuthReady(connection.relay, view.origin) ||
+                !connection.current() ||
+                !admitted.current()
+              ) {
+                connection.close();
+                return { status: 'stopped' as const };
+              }
+            }
             const network = admitted.beginNetwork();
             if (admitted.networkMetered && !network) {
               connection.close();
@@ -679,163 +790,227 @@ export function getPrivatePool(
               connection.close();
               return { status: 'stopped' as const };
             }
-            return await new Promise<PrivateGiftWrapAttemptResult>(
-              (resolve) => {
-                let ended = false,
-                  attempted = false,
-                  release = () => {},
-                  fenceTimer: ReturnType<typeof setTimeout> | undefined,
-                  timer: ReturnType<typeof setTimeout> | undefined,
-                  retainedConnection = false;
-                function finish(
-                  status: PrivateGiftWrapAttemptResult['status']
-                ) {
-                  if (ended) return;
-                  ended = true;
-                  network?.finish();
-                  if (timer !== undefined) clearTimeout(timer);
-                  if (fenceTimer !== undefined) clearTimeout(fenceTimer);
-                  signal.removeEventListener('abort', stop);
-                  try {
-                    release();
-                    if (!retainedConnection) connection.close();
-                    publicationStops.delete(stop);
-                  } catch {
-                    publicationCleanupRequired = true;
-                    status = 'unknown';
-                  }
-                  if (!attempted) status = 'stopped';
-                  const result: PrivateGiftWrapAttemptResult = {
-                    status,
+            return await new Promise<PublicationAttemptResult>((resolve) => {
+              let ended = false,
+                attempted = false,
+                release = () => {},
+                forgetCleanup = () => {},
+                fenceTimer: ReturnType<typeof setTimeout> | undefined,
+                timer: ReturnType<typeof setTimeout> | undefined,
+                retainedConnection = false,
+                releasing = false;
+              function disposeOriginal() {
+                // The stock unsubscribe can run finalizers. Nested Stop must
+                // retain this exact port until the outer cleanup really settles.
+                if (releasing)
+                  throw Error('private_publication_cleanup_pending');
+                releasing = true;
+                try {
+                  release();
+                  if (!retainedConnection) connection.close();
+                  publicationStops.delete(stop);
+                  publicationFailures.delete(stop);
+                  publicationCleanupRequired = publicationFailures.size !== 0;
+                  forgetCleanup();
+                } finally {
+                  releasing = false;
+                }
+              }
+              function retainFailure() {
+                publicationStops.set(stop, true);
+                publicationFailures.set(stop, true);
+                publicationCleanupRequired = true;
+                forgetCleanup = retainPublicationCleanup?.(stop) ?? (() => {});
+              }
+              function finish(status: PrivateGiftWrapAttemptResult['status']) {
+                if (ended) return;
+                ended = true;
+                network?.finish();
+                if (timer !== undefined) clearTimeout(timer);
+                if (fenceTimer !== undefined) clearTimeout(fenceTimer);
+                signal.removeEventListener('abort', stop);
+                try {
+                  disposeOriginal();
+                } catch {
+                  retainFailure();
+                  status = 'unknown';
+                }
+                if (!attempted) status = 'stopped';
+                const result: PublicationAttemptResult = {
+                  status,
+                  role: admitted!.role,
+                  origin: admitted!.origin,
+                  eventId: admitted!.eventId,
+                  ...(attempted && network
+                    ? { actionId: network.actionId, attempt: network.attempt }
+                    : {})
+                };
+                if (attempted && network) {
+                  const receiptWire = JSON.stringify({
+                    actionId: network.actionId,
                     role: admitted!.role,
                     origin: admitted!.origin,
                     eventId: admitted!.eventId,
-                    ...(attempted && network
-                      ? { actionId: network.actionId, attempt: network.attempt }
-                      : {})
-                  };
-                  if (attempted && network) {
-                    attemptEvidence.set(result, {
-                      repository: admitted!.repository,
-                      owner: admitted!.owner,
-                      command: admitted!.command,
-                      pairWire: admitted!.pairWire,
-                      receiptWire: JSON.stringify({
-                        actionId: network.actionId,
-                        role: admitted!.role,
-                        origin: admitted!.origin,
-                        eventId: admitted!.eventId,
-                        attempt: network.attempt,
-                        status,
-                        observedAtMilliseconds: Date.now(),
-                        readbackWire: null
-                      })
-                    });
-                  }
-                  resolve(result);
-                }
-                function stop() {
-                  if (ended) {
-                    release();
-                    if (!retainedConnection) connection.close();
-                    publicationStops.delete(stop);
-                    return;
-                  }
-                  finish('stopped');
-                }
-                function fence() {
-                  if (ended) return;
-                  if (network && network.remaining() <= 0) {
-                    finish('timed_out');
-                    return;
-                  }
-                  if (
-                    closed ||
-                    signal.aborted ||
-                    !scopeCurrent() ||
-                    !capture.current() ||
-                    authRetiring.has(view.origin) ||
-                    authFailed.has(view.origin) ||
-                    !admitted!.current()
-                  ) {
-                    finish('stopped');
-                    return;
-                  }
-                  fenceTimer = setTimeout(() => fence(), 50);
-                }
-                try {
-                  const relay = connection.relay;
-                  const allowance =
-                    network?.remaining() ??
-                    PRIVATE_PUBLICATION_BUDGETS.networkActionMilliseconds;
-                  const timeout =
-                    Number.isFinite(relay.eventTimeout) &&
-                    relay.eventTimeout > 0
-                      ? Math.min(allowance, relay.eventTimeout)
-                      : allowance;
-                  timer = setTimeout(() => finish('timed_out'), timeout);
-                  signal.addEventListener('abort', stop, { once: true });
-                  publicationStops.set(stop, true);
-                  if (
-                    closed ||
-                    signal.aborted ||
-                    !scopeCurrent() ||
-                    !capture.current() ||
-                    authRetiring.has(view.origin) ||
-                    authFailed.has(view.origin) ||
-                    !admitted.current()
-                  ) {
-                    finish('stopped');
-                    return;
-                  }
-                  // The only private EVENT port accepts the freshly read-back1059;
-                  // no caller event, key, relay template or SDK option crosses it.
-                  connection.start();
-                  retainedConnection =
-                    retainConnection?.(view.origin, {
-                      current: connection.current,
-                      close: connection.close
-                    }) ?? false;
-                  attempted = true;
-                  const subscription = relay
-                    .event(admitted.event, 'EVENT')
-                    .subscribe({
-                      next(response) {
-                        if (ended) return;
-                        if (network && network.remaining() <= 0) {
-                          finish('timed_out');
-                          return;
-                        }
-                        if (
-                          (response.from !== view.origin &&
-                            response.from !== view.origin + '/') ||
-                          typeof response.ok !== 'boolean'
-                        )
-                          finish('unknown');
-                        else if (response.ok) finish('accepted');
-                        else if (response.message === 'Timeout')
-                          finish('unknown');
-                        else finish('refused');
-                      },
-                      error: () => finish('unknown'),
-                      complete: () => {
-                        if (!ended) finish('unknown');
+                    attempt: network.attempt,
+                    status,
+                    observedAtMilliseconds: Date.now(),
+                    readbackWire: null
+                  });
+                  if ('acknowledgement' in admitted!) {
+                    probeAttemptEvidence.set(
+                      result as InboxProbeArchiveAttemptResult,
+                      {
+                        repository: admitted.repository,
+                        acknowledgement: admitted.acknowledgement,
+                        predecessorWire: admitted.predecessorWire,
+                        receiptWire
                       }
-                    });
-                  release = () => subscription.unsubscribe();
-                  if (ended) {
-                    try {
-                      release();
-                      publicationStops.delete(stop);
-                    } catch {
-                      publicationCleanupRequired = true;
-                    }
-                  } else fence();
-                } catch {
-                  finish('unknown');
+                    );
+                  } else {
+                    attemptEvidence.set(
+                      result as PrivateGiftWrapAttemptResult,
+                      {
+                        repository: admitted!.repository,
+                        owner: admitted!.owner,
+                        command: admitted!.command,
+                        pairWire: admitted!.pairWire,
+                        receiptWire
+                      }
+                    );
+                  }
                 }
+                resolve(result);
               }
-            );
+              function stop() {
+                if (ended) {
+                  disposeOriginal();
+                  return;
+                }
+                finish('stopped');
+              }
+              function probeStopped() {
+                return (
+                  !!probe &&
+                  (closed ||
+                    signal.aborted ||
+                    !scopeCurrent() ||
+                    !capture.current() ||
+                    authRetiring.has(view.origin) ||
+                    authFailed.has(view.origin) ||
+                    !admitted!.current())
+                );
+              }
+              function fence() {
+                if (ended) return;
+                if (probeStopped()) {
+                  finish('stopped');
+                  return;
+                }
+                if (network && network.remaining() <= 0) {
+                  finish('timed_out');
+                  return;
+                }
+                if (
+                  closed ||
+                  signal.aborted ||
+                  !scopeCurrent() ||
+                  !capture.current() ||
+                  authRetiring.has(view.origin) ||
+                  authFailed.has(view.origin) ||
+                  !admitted!.current()
+                ) {
+                  finish('stopped');
+                  return;
+                }
+                fenceTimer = setTimeout(() => fence(), 50);
+              }
+              try {
+                const relay = connection.relay;
+                const allowance =
+                  network?.remaining() ??
+                  PRIVATE_PUBLICATION_BUDGETS.networkActionMilliseconds;
+                const timeout =
+                  Number.isFinite(relay.eventTimeout) && relay.eventTimeout > 0
+                    ? Math.min(allowance, relay.eventTimeout)
+                    : allowance;
+                timer = setTimeout(
+                  () => finish(probeStopped() ? 'stopped' : 'timed_out'),
+                  timeout
+                );
+                signal.addEventListener('abort', stop, { once: true });
+                publicationStops.set(stop, true);
+                forgetCleanup = retainPublicationCleanup?.(stop) ?? (() => {});
+                if (
+                  closed ||
+                  signal.aborted ||
+                  !scopeCurrent() ||
+                  !capture.current() ||
+                  authRetiring.has(view.origin) ||
+                  authFailed.has(view.origin) ||
+                  !admitted.current()
+                ) {
+                  finish('stopped');
+                  return;
+                }
+                // The only private EVENT port accepts the freshly read-back1059;
+                // no caller event, key, relay template or SDK option crosses it.
+                connection.start();
+                retainedConnection =
+                  retainConnection?.(view.origin, {
+                    current: connection.current,
+                    close: connection.close
+                  }) ?? false;
+                if (
+                  probe &&
+                  (probeStopped() ||
+                    !connection.current() ||
+                    !probeRelayAuthReady(relay, view.origin))
+                ) {
+                  finish('stopped');
+                  return;
+                }
+                attempted = true;
+                const subscription = relay
+                  .event(admitted.event, 'EVENT')
+                  .subscribe({
+                    next(response) {
+                      if (ended) return;
+                      if (probeStopped()) {
+                        finish('stopped');
+                        return;
+                      }
+                      if (network && network.remaining() <= 0) {
+                        finish('timed_out');
+                        return;
+                      }
+                      if (
+                        (response.from !== view.origin &&
+                          response.from !== view.origin + '/') ||
+                        typeof response.ok !== 'boolean'
+                      )
+                        finish('unknown');
+                      else if (response.ok) finish('accepted');
+                      else if (response.message === 'Timeout')
+                        finish('unknown');
+                      else finish('refused');
+                    },
+                    error: () => finish('unknown'),
+                    complete: () => {
+                      if (!ended) finish('unknown');
+                    }
+                  });
+                release = () => subscription.unsubscribe();
+                if (ended) {
+                  try {
+                    disposeOriginal();
+                  } catch {
+                    retainFailure();
+                  }
+                } else fence();
+              } catch {
+                finish('unknown');
+              }
+            });
           }
         );
       } catch {
@@ -1762,7 +1937,28 @@ export function publishPrivateGiftWrapAttempt(
   signal: AbortSignal
 ): Promise<PrivateGiftWrapAttemptResult> {
   try {
-    return ownerOf(pool).publish(permission, signal);
+    if (!privatePublicationSnapshot(permission))
+      return Promise.resolve({ status: 'stopped' });
+    return ownerOf(pool).publish(
+      permission,
+      signal
+    ) as Promise<PrivateGiftWrapAttemptResult>;
+  } catch {
+    return Promise.resolve({ status: 'stopped' });
+  }
+}
+export function publishInboxProbeArchiveAttempt(
+  pool: PrivatePool,
+  permission: InboxProbePublication,
+  signal: AbortSignal
+): Promise<InboxProbeArchiveAttemptResult> {
+  try {
+    if (!inboxProbePublicationSnapshot(permission))
+      return Promise.resolve({ status: 'stopped' });
+    return ownerOf(pool).publish(
+      permission,
+      signal
+    ) as Promise<InboxProbeArchiveAttemptResult>;
   } catch {
     return Promise.resolve({ status: 'stopped' });
   }

@@ -1968,6 +1968,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
           );
         }
         for (const producer of [
+          'src/lib/nostr/private-publisher.ts',
           'src/lib/persistence/inbox-probes.ts',
           'src/lib/nostr/inbox-access.ts',
           'src/lib/nostr/seal-builder.ts',

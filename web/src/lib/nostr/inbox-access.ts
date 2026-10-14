@@ -46,6 +46,7 @@ export type InboxProbeReservationResult =
     }>;
 type Saved = {
   session: PrivateSession;
+  policy: RelayPolicy;
   record: PrivateAccessProbe;
   handle: PrivateRecordHandle;
   wire(): string | undefined;
@@ -243,6 +244,7 @@ export async function reserveInboxProbeIdentity(
               offAccess = () => {};
             const saved: Saved = {
               session,
+              policy,
               record,
               handle: handle.value,
               wire: () => wire,
@@ -354,4 +356,19 @@ export function inboxProbeReservationHandle(
 }
 export function stopInboxProbeIdentity(identity: InboxProbeIdentity): void {
   identities.get(identity)?.stop();
+}
+
+// Canonical policy bytes cannot substitute for the original opaque policy.
+export function inboxProbePolicyMatches(
+  identity: InboxProbeIdentity,
+  session: PrivateSession,
+  policy: RelayPolicy
+): boolean {
+  const saved = identities.get(identity);
+  return (
+    !!saved &&
+    saved.session === session &&
+    saved.policy === policy &&
+    saved.current()
+  );
 }
