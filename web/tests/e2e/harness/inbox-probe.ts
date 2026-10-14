@@ -42,6 +42,12 @@ import {
   type InboxProbeGiftwrap
 } from '../../../src/lib/nostr/giftwrap-builder.ts';
 import {
+  commitInboxProbe,
+  inboxProbeAcknowledgementSnapshot,
+  type InboxProbeAcknowledgement
+} from '../../../src/lib/persistence/inbox-probes.ts';
+import { decodePrivateRecord } from '../../../src/lib/persistence/private-records.ts';
+import {
   getEventHash,
   generateSecretKey,
   getPublicKey,
@@ -56,6 +62,10 @@ export * from '../../../src/lib/nostr/verify-outbound-envelope.ts';
 export * from '../../../src/lib/messaging/inbox-access-controller.ts';
 export * from '../../../src/lib/messaging/send-identity.ts';
 export * from '../../../src/lib/runtime/private-session.ts';
+export * from '../../../src/lib/persistence/inbox-probes.ts';
+export * from '../../../src/lib/persistence/private-storage.ts';
+export * from '../../../src/lib/persistence/private-records.ts';
+export * from '../../../src/lib/persistence/private-sends.ts';
 export type Mode =
   | 'normal'
   | 'hold_key'
@@ -109,6 +119,7 @@ export async function makeProbeFixture() {
     operation: InboxProbeSealOperation | undefined,
     seal: InboxProbeRecipientSeal | undefined,
     wrap: InboxProbeGiftwrap | undefined;
+  let acknowledgement: InboxProbeAcknowledgement | undefined;
   async function pause(stage: string) {
     if (mode !== 'hold_' + stage) return;
     waiting = stage;
@@ -216,6 +227,21 @@ export async function makeProbeFixture() {
       }
     );
   }
+  async function inject(rows: { owner: string; id: string; wire: string }[]) {
+    const tx = browserDatabaseTransaction(
+      database,
+      ['private_sends'],
+      'readwrite'
+    );
+    const store = tx.objectStore('private_sends');
+    for (const row of rows) store.put(row);
+    await new Promise<void>((resolve, reject) => {
+      tx.addEventListener('complete', () => resolve());
+      tx.addEventListener('abort', () =>
+        reject(Error('controlled injection abort'))
+      );
+    });
+  }
   return {
     ...base,
     repository,
@@ -256,6 +282,24 @@ export async function makeProbeFixture() {
     operation: () => operation,
     seal: () => seal,
     wrap: () => wrap,
+    acknowledgement: () => acknowledgement,
+    async commitOriginal(review: unknown = 'reviewed_inbox_probe_commit') {
+      if (!wrap) throw Error('missing genuine original wrap');
+      const result = await commitInboxProbe(
+        repository,
+        base.session,
+        wrap,
+        review
+      );
+      if ('acknowledgement' in result) acknowledgement = result.acknowledgement;
+      return {
+        status: result.status,
+        snapshot:
+          'acknowledgement' in result
+            ? inboxProbeAcknowledgementSnapshot(result.acknowledgement)
+            : undefined
+      };
+    },
     mode(next: Mode) {
       mode = next;
     },
@@ -263,7 +307,115 @@ export async function makeProbeFixture() {
     settle: () => release?.(),
     counts: () => ({ keys, encrypts, decrypts, signs }),
     stored,
-    async fillCapacity() {
+    inject,
+    async removeOriginal() {
+      if (!identity) throw Error('missing genuine original');
+      const record = inboxProbeSnapshot(identity);
+      if (!record) throw Error('stale actual original');
+      const tx = browserDatabaseTransaction(
+        database,
+        ['private_sends'],
+        'readwrite'
+      );
+      tx.objectStore('private_sends').delete([base.owner, record.id]);
+      await new Promise<void>((resolve, reject) => {
+        tx.addEventListener('complete', () => resolve());
+        tx.addEventListener('abort', () =>
+          reject(Error('controlled removal abort'))
+        );
+      });
+    },
+    installCommitCompletion(action: () => void) {
+      const original = Object.getOwnPropertyDescriptor(
+        IDBDatabase.prototype,
+        'transaction'
+      )?.value as IDBDatabase['transaction'];
+      let fired = false;
+      IDBDatabase.prototype.transaction = function (
+        ...args: Parameters<IDBDatabase['transaction']>
+      ) {
+        const tx = original.apply(this, args);
+        if (
+          !fired &&
+          args[1] === 'readwrite' &&
+          tx.objectStoreNames.contains('private_sends')
+        ) {
+          fired = true;
+          tx.addEventListener('complete', action);
+        }
+        return tx;
+      };
+      return () => {
+        IDBDatabase.prototype.transaction = original;
+      };
+    },
+    async fillProbeByteHeadroom() {
+      if (!identity || !wrap) throw Error('missing genuine original');
+      const record = inboxProbeSnapshot(identity),
+        artifact = inboxProbeGiftwrapSnapshot(wrap);
+      if (!record || !artifact) throw Error('stale genuine original');
+      const self = {
+        eventId: (JSON.parse(artifact.wire) as { id: string }).id,
+        wire: artifact.wire
+      };
+      // Strict structural filler metadata is not actual transport/nonce evidence.
+      const filler = {
+        ...record,
+        id: crypto.randomUUID(),
+        revision: 1,
+        self,
+        receipts: [] as unknown[]
+      };
+      const fact = {
+        actionId: crypto.randomUUID(),
+        origin: record.binding.archiveTargets[0],
+        role: 'access_archive',
+        attempt: 1,
+        eventId: self.eventId,
+        status: 'accepted',
+        observedAtMilliseconds: 1,
+        readbackWire: null
+      };
+      const originalRows = await stored();
+      const physicalBytes = (rows: typeof originalRows) =>
+        rows.reduce(
+          (n, row) => n + new TextEncoder().encode(JSON.stringify(row)).length,
+          0
+        );
+      const baseBytes = physicalBytes(originalRows);
+      const prepared = JSON.stringify({ ...record, revision: 1, self });
+      const growth =
+        physicalBytes([{ owner: base.owner, id: record.id, wire: prepared }]) -
+        baseBytes;
+      const rowAt = (n: number) => ({
+        owner: base.owner,
+        id: filler.id,
+        wire: JSON.stringify({
+          ...filler,
+          receipts: Array.from({ length: n }, () => fact)
+        })
+      });
+      const cap = 8 * 1024 * 1024;
+      const factBytes = physicalBytes([rowAt(1)]) - physicalBytes([rowAt(0)]);
+      let low = 0,
+        high = Math.floor(cap / factBytes) + 2;
+      while (low + 1 < high) {
+        const mid = Math.floor((low + high) / 2);
+        if (baseBytes + physicalBytes([rowAt(mid)]) <= cap) low = mid;
+        else high = mid;
+      }
+      const row = rowAt(low);
+      const strict = decodePrivateRecord(row.wire, row.owner, row.id);
+      if (!strict.ok) throw Error('filler must decode strictly');
+      await inject([row]);
+      const before = await stored(),
+        bytes = physicalBytes(before),
+        headroom = cap - bytes;
+      if (headroom < 0 || headroom >= growth || before.length >= 100)
+        throw Error('actual physical growth boundary missing');
+      return { bytes, headroom, growth, count: before.length };
+    },
+    async fillCapacity(count = 100) {
       const secret = generateSecretKey(),
         peer = getPublicKey(secret);
       secret.fill(0);
@@ -273,7 +425,7 @@ export async function makeProbeFixture() {
           'readwrite'
         ),
         store = tx.objectStore('private_sends');
-      for (let i = 0; i < 100; i++) {
+      for (let i = 0; i < count; i++) {
         const id = crypto.randomUUID();
         store.put({
           owner: base.owner,
@@ -316,6 +468,61 @@ export async function makeProbeFixture() {
       };
       return () => {
         IDBObjectStore.prototype.put = original;
+      };
+    },
+    installUncertainCommit() {
+      const put = Object.getOwnPropertyDescriptor(
+        IDBObjectStore.prototype,
+        'put'
+      )?.value as IDBObjectStore['put'];
+      const abort = Object.getOwnPropertyDescriptor(
+        IDBTransaction.prototype,
+        'abort'
+      )?.value as IDBTransaction['abort'];
+      let selected: IDBTransaction | undefined,
+        nativeComplete = 0,
+        nativeAbort = 0,
+        putSuccess = 0,
+        abortRefused = 0;
+      IDBTransaction.prototype.abort = function (
+        ...args: Parameters<IDBTransaction['abort']>
+      ) {
+        if (this === selected) {
+          abortRefused++;
+          throw Error('controlled abort refusal');
+        }
+        return abort.apply(this, args);
+      };
+      IDBObjectStore.prototype.put = function (
+        ...args: Parameters<IDBObjectStore['put']>
+      ) {
+        const request = put.apply(this, args);
+        if (!selected && this.name === 'private_sends') {
+          selected = this.transaction;
+          selected.addEventListener('complete', () => {
+            nativeComplete++;
+          });
+          selected.addEventListener('abort', () => {
+            nativeAbort++;
+          });
+          request.addEventListener('success', () => {
+            putSuccess++;
+          });
+          throw Error('controlled failure after actual native put admission');
+        }
+        return request;
+      };
+      return {
+        counts: () => ({
+          nativeComplete,
+          nativeAbort,
+          putSuccess,
+          abortRefused
+        }),
+        restore: () => {
+          IDBObjectStore.prototype.put = put;
+          IDBTransaction.prototype.abort = abort;
+        }
       };
     },
     installChangedReadback() {

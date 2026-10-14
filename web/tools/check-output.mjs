@@ -322,6 +322,8 @@ async function operationalFlagsAdmission(web) {
       'b4c718364625b3caacbc5cc5f98bd79a575a5d66dddb2d7f59f03351a1308a6d',
     'src/lib/nostr/inbox-ingress.ts':
       'f860a094a8ba767585124c795d44b7620064f73a5b3a0170041c581c0fc64ecb',
+    'src/lib/persistence/inbox-probes.ts':
+      '7441272a31386a4a70791269c31d55adaa11978ffcb094a98a5a83162aae2f99',
     'src/lib/nostr/inbox-access.ts':
       'fcd0a3aa216bd092b84e8ea1f4824f047367eaec6ed4e16715612554244eab0b',
     'src/lib/nostr/seal-builder.ts':
@@ -401,7 +403,7 @@ async function operationalFlagsAdmission(web) {
     'src/lib/persistence/private-sends.ts':
       '6696f4179370cad373c06debf57b919598d53b3d25b6d2a6054a557608e4eb9c',
     'src/lib/persistence/private-storage.ts':
-      '66bab9a0a0a699b70ecba75c002ac0de20a84f3d015f5caefbe1697d0f6456bf',
+      'ba4a61dd1fa08fc89d00adac3c258c1f6ae7e5c1b15165facffe76ddd71d5e91',
     'src/lib/persistence/public-publications.ts':
       'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
     'src/lib/persistence/public-receipts.ts':
@@ -596,6 +598,8 @@ async function privacyDataAdmission(web) {
       'b4c718364625b3caacbc5cc5f98bd79a575a5d66dddb2d7f59f03351a1308a6d',
     'src/lib/nostr/inbox-ingress.ts':
       'f860a094a8ba767585124c795d44b7620064f73a5b3a0170041c581c0fc64ecb',
+    'src/lib/persistence/inbox-probes.ts':
+      '7441272a31386a4a70791269c31d55adaa11978ffcb094a98a5a83162aae2f99',
     'src/lib/nostr/inbox-access.ts':
       'fcd0a3aa216bd092b84e8ea1f4824f047367eaec6ed4e16715612554244eab0b',
     'src/lib/nostr/seal-builder.ts':
@@ -669,7 +673,7 @@ async function privacyDataAdmission(web) {
     'src/lib/persistence/private-sends.ts':
       '6696f4179370cad373c06debf57b919598d53b3d25b6d2a6054a557608e4eb9c',
     'src/lib/persistence/private-storage.ts':
-      '66bab9a0a0a699b70ecba75c002ac0de20a84f3d015f5caefbe1697d0f6456bf',
+      'ba4a61dd1fa08fc89d00adac3c258c1f6ae7e5c1b15165facffe76ddd71d5e91',
     'src/lib/persistence/public-publications.ts':
       'be99c4114fb32880e0a9b48ab3593645532853fb4166fb506f398416db41a194',
     'src/lib/persistence/public-receipts.ts':
@@ -2153,6 +2157,24 @@ async function inboxSetupAdmission(web) {
   }
   return true;
 }
+// The historical inbox compiler may consume this exact current shared storage
+// owner. Both producer identities are required; no old view pin is refreshed.
+/** @param {string} web */
+async function inboxProbeStorageAdmission(web) {
+  const producers = {
+    'src/lib/persistence/private-storage.ts':
+      'ba4a61dd1fa08fc89d00adac3c258c1f6ae7e5c1b15165facffe76ddd71d5e91',
+    'src/lib/persistence/inbox-probes.ts':
+      '7441272a31386a4a70791269c31d55adaa11978ffcb094a98a5a83162aae2f99'
+  };
+  for (const [name, pin] of Object.entries(producers)) {
+    const bytes = await readOwned(web, name);
+    publicText(bytes);
+    if (createHash('sha256').update(bytes).digest('hex') !== pin)
+      throw new Error('Invalid owned probe storage source');
+  }
+  return true;
+}
 /** @param {string} web */
 async function inboxPresentationAdmission(web) {
   const route = await readOwned(web, 'src/routes/messages/+page.svelte');
@@ -2207,6 +2229,10 @@ async function inboxPresentationAdmission(web) {
     publicText(bytes);
     if (
       createHash('sha256').update(bytes).digest('hex') !== pin &&
+      !(
+        name === 'src/lib/persistence/private-storage.ts' &&
+        (await inboxProbeStorageAdmission(web))
+      ) &&
       !(await privateBlockingAdmission(web))
     )
       throw new Error('Invalid owned inbox presentation source');

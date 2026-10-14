@@ -559,6 +559,36 @@ export function retainPrivateReceivedRecord(
   );
 }
 
+// Observe only the selected validated row after actual native completion. The
+// handle normalizes metadata; wire is the original physical stored string.
+// Whole-wire custody owners must compare wire, not the normalized handle alone.
+export function observePrivateRecord(
+  repository: PrivateStorageRepository,
+  store: Store,
+  id: unknown
+): Promise<
+  PrivateStorageResult<Readonly<{ handle: PrivateRecordHandle; wire: string }>>
+> {
+  const scope = scopeOf(repository);
+  if (!scope) return Promise.resolve(failed('invalid_scope'));
+  if (
+    (store !== 'private_sends' && store !== 'received_envelopes') ||
+    typeof id !== 'string'
+  )
+    return Promise.resolve(failed('invalid_record'));
+  return transaction<Readonly<{ handle: PrivateRecordHandle; wire: string }>>(
+    scope,
+    store,
+    'readonly',
+    (rows) => {
+      const row = rows.find((row) => row.record.id === id);
+      return row
+        ? { ok: true, value: { handle: row.handle, wire: row.wire } }
+        : failed('invalid_record');
+    }
+  );
+}
+
 export function loadPrivateRecord(
   repository: PrivateStorageRepository,
   store: Store,

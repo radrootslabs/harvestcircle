@@ -644,3 +644,600 @@ for (const stage of ['key', 'encrypt', 'decrypt', 'sign'] as const) {
     });
   }
 }
+
+test('S4A genuine persistence acknowledges only the exact native original ciphertext without provider or transport work', async ({
+  page
+}) => {
+  await page.evaluate(() => window.p8Fixture.reserve());
+  expect(await page.evaluate(() => window.p8Fixture.prepare())).toBe('wrapped');
+  const result = await page.evaluate(async () => {
+    const f = window.p8Fixture,
+      api = window.p8,
+      before = f.counts();
+    const result = await f.commitOriginal();
+    const ack = f.acknowledgement()!;
+    const snapshot = api.inboxProbeAcknowledgementSnapshot(ack)!;
+    const observed = await api.observePrivateRecord(
+      f.repository,
+      'private_sends',
+      snapshot.record.id
+    );
+    const rumor = JSON.parse(
+      api.inboxProbeRumorWire(f.probeIdentity()!, f.session)!
+    ) as { content: string };
+    const rows = await f.stored();
+    const firstWire = JSON.stringify(rows);
+    (snapshot.record.binding.readTargets as string[]).pop();
+    const repeat = await f.commitOriginal();
+    return {
+      status: result.status,
+      fact: result.snapshot?.fact,
+      row: result.snapshot?.record,
+      exact: observed.ok && observed.value.wire === rows[0].wire,
+      verified: await api.verifyInboxProbeAcknowledgement(
+        f.repository,
+        f.session,
+        ack
+      ),
+      repeated: repeat.status,
+      unchanged: firstWire === JSON.stringify(await f.stored()),
+      bodyAbsent:
+        !firstWire.includes(rumor.content) &&
+        !firstWire.includes(rumor.content.slice(-64)),
+      ordinaryRejected:
+        api.pairedDeliveryAcknowledgementSnapshot(
+          ack as unknown as Parameters<
+            typeof api.pairedDeliveryAcknowledgementSnapshot
+          >[0]
+        ) === undefined,
+      detached:
+        api.inboxProbeAcknowledgementSnapshot(ack)?.record.binding.readTargets
+          .length === 1,
+      before,
+      after: f.counts()
+    };
+  });
+  expect(result.status).toBe('prepared');
+  expect(result.fact).toBe('acknowledged_local_probe_ciphertext_only');
+  expect(result.row).toMatchObject({
+    family: 'private_access_probe',
+    revision: 1,
+    receipts: [],
+    self: { eventId: expect.any(String), wire: expect.any(String) }
+  });
+  expect(result.repeated).toBe('existing');
+  expect(
+    result.exact &&
+      result.verified &&
+      result.unchanged &&
+      result.bodyAbsent &&
+      result.ordinaryRejected &&
+      result.detached
+  ).toBe(true);
+  expect(result.before).toEqual(result.after);
+  expect(
+    frames.some((frame) => ['EVENT', 'AUTH'].includes(String(frame[0])))
+  ).toBe(false);
+});
+
+test('S4A simultaneous same-wrap calls admit one native original and return busy for the pending duplicate', async ({
+  page
+}) => {
+  await page.evaluate(() => window.p8Fixture.reserve());
+  await page.evaluate(() => window.p8Fixture.prepare());
+  const result = await page.evaluate(async () => {
+    const f = window.p8Fixture,
+      api = window.p8,
+      before = f.counts();
+    const results = await Promise.all(
+      [1, 2].map(() =>
+        api.commitInboxProbe(
+          f.repository,
+          f.session,
+          f.wrap()!,
+          'reviewed_inbox_probe_commit'
+        )
+      )
+    );
+    return {
+      statuses: results.map((r) => r.status).sort(),
+      rows: (await f.stored()).length,
+      before,
+      after: f.counts()
+    };
+  });
+  expect(result.statuses).toEqual(['busy', 'prepared']);
+  expect(result.rows).toBe(1);
+  expect(result.before).toEqual(result.after);
+});
+
+test('S4A forged wraps, wrong consent and genuine alternate namespace/session cannot borrow the original', async ({
+  page
+}) => {
+  await page.evaluate(() => window.p8Fixture.reserve());
+  await page.evaluate(() => window.p8Fixture.prepare());
+  const result = await page.evaluate(async () => {
+    const f = window.p8Fixture,
+      api = window.p8;
+    const other = await f.foreignSession(),
+      before = f.counts(),
+      rows = await f.stored();
+    const wrap = f.wrap()!,
+      copy = api.inboxProbeGiftwrapSnapshot(wrap)!;
+    const results = [
+      await api.commitInboxProbe(
+        f.foreignRepository(),
+        f.session,
+        wrap,
+        'reviewed_inbox_probe_commit'
+      ),
+      await api.commitInboxProbe(
+        f.repository,
+        other,
+        wrap,
+        'reviewed_inbox_probe_commit'
+      ),
+      await api.commitInboxProbe(
+        f.repository,
+        f.session,
+        copy as unknown as typeof wrap,
+        'reviewed_inbox_probe_commit'
+      ),
+      await api.commitInboxProbe(
+        f.repository,
+        f.session,
+        wrap,
+        'reviewed_private_delivery'
+      ),
+      await api.commitInboxProbe(
+        f.repository,
+        f.session,
+        f.seal()! as unknown as typeof wrap,
+        'reviewed_inbox_probe_commit'
+      )
+    ];
+    const genuine = await f.commitOriginal();
+    const primitiveStatuses = [];
+    for (const primitive of [null, 0, 'wrap', true]) {
+      primitiveStatuses.push(
+        (
+          await api.commitInboxProbe(
+            f.repository,
+            f.session,
+            primitive as unknown as typeof wrap,
+            'reviewed_inbox_probe_commit'
+          )
+        ).status
+      );
+    }
+    const ack = f.acknowledgement()!;
+    return {
+      statuses: results.map((r) => r.status),
+      primitiveStatuses,
+      originalWasProtected: rows[0].wire.includes('"self":null'),
+      genuine: genuine.status,
+      forgedAck: await api.verifyInboxProbeAcknowledgement(
+        f.repository,
+        f.session,
+        genuine.snapshot as unknown as typeof ack
+      ),
+      foreign: await api.verifyInboxProbeAcknowledgement(
+        f.foreignRepository(),
+        f.session,
+        ack
+      ),
+      other: await api.verifyInboxProbeAcknowledgement(
+        f.repository,
+        other,
+        ack
+      ),
+      actual: await api.verifyInboxProbeAcknowledgement(
+        f.repository,
+        f.session,
+        ack
+      ),
+      before,
+      after: f.counts()
+    };
+  });
+  expect(result.statuses).toEqual([
+    'invalid',
+    'invalid',
+    'invalid',
+    'invalid',
+    'invalid'
+  ]);
+  expect(result.primitiveStatuses).toEqual([
+    'invalid',
+    'invalid',
+    'invalid',
+    'invalid'
+  ]);
+  expect(result.originalWasProtected).toBe(true);
+  expect(result.genuine).toBe('prepared');
+  expect(result.forgedAck || result.foreign || result.other).toBe(false);
+  expect(result.actual).toBe(true);
+  expect(result.before).toEqual(result.after);
+});
+
+test('S4A actual owner lock and SDK slot contention preserve the native reservation for an explicit original retry', async ({
+  page
+}) => {
+  await page.evaluate(() => window.p8Fixture.reserve());
+  await page.evaluate(() => window.p8Fixture.prepare());
+  const result = await page.evaluate(async () => {
+    const f = window.p8Fixture,
+      api = window.p8,
+      rows = JSON.stringify(await f.stored()),
+      before = f.counts();
+    let releaseLock = () => {},
+      entered = () => {};
+    const enteredPromise = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = navigator.locks.request(
+      'harvestcircle:owner:' + f.owner,
+      async () => {
+        entered();
+        await new Promise<void>((resolve) => {
+          releaseLock = resolve;
+        });
+      }
+    );
+    await enteredPromise;
+    const lock = await f.commitOriginal();
+    releaseLock();
+    await held;
+    let releaseSlot = () => {},
+      slotEntered = () => {};
+    const slotPromise = new Promise<void>((resolve) => {
+      slotEntered = resolve;
+    });
+    const slot = api.withIdlePrivateLocalStorage(f.session, async () => {
+      slotEntered();
+      await new Promise<void>((resolve) => {
+        releaseSlot = resolve;
+      });
+    });
+    await slotPromise;
+    const busy = await f.commitOriginal();
+    const unchanged = rows === JSON.stringify(await f.stored());
+    releaseSlot();
+    await slot;
+    const original = await f.commitOriginal();
+    return {
+      lock: lock.status,
+      busy: busy.status,
+      unchanged,
+      original: original.status,
+      before,
+      after: f.counts()
+    };
+  });
+  expect(result).toMatchObject({
+    lock: 'busy',
+    busy: 'busy',
+    unchanged: true,
+    original: 'prepared'
+  });
+  expect(result.before).toEqual(result.after);
+});
+
+test('S4A put success followed by native abort cannot issue a saved fact or alter the original reservation', async ({
+  page
+}) => {
+  await page.evaluate(() => window.p8Fixture.reserve());
+  await page.evaluate(() => window.p8Fixture.prepare());
+  const before = await page.evaluate(() => window.p8Fixture.stored());
+  await page.evaluate(() => {
+    window.p8Restore = window.p8Fixture.installNativeAbort();
+  });
+  expect(await page.evaluate(() => window.p8Fixture.commitOriginal())).toEqual({
+    status: 'aborted',
+    snapshot: undefined
+  });
+  expect(await page.evaluate(() => window.p8Fixture.stored())).toEqual(before);
+  expect(
+    await page.evaluate(() => window.p8Fixture.acknowledgement())
+  ).toBeUndefined();
+  await page.evaluate(() => {
+    window.p8Restore?.();
+    window.p8Restore = undefined;
+  });
+  expect(
+    await page.evaluate(() => window.p8Fixture.commitOriginal())
+  ).toMatchObject({ status: 'prepared' });
+});
+
+test('S4A genuine uncertain native completion reconciles the exact original once without rebuilding crypto', async ({
+  page
+}) => {
+  await page.evaluate(() => window.p8Fixture.reserve());
+  await page.evaluate(() => window.p8Fixture.prepare());
+  const result = await page.evaluate(async () => {
+    const f = window.p8Fixture,
+      api = window.p8,
+      before = f.counts();
+    const uncertain = f.installUncertainCommit();
+    window.p8Restore = uncertain.restore;
+    try {
+      const result = await f.commitOriginal();
+      const firstRows = JSON.stringify(await f.stored());
+      const ack = f.acknowledgement()!;
+      const verified = await api.verifyInboxProbeAcknowledgement(
+        f.repository,
+        f.session,
+        ack
+      );
+      uncertain.restore();
+      window.p8Restore = undefined;
+      const repeated = await f.commitOriginal();
+      return {
+        status: result.status,
+        verified,
+        counts: uncertain.counts(),
+        repeated: repeated.status,
+        exactOriginal: firstRows === JSON.stringify(await f.stored()),
+        before,
+        after: f.counts()
+      };
+    } finally {
+      uncertain.restore();
+      window.p8Restore = undefined;
+    }
+  });
+  expect(result).toMatchObject({
+    status: 'reconciled',
+    verified: true,
+    repeated: 'existing',
+    exactOriginal: true,
+    counts: {
+      nativeComplete: 1,
+      nativeAbort: 0,
+      putSuccess: 1,
+      abortRefused: 1
+    }
+  });
+  expect(result.before).toEqual(result.after);
+});
+
+for (const close of ['controller', 'session', 'head'] as const) {
+  test(`S4A ${close} loss at actual native completion protects saved ciphertext but issues no live acknowledgement`, async ({
+    page
+  }) => {
+    await page.evaluate(() => window.p8Fixture.reserve());
+    await page.evaluate(() => window.p8Fixture.prepare());
+    await page.evaluate((close) => {
+      const f = window.p8Fixture;
+      window.p8Restore = f.installCommitCompletion(() => {
+        if (close === 'controller')
+          window.p8.closeInboxAccessController(f.controller()!);
+        else if (close === 'session') f.closeSession();
+        else f.churnHead();
+      });
+    }, close);
+    expect(
+      await page.evaluate(() => window.p8Fixture.commitOriginal())
+    ).toEqual({ status: 'stopped', snapshot: undefined });
+    const rows = await page.evaluate(() => window.p8Fixture.stored());
+    expect(rows).toHaveLength(1);
+    expect(JSON.parse(rows[0].wire)).toMatchObject({
+      revision: 1,
+      self: { wire: expect.any(String) }
+    });
+    expect(
+      await page.evaluate(() => window.p8Fixture.acknowledgement())
+    ).toBeUndefined();
+    expect(
+      frames.some((frame) => ['EVENT', 'AUTH'].includes(String(frame[0])))
+    ).toBe(false);
+  });
+}
+
+test('S4A physical whitespace aliases remain detectable despite identical decoded canonical metadata', async ({
+  page
+}) => {
+  await page.evaluate(() => window.p8Fixture.reserve());
+  await page.evaluate(() => window.p8Fixture.prepare());
+  const result = await page.evaluate(async () => {
+    const f = window.p8Fixture,
+      api = window.p8;
+    await f.commitOriginal();
+    const ack = f.acknowledgement()!,
+      row = (await f.stored())[0];
+    const before = await api.loadPrivateRecord(
+      f.repository,
+      'private_sends',
+      row.id
+    );
+    await f.inject([{ ...row, wire: '  ' + row.wire + '\n' }]);
+    const after = await api.loadPrivateRecord(
+      f.repository,
+      'private_sends',
+      row.id
+    );
+    const observed = await api.observePrivateRecord(
+      f.repository,
+      'private_sends',
+      row.id
+    );
+    const canonicalSame =
+      before.ok &&
+      after.ok &&
+      api.privateRecordWire(before.value, f.owner, row.id) ===
+        api.privateRecordWire(after.value, f.owner, row.id);
+    const verified = await api.verifyInboxProbeAcknowledgement(
+      f.repository,
+      f.session,
+      ack
+    );
+    const revoked = api.inboxProbeAcknowledgementSnapshot(ack) === undefined;
+    const retry = await f.commitOriginal();
+    return {
+      canonicalSame,
+      actualChanged: observed.ok && observed.value.wire !== row.wire,
+      verified,
+      revoked,
+      retry: retry.status,
+      count: (await f.stored()).length
+    };
+  });
+  expect(result).toEqual({
+    canonicalSame: true,
+    actualChanged: true,
+    verified: false,
+    revoked: true,
+    retry: 'conflict',
+    count: 1
+  });
+});
+
+test('S4A equivalent physical mutation queued before fresh native readback prevents the first acknowledgement', async ({
+  page
+}) => {
+  await page.evaluate(() => window.p8Fixture.reserve());
+  await page.evaluate(() => window.p8Fixture.prepare());
+  await page.evaluate(() => {
+    const f = window.p8Fixture,
+      record = window.p8.inboxProbeSnapshot(f.probeIdentity()!)!,
+      artifact = window.p8.inboxProbeGiftwrapSnapshot(f.wrap()!)!;
+    const wire = JSON.stringify({
+      ...record,
+      revision: 1,
+      self: {
+        eventId: (JSON.parse(artifact.wire) as { id: string }).id,
+        wire: artifact.wire
+      }
+    });
+    window.p8Restore = f.installCommitCompletion(() => {
+      void f.inject([{ owner: f.owner, id: record.id, wire: ' ' + wire }]);
+    });
+  });
+  expect(await page.evaluate(() => window.p8Fixture.commitOriginal())).toEqual({
+    status: 'conflict',
+    snapshot: undefined
+  });
+  expect(
+    await page.evaluate(() => window.p8Fixture.acknowledgement())
+  ).toBeUndefined();
+  expect(await page.evaluate(() => window.p8Fixture.stored())).toHaveLength(1);
+});
+
+for (const mutation of [
+  'metadata',
+  'later_facts',
+  'corrupt_tail',
+  'removed'
+] as const) {
+  test(`S4A fresh acknowledgement verification revokes ${mutation} custody without recreating an artifact`, async ({
+    page
+  }) => {
+    await page.evaluate(() => window.p8Fixture.reserve());
+    await page.evaluate(() => window.p8Fixture.prepare());
+    const result = await page.evaluate(async (mutation) => {
+      const f = window.p8Fixture,
+        api = window.p8;
+      await f.commitOriginal();
+      const ack = f.acknowledgement()!,
+        row = (await f.stored())[0];
+      const record = JSON.parse(row.wire) as {
+        createdAt: number;
+        revision: number;
+        self: { eventId: string };
+        binding: { archiveTargets: string[] };
+        receipts: unknown[];
+      };
+      if (mutation === 'removed') await f.removeOriginal();
+      else if (mutation === 'corrupt_tail')
+        await f.inject([
+          { owner: f.owner, id: crypto.randomUUID(), wire: 'broken' }
+        ]);
+      else {
+        if (mutation === 'metadata') record.createdAt++;
+        else {
+          record.revision++;
+          record.receipts.push({
+            actionId: crypto.randomUUID(),
+            origin: record.binding.archiveTargets[0],
+            role: 'access_archive',
+            attempt: 1,
+            eventId: record.self.eventId,
+            status: 'accepted',
+            observedAtMilliseconds: 1,
+            readbackWire: null
+          });
+        }
+        await f.inject([{ ...row, wire: JSON.stringify(record) }]);
+      }
+      const before = f.counts();
+      const verified = await api.verifyInboxProbeAcknowledgement(
+        f.repository,
+        f.session,
+        ack
+      );
+      const retry = await f.commitOriginal();
+      return {
+        verified,
+        revoked: api.inboxProbeAcknowledgementSnapshot(ack) === undefined,
+        status: retry.status,
+        before,
+        after: f.counts()
+      };
+    }, mutation);
+    expect(result.verified).toBe(false);
+    expect(result.revoked).toBe(true);
+    expect(['conflict', 'invalid_record', 'corrupt_record']).toContain(
+      result.status
+    );
+    expect(result.before).toEqual(result.after);
+  });
+}
+
+test('S4A preparation grows the existing row at the full joint 100-row ceiling', async ({
+  page
+}) => {
+  await page.evaluate(() => window.p8Fixture.reserve());
+  await page.evaluate(() => window.p8Fixture.prepare());
+  await page.evaluate(() => window.p8Fixture.fillCapacity(99));
+  expect(await page.evaluate(() => window.p8Fixture.stored())).toHaveLength(
+    100
+  );
+  expect(
+    await page.evaluate(() => window.p8Fixture.commitOriginal())
+  ).toMatchObject({ status: 'prepared' });
+  expect(await page.evaluate(() => window.p8Fixture.stored())).toHaveLength(
+    100
+  );
+});
+
+test('S4A actual complete row bytes refuse artifact growth with bounded structural filler and preserve the original', async ({
+  page
+}) => {
+  await page.evaluate(() => window.p8Fixture.reserve());
+  await page.evaluate(() => window.p8Fixture.prepare());
+  const bound = await page.evaluate(() =>
+    window.p8Fixture.fillProbeByteHeadroom()
+  );
+  expect(bound.count).toBe(2);
+  expect(bound.bytes).toBeLessThanOrEqual(8 * 1024 * 1024);
+  expect(bound.headroom).toBeLessThan(bound.growth);
+  const result = await page.evaluate(async () => {
+    const f = window.p8Fixture,
+      before = JSON.stringify(await f.stored()),
+      counts = f.counts();
+    const result = await f.commitOriginal();
+    return {
+      status: result.status,
+      unchanged: before === JSON.stringify(await f.stored()),
+      noAcknowledgement: f.acknowledgement() === undefined,
+      counts,
+      after: f.counts()
+    };
+  });
+  expect(result).toMatchObject({
+    status: 'capacity',
+    unchanged: true,
+    noAcknowledgement: true
+  });
+  expect(result.counts).toEqual(result.after);
+});

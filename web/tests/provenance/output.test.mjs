@@ -611,6 +611,37 @@ import { auditOutput } from '../../tools/check-output.mjs';
           Object.values(manifest).some((row) => row.name === 'view-context')
         );
         assert.ok((await f.audit()).length > 0);
+        for (const producer of [
+          'src/lib/persistence/private-storage.ts',
+          'src/lib/persistence/inbox-probes.ts'
+        ]) {
+          for (const change of ['changed', 'missing']) {
+            await t.test(
+              'HCP115 shared probe storage rejects ' + change + ' ' + producer,
+              async () => {
+                const file = path.join(f.web, producer),
+                  original = await readFile(file);
+                try {
+                  if (change === 'changed')
+                    await writeFile(
+                      file,
+                      Buffer.concat([original, Buffer.from('\n')])
+                    );
+                  else await rm(file);
+                  await refresh(f);
+                  await assert.rejects(
+                    f.audit,
+                    /Invalid owned probe storage source|ENOENT/
+                  );
+                } finally {
+                  await writeFile(file, original);
+                  await refresh(f);
+                }
+                assert.ok((await f.audit()).length > 0);
+              }
+            );
+          }
+        }
         const handles = Object.values(manifest).find(
           (row) => row.name === 'private-handles'
         );
@@ -1937,6 +1968,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
           );
         }
         for (const producer of [
+          'src/lib/persistence/inbox-probes.ts',
           'src/lib/nostr/inbox-access.ts',
           'src/lib/nostr/seal-builder.ts',
           'src/lib/nostr/giftwrap-builder.ts',
