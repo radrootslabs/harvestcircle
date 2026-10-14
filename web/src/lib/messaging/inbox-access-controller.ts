@@ -359,16 +359,16 @@ export function inboxAccessConstructionBinding(
   session: PrivateSession,
   policy: RelayPolicy
 ): Readonly<Binding & { session: symbol; current(): boolean }> | undefined {
-  const state = controllers.get(token),
-    ownership = privateSessionOwnership(session);
+  const state = controllers.get(token);
   if (
     !state ||
+    state.closed() ||
     state.session !== session ||
-    state.policy !== policy ||
-    !ownership?.current() ||
-    !state.current()
+    state.policy !== policy
   )
     return undefined;
+  const ownership = privateSessionOwnership(session);
+  if (!ownership?.current() || !state.current()) return undefined;
   const captured = state.snapshot();
   if (
     captured.owner !== ownership.owner ||

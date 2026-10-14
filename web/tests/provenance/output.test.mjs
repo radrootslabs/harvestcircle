@@ -1976,8 +1976,8 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'src/lib/nostr/giftwrap-builder.ts',
           'src/lib/config/inbox-operators.ts',
           'src/lib/persistence/private-sends.ts',
-          // CR008-S4C1: both current admissions bind the actual shared guarded
-          // self reader and distinct original-observation nonce proof owner.
+          // CR008-S4C2A: current admissions bind the shared guarded self
+          // engine, distinct persisted-probe recovery and controller admission.
           'src/lib/nostr/self-recovery-reader.ts',
           'src/lib/config/operation-flags.ts',
           'src/lib/nostr/private-pool.ts',

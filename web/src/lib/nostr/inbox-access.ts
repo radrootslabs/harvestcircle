@@ -1,3 +1,6 @@
+import { canonicalPublicKey } from '../contracts/public-key.ts';
+import { exactLocalFields } from '../contracts/local-records.ts';
+import { boundedUtf8 } from '../contracts/food-availability-v1/text.ts';
 import { getEventHash, type UnsignedEvent } from 'applesauce-core/helpers';
 import { readRelayPolicy, type RelayPolicy } from '../config/relays.ts';
 import {
@@ -214,6 +217,10 @@ export async function reserveInboxProbeIdentity(
             }
             if (!wire || !actorCurrent()) return refuse('stopped');
             const rumorHash = (JSON.parse(wire) as { id: string }).id;
+            if (
+              !inboxProbeRumorMatches(wire, owner.owner, rumorHash, createdAt)
+            )
+              return refuse('invalid_record');
             const record: PrivateAccessProbe = {
               schema: 1,
               family: 'private_access_probe',
@@ -371,4 +378,59 @@ export function inboxProbePolicyMatches(
     saved.policy === policy &&
     saved.current()
   );
+}
+
+// Detached inspection only. Actual SDK decryption and original native/current
+// associations are necessary to issue a recovered probe capability.
+export function inboxProbeRumorMatches(
+  raw: unknown,
+  owner: unknown,
+  hash: unknown,
+  createdAt: unknown
+): boolean {
+  const author = canonicalPublicKey(owner);
+  if (
+    !author ||
+    typeof hash !== 'string' ||
+    !/^[0-9a-f]{64}$/.test(hash) ||
+    safeUnsignedInteger(createdAt) === undefined ||
+    typeof raw !== 'string' ||
+    !boundedUtf8(raw, 8192)
+  )
+    return false;
+  try {
+    const rumor: unknown = JSON.parse(raw);
+    if (
+      !exactLocalFields(rumor, [
+        'id',
+        'pubkey',
+        'created_at',
+        'kind',
+        'tags',
+        'content'
+      ]) ||
+      rumor.id !== hash ||
+      rumor.pubkey !== author ||
+      rumor.created_at !== createdAt ||
+      rumor.kind !== 14 ||
+      JSON.stringify(rumor.tags) !== JSON.stringify([['p', author]]) ||
+      typeof rumor.content !== 'string' ||
+      !rumor.content.startsWith(diagnostic) ||
+      !/^[0-9a-f]{64}$/.test(rumor.content.slice(diagnostic.length))
+    )
+      return false;
+    const event: UnsignedEvent = {
+      pubkey: author,
+      created_at: createdAt as number,
+      kind: 14,
+      tags: [['p', author]],
+      content: rumor.content
+    };
+    return (
+      getEventHash(event) === hash &&
+      JSON.stringify({ id: hash, ...event }) === raw
+    );
+  } catch {
+    return false;
+  }
 }

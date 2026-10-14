@@ -317,7 +317,7 @@ async function operationalFlagsAdmission(web) {
     'src/lib/messaging/inbox-setup-operation.ts':
       '245c6ce88b146dc731e7ace4f16dc9b5002a87a997f5568e4811b0c4a2daf035',
     'src/lib/nostr/self-recovery-reader.ts':
-      '806230d8082a48b9c2117a16060aff50312be270348d7b8c5b93d6d6368d31a1',
+      '51758a11383ca5851f16d99628470cef333afbdc37e794e25f9891762c531b8b',
     'src/lib/nostr/private-publisher.ts':
       '2f939dda3504b760dbf3758632cda6ce38d3e16c6d142b814e40a0e295a77d90',
     'src/lib/nostr/private-pool.ts':
@@ -327,13 +327,13 @@ async function operationalFlagsAdmission(web) {
     'src/lib/persistence/inbox-probes.ts':
       'b4d3089bcf08a5c9ac3a99dfcf8e2c2e2160a2c8996c19fccb2670614f7b4d7a',
     'src/lib/nostr/inbox-access.ts':
-      'd39f218b66fb51833e962b20152a2df81adf3097ba434a4cf2172ee4a7c8e3bc',
+      '8a58978f3b535348165bc66f2b773e69a08f39a4a5741fb1d59ba546054aa1ce',
     'src/lib/nostr/seal-builder.ts':
       '3ccc967cc348e63857243ff6f0302c1a68da2afe85ca2c37e00d5a894785fc53',
     'src/lib/nostr/giftwrap-builder.ts':
       'faf54dd80a0995ac94b4b994d3cfd015516e5e201a1fbb6340e13c836ce49e98',
     'src/lib/messaging/inbox-access-controller.ts':
-      '103c22b4cd721f7e3371ff887f4e7ca5df6a535688b9e9d0c67241db21430f9a',
+      '2e0d551f1e373603422cd6ad6d17bc2f291b205fbcca9b2a3420649b1cd74975',
     'src/lib/messaging/inbox-setup-view.ts':
       'e85238d20f1bbcb23599b36e67910f3df784efa43f0fa0b0b7f3da7e7fd33c79',
     'src/lib/messaging/inbox-setup.ts':
@@ -595,7 +595,7 @@ async function privacyDataAdmission(web) {
     'src/lib/messaging/inbox-list.ts':
       '9cc82877bfa8dbb2a7fa41bceb842793349416271f19569f49fdd5cfc1de07e5',
     'src/lib/nostr/self-recovery-reader.ts':
-      '806230d8082a48b9c2117a16060aff50312be270348d7b8c5b93d6d6368d31a1',
+      '51758a11383ca5851f16d99628470cef333afbdc37e794e25f9891762c531b8b',
     'src/lib/nostr/private-publisher.ts':
       '2f939dda3504b760dbf3758632cda6ce38d3e16c6d142b814e40a0e295a77d90',
     'src/lib/nostr/private-pool.ts':
@@ -605,13 +605,13 @@ async function privacyDataAdmission(web) {
     'src/lib/persistence/inbox-probes.ts':
       'b4d3089bcf08a5c9ac3a99dfcf8e2c2e2160a2c8996c19fccb2670614f7b4d7a',
     'src/lib/nostr/inbox-access.ts':
-      'd39f218b66fb51833e962b20152a2df81adf3097ba434a4cf2172ee4a7c8e3bc',
+      '8a58978f3b535348165bc66f2b773e69a08f39a4a5741fb1d59ba546054aa1ce',
     'src/lib/nostr/seal-builder.ts':
       '3ccc967cc348e63857243ff6f0302c1a68da2afe85ca2c37e00d5a894785fc53',
     'src/lib/nostr/giftwrap-builder.ts':
       'faf54dd80a0995ac94b4b994d3cfd015516e5e201a1fbb6340e13c836ce49e98',
     'src/lib/messaging/inbox-access-controller.ts':
-      '103c22b4cd721f7e3371ff887f4e7ca5df6a535688b9e9d0c67241db21430f9a',
+      '2e0d551f1e373603422cd6ad6d17bc2f291b205fbcca9b2a3420649b1cd74975',
     'src/lib/messaging/inbox-setup-view.ts':
       '4ec9025232bb1355fef1ba039b46ce0a2be10e02e348e1b4eaadc3d1f3c2fd84',
     'src/lib/messaging/inbox-sync.ts':

@@ -12,7 +12,18 @@ import {
   inboxProbePublicationBinding,
   type InboxProbeAcknowledgement
 } from '../persistence/inbox-probes.ts';
-import { inboxProbeRumorWire } from './inbox-access.ts';
+import { inboxProbeRumorWire, inboxProbeRumorMatches } from './inbox-access.ts';
+import {
+  inboxAccessConstructionBinding,
+  subscribeInboxAccessControllerClose,
+  type InboxAccessController
+} from '../messaging/inbox-access-controller.ts';
+import {
+  inboxOperatorQualificationWire,
+  inboxOperatorQualificationSnapshot,
+  type InboxOperatorQualification
+} from '../config/inbox-operators.ts';
+import { readRelayPolicy } from '../config/relays.ts';
 import { inboxProbeReadbackMatches } from '../persistence/private-records.ts';
 import { ExtensionSigner } from 'applesauce-signers';
 import { PRIVATE_TRANSPORT_BUDGETS } from '../config/budgets.ts';
@@ -28,13 +39,16 @@ import {
 import {
   loadPrivateRecord,
   observePrivateRecord,
+  privateStorageOwner,
   type PrivateStorageRepository,
   type PrivateStorageFailure
 } from '../persistence/private-storage.ts';
 import {
   privateRecordSnapshot,
   privateRecordWire,
-  type PrivateSendOperation
+  type PrivateSendOperation,
+  type PrivateAccessProbe,
+  type PrivateRecordHandle
 } from '../persistence/private-records.ts';
 import {
   verifyEnvelope,
@@ -50,7 +64,7 @@ import {
   markExtensionWaitExpired,
   type ExtensionAction
 } from './extension-scheduler.ts';
-// Module-private strict self-layer SDK engine. Only the two factory-owned reader
+// Module-private strict self-layer SDK engine. Only the factory-owned reader
 // scopes below provide ownership/currentness; no caller cipher/event port exists.
 function strictSelfDecryptor(
   identity: IdentitySession,
@@ -785,4 +799,445 @@ export function inboxProbeNonceProofBinding(
     eventId: binding.record.self!.eventId,
     current: () => saved.current()
   };
+}
+
+declare const probeRecoveryReaderBrand: unique symbol;
+export type InboxProbeRecoveryReader = Readonly<{
+  [probeRecoveryReaderBrand]: true;
+}>;
+declare const recoveredProbeBrand: unique symbol;
+export type RecoveredInboxProbe = Readonly<{ [recoveredProbeBrand]: true }>;
+export type InboxProbeRecoveryResult =
+  | Readonly<{ status: 'recovered'; proof: RecoveredInboxProbe }>
+  | Readonly<{
+      status:
+        | PrivateStorageFailure
+        | 'invalid'
+        | 'stopped'
+        | 'busy'
+        | 'refused'
+        | 'mismatch'
+        | 'lost_evidence';
+    }>;
+type ProbeRecoveryReader = {
+  run(): Promise<InboxProbeRecoveryResult>;
+  stop(expired: boolean): void;
+};
+const recoveryCaptures = new WeakMap<InboxAccessController, true>();
+const recoveryReaders = new WeakMap<
+  InboxProbeRecoveryReader,
+  ProbeRecoveryReader
+>();
+const accessRecoveryReaders = new WeakMap<
+  InboxAccessController,
+  Readonly<{
+    repository: PrivateStorageRepository;
+    identity: IdentitySession;
+    session: PrivateSession;
+    policy: RelayPolicy;
+    operator: InboxOperatorQualification;
+    id: string;
+    reader: InboxProbeRecoveryReader;
+  }>
+>();
+const recoveredProbes = new WeakMap<
+  RecoveredInboxProbe,
+  Readonly<{
+    repository: PrivateStorageRepository;
+    identity: IdentitySession;
+    session: PrivateSession;
+    access: InboxAccessController;
+    policy: RelayPolicy;
+    operator: InboxOperatorQualification;
+    record: PrivateAccessProbe;
+    handle: PrivateRecordHandle;
+    storedWire: string;
+    rumor(): string | undefined;
+    current(): boolean;
+  }>
+>();
+
+// Capture supplies no key, native read or socket. Explicit run decrypts only the
+// stored original under genuine owner/controller/configuration authorization.
+export function captureInboxProbeRecoveryReader(
+  repository: PrivateStorageRepository,
+  identity: IdentitySession,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  access: InboxAccessController,
+  operator: InboxOperatorQualification,
+  localId: unknown,
+  review: unknown
+): InboxProbeRecoveryReader | undefined {
+  if (
+    typeof window === 'undefined' ||
+    review !== 'reviewed_inbox_probe_recovery'
+  )
+    return undefined;
+  if (
+    (typeof access !== 'object' && typeof access !== 'function') ||
+    access === null ||
+    recoveryCaptures.has(access)
+  )
+    return undefined;
+  recoveryCaptures.set(access, true);
+  try {
+    const id = canonicalLocalId(localId),
+      configuredWire = inboxOperatorQualificationWire(operator, policy),
+      manifest = inboxOperatorQualificationSnapshot(operator),
+      owner = privateStorageOwner(repository);
+    if (
+      !id ||
+      !owner ||
+      !configuredWire ||
+      !manifest ||
+      manifest.authority === 'unconfigured'
+    )
+      return undefined;
+    const identityOwner = identityMessagingOwnership(identity);
+    if (!identityOwner?.current() || identityOwner.owner !== owner)
+      return undefined;
+    // The controller's genuine session/policy association is checked before
+    // passive session ownership, including its retained failed-cleanup retry.
+    const metadata = inboxAccessConstructionBinding(access, session, policy);
+    if (
+      !metadata ||
+      metadata.owner !== owner ||
+      !metadata.current() ||
+      ![...metadata.readTargets, ...metadata.archiveTargets].every((origin) => {
+        const row = manifest.relays.find((x) => x.origin === origin);
+        return (
+          row &&
+          row.auth !== 'unsupported' &&
+          row.recipientRead === 'supported' &&
+          row.namedArchiveAck === 'supported' &&
+          row.exactReadback === 'supported' &&
+          row.retention === 'operator_defined'
+        );
+      })
+    )
+      return undefined;
+    if (!identityOwner.current() || identityOwner.session !== metadata.session)
+      return undefined;
+    const privateOwner = privateSessionOwnership(session);
+    if (
+      !privateOwner?.current() ||
+      privateOwner.owner !== owner ||
+      privateOwner.session !== identityOwner.session
+    )
+      return undefined;
+    const previous = accessRecoveryReaders.get(access);
+    if (previous)
+      return previous.repository === repository &&
+        previous.identity === identity &&
+        previous.session === session &&
+        previous.policy === policy &&
+        previous.operator === operator &&
+        previous.id === id
+        ? previous.reader
+        : undefined;
+    const expectedBinding = JSON.stringify({
+      preferenceId: metadata.preferenceId,
+      preferenceCreatedAt: metadata.preferenceCreatedAt,
+      readTargets: metadata.readTargets,
+      archiveTargets: metadata.archiveTargets,
+      policyWire: JSON.stringify(readRelayPolicy(policy)),
+      operatorWire: configuredWire
+    });
+    const token = Object.freeze({}) as InboxProbeRecoveryReader;
+    const operation = Symbol();
+    let stopped = false,
+      consumed = false,
+      pending = false,
+      selectedWire: string | undefined,
+      active: ExtensionAction | undefined,
+      recovered: RecoveredInboxProbe | undefined,
+      rumorWire: string | undefined,
+      last: InboxProbeRecoveryResult | undefined;
+    const listeners = new Map<symbol, () => void>();
+    function current() {
+      if (stopped) return false;
+      const fresh =
+        identityOwner!.current() &&
+        privateOwner!.current() &&
+        inboxAccessConstructionBinding(access, session, policy);
+      const valid =
+        !!fresh &&
+        fresh.current() &&
+        fresh.owner === owner &&
+        fresh.session === identityOwner!.session &&
+        inboxOperatorQualificationWire(operator, policy) === configuredWire &&
+        JSON.stringify({
+          preferenceId: fresh.preferenceId,
+          preferenceCreatedAt: fresh.preferenceCreatedAt,
+          readTargets: fresh.readTargets,
+          archiveTargets: fresh.archiveTargets,
+          policyWire: JSON.stringify(readRelayPolicy(policy)),
+          operatorWire: configuredWire
+        }) === expectedBinding;
+      if (!valid) stop(false);
+      return valid && !stopped;
+    }
+    function stop(expired: boolean) {
+      stopped = true;
+      rumorWire = undefined;
+      if (recovered) recoveredProbes.delete(recovered);
+      recovered = undefined;
+      if (active) {
+        if (expired) markExtensionWaitExpired(active);
+        else stopExtensionAction(active);
+      }
+      for (const [id, off] of listeners) {
+        off();
+        listeners.delete(id);
+      }
+    }
+    function retain(register: () => () => void) {
+      const off = register();
+      if (stopped) off();
+      else listeners.set(Symbol(), off);
+    }
+    const decryptor = strictSelfDecryptor(identity, owner, current);
+    async function run(): Promise<InboxProbeRecoveryResult> {
+      if (!current()) {
+        stop(false);
+        return { status: 'stopped' };
+      }
+      if (pending) return { status: 'busy' };
+      if (consumed) return last ?? { status: 'stopped' };
+      pending = true;
+      try {
+        if (!navigator.locks?.request)
+          return (last = { status: 'unavailable' });
+        last = await navigator.locks.request(
+          'harvestcircle:owner:' + owner,
+          { mode: 'exclusive', ifAvailable: true },
+          async (lock): Promise<InboxProbeRecoveryResult> => {
+            if (!lock) return { status: 'busy' };
+            if (!current()) return { status: 'stopped' };
+            const loaded = await observePrivateRecord(
+              repository,
+              'private_sends',
+              id
+            );
+            if (!current()) return { status: 'stopped' };
+            if (!loaded.ok)
+              return {
+                status:
+                  loaded.reason === 'invalid_record'
+                    ? 'lost_evidence'
+                    : loaded.reason
+              };
+            const record = privateRecordSnapshot(
+                loaded.value.handle,
+                owner,
+                id
+              ),
+              storedWire = loaded.value.wire;
+            if (selectedWire !== undefined && selectedWire !== storedWire)
+              return { status: 'conflict' };
+            if (!record || record.family !== 'private_access_probe')
+              return { status: 'invalid_scope' };
+            if (!record.self || record.revision === 0)
+              return { status: 'lost_evidence' };
+            if (
+              privateRecordWire(loaded.value.handle, owner, id) !==
+                storedWire ||
+              JSON.stringify(record.binding) !== expectedBinding
+            )
+              return { status: 'conflict' };
+            const checked = verifyEnvelope(record.self.wire),
+              outer = checked.ok && verifiedEnvelopeSnapshot(checked.value);
+            if (
+              !outer ||
+              outer.kind !== 1059 ||
+              outer.id !== record.self.eventId ||
+              JSON.stringify(outer.tags) !== JSON.stringify([['p', owner]]) ||
+              !exactLocalFields(outer, [
+                'id',
+                'pubkey',
+                'created_at',
+                'kind',
+                'tags',
+                'content',
+                'sig'
+              ]) ||
+              !sealCiphertextV2(outer.content)
+            )
+              return { status: 'mismatch' };
+            selectedWire ??= storedWire;
+            const scheduler = browserExtensionScheduler();
+            if (!scheduler) return { status: 'unavailable' };
+            const result = await runExtensionAction<InboxProbeRecoveryResult>(
+              scheduler,
+              {
+                owner: identityOwner!.owner,
+                session: identityOwner!.session,
+                operation
+              },
+              current,
+              async (action): Promise<InboxProbeRecoveryResult> => {
+                consumed = true;
+                active = action;
+                const opened = await decryptor.open(action, outer);
+                if (!current()) return { status: 'stopped' };
+                if (opened.status !== 'opened') return opened;
+                if (
+                  !inboxProbeRumorMatches(
+                    opened.rumorWire,
+                    owner,
+                    record.rumorHash,
+                    record.createdAt
+                  )
+                )
+                  return { status: 'mismatch' };
+                // No callback-capable provider work follows this last fresh-key
+                // step. Final complete native physical read precedes proof mint.
+                if (!(await decryptor.fresh(action)))
+                  return { status: 'stopped' };
+                const after = await observePrivateRecord(
+                  repository,
+                  'private_sends',
+                  id
+                );
+                if (!current()) return { status: 'stopped' };
+                if (!after.ok) return { status: after.reason };
+                if (
+                  after.value.wire !== storedWire ||
+                  privateRecordWire(after.value.handle, owner, id) !==
+                    storedWire
+                )
+                  return { status: 'conflict' };
+                rumorWire = opened.rumorWire;
+                const proof = Object.freeze({}) as RecoveredInboxProbe;
+                recoveredProbes.set(proof, {
+                  repository,
+                  identity,
+                  session,
+                  access,
+                  policy,
+                  operator,
+                  record,
+                  handle: after.value.handle,
+                  storedWire,
+                  rumor: () => (current() ? rumorWire : undefined),
+                  current
+                });
+                recovered = proof;
+                return { status: 'recovered', proof };
+              }
+            );
+            if (!current()) {
+              stop(false);
+              return { status: 'stopped' };
+            }
+            if (result.status === 'busy') return { status: 'busy' };
+            return result.status === 'completed' &&
+              'value' in result &&
+              result.value
+              ? result.value
+              : { status: result.status === 'denied' ? 'refused' : 'stopped' };
+          }
+        );
+        return last;
+      } catch {
+        return (last = { status: current() ? 'refused' : 'stopped' });
+      } finally {
+        active = undefined;
+        pending = false;
+      }
+    }
+    recoveryReaders.set(token, { run, stop });
+    accessRecoveryReaders.set(access, {
+      repository,
+      identity,
+      session,
+      policy,
+      operator,
+      id,
+      reader: token
+    });
+    retain(() =>
+      subscribeIdentityInvalidation(identity, () => {
+        if (!identityOwner.current()) stop(false);
+      })
+    );
+    retain(() => subscribePrivateSessionClose(session, () => stop(false)));
+    retain(() =>
+      subscribeInboxAccessControllerClose(access, () => stop(false))
+    );
+    return current() ? token : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    recoveryCaptures.delete(access);
+  }
+}
+export function recoverInboxProbe(
+  reader: InboxProbeRecoveryReader
+): Promise<InboxProbeRecoveryResult> {
+  return (
+    recoveryReaders.get(reader)?.run() ?? Promise.resolve({ status: 'invalid' })
+  );
+}
+export function stopInboxProbeRecoveryReader(reader: InboxProbeRecoveryReader) {
+  recoveryReaders.get(reader)?.stop(false);
+}
+export function expireInboxProbeRecoveryReaderWait(
+  reader: InboxProbeRecoveryReader
+) {
+  recoveryReaders.get(reader)?.stop(true);
+}
+// Metadata and strong original associations only, not live native/network
+// authority. Later effect owners must independently reread exact physical wire.
+export function recoveredInboxProbeBinding(
+  proof: RecoveredInboxProbe,
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  access: InboxAccessController,
+  policy: RelayPolicy,
+  operator: InboxOperatorQualification
+) {
+  const saved = recoveredProbes.get(proof);
+  if (
+    !saved ||
+    saved.repository !== repository ||
+    saved.session !== session ||
+    saved.access !== access ||
+    saved.policy !== policy ||
+    saved.operator !== operator ||
+    !saved.current() ||
+    !saved.rumor()
+  )
+    return undefined;
+  return {
+    owner: saved.record.owner,
+    command: saved.record.id,
+    rumorHash: saved.record.rumorHash,
+    eventId: saved.record.self!.eventId,
+    handle: saved.handle,
+    storedWire: saved.storedWire,
+    current: () => saved.current() && !!saved.rumor()
+  };
+}
+// Only genuine recovered proof and exact current original scope can expose the
+// private original rumor to a later separate source-owned probe admission.
+export function recoveredInboxProbeRumorWire(
+  proof: RecoveredInboxProbe,
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  access: InboxAccessController,
+  policy: RelayPolicy,
+  operator: InboxOperatorQualification
+): string | undefined {
+  return recoveredInboxProbeBinding(
+    proof,
+    repository,
+    session,
+    access,
+    policy,
+    operator
+  )
+    ? recoveredProbes.get(proof)?.rumor()
+    : undefined;
 }
