@@ -181,9 +181,16 @@ export function captureInboxSync(
       );
     };
     if (!current()) return undefined;
-    const pool = getPrivatePool(session, policy, targets);
-    if (!pool) return undefined;
     const token = Object.freeze({}) as InboxSync;
+    const pool = getPrivatePool(
+      session,
+      policy,
+      targets,
+      token,
+      'receive',
+      current
+    );
+    if (!pool) return undefined;
     let state: State = 'ready',
       candidates = 0,
       bytes = 0,
@@ -398,7 +405,11 @@ export function captureInboxSync(
               queueMicrotask(() => {
                 if (stopped || failed) return;
                 if (!current()) {
-                  stop();
+                  try {
+                    stop();
+                  } catch {
+                    /* Original incomplete cleanup remains retryable. */
+                  }
                   return;
                 }
                 state = 'live';

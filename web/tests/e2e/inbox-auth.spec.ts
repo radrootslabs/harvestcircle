@@ -364,7 +364,7 @@ test('new physical connection and explicit action do not inherit accepted scope'
     window.hcp068.respondInboxAuthentication(window.hcp068Action)
   );
   await page.evaluate(async () => {
-    window.hcp068Fixture.close();
+    await window.hcp068Fixture.closeAndWait();
     window.hcp068Fixture = await window.hcp068.makeAuthFixture();
     const action = await window.hcp068.beginInboxAuthentication(
       window.hcp068Fixture.pool,
@@ -424,7 +424,7 @@ test('raw private AUTH ports cannot bypass explicit review and guarded signing',
   page
 }) => {
   const status = await page.evaluate(async () => {
-    window.hcp068Fixture.close();
+    await window.hcp068Fixture.closeAndWait();
     window.hcp068Fixture = await window.hcp068.makeAuthFixture();
     return window.hcp068Fixture.rawPortBypass();
   });
@@ -449,7 +449,7 @@ test('reviewed AUTH uses the same genuine already-open private page connection',
 }) => {
   holdPage = true;
   await page.evaluate(async () => {
-    window.hcp068Fixture.close();
+    await window.hcp068Fixture.closeAndWait();
     window.hcp068Fixture = await window.hcp068.makeAuthFixture();
     window.hcp068Fixture.startPage();
   });

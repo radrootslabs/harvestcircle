@@ -314,18 +314,24 @@ async function operationalFlagsAdmission(web) {
       '9cc82877bfa8dbb2a7fa41bceb842793349416271f19569f49fdd5cfc1de07e5',
     'src/lib/messaging/inbox-setup-operation.ts':
       '245c6ce88b146dc731e7ace4f16dc9b5002a87a997f5568e4811b0c4a2daf035',
+    'src/lib/nostr/private-pool.ts':
+      'b4c718364625b3caacbc5cc5f98bd79a575a5d66dddb2d7f59f03351a1308a6d',
+    'src/lib/nostr/inbox-ingress.ts':
+      'f860a094a8ba767585124c795d44b7620064f73a5b3a0170041c581c0fc64ecb',
+    'src/lib/messaging/inbox-access-controller.ts':
+      'c3093fe329575aba43333675c28352a6c0ddf24bcbc380c27f3a1ebab6252c5b',
     'src/lib/messaging/inbox-setup-view.ts':
       'e85238d20f1bbcb23599b36e67910f3df784efa43f0fa0b0b7f3da7e7fd33c79',
     'src/lib/messaging/inbox-setup.ts':
       '7a935d8542ff8f64287d2b441a8a458d299dea4ed88beecda39cb1637dd4a9ac',
     'src/lib/messaging/inbox-sync.ts':
-      '84f9b3bb165a81878bb281c51d245aff7eb06a0fa55b857a49b13d0cb1cff8ae',
+      '0d91f5895e7eb054b036a5cb80897a3d60a212d470029a82d11124c8536b3d2c',
     'src/lib/messaging/inbox-view.ts':
       '6871707ae7395d3679856a01e87c7d8f273848e0b9ef0dc7b94f450d8417528c',
     'src/lib/messaging/product-request-controller.ts':
-      '0255f1d160f4f5f9d6a66d836a9473fbf4c03f9b569568a84bb4ec65c52b9c7e',
+      'e1fab3a2bfb910c1d8b798628cf4799cd1f7e72f1d80ebc2a67e73730b6f3940',
     'src/lib/messaging/reply-controller.ts':
-      '60225bff6229c1f288a7f7eed55a7fdb780f853cd8b82d4f3995259a26d58eb1',
+      '8d2612b4788211b35ee8d56caa389bb88a53268bbba71407ee787c9dc23ee8a6',
     'src/lib/messaging/rumor-plan.ts':
       'b622889e96f911501524cd86f9fca9f2207ce853767494fb30799b00ae8275ed',
     'src/lib/persistence/private-send-reservations.ts':
@@ -570,14 +576,20 @@ async function privacyDataAdmission(web) {
       'be704e6cbe777722c3eb80ec9843f00afd7bac8c52af0c2af7294f2437414553',
     'src/lib/messaging/inbox-list.ts':
       '9cc82877bfa8dbb2a7fa41bceb842793349416271f19569f49fdd5cfc1de07e5',
+    'src/lib/nostr/private-pool.ts':
+      'b4c718364625b3caacbc5cc5f98bd79a575a5d66dddb2d7f59f03351a1308a6d',
+    'src/lib/nostr/inbox-ingress.ts':
+      'f860a094a8ba767585124c795d44b7620064f73a5b3a0170041c581c0fc64ecb',
+    'src/lib/messaging/inbox-access-controller.ts':
+      'c3093fe329575aba43333675c28352a6c0ddf24bcbc380c27f3a1ebab6252c5b',
     'src/lib/messaging/inbox-setup-view.ts':
       '4ec9025232bb1355fef1ba039b46ce0a2be10e02e348e1b4eaadc3d1f3c2fd84',
     'src/lib/messaging/inbox-sync.ts':
-      '84f9b3bb165a81878bb281c51d245aff7eb06a0fa55b857a49b13d0cb1cff8ae',
+      '0d91f5895e7eb054b036a5cb80897a3d60a212d470029a82d11124c8536b3d2c',
     'src/lib/messaging/inbox-view.ts':
       '6871707ae7395d3679856a01e87c7d8f273848e0b9ef0dc7b94f450d8417528c',
     'src/lib/messaging/reply-controller.ts':
-      '60225bff6229c1f288a7f7eed55a7fdb780f853cd8b82d4f3995259a26d58eb1',
+      '8d2612b4788211b35ee8d56caa389bb88a53268bbba71407ee787c9dc23ee8a6',
     'src/lib/messaging/rumor-plan.ts':
       'b622889e96f911501524cd86f9fca9f2207ce853767494fb30799b00ae8275ed',
     'src/lib/persistence/private-send-reservations.ts':
@@ -792,11 +804,11 @@ async function supportReportingAdmission(web) {
     'src/lib/messaging/inbox-setup-view.ts':
       '4ec9025232bb1355fef1ba039b46ce0a2be10e02e348e1b4eaadc3d1f3c2fd84',
     'src/lib/messaging/inbox-sync.ts':
-      '84f9b3bb165a81878bb281c51d245aff7eb06a0fa55b857a49b13d0cb1cff8ae',
+      '0d91f5895e7eb054b036a5cb80897a3d60a212d470029a82d11124c8536b3d2c',
     'src/lib/messaging/inbox-view.ts':
       '6871707ae7395d3679856a01e87c7d8f273848e0b9ef0dc7b94f450d8417528c',
     'src/lib/messaging/reply-controller.ts':
-      '60225bff6229c1f288a7f7eed55a7fdb780f853cd8b82d4f3995259a26d58eb1',
+      '8d2612b4788211b35ee8d56caa389bb88a53268bbba71407ee787c9dc23ee8a6',
     'src/lib/messaging/rumor-plan.ts':
       'b622889e96f911501524cd86f9fca9f2207ce853767494fb30799b00ae8275ed',
     'src/lib/persistence/private-send-reservations.ts':
@@ -981,11 +993,11 @@ async function privateBlockingAdmission(web) {
     'src/lib/messaging/inbox-setup-view.ts':
       '4ec9025232bb1355fef1ba039b46ce0a2be10e02e348e1b4eaadc3d1f3c2fd84',
     'src/lib/messaging/inbox-sync.ts':
-      '84f9b3bb165a81878bb281c51d245aff7eb06a0fa55b857a49b13d0cb1cff8ae',
+      '0d91f5895e7eb054b036a5cb80897a3d60a212d470029a82d11124c8536b3d2c',
     'src/lib/messaging/inbox-view.ts':
       '6871707ae7395d3679856a01e87c7d8f273848e0b9ef0dc7b94f450d8417528c',
     'src/lib/messaging/reply-controller.ts':
-      '60225bff6229c1f288a7f7eed55a7fdb780f853cd8b82d4f3995259a26d58eb1',
+      '8d2612b4788211b35ee8d56caa389bb88a53268bbba71407ee787c9dc23ee8a6',
     'src/lib/messaging/rumor-plan.ts':
       'b622889e96f911501524cd86f9fca9f2207ce853767494fb30799b00ae8275ed',
     'src/lib/persistence/private-send-reservations.ts':
@@ -2130,7 +2142,7 @@ async function inboxPresentationAdmission(web) {
     'src/lib/messaging/inbox-view.ts':
       'f725d1e122550232efa52b26139d3047d3bbfd6d3d11b1ef0a110b5e4b4410dc',
     'src/lib/messaging/inbox-sync.ts':
-      '84f9b3bb165a81878bb281c51d245aff7eb06a0fa55b857a49b13d0cb1cff8ae',
+      '0d91f5895e7eb054b036a5cb80897a3d60a212d470029a82d11124c8536b3d2c',
     'src/lib/messaging/inbox-setup-view.ts':
       '4ec9025232bb1355fef1ba039b46ce0a2be10e02e348e1b4eaadc3d1f3c2fd84',
     'src/lib/messaging/decryption-queue.ts':

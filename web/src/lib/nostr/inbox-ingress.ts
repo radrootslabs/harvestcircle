@@ -130,9 +130,16 @@ export function captureInboxIngress(
       );
     };
     if (!current()) return undefined;
-    const pool = getPrivatePool(session, policy, targets);
-    if (!pool) return undefined;
     const token = Object.freeze({}) as InboxIngress;
+    const pool = getPrivatePool(
+      session,
+      policy,
+      targets,
+      token,
+      'receive',
+      current
+    );
+    if (!pool) return undefined;
     let state: State = 'ready',
       candidates = 0,
       bytes = 0,

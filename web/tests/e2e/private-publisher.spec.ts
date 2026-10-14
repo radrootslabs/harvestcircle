@@ -2,13 +2,18 @@ import { test, expect } from '@playwright/test';
 import { build } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type WebSocket } from 'ws';
 import { createStaticHarness } from '../integration/harness/static.ts';
 import type * as Fixture from './harness/private-publisher.ts';
 declare global {
   interface Window {
     hcp085: typeof Fixture;
     hcp085Fixture: Awaited<ReturnType<typeof Fixture.makeFixture>>;
+    hcp085DelayClose?: boolean;
+    hcp085HeldClose?: (() => void)[];
+    hcp085SharedAction?: NonNullable<
+      ReturnType<Window['hcp085Fixture']['action']>
+    >;
   }
 }
 let server: Awaited<ReturnType<typeof createStaticHarness>>,
@@ -16,7 +21,10 @@ let server: Awaited<ReturnType<typeof createStaticHarness>>,
   endpoint: string,
   bundle: string;
 let frames: { origin: string; frame: unknown[] }[] = [],
-  response: 'accepted' | 'refused' = 'accepted';
+  response: 'accepted' | 'refused' | 'unknown' = 'accepted';
+const physical = new Set<WebSocket>();
+let constructed = 0,
+  peak = 0;
 test.beforeAll(async () => {
   server = await createStaticHarness();
   sockets = new WebSocketServer({
@@ -30,6 +38,10 @@ test.beforeAll(async () => {
     throw Error('loopback unavailable');
   endpoint = 'ws://127.0.0.1:' + address.port;
   sockets.on('connection', (socket, request) => {
+    physical.add(socket);
+    constructed++;
+    peak = Math.max(peak, physical.size);
+    socket.on('close', () => physical.delete(socket));
     const origin = new URL(request.url!, 'http://127.0.0.1').searchParams.get(
       'origin'
     )!;
@@ -41,7 +53,7 @@ test.beforeAll(async () => {
           : Buffer.from(bytes);
       const frame = JSON.parse(raw.toString()) as unknown[];
       frames.push({ origin, frame });
-      if (frame[0] === 'EVENT') {
+      if (frame[0] === 'EVENT' && response !== 'unknown') {
         const event = frame[1] as { id: string };
         socket.send(
           JSON.stringify([
@@ -83,6 +95,9 @@ test.afterAll(async () => {
   await server.close();
 });
 test.beforeEach(async ({ page }) => {
+  await expect.poll(() => physical.size).toBe(0);
+  constructed = 0;
+  peak = 0;
   frames = [];
   response = 'accepted';
   await page.addInitScript(
@@ -102,6 +117,13 @@ test.beforeEach(async ({ page }) => {
             protocols
           );
         }
+        override close(code?: number, reason?: string) {
+          if (window.hcp085DelayClose)
+            (window.hcp085HeldClose ??= []).push(() =>
+              super.close(code, reason)
+            );
+          else super.close(code, reason);
+        }
       };
     },
     { endpoint }
@@ -111,7 +133,11 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(async ({ page }) => {
   if (!page.isClosed())
-    await page.evaluate(() => window.hcp085Fixture?.close());
+    await page.evaluate(() => {
+      window.hcp085DelayClose = false;
+      for (const release of window.hcp085HeldClose ?? []) release();
+      window.hcp085Fixture?.close();
+    });
 });
 async function fixture(
   page: import('@playwright/test').Page,
@@ -368,4 +394,162 @@ test('actual owner loss still clears the bound private composer and prevents pub
   expect(result.after).toEqual({ text: undefined, snapshot: undefined });
   expect(result.attempt.status).toBe('stopped');
   expect(frames).toEqual([]);
+});
+
+for (const fault of ['SDK acquisition', 'actual network clock abort'] as const)
+  test(
+    'original metered action releases reservation after ' +
+      fault +
+      ' and permits reviewed retry',
+    async ({ page }) => {
+      await fixture(page);
+      const result = await page.evaluate(async (fault) => {
+        const f = window.hcp085Fixture;
+        await f.prepare();
+        const action = f.action();
+        if (!action) throw Error('genuine metered action missing');
+        const firstPermission = f.permission(
+          'peer',
+          f.peerOrigin,
+          'reviewed_private_delivery',
+          action
+        );
+        if (!firstPermission) throw Error('genuine first permission missing');
+        const abort = new AbortController();
+        let restore: () => void,
+          observed = () => true;
+        if (fault === 'SDK acquisition') restore = f.failAcquisition();
+        else {
+          const clock = f.abortOnActualNetworkClock(abort);
+          restore = clock.restore;
+          observed = clock.observed;
+        }
+        let first;
+        try {
+          first = await f.publish(firstPermission, abort.signal);
+        } finally {
+          restore();
+        }
+        const retryPermission = f.permission(
+          'peer',
+          f.peerOrigin,
+          'reviewed_private_delivery',
+          action
+        );
+        if (!retryPermission)
+          throw Error('genuine original action retry permission missing');
+        const retry = await f.publish(
+          retryPermission,
+          new AbortController().signal
+        );
+        return { first, retry, observed: observed() };
+      }, fault);
+      expect(result.observed).toBe(true);
+      expect(result.first.status).toBe('stopped');
+      expect(result.first.actionId).toBeUndefined();
+      expect(result.first.attempt).toBeUndefined();
+      expect(result.retry.status).toBe('accepted');
+      expect(result.retry.attempt).toBe(fault === 'SDK acquisition' ? 1 : 2);
+      expect(frames.filter(({ frame }) => frame[0] === 'EVENT')).toHaveLength(
+        1
+      );
+    }
+  );
+
+test('genuine shared-origin peer and archive roles reuse one original connection and distinct exact artifacts', async ({
+  page
+}) => {
+  const result = await page.evaluate(async () => {
+    window.hcp085Fixture = await window.hcp085.makeFixture(false, true);
+    const f = window.hcp085Fixture;
+    window.hcp085DelayClose = true;
+    await f.prepare();
+    const action = f.action();
+    if (!action) throw Error('genuine metered action');
+    const peer = f.permission(
+      'peer',
+      f.peerOrigin,
+      'reviewed_private_delivery',
+      action
+    );
+    const archive = f.permission(
+      'self_archive',
+      f.archiveOrigin,
+      'reviewed_private_delivery',
+      action
+    );
+    if (!peer || !archive) throw Error('genuine original two-role permissions');
+    const first = await f.publish(peer);
+    const second = await f.publish(archive);
+    const retry = f.permission(
+      'peer',
+      f.peerOrigin,
+      'reviewed_private_delivery',
+      action
+    );
+    if (!retry) throw Error('genuine reviewed original retry');
+    const third = await f.publish(retry);
+    return { first, second, third };
+  });
+  expect(constructed).toBe(1);
+  expect(peak).toBe(1);
+  expect(physical.size).toBe(1);
+  expect(await page.evaluate(() => window.hcp085HeldClose?.length ?? 0)).toBe(
+    0
+  );
+  expect(result.first.status).toBe('accepted');
+  expect(result.second.status).toBe('accepted');
+  expect(result.third.status).toBe('accepted');
+  expect(result.first.eventId).not.toBe(result.second.eventId);
+  expect(result.third.eventId).toBe(result.first.eventId);
+  expect(result.third.attempt).toBe(2);
+  const events = frames.filter(({ frame }) => frame[0] === 'EVENT');
+  expect(events).toHaveLength(3);
+  expect(
+    events.every(({ origin }) => origin === 'wss://peer.example.org')
+  ).toBe(true);
+});
+
+test('original shared-origin unknown EVENT retries the exact artifact on the same actual connection', async ({
+  page
+}) => {
+  response = 'unknown';
+  const first = await page.evaluate(async () => {
+    window.hcp085Fixture = await window.hcp085.makeFixture(false, true);
+    const f = window.hcp085Fixture;
+    window.hcp085DelayClose = true;
+    await f.prepare();
+    window.hcp085SharedAction = f.action();
+    if (!window.hcp085SharedAction) throw Error('genuine action');
+    const permission = f.permission(
+      'peer',
+      f.peerOrigin,
+      'reviewed_private_delivery',
+      window.hcp085SharedAction
+    );
+    if (!permission) throw Error('genuine permission');
+    return f.publish(permission);
+  });
+  expect(['unknown', 'timed_out']).toContain(first.status);
+  expect(constructed).toBe(1);
+  response = 'accepted';
+  const retry = await page.evaluate(async () => {
+    const f = window.hcp085Fixture;
+    const permission = f.permission(
+      'peer',
+      f.peerOrigin,
+      'reviewed_private_delivery',
+      window.hcp085SharedAction
+    );
+    if (!permission) throw Error('genuine original explicit retry permission');
+    return f.publish(permission);
+  });
+  expect(retry.status).toBe('accepted');
+  expect(retry.eventId).toBe(first.eventId);
+  expect(retry.attempt).toBe(2);
+  expect(constructed).toBe(1);
+  expect(peak).toBe(1);
+  const events = frames.filter(({ frame }) => frame[0] === 'EVENT');
+  expect(events).toHaveLength(2);
+  expect(events[1].frame[1]).toEqual(events[0].frame[1]);
 });

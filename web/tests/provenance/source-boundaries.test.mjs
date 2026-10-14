@@ -18,6 +18,42 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
+test('CR007 exact private SDK removal cannot become an arbitrary remove capability', async () => {
+  await fixture(async ({ directory, put, execute }) => {
+    await isolateScriptDependencies(directory);
+    await cp(path.join(root, 'src'), path.join(directory, 'src'), {
+      recursive: true
+    });
+    assert.equal(execute().status, 0);
+    const file = 'src/lib/nostr/private-pool.ts';
+    const source = await readFile(path.join(root, file), 'utf8');
+    assert.ok(source.includes('sdk.remove(relay)'));
+    for (const mutation of [
+      source + '\n export const unreviewedChange=1;\n',
+      source.replace('sdk.remove(relay)', 'sdk["remove"](relay)'),
+      source.replace('sdk.remove(relay)', 'sdk.remove(document.body)'),
+      source.replace('sdk.remove(relay)', '(sdk.remove)(relay)')
+    ]) {
+      await put(file, mutation);
+      const result = execute();
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /private relay removal source identity/);
+    }
+    await put(file, source);
+    await put('src/lib/nostr/copied-private-pool.ts', source);
+    assert.notEqual(execute().status, 0);
+    await rm(path.join(directory, 'src/lib/nostr/copied-private-pool.ts'));
+    await rm(path.join(directory, file));
+    assert.notEqual(execute().status, 0);
+    await put(file, source);
+    await put(
+      'src/routes/+page.ts',
+      'const receiver=document.body;receiver.remove();'
+    );
+    assert.notEqual(execute().status, 0);
+  });
+});
+
 test('HCP060 document visibility access is confined to the exact disposal producer', async () => {
   await fixture(async ({ directory, put, execute }) => {
     await confineSvelte(directory);

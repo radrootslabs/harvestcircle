@@ -108,6 +108,10 @@ function finiteBudget(): FiniteBudget {
     }
   };
 }
+type ScopedConnectionCleanup = Readonly<{
+  current(): boolean;
+  close(): void;
+}>;
 type Owner = {
   session: PrivateSession;
   policy: RelayPolicy;
@@ -116,13 +120,22 @@ type Owner = {
   token: PrivatePool;
   closed(): boolean;
   cleaned(): boolean;
+  unavailable(): boolean;
   publish(
     permission: PrivatePublication,
-    signal: AbortSignal
+    signal: AbortSignal,
+    scopeCurrent?: () => boolean,
+    retainConnection?: (
+      origin: string,
+      cleanup: ScopedConnectionCleanup
+    ) => boolean
   ): Promise<PrivateGiftWrapAttemptResult>;
   auth(
     origin: string,
-    admission: InboxAuthAdmission
+    admission: InboxAuthAdmission,
+    admittedPool?: PrivatePool,
+    scopeCurrent?: () => boolean,
+    retainCleanup?: (cleanup: () => void) => void
   ): Promise<PrivateAuthConnection | undefined>;
   subscribe(
     limit: number,
@@ -130,9 +143,23 @@ type Owner = {
     since?: number,
     budget?: FiniteBudget,
     until?: number,
-    source?: string
+    source?: string,
+    reads?: readonly string[],
+    scopeCurrent?: () => boolean,
+    retainConnection?: (
+      origin: string,
+      cleanup: ScopedConnectionCleanup
+    ) => boolean
   ): () => void;
-  subscribeLive(listener: (message: PrivateLiveMessage) => void): () => void;
+  subscribeLive(
+    listener: (message: PrivateLiveMessage) => void,
+    reads?: readonly string[],
+    scopeCurrent?: () => boolean,
+    retainConnection?: (
+      origin: string,
+      cleanup: ScopedConnectionCleanup
+    ) => boolean
+  ): () => void;
   close(): void;
 };
 declare const connectionBrand: unique symbol;
@@ -159,17 +186,203 @@ type AuthControl = {
 const authConnections = new WeakMap<PrivateAuthConnection, AuthControl>();
 const pools = new WeakMap<PrivatePool, Owner>();
 let lifetime: Owner | undefined;
+type ScopeRole = 'receive' | 'delivery' | 'access';
+const scopes = new WeakMap<Owner, WeakMap<object, Map<string, PrivatePool>>>();
+// Consumer identity is lexical workflow ownership, never a relay/access proof.
+// Weak ownership retains at most45 bounded selections per live consumer. All
+// selections share the one session SDK; ciphertext/plaintext is absent here.
+function scopedPool(
+  base: Owner,
+  consumer: object,
+  selected: readonly string[],
+  role: ScopeRole,
+  authorized: () => boolean
+): PrivatePool {
+  const consumers =
+    scopes.get(base) ?? new WeakMap<object, Map<string, PrivatePool>>();
+  scopes.set(base, consumers);
+  const owned = consumers.get(consumer) ?? new Map<string, PrivatePool>();
+  consumers.set(consumer, owned);
+  const key = JSON.stringify([role, selected]);
+  const previous = owned.get(key);
+  const prior = previous && pools.get(previous);
+  if (previous && prior && !prior.closed()) return previous;
+  if (prior && !prior.cleaned()) throw Error('private_pool_close_failed');
+  const token = Object.freeze({}) as PrivatePool;
+  const origins = [...selected];
+  const readOrigins =
+    role === 'delivery'
+      ? []
+      : origins.filter((origin) => base.readOrigins.includes(origin));
+  const life = new AbortController();
+  const stops = new Map<symbol, () => void>();
+  const authStops = new Map<string, () => void>();
+  const connections = new Map<string, ScopedConnectionCleanup>();
+  let closed = false,
+    cleaned = false;
+  const current = () =>
+    !closed &&
+    !base.closed() &&
+    authorized() &&
+    !!privateSessionOwnership(base.session)?.current() &&
+    !closed &&
+    !base.closed();
+  function track(start: (ended: () => void) => () => void): () => void {
+    if (!current()) throw Error('private_pool_closed');
+    const id = Symbol();
+    let release = () => {},
+      ended = false;
+    const stop = () => {
+      release();
+      stops.delete(id);
+    };
+    stops.set(id, stop);
+    try {
+      release = start(() => {
+        ended = true;
+        if (!base.unavailable()) stops.delete(id);
+      });
+      if (ended && !base.unavailable()) stops.delete(id);
+      return stop;
+    } catch (error) {
+      stops.delete(id);
+      throw error;
+    }
+  }
+  function retainConnection(origin: string, cleanup: ScopedConnectionCleanup) {
+    const previous = connections.get(origin);
+    if (previous?.current()) return false;
+    previous?.close();
+    connections.set(origin, cleanup);
+    return true;
+  }
+  const scope: Owner = {
+    session: base.session,
+    policy: base.policy,
+    origins,
+    readOrigins,
+    token,
+    closed: () => closed || base.closed(),
+    cleaned: () => (cleaned && !base.unavailable()) || base.cleaned(),
+    unavailable: () => base.unavailable() || (closed && !cleaned),
+    publish(permission, signal) {
+      const view = privatePublicationSnapshot(permission);
+      return current() && view && origins.includes(view.origin)
+        ? base.publish(
+            permission,
+            AbortSignal.any([signal, life.signal]),
+            current,
+            retainConnection
+          )
+        : Promise.resolve({ status: 'stopped' });
+    },
+    async auth(origin, admission) {
+      if (!current() || !origins.includes(origin)) return undefined;
+      const connection = await base.auth(
+        origin,
+        admission,
+        token,
+        current,
+        (cleanup) => {
+          authStops.set(origin, cleanup);
+        }
+      );
+      if (!connection) return undefined;
+      if (!current()) {
+        closePrivateAuthConnection(connection);
+        return undefined;
+      }
+      authStops.set(origin, () => closePrivateAuthConnection(connection));
+      return connection;
+    },
+    subscribe(limit, listener, since, budget, until, source) {
+      return track((ended) =>
+        base.subscribe(
+          limit,
+          (message) => {
+            if (message.type === 'end') ended();
+            listener(message);
+          },
+          since,
+          budget,
+          until,
+          source,
+          readOrigins,
+          current,
+          retainConnection
+        )
+      );
+    },
+    subscribeLive(listener) {
+      return track((ended) =>
+        base.subscribeLive(
+          (message) => {
+            if (message.type === 'end') ended();
+            listener(message);
+          },
+          readOrigins,
+          current,
+          retainConnection
+        )
+      );
+    },
+    close() {
+      closed = true;
+      life.abort();
+      let failed = false;
+      for (const [id, stop] of stops) {
+        try {
+          stop();
+          stops.delete(id);
+        } catch {
+          failed = true;
+        }
+      }
+      for (const [origin, stop] of authStops) {
+        try {
+          stop();
+          authStops.delete(origin);
+        } catch {
+          failed = true;
+        }
+      }
+      for (const [origin, connection] of connections) {
+        try {
+          connection.close();
+          connections.delete(origin);
+        } catch {
+          failed = true;
+        }
+      }
+      cleaned = !failed;
+      if (failed) throw Error('private_pool_close_failed');
+    }
+  };
+  pools.set(token, scope);
+  owned.set(key, token);
+  return token;
+}
 // Fixed scope selection is not authenticated owner10050 membership/readiness.
 // No production receive workflow calls this until its later inbox owner exists.
 export function getPrivatePool(
   session: PrivateSession,
   policy: RelayPolicy,
-  selected: readonly string[]
+  selected: readonly string[],
+  consumer: object = session,
+  role: ScopeRole = 'receive',
+  authorized: () => boolean = () => true
 ): PrivatePool | undefined {
   if (typeof window === 'undefined') return undefined;
   const captured = privateSessionOwnership(session);
   if (!captured) throw new Error('private_session_invalid');
   const capture = captured;
+  if (
+    !consumer ||
+    typeof consumer !== 'object' ||
+    !['receive', 'delivery', 'access'].includes(role) ||
+    typeof authorized !== 'function'
+  )
+    throw Error('private_pool_scope_invalid');
   const manifest = readRelayPolicy(policy);
   if (!manifest.messagingEnabled) throw new Error('private_pool_disabled');
   const length = Array.isArray(selected) ? selected.length : 0;
@@ -189,7 +402,10 @@ export function getPrivatePool(
       throw new Error('private_pool_origins_invalid');
     selectedOrigins.set(origin, true);
   }
-  const origins = [...selectedOrigins.keys()];
+  const selectedTargets = [...selectedOrigins.keys()];
+  // SDK identity is fixed by the entire bounded manifest, while each consumer
+  // retains only its reviewed role/targets. No connection opens on acquisition.
+  const origins = manifest.inbox.map((row) => row.origin);
   const readOrigins = origins.filter((origin) =>
     manifest.inbox.some((row) => row.origin === origin && row.read)
   );
@@ -197,15 +413,11 @@ export function getPrivatePool(
   if (!capture.current()) throw new Error('private_session_invalid');
   if (lifetime) {
     if (!lifetime.cleaned()) {
-      if (lifetime.closed()) throw new Error('private_pool_closed');
-      if (
-        lifetime.session !== session ||
-        lifetime.policy !== policy ||
-        lifetime.origins.length !== origins.length ||
-        lifetime.origins.some((origin, i) => origin !== origins[i])
-      )
+      if (lifetime.closed() || lifetime.unavailable())
+        throw new Error('private_pool_closed');
+      if (lifetime.session !== session || lifetime.policy !== policy)
         throw new Error('private_pool_in_use');
-      return lifetime.token;
+      return scopedPool(lifetime, consumer, selectedTargets, role, authorized);
     }
   }
   const token = Object.freeze({}) as PrivatePool;
@@ -220,9 +432,146 @@ export function getPrivatePool(
     liveCleanupRequired = false;
   let off = () => {};
   const authCleanup = new Map<string, () => void>();
+  const authFailed = new Map<string, true>();
+  const authRetiring = new Map<string, true>();
   const publicationStops = new Map<() => void, true>();
   let publishing = false,
     publicationCleanupRequired = false;
+  type Connection = Readonly<{
+    retiring(): boolean;
+    retire(): void;
+    reserve(): Readonly<{
+      relay: ReturnType<typeof sdk.relay>;
+      start(): void;
+      close(): void;
+      retire(): void;
+      pending(): boolean;
+      current(): boolean;
+    }>;
+  }>;
+  const connections = new Map<string, Connection>();
+  function leaseConnection(origin: string) {
+    const previous = connections.get(origin);
+    if (previous) {
+      if (previous.retiring()) throw Error('private_connection_close_pending');
+      return previous.reserve();
+    }
+    const relay = sdk.relay(origin);
+    let references = 0,
+      started = false,
+      physicallyClosed = false,
+      retiring = false,
+      disposed = false,
+      releaseBridge = () => {},
+      unwatch = () => {};
+    function retire() {
+      if (disposed) return;
+      retiring = true;
+      releaseBridge();
+      sdk.remove(relay);
+      if (started && !physicallyClosed) return;
+      unwatch();
+      disposed = true;
+      if (connections.get(origin) === original) connections.delete(origin);
+    }
+    const original: Connection = {
+      retiring: () => retiring,
+      retire,
+      reserve() {
+        references++;
+        let released = false;
+        return {
+          relay,
+          start() {
+            if (
+              released ||
+              closed ||
+              retiring ||
+              disposed ||
+              !capture.current()
+            )
+              throw Error('private_connection_closed');
+            if (started) return;
+            started = true;
+            let starting = true,
+              opened = false,
+              noSocket = false;
+            const open = relay.open$.subscribe(() => {
+              opened = true;
+            });
+            function startupFailure() {
+              if (!starting || opened || noSocket) return;
+              noSocket = true;
+              started = false;
+              retiring = true;
+              queueMicrotask(() => {
+                try {
+                  retire();
+                } catch {
+                  /* Retry retained. */
+                }
+              });
+            }
+            const error = relay.error$.subscribe((failure) => {
+              // Original NEVER/no filters cannot receive a remote callback
+              // before this synchronous subscribe returns. Only a native
+              // constructor failure proves no physical socket in that stack.
+              if (failure) startupFailure();
+            });
+            const bridge = relay
+              .req(NEVER, {
+                waitForAuth: false,
+                reconnect: false,
+                resubscribe: false
+              })
+              .subscribe({
+                error() {
+                  startupFailure();
+                  if (!noSocket) {
+                    retiring = true;
+                    queueMicrotask(() => {
+                      try {
+                        retire();
+                      } catch {
+                        /* Actual closure still required. */
+                      }
+                    });
+                  }
+                }
+              });
+            starting = false;
+            open.unsubscribe();
+            error.unsubscribe();
+            releaseBridge = () => bridge.unsubscribe();
+            if (noSocket) throw Error('private_connection_start_failed');
+          },
+          close() {
+            if (!released) {
+              released = true;
+              references--;
+            }
+            // Cancel keepAlive's zero timer before a closing socket can reopen.
+            if (references === 0) retire();
+          },
+          retire,
+          pending: () => started && !physicallyClosed && !disposed,
+          current: () => !retiring && !disposed
+        };
+      }
+    };
+    connections.set(origin, original);
+    const lost = relay.close$.subscribe(() => {
+      physicallyClosed = true;
+      try {
+        retire();
+        if (closed) owner.close();
+      } catch {
+        /* Original physical retirement remains retryable. */
+      }
+    });
+    unwatch = () => lost.unsubscribe();
+    return original.reserve();
+  }
   const owner: Owner = {
     session,
     policy,
@@ -231,18 +580,36 @@ export function getPrivatePool(
     token,
     closed: () => closed,
     cleaned: () => cleaned,
-    async publish(permission, signal) {
-      const view = privatePublicationSnapshot(permission);
+    unavailable: () =>
+      cleanupRequired ||
+      liveCleanupRequired ||
+      publicationCleanupRequired ||
+      authFailed.size !== 0 ||
+      authRetiring.size !== 0 ||
+      [...connections.values()].some((connection) => connection.retiring()),
+    async publish(
+      permission,
+      signal,
+      scopeCurrent = () => true,
+      retainConnection
+    ) {
+      const observed = privatePublicationSnapshot(permission);
+      if (!observed) return { status: 'stopped' };
+      const view = observed;
       if (
-        !view ||
         publishing ||
         closed ||
         cleanupRequired ||
         publicationCleanupRequired ||
         signal.aborted ||
+        !scopeCurrent() ||
         !capture.current() ||
+        authRetiring.has(view.origin) ||
+        authFailed.has(view.origin) ||
         view.owner !== capture.owner ||
         !origins.includes(view.origin) ||
+        authRetiring.has(view.origin) ||
+        authFailed.has(view.origin) ||
         !manifest.inbox.some(
           ({ origin: allowed, write }) => allowed === view.origin && write
         ) ||
@@ -257,14 +624,25 @@ export function getPrivatePool(
           !(await recheckPrivateSession(session)) ||
           closed ||
           signal.aborted ||
-          !capture.current()
+          !scopeCurrent() ||
+          !capture.current() ||
+          authRetiring.has(view.origin) ||
+          authFailed.has(view.origin)
         )
           return { status: 'stopped' };
         return await navigator.locks.request(
           'harvestcircle:owner:' + capture.owner,
           { mode: 'exclusive', ifAvailable: true },
           async (lock) => {
-            if (!lock || closed || signal.aborted || !capture.current())
+            if (
+              !lock ||
+              closed ||
+              signal.aborted ||
+              !scopeCurrent() ||
+              !capture.current() ||
+              authRetiring.has(view.origin) ||
+              authFailed.has(view.origin)
+            )
               return { status: 'stopped' as const };
             const admitted = await takePrivatePublication(
               permission,
@@ -276,41 +654,63 @@ export function getPrivatePool(
               !admitted ||
               closed ||
               signal.aborted ||
+              !scopeCurrent() ||
               !capture.current() ||
+              authRetiring.has(view.origin) ||
+              authFailed.has(view.origin) ||
               !admitted.current()
             )
               return { status: 'stopped' as const };
+            const connection = leaseConnection(view.origin);
             const network = admitted.beginNetwork();
-            if (admitted.networkMetered && !network)
+            if (admitted.networkMetered && !network) {
+              connection.close();
               return { status: 'stopped' as const };
+            }
+            if (
+              !scopeCurrent() ||
+              !capture.current() ||
+              closed ||
+              signal.aborted ||
+              authRetiring.has(view.origin) ||
+              authFailed.has(view.origin)
+            ) {
+              network?.finish();
+              connection.close();
+              return { status: 'stopped' as const };
+            }
             return await new Promise<PrivateGiftWrapAttemptResult>(
               (resolve) => {
                 let ended = false,
                   attempted = false,
                   release = () => {},
-                  fenceTimer: ReturnType<typeof setTimeout> | undefined;
+                  fenceTimer: ReturnType<typeof setTimeout> | undefined,
+                  timer: ReturnType<typeof setTimeout> | undefined,
+                  retainedConnection = false;
                 function finish(
                   status: PrivateGiftWrapAttemptResult['status']
                 ) {
                   if (ended) return;
                   ended = true;
                   network?.finish();
-                  clearTimeout(timer);
+                  if (timer !== undefined) clearTimeout(timer);
                   if (fenceTimer !== undefined) clearTimeout(fenceTimer);
                   signal.removeEventListener('abort', stop);
                   try {
                     release();
+                    if (!retainedConnection) connection.close();
                     publicationStops.delete(stop);
                   } catch {
                     publicationCleanupRequired = true;
                     status = 'unknown';
                   }
+                  if (!attempted) status = 'stopped';
                   const result: PrivateGiftWrapAttemptResult = {
                     status,
                     role: admitted!.role,
                     origin: admitted!.origin,
                     eventId: admitted!.eventId,
-                    ...(network
+                    ...(attempted && network
                       ? { actionId: network.actionId, attempt: network.attempt }
                       : {})
                   };
@@ -337,6 +737,7 @@ export function getPrivatePool(
                 function stop() {
                   if (ended) {
                     release();
+                    if (!retainedConnection) connection.close();
                     publicationStops.delete(stop);
                     return;
                   }
@@ -351,7 +752,10 @@ export function getPrivatePool(
                   if (
                     closed ||
                     signal.aborted ||
+                    !scopeCurrent() ||
                     !capture.current() ||
+                    authRetiring.has(view.origin) ||
+                    authFailed.has(view.origin) ||
                     !admitted!.current()
                   ) {
                     finish('stopped');
@@ -359,22 +763,26 @@ export function getPrivatePool(
                   }
                   fenceTimer = setTimeout(() => fence(), 50);
                 }
-                const relay = sdk.relay(view.origin);
-                const allowance =
-                  network?.remaining() ??
-                  PRIVATE_PUBLICATION_BUDGETS.networkActionMilliseconds;
-                const timeout =
-                  Number.isFinite(relay.eventTimeout) && relay.eventTimeout > 0
-                    ? Math.min(allowance, relay.eventTimeout)
-                    : allowance;
-                const timer = setTimeout(() => finish('timed_out'), timeout);
-                signal.addEventListener('abort', stop, { once: true });
-                publicationStops.set(stop, true);
                 try {
+                  const relay = connection.relay;
+                  const allowance =
+                    network?.remaining() ??
+                    PRIVATE_PUBLICATION_BUDGETS.networkActionMilliseconds;
+                  const timeout =
+                    Number.isFinite(relay.eventTimeout) &&
+                    relay.eventTimeout > 0
+                      ? Math.min(allowance, relay.eventTimeout)
+                      : allowance;
+                  timer = setTimeout(() => finish('timed_out'), timeout);
+                  signal.addEventListener('abort', stop, { once: true });
+                  publicationStops.set(stop, true);
                   if (
                     closed ||
                     signal.aborted ||
+                    !scopeCurrent() ||
                     !capture.current() ||
+                    authRetiring.has(view.origin) ||
+                    authFailed.has(view.origin) ||
                     !admitted.current()
                   ) {
                     finish('stopped');
@@ -382,6 +790,12 @@ export function getPrivatePool(
                   }
                   // The only private EVENT port accepts the freshly read-back1059;
                   // no caller event, key, relay template or SDK option crosses it.
+                  connection.start();
+                  retainedConnection =
+                    retainConnection?.(view.origin, {
+                      current: connection.current,
+                      close: connection.close
+                    }) ?? false;
                   attempted = true;
                   const subscription = relay
                     .event(admitted.event, 'EVENT')
@@ -430,17 +844,25 @@ export function getPrivatePool(
         publishing = false;
       }
     },
-    async auth(origin, admission) {
+    async auth(
+      origin,
+      admission,
+      admittedPool = token,
+      scopeCurrent = () => true,
+      retainCleanup = () => {}
+    ) {
       if (
         closed ||
         cleanupRequired ||
         !origins.includes(origin) ||
-        !readOrigins.includes(origin) ||
+        !scopeCurrent() ||
+        authFailed.size !== 0 ||
         authCleanup.has(origin) ||
+        authRetiring.has(origin) ||
         !capture.current()
       )
         return undefined;
-      if (!takeInboxAuthAdmission(admission, owner.token, origin))
+      if (!takeInboxAuthAdmission(admission, admittedPool, origin))
         return undefined;
       // Reserve before any provider job. No duplicate reviewed action may reset
       // a live connection's response admission counter.
@@ -453,26 +875,50 @@ export function getPrivatePool(
       let reservation: PrivateAuthChallenge | undefined;
       let sent = false;
       const releases = new Map<symbol, () => void>();
+      let retireRelay = () => {};
+      let disposed = false;
+      let pendingClose = () => false;
+      let closeWatch = () => {};
       function cleanup() {
+        if (disposed) return;
         stopped = true;
         challenge = undefined;
         generation = undefined;
         let failed = false;
-        for (const release of releases.values()) {
+        for (const [id, release] of releases) {
           try {
             release();
+            releases.delete(id);
           } catch {
             failed = true;
           }
         }
-        if (failed) throw new Error('private_auth_cleanup_required');
+        try {
+          retireRelay();
+        } catch {
+          failed = true;
+        }
+        if (failed) {
+          authFailed.set(origin, true);
+          throw new Error('private_auth_cleanup_required');
+        }
+        if (pendingClose()) {
+          authRetiring.set(origin, true);
+          return;
+        }
+        closeWatch();
+        disposed = true;
+        authCleanup.delete(origin);
+        authFailed.delete(origin);
+        authRetiring.delete(origin);
       }
       authCleanup.set(origin, cleanup);
+      retainCleanup(cleanup);
       const halt = () => {
         if (stopped) return;
         stopped = true;
         try {
-          owner.close();
+          cleanup();
         } catch {
           /* Actual control retained for retry. */
         }
@@ -481,177 +927,223 @@ export function getPrivatePool(
         !(await recheckPrivateSession(session)) ||
         closed ||
         stopped ||
+        !scopeCurrent() ||
         !capture.current()
       ) {
         halt();
         return undefined;
       }
-      const relay = sdk.relay(origin);
-      const token = Object.freeze({}) as PrivateAuthConnection;
-      // A private page may already own this actual SDK connection. Its open$
-      // Subject does not replay; initialize from its genuine connected state.
-      if (relay.connected$.value) generation = Symbol();
-      function current() {
-        return (
-          !stopped && !closed && capture.current() && generation !== undefined
-        );
-      }
-      const control: AuthControl = {
-        invalidate(proof) {
-          if (
-            !proofs.has(proof) ||
-            !proof.current() ||
-            !current() ||
-            proof.connection !== generation ||
-            proof.challenge !== challenge
-          )
-            return false;
-          return invalidatePrivateSessionGeneration(session);
-        },
-        stopped: () => !current(),
-        challenge() {
-          if (!current() || challenge === undefined || responded)
-            return undefined;
-          const exact = challenge,
-            stamp = generation!;
-          const proof: PrivateAuthChallenge = {
-            owner: capture.owner,
-            session: capture.session,
-            connection: stamp,
-            relay: relay.url,
-            challenge: exact,
-            current: () =>
-              current() && generation === stamp && challenge === exact
-          };
-          proofs.set(proof, true);
-          return proof;
-        },
-        reserve(proof) {
-          if (
-            !proofs.has(proof) ||
-            reservation !== undefined ||
-            !proof.current() ||
-            !current() ||
-            responded ||
-            proof.connection !== generation ||
-            proof.challenge !== challenge ||
-            responses >= PRIVATE_AUTH_BUDGETS.responsesPerConnectionAction
-          )
-            return false;
-          responses++;
-          reservation = proof;
-          sent = false;
-          return true;
-        },
-        async send(proof, approved) {
-          const wire = takeGuardedInboxAuthResponse(approved, proof);
-          const verified = verifyEnvelope(wire);
-          const event = verified.ok
-            ? verifiedEnvelopeSnapshot(verified.value)
-            : undefined;
-          if (
-            !proofs.has(proof) ||
-            reservation !== proof ||
-            sent ||
-            !event ||
-            event.kind !== 22242 ||
-            event.pubkey !== capture.owner ||
-            event.content !== '' ||
-            JSON.stringify(event.tags) !==
-              JSON.stringify([
-                ['relay', relay.url],
-                ['challenge', proof.challenge]
-              ]) ||
-            !proof.current() ||
-            !current() ||
-            proof.connection !== generation ||
-            proof.challenge !== challenge
-          )
-            return 'stopped';
-          try {
-            sent = true;
-            const response = await relay.auth(event);
-            if (!proof.current() || !current()) return 'stopped';
-            if (response.ok) {
-              responded = true;
-              return 'accepted';
+      try {
+        const connection = leaseConnection(origin);
+        retireRelay = () => {
+          connection.close();
+          connection.retire();
+        };
+        const actualRelay = connection.relay;
+        pendingClose = connection.pending;
+        const token = Object.freeze({}) as PrivateAuthConnection;
+        // A private page may already own this actual SDK connection. Its open$
+        // Subject does not replay; initialize from its genuine connected state.
+        if (actualRelay.connected$.value) generation = Symbol();
+        function current() {
+          return (
+            !stopped &&
+            !closed &&
+            scopeCurrent() &&
+            capture.current() &&
+            generation !== undefined
+          );
+        }
+        const control: AuthControl = {
+          invalidate(proof) {
+            if (
+              !proofs.has(proof) ||
+              !proof.current() ||
+              !current() ||
+              proof.connection !== generation ||
+              proof.challenge !== challenge
+            )
+              return false;
+            return invalidatePrivateSessionGeneration(session);
+          },
+          stopped: () => !current(),
+          challenge() {
+            if (!current() || challenge === undefined || responded)
+              return undefined;
+            const exact = challenge,
+              stamp = generation!;
+            const proof: PrivateAuthChallenge = {
+              owner: capture.owner,
+              session: capture.session,
+              connection: stamp,
+              relay: actualRelay.url,
+              challenge: exact,
+              current: () =>
+                current() && generation === stamp && challenge === exact
+            };
+            proofs.set(proof, true);
+            return proof;
+          },
+          reserve(proof) {
+            if (
+              !proofs.has(proof) ||
+              reservation !== undefined ||
+              !proof.current() ||
+              !current() ||
+              responded ||
+              proof.connection !== generation ||
+              proof.challenge !== challenge ||
+              responses >= PRIVATE_AUTH_BUDGETS.responsesPerConnectionAction
+            )
+              return false;
+            responses++;
+            reservation = proof;
+            sent = false;
+            return true;
+          },
+          async send(proof, approved) {
+            const wire = takeGuardedInboxAuthResponse(approved, proof);
+            const verified = verifyEnvelope(wire);
+            const event = verified.ok
+              ? verifiedEnvelopeSnapshot(verified.value)
+              : undefined;
+            if (
+              !proofs.has(proof) ||
+              reservation !== proof ||
+              sent ||
+              !event ||
+              event.kind !== 22242 ||
+              event.pubkey !== capture.owner ||
+              event.content !== '' ||
+              JSON.stringify(event.tags) !==
+                JSON.stringify([
+                  ['relay', actualRelay.url],
+                  ['challenge', proof.challenge]
+                ]) ||
+              !proof.current() ||
+              !current() ||
+              proof.connection !== generation ||
+              proof.challenge !== challenge
+            )
+              return 'stopped';
+            try {
+              sent = true;
+              const response = await actualRelay.auth(event);
+              if (!proof.current() || !current()) return 'stopped';
+              if (response.ok) {
+                responded = true;
+                return 'accepted';
+              }
+              const outcome =
+                response.message === 'Timeout' ? 'unknown' : 'refused';
+              halt();
+              return outcome;
+            } catch {
+              halt();
+              return 'unknown';
             }
-            const outcome =
-              response.message === 'Timeout' ? 'unknown' : 'refused';
-            halt();
-            return outcome;
+          },
+          close: cleanup
+        };
+        authConnections.set(token, control);
+        const opened = actualRelay.open$.subscribe(() => {
+          if (!stopped && !closed && capture.current()) generation = Symbol();
+        });
+        releases.set(Symbol(), () => opened.unsubscribe());
+        const lost = actualRelay.close$.subscribe(() => {
+          halt();
+          try {
+            cleanup();
+            if (closed) owner.close();
           } catch {
-            halt();
-            return 'unknown';
+            /* Keep owned disposal retryable. */
           }
-        },
-        close: () => owner.close()
-      };
-      authConnections.set(token, control);
-      const opened = relay.open$.subscribe(() => {
-        if (!stopped && !closed && capture.current()) generation = Symbol();
-      });
-      releases.set(Symbol(), () => opened.unsubscribe());
-      const lost = relay.close$.subscribe(halt);
-      releases.set(Symbol(), () => lost.unsubscribe());
-      const closing = relay.closing$.subscribe(halt);
-      releases.set(Symbol(), () => closing.unsubscribe());
-      const challenges = relay.challenge$.subscribe((next: unknown) => {
-        if (stopped || closed || !capture.current()) {
-          halt();
-          return;
+        });
+        closeWatch = () => lost.unsubscribe();
+        const closing = actualRelay.closing$.subscribe(halt);
+        releases.set(Symbol(), () => closing.unsubscribe());
+        const challenges = actualRelay.challenge$.subscribe((next: unknown) => {
+          if (stopped || closed || !capture.current()) {
+            halt();
+            return;
+          }
+          if (next === null) return;
+          if (
+            typeof next !== 'string' ||
+            !next ||
+            !boundedEnvelopeTags([
+              ['relay', actualRelay.url],
+              ['challenge', next]
+            ]) ||
+            !generation
+          ) {
+            halt();
+            return;
+          }
+          if (next === challenge) return;
+          if (
+            responses >= PRIVATE_AUTH_BUDGETS.responsesPerConnectionAction ||
+            (challenge !== undefined && !responded)
+          ) {
+            halt();
+            return;
+          }
+          challenge = next;
+          responded = false;
+          reservation = undefined;
+        });
+        releases.set(Symbol(), () => challenges.unsubscribe());
+        if (closed || stopped || !capture.current()) {
+          cleanup();
+          return undefined;
         }
-        if (next === null) return;
-        if (
-          typeof next !== 'string' ||
-          !next ||
-          !boundedEnvelopeTags([
-            ['relay', relay.url],
-            ['challenge', next]
-          ]) ||
-          !generation
-        ) {
-          halt();
-          return;
+        // Official Observable filter input holds the watchTower without emitting
+        // a filter/REQ. Its own CLOSE at teardown is ordinary SDK control cleanup.
+        connection.start();
+        const hold = actualRelay
+          .req(NEVER, {
+            waitForAuth: false,
+            reconnect: false,
+            resubscribe: false
+          })
+          .subscribe({ error: halt, complete: halt });
+        releases.set(Symbol(), () => hold.unsubscribe());
+        if (closed || stopped || !capture.current()) {
+          cleanup();
+          return undefined;
         }
-        if (next === challenge) return;
-        if (
-          responses >= PRIVATE_AUTH_BUDGETS.responsesPerConnectionAction ||
-          (challenge !== undefined && !responded)
-        ) {
-          halt();
-          return;
+        return token;
+      } catch {
+        try {
+          cleanup();
+        } catch {
+          /* Original failed cleanup retained. */
         }
-        challenge = next;
-        responded = false;
-        reservation = undefined;
-      });
-      releases.set(Symbol(), () => challenges.unsubscribe());
-      if (closed || stopped || !capture.current()) {
-        cleanup();
-        owner.close();
         return undefined;
       }
-      // Official Observable filter input holds the watchTower without emitting
-      // a filter/REQ. Its own CLOSE at teardown is ordinary SDK control cleanup.
-      const hold = relay
-        .req(NEVER, {
-          waitForAuth: false,
-          reconnect: false,
-          resubscribe: false
-        })
-        .subscribe({ error: halt, complete: halt });
-      releases.set(Symbol(), () => hold.unsubscribe());
-      if (closed || stopped || !capture.current()) {
-        cleanup();
-        owner.close();
-        return undefined;
-      }
-      return token;
     },
-    subscribeLive(listener) {
-      if (!readOrigins.length) throw Error('private_read_origins_unavailable');
-      if (closed || !capture.current()) throw Error('private_pool_closed');
+    subscribeLive(
+      listener,
+      reads = readOrigins,
+      scopeCurrent = () => true,
+      retainConnection
+    ) {
+      if (!reads.length) throw Error('private_read_origins_unavailable');
+      if (
+        reads.some(
+          (origin) => authRetiring.has(origin) || authFailed.has(origin)
+        )
+      )
+        throw Error('private_auth_cleanup_required');
+      if (
+        closed ||
+        !scopeCurrent() ||
+        !capture.current() ||
+        reads.some(
+          (origin) => authRetiring.has(origin) || authFailed.has(origin)
+        )
+      )
+        throw Error('private_pool_closed');
       if (liveBusy || liveCleanupRequired) throw Error('private_live_busy');
       liveBusy = true;
       let ended = false,
@@ -659,6 +1151,14 @@ export function getPrivatePool(
         serial = 0;
       const opened = new Map<string, true>(),
         meters = new Map<string, Map<number, { at: number; bytes: number }>>();
+      const leased = new Map<string, ReturnType<typeof leaseConnection>>();
+      function releaseAll() {
+        release();
+        for (const [origin, connection] of leased) {
+          connection.close();
+          leased.delete(origin);
+        }
+      }
       function emit(message: PrivateLiveMessage) {
         try {
           listener(message);
@@ -672,7 +1172,7 @@ export function getPrivatePool(
       ) {
         if (ended) {
           if (liveCleanupRequired && propagate) {
-            release();
+            releaseAll();
             liveCleanupRequired = false;
             liveBusy = false;
           }
@@ -681,7 +1181,7 @@ export function getPrivatePool(
         ended = true;
         let failure: unknown;
         try {
-          release();
+          releaseAll();
           liveCleanupRequired = false;
           liveBusy = false;
         } catch (error) {
@@ -695,43 +1195,66 @@ export function getPrivatePool(
       }
       liveActive = () => {
         finish('closed', true);
-        release();
+        releaseAll();
       };
       void recheckPrivateSession(session)
         .then((fresh) => {
           if (ended) return;
-          if (!fresh || closed || !capture.current()) {
+          if (
+            !fresh ||
+            closed ||
+            !scopeCurrent() ||
+            !capture.current() ||
+            reads.some(
+              (origin) => authRetiring.has(origin) || authFailed.has(origin)
+            )
+          ) {
             finish('stale');
             return;
           }
-          const subscription = sdk
-            .req(
-              [...readOrigins],
-              [...privateInboxQueries(capture.owner, 'live')],
-              {
-                waitForAuth: false,
-                reconnect: false,
-                resubscribe: false
-              }
+          for (const origin of reads) {
+            const connection = leaseConnection(origin);
+            leased.set(origin, connection);
+            connection.start();
+            if (
+              retainConnection?.(origin, {
+                current: connection.current,
+                close: connection.close
+              })
             )
+              leased.delete(origin);
+          }
+          const subscription = sdk
+            .req([...reads], [...privateInboxQueries(capture.owner, 'live')], {
+              waitForAuth: false,
+              reconnect: false,
+              resubscribe: false
+            })
             .subscribe({
               next(message) {
                 if (ended) return;
-                if (closed || !capture.current()) {
+                if (
+                  closed ||
+                  !scopeCurrent() ||
+                  !capture.current() ||
+                  reads.some(
+                    (origin) =>
+                      authRetiring.has(origin) || authFailed.has(origin)
+                  )
+                ) {
                   finish('stale');
                   return;
                 }
                 const origin = message.from.endsWith('/')
                   ? message.from.slice(0, -1)
                   : message.from;
-                if (!readOrigins.includes(origin)) {
+                if (!reads.includes(origin)) {
                   finish('error');
                   return;
                 }
                 if (message.type === 'OPEN') {
                   opened.set(origin, true);
-                  if (opened.size === readOrigins.length)
-                    emit({ type: 'open' });
+                  if (opened.size === reads.length) emit({ type: 'open' });
                 } else if (message.type === 'EVENT') {
                   const now = performance.now();
                   let meter = meters.get(origin);
@@ -780,8 +1303,16 @@ export function getPrivatePool(
               complete: () => finish('closed')
             });
           release = () => subscription.unsubscribe();
-          if (ended || closed || !capture.current()) {
-            release();
+          if (
+            ended ||
+            closed ||
+            !scopeCurrent() ||
+            !capture.current() ||
+            reads.some(
+              (origin) => authRetiring.has(origin) || authFailed.has(origin)
+            )
+          ) {
+            releaseAll();
             if (!ended) finish('stale');
           }
         })
@@ -790,15 +1321,38 @@ export function getPrivatePool(
         });
       return () => finish('stopped', true);
     },
-    subscribe(limit, listener, since, sharedBudget, until, source) {
+    subscribe(
+      limit,
+      listener,
+      since,
+      sharedBudget,
+      until,
+      source,
+      reads = readOrigins,
+      scopeCurrent = () => true,
+      retainConnection
+    ) {
       const targets =
         source === undefined
-          ? readOrigins
-          : readOrigins.filter((origin) => origin === source);
+          ? reads
+          : reads.filter((origin) => origin === source);
       if (targets.length === 0)
         throw new Error('private_read_origins_unavailable');
-      if (closed || !capture.current()) {
-        owner.close();
+      if (
+        targets.some(
+          (origin) => authRetiring.has(origin) || authFailed.has(origin)
+        )
+      )
+        throw Error('private_auth_cleanup_required');
+      if (
+        closed ||
+        !scopeCurrent() ||
+        !capture.current() ||
+        targets.some(
+          (origin) => authRetiring.has(origin) || authFailed.has(origin)
+        )
+      ) {
+        if (closed || !capture.current()) owner.close();
         throw new Error('private_pool_closed');
       }
       if (cleanupRequired) throw new Error('private_page_cleanup_required');
@@ -811,6 +1365,14 @@ export function getPrivatePool(
       let timer: ReturnType<typeof setTimeout> | undefined;
       const completed = new Map<string, true>();
       let started = 0;
+      const leased = new Map<string, ReturnType<typeof leaseConnection>>();
+      function releaseAll() {
+        release();
+        for (const [origin, connection] of leased) {
+          connection.close();
+          leased.delete(origin);
+        }
+      }
       function emit(message: PrivatePageMessage) {
         try {
           listener(message);
@@ -824,7 +1386,7 @@ export function getPrivatePool(
       ) {
         if (ended) {
           if (cleanupRequired && propagate) {
-            release();
+            releaseAll();
             cleanupRequired = false;
             busy = false;
           }
@@ -835,7 +1397,7 @@ export function getPrivatePool(
         if (timer !== undefined) clearTimeout(timer);
         let failure: unknown;
         try {
-          release();
+          releaseAll();
         } catch (error) {
           cleanupRequired = true;
           failure = error;
@@ -855,14 +1417,22 @@ export function getPrivatePool(
       }
       active = () => {
         finish('closed', true);
-        release();
+        releaseAll();
       };
       // Reserve the page before awaiting fresh extension ownership. Stop/logout
       // fence the continuation and no socket may open from a stale key result.
       void recheckPrivateSession(session)
         .then((fresh) => {
           if (ended) return;
-          if (!fresh || closed || !capture.current()) {
+          if (
+            !fresh ||
+            closed ||
+            !scopeCurrent() ||
+            !capture.current() ||
+            targets.some(
+              (origin) => authRetiring.has(origin) || authFailed.has(origin)
+            )
+          ) {
             finish('stale');
             return;
           }
@@ -871,9 +1441,29 @@ export function getPrivatePool(
             return;
           }
           started = performance.now();
-          if (ended || closed || !capture.current()) {
+          if (
+            ended ||
+            closed ||
+            !scopeCurrent() ||
+            !capture.current() ||
+            targets.some(
+              (origin) => authRetiring.has(origin) || authFailed.has(origin)
+            )
+          ) {
             if (!ended) finish('stale');
             return;
+          }
+          for (const origin of targets) {
+            const connection = leaseConnection(origin);
+            leased.set(origin, connection);
+            connection.start();
+            if (
+              retainConnection?.(origin, {
+                current: connection.current,
+                close: connection.close
+              })
+            )
+              leased.delete(origin);
           }
           const subscription = sdk
             .req(
@@ -893,15 +1483,44 @@ export function getPrivatePool(
             .subscribe({
               next(message) {
                 if (ended) return;
-                if (closed || !capture.current()) {
+                if (
+                  closed ||
+                  !scopeCurrent() ||
+                  !capture.current() ||
+                  targets.some(
+                    (origin) =>
+                      authRetiring.has(origin) || authFailed.has(origin)
+                  )
+                ) {
                   finish('stale');
-                  owner.close();
+                  if (closed || !capture.current()) {
+                    try {
+                      owner.close();
+                    } catch {
+                      /* Original session cleanup retains pending/failure. */
+                    }
+                  }
                   return;
                 }
                 const elapsed = budget.elapsed() + performance.now() - started;
-                if (ended || closed || !capture.current()) {
+                if (
+                  ended ||
+                  closed ||
+                  !scopeCurrent() ||
+                  !capture.current() ||
+                  targets.some(
+                    (origin) =>
+                      authRetiring.has(origin) || authFailed.has(origin)
+                  )
+                ) {
                   if (!ended) finish('stale');
-                  owner.close();
+                  if (closed || !capture.current()) {
+                    try {
+                      owner.close();
+                    } catch {
+                      /* Original session cleanup retains pending/failure. */
+                    }
+                  }
                   return;
                 }
                 if (elapsed >= PRIVATE_TRANSPORT_BUDGETS.pageMilliseconds) {
@@ -941,8 +1560,16 @@ export function getPrivatePool(
           release = () => {
             subscription.unsubscribe();
           };
-          if (ended || closed || !capture.current()) {
-            release();
+          if (
+            ended ||
+            closed ||
+            !scopeCurrent() ||
+            !capture.current() ||
+            targets.some(
+              (origin) => authRetiring.has(origin) || authFailed.has(origin)
+            )
+          ) {
+            releaseAll();
             if (!ended) finish('stale');
           } else {
             timer = setTimeout(
@@ -987,11 +1614,20 @@ export function getPrivatePool(
           failed = true;
         }
       }
+      for (const connection of connections.values()) {
+        try {
+          connection.retire();
+        } catch {
+          failed = true;
+        }
+      }
       try {
         sdk.close();
       } catch {
         failed = true;
       }
+      if (!failed && (authRetiring.size !== 0 || connections.size !== 0))
+        throw Error('private_pool_close_pending');
       if (!failed) {
         cleanupRequired = false;
         cleaned = true;
@@ -1009,7 +1645,7 @@ export function getPrivatePool(
     owner.close();
     throw new Error('private_session_invalid');
   }
-  return token;
+  return scopedPool(owner, consumer, selectedTargets, role, authorized);
 }
 function ownerOf(token: PrivatePool): Owner {
   const owner = pools.get(token);
@@ -1018,6 +1654,9 @@ function ownerOf(token: PrivatePool): Owner {
 }
 export function privatePoolOrigins(token: PrivatePool): readonly string[] {
   return [...ownerOf(token).origins];
+}
+export function privatePoolCleanupRequired(token: PrivatePool): boolean {
+  return ownerOf(token).unavailable();
 }
 export function subscribePrivatePage(
   token: PrivatePool,

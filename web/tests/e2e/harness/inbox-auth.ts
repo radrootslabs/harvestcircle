@@ -28,6 +28,7 @@ import {
   subscribePrivatePage
 } from '../../../src/lib/nostr/private-pool.ts';
 import { RelayPool } from 'applesauce-relay';
+import type { RelayPolicy } from '../../../src/lib/config/relays.ts';
 export {
   beginInboxAuthentication,
   respondInboxAuthentication,
@@ -44,7 +45,7 @@ export {
   closePublicPool
 } from '../../../src/lib/nostr/public-pool.ts';
 export { inbox, fixturePolicy };
-export async function makeAuthFixture() {
+export async function makeAuthFixture(selectedPolicy?: RelayPolicy) {
   const fixture = makeFixture(10050),
     identity = createIdentitySession();
   let mode: 'exact' | 'author' | 'relay' | 'challenge' | 'cached' | 'denied' =
@@ -53,17 +54,18 @@ export async function makeAuthFixture() {
     changed = false,
     invalidKey = false;
   let before = () => Promise.resolve();
+  let beforeKey = () => Promise.resolve();
   Object.defineProperty(window, 'nostr', {
     configurable: true,
     value: {
-      getPublicKey: () =>
-        Promise.resolve(
-          invalidKey
-            ? 'not-a-public-key'
-            : changed
-              ? 'f'.repeat(64)
-              : fixture.owner
-        ),
+      getPublicKey: async () => {
+        await beforeKey();
+        return invalidKey
+          ? 'not-a-public-key'
+          : changed
+            ? 'f'.repeat(64)
+            : fixture.owner;
+      },
       signEvent: async (input: Parameters<typeof fixture.sign>[0]) => {
         signs++;
         await before();
@@ -89,7 +91,7 @@ export async function makeAuthFixture() {
     'reviewed_private_session'
   );
   if (!session) throw new Error('missing genuine private session');
-  const policy = fixturePolicy(),
+  const policy = selectedPolicy ?? fixturePolicy(),
     pool = getPrivatePool(session, policy, [inbox]);
   if (!pool) throw new Error('missing private pool');
   const store = getPrivateStore(session);
@@ -109,6 +111,24 @@ export async function makeAuthFixture() {
   return {
     pool,
     policy,
+    identity,
+    session,
+    preferenceWire(
+      relays: readonly string[],
+      seconds = Math.floor(Date.now() / 1000)
+    ) {
+      return JSON.stringify(
+        fixture.sign({
+          kind: 10050,
+          created_at: seconds,
+          tags: relays.map((origin) => ['relay', origin]),
+          content: ''
+        })
+      );
+    },
+    beforeKey(next: typeof beforeKey) {
+      beforeKey = next;
+    },
     owner: fixture.owner,
     signs: () => signs,
     mode: (next: typeof mode) => {
@@ -143,6 +163,10 @@ export async function makeAuthFixture() {
     }),
     async staleGenerationInvalidation() {
       disconnectIdentity(identity);
+      while (ActualPrivateSession.privateSessionCleanupRequired(session)) {
+        closePrivateSession(session);
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
       await connectIdentity(identity);
       await probeIdentityMessaging(identity, 'reviewed_self_copy');
       const successor = await createPrivateSession(
@@ -196,6 +220,15 @@ export async function makeAuthFixture() {
       }
       throw new Error('missing real challenge for bypass test');
     },
+    async closeAndWait() {
+      closePrivateSession(session);
+      disconnectIdentity(identity);
+      fixture.close();
+      while (ActualPrivateSession.privateSessionCleanupRequired(session)) {
+        closePrivateSession(session);
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+    },
     close: () => {
       closePrivateSession(session);
       disconnectIdentity(identity);
@@ -204,13 +237,13 @@ export async function makeAuthFixture() {
   };
 }
 export function installCloseFailure() {
-  const original = Reflect.get<RelayPool, 'close'>(
+  const original = Reflect.get<RelayPool, 'remove'>(
     RelayPool.prototype,
-    'close'
+    'remove'
   );
   let failing = true;
-  RelayPool.prototype.close = function (
-    ...args: Parameters<RelayPool['close']>
+  RelayPool.prototype.remove = function (
+    ...args: Parameters<RelayPool['remove']>
   ) {
     if (failing) throw new Error('controlled physical cleanup fault');
     return original.apply(this, args);
@@ -220,7 +253,7 @@ export function installCloseFailure() {
       failing = false;
     },
     restore: () => {
-      RelayPool.prototype.close = original;
+      RelayPool.prototype.remove = original;
     }
   };
 }

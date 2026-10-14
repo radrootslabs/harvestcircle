@@ -50,7 +50,12 @@ import {
   selfRecoveryPreparationSnapshot,
   type SelfRecoveryPreparation
 } from './prepare-send.ts';
-import { getPrivatePool } from '../nostr/private-pool.ts';
+import {
+  getPrivatePool,
+  closePrivatePool,
+  privatePoolCleanupRequired,
+  type PrivatePool
+} from '../nostr/private-pool.ts';
 import {
   capturePrivateRetry,
   runPrivateRetry,
@@ -132,19 +137,44 @@ export function createReplyController(
     retry: PrivateRetry | undefined;
   let identityOff = () => {},
     privateOff = () => {};
-  function close() {
-    if (!active) return;
+  let pool: PrivatePool | undefined;
+  let poolCleanupFailed = false;
+  function releasePool() {
+    if (!pool) return true;
+    try {
+      poolCleanupFailed = false;
+      closePrivatePool(pool);
+      if (privatePoolCleanupRequired(pool)) return false;
+      pool = undefined;
+      return true;
+    } catch {
+      poolCleanupFailed = true;
+      return false;
+    }
+  }
+  function close(sessionCleanup = false) {
+    if (!active && !pool) return;
     active = false;
     if (retry) stopPrivateRetry(retry);
     closePrivateComposer(composer!);
     if (plan) stopRumorPlan(plan);
+    const clean = releasePool();
+    options.close?.();
+    if (!clean) {
+      if (poolCleanupFailed || sessionCleanup)
+        throw Error('private_delivery_cleanup_required');
+      return;
+    }
     identityOff();
     privateOff();
-    options.close?.();
   }
   function current() {
     if (!active || !scope?.current() || !privateComposerSnapshot(composer!)) {
-      close();
+      try {
+        close();
+      } catch {
+        /* Exact original disposal stays retryable. */
+      }
       return false;
     }
     return true;
@@ -327,7 +357,15 @@ export function createReplyController(
       const origins = Array.from(
         new Set([...routeData.peer.targets, ...routeData.archive.targets])
       );
-      const pool = getPrivatePool(captured.session, setup.policy, origins);
+      if (!releasePool()) return needsAction();
+      pool = getPrivatePool(
+        captured.session,
+        setup.policy,
+        origins,
+        token,
+        'delivery',
+        admitted
+      );
       if (!pool || !admitted()) return needsAction();
       retry = capturePrivateRetry(
         captured.repository,
@@ -350,6 +388,7 @@ export function createReplyController(
       return current() ? needsAction() : { status: 'stopped' };
     } finally {
       busy = false;
+      releasePool();
     }
   }
   const token = Object.freeze({}) as ReplyController;
@@ -388,7 +427,9 @@ export function createReplyController(
   identityOff = subscribeIdentityInvalidation(original.identity, () => {
     if (!original.current()) close();
   });
-  privateOff = subscribePrivateSessionClose(original.session, close);
+  privateOff = subscribePrivateSessionClose(original.session, () =>
+    close(true)
+  );
   return current() ? token : undefined;
 }
 

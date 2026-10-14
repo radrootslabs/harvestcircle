@@ -1938,6 +1938,10 @@ import { auditOutput } from '../../tools/check-output.mjs';
         }
         for (const producer of [
           'src/lib/config/operation-flags.ts',
+          'src/lib/nostr/private-pool.ts',
+          'src/lib/messaging/inbox-access-controller.ts',
+          'src/lib/messaging/inbox-sync.ts',
+          'src/lib/nostr/inbox-ingress.ts',
           'src/lib/config/relays.ts',
           'src/lib/runtime/capabilities.ts',
           'src/lib/components/AppShell.svelte',

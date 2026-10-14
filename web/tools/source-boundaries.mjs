@@ -120,7 +120,8 @@ function mutationAdmission(
   reviewedScroll = false,
   reviewedCopy = false,
   reviewedVisibility = false,
-  reviewedReport = false
+  reviewedReport = false,
+  reviewedRelayRemoval = false
 ) {
   // Bind this admitted AST only, without libs, module resolution, file reads,
   // config loading or evaluation. Symbols distinguish aliases and shadowing.
@@ -159,6 +160,51 @@ function mutationAdmission(
           ts.isStringLiteralLike(node.argumentExpression)
         ? node.argumentExpression.text
         : null;
+  function relayRemoval(node) {
+    if (
+      !reviewedRelayRemoval ||
+      !ts.isPropertyAccessExpression(node) ||
+      node.name.text !== 'remove' ||
+      !ts.isIdentifier(node.expression) ||
+      !ts.isCallExpression(node.parent) ||
+      node.parent.expression !== node ||
+      node.parent.arguments.length !== 1 ||
+      !ts.isIdentifier(node.parent.arguments[0])
+    )
+      return false;
+    const declaration = checker.getSymbolAtLocation(
+      node.expression
+    )?.valueDeclaration;
+    if (
+      !declaration ||
+      !ts.isVariableDeclaration(declaration) ||
+      !(declaration.parent.flags & ts.NodeFlags.Const)
+    )
+      return false;
+    const call = declaration.initializer && unwrap(declaration.initializer);
+    if (
+      !call ||
+      !ts.isCallExpression(call) ||
+      call.arguments.length !== 0 ||
+      !ts.isIdentifier(call.expression)
+    )
+      return false;
+    const factory = checker.getSymbolAtLocation(call.expression)
+      ?.declarations?.[0];
+    if (
+      !factory ||
+      !ts.isImportSpecifier(factory) ||
+      (factory.propertyName?.text ?? factory.name.text) !==
+        'createScopedRelayPool'
+    )
+      return false;
+    const imported = factory.parent.parent.parent;
+    return (
+      ts.isImportDeclaration(imported) &&
+      ts.isStringLiteral(imported.moduleSpecifier) &&
+      imported.moduleSpecifier.text === './pool-factory.ts'
+    );
+  }
   function uiLeaf(node) {
     let top = node;
     while (
@@ -973,7 +1019,8 @@ function mutationAdmission(
           !owned(node.expression) ||
           !node.parent.arguments.every((argument) => pure(argument))
         )
-          report('opaque or indirect DOM mutation/setter APIs are forbidden');
+          if (!relayRemoval(node))
+            report('opaque or indirect DOM mutation/setter APIs are forbidden');
       }
     }
     if (ts.isIdentifier(node)) {
@@ -1610,6 +1657,19 @@ export async function auditSource(root) {
       reportFile,
       'report copy source identity does not match reviewed pin'
     );
+  // One reviewed transport producer may retire its own original SDK Relay.
+  // Complete bytes, original imported factory receiver and a direct call are
+  // required; no arbitrary DOM remove/alias/reflection exception is granted.
+  const relayRemovalFile = path.join(root, 'src/lib/nostr/private-pool.ts');
+  const relayRemovalTrusted =
+    files.has(relayRemovalFile) &&
+    createHash('sha256').update(files.get(relayRemovalFile)).digest('hex') ===
+      'b4c718364625b3caacbc5cc5f98bd79a575a5d66dddb2d7f59f03351a1308a6d';
+  if (files.has(relayRemovalFile) && !relayRemovalTrusted)
+    complain(
+      relayRemovalFile,
+      'private relay removal source identity does not match reviewed pin'
+    );
   const scrollFile = path.join(root, 'src/lib/navigation-scroll.ts');
   const scrollTrusted =
     files.has(scrollFile) &&
@@ -2116,7 +2176,8 @@ export async function auditSource(root) {
         file === scrollFile && scrollTrusted,
         file === copyFile && copyTrusted,
         file === visibilityFile && visibilityTrusted,
-        file === reportFile && reportTrusted
+        file === reportFile && reportTrusted,
+        file === relayRemovalFile && relayRemovalTrusted
       );
       if (ast.referencedFiles.length || ast.typeReferenceDirectives.length)
         complain(file, 'source reference directives are forbidden');

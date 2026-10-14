@@ -90,6 +90,7 @@ export async function makeFixture(
     'reviewed_private_session'
   );
   if (!session) throw Error('missing genuine session');
+  const capturedSession = session;
   const capture = privateSessionOwnership(session)!;
   const unlocked = captureUnlockedSession(session, 'reviewed_messages_unlock');
   if (!unlocked) throw Error('missing genuine unlock');
@@ -144,6 +145,31 @@ export async function makeFixture(
   const publicStore = getPublicStore()!;
   const self = (await f.row())!.record.self;
   let ingress: InboxSync | undefined;
+  async function retireOriginalSync() {
+    for (;;) {
+      let incomplete = false;
+      try {
+        if (ingress) stopInboxSync(ingress);
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          error.message !== 'private_inbox_cleanup_required'
+        )
+          throw error;
+        incomplete = true;
+      }
+      const sessionClean = closePrivateSession(capturedSession);
+      if (!incomplete && sessionClean) {
+        if (ingress && inboxSyncSnapshot(ingress)?.cleanupRequired)
+          throw Error('actual original sync cleanup remains incomplete');
+        return;
+      }
+      // Retry exact original disposal after its actual SDK close observers;
+      // this wait starts no retrieval, permission or replacement session.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+  }
+
   let older: OlderInbox | undefined;
   let capacityWires: string[] = [],
     capacityWrites = 0;
@@ -214,9 +240,7 @@ export async function makeFixture(
       if (!ingress) return false;
       return startInboxSync(ingress, review);
     },
-    stop() {
-      if (ingress) stopInboxSync(ingress);
-    },
+    stop: retireOriginalSync,
     snapshot: () => ingress && inboxSyncSnapshot(ingress),
     captureOlder(review: unknown = 'reviewed_load_older') {
       if (!ingress) return false;
@@ -347,9 +371,7 @@ export async function makeFixture(
     closeUnlock() {
       closeUnlockedSession(unlocked);
     },
-    navigateAway() {
-      if (ingress) stopInboxSync(ingress);
-    },
+    navigateAway: retireOriginalSync,
     changeKey() {
       f.mode('changed_key');
     },
@@ -431,7 +453,7 @@ export async function makeFixture(
         IDBIndex.prototype.openCursor = cursor;
       };
     },
-    close() {
+    async close() {
       const release = releaseKey;
       releaseKey = undefined;
       restoreKey();
@@ -439,7 +461,7 @@ export async function makeFixture(
       restoreFault();
       if (older) stopOlderInbox(older);
       closePublicScheduler(scheduler);
-      if (ingress) stopInboxSync(ingress);
+      await retireOriginalSync();
       closePrivateSession(session);
       f.close();
     }

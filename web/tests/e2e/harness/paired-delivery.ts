@@ -54,14 +54,21 @@ const discovery = 'wss://discovery.example.org',
 // Disposable existing source fixture provider signs actual public10050 facts;
 // local discovery observations qualify route semantics only, never relay Q.
 export async function makeFixture(
-  options: Readonly<{ messaging?: boolean; peerRead?: boolean }> = {}
+  options: Readonly<{
+    messaging?: boolean;
+    peerRead?: boolean;
+    sharedOrigin?: boolean;
+  }> = {}
 ) {
   const f = await makeSelfFixture(),
     policy = validateRelayPolicy(
       JSON.stringify({
         schemaVersion: 1,
         public: [{ origin: discovery, read: true, write: false, nip50: false }],
-        inbox: [peerOrigin, archiveOrigin].map((origin) => ({
+        inbox: (options.sharedOrigin
+          ? [peerOrigin]
+          : [peerOrigin, archiveOrigin]
+        ).map((origin) => ({
           origin,
           read: origin === peerOrigin ? options.peerRead !== false : true,
           write: true
@@ -84,7 +91,9 @@ export async function makeFixture(
     const signed = await provider.signEvent({
       kind: 10050,
       created_at: 100,
-      tags: [['relay', peer ? peerOrigin : archiveOrigin]],
+      tags: [
+        ['relay', peer || options.sharedOrigin ? peerOrigin : archiveOrigin]
+      ],
       content: ''
     });
     f.mode('normal');

@@ -10,6 +10,9 @@ import type * as Fixture from './harness/product-request.ts';
 
 declare global {
   interface Window {
+    cr007PendingSend?: Promise<unknown>;
+    cr007DelayPrivateClose?: boolean;
+    cr007DelayedCloses?: (() => void)[];
     hcp107: typeof Fixture;
     hcp107Fixture: Awaited<ReturnType<typeof Fixture.renderFixture>>;
     hcp108SendClock: {
@@ -31,6 +34,7 @@ declare global {
 let server: Awaited<ReturnType<typeof createStaticHarness>>;
 let sockets: WebSocketServer, endpoint: string, bundle: string;
 let missingOwn = false;
+let holdPrivateAck = false;
 let listingStatus: 'active' | 'sold' | 'withdrawn' = 'active';
 let sellerInbox:
   | 'normal'
@@ -98,9 +102,10 @@ test.beforeAll(async () => {
         events.push({ origin, event });
         if (event.kind === 10050)
           ownPreference = event as ReturnType<typeof finalizeEvent>;
-        socket.send(
-          JSON.stringify(['OK', event.id, true, 'controlled acceptance'])
-        );
+        if (!holdPrivateAck || event.kind !== 1059)
+          socket.send(
+            JSON.stringify(['OK', event.id, true, 'controlled acceptance'])
+          );
         return;
       }
       if (frame[0] !== 'REQ') return;
@@ -282,6 +287,7 @@ test.afterAll(async () => {
 test.beforeEach(async ({ page }) => {
   events = [];
   missingOwn = false;
+  holdPrivateAck = false;
   listingStatus = 'active';
   sellerInbox = 'normal';
   incompleteListing = false;
@@ -307,6 +313,15 @@ test.beforeEach(async ({ page }) => {
           )
             throw Error('unapproved destination');
           super(endpoint + '/?source=' + encodeURIComponent(origin), protocols);
+          this.cr007Private = origin !== 'wss://discovery.example.org';
+        }
+        readonly cr007Private: boolean;
+        override close(code?: number, reason?: string) {
+          if (this.cr007Private && window.cr007DelayPrivateClose)
+            (window.cr007DelayedCloses ??= []).push(() =>
+              super.close(code, reason)
+            );
+          else super.close(code, reason);
         }
       };
     },
@@ -317,7 +332,11 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(async ({ page }) => {
   if (!page.isClosed())
-    await page.evaluate(() => window.hcp107Fixture?.close());
+    await page.evaluate(() => {
+      window.cr007DelayPrivateClose = false;
+      for (const release of window.cr007DelayedCloses ?? []) release();
+      return window.hcp107Fixture?.close();
+    });
 });
 const panel = (page: Page) => page.locator('[data-request-fixture]');
 const editor = (page: Page) =>
@@ -1672,3 +1691,33 @@ for (const outcome of [
       expect(events.filter((row) => row.event.kind === 1059)).toEqual([]);
     }
   });
+
+test('CR007 pending actual product request EVENT plus route close settles stopped and preserves cleanup', async ({
+  page
+}) => {
+  await ready(page);
+  await unlock(page);
+  holdPrivateAck = true;
+  await page.evaluate(() => {
+    window.cr007DelayPrivateClose = true;
+    window.cr007PendingSend = window.hcp107Fixture.beginHeadless();
+  });
+  await expect
+    .poll(() => events.filter(({ event }) => event.kind === 1059).length)
+    .toBe(1);
+  await page.evaluate(() => window.hcp107Fixture.closeView());
+  expect(await page.evaluate(() => window.cr007PendingSend)).toEqual({
+    status: 'stopped'
+  });
+  expect(
+    await page.evaluate(() => window.hcp107Fixture.headlessSnapshot())
+  ).toBeUndefined();
+  expect(events.filter(({ event }) => event.kind === 1059)).toHaveLength(1);
+  expect(
+    await page.evaluate(() => window.cr007DelayedCloses?.length ?? 0)
+  ).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    window.cr007DelayPrivateClose = false;
+    for (const release of window.cr007DelayedCloses ?? []) release();
+  });
+});

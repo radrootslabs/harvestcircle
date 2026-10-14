@@ -9,6 +9,9 @@ import type * as Fixture from './harness/reply-composer.ts';
 import { finalizeEvent } from 'applesauce-core/helpers';
 declare global {
   interface Window {
+    cr007PendingSend?: Promise<unknown>;
+    cr007DelayPrivateClose?: boolean;
+    cr007DelayedCloses?: (() => void)[];
     hcp104: typeof Fixture;
     hcp104Fixture: Awaited<ReturnType<typeof Fixture.renderReplyFixture>>;
     hcp104Pending?: Promise<unknown>;
@@ -22,6 +25,7 @@ let events: unknown[][] = [],
   requests: unknown[][] = [];
 let servePeerPreference = false;
 let holdPeerEose = false;
+let holdPrivateAck = false;
 let heldPeerRequest:
   | {
       socket: WebSocket;
@@ -77,7 +81,8 @@ test.beforeAll(async () => {
       if (frame[0] === 'EVENT') {
         events.push(frame);
         const event = frame[1] as { id: string };
-        socket.send(JSON.stringify(['OK', event.id, true, '']));
+        if (!holdPrivateAck)
+          socket.send(JSON.stringify(['OK', event.id, true, '']));
       }
       if (frame[0] === 'REQ') {
         requests.push(frame);
@@ -157,6 +162,16 @@ async function load(page: import('@playwright/test').Page) {
           )
             throw Error('unapproved destination');
           super(endpoint, protocols);
+          this.cr007Private =
+            new URL(String(url)).origin !== 'wss://discovery.example.org';
+        }
+        readonly cr007Private: boolean;
+        override close(code?: number, reason?: string) {
+          if (this.cr007Private && window.cr007DelayPrivateClose)
+            (window.cr007DelayedCloses ??= []).push(() =>
+              super.close(code, reason)
+            );
+          else super.close(code, reason);
         }
       };
     },
@@ -170,6 +185,7 @@ test.beforeEach(async ({ page }) => {
   requests = [];
   servePeerPreference = false;
   holdPeerEose = false;
+  holdPrivateAck = false;
   heldPeerRequest = undefined;
   await load(page);
 });
@@ -178,6 +194,8 @@ test.afterEach(async ({ page }) => {
     await page.evaluate(async () => {
       window.hcp104Fixture?.settle();
       await window.hcp104Pending;
+      window.cr007DelayPrivateClose = false;
+      for (const release of window.cr007DelayedCloses ?? []) release();
       await window.hcp104Fixture?.close();
     });
 });
@@ -916,4 +934,35 @@ test('later edit after opening dirty warning invalidates the reviewed discard re
   ).toEqual([]);
   expect(events).toEqual([]);
   expect(requests).toEqual([]);
+});
+
+test('CR007 pending actual reply EVENT plus route close settles stopped and preserves physical cleanup', async ({
+  page
+}) => {
+  await ready(page);
+  await composer(page).getByLabel('Reply', { exact: true }).fill(sentinel);
+  holdPrivateAck = true;
+  await page.evaluate(() => {
+    window.cr007DelayPrivateClose = true;
+    window.cr007PendingSend = window.hcp104Fixture.send();
+  });
+  await expect.poll(() => events.length).toBe(1);
+  await page.evaluate(() => window.hcp104Fixture.closeComposer());
+  expect(await page.evaluate(() => window.cr007PendingSend)).toEqual({
+    status: 'stopped'
+  });
+  expect(
+    await page.evaluate(() => window.hcp104Fixture.snapshot())
+  ).toBeUndefined();
+  expect(
+    await page.evaluate(() => window.hcp104Fixture.text())
+  ).toBeUndefined();
+  expect(events).toHaveLength(1);
+  expect(
+    await page.evaluate(() => window.cr007DelayedCloses?.length ?? 0)
+  ).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    window.cr007DelayPrivateClose = false;
+    for (const release of window.cr007DelayedCloses ?? []) release();
+  });
 });

@@ -22,6 +22,7 @@ import {
   privatePoolOrigins,
   subscribePrivatePage,
   closePrivatePool,
+  privatePoolCleanupRequired,
   type PrivatePageMessage
 } from '../../src/lib/nostr/private-pool.ts';
 import {
@@ -235,6 +236,13 @@ await test('private page transport keeps actual SDK scopes and ownership separat
       );
     });
   }
+  async function awaitRetirement() {
+    while (privatePool && privatePoolCleanupRequired(privatePool)) {
+      if (privateSessionSnapshot(privateSession!)?.current === false)
+        closePrivateSession(privateSession!);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  }
   async function heldPage() {
     delivery = 'hold';
     heldRequests = 0;
@@ -401,6 +409,7 @@ await test('private page transport keeps actual SDK scopes and ownership separat
     await t.test(
       'same-author reconnect cannot revive an old scope or consume stale callbacks',
       async () => {
+        await awaitRetirement();
         await connectIdentity(identity);
         await probeIdentityMessaging(identity, 'reviewed_self_copy');
         assert.equal(privateSessionSnapshot(privateSession!)?.current, false);
@@ -420,7 +429,7 @@ await test('private page transport keeps actual SDK scopes and ownership separat
     );
     await t.test(
       'failed SDK cleanup blocks replacement until exact cleanup retry succeeds',
-      () => {
+      async () => {
         const before = constructed;
         const held = sdkScopes.get('private');
         assert.ok(held);
@@ -428,17 +437,44 @@ await test('private page transport keeps actual SDK scopes and ownership separat
           if (this === held) throw new Error('HC_TEST_ONLY_CLOSE_FAILURE');
           return originalClose.call(this);
         };
-        assert.throws(
-          () => closePrivatePool(privatePool!),
-          /private_pool_close_failed/
-        );
+        // Actual session teardown owns whole-SDK disposal; an operation scope
+        // may close only its own work and cannot exercise this failure port.
+        assert.equal(closePrivateSession(privateSession!), false);
         assert.throws(
           () => getPrivatePool(privateSession!, policy, origins),
+          /private_session_invalid/
+        );
+        assert.equal(
+          await createPrivateSession(identity, 'reviewed_private_session'),
+          undefined
+        );
+        const successorIdentity = createIdentitySession();
+        await connectIdentity(successorIdentity);
+        await probeIdentityMessaging(successorIdentity, 'reviewed_self_copy');
+        const blockedSuccessor = await createPrivateSession(
+          successorIdentity,
+          'reviewed_private_session'
+        );
+        assert.ok(blockedSuccessor);
+        assert.throws(
+          () => getPrivatePool(blockedSuccessor, policy, origins),
           /private_pool_closed/
         );
+        closePrivateSession(blockedSuccessor);
+        disconnectIdentity(successorIdentity);
         assert.equal(constructed, before);
         RelayPool.prototype.close = originalClose;
-        closePrivatePool(privatePool!);
+        while (!closePrivateSession(privateSession!))
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        assert.equal(closePrivateSession(privateSession!), true);
+        const next = await createPrivateSession(
+          identity,
+          'reviewed_private_session'
+        );
+        assert.ok(next);
+        privateSession = next;
+        privatePool = getPrivatePool(next, policy, origins);
+        assert.ok(privatePool);
       }
     );
     await t.test(
@@ -607,6 +643,7 @@ await test('private page transport keeps actual SDK scopes and ownership separat
         } finally {
           Subscription.prototype.unsubscribe = original;
           closePrivatePool(privatePool!);
+          await awaitRetirement();
           privatePool = getPrivatePool(privateSession!, policy, origins);
           assert.ok(privatePool);
         }
@@ -638,6 +675,7 @@ await test('private page transport keeps actual SDK scopes and ownership separat
           unexpected?.();
           Subscription.prototype.unsubscribe = original;
           closePrivatePool(privatePool!);
+          await awaitRetirement();
         }
       }
     );
@@ -682,6 +720,7 @@ await test('private page transport keeps actual SDK scopes and ownership separat
     await t.test(
       'candidate clock reentry cannot disclose old-owner ciphertext after logout',
       async () => {
+        await awaitRetirement();
         await connectIdentity(identity);
         await probeIdentityMessaging(identity, 'reviewed_self_copy');
         privateSession = await createPrivateSession(
@@ -729,6 +768,7 @@ await test('private page transport keeps actual SDK scopes and ownership separat
     await t.test(
       'delayed genuine SDK owner response cannot open old-session sockets after logout',
       async () => {
+        await awaitRetirement();
         await connectIdentity(identity);
         await probeIdentityMessaging(identity, 'reviewed_self_copy');
         privateSession = await createPrivateSession(
@@ -807,6 +847,7 @@ await test('private page transport keeps actual SDK scopes and ownership separat
     await t.test(
       'capability loss closes actual private transport and signing alone cannot reopen it',
       async () => {
+        await awaitRetirement();
         await connectIdentity(identity);
         await probeIdentityMessaging(identity, 'reviewed_self_copy');
         privateSession = await createPrivateSession(

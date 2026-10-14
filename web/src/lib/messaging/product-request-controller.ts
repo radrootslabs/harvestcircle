@@ -67,7 +67,12 @@ import {
   selfRecoveryPreparationSnapshot,
   type SelfRecoveryPreparation
 } from './prepare-send.ts';
-import { getPrivatePool } from '../nostr/private-pool.ts';
+import {
+  getPrivatePool,
+  closePrivatePool,
+  privatePoolCleanupRequired,
+  type PrivatePool
+} from '../nostr/private-pool.ts';
 import {
   capturePrivateRetry,
   runPrivateRetry,
@@ -75,7 +80,10 @@ import {
   type PrivateRetry
 } from './retry-send.ts';
 import { newLocalId } from '../private-handles.ts';
-import { privateSessionOwnership } from '../runtime/private-session.ts';
+import {
+  privateSessionOwnership,
+  subscribePrivateSessionClose
+} from '../runtime/private-session.ts';
 
 declare const requestBrand: unique symbol;
 export type ProductRequestController = Readonly<{ [requestBrand]: true }>;
@@ -142,6 +150,7 @@ export function createProductRequestController(
   let plan: RumorPlan | undefined,
     preparation: SelfRecoveryPreparation | undefined,
     retry: PrivateRetry | undefined;
+  let privateOff = () => {};
   let identityOff = () => {},
     generation = 0;
   const source = runtime && createPublicView(runtime);
@@ -151,13 +160,29 @@ export function createProductRequestController(
     if (preserveComposer && composer) privateComposerSnapshot(composer);
     if (retry) stopPrivateRetry(retry);
     if (plan) stopRumorPlan(plan);
+    releasePool();
     if (!preserveComposer) {
       if (composer) closePrivateComposer(composer);
       composer = undefined;
     }
   }
-  function close() {
-    if (!active) return;
+  let pool: PrivatePool | undefined;
+  let poolCleanupFailed = false;
+  function releasePool() {
+    if (!pool) return true;
+    try {
+      poolCleanupFailed = false;
+      closePrivatePool(pool);
+      if (privatePoolCleanupRequired(pool)) return false;
+      pool = undefined;
+      return true;
+    } catch {
+      poolCleanupFailed = true;
+      return false;
+    }
+  }
+  function close(sessionCleanup = false) {
+    if (!active && !pool) return;
     active = false;
     stopWork();
     identityOff();
@@ -165,10 +190,20 @@ export function createProductRequestController(
     if (resolver) closeInboxResolver(resolver);
     if (source) disposePublicView(source);
     if (database) closeBrowserDatabase(database);
+    if (!releasePool()) {
+      if (poolCleanupFailed || sessionCleanup)
+        throw Error('private_delivery_cleanup_required');
+      return;
+    }
+    privateOff();
   }
   function current() {
     if (!active || !productEnquirySnapshot(enquiry)) {
-      close();
+      try {
+        close();
+      } catch {
+        /* Exact original disposal stays retryable. */
+      }
       return false;
     }
     return true;
@@ -483,14 +518,22 @@ export function createProductRequestController(
         !receipt
       )
         return needsAction();
-      const pool = getPrivatePool(
+      if (!releasePool()) return needsAction();
+      pool = getPrivatePool(
         captured.own.session!,
         captured.own.policy,
         Array.from(
           new Set([...routeData.peer.targets, ...routeData.archive.targets])
-        )
+        ),
+        token,
+        'delivery',
+        admitted
       );
       if (!pool || !admitted()) return needsAction();
+      privateOff();
+      privateOff = subscribePrivateSessionClose(captured.own.session!, () =>
+        close(true)
+      );
       retry = capturePrivateRetry(
         repository,
         captured.own.session!,
@@ -512,6 +555,7 @@ export function createProductRequestController(
       return admitted() ? needsAction() : { status: 'stopped' };
     } finally {
       busy = false;
+      releasePool();
     }
   }
   const token = Object.freeze({}) as ProductRequestController;

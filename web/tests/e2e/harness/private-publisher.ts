@@ -16,6 +16,8 @@ import {
 } from '../../../src/lib/nostr/private-pool.ts';
 import {
   capturePrivatePublication,
+  capturePrivatePublicationAction,
+  type PrivatePublicationAction,
   privatePublicationSnapshot,
   type PrivatePublication
 } from '../../../src/lib/nostr/private-publisher.ts';
@@ -36,19 +38,25 @@ import {
 } from '../../../src/lib/messaging/composer-state.ts';
 import { disconnectIdentity } from '../../../src/lib/runtime/identity-session.ts';
 export { privatePublicationSnapshot, publishPrivateGiftWrapAttempt };
-export async function makeFixture(writeOnly = false) {
-  const f = await makePairFixture({ messaging: true, peerRead: !writeOnly });
+import { RelayPool } from 'applesauce-relay/pool';
+export async function makeFixture(writeOnly = false, sharedOrigin = false) {
+  const f = await makePairFixture({
+    messaging: true,
+    peerRead: !writeOnly,
+    sharedOrigin
+  });
   const session = await createPrivateSession(
     f.identity,
     'reviewed_private_session'
   );
   if (!session) throw Error('missing genuine private session');
   const peerOrigin = 'wss://peer.example.org',
-    archiveOrigin = 'wss://archive.example.org';
-  const pool = getPrivatePool(session, f.context.policy, [
-    peerOrigin,
-    archiveOrigin
-  ]);
+    archiveOrigin = sharedOrigin ? peerOrigin : 'wss://archive.example.org';
+  const pool = getPrivatePool(
+    session,
+    f.context.policy,
+    Array.from(new Set([peerOrigin, archiveOrigin]))
+  );
   if (!pool) throw Error('missing actual private pool');
   const controller = new AbortController();
   let composer: PrivateComposer | undefined;
@@ -108,7 +116,8 @@ export async function makeFixture(writeOnly = false) {
   function permission(
     role: 'peer' | 'self_archive',
     origin = role === 'peer' ? peerOrigin : archiveOrigin,
-    review: unknown = 'reviewed_private_delivery'
+    review: unknown = 'reviewed_private_delivery',
+    action?: PrivatePublicationAction
   ) {
     const receipt = preparedPairedDelivery(f.preparation);
     return receipt
@@ -119,12 +128,60 @@ export async function makeFixture(writeOnly = false) {
           f.context,
           role,
           origin,
-          review
+          review,
+          action
         )
       : undefined;
   }
-  async function publish(token: PrivatePublication) {
-    return publishPrivateGiftWrapAttempt(pool!, token, controller.signal);
+  async function publish(
+    token: PrivatePublication,
+    signal = controller.signal
+  ) {
+    return publishPrivateGiftWrapAttempt(pool!, token, signal);
+  }
+  function action() {
+    const receipt = preparedPairedDelivery(f.preparation);
+    return receipt
+      ? capturePrivatePublicationAction(
+          f.repository,
+          session!,
+          receipt,
+          f.context,
+          'reviewed_private_retry'
+        )
+      : undefined;
+  }
+  function failAcquisition() {
+    const original = Reflect.get<RelayPool, 'relay'>(
+      RelayPool.prototype,
+      'relay'
+    );
+    RelayPool.prototype.relay = function (origin) {
+      if (new URL(origin).origin === peerOrigin)
+        throw Error('controlled original SDK acquisition failure');
+      return original.call(this, origin);
+    };
+    return () => {
+      RelayPool.prototype.relay = original;
+    };
+  }
+  function abortOnActualNetworkClock(abort: AbortController) {
+    const original = performance.now.bind(performance);
+    let observed = false;
+    performance.now = () => {
+      const value = original();
+      if (!observed && /at clock \(/.test(new Error().stack ?? '')) {
+        observed = true;
+        abort.abort();
+      }
+      return value;
+    };
+    return {
+      observed: () => observed,
+      restore: () => {
+        performance.now = original;
+      }
+    };
   }
   async function deliver(
     role: 'peer' | 'self_archive',
@@ -204,6 +261,9 @@ export async function makeFixture(writeOnly = false) {
     prepareSelfOnly: () =>
       prepareSelfRecovery(f.preparation, 'reviewed_self_recovery'),
     permission,
+    action,
+    failAcquisition,
+    abortOnActualNetworkClock,
     publish,
     deliver,
     remove,
