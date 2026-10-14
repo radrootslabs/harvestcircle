@@ -317,7 +317,7 @@ async function operationalFlagsAdmission(web) {
     'src/lib/messaging/inbox-setup-operation.ts':
       '245c6ce88b146dc731e7ace4f16dc9b5002a87a997f5568e4811b0c4a2daf035',
     'src/lib/nostr/self-recovery-reader.ts':
-      'b15be31d13499b6e397f8b8dc691076e2b41b4157bf62013e5105cdd03875fa6',
+      '806230d8082a48b9c2117a16060aff50312be270348d7b8c5b93d6d6368d31a1',
     'src/lib/nostr/private-publisher.ts':
       '2f939dda3504b760dbf3758632cda6ce38d3e16c6d142b814e40a0e295a77d90',
     'src/lib/nostr/private-pool.ts':
@@ -595,7 +595,7 @@ async function privacyDataAdmission(web) {
     'src/lib/messaging/inbox-list.ts':
       '9cc82877bfa8dbb2a7fa41bceb842793349416271f19569f49fdd5cfc1de07e5',
     'src/lib/nostr/self-recovery-reader.ts':
-      'b15be31d13499b6e397f8b8dc691076e2b41b4157bf62013e5105cdd03875fa6',
+      '806230d8082a48b9c2117a16060aff50312be270348d7b8c5b93d6d6368d31a1',
     'src/lib/nostr/private-publisher.ts':
       '2f939dda3504b760dbf3758632cda6ce38d3e16c6d142b814e40a0e295a77d90',
     'src/lib/nostr/private-pool.ts':
