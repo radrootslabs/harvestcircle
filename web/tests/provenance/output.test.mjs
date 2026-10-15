@@ -620,6 +620,8 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'src/lib/messaging/history-pagination.ts',
           'src/lib/persistence/inbox-probe-cleanup.ts',
           'src/lib/messaging/inbox-access-qualification.ts',
+          'src/lib/messaging/inbox-access-controller.ts',
+          'src/lib/messaging/inbox-access-check.ts',
           'src/lib/persistence/private-records.ts'
         ]) {
           for (const change of ['changed', 'missing']) {
@@ -1983,6 +1985,7 @@ import { auditOutput } from '../../tools/check-output.mjs';
           'src/lib/persistence/inbox-probes.ts',
           'src/lib/persistence/inbox-probe-cleanup.ts',
           'src/lib/messaging/inbox-access-qualification.ts',
+          'src/lib/messaging/inbox-access-check.ts',
           'src/lib/nostr/inbox-access.ts',
           'src/lib/nostr/seal-builder.ts',
           'src/lib/nostr/giftwrap-builder.ts',

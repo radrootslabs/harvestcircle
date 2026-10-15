@@ -6,7 +6,7 @@ import {
 } from '../config/inbox-operators.ts';
 import {
   inboxAccessConstructionBinding,
-  inboxAccessControllerSnapshot,
+  inboxAccessControllerSourceSnapshot,
   subscribeInboxAccessControllerClose,
   type InboxAccessController
 } from './inbox-access-controller.ts';
@@ -125,7 +125,7 @@ function makeScope(
   )
     return undefined;
   function current() {
-    const snapshot = inboxAccessControllerSnapshot(access);
+    const snapshot = inboxAccessControllerSourceSnapshot(access);
     return (
       actual!.current() &&
       owner!.current() &&

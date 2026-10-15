@@ -38,14 +38,16 @@ type Binding = Readonly<{
   readTargets: string[];
   archiveTargets: string[];
 }>;
-export type InboxAccessSnapshot = Readonly<
+export type InboxAccessSourceSnapshot = Readonly<
   Binding & {
     state: string;
     busy: boolean;
     cleanupRequired: boolean;
-    readiness: 'unavailable';
     auth: { origin: string; state: string; responses: number }[];
   }
+>;
+export type InboxAccessSnapshot = Readonly<
+  InboxAccessSourceSnapshot & { readiness: 'unavailable' }
 >;
 type Control = {
   session: PrivateSession;
@@ -55,6 +57,7 @@ type Control = {
   current(): boolean;
   closed(): boolean;
   cleanupRequired(): boolean;
+  sourceSnapshot(): InboxAccessSourceSnapshot;
   snapshot(): InboxAccessSnapshot;
   authenticate(origin: unknown, review: unknown): Promise<string>;
   respond(origin: unknown, review: unknown): Promise<string>;
@@ -268,6 +271,22 @@ export function createInboxAccessController(
       busy = false;
     }
   }
+  // Construction and qualification consume this source projection directly.
+  // Presentation may later observe qualification, so it cannot be their input.
+  const sourceSnapshot = (): InboxAccessSourceSnapshot => ({
+    ...initial,
+    readTargets: [...initial.readTargets],
+    archiveTargets: [...initial.archiveTargets],
+    state: closed ? 'stopped' : current() ? phase : 'stale',
+    busy,
+    cleanupRequired:
+      closed && (!cleaned || (!!pool && privatePoolCleanupRequired(pool))),
+    auth: [...auth].map(([origin, action]) => ({
+      origin,
+      state: inboxAuthSnapshot(action)?.state ?? 'stopped',
+      responses: inboxAuthSnapshot(action)?.responses ?? 0
+    }))
+  });
   controllers.set(token, {
     session,
     subscribe(listener) {
@@ -295,20 +314,10 @@ export function createInboxAccessController(
     authenticate,
     respond,
     close,
+    sourceSnapshot,
     snapshot: () => ({
-      ...initial,
-      readTargets: [...initial.readTargets],
-      archiveTargets: [...initial.archiveTargets],
-      state: closed ? 'stopped' : current() ? phase : 'stale',
-      busy,
-      cleanupRequired:
-        closed && (!cleaned || (!!pool && privatePoolCleanupRequired(pool))),
-      readiness: 'unavailable',
-      auth: [...auth].map(([origin, action]) => ({
-        origin,
-        state: inboxAuthSnapshot(action)?.state ?? 'stopped',
-        responses: inboxAuthSnapshot(action)?.responses ?? 0
-      }))
+      ...sourceSnapshot(),
+      readiness: 'unavailable'
     })
   });
   off = subscribePrivateSessionClose(session, () => {
@@ -325,6 +334,11 @@ export function inboxAccessControllerSnapshot(
   token: InboxAccessController
 ): InboxAccessSnapshot | undefined {
   return controllers.get(token)?.snapshot();
+}
+export function inboxAccessControllerSourceSnapshot(
+  token: InboxAccessController
+): InboxAccessSourceSnapshot | undefined {
+  return controllers.get(token)?.sourceSnapshot();
 }
 export function authenticateInboxAccess(
   token: InboxAccessController,
@@ -369,7 +383,7 @@ export function inboxAccessConstructionBinding(
     return undefined;
   const ownership = privateSessionOwnership(session);
   if (!ownership?.current() || !state.current()) return undefined;
-  const captured = state.snapshot();
+  const captured = state.sourceSnapshot();
   if (
     captured.owner !== ownership.owner ||
     !state.current() ||

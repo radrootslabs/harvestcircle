@@ -238,6 +238,8 @@ async function operationalFlagsAdmission(web) {
   if (!shell.includes('../runtime/capabilities.ts')) return false;
   /** @type {Record<string,string>} */
   const producers = {
+    'src/lib/messaging/inbox-access-check.ts':
+      '4245812c94b80ef39a1107d6c5c65b8d5775bedc9d5762db802e79a8d4d63c83',
     // Exact previous AccountGate remains compatibility history; the only
     // current alternative changes its obsolete condition copy below.
     'src/lib/components/AccountGate.svelte':
@@ -329,7 +331,7 @@ async function operationalFlagsAdmission(web) {
     'src/lib/persistence/inbox-probe-cleanup.ts':
       'bfc24be3530471cccd01d387ed2b38a6534eb6493ce850ba9711cc3cfa77e6d9',
     'src/lib/messaging/inbox-access-qualification.ts':
-      'f936a1507661eaa9f760b7f1b9775fac4893ad6d1f61b27c72eee0ffbf7990a3',
+      '769e849796486f6845850a2215775bdfb4d37df4758d52261da38709cdd445d5',
     'src/lib/nostr/inbox-access.ts':
       '2d9ba6c6ef1e11a1296ab377fd35c4b3e6fdff22de3f97cc85cfe0fc15baa015',
     'src/lib/nostr/seal-builder.ts':
@@ -337,7 +339,7 @@ async function operationalFlagsAdmission(web) {
     'src/lib/nostr/giftwrap-builder.ts':
       'faf54dd80a0995ac94b4b994d3cfd015516e5e201a1fbb6340e13c836ce49e98',
     'src/lib/messaging/inbox-access-controller.ts':
-      '2e0d551f1e373603422cd6ad6d17bc2f291b205fbcca9b2a3420649b1cd74975',
+      '5b8ecea98a087f6038f8e0d782f0028a5c899bdf756445b725f1da5761d8bc98',
     'src/lib/messaging/inbox-setup-view.ts':
       'e85238d20f1bbcb23599b36e67910f3df784efa43f0fa0b0b7f3da7e7fd33c79',
     'src/lib/messaging/inbox-setup.ts':
@@ -530,6 +532,8 @@ async function privacyDataAdmission(web) {
     return false;
   /** @type {Record<string,string>} */
   const producers = {
+    'src/lib/messaging/inbox-access-check.ts':
+      '4245812c94b80ef39a1107d6c5c65b8d5775bedc9d5762db802e79a8d4d63c83',
     'src/lib/catalog/observations.ts':
       '7386470e698156f2480de1d6c9fcffacab507f97d2f4006df926db467327120c',
     'src/lib/catalog/product-view.ts':
@@ -611,7 +615,7 @@ async function privacyDataAdmission(web) {
     'src/lib/persistence/inbox-probe-cleanup.ts':
       'bfc24be3530471cccd01d387ed2b38a6534eb6493ce850ba9711cc3cfa77e6d9',
     'src/lib/messaging/inbox-access-qualification.ts':
-      'f936a1507661eaa9f760b7f1b9775fac4893ad6d1f61b27c72eee0ffbf7990a3',
+      '769e849796486f6845850a2215775bdfb4d37df4758d52261da38709cdd445d5',
     'src/lib/nostr/inbox-access.ts':
       '2d9ba6c6ef1e11a1296ab377fd35c4b3e6fdff22de3f97cc85cfe0fc15baa015',
     'src/lib/nostr/seal-builder.ts':
@@ -619,7 +623,7 @@ async function privacyDataAdmission(web) {
     'src/lib/nostr/giftwrap-builder.ts':
       'faf54dd80a0995ac94b4b994d3cfd015516e5e201a1fbb6340e13c836ce49e98',
     'src/lib/messaging/inbox-access-controller.ts':
-      '2e0d551f1e373603422cd6ad6d17bc2f291b205fbcca9b2a3420649b1cd74975',
+      '5b8ecea98a087f6038f8e0d782f0028a5c899bdf756445b725f1da5761d8bc98',
     'src/lib/messaging/inbox-setup-view.ts':
       '4ec9025232bb1355fef1ba039b46ce0a2be10e02e348e1b4eaadc3d1f3c2fd84',
     'src/lib/messaging/inbox-sync.ts':
@@ -2174,6 +2178,10 @@ async function inboxSetupAdmission(web) {
 /** @param {string} web */
 async function inboxProbeStorageAdmission(web) {
   const producers = {
+    'src/lib/messaging/inbox-access-check.ts':
+      '4245812c94b80ef39a1107d6c5c65b8d5775bedc9d5762db802e79a8d4d63c83',
+    'src/lib/messaging/inbox-access-controller.ts':
+      '5b8ecea98a087f6038f8e0d782f0028a5c899bdf756445b725f1da5761d8bc98',
     'src/lib/persistence/inbox-envelope-repository.ts':
       'beb7eeef35be8b81ff03c9080e780528e37f1cd5c0be4f7b32575b1e60994bd3',
     'src/lib/nostr/inbox-ingress.ts':
@@ -2191,7 +2199,7 @@ async function inboxProbeStorageAdmission(web) {
     'src/lib/persistence/inbox-probe-cleanup.ts':
       'bfc24be3530471cccd01d387ed2b38a6534eb6493ce850ba9711cc3cfa77e6d9',
     'src/lib/messaging/inbox-access-qualification.ts':
-      'f936a1507661eaa9f760b7f1b9775fac4893ad6d1f61b27c72eee0ffbf7990a3'
+      '769e849796486f6845850a2215775bdfb4d37df4758d52261da38709cdd445d5'
   };
   for (const [name, pin] of Object.entries(producers)) {
     const bytes = await readOwned(web, name);
