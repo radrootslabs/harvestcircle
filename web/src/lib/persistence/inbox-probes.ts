@@ -32,6 +32,7 @@ import {
   inboxProbeRumorWire,
   inboxProbeReservationHandle,
   inboxProbeActionOwner,
+  inboxProbeOperatorBinding,
   stopInboxProbeIdentity,
   type InboxProbeIdentity
 } from '../nostr/inbox-access.ts';
@@ -1236,6 +1237,9 @@ type CleanupSelection = Readonly<{
   policy: RelayPolicy;
   operation: NonceOperation;
   access: InboxAccessController;
+  operator: InboxOperatorQualification;
+  nonceReadReceipt: string;
+  admissions(): readonly string[];
   record: PrivateAccessProbe;
   wire: string;
   current(): boolean;
@@ -1363,8 +1367,17 @@ export function captureInboxProbeCleanupSelection(
         saved.source === 'construction'
           ? inboxProbeActionOwner(saved.identity, session, policy)
           : saved.access,
-      scope = access && inboxAccessConstructionBinding(access, session, policy);
-    if (!access || !scope) return undefined;
+      scope = access && inboxAccessConstructionBinding(access, session, policy),
+      operator =
+        saved.source === 'construction'
+          ? inboxProbeOperatorBinding(
+              saved.identity,
+              repository,
+              session,
+              policy
+            )
+          : saved.operator;
+    if (!access || !scope || !operator) return undefined;
     function current() {
       return (
         operation!.lineage.active() &&
@@ -1381,6 +1394,11 @@ export function captureInboxProbeCleanupSelection(
       policy,
       operation,
       access,
+      operator,
+      nonceReadReceipt: inboxProbeReadbackAttemptEvidence(
+        operation.observation
+      )!.receiptWire,
+      admissions: () => Array.from(positives.keys()),
       record: JSON.parse(JSON.stringify(record)) as PrivateAccessProbe,
       wire,
       current
@@ -1410,6 +1428,9 @@ export function inboxProbeCleanupSelectionBinding(
     identity: saved.operation.lineage.identity,
     source: acknowledgements.get(saved.operation.acknowledgement)!.source,
     access: saved.access,
+    operator: saved.operator,
+    nonceReadReceipt: saved.nonceReadReceipt,
+    admissions: saved.admissions,
     nonce: saved.operation.acknowledgementToken()!,
     record: JSON.parse(JSON.stringify(saved.record)) as PrivateAccessProbe,
     wire: saved.wire,

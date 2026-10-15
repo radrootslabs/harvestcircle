@@ -1,14 +1,17 @@
 import type { RelayPolicy } from '../config/relays.ts';
+import type { InboxOperatorQualification } from '../config/inbox-operators.ts';
 import {
   inboxAccessConstructionBinding,
-  subscribeInboxAccessControllerClose
+  subscribeInboxAccessControllerClose,
+  type InboxAccessController
 } from '../messaging/inbox-access-controller.ts';
 import {
   acquireInboxProbeCleanupLease,
   inboxProbeCleanupReady,
   inboxProbeCleanupLeaseCurrent,
   releaseInboxProbeCleanupLease,
-  retireInboxProbeCleanupLease
+  retireInboxProbeCleanupLease,
+  inboxProbeQualifiedRemovalBinding
 } from '../nostr/private-publisher.ts';
 import {
   privateSessionOwnership,
@@ -28,7 +31,8 @@ import {
   observePrivateRecord,
   removePrivateInboxProbe,
   type PrivateStorageRepository,
-  type PrivateStorageFailure
+  type PrivateStorageFailure,
+  type PrivateProbeRemovalProof
 } from './private-storage.ts';
 
 declare const cleanupBrand: unique symbol;
@@ -72,6 +76,9 @@ const removals = new WeakMap<
     repository: PrivateStorageRepository;
     session: PrivateSession;
     policy: RelayPolicy;
+    access: InboxAccessController;
+    operator: InboxOperatorQualification;
+    nativeProof: PrivateProbeRemovalProof;
     owner: string;
     command: string;
     eventId: string;
@@ -275,6 +282,9 @@ export async function captureInboxProbeCleanup(
                         repository,
                         session,
                         policy,
+                        access: selected.access,
+                        operator: selected.operator,
+                        nativeProof: removed.value,
                         owner: selected.record.owner,
                         command: selected.record.id,
                         eventId: selected.record.self!.eventId,
@@ -359,6 +369,14 @@ export function inboxProbeRemovalAcknowledgementBinding(
     saved.current()
     ? {
         owner: saved.owner,
+        access: saved.access,
+        operator: saved.operator,
+        qualification: inboxProbeQualifiedRemovalBinding(
+          saved.nativeProof,
+          repository,
+          session,
+          policy
+        ),
         command: saved.command,
         eventId: saved.eventId,
         preferenceId: saved.preferenceId,

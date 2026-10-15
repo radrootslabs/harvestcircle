@@ -41,6 +41,7 @@ import {
   type PrivateStorageRepository
 } from '../persistence/private-storage.ts';
 import type { PairedDeliveryContext } from '../messaging/prepare-send.ts';
+import type { PrivateAccessProbeReceipt } from '../persistence/private-records.ts';
 import {
   inboxRoutePlanSnapshot,
   recheckInboxRoutePlan
@@ -105,6 +106,9 @@ function networkMeter(probe: boolean) {
   // Probe-only causal obligations survive finish and controller replacement.
   // The existing three origins/three combined attempts bound this map to nine.
   const pendingArchives = new Map<string, true>();
+  let admissionGeneration = 0,
+    lastAdmission: string | undefined,
+    lastReadAdmission: string | undefined;
   let used = 0,
     running = false,
     broken = false,
@@ -122,6 +126,41 @@ function networkMeter(probe: boolean) {
     current: () => !broken,
     idle: () => !running,
     archivesApplied: () => pendingArchives.size === 0,
+    generation: () => admissionGeneration,
+    coveredGeneration(
+      nonceReadReceipt: string,
+      receipts: readonly string[]
+    ): number | undefined {
+      if (!probe || !lastAdmission || !lastReadAdmission) return undefined;
+      const read = JSON.parse(nonceReadReceipt) as PrivateAccessProbeReceipt;
+      // A later archive cannot hide a real read without its own nonce proof.
+      // This receipt comes only from the selected nonce's genuine read effect.
+      if (
+        read.role !== 'access_readback' ||
+        JSON.stringify([
+          read.actionId,
+          read.role,
+          read.origin,
+          read.eventId,
+          read.attempt
+        ]) !== lastReadAdmission
+      )
+        return undefined;
+      for (const wire of receipts) {
+        const fact = JSON.parse(wire) as PrivateAccessProbeReceipt;
+        if (
+          JSON.stringify([
+            fact.actionId,
+            fact.role,
+            fact.origin,
+            fact.eventId,
+            fact.attempt
+          ]) === lastAdmission
+        )
+          return admissionGeneration;
+      }
+      return undefined;
+    },
     applyArchive(
       action: string,
       origin: string,
@@ -162,6 +201,17 @@ function networkMeter(probe: boolean) {
       const start = clock();
       if (start === undefined) return undefined;
       counts.set(key, count + 1);
+      if (probe) {
+        admissionGeneration++;
+        lastAdmission = JSON.stringify([
+          actionId,
+          role,
+          origin,
+          eventId,
+          count + 1
+        ]);
+        if (role === 'access_readback') lastReadAdmission = lastAdmission;
+      }
       if (probe && role === 'access_archive')
         pendingArchives.set(
           JSON.stringify([actionId, origin, eventId, count + 1]),
@@ -517,6 +567,7 @@ type ProbeMeterOwner = {
   meter: ProbeMeter;
   current(): boolean;
   held(): boolean;
+  claimIdentity(): symbol;
   claim(): boolean;
   release(): void;
   retain(
@@ -576,7 +627,8 @@ function probeMeter(
     (replace && !privatePoolProbeRetryIdle(session, policy))
   )
     return undefined;
-  let held = false;
+  let held = false,
+    claimIdentity = Symbol();
   // At most one original and one recovered identity per actual controller.
   // This is the same bounded command entry, never a historical identity list.
   const identities = new Map<
@@ -592,9 +644,11 @@ function probeMeter(
     meter,
     current,
     held: () => held,
+    claimIdentity: () => claimIdentity,
     claim() {
       if (held) return false;
       held = true;
+      claimIdentity = Symbol();
       return true;
     },
     release() {
@@ -647,6 +701,155 @@ type CleanupLease = Readonly<{
   markRetired(): void;
 }>;
 const cleanupLeases = new WeakMap<InboxProbeCleanupLease, CleanupLease>();
+
+declare const qualificationFenceBrand: unique symbol;
+export type InboxProbeQualificationFence = Readonly<{
+  [qualificationFenceBrand]: true;
+}>;
+const qualificationFences = new WeakMap<
+  InboxProbeQualificationFence,
+  Readonly<{ current(): boolean }>
+>();
+type QualifiedRemoval = Readonly<{
+  repository: PrivateStorageRepository;
+  session: PrivateSession;
+  policy: RelayPolicy;
+  binding: NonNullable<ReturnType<typeof inboxProbeCleanupSelectionBinding>>;
+  scope: NonNullable<ReturnType<typeof inboxAccessConstructionBinding>>;
+}>;
+const qualifiedRemovals = new WeakMap<
+  PrivateProbeRemovalProof,
+  QualifiedRemoval
+>();
+
+// Source admissions and their native-applied effects cover this exact command.
+// Ordinary pool/SDK activity is deliberately absent from issued currentness.
+function qualificationBinding(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  selection: InboxProbeCleanupSelection,
+  lease?: CleanupLease
+) {
+  const binding = inboxProbeCleanupSelectionBinding(
+    selection,
+    repository,
+    session,
+    policy
+  );
+  if (!binding) return undefined;
+  const entry = commandMeters.get(session)?.get(binding.record.id),
+    action = identityActions.get(binding.identity),
+    scope = inboxAccessConstructionBinding(binding.access, session, policy);
+  if (
+    !entry ||
+    !action ||
+    !scope ||
+    entry.access !== binding.access ||
+    action.repository !== repository ||
+    action.session !== session ||
+    action.policy !== policy ||
+    action.meter !== entry.meter ||
+    action.original !== entry.original ||
+    entry.original !== probeImmutable(binding.record) ||
+    entry.held() !== !!lease ||
+    (lease && (lease.entry !== entry || lease.selection !== selection)) ||
+    !entry.meter.idle() ||
+    !entry.meter.archivesApplied() ||
+    !entry.meter.current()
+  )
+    return undefined;
+  const generation = entry.meter.coveredGeneration(
+    binding.nonceReadReceipt,
+    binding.admissions()
+  );
+  if (
+    generation === undefined ||
+    !binding.current() ||
+    !scope.current() ||
+    entry.meter.generation() !== generation ||
+    commandMeters.get(session)?.get(binding.record.id) !== entry ||
+    entry.held() !== !!lease ||
+    !entry.meter.idle() ||
+    !entry.meter.archivesApplied()
+  )
+    return undefined;
+  return { binding, entry, scope, generation };
+}
+
+export function captureInboxProbeQualificationFence(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy,
+  selection: InboxProbeCleanupSelection
+): InboxProbeQualificationFence | undefined {
+  try {
+    const captured = qualificationBinding(
+      repository,
+      session,
+      policy,
+      selection
+    );
+    if (!captured) return undefined;
+    // A real cleanup claim retires this journal fence even if native deletion
+    // later aborts. Release restores cleanup eligibility, never an old proof.
+    const claimIdentity = captured.entry.claimIdentity();
+    const token = Object.freeze({}) as InboxProbeQualificationFence;
+    qualificationFences.set(token, {
+      current() {
+        const actual = qualificationBinding(
+          repository,
+          session,
+          policy,
+          selection
+        );
+        return (
+          !!actual &&
+          actual.entry === captured.entry &&
+          actual.entry.claimIdentity() === claimIdentity &&
+          actual.generation === captured.generation &&
+          actual.binding.wire === captured.binding.wire &&
+          actual.binding.operator === captured.binding.operator &&
+          actual.binding.access === captured.binding.access
+        );
+      }
+    });
+    return token;
+  } catch {
+    return undefined;
+  }
+}
+export function inboxProbeQualificationFenceCurrent(
+  token: InboxProbeQualificationFence
+): boolean {
+  try {
+    return qualificationFences.get(token)?.current() ?? false;
+  } catch {
+    return false;
+  }
+}
+
+// Only actual successful native retirement records this optional historical
+// source coverage. A genuine unqualified cleanup retains its original behavior.
+export function inboxProbeQualifiedRemovalBinding(
+  proof: PrivateProbeRemovalProof,
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy
+) {
+  const saved = qualifiedRemovals.get(proof);
+  return saved?.repository === repository &&
+    saved.session === session &&
+    saved.policy === policy &&
+    saved.scope.current()
+    ? {
+        access: saved.binding.access,
+        operator: saved.binding.operator,
+        wire: saved.binding.wire,
+        current: saved.scope.current
+      }
+    : undefined;
+}
 
 // Only genuine native-applied source evidence can discharge an actual charge.
 // This works after controller loss without creating current network authority.
@@ -813,6 +1016,13 @@ export function retireInboxProbeCleanupLease(
     !saved.current()
   )
     return false;
+  const coverage = qualificationBinding(
+    saved.repository,
+    saved.session,
+    saved.policy,
+    saved.selection,
+    saved
+  );
   if (!retireInboxProbeCleanupSelection(saved.selection, proof)) return false;
   saved.entry.dispose(saved.session, saved.policy);
   // Deliberate nonce disposal invalidates old ACKs, not this actual C7 scope.
@@ -825,6 +1035,14 @@ export function retireInboxProbeCleanupLease(
   )
     return false;
   commandMeters.get(saved.session)!.delete(saved.command);
+  if (coverage && coverage.entry.meter.generation() === coverage.generation)
+    qualifiedRemovals.set(proof, {
+      repository: saved.repository,
+      session: saved.session,
+      policy: saved.policy,
+      binding: coverage.binding,
+      scope: coverage.scope
+    });
   saved.markRetired();
   cleanupLeases.delete(lease);
   return true;

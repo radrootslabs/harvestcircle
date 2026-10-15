@@ -395,6 +395,30 @@ export function inboxProbeActionOwner(
     : undefined;
 }
 
+// The original reserved action, never an equal decoded declaration, supplies
+// the opaque operator association used by later access qualification.
+export function inboxProbeOperatorBinding(
+  identity: InboxProbeIdentity,
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  policy: RelayPolicy
+): InboxOperatorQualification | undefined {
+  const saved = identities.get(identity),
+    action = saved && actions.get(saved.access),
+    result = action?.result();
+  return saved &&
+    action &&
+    action.repository === repository &&
+    action.session === session &&
+    action.policy === policy &&
+    result &&
+    'identity' in result &&
+    result.identity === identity &&
+    inboxProbePolicyMatches(identity, session, policy)
+    ? action.operator
+    : undefined;
+}
+
 // Detached inspection only. Actual SDK decryption and original native/current
 // associations are necessary to issue a recovered probe capability.
 export function inboxProbeRumorMatches(

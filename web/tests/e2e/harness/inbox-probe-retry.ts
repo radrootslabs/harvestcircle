@@ -158,6 +158,7 @@ export async function makeRetryFixture() {
     host,
     repository,
     actors: currentActor,
+    sharedPublicRuntime: () => runtime,
     originalIdentity: () => originalIdentity,
     originalAck: () => originalAck,
     proof: () => proof,
