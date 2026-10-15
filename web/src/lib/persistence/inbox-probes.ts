@@ -58,6 +58,7 @@ import {
   type PrivateAccessProbeReceipt,
   type PrivateRecordHandle
 } from './private-records.ts';
+import { LOCAL_PERSISTENCE_BUDGETS } from '../config/budgets.ts';
 import {
   verifyEnvelope,
   verifiedEnvelopeSnapshot
@@ -99,7 +100,7 @@ function createLineage(
     wire = originalWire,
     pending = false,
     retired = false;
-  return {
+  const lineage: Lineage = {
     repository,
     session,
     identity,
@@ -116,12 +117,14 @@ function createLineage(
     active: () => !retired,
     retire() {
       retired = true;
+      forgetInboxProbeDelivery(lineage);
     },
     admit(next, nextWire) {
       record = next;
       wire = nextWire;
     }
   };
+  return lineage;
 }
 const lineages = new WeakMap<InboxProbeIdentity, Lineage>();
 type Saved = Readonly<{
@@ -142,6 +145,162 @@ type Saved = Readonly<{
       }>
   );
 const acknowledgements = new WeakMap<InboxProbeAcknowledgement, Saved>();
+// Actual native-admitted source owners only. Decoded journal rows cannot enter
+// this bounded, weak repository/session index, including after a realm reload.
+const deliveryJournals = new WeakMap<
+  PrivateStorageRepository,
+  WeakMap<PrivateSession, Map<string, Saved>>
+>();
+declare const deliveryObservationBrand: unique symbol;
+export type InboxProbeDeliveryObservation = Readonly<{
+  [deliveryObservationBrand]: true;
+}>;
+const deliveryObservations = new WeakMap<
+  InboxProbeDeliveryObservation,
+  Readonly<{
+    saved: Saved;
+    entries: Map<string, Saved>;
+    id: string;
+    wire: string;
+    eventId: string;
+    outerWire: string;
+  }>
+>();
+function currentDeliveryJournal(saved: Saved) {
+  try {
+    return saved.lineage.active() && saved.current();
+  } catch {
+    return false;
+  }
+}
+function forgetInboxProbeDelivery(lineage: Lineage) {
+  const entries = deliveryJournals
+    .get(lineage.repository)
+    ?.get(lineage.session);
+  const id = lineage.record().id;
+  if (entries?.get(id)?.lineage === lineage) entries.delete(id);
+}
+function rememberInboxProbeDelivery(
+  acknowledgement: InboxProbeAcknowledgement
+) {
+  const saved = acknowledgements.get(acknowledgement);
+  if (!saved || !currentDeliveryJournal(saved)) return;
+  let sessions = deliveryJournals.get(saved.repository);
+  if (!sessions) {
+    sessions = new WeakMap();
+    deliveryJournals.set(saved.repository, sessions);
+  }
+  let entries = sessions.get(saved.session);
+  if (!entries) {
+    entries = new Map();
+    sessions.set(saved.session, entries);
+  }
+  for (const [id, entry] of entries)
+    if (!currentDeliveryJournal(entry)) entries.delete(id);
+  const id = saved.lineage.record().id;
+  if (
+    !entries.has(id) &&
+    entries.size >= LOCAL_PERSISTENCE_BUDGETS.unfinishedPrivateSends
+  )
+    return;
+  entries.set(id, saved);
+}
+
+// Called by actual admitted-envelope retention under its existing owner lock.
+// The result is local receive bookkeeping, never qualification or transport
+// authority. Exact source AND fresh whole-owner native custody are required.
+export async function observeInboxProbeDelivery(
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  eventId: string,
+  outerWire: string,
+  cancellation?: AbortSignal
+): Promise<InboxProbeDeliveryObservation | 'ordinary' | 'stopped'> {
+  const entries = deliveryJournals.get(repository)?.get(session);
+  if (!entries) return 'ordinary';
+  for (const [id, saved] of entries) {
+    if (!currentDeliveryJournal(saved)) {
+      entries.delete(id);
+      continue;
+    }
+    const lineage = saved.lineage,
+      record = lineage.record();
+    if (record.self?.eventId !== eventId || record.self.wire !== outerWire)
+      continue;
+    const ownership = privateSessionOwnership(session),
+      wire = lineage.wire();
+    const drop = () => {
+      if (entries.get(id) === saved) entries.delete(id);
+    };
+    if (!ownership?.current() || cancellation?.aborted) {
+      drop();
+      return 'stopped';
+    }
+    try {
+      const observed = await observePrivateRecord(
+        repository,
+        'private_sends',
+        id
+      );
+      if (!ownership.current() || cancellation?.aborted) {
+        drop();
+        return 'stopped';
+      }
+      if (
+        !currentDeliveryJournal(saved) ||
+        entries.get(id) !== saved ||
+        !observed.ok ||
+        lineage.wire() !== wire ||
+        observed.value.wire !== wire ||
+        privateRecordWire(observed.value.handle, ownership.owner, id) !== wire
+      ) {
+        drop();
+        return 'ordinary';
+      }
+      const proof = Object.freeze({}) as InboxProbeDeliveryObservation;
+      deliveryObservations.set(proof, {
+        saved,
+        entries,
+        id,
+        wire,
+        eventId,
+        outerWire
+      });
+      return proof;
+    } catch {
+      drop();
+      return ownership.current() && !cancellation?.aborted
+        ? 'ordinary'
+        : 'stopped';
+    }
+  }
+  return 'ordinary';
+}
+// One-use source observation crosses the async native-reader boundary. Its
+// exact issuer/index/Lineage is rechecked synchronously at exclusion consumption;
+// a copied proof or a newly registered replacement cannot provide authority.
+export function consumeInboxProbeDelivery(
+  proof: InboxProbeDeliveryObservation,
+  repository: PrivateStorageRepository,
+  session: PrivateSession,
+  eventId: string,
+  outerWire: string
+): boolean {
+  const observed = deliveryObservations.get(proof);
+  if (!observed) return false;
+  deliveryObservations.delete(proof);
+  const { saved, entries, id, wire } = observed;
+  const current =
+    saved.repository === repository &&
+    saved.session === session &&
+    observed.eventId === eventId &&
+    observed.outerWire === outerWire &&
+    entries.get(id) === saved &&
+    saved.lineage.wire() === wire &&
+    currentDeliveryJournal(saved);
+  if (!current && entries.get(id) === saved) entries.delete(id);
+  return current;
+}
 const actions = new WeakMap<
   InboxProbeGiftwrap,
   Readonly<{
@@ -356,6 +515,7 @@ export async function commitInboxProbe(
                 revoked = true;
               }
             });
+            rememberInboxProbeDelivery(acknowledgement);
             return { status, acknowledgement };
           }
         );
@@ -616,6 +776,7 @@ export async function adoptRecoveredInboxProbe(
                 revoked = true;
               }
             });
+            rememberInboxProbeDelivery(acknowledgement);
             return { status: 'adopted', acknowledgement };
           }
         );

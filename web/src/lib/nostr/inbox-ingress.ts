@@ -38,6 +38,7 @@ type Snapshot = Readonly<{
   bytes: number;
   retained: number;
   duplicates: number;
+  excludedProbes: number;
   rejected: number;
   reason: string | null;
   pending: number;
@@ -145,6 +146,7 @@ export function captureInboxIngress(
       bytes = 0,
       retained = 0,
       duplicates = 0,
+      excludedProbes = 0,
       rejected = 0,
       pending = 0,
       reason: string | null = null,
@@ -190,6 +192,7 @@ export function captureInboxIngress(
         bytes,
         retained,
         duplicates,
+        excludedProbes,
         rejected,
         reason,
         pending,
@@ -272,6 +275,7 @@ export function captureInboxIngress(
                 }
                 if (result.status === 'retained') retained++;
                 else if (result.status === 'duplicate') duplicates++;
+                else if (result.status === 'probe_excluded') excludedProbes++;
                 else {
                   failed = true;
                   state = 'needs_action';

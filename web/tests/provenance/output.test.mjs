@@ -614,6 +614,10 @@ import { auditOutput } from '../../tools/check-output.mjs';
         for (const producer of [
           'src/lib/persistence/private-storage.ts',
           'src/lib/persistence/inbox-probes.ts',
+          'src/lib/persistence/inbox-envelope-repository.ts',
+          'src/lib/nostr/inbox-ingress.ts',
+          'src/lib/messaging/inbox-sync.ts',
+          'src/lib/messaging/history-pagination.ts',
           'src/lib/persistence/inbox-probe-cleanup.ts',
           'src/lib/messaging/inbox-access-qualification.ts',
           'src/lib/persistence/private-records.ts'
@@ -634,7 +638,11 @@ import { auditOutput } from '../../tools/check-output.mjs';
                   await refresh(f);
                   await assert.rejects(
                     f.audit,
-                    /Invalid owned probe storage source|ENOENT/
+                    // This shared producer is already guarded by exact inbox
+                    // presentation identity before probe-storage admission.
+                    producer === 'src/lib/messaging/inbox-sync.ts'
+                      ? /Invalid owned (?:probe storage|inbox presentation) source|ENOENT/
+                      : /Invalid owned probe storage source|ENOENT/
                   );
                 } finally {
                   await writeFile(file, original);

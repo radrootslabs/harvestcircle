@@ -8,7 +8,11 @@ import {
   advanceOuterPage,
   type OuterCursor
 } from './inbox-state.ts';
-import { readRetainedOuterMetadata } from '../persistence/history-metadata-repository.ts';
+import {
+  readRetainedOuterMetadata,
+  type RetainedOuterMetadata
+} from '../persistence/history-metadata-repository.ts';
+import { LOCAL_PERSISTENCE_BUDGETS } from '../config/budgets.ts';
 import {
   createPrivateHistoryRun,
   subscribePrivateSourcePage,
@@ -16,7 +20,7 @@ import {
 } from '../nostr/private-pool.ts';
 import {
   admitInboxEnvelope,
-  inboxEnvelopeSnapshot,
+  inboxEnvelopeOuterMetadata,
   retainInboxEnvelope
 } from '../persistence/inbox-envelope-repository.ts';
 import {
@@ -58,7 +62,43 @@ export function captureOlderInbox(
   let cursors = Array.from<OuterCursor>([]),
     release = () => {},
     off = () => {};
-  const current = () => !stopped && original.current();
+  // Genuine excluded deliveries still have signed outer cursor facts. They
+  // are bounded observed-page memory, never retained rows or exclusion proof.
+  const excludedOuter = new Map<string, RetainedOuterMetadata>();
+  let retainedOuter: readonly RetainedOuterMetadata[] =
+    Array.from<RetainedOuterMetadata>([]);
+  function mergedOuter(
+    retained: readonly RetainedOuterMetadata[],
+    extra?: RetainedOuterMetadata
+  ): RetainedOuterMetadata[] | undefined {
+    const rows = new Map<string, RetainedOuterMetadata>(),
+      ids = new Map<string, true>();
+    for (const row of [
+      ...retained,
+      ...excludedOuter.values(),
+      ...(extra ? [extra] : [])
+    ]) {
+      ids.set(row.outerId, true);
+      if (ids.size > LOCAL_PERSISTENCE_BUDGETS.receivedEnvelopes)
+        return undefined;
+      const key = JSON.stringify([row.source, row.outerId]),
+        previous = rows.get(key);
+      if (previous && previous.outerTime !== row.outerTime) return undefined;
+      if (!previous) rows.set(key, row);
+    }
+    return Array.from(rows.values());
+  }
+  const current = () => {
+    const valid = !stopped && original.current();
+    if (!valid) {
+      // These are only transient cursor facts. Observed generation loss must
+      // discard them even when the next explicit action is refused at entry.
+      excludedOuter.clear();
+      retainedOuter = [];
+      cursors = [];
+    }
+    return valid;
+  };
   function stop() {
     stopped = true;
     cancellation.abort();
@@ -75,6 +115,8 @@ export function captureOlderInbox(
       failure = true;
     }
     cursors = [];
+    excludedOuter.clear();
+    retainedOuter = [];
     cleanupRequired = failure;
     if (!failure && syncs.get(sync) === token) syncs.delete(sync);
     if (failure) throw Error('private_history_cleanup_required');
@@ -89,6 +131,7 @@ export function captureOlderInbox(
         finished = false,
         failure: string | undefined;
       const ids = new Map<string, true>();
+      const pageRetained = new Map<string, RetainedOuterMetadata>();
       let acceptedDeliveries = 0;
       function receive(message: PrivatePageMessage) {
         if (finished) return;
@@ -120,6 +163,7 @@ export function captureOlderInbox(
         queue = queue
           .then(async () => {
             if (!current()) return;
+            if (failure === 'capacity') return;
             const owner = privateOwner();
             const admitted =
               owner &&
@@ -135,6 +179,29 @@ export function captureOlderInbox(
               cancellation.signal
             );
             if (!current()) return;
+            if (retained.status === 'probe_excluded') {
+              const signed = inboxEnvelopeOuterMetadata(admitted);
+              if (!signed) {
+                failure = 'unsupported';
+                return;
+              }
+              const fact = {
+                source,
+                outerId: signed.id,
+                outerTime: signed.createdAt
+              };
+              if (
+                !mergedOuter([...retainedOuter, ...pageRetained.values()], fact)
+              ) {
+                failure = 'capacity';
+                return;
+              }
+              const key = JSON.stringify([source, signed.id]);
+              if (!excludedOuter.has(key)) excludedOuter.set(key, fact);
+              acceptedDeliveries++;
+              ids.set(signed.id, true);
+              return;
+            }
             if (
               retained.status !== 'retained' &&
               retained.status !== 'duplicate'
@@ -142,13 +209,25 @@ export function captureOlderInbox(
               failure = retained.status;
               return;
             }
-            acceptedDeliveries++;
-            const parsed = inboxEnvelopeSnapshot(admitted);
-            if (!parsed) {
+            const signed = inboxEnvelopeOuterMetadata(admitted);
+            if (!signed) {
               failure = 'unsupported';
               return;
             }
-            ids.set(parsed.id, true);
+            const fact = {
+              source,
+              outerId: signed.id,
+              outerTime: signed.createdAt
+            };
+            if (
+              !mergedOuter([...retainedOuter, ...pageRetained.values()], fact)
+            ) {
+              failure = 'capacity';
+              return;
+            }
+            pageRetained.set(signed.id, fact);
+            acceptedDeliveries++;
+            ids.set(signed.id, true);
           })
           .catch(() => {
             failure = 'unknown_completion';
@@ -171,17 +250,20 @@ export function captureOlderInbox(
     return privateSessionOwnership(original.session)?.owner;
   }
   controllers.set(token, {
-    snapshot: () => ({
-      ownerGenerationScoped: true,
-      state,
-      reason,
-      historyComplete: false,
-      cleanupRequired,
-      sources: cursors.map((cursor) => ({
-        ...cursor,
-        seen: cursor.seen.slice()
-      }))
-    }),
+    snapshot: () => {
+      current();
+      return {
+        ownerGenerationScoped: true,
+        state,
+        reason,
+        historyComplete: false,
+        cleanupRequired,
+        sources: cursors.map((cursor) => ({
+          ...cursor,
+          seen: cursor.seen.slice()
+        }))
+      };
+    },
     stop,
     async start(reviewed) {
       if (
@@ -208,10 +290,17 @@ export function captureOlderInbox(
           reason = initial.reason;
           return false;
         }
+        const observed = mergedOuter(initial.rows);
+        if (!observed) {
+          state = 'needs_action';
+          reason = 'capacity';
+          return false;
+        }
+        retainedOuter = initial.rows;
         cursors = original.targets.map((source) => {
           const fresh = initialOuterCursor(
             source,
-            initial.rows.filter((row) => row.source === source)
+            observed.filter((row) => row.source === source)
           );
           const previous = cursors.find((cursor) => cursor.source === source);
           return previous && previous.until === fresh.until
@@ -248,14 +337,26 @@ export function captureOlderInbox(
             next = next.concat(cursor);
             break;
           }
-          const rows = stored.rows.filter(
+          const observed = mergedOuter(stored.rows);
+          if (!observed) {
+            state = 'needs_action';
+            reason = 'capacity';
+            next = next.concat(cursor);
+            break;
+          }
+          retainedOuter = stored.rows;
+          const rows = observed.filter(
             (row) =>
               row.source === cursor.source && result.ids.includes(row.outerId)
           );
           next = next.concat(
             advanceOuterPage(cursor, rows, result.deliveries, result.reason)
           );
-          if (result.reason === 'budget' || result.reason === 'elapsed') {
+          if (
+            result.reason === 'budget' ||
+            result.reason === 'elapsed' ||
+            result.reason === 'capacity'
+          ) {
             state = 'needs_action';
             reason = result.reason;
             break;

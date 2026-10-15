@@ -323,9 +323,9 @@ async function operationalFlagsAdmission(web) {
     'src/lib/nostr/private-pool.ts':
       '2ed123596f26bedb8aab5ec7694be6e264616429e00f745f1614c83f52de9825',
     'src/lib/nostr/inbox-ingress.ts':
-      'f860a094a8ba767585124c795d44b7620064f73a5b3a0170041c581c0fc64ecb',
+      'dab2e6be2e10c1194008957a7015d22907f08201f95c5f4824ace4b98c1b89c2',
     'src/lib/persistence/inbox-probes.ts':
-      '7d16f44c6fb8ec1168e6c93b669ca3eb404529e8b1783e29694a182db7649cc7',
+      '2e623973b9885ef20a85ee10229c634251719931afc20e05b118b5e9748a2ba3',
     'src/lib/persistence/inbox-probe-cleanup.ts':
       'bfc24be3530471cccd01d387ed2b38a6534eb6493ce850ba9711cc3cfa77e6d9',
     'src/lib/messaging/inbox-access-qualification.ts':
@@ -343,7 +343,7 @@ async function operationalFlagsAdmission(web) {
     'src/lib/messaging/inbox-setup.ts':
       '7a935d8542ff8f64287d2b441a8a458d299dea4ed88beecda39cb1637dd4a9ac',
     'src/lib/messaging/inbox-sync.ts':
-      '0d91f5895e7eb054b036a5cb80897a3d60a212d470029a82d11124c8536b3d2c',
+      '1a161fc95756ce2ae8fe7fceb5906d502f84cb1ae32834bb16791c408e1a775a',
     'src/lib/messaging/inbox-view.ts':
       '6871707ae7395d3679856a01e87c7d8f273848e0b9ef0dc7b94f450d8417528c',
     'src/lib/messaging/product-request-controller.ts':
@@ -391,11 +391,11 @@ async function operationalFlagsAdmission(web) {
     'src/lib/persistence/local-data-review.ts':
       '90379b183d0a1d8885076fbfc593d7c9ac1e351b16ce7800890107014e5cb0e4',
     'src/lib/persistence/inbox-envelope-repository.ts':
-      'd3613a098c93c8881d53de12f91ffb689827926217cabcba66894885d49cb095',
+      'beb7eeef35be8b81ff03c9080e780528e37f1cd5c0be4f7b32575b1e60994bd3',
     'src/lib/persistence/history-metadata-repository.ts':
       'afe4656e59bd6b365444fbda64fe6572ffa4c5323c474ee862e3cf19252b6f6d',
     'src/lib/messaging/history-pagination.ts':
-      '79b22b312a126b55c80a3c6ca22724bd2c5f3ad766f8600f3647028a2624c255',
+      '25218db4f7048311156b730634874108c1f224ca1dc80aa7041743fbaf6c3919',
     'src/lib/persistence/private-outbox-cleanup.ts':
       '13f4e7d771b3a8d4ec7703f2026a1c8ff71582a2d2a810b9d402d58684b2e2b6',
     'src/lib/persistence/local-inventory.ts':
@@ -605,9 +605,9 @@ async function privacyDataAdmission(web) {
     'src/lib/nostr/private-pool.ts':
       '2ed123596f26bedb8aab5ec7694be6e264616429e00f745f1614c83f52de9825',
     'src/lib/nostr/inbox-ingress.ts':
-      'f860a094a8ba767585124c795d44b7620064f73a5b3a0170041c581c0fc64ecb',
+      'dab2e6be2e10c1194008957a7015d22907f08201f95c5f4824ace4b98c1b89c2',
     'src/lib/persistence/inbox-probes.ts':
-      '7d16f44c6fb8ec1168e6c93b669ca3eb404529e8b1783e29694a182db7649cc7',
+      '2e623973b9885ef20a85ee10229c634251719931afc20e05b118b5e9748a2ba3',
     'src/lib/persistence/inbox-probe-cleanup.ts':
       'bfc24be3530471cccd01d387ed2b38a6534eb6493ce850ba9711cc3cfa77e6d9',
     'src/lib/messaging/inbox-access-qualification.ts':
@@ -623,7 +623,7 @@ async function privacyDataAdmission(web) {
     'src/lib/messaging/inbox-setup-view.ts':
       '4ec9025232bb1355fef1ba039b46ce0a2be10e02e348e1b4eaadc3d1f3c2fd84',
     'src/lib/messaging/inbox-sync.ts':
-      '0d91f5895e7eb054b036a5cb80897a3d60a212d470029a82d11124c8536b3d2c',
+      '1a161fc95756ce2ae8fe7fceb5906d502f84cb1ae32834bb16791c408e1a775a',
     'src/lib/messaging/inbox-view.ts':
       '6871707ae7395d3679856a01e87c7d8f273848e0b9ef0dc7b94f450d8417528c',
     'src/lib/messaging/reply-controller.ts':
@@ -667,11 +667,11 @@ async function privacyDataAdmission(web) {
     'src/lib/persistence/local-data-review.ts':
       '90379b183d0a1d8885076fbfc593d7c9ac1e351b16ce7800890107014e5cb0e4',
     'src/lib/persistence/inbox-envelope-repository.ts':
-      'd3613a098c93c8881d53de12f91ffb689827926217cabcba66894885d49cb095',
+      'beb7eeef35be8b81ff03c9080e780528e37f1cd5c0be4f7b32575b1e60994bd3',
     'src/lib/persistence/history-metadata-repository.ts':
       'afe4656e59bd6b365444fbda64fe6572ffa4c5323c474ee862e3cf19252b6f6d',
     'src/lib/messaging/history-pagination.ts':
-      '79b22b312a126b55c80a3c6ca22724bd2c5f3ad766f8600f3647028a2624c255',
+      '25218db4f7048311156b730634874108c1f224ca1dc80aa7041743fbaf6c3919',
     'src/lib/persistence/private-outbox-cleanup.ts':
       '13f4e7d771b3a8d4ec7703f2026a1c8ff71582a2d2a810b9d402d58684b2e2b6',
     'src/lib/persistence/local-inventory.ts':
@@ -2174,12 +2174,20 @@ async function inboxSetupAdmission(web) {
 /** @param {string} web */
 async function inboxProbeStorageAdmission(web) {
   const producers = {
+    'src/lib/persistence/inbox-envelope-repository.ts':
+      'beb7eeef35be8b81ff03c9080e780528e37f1cd5c0be4f7b32575b1e60994bd3',
+    'src/lib/nostr/inbox-ingress.ts':
+      'dab2e6be2e10c1194008957a7015d22907f08201f95c5f4824ace4b98c1b89c2',
+    'src/lib/messaging/inbox-sync.ts':
+      '1a161fc95756ce2ae8fe7fceb5906d502f84cb1ae32834bb16791c408e1a775a',
+    'src/lib/messaging/history-pagination.ts':
+      '25218db4f7048311156b730634874108c1f224ca1dc80aa7041743fbaf6c3919',
     'src/lib/persistence/private-records.ts':
       '821ef96740cf644bff4ffe5c7816c6aa097aa419bd16b8b301809b963294dafe',
     'src/lib/persistence/private-storage.ts':
       '9cdac5a1f00678d83bdf4a9b7bfb7c8bd04dc234afb140fc19e0156ad4a064a3',
     'src/lib/persistence/inbox-probes.ts':
-      '7d16f44c6fb8ec1168e6c93b669ca3eb404529e8b1783e29694a182db7649cc7',
+      '2e623973b9885ef20a85ee10229c634251719931afc20e05b118b5e9748a2ba3',
     'src/lib/persistence/inbox-probe-cleanup.ts':
       'bfc24be3530471cccd01d387ed2b38a6534eb6493ce850ba9711cc3cfa77e6d9',
     'src/lib/messaging/inbox-access-qualification.ts':
@@ -2206,7 +2214,7 @@ async function inboxPresentationAdmission(web) {
     'src/lib/messaging/inbox-view.ts':
       'f725d1e122550232efa52b26139d3047d3bbfd6d3d11b1ef0a110b5e4b4410dc',
     'src/lib/messaging/inbox-sync.ts':
-      '0d91f5895e7eb054b036a5cb80897a3d60a212d470029a82d11124c8536b3d2c',
+      '1a161fc95756ce2ae8fe7fceb5906d502f84cb1ae32834bb16791c408e1a775a',
     'src/lib/messaging/inbox-setup-view.ts':
       '4ec9025232bb1355fef1ba039b46ce0a2be10e02e348e1b4eaadc3d1f3c2fd84',
     'src/lib/messaging/decryption-queue.ts':

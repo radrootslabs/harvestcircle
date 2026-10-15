@@ -51,6 +51,7 @@ type Snapshot = Readonly<{
   bytes: number;
   retained: number;
   duplicates: number;
+  excludedProbes: number;
   rejected: number;
   reason: string | null;
   pending: number;
@@ -196,6 +197,7 @@ export function captureInboxSync(
       bytes = 0,
       retained = 0,
       duplicates = 0,
+      excludedProbes = 0,
       rejected = 0,
       pending = 0,
       reason: string | null = null,
@@ -318,6 +320,7 @@ export function captureInboxSync(
           }
           if (result.status === 'retained') retained++;
           else if (result.status === 'duplicate') duplicates++;
+          else if (result.status === 'probe_excluded') excludedProbes++;
           else pause(result.status);
         })
         .catch(() => pause('unknown_completion'))
@@ -370,6 +373,7 @@ export function captureInboxSync(
         bytes,
         retained,
         duplicates,
+        excludedProbes,
         rejected,
         reason,
         pending,

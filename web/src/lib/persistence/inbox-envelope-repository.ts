@@ -15,14 +15,20 @@ import {
   decodePrivateRecord,
   privateRecordSnapshot,
   privateRecordWire,
+  privateReceivedOuterMetadata,
   type PrivateRecordHandle
 } from './private-records.ts';
 import {
   loadPrivateRecord,
+  privateStorageOwner,
   retainPrivateReceivedRecord,
   type PrivateStorageRepository,
   type PrivateStorageFailure
 } from './private-storage.ts';
+import {
+  observeInboxProbeDelivery,
+  consumeInboxProbeDelivery
+} from './inbox-probes.ts';
 declare const envelopeBrand: unique symbol;
 export type InboxEnvelope = Readonly<{ [envelopeBrand]: true }>;
 type Admitted = Readonly<{
@@ -78,10 +84,15 @@ export function inboxEnvelopeSnapshot(token: InboxEnvelope) {
   const row = envelopes.get(token);
   return row && privateRecordSnapshot(row.record, row.owner, row.id);
 }
+export function inboxEnvelopeOuterMetadata(token: InboxEnvelope) {
+  const row = envelopes.get(token);
+  return row && privateReceivedOuterMetadata(row.record, row.owner, row.id);
+}
 export type InboxRetentionResult = Readonly<{
   status:
     | 'retained'
     | 'duplicate'
+    | 'probe_excluded'
     | 'invalid'
     | 'stopped'
     | 'busy'
@@ -95,10 +106,11 @@ export async function retainInboxEnvelope(
   envelope: InboxEnvelope,
   cancellation?: AbortSignal
 ): Promise<InboxRetentionResult> {
-  const admitted = envelopes.get(envelope),
-    ownership = privateSessionOwnership(session);
+  const admitted = envelopes.get(envelope);
+  if (!admitted || privateStorageOwner(repository) !== admitted.owner)
+    return { status: 'invalid' };
+  const ownership = privateSessionOwnership(session);
   if (
-    !admitted ||
     !ownership?.current() ||
     ownership.owner !== admitted.owner ||
     typeof window === 'undefined' ||
@@ -114,6 +126,37 @@ export async function retainInboxEnvelope(
         if (!lock) return { status: 'busy' };
         if (!ownership.current() || cancellation?.aborted)
           return { status: 'stopped' };
+        const record = privateRecordSnapshot(
+          admitted.record,
+          admitted.owner,
+          admitted.id
+        );
+        if (!record || record.family !== 'received_envelope')
+          return { status: 'invalid' };
+        const probe = await observeInboxProbeDelivery(
+          repository,
+          session,
+          admitted.id,
+          record.outer,
+          cancellation
+        );
+        if (
+          !ownership.current() ||
+          cancellation?.aborted ||
+          probe === 'stopped'
+        )
+          return { status: 'stopped' };
+        if (
+          typeof probe !== 'string' &&
+          consumeInboxProbeDelivery(
+            probe,
+            repository,
+            session,
+            admitted.id,
+            record.outer
+          )
+        )
+          return { status: 'probe_excluded' };
         const committed = await retainPrivateReceivedRecord(
           repository,
           session,
