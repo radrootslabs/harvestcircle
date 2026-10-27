@@ -125,28 +125,7 @@
       ]
     },
     {
-      "path": "contracts/rshr-201-step-gates.v1.json",
-      "kind": "exact",
-      "owners": [
-        "native"
-      ]
-    },
-    {
-      "path": "tools/rshr_201_step_gate.py",
-      "kind": "exact",
-      "owners": [
-        "native"
-      ]
-    },
-    {
       "path": "tools/run-linux-x86_64-development-check.sh",
-      "kind": "exact",
-      "owners": [
-        "native"
-      ]
-    },
-    {
-      "path": "tools/test-build-logic-stability.sh",
       "kind": "exact",
       "owners": [
         "native"

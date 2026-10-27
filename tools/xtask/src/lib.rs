@@ -148,7 +148,6 @@ fn validate_product_root(root: &Path) -> Result<PathBuf, String> {
         "tools/xtask/Cargo.lock",
         "core/crates/harvestcircle_domain/Cargo.toml",
         "core/crates/harvestcircle_domain/src/lib.rs",
-        "contracts/rshr-201-step-gates.v1.json",
         "contracts/release/harvestcircle-artifact-contract.v3.json",
     ] {
         validate_git_inventory_path(&root, Path::new(marker))

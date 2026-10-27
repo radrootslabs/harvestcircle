@@ -36,7 +36,7 @@ $(NATIVE_PROVENANCE_TARGETS): export HARVESTCIRCLE_BUILD_RADROOTS_REVISION = $(s
 $(NATIVE_PROVENANCE_TARGETS): export HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN = 1.99.0
 $(NATIVE_PROVENANCE_TARGETS): export SOURCE_DATE_EPOCH = $(shell git show -s --format=%ct HEAD)
 
-.PHONY: help doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-provenance-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check unsigned-release-check _unsigned-release-check signing-check _signing-check notarization-check _notarization-check release-check _release-check clean
+.PHONY: help doctor governed-doctor lock metadata build-logic-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-provenance-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check unsigned-release-check _unsigned-release-check signing-check _signing-check notarization-check _notarization-check release-check _release-check clean
 .PHONY: native-doctor native-dev native-check native-build native-package-check
 .PHONY: repo-check check-all affected-check
 
@@ -63,7 +63,7 @@ native-package-check: package-check
 
 help:
 	@printf '%s\n' 'Repository: repo-check affected-check BASE=<commit>' 'KMP/native source aggregate: check-all'
-	@printf '%s\n' doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check unsigned-release-check signing-check notarization-check release-check clean
+	@printf '%s\n' doctor governed-doctor lock metadata build-logic-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check unsigned-release-check signing-check notarization-check release-check clean
 
 design-source-check: doctor
 	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- design-source-audit
@@ -93,9 +93,6 @@ metadata: doctor
 
 build-logic-check: doctor
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon -p build-logic :contracts:check :plugins:check :plugins:functionalTest
-
-build-logic-stability-check: doctor
-	$(BUILD_RUNNER) tools/test-build-logic-stability.sh
 
 mode-check:
 	$(BUILD_RUNNER) tools/test-build-modes.sh

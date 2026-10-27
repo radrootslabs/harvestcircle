@@ -69,18 +69,7 @@ do
 done
 
 for mode in standalone governed; do
-    stability_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$makefile_fixture" build-logic-stability-check)
-    stability_count=$(printf '%s\n' "$stability_output" | grep -c 'test-build-logic-stability.sh')
-    if [ "$stability_count" -ne 1 ]; then
-        printf '%s\n' "build-logic stability in $mode mode must invoke its qualification tool exactly once" >&2
-        exit 1
-    fi
-
     source_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$makefile_fixture" source-check)
-    if printf '%s\n' "$source_output" | grep -q 'test-build-logic-stability.sh'; then
-        printf '%s\n' "ordinary source-check in $mode mode invoked the nondefault stability lane" >&2
-        exit 1
-    fi
 
     dev_check_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$makefile_fixture" dev-check)
     dev_check_count=$(printf '%s\n' "$dev_check_output" | grep -c -- '--configuration-cache --configuration-cache-problems=fail :app:desktop:hotRunArgfile')

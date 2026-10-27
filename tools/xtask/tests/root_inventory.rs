@@ -380,7 +380,6 @@ fn cli_rejects_wrong_cwd_missing_native_markers_and_corrupt_git() {
         "core/Cargo.lock",
         "core/rust-toolchain.toml",
         "tools/xtask/Cargo.lock",
-        "contracts/rshr-201-step-gates.v1.json",
     ] {
         let path = capsule.join(marker);
         let saved = fs::read(&path).unwrap();
