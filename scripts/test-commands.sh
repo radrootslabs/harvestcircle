@@ -162,7 +162,7 @@ for mode in standalone governed; do
         [ "$(grep -c "$(printf '\t')-p$(printf '\t')build-logic" "$fixture/lane.log")" -eq 1 ]
     done
     development_output=$(tr '\t' ' ' < "$fixture/lane.log")
-    for forbidden in 'cargo audit' dependencyCheckAnalyze verifyHostPackage packageDmg packageDeb; do
+    for forbidden in 'cargo audit' verifyHostPackage packageDmg packageDeb; do
         if printf '%s\n' "$development_output" | grep -q "$forbidden"; then
             printf '%s\n' "development-check selected deferred release work: $forbidden" >&2; exit 1
         fi

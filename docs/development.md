@@ -22,7 +22,7 @@ download its pinned distribution; prerequisite checks never install host tools.
 | `make repo-check` | Repository source and dependency boundaries |
 | `make build-logic-check` | Gradle contract and convention-plugin tests |
 | `make bindings` | Native library and generated binding consistency |
-| `make licenses` / `make audit` | Licence/source policy / network advisory checks |
+| `make licenses` / `make audit` | Licence/source policy / Rust advisory checks |
 | `make integration-check` | Native application integration and isolation |
 
 Advanced checks require their corresponding tools: `cargo-deny` for licence and
@@ -73,3 +73,8 @@ current FFI and storage checks when changing producer contracts.
 Internal Rust APIs evolve with their workspace consumers during MVP development;
 there is no exact public-API snapshot or nightly API-tool requirement. Compiler,
 behavioral, storage/migration and generated FFI compatibility checks remain active.
+
+The Rust advisory lane remains available explicitly. Gradle conventions do not
+load an advisory database/scanner during ordinary development. Review Kotlin/JVM
+dependency changes and their advisories deliberately; automated JVM advisory
+scanning is deferred until a suitable distribution workflow is established.

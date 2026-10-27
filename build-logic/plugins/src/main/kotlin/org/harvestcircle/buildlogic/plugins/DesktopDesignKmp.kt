@@ -10,7 +10,6 @@ import org.jlleitschuh.gradle.ktlint.KtlintExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
-import org.owasp.dependencycheck.gradle.extension.DependencyCheckExtension
 
 internal fun Project.applyDesktopDesignKmp() {
     group = "org.harvestcircle"
@@ -20,7 +19,6 @@ internal fun Project.applyDesktopDesignKmp() {
     pluginManager.apply("dev.detekt")
     pluginManager.apply("org.jlleitschuh.gradle.ktlint")
     pluginManager.apply("com.github.jk1.dependency-license-report")
-    pluginManager.apply("org.owasp.dependencycheck")
 
     extensions.configure(KtlintExtension::class.java) { extension ->
         extension.additionalEditorconfig.set(
@@ -52,21 +50,6 @@ internal fun Project.applyDesktopDesignKmp() {
         extension.filters = arrayOf(SpdxLicenseBundleNormalizer())
         extension.allowedLicensesFile =
             rootProject.layout.projectDirectory.file("config/licenses/allowed-licenses.json")
-    }
-    extensions.configure(DependencyCheckExtension::class.java) { extension ->
-        extension.failBuildOnCVSS.set(0.0F)
-        extension.failOnError.set(true)
-        extension.formats.set(listOf("HTML", "JSON"))
-        extension.scanConfigurations.set(listOf("desktopRuntimeClasspath"))
-        extension.skipTestGroups.set(true)
-        providers.environmentVariable("NVD_API_KEY").orNull?.takeIf(String::isNotBlank)?.let {
-            extension.nvd.apiKey.set(it)
-        }
-    }
-    tasks.matching { it.name.startsWith("dependencyCheck") }.configureEach {
-        it.notCompatibleWithConfigurationCache(
-            "Advisory data and environment-only credentials must not be cached",
-        )
     }
 }
 

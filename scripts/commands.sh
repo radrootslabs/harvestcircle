@@ -111,8 +111,7 @@ case "$command_name" in
     audit)
         scripts/check-prerequisites.sh audit
         cargo "+$HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN" audit --file core/Cargo.lock
-        cargo "+$HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN" deny --manifest-path "$CARGO_MANIFEST" check --config core/deny.toml advisories
-        exec "$GRADLE" --no-daemon --no-configuration-cache :app:desktop:dependencyCheckAnalyze :app:design_system:dependencyCheckAnalyze :tools:design_catalog:dependencyCheckAnalyze
+        exec cargo "+$HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN" deny --manifest-path "$CARGO_MANIFEST" check --config core/deny.toml advisories
         ;;
     licenses)
         scripts/check-prerequisites.sh licenses

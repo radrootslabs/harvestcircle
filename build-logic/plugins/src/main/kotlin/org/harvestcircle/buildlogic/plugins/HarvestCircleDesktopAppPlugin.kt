@@ -22,7 +22,6 @@ import org.jetbrains.compose.desktop.DesktopExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
-import org.owasp.dependencycheck.gradle.extension.DependencyCheckExtension
 
 public abstract class HarvestCircleDesktopAppExtension {
     public abstract val generatedKotlinSources: ConfigurableFileCollection
@@ -39,7 +38,6 @@ public class HarvestCircleDesktopAppPlugin : Plugin<Project> {
         target.pluginManager.apply("dev.detekt")
         target.pluginManager.apply("org.jlleitschuh.gradle.ktlint")
         target.pluginManager.apply("com.github.jk1.dependency-license-report")
-        target.pluginManager.apply("org.owasp.dependencycheck")
 
         val catalog = target.extensions.getByType(VersionCatalogsExtension::class.java).named("libs")
         val coordinatesFile = target.rootProject.layout.projectDirectory.file("config/product/harvestcircle-v1.properties")
@@ -92,19 +90,6 @@ public class HarvestCircleDesktopAppPlugin : Plugin<Project> {
             extension.filters = arrayOf(SpdxLicenseBundleNormalizer())
             extension.allowedLicensesFile =
                 target.rootProject.layout.projectDirectory.file("config/licenses/allowed-licenses.json")
-        }
-        target.extensions.configure(DependencyCheckExtension::class.java) { extension ->
-            extension.failBuildOnCVSS.set(0.0F)
-            extension.failOnError.set(true)
-            extension.formats.set(listOf("HTML", "JSON"))
-            extension.scanConfigurations.set(listOf("runtimeClasspath"))
-            extension.skipTestGroups.set(true)
-            target.providers.environmentVariable("NVD_API_KEY").orNull?.takeIf(String::isNotBlank)?.let {
-                extension.nvd.apiKey.set(it)
-            }
-        }
-        target.tasks.matching { it.name.startsWith("dependencyCheck") }.configureEach {
-            it.notCompatibleWithConfigurationCache("Advisory data and environment-only credentials must not be cached")
         }
     }
 

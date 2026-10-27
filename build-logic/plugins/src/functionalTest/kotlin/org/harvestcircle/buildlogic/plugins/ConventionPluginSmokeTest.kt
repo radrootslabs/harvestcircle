@@ -226,7 +226,6 @@ class ConventionPluginSmokeTest {
 
         listOf(
             "checkLicense",
-            "dependencyCheckAnalyze",
             "generateDesktopBuildMetadata",
             "verifyGeneratedDesktopBuildMetadata",
             "verifyTestInventory",
