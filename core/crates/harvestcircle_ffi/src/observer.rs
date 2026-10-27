@@ -436,6 +436,7 @@ mod tests {
         changes: Mutex<Vec<SnapshotChangeDto>>,
         entered: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
         release: Mutex<std::sync::mpsc::Receiver<()>>,
+        release_timeout: Duration,
         delivered: tokio::sync::Notify,
     }
 
@@ -447,7 +448,7 @@ mod tests {
                 self.release
                     .lock()
                     .expect("callback release gate")
-                    .recv_timeout(OBSERVER_DELIVERY_TIMEOUT)
+                    .recv_timeout(self.release_timeout)
                     .expect("release initial callback");
             }
             self.delivered.notify_one();
@@ -555,7 +556,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cancelled_unsubscribe_retry_waits_for_the_retained_callback_task() {
         let core = core().await;
-        let (observer, entered, release) = gated_observer();
+        let (observer, entered, release) = gated_observer(OBSERVER_DELIVERY_TIMEOUT);
         let subscription = core
             .subscribe_changes_v2(Box::new(Arc::clone(&observer)))
             .await
@@ -606,7 +607,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cancelled_shutdown_retry_finishes_observers_before_terminal_close() {
         let core = core().await;
-        let (observer, entered, release) = gated_observer();
+        let (observer, entered, release) = gated_observer(OBSERVER_DELIVERY_TIMEOUT);
         let subscription = core
             .subscribe_changes_v2(Box::new(Arc::clone(&observer)))
             .await
@@ -983,7 +984,8 @@ mod tests {
             .await
             .expect("initial selection");
         let initial_revision = core.snapshot().revision;
-        let (observer, entered, release) = gated_observer();
+        let publications = super::OBSERVER_CHANGE_CAPACITY.get() + 2;
+        let (observer, entered, release) = gated_observer(publication_batch_timeout(publications));
         let subscription = core
             .subscribe_changes_v2(Box::new(Arc::clone(&observer)))
             .await
@@ -993,13 +995,14 @@ mod tests {
             .expect("callback entry deadline")
             .expect("callback entered");
         let task = observer_abort_handle(&core, &subscription);
-        let publications = super::OBSERVER_CHANGE_CAPACITY.get() + 2;
         for offset in 0..publications {
-            core.inner
-                .actor
-                .select_identity(public_keys[offset % 2])
-                .await
-                .expect("revision-changing selection");
+            tokio::time::timeout(
+                OBSERVER_DELIVERY_TIMEOUT,
+                core.inner.actor.select_identity(public_keys[offset % 2]),
+            )
+            .await
+            .expect("actor publication progress deadline")
+            .expect("revision-changing selection");
         }
         let final_revision = core.snapshot().revision;
         let mut closing = Box::pin(core.shutdown_v2());
@@ -1045,7 +1048,16 @@ mod tests {
         );
     }
 
-    fn gated_observer() -> (
+    fn publication_batch_timeout(publications: usize) -> Duration {
+        // Every database-backed publication has its own progress bound. Hold the
+        // callback for that bounded batch, plus registration/release headroom.
+        OBSERVER_DELIVERY_TIMEOUT
+            * u32::try_from(publications + 2).expect("bounded publication count")
+    }
+
+    fn gated_observer(
+        release_timeout: Duration,
+    ) -> (
         Arc<GatedObserver>,
         tokio::sync::oneshot::Receiver<()>,
         std::sync::mpsc::SyncSender<()>,
@@ -1057,6 +1069,7 @@ mod tests {
                 changes: Mutex::new(Vec::new()),
                 entered: Mutex::new(Some(entered_sender)),
                 release: Mutex::new(release_receiver),
+                release_timeout,
                 delivered: tokio::sync::Notify::new(),
             }),
             entered_receiver,
@@ -1126,14 +1139,10 @@ mod tests {
                 .await
                 .expect("select second identity before observation");
             let initial_revision = core.snapshot().revision;
-            let (entered_sender, entered_receiver) = tokio::sync::oneshot::channel();
-            let (release_sender, release_receiver) = std::sync::mpsc::sync_channel(1);
-            let observer = Arc::new(GatedObserver {
-                changes: Mutex::new(Vec::new()),
-                entered: Mutex::new(Some(entered_sender)),
-                release: Mutex::new(release_receiver),
-                delivered: tokio::sync::Notify::new(),
-            });
+            let queued_changes = super::OBSERVER_CHANGE_CAPACITY.get();
+            let publications = queued_changes + 2;
+            let (observer, entered_receiver, release_sender) =
+                gated_observer(publication_batch_timeout(publications));
             let subscription = core
                 .subscribe_changes_v2(Box::new(Arc::clone(&observer)))
                 .await
@@ -1143,24 +1152,20 @@ mod tests {
                 .expect("initial callback deadline")
                 .expect("initial callback entered");
 
-            let queued_changes = super::OBSERVER_CHANGE_CAPACITY.get();
-            let publications = queued_changes + 2;
-            let final_revision = tokio::time::timeout(OBSERVER_DELIVERY_TIMEOUT, async {
-                let mut final_revision = initial_revision;
-                for offset in 0..publications {
-                    final_revision = core
-                        .inner
+            let mut final_revision = initial_revision;
+            for offset in 0..publications {
+                final_revision = tokio::time::timeout(
+                    OBSERVER_DELIVERY_TIMEOUT,
+                    core.inner
                         .actor
-                        .select_identity(public_keys[offset % public_keys.len()])
-                        .await
-                        .expect("alternate selected identity")
-                        .revision()
-                        .value();
-                }
-                final_revision
-            })
-            .await
-            .expect("bounded actor publications");
+                        .select_identity(public_keys[offset % public_keys.len()]),
+                )
+                .await
+                .expect("actor publication progress deadline")
+                .expect("alternate selected identity")
+                .revision()
+                .value();
+            }
             assert_eq!(
                 final_revision,
                 initial_revision + u64::try_from(publications).expect("publication count")
