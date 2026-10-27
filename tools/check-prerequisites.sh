@@ -3,6 +3,20 @@ set -eu
 
 fail() { printf '%s\n' "HarvestCircle prerequisites: $*" >&2; exit 2; }
 require() { command -v "$1" >/dev/null 2>&1 || fail "$1 is missing; $2"; }
+
+# Check existing ancestors without creating or repairing host directories/links.
+check_cache_path() {
+    cache_path=$1
+    case "$cache_path" in /*) : ;; *) cache_path="$PWD/$cache_path" ;; esac
+    while [ ! -d "$cache_path" ]; do
+        [ ! -L "$cache_path" ] || fail "Gradle cache has a broken directory link: $cache_path; select a usable GRADLE_USER_HOME or BUILD_MODE=governed"
+        [ ! -e "$cache_path" ] || fail "Gradle cache path is not a directory: $cache_path; select a usable GRADLE_USER_HOME or BUILD_MODE=governed"
+        cache_path=${cache_path%/*}
+        [ -n "$cache_path" ] || cache_path=/
+    done
+    [ -w "$cache_path" ] && [ -x "$cache_path" ] || fail "Gradle cache directory is not writable/searchable: $cache_path; select a usable GRADLE_USER_HOME or BUILD_MODE=governed"
+}
+
 case "${1:-}" in
     common)
         require git 'install Git and use a Git checkout'
@@ -26,6 +40,13 @@ case "${1:-}" in
             Linux) require pkg-config 'install pkg-config and the OpenSSL development headers'; pkg-config --exists openssl || fail 'install the OpenSSL development headers' ;;
             *) fail 'the qualified development hosts are macOS and Linux' ;;
         esac
+        [ -n "${GRADLE_USER_HOME:-}" ] || fail 'GRADLE_USER_HOME is empty; run through the root Makefile or select a usable directory'
+        check_cache_path "$GRADLE_USER_HOME"
+        check_cache_path "$GRADLE_USER_HOME/caches"
+        gradle_version=$(sed -n 's@^distributionUrl=.*gradle-\([0-9][0-9.]*\)-bin.zip.*@\1@p' gradle/wrapper/gradle-wrapper.properties)
+        [ -n "$gradle_version" ] || fail 'cannot determine the pinned Gradle version from the wrapper properties'
+        check_cache_path "$GRADLE_USER_HOME/caches/$gradle_version/jvms"
+        printf '%s\n' "harvestcircle.gradle.home=$GRADLE_USER_HOME"
         printf '%s\n' 'harvestcircle.prerequisites=ready'
         ;;
     licenses) require cargo-deny 'install cargo-deny with cargo install --locked cargo-deny' ;;

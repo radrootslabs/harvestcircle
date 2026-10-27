@@ -3,14 +3,17 @@ set -eu
 
 # All execution below occurs in disposable fixtures with controlled tools.
 unset MAKEFLAGS MAKEOVERRIDES MFLAGS EXTBUILD EXTBUILD_MACHINE_CONFIG
-repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+repository_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 make_command=$(command -v make)
 fixture=$(mktemp -d "${TMPDIR:-/tmp}/harvestcircle-build-mode.XXXXXX")
 cleanup() { find "$fixture" -depth -delete; }
 trap cleanup EXIT HUP INT TERM
-dispatch_root="$(CDPATH= cd -- "$fixture" && pwd -P)/checkout with spaces"
+dispatch_root="$(CDPATH='' cd -- "$fixture" && pwd -P)/checkout with spaces"
 dispatch_bin="$fixture/native tools"
-mkdir -p "$dispatch_root/tools" "$dispatch_bin"
+mkdir -p "$dispatch_root/tools" "$dispatch_root/gradle/wrapper" "$dispatch_bin" "$fixture/host home/.gradle"
+cp "$repository_root/gradle/wrapper/gradle-wrapper.properties" "$dispatch_root/gradle/wrapper/gradle-wrapper.properties"
+# Ordinary host Gradle caches are deliberately broken throughout these tests.
+ln -s "$fixture/missing ambient cache" "$fixture/host home/.gradle/caches"
 cp "$repository_root/Makefile" "$dispatch_root/Makefile"
 cp "$repository_root/tools/check-prerequisites.sh" "$dispatch_root/tools/check-prerequisites.sh"
 ln -s "$(command -v sed)" "$dispatch_bin/sed"
@@ -27,6 +30,9 @@ chmod +x "$dispatch_bin/git"
 cat > "$fixture/dispatch-tool" <<'EOF'
 #!/bin/sh
 tool=${0##*/}
+if [ "$tool" = gradlew ]; then
+    printf '%s\n' "${GRADLE_USER_HOME:-unset}" >> "$HCR_TEST_GRADLE_LOG"
+fi
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' "$tool" "$PWD" "${HCR_TEST_ROUTED:-no}" "${HARVESTCIRCLE_BUILD_SOURCE_COMMIT:-}" "${HARVESTCIRCLE_BUILD_SOURCE_DIRTY:-}" "${HARVESTCIRCLE_BUILD_RADROOTS_REVISION:-}" "${SOURCE_DATE_EPOCH:-}" >> "$HCR_TEST_LOG"
 printf '\t%s' "$@" >> "$HCR_TEST_LOG"
 printf '\n' >> "$HCR_TEST_LOG"
@@ -59,6 +65,7 @@ case "$tool" in
                     [ "${2:-}" = -- ] || exit 92
                     shift 2
                     export HCR_TEST_ROUTED=yes
+                    export GRADLE_USER_HOME="$HCR_TEST_GOVERNED_HOME"
                     exec "$@"
                     ;;
                 *) exit 92 ;;
@@ -93,8 +100,12 @@ run_dispatch() {
     dispatch_target=$2
     dispatch_log=$3
     : > "$dispatch_log"
+    : > "$dispatch_log.gradle-home"
     # Start outside the checkout: Make must establish the recipe cwd with -C.
-    (cd "$fixture" && PATH="$dispatch_bin" JAVA_HOME= MAKEFLAGS= MFLAGS= HCR_TEST_LOG="$dispatch_log" HCR_TEST_ROUTED=no \
+    (cd "$fixture"
+        unset GRADLE_USER_HOME
+        if [ "${HCR_TEST_GRADLE_HOME+x}" = x ]; then export GRADLE_USER_HOME="$HCR_TEST_GRADLE_HOME"; fi
+        HOME="$fixture/host home" HCR_TEST_GOVERNED_HOME="$fixture/governed cache" HCR_TEST_GRADLE_LOG="$dispatch_log.gradle-home" PATH="$dispatch_bin" JAVA_HOME='' MAKEFLAGS='' MFLAGS='' HCR_TEST_LOG="$dispatch_log" HCR_TEST_ROUTED=no \
         "$make_command" --no-print-directory -C "$dispatch_root" BUILD_MODE="$dispatch_mode" GRADLE=./gradlew EXTBUILD_MACHINE_CONFIG="${HCR_TEST_PROFILE:-}" "$dispatch_target")
 }
 
@@ -110,11 +121,16 @@ for mode in standalone governed; do
         fi
         [ "$(grep -c '^java[[:space:]]' "$fixture/dispatch.log")" -eq 1 ]
         awk -F '\t' '$4 != "0000000000000000000000000000000000000001" || $5 != "false" || $7 != "1" { exit 1 }' "$fixture/dispatch.log" || { cat "$fixture/dispatch.log"; exit 1; }
-        while IFS="$(printf '\t')" read -r tool cwd details; do
+        while IFS="$(printf '\t')" read -r tool cwd _details; do
             [ "$cwd" = "$dispatch_root" ] || { printf '%s\n' "$target ran outside its source root"; exit 1; }
         done < "$fixture/dispatch.log"
+        expected_home="$fixture/governed cache"
+        if [ "$mode" = standalone ]; then expected_home="$dispatch_root/.gradle/user-home"; fi
+        while IFS= read -r actual_home; do [ "$actual_home" = "$expected_home" ] || exit 1; done < "$fixture/dispatch.log.gradle-home"
         if [ "$mode" = standalone ]; then
-            ! grep -q "$(printf '\t')extbuild$(printf '\t')" "$fixture/dispatch.log"
+            if grep -q "$(printf '\t')extbuild$(printf '\t')" "$fixture/dispatch.log"; then
+                printf '%s\n' 'Standalone dispatch invoked extbuild' >&2; exit 1
+            fi
         else
             grep -q "$(printf '\t')extbuild$(printf '\t')doctor$" "$fixture/dispatch.log"
         fi
@@ -142,6 +158,25 @@ for mode in standalone governed; do
     done
     [ "$(printf '%s\n' "$development_output" | grep -c -- '--configuration-cache --configuration-cache-problems=fail :app:desktop:hotRunArgfile')" -eq 1 ]
 done
+
+# Explicit standalone homes are honored; unusable paths fail before Gradle.
+HCR_TEST_GRADLE_HOME="$fixture/custom cache with spaces" run_dispatch standalone dev-check "$fixture/custom.log" > "$fixture/custom-output.log" 2>&1
+while IFS= read -r actual_home; do [ "$actual_home" = "$fixture/custom cache with spaces" ] || exit 1; done < "$fixture/custom.log.gradle-home"
+unset HCR_TEST_GRADLE_HOME
+mkdir -p "$fixture/invalid home" "$fixture/nested home/caches/9.5.0"
+ln -s "$fixture/missing cache target" "$fixture/invalid home/caches"
+ln -s "$fixture/missing jvms target" "$fixture/nested home/caches/9.5.0/jvms"
+printf '%s\n' blocker > "$fixture/not a directory"
+for invalid_home in '' "$fixture/invalid home" "$fixture/nested home" "$fixture/not a directory"; do
+    if HCR_TEST_GRADLE_HOME="$invalid_home" run_dispatch standalone dev "$fixture/invalid.log" > "$fixture/invalid-output.log" 2>&1; then
+        printf '%s\n' 'Unusable explicit Gradle home was accepted' >&2; exit 1
+    fi
+    grep -Eq 'GRADLE_USER_HOME|Gradle cache' "$fixture/invalid-output.log"
+    [ ! -s "$fixture/invalid.log.gradle-home" ]
+done
+unset HCR_TEST_GRADLE_HOME
+[ -L "$fixture/host home/.gradle/caches" ] && [ ! -e "$fixture/host home/.gradle/caches" ]
+printf '%s\n' 'harvestcircle.gradle-home=isolated-default,explicit-override,broken-ambient,invalid-paths,governed-routing:pass'
 
 # A profile with spaces remains an explicit optional argument, never a local include.
 HCR_TEST_PROFILE="$fixture/profile with spaces.toml" run_dispatch governed dev-check "$fixture/profile.log" > "$fixture/profile-output.log" 2>&1
@@ -173,11 +208,12 @@ unset HCR_TEST_EXTBUILD
 
 # Scoped verification tools fail before their associated workloads.
 for pair in 'licenses cargo-deny' 'api-check cargo-public-api' 'audit cargo-audit'; do
-    set -- $pair
-    mv "$dispatch_bin/$2" "$fixture/missing-tool"
-    if run_dispatch standalone "$1" "$fixture/scoped.log" > "$fixture/scoped-output.log" 2>&1; then exit 1; fi
-    mv "$fixture/missing-tool" "$dispatch_bin/$2"
-    grep -q "$2 is missing" "$fixture/scoped-output.log"
+    scoped_target=${pair%% *}
+    scoped_tool=${pair#* }
+    mv "$dispatch_bin/$scoped_tool" "$fixture/missing-tool"
+    if run_dispatch standalone "$scoped_target" "$fixture/scoped.log" > "$fixture/scoped-output.log" 2>&1; then exit 1; fi
+    mv "$fixture/missing-tool" "$dispatch_bin/$scoped_tool"
+    grep -q "$scoped_tool is missing" "$fixture/scoped-output.log"
 done
 
 # Fail each selected command rather than silently accepting a partial graph.
@@ -216,10 +252,8 @@ for mode in standalone governed; do
         mkdir -p "$dispatch_root/$path"
         printf '%s\n' disposable > "$dispatch_root/$path/output"
     done
-    for path in unrelated-source; do
-        mkdir -p "$dispatch_root/$path"
-        printf '%s\n' "preserve:$path" > "$dispatch_root/$path/sentinel"
-    done
+    mkdir -p "$dispatch_root/unrelated-source"
+    printf '%s\n' 'preserve:unrelated-source' > "$dispatch_root/unrelated-source/sentinel"
     for path in 'sibling checkout' 'desktop user state'; do
         mkdir -p "$fixture/$path"
         printf '%s\n' "preserve:$path" > "$fixture/$path/sentinel"
@@ -231,9 +265,7 @@ for mode in standalone governed; do
     for path in core/target tools/xtask/target build app/shared/build app/desktop/build build-logic/build; do
         [ ! -e "$dispatch_root/$path" ] || exit 1
     done
-    for path in unrelated-source; do
-        [ "$(cat "$dispatch_root/$path/sentinel")" = "preserve:$path" ] || exit 1
-    done
+    [ "$(cat "$dispatch_root/unrelated-source/sentinel")" = 'preserve:unrelated-source' ] || exit 1
     for path in 'sibling checkout' 'desktop user state'; do
         [ "$(cat "$fixture/$path/sentinel")" = "preserve:$path" ] || exit 1
     done

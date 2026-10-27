@@ -24,6 +24,9 @@ ifeq ($(BUILD_MODE),governed)
 override BUILD_RUNNER := $(EXTBUILD) run --
 else
 override BUILD_RUNNER :=
+# Isolate portable builds from ambient workstation Gradle caches and init scripts.
+GRADLE_USER_HOME ?= $(CURDIR)/.gradle/user-home
+export GRADLE_USER_HOME
 endif
 
 # Serialize lifecycle targets that share native and Gradle output roots.

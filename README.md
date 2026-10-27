@@ -32,6 +32,8 @@ The checked-in Gradle wrapper downloads its pinned distribution. Make builds
 the Rust library and generates Kotlin bindings automatically; the first build
 needs network access to the public dependency sources. A standalone checkout
 needs no private parent repository, sibling library checkout or extbuild tool.
+Standalone Make commands use `.gradle/user-home` unless `GRADLE_USER_HOME` is
+explicitly selected, keeping workstation Gradle state separate.
 
 ## Development
 

@@ -33,7 +33,13 @@ agreement; there is no separate source-lock file or implicit sibling override.
 
 ## External build storage
 
-Standalone is the default and uses standard ignored build directories. To select
+Standalone is the default and uses standard ignored build directories, including
+`.gradle/user-home` for its Gradle user home. This isolates builds from ambient
+workstation caches and Gradle init scripts. Set `GRADLE_USER_HOME` explicitly to
+use a different cache; explicit settings are validated and never silently replaced.
+`make doctor` reports the selected home and diagnoses broken directory links,
+non-directory paths and inaccessible cache ancestors before starting Gradle.
+It does not repair global caches or create replacement symlink targets. To select
 an approved host profile, add `BUILD_MODE=governed` and, if needed,
 `EXTBUILD_MACHINE_CONFIG=/absolute/path/to/profile.toml` to the Make command.
 Governed workloads require a successful extbuild doctor and route caches/output
