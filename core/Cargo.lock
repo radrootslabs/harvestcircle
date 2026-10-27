@@ -1017,6 +1017,7 @@ dependencies = [
  "quote",
  "radroots_runtime_paths",
  "radroots_service_sqlite",
+ "rustix",
  "sha2",
  "syn 2.0.119",
  "tempfile",

@@ -28,8 +28,13 @@ There is no ambient-library fallback.
 
 The runtime context uses service `harvestcircle`, instance `desktop`, and exact
 `state.sqlite`/`state.lock` names. SQLx is the high-level SQLite authority. The
-injected canonical state root must exist; only the sealed runtime directory plan
-provisions its service suffix. The SQLite host owns creation/opening, migration,
+explicit development state root must already exist. For the normal interactive
+profile, the native host prepares the resolved user data anchor before the sealed
+runtime directory plan provisions its service suffix. Preparation uses held
+directory descriptors, rejects symlinks and unsafe ownership/permissions, creates
+missing directories with mode 0700, syncs parent entries and revalidates identities.
+It never creates a missing home directory, repairs existing permissions or removes
+data. Compatibility and relay validation precede preparation. The SQLite host owns creation/opening, migration,
 locking, integrity, backup, restore and close. Legacy `harvestcircle.sqlite3`
 files remain untouched and unsupported.
 

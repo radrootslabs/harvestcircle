@@ -28,6 +28,9 @@ radroots_service_sqlite.workspace = true
 tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 uniffi = "=0.32.0"
 
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+rustix = { version = "=1.1.4", features = ["fs", "process"] }
+
 [build-dependencies]
 harvestcircle_product.workspace = true
 quote.workspace = true

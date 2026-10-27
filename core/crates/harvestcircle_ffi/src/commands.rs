@@ -417,6 +417,11 @@ impl HarvestCircleAppCore {
         verify_compatibility(&expectation)?;
         let relays = validated_relay_configuration(&input.relay_input)?;
         let context = application_runtime_context(&input)?;
+        crate::bootstrap::prepare(&context).map_err(|()| HarvestCircleError::Failure {
+            code: WireErrorCode::StorageUnavailable, category: WireErrorCategory::Storage,
+            retryable: false, recovery_action: WireRecoveryAction::CheckConfiguration,
+            correlation_id: None, safe_message: "HarvestCircle cannot prepare its local data location. Check its availability and permissions, then try again.".to_owned(),
+        })?;
         Self::open_context(&context, relays)
     }
 

@@ -1,6 +1,7 @@
 #![doc = "HarvestCircle `UniFFI` boundary."]
 #![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 
+mod bootstrap;
 mod commands;
 mod contract;
 mod dto;
