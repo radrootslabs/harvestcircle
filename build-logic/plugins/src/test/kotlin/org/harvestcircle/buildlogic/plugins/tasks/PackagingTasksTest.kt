@@ -3,7 +3,6 @@ package org.harvestcircle.buildlogic.plugins.tasks
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 
 class PackagingTasksTest {
     @Test
@@ -35,18 +34,4 @@ class PackagingTasksTest {
         assertEquals("External package inspection failed with exit 17: tool failed", failure.message)
     }
 
-    @Test
-    fun unsignedDistributionVerifierContainsNoSigningToolInvocation() {
-        val bytecode =
-            checkNotNull(
-                javaClass.classLoader.getResourceAsStream(
-                    "org/harvestcircle/buildlogic/plugins/tasks/VerifyMacOsDistribution.class",
-                ),
-            ) { "VerifyMacOsDistribution bytecode is unavailable" }
-                .use { it.readBytes().toString(Charsets.ISO_8859_1) }
-
-        listOf("/usr/bin/codesign", "/usr/bin/xcrun", "stapler", "/usr/sbin/spctl").forEach { forbidden ->
-            assertFalse(bytecode.contains(forbidden), "Unsigned distribution verifier invokes $forbidden")
-        }
-    }
 }

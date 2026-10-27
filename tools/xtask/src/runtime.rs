@@ -48,6 +48,7 @@ pub(super) fn native_runtime_boundary(root: &Path, findings: &mut Vec<String>) {
         "core/crates/harvestcircle_application/src/custody.rs",
         "core/crates/harvestcircle_application/src/secrets.rs",
         "core/crates/harvestcircle_storage/src/os_keyring.rs",
+        "core/crates/harvestcircle_storage/src/lib.rs",
     ];
     guarded.extend(
         inventory
@@ -85,6 +86,14 @@ pub(super) fn audit_rust_runtime(path: &str, source: &str, findings: &mut Vec<St
         fn visit_item_mod(&mut self, item: &'ast syn::ItemMod) {
             if item.attrs.iter().any(|a| matches!(&a.meta, syn::Meta::List(list) if list.path.is_ident("cfg") && list.tokens.to_string() == "test")) {
                 return;
+            }
+            if self.path.ends_with("/harvestcircle_storage/src/lib.rs")
+                && matches!(item.vis, syn::Visibility::Public(_))
+            {
+                self.findings.push(format!(
+                    "{}: storage implementation modules must remain private",
+                    self.path
+                ));
             }
             syn::visit::visit_item_mod(self, item);
         }
@@ -168,6 +177,19 @@ pub(super) fn audit_rust_runtime(path: &str, source: &str, findings: &mut Vec<St
             syn::visit::visit_path(self, path);
         }
         fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
+            if self.path.ends_with("/os_keyring.rs") {
+                let method = call.method.to_string();
+                if matches!(method.as_str(), "set_password" | "set_generic_password")
+                    || (method == "create_item"
+                        && !matches!(call.args.iter().nth(3),
+                        Some(syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Bool(value), .. })) if !value.value))
+                {
+                    self.findings.push(format!(
+                        "{}: credential creation must never replace an existing item",
+                        self.path
+                    ));
+                }
+            }
             if self.readonly
                 && matches!(
                     call.method.to_string().as_str(),

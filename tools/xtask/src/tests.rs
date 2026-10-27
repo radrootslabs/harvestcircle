@@ -945,3 +945,45 @@ fn write(root: &Path, relative: &str, source: &str) {
     fs::create_dir_all(path.parent().expect("fixture parent")).expect("create fixture parent");
     fs::write(path, source).expect("write fixture");
 }
+
+#[test]
+fn storage_visibility_and_create_only_custody_are_structural() {
+    for (path, source, expected) in [
+        (
+            "core/crates/harvestcircle_storage/src/lib.rs",
+            "mod db; pub use db::Database;",
+            None,
+        ),
+        (
+            "core/crates/harvestcircle_storage/src/lib.rs",
+            "pub /* implementation */ mod db;",
+            Some("must remain private"),
+        ),
+        (
+            "core/crates/harvestcircle_storage/src/os_keyring.rs",
+            "fn create() { store.create_item(label, attrs, secret, /* replace */ false, mime); }",
+            None,
+        ),
+        (
+            "core/crates/harvestcircle_storage/src/os_keyring.rs",
+            "fn create() { store.create_item(label, attrs, secret, true, mime); }",
+            Some("never replace"),
+        ),
+        (
+            "core/crates/harvestcircle_storage/src/os_keyring.rs",
+            "fn create() { store.set_generic_password(service, account, secret); }",
+            Some("never replace"),
+        ),
+    ] {
+        let mut findings = Vec::new();
+        audit_rust_runtime(path, source, &mut findings);
+        if let Some(expected) = expected {
+            assert!(
+                findings.iter().any(|f| f.contains(expected)),
+                "{findings:?}"
+            );
+        } else {
+            assert!(findings.is_empty(), "{findings:?}");
+        }
+    }
+}

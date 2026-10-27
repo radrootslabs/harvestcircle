@@ -78,3 +78,7 @@ The Rust advisory lane remains available explicitly. Gradle conventions do not
 load an advisory database/scanner during ordinary development. Review Kotlin/JVM
 dependency changes and their advisories deliberately; automated JVM advisory
 scanning is deferred until a suitable distribution workflow is established.
+
+Internal implementation refactors are checked through compilation and behavioral
+tests rather than exact source fragments. Structural audits retain private storage
+modules, create-only custody and read-only verification boundaries.
