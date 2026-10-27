@@ -60,8 +60,9 @@ mutate the real OS credential store are opt-in and are not routine validation.
 Run `make BUILD_MODE=governed linux-check` for the Docker/extbuild Linux lane; only
 claim platform acceptance when its actual command ran successfully.
 
-Golden PNGs are expected test data; their manifest hashes describe bytes, not a
-claim that a host check has run. Regeneration requires reviewing the actual images.
+Visual tests compare rendered output with checked-in golden PNGs on macOS aarch64.
+Use `make design-goldens-update` for intentional visual changes and review the
+resulting images. No second hash or source-path manifest needs updating.
 
 Basic macOS/Linux packages are available for development. Production signing,
 notarization and release certification are deferred until distribution requirements

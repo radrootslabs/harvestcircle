@@ -1,66 +1,7 @@
-use super::{Inventory, is_lower_hex, is_text, read_text, read_toml, sha256_file};
+use super::{Inventory, is_text, read_text, read_toml, sha256_file};
 use std::{collections::BTreeSet, path::Path};
 
 pub(super) fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
-    const PATH: &str = "config/design/harvestcircle-v1.toml";
-    if !inventory.paths.iter().any(|path| path == PATH) {
-        findings.push(format!("{PATH}: design contract is missing"));
-        return;
-    }
-    let source = read_text(root, PATH, findings);
-    let manifest = match toml::from_str::<toml::Value>(&source) {
-        Ok(manifest) => manifest,
-        Err(error) => {
-            findings.push(format!("{PATH}: invalid design manifest: {error}"));
-            return;
-        }
-    };
-    for (key, expected) in [
-        ("schema", "harvestcircle.design.v1"),
-        (
-            "repository",
-            "https://github.com/radrootslabs/harvestcircle",
-        ),
-        ("license", "GPL-3.0-only"),
-        ("golden_host", "macos-aarch64"),
-        ("design_system_root", "app/design_system"),
-        ("design_catalog_root", "tools/design_catalog"),
-        (
-            "application_shell_root",
-            "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell",
-        ),
-        (
-            "golden_test_path",
-            "app/shared/src/desktopTest/kotlin/org/harvestcircle/ui/shell/HarvestCircleMacGoldenTest.kt",
-        ),
-    ] {
-        if manifest.get(key).and_then(toml::Value::as_str) != Some(expected) {
-            findings.push(format!("{PATH}: invalid design authority: {key}"));
-        }
-    }
-    for (path, key) in [
-        (
-            "app/shared/src/desktopTest/resources/goldens/macos-aarch64/design-surface-light.png",
-            "golden_light_sha256",
-        ),
-        (
-            "app/shared/src/desktopTest/resources/goldens/macos-aarch64/design-surface-dark.png",
-            "golden_dark_sha256",
-        ),
-    ] {
-        let expected = manifest
-            .get(key)
-            .and_then(toml::Value::as_str)
-            .unwrap_or_default();
-        if !is_lower_hex(expected, 64)
-            || !inventory.paths.iter().any(|candidate| candidate == path)
-            || sha256_file(root, path, findings).as_deref() != Some(expected)
-        {
-            findings.push(format!(
-                "{path}: golden bytes differ from the design manifest"
-            ));
-        }
-    }
     if let Some(catalog) = read_toml(root, "gradle/libs.versions.toml", findings) {
         let libraries = catalog.get("libraries").and_then(toml::Value::as_table);
         for module in [

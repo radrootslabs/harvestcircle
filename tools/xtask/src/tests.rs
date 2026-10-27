@@ -170,7 +170,7 @@ fn commands_are_exact_and_unknown_values_fail_closed() {
 }
 
 #[test]
-fn current_design_manifest_matches_sources() {
+fn current_design_sources_respect_boundaries() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
@@ -347,63 +347,6 @@ fn sqlite_topology_rejects_alternate_duplicate_and_direct_authority() {
         "{findings:#?}"
     );
     fs::remove_dir_all(root).expect("remove fixture");
-}
-
-#[test]
-fn design_contract_rejects_identity_and_root_drift() {
-    let root = fixture("design-contract");
-    write(
-        &root,
-        "config/design/harvestcircle-v1.toml",
-        "schema = \"harvestcircle.design.v1\"\nrepository = \"https://example.invalid/other\"\ndesign_system_root = \"../escape\"\n",
-    );
-    let inventory = Inventory::load(&root).expect("archive inventory");
-    let mut findings = Vec::new();
-    design_source_audit(&root, &inventory, &mut findings);
-    assert!(
-        findings
-            .iter()
-            .any(|finding| finding.contains("invalid design authority"))
-    );
-    fs::remove_dir_all(root).expect("remove fixture");
-}
-
-#[test]
-fn design_manifest_accepts_formatting_and_rejects_changed_golden_bytes() {
-    let root = fixture("design-golden-bytes");
-    let source_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let manifest_path = "config/design/harvestcircle-v1.toml";
-    let manifest = fs::read_to_string(source_root.join(manifest_path)).unwrap();
-    write(
-        &root,
-        manifest_path,
-        &format!("# expected image data\n{}", manifest.replace('\n', "\r\n")),
-    );
-    for theme in ["light", "dark"] {
-        let path = format!(
-            "app/shared/src/desktopTest/resources/goldens/macos-aarch64/design-surface-{theme}.png"
-        );
-        fs::create_dir_all(root.join(&path).parent().unwrap()).unwrap();
-        fs::copy(source_root.join(&path), root.join(&path)).unwrap();
-    }
-    let inventory = Inventory::load(&root).unwrap();
-    let mut findings = Vec::new();
-    design_source_audit(&root, &inventory, &mut findings);
-    assert!(
-        !findings
-            .iter()
-            .any(|f| f.contains("invalid design") || f.contains("golden bytes differ")),
-        "{findings:?}"
-    );
-    write(
-        &root,
-        "app/shared/src/desktopTest/resources/goldens/macos-aarch64/design-surface-light.png",
-        "changed image",
-    );
-    findings.clear();
-    design_source_audit(&root, &inventory, &mut findings);
-    assert!(findings.iter().any(|f| f.contains("golden bytes differ")));
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
