@@ -109,6 +109,10 @@ docker run \
         rm -rf /var/lib/apt/lists/*
         chown -R '"$(id -u):$(id -g)"' /tmp/apt-archives
         chown -R '"$(id -u):$(id -g)"' /usr/lib/jvm
+        # Package installation may reset the bind-mounted fixture /tmp to 1777.
+        # Restore this owned private test root before dropping privileges.
+        chown '"$(id -u):$(id -g)"' /tmp
+        chmod 0700 /tmp
         exec gosu '"$(id -u):$(id -g)"' sh -ceu '\''
         export PATH=/workspace/cargo-tools/bin:/usr/local/cargo/bin:$PATH
         [ "$(uname -s)" = Linux ]
