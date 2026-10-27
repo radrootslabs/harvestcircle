@@ -25,15 +25,13 @@ class NativeCompatibilityTest {
             descriptor.copy(productVersion = "wrong"),
             descriptor.copy(cargoPackageVersion = "wrong"),
             descriptor.copy(distributionPackageVersion = "wrong"),
-            descriptor.copy(contractMajor = 5.toUShort()),
-            descriptor.copy(contractMinor = (Expected.minimumFfiContractMinor.toUInt() - 1U).toUShort()),
+            descriptor.copy(contractMajor = 4.toUShort()),
+            descriptor.copy(contractId = "harvestcircle-desktop-ffi-v4"),
             descriptor.copy(contractHash = "wrong"),
             descriptor.copy(productCoordinateDigest = "wrong"),
             descriptor.copy(snapshotSchemaVersion = 2U),
             descriptor.copy(currentSchemaVersion = 4U),
             descriptor.copy(minimumSchemaVersion = 11U),
-            descriptor.copy(sourceProvenanceDigest = "wrong"),
-            descriptor.copy(sourceFoundationBaseline = "wrong"),
         ).forEach { incompatible ->
             assertFailsWith<NativeCompatibilityException> {
                 verifyNativeCompatibility(incompatible)
@@ -54,7 +52,5 @@ class NativeCompatibilityTest {
             snapshotSchemaVersion = Expected.snapshotSchema,
             minimumSchemaVersion = Expected.minimumStorageSchema,
             currentSchemaVersion = Expected.maximumStorageSchema,
-            sourceProvenanceDigest = Expected.sourceProvenanceDigest,
-            sourceFoundationBaseline = Expected.sourceFoundationBaseline,
         )
 }

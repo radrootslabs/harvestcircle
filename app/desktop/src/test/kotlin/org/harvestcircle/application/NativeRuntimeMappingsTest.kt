@@ -179,8 +179,6 @@ class NativeRuntimeMappingsTest {
                 snapshotSchemaVersion = Expected.snapshotSchema,
                 minimumSchemaVersion = Expected.minimumStorageSchema,
                 currentSchemaVersion = Expected.maximumStorageSchema,
-                sourceProvenanceDigest = Expected.sourceProvenanceDigest,
-                sourceFoundationBaseline = Expected.sourceFoundationBaseline,
             )
         val native =
             BuildInfoDto(

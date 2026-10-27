@@ -28,6 +28,13 @@ class NativeGeneratedRecoveryTest {
     @Test
     fun generatedRecoveryCrossesTheNativeBoundaryAndCancelsWithoutPersistence() =
         runTest {
+            val build = org.harvestcircle.ffi.buildInfo()
+            assertTrue(build.sourceCommit.matches(Regex("[0-9a-f]{40}")))
+            assertTrue(build.radrootsRevision.matches(Regex("[0-9a-f]{40}")))
+            assertTrue(build.sourceDirty in setOf("true", "false"))
+            assertEquals("harvestcircle-desktop-ffi-v5", build.ffiContractId)
+            assertEquals(1U, build.snapshotSchemaVersion)
+            assertEquals(3U, build.currentStorageSchemaVersion)
             val runtime =
                 NativeHarvestCircleRuntime.open(
                     desktopRuntimeOpenConfiguration(

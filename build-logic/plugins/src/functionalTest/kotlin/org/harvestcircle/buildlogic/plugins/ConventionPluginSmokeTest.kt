@@ -138,7 +138,7 @@ class ConventionPluginSmokeTest {
         fixture.resolve("app/desktop").createDirectories()
         fixture.resolve("config/product").createDirectories().resolve("harvestcircle-v1.properties").writeText(productCoordinates)
         fixture.resolve("config/licenses").createDirectories().resolve("allowed-licenses.json").writeText("{}\n")
-        fixture.resolve("core/compatibility").createDirectories().resolve("harvestcircle-ffi-v4.properties").writeText(ffiBaseline)
+        fixture.resolve("core/compatibility").createDirectories().resolve("harvestcircle-ffi-v5.properties").writeText(ffiBaseline)
         val revision = "b".repeat(40)
         fixture.resolve("core").resolve("Cargo.toml").writeText(
             """
@@ -819,10 +819,10 @@ class ConventionPluginSmokeTest {
 
     private val ffiBaseline =
         """
-        schema=harvestcircle.ffi.v4
-        contract.id=harvestcircle-desktop-ffi-v4
-        contract.major=4
-        contract.minor=5
+        schema=harvestcircle.ffi.v5
+        contract.id=harvestcircle-desktop-ffi-v5
+        contract.major=5
+        contract.minor=0
         contract.hash=b32b9a47d12e445e93866ae0ab668b18de503ba6c999e3a053f26dc9509ddaf9
         product.coordinate_digest=bf50f9ea6c2537406de255f025463e670eb6263c295f992f7e4c4db36d957064
         snapshot.schema=1
@@ -830,7 +830,5 @@ class ConventionPluginSmokeTest {
         storage.schema.current=3
         product.version=0.1.0-alpha
         package.version=1.0.0
-        source.provenance_digest=40b9eccd486026128f92de8d55d002a9030f235a35f9b754c98c0b0d387bd8c0
-        source.foundation_baseline=c08d18ea569351dddeef70d4c1410708daf067b6
         """.trimIndent() + "\n"
 }

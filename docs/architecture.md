@@ -22,7 +22,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 3, storage API is 3, FFI is 4.5 and snapshot schema
+The current storage schema is 3, storage API is 3, FFI is 5.0 and snapshot schema
 is 1. Rust and Kotlin compatibility inputs are checked before opening application
 state. Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.

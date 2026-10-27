@@ -12,7 +12,6 @@ import org.gradle.work.DisableCachingByDefault
 import org.harvestcircle.buildlogic.contracts.FfiCompatibilityBaseline
 import org.harvestcircle.buildlogic.contracts.ProductCoordinates
 import org.harvestcircle.buildlogic.contracts.CargoSources
-import org.harvestcircle.buildlogic.contracts.SourceProvenance
 
 @DisableCachingByDefault(because = "Product coordinate verification produces no reusable output")
 abstract class VerifyProductCoordinates : DefaultTask() {
@@ -27,10 +26,6 @@ abstract class VerifyProductCoordinates : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val ffiBaselineFile: RegularFileProperty
-
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val sourceProvenanceFile: RegularFileProperty
 
     @get:InputFile
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -63,9 +58,6 @@ abstract class VerifyProductCoordinates : DefaultTask() {
 
         val baseline = FfiCompatibilityBaseline.load(ffiBaselineFile.get().asFile)
         check(baseline["product.coordinate_digest"] == coordinates.digest)
-        val provenance = SourceProvenance.load(sourceProvenanceFile.get().asFile)
-        check(baseline["source.provenance_digest"] == provenance.digest)
-        check(provenance.foundationBaseline == baseline["source.foundation_baseline"])
         CargoSources.load(repositoryRoot.get().asFile)
     }
 }

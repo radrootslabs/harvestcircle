@@ -185,7 +185,6 @@ fn required_native_inputs() -> Vec<&'static str> {
         "core/Cargo.lock",
         "core/rust-toolchain.toml",
         "core/deny.toml",
-        "core/provenance/harvestcircle-v1.toml",
         "tools/xtask/Cargo.toml",
         "tools/xtask/Cargo.lock",
         "gradle/libs.versions.toml",

@@ -23,9 +23,7 @@ internal fun verifyNativeCompatibility(descriptor: CompatibilityDescriptor): Com
             descriptor.currentSchemaVersion >= Expected.minimumStorageSchema &&
             descriptor.currentSchemaVersion <= Expected.maximumStorageSchema &&
             descriptor.minimumSchemaVersion <= descriptor.currentSchemaVersion &&
-            descriptor.minimumSchemaVersion <= Expected.maximumStorageSchema &&
-            descriptor.sourceProvenanceDigest == Expected.sourceProvenanceDigest &&
-            descriptor.sourceFoundationBaseline == Expected.sourceFoundationBaseline
+            descriptor.minimumSchemaVersion <= Expected.maximumStorageSchema
     if (!compatible) throw NativeCompatibilityException()
     return CompatibilityExpectation(
         contractId = Expected.ffiContractId,

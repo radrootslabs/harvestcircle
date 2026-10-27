@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use harvestcircle_product::{parser as product_manifest, provenance as source_provenance};
+use harvestcircle_product::parser as product_manifest;
 use quote::ToTokens;
 use sha2::{Digest, Sha256};
 use syn::{ImplItem, Item, Visibility};
@@ -14,9 +14,8 @@ const CONTRACT_SOURCES: &[&str] = &[
     "src/lib.rs",
     "src/observer.rs",
 ];
-const BASELINE_PATH: &str = "../../compatibility/harvestcircle-ffi-v4.properties";
+const BASELINE_PATH: &str = "../../compatibility/harvestcircle-ffi-v5.properties";
 const PRODUCT_MANIFEST_PATH: &str = "../../../config/product/harvestcircle-v1.properties";
-const SOURCE_PROVENANCE_PATH: &str = "../../provenance/harvestcircle-v1.toml";
 const STORAGE_CONTRACT_PATH: &str = "../harvestcircle_storage/src/contract.rs";
 const BASELINE_KEYS: &[&str] = &[
     "schema",
@@ -30,8 +29,6 @@ const BASELINE_KEYS: &[&str] = &[
     "storage.schema.current",
     "product.version",
     "package.version",
-    "source.provenance_digest",
-    "source.foundation_baseline",
 ];
 
 fn main() {
@@ -52,7 +49,6 @@ fn main() {
     println!("cargo:rerun-if-changed={STORAGE_CONTRACT_PATH}");
     println!("cargo:rerun-if-changed={BASELINE_PATH}");
     println!("cargo:rerun-if-changed={PRODUCT_MANIFEST_PATH}");
-    println!("cargo:rerun-if-changed={SOURCE_PROVENANCE_PATH}");
 
     let baseline = parse_baseline(
         &fs::read_to_string(BASELINE_PATH).expect("read HarvestCircle FFI baseline"),
@@ -92,30 +88,20 @@ fn main() {
         "HARVESTCIRCLE_PRODUCT_COORDINATE_DIGEST",
         required(&baseline, "product.coordinate_digest"),
     );
-    emit(
-        "HARVESTCIRCLE_SOURCE_PROVENANCE_DIGEST",
-        required(&baseline, "source.provenance_digest"),
-    );
-    emit(
-        "HARVESTCIRCLE_SOURCE_FOUNDATION_BASELINE",
-        required(&baseline, "source.foundation_baseline"),
-    );
     emit("HARVESTCIRCLE_FFI_CONTRACT_DIGEST", &contract_digest);
-    let provenance_source =
-        fs::read_to_string(SOURCE_PROVENANCE_PATH).expect("read source provenance as UTF-8");
-    let provenance =
-        source_provenance::parse(&provenance_source).expect("canonicalize source provenance");
+    let source_commit = git_value(&["rev-parse", "--verify", "HEAD"]);
+    let source_dirty = git_dirty();
     let mut build_provenance = Vec::new();
     for (output, input, default) in [
         (
             "HARVESTCIRCLE_BUILD_SOURCE_COMMIT",
             "HARVESTCIRCLE_BUILD_SOURCE_COMMIT",
-            provenance.foundation_baseline(),
+            source_commit.as_str(),
         ),
         (
             "HARVESTCIRCLE_BUILD_SOURCE_DIRTY",
             "HARVESTCIRCLE_BUILD_SOURCE_DIRTY",
-            "unknown",
+            source_dirty.as_str(),
         ),
         (
             "HARVESTCIRCLE_BUILD_RADROOTS_REVISION",
@@ -145,6 +131,13 @@ fn main() {
     ] {
         let value = std::env::var(input).unwrap_or_else(|_| default.to_owned());
         assert_build_value(input, &value);
+        if input == "HARVESTCIRCLE_BUILD_RADROOTS_REVISION" {
+            assert_eq!(
+                value,
+                harvestcircle_product::RADROOTS_LIB_REVISION,
+                "build Lib revision differs from Cargo inputs"
+            );
+        }
         emit(output, &value);
         build_provenance.push(format!("{input}={value}"));
     }
@@ -158,6 +151,25 @@ fn main() {
         normalized,
     )
     .expect("write normalized FFI metadata");
+}
+
+fn git_value(arguments: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .args(arguments)
+        .output()
+        .expect("Git is required for native source identity");
+    assert!(
+        output.status.success(),
+        "cannot resolve native source identity"
+    );
+    String::from_utf8(output.stdout)
+        .expect("UTF-8 Git identity")
+        .trim()
+        .to_owned()
+}
+
+fn git_dirty() -> String {
+    (!git_value(&["status", "--porcelain", "--untracked-files=all"]).is_empty()).to_string()
 }
 
 fn assert_build_value(name: &str, value: &str) {
@@ -210,13 +222,13 @@ fn parse_baseline(source: &str) -> BTreeMap<String, String> {
 }
 
 fn validate_baseline_inputs(baseline: &BTreeMap<String, String>) {
-    assert_eq!(required(baseline, "schema"), "harvestcircle.ffi.v4");
+    assert_eq!(required(baseline, "schema"), "harvestcircle.ffi.v5");
     assert_eq!(
         required(baseline, "contract.id"),
-        "harvestcircle-desktop-ffi-v4"
+        "harvestcircle-desktop-ffi-v5"
     );
-    assert_eq!(required(baseline, "contract.major"), "4");
-    assert_eq!(required(baseline, "contract.minor"), "5");
+    assert_eq!(required(baseline, "contract.major"), "5");
+    assert_eq!(required(baseline, "contract.minor"), "0");
     assert_eq!(required(baseline, "snapshot.schema"), "1");
     assert_eq!(required(baseline, "storage.schema.minimum"), "1");
     assert_eq!(required(baseline, "storage.schema.current"), "3");
@@ -232,18 +244,6 @@ fn validate_baseline_inputs(baseline: &BTreeMap<String, String>) {
     assert_eq!(
         required(baseline, "product.coordinate_digest"),
         product_digest
-    );
-    let provenance_source =
-        fs::read_to_string(SOURCE_PROVENANCE_PATH).expect("read source provenance as UTF-8");
-    let provenance =
-        source_provenance::parse(&provenance_source).expect("canonicalize source provenance");
-    assert_eq!(
-        required(baseline, "source.provenance_digest"),
-        provenance.digest()
-    );
-    assert_eq!(
-        provenance.foundation_baseline(),
-        required(baseline, "source.foundation_baseline")
     );
 
     assert_eq!(required(baseline, "storage.schema.current"), "3");

@@ -12,7 +12,7 @@ public class HarvestCircleRootPlugin : Plugin<Project> {
 
         val productCoordinatesFile = target.layout.projectDirectory.file("config/product/harvestcircle-v1.properties")
         val ffiCompatibilityBaselineFile =
-            target.layout.projectDirectory.file("core/compatibility/harvestcircle-ffi-v4.properties")
+            target.layout.projectDirectory.file("core/compatibility/harvestcircle-ffi-v5.properties")
         val verificationLanesFile = target.layout.projectDirectory.file("config/verification/lanes-v3.properties")
         val artifactContractFile =
             target.layout.projectDirectory.file("contracts/release/harvestcircle-artifact-contract.v3.json")
@@ -26,9 +26,6 @@ public class HarvestCircleRootPlugin : Plugin<Project> {
                     target.layout.projectDirectory.file("core/crates/harvestcircle_ffi/uniffi.toml"),
                 )
                 task.ffiBaselineFile.set(ffiCompatibilityBaselineFile)
-                task.sourceProvenanceFile.set(
-                    target.layout.projectDirectory.file("core/provenance/harvestcircle-v1.toml"),
-                )
                 task.cargoManifestFile.set(
                     target.layout.projectDirectory.file("core/Cargo.toml"),
                 )
@@ -39,11 +36,6 @@ public class HarvestCircleRootPlugin : Plugin<Project> {
         target.tasks.register("verifyCompatibilityBaseline") { task ->
             task.group = "verification"
             task.description = "Validates the generated-code and native compatibility baseline."
-            task.dependsOn(verifyProductCoordinates)
-        }
-        target.tasks.register("verifySourceProvenance") { task ->
-            task.group = "verification"
-            task.description = "Validates canonical source provenance and its governed digest."
             task.dependsOn(verifyProductCoordinates)
         }
         target.tasks.register(

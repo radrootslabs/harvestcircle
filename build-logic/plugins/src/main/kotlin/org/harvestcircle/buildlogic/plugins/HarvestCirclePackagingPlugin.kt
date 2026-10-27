@@ -38,7 +38,7 @@ public class HarvestCirclePackagingPlugin : Plugin<Project> {
         val baseline =
             FfiCompatibilityBaseline.load(
                 target.rootProject.layout.projectDirectory
-                    .file("core/compatibility/harvestcircle-ffi-v4.properties")
+                    .file("core/compatibility/harvestcircle-ffi-v5.properties")
                     .asFile,
             )
         val rustFfi = target.extensions.getByType(HarvestCircleRustFfiExtension::class.java)

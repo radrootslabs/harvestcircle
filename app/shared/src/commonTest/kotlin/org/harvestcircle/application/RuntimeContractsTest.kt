@@ -179,7 +179,7 @@ private fun releaseReadyBuildInfo(): BuildInfo {
         BuildReleaseCriteria(
             productVersion = "0.1.0-alpha",
             distributionPackageVersion = "1.0.0",
-            ffiContractId = "harvestcircle-desktop-ffi-v4",
+            ffiContractId = "harvestcircle-desktop-ffi-v5",
             ffiContractMajor = 4.toUShort(),
             ffiContractMinor = 1.toUShort(),
             ffiContractHash = "c".repeat(64),

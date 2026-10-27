@@ -1,15 +1,13 @@
-//! Validated, generated HarvestCircle product coordinates and provenance.
+//! Validated, generated HarvestCircle product coordinates and Cargo dependency identity.
 
 pub mod dependencies;
 pub mod parser;
-pub mod provenance;
 
 include!(concat!(env!("OUT_DIR"), "/product_coordinates.rs"));
 
 #[cfg(test)]
 mod tests {
     use super::parser::{REQUIRED_KEYS, canonicalize, digest, generate_rust_constants, parse};
-    use super::provenance;
     use super::{
         DESKTOP_APPLICATION_ID, DEVELOPMENT_DATA_DIR_ENVIRONMENT, FFI_CDYLIB_NAME,
         KOTLIN_ROOT_NAMESPACE, PRODUCT_COORDINATE_DIGEST, PRODUCT_NAME,
@@ -128,44 +126,5 @@ mod tests {
             expected
         );
         assert!(canonicalize(&format!("\u{feff}{source}")).is_err());
-    }
-
-    #[test]
-    fn provenance_digest_is_semantic_and_strict() {
-        let source = std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../provenance")
-                .join("harvestcircle-v1.toml"),
-        )
-        .expect("read canonical provenance fixture");
-        let expected = provenance::digest(&source).expect("canonical provenance digest");
-        assert_eq!(
-            expected,
-            "6cc524ffa028e7958dabc7d721302b967b7895fb2531f2e1cb6a7efca47bbe3b"
-        );
-        assert_eq!(
-            provenance::digest(&source.replace('\n', "\r\n")).unwrap(),
-            expected
-        );
-        assert_eq!(provenance::digest(source.trim_end()).unwrap(), expected);
-        assert_eq!(
-            provenance::digest(&format!("# comment\n{source}")).unwrap(),
-            expected
-        );
-        let reordered = source.replace(
-            "component = \"domain\"\ncommit = \"a4d7deebec3e2ce2c1daa455de6d79857839aed0\"",
-            "commit = \"a4d7deebec3e2ce2c1daa455de6d79857839aed0\"\ncomponent = \"domain\"",
-        );
-        assert_eq!(provenance::digest(&reordered).unwrap(), expected);
-        assert!(provenance::digest(&format!("\u{feff}{source}")).is_err());
-        assert!(provenance::digest(&format!("unknown = \"value\"\n{source}")).is_err());
-        assert_ne!(
-            provenance::digest(&source.replace(
-                "a4d7deebec3e2ce2c1daa455de6d79857839aed0",
-                "b4d7deebec3e2ce2c1daa455de6d79857839aed0"
-            ))
-            .unwrap(),
-            expected
-        );
     }
 }

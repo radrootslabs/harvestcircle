@@ -36,8 +36,6 @@ public object GeneratedKotlin {
         |    const val cargoPackageVersion = ${baseline["product.version"].quoted()}
         |    const val distributionPackageVersion = ${baseline["package.version"].quoted()}
         |    const val productCoordinateDigest = ${baseline["product.coordinate_digest"].quoted()}
-        |    const val sourceProvenanceDigest = ${baseline["source.provenance_digest"].quoted()}
-        |    const val sourceFoundationBaseline = ${baseline["source.foundation_baseline"].quoted()}
         |    const val ffiContractHash = ${baseline["contract.hash"].quoted()}
         |    val ffiContractMajor: UShort = ${baseline["contract.major"]}.toUShort()
         |    val minimumFfiContractMinor: UShort = ${baseline["contract.minor"]}.toUShort()

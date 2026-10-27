@@ -21,8 +21,6 @@ public class FfiCompatibilityBaseline private constructor(
                 "storage.schema.current",
                 "product.version",
                 "package.version",
-                "source.provenance_digest",
-                "source.foundation_baseline",
             )
 
         public fun load(file: File): FfiCompatibilityBaseline = parse(file.readText())
@@ -43,18 +41,17 @@ public class FfiCompatibilityBaseline private constructor(
                 }
                 require(values.put(key, value) == null) { "Duplicate FFI baseline key $key" }
             }
-            require(values.keys == requiredKeys) { "FFI baseline keys do not match the v4 schema" }
-            require(values.getValue("schema") == "harvestcircle.ffi.v4")
-            require(values.getValue("contract.id") == "harvestcircle-desktop-ffi-v4")
-            require(values.getValue("contract.major") == "4")
-            require(values.getValue("contract.minor") == "5")
+            require(values.keys == requiredKeys) { "FFI baseline keys do not match the v5 schema" }
+            require(values.getValue("schema") == "harvestcircle.ffi.v5")
+            require(values.getValue("contract.id") == "harvestcircle-desktop-ffi-v5")
+            require(values.getValue("contract.major") == "5")
+            require(values.getValue("contract.minor") == "0")
             require(values.getValue("snapshot.schema") == "1")
             require(values.getValue("storage.schema.minimum") == "1")
             require(values.getValue("storage.schema.current") == "3")
-            listOf("contract.hash", "product.coordinate_digest", "source.provenance_digest").forEach { key ->
+            listOf("contract.hash", "product.coordinate_digest").forEach { key ->
                 require(values.getValue(key).isCanonicalHex(64))
             }
-            require(values.getValue("source.foundation_baseline").isCanonicalHex(40))
             require(values.getValue("product.version").matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?")))
             require(values.getValue("package.version").matches(Regex("[1-9][0-9]*(?:\\.[0-9]+){0,2}")))
             return FfiCompatibilityBaseline(values.toMap())

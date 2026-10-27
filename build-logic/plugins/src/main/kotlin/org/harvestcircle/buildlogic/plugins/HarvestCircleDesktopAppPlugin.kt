@@ -48,7 +48,7 @@ public class HarvestCircleDesktopAppPlugin : Plugin<Project> {
         val baseline =
             FfiCompatibilityBaseline.load(
                 target.rootProject.layout.projectDirectory
-                    .file("core/compatibility/harvestcircle-ffi-v4.properties")
+                    .file("core/compatibility/harvestcircle-ffi-v5.properties")
                     .asFile,
             )
         val appVersion = workspacePackageValue(cargoManifest.readText(), "version")

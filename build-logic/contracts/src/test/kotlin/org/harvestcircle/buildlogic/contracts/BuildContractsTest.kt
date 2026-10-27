@@ -156,60 +156,31 @@ class BuildContractsTest {
     fun ffiBaselineRejectsMalformedStaleAndUnknownValues() {
         val baseline = FfiCompatibilityBaseline.parse(ffiBaseline)
 
-        assertEquals("harvestcircle-desktop-ffi-v4", baseline["contract.id"])
+        assertEquals("harvestcircle-desktop-ffi-v5", baseline["contract.id"])
         assertFails { FfiCompatibilityBaseline.parse("\uFEFF$ffiBaseline") }
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline + "unknown=value\n") }
-        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline + "contract.id=harvestcircle-desktop-ffi-v4\n") }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline + "contract.id=harvestcircle-desktop-ffi-v5\n") }
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.substringAfter('\n')) }
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.id=", "contract.id")) }
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.hash=${"a".repeat(64)}", "contract.hash=bad")) }
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("product.version=0.1.0-alpha", "product.version=invalid")) }
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("package.version=1.0.0", "package.version=invalid")) }
-        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("schema=harvestcircle.ffi.v4", "schema=harvestcircle.ffi.v3")) }
-        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.major=4", "contract.major=3")) }
-        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=5", "contract.minor=4")) }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("schema=harvestcircle.ffi.v5", "schema=harvestcircle.ffi.v3")) }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.major=5", "contract.major=3")) }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=0", "contract.minor=4")) }
     }
 
     @Test
     fun ffiBaselineAdmitsAllocatedMinorAndRejectsOldCurrentMinor() {
         val baseline = FfiCompatibilityBaseline.parse(ffiBaseline)
 
-        assertEquals("4", baseline["contract.major"])
-        assertEquals("5", baseline["contract.minor"])
+        assertEquals("5", baseline["contract.major"])
+        assertEquals("0", baseline["contract.minor"])
         assertEquals("1", baseline["snapshot.schema"])
         assertEquals("1", baseline["storage.schema.minimum"])
         assertEquals("3", baseline["storage.schema.current"])
-        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=5", "contract.minor=4")) }
-        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=5", "contract.minor=6")) }
-    }
-
-    @Test
-    fun provenanceCanonicalizesImportOrderAndRejectsMalformedSources() {
-        val canonical = SourceProvenance.parse(sourceProvenance)
-        val reordered =
-            sourceProvenance.replace(
-                "component = \"domain\"\ncommit = \"${"b".repeat(40)}\"",
-                "commit = \"${"b".repeat(40)}\"\ncomponent = \"domain\"",
-            )
-
-        assertEquals(canonical.digest, SourceProvenance.parse(sourceProvenance.replace("\n", "\r\n")).digest)
-        assertEquals(canonical.digest, SourceProvenance.parse("# comment\n$sourceProvenance").digest)
-        assertEquals(canonical.digest, SourceProvenance.parse(reordered).digest)
-        assertEquals("a".repeat(40), canonical.foundationBaseline)
-        assertFails { SourceProvenance.parse("\uFEFF$sourceProvenance") }
-        assertFails { SourceProvenance.parse("unknown = \"value\"\n$sourceProvenance") }
-        assertFails { SourceProvenance.parse(sourceProvenance.replace("schema = ", "schema ")) }
-        assertFails { SourceProvenance.parse(sourceProvenance.substringAfter('\n')) }
-        assertFails { SourceProvenance.parse(sourceProvenance.replace("source_product = \"HarvestCircle\"", "source_product = \"HarvestCircle\"\nsource_product = \"HarvestCircle\"")) }
-        assertFails { SourceProvenance.parse(sourceProvenance.replace("b".repeat(40), "BAD")) }
-        assertFails {
-            SourceProvenance.parse(
-                sourceProvenance + "\n[[import]]\ncomponent = \"domain\"\ncommit = \"${"d".repeat(40)}\"\n",
-            )
-        }
-        assertTrue(
-            SourceProvenance.parse(sourceProvenance.replace("b".repeat(40), "d".repeat(40))).digest != canonical.digest,
-        )
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=0", "contract.minor=4")) }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=0", "contract.minor=6")) }
     }
 
     @Test
@@ -314,10 +285,10 @@ class BuildContractsTest {
 
     private val ffiBaseline =
         """
-        schema=harvestcircle.ffi.v4
-        contract.id=harvestcircle-desktop-ffi-v4
-        contract.major=4
-        contract.minor=5
+        schema=harvestcircle.ffi.v5
+        contract.id=harvestcircle-desktop-ffi-v5
+        contract.major=5
+        contract.minor=0
         contract.hash=${"a".repeat(64)}
         product.coordinate_digest=${"b".repeat(64)}
         snapshot.schema=1
@@ -325,22 +296,6 @@ class BuildContractsTest {
         storage.schema.current=3
         product.version=0.1.0-alpha
         package.version=1.0.0
-        source.provenance_digest=${"c".repeat(64)}
-        source.foundation_baseline=${"d".repeat(40)}
-        """.trimIndent() + "\n"
-
-    private val sourceProvenance =
-        """
-        schema = "harvestcircle.source_provenance.v1"
-        source_product = "HarvestCircle"
-        source_repository = "https://example.invalid/harvestcircle"
-        foundation_baseline = "${"a".repeat(40)}"
-        canonical_radroots_repository = "https://example.invalid/radroots"
-        canonical_radroots_revision = "${"c".repeat(40)}"
-
-        [[import]]
-        component = "domain"
-        commit = "${"b".repeat(40)}"
         """.trimIndent() + "\n"
 
     private fun String.replaceCoordinate(

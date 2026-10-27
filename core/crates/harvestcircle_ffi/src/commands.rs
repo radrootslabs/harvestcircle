@@ -35,7 +35,7 @@ use crate::{
         BUILD_SOURCE_DATE_EPOCH, BUILD_SOURCE_DIRTY, DISTRIBUTION_PACKAGE_VERSION,
         FFI_CONTRACT_HASH, FFI_CONTRACT_ID, FFI_CONTRACT_MAJOR, FFI_CONTRACT_MINOR,
         MINIMUM_SCHEMA_VERSION, PRODUCT_COORDINATE_DIGEST, PRODUCT_VERSION,
-        SNAPSHOT_SCHEMA_VERSION, SOURCE_FOUNDATION_BASELINE, SOURCE_PROVENANCE_DIGEST,
+        SNAPSHOT_SCHEMA_VERSION,
     },
     dto::error_policy,
     host_runtime::HostRuntime,
@@ -134,8 +134,6 @@ pub struct CompatibilityDescriptor {
     pub snapshot_schema_version: u32,
     pub minimum_schema_version: u32,
     pub current_schema_version: u32,
-    pub source_provenance_digest: String,
-    pub source_foundation_baseline: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -205,8 +203,6 @@ pub fn compatibility_descriptor() -> CompatibilityDescriptor {
         snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
         minimum_schema_version: MINIMUM_SCHEMA_VERSION,
         current_schema_version: harvestcircle_storage::CURRENT_SCHEMA_VERSION,
-        source_provenance_digest: SOURCE_PROVENANCE_DIGEST.to_owned(),
-        source_foundation_baseline: SOURCE_FOUNDATION_BASELINE.to_owned(),
     }
 }
 

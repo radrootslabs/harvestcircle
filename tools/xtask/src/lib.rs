@@ -1358,14 +1358,14 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
     }
     let baseline = read_text(
         root,
-        "core/compatibility/harvestcircle-ffi-v4.properties",
+        "core/compatibility/harvestcircle-ffi-v5.properties",
         findings,
     );
-    if !baseline.contains("contract.id=harvestcircle-desktop-ffi-v4")
-        || !baseline.contains("contract.major=4")
+    if !baseline.contains("contract.id=harvestcircle-desktop-ffi-v5")
+        || !baseline.contains("contract.major=5")
     {
         findings.push(
-            "core/compatibility/harvestcircle-ffi-v4.properties: FFI v4 identity changed"
+            "core/compatibility/harvestcircle-ffi-v5.properties: FFI v5 identity changed"
                 .to_owned(),
         );
     }
@@ -1425,7 +1425,6 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
         }
     }
     for required in [
-        "core/provenance/harvestcircle-v1.toml",
         STORAGE_API_BASELINE,
         "config/verification/lanes-v3.properties",
         "tools/run-linux-x86_64-development-check.sh",

@@ -48,7 +48,7 @@ public class HarvestCircleRustFfiPlugin : Plugin<Project> {
                 target.rootProject.layout.projectDirectory.file("config/product/harvestcircle-v1.properties").asFile,
             )
         val baselineFile =
-            target.rootProject.layout.projectDirectory.file("core/compatibility/harvestcircle-ffi-v4.properties")
+            target.rootProject.layout.projectDirectory.file("core/compatibility/harvestcircle-ffi-v5.properties")
         val baseline = FfiCompatibilityBaseline.load(baselineFile.asFile)
         val rustRoot = target.rootProject.layout.projectDirectory.dir("core")
         val rustManifest = rustRoot.file("Cargo.toml")
