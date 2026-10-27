@@ -27,6 +27,14 @@ pub(crate) fn prepare(context: &RuntimeContext) -> Result<(), ()> {
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn prepare_directory(path: &std::path::Path) -> Result<(), ()> {
+    prepare_directory_with(path, || {})
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn prepare_directory_with(
+    path: &std::path::Path,
+    before_validation: impl FnOnce(),
+) -> Result<(), ()> {
     use rustix::fs::{Mode, OFlags, fstat, mkdirat, open, openat};
     use rustix::process::geteuid;
     use std::fs::File;
@@ -91,6 +99,7 @@ fn prepare_directory(path: &std::path::Path) -> Result<(), ()> {
     if !owned {
         return Err(());
     }
+    before_validation();
     for (parent, name, held, identity, uid, mode) in bindings {
         let reopened = openat(&parent, name.as_os_str(), flags, Mode::empty()).map_err(|_| ())?;
         let actual = fstat(reopened).map_err(|_| ())?;
@@ -162,6 +171,25 @@ mod tests {
     }
 
     #[test]
+    fn replacement_during_provision_is_rejected_without_deleting_either_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let anchor = root.join("Radroots/data");
+        prepare_directory(&anchor).unwrap();
+        fs::write(anchor.join("sentinel"), b"keep").unwrap();
+        let outcome = super::prepare_directory_with(&anchor, || {
+            fs::rename(root.join("Radroots"), root.join("original")).unwrap();
+            fs::create_dir(root.join("Radroots")).unwrap();
+        });
+        assert!(outcome.is_err());
+        assert_eq!(
+            fs::read(root.join("original/data/sentinel")).unwrap(),
+            b"keep"
+        );
+        assert!(root.join("Radroots").is_dir());
+    }
+
+    #[test]
     fn concurrent_creators_converge_without_resetting_data() {
         let temp = tempfile::tempdir().unwrap();
         let anchor = temp.path().canonicalize().unwrap().join("Radroots/data");
@@ -194,17 +222,21 @@ mod tests {
                     crate::RuntimeOpenInputDto {
                         development_mode: false,
                         explicit_data_directory: None,
-                        relay_input: crate::RelayBootstrapInputDto {
-                            endpoints: vec![crate::RelayEndpointDto {
-                                url: "wss://relay.example".to_owned(),
-                                destination: crate::RelayDestinationDto::Public,
-                                read: true,
-                                write: true,
-                            }],
-                        },
+                        relay_input: crate::RelayBootstrapInputDto { endpoints: vec![] },
                     },
                 )
                 .unwrap();
+                // A second constructor must release its own workers without
+                // disturbing the first owner's lock or preventing later reopen.
+                let competing = crate::HarvestCircleAppCore::open_compatible(
+                    expectation.clone(),
+                    crate::RuntimeOpenInputDto {
+                        development_mode: false,
+                        explicit_data_directory: None,
+                        relay_input: crate::RelayBootstrapInputDto { endpoints: vec![] },
+                    },
+                );
+                assert!(competing.is_err());
                 executor.block_on(async {
                     core.bootstrap().await.unwrap();
                     assert!(core.shutdown_v2().await.unwrap().closed);

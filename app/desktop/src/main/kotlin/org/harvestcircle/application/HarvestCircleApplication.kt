@@ -8,20 +8,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import org.harvestcircle.ffi.generateOperationIdV7
 import org.harvestcircle.identities.ui.HarvestCirclePlatformActions
 import org.harvestcircle.identities.ui.HarvestCircleUiActions
 import org.harvestcircle.ui.shell.HarvestCircleShell
 import org.harvestcircle.ui.shell.ShutdownFailureScreen
 import org.harvestcircle.ui.shell.StartupFailureScreen
-import java.util.concurrent.atomic.AtomicBoolean
+import org.harvestcircle.ui.shell.StartupProgressScreen
 
 internal typealias HarvestCirclePresenterFactory = (CoroutineScope) -> HarvestCirclePresenter
 internal typealias SecretClipboardFactory = (CoroutineScope) -> SecretClipboardController
@@ -49,59 +45,63 @@ internal fun HarvestCircleApplicationWithDependencies(
     presenterFactory: HarvestCirclePresenterFactory,
 ) {
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
-    val presenterResult = remember { runCatching { presenterFactory(scope) } }
-    val presenter = presenterResult.getOrNull()
-    val clipboard = remember(presenter, clipboardFactory) { presenter?.let { clipboardFactory(scope) } }
-    val lifecycle =
-        remember(scope, presenter, clipboard, shutdownTimeoutMillis) {
-            ApplicationLifecycleResources(
-                applicationScope = scope,
-                clipboard = clipboard,
-                closePresenter = presenter?.let { active -> suspend { active.close() } },
-                shutdownTimeoutMillis = shutdownTimeoutMillis,
-            )
+    val startup =
+        remember {
+            StartupController(scope, presenterFactory, { it.close()?.closed == true }, shutdownTimeoutMillis)
         }
-    DisposableEffect(lifecycle) {
-        onDispose { lifecycle.dispose() }
-    }
-    if (presenter == null) {
-        LaunchedEffect(closeRequested) {
-            if (closeRequested) onExitApproved()
+    val clipboard = remember { clipboardFactory(scope) }
+    DisposableEffect(startup) {
+        startup.start()
+        onDispose {
+            clipboard.close()
+            startup.requestClose()
         }
-        val message =
-            (presenterResult.exceptionOrNull() as? ApplicationFailure)?.problem?.safeMessage
-                ?: "The application could not start."
-        StartupFailureScreen(message)
-        return
     }
-    checkNotNull(clipboard)
+    LaunchedEffect(closeRequested) {
+        if (closeRequested) {
+            clipboard.close()
+            startup.requestClose()
+        }
+    }
+    val startupState by startup.state.collectAsState()
+    LaunchedEffect(startupState) {
+        if (startupState == StartupState.Closed) onExitApproved()
+    }
+    val presenter =
+        when (val state = startupState) {
+            is StartupState.Ready -> state.value
+            is StartupState.Failed -> {
+                var copyStatus by remember(state) { mutableStateOf<String?>(null) }
+                StartupFailureScreen(
+                    problem = state.problem.safeMessage,
+                    close = startup::requestClose,
+                    retry = if (state.canRetry) startup::start else null,
+                    copyDiagnostics = {
+                        copyStatus =
+                            when (clipboard.copy(state.diagnostics)) {
+                                SecretClipboardResult.Copied -> "Diagnostics copied."
+                                SecretClipboardResult.Unavailable -> "Clipboard unavailable. Diagnostics are in the application log."
+                            }
+                    },
+                    copyStatus = copyStatus,
+                )
+                return
+            }
+            StartupState.CloseFailed -> {
+                ShutdownFailureScreen("Native shutdown did not complete within the safe timeout.", onExitApproved)
+                return
+            }
+            else -> {
+                StartupProgressScreen(closing = startupState != StartupState.Opening)
+                return
+            }
+        }
     val shellPresenter =
         remember(presenter, scope) {
             HarvestCircleShellPresenter(presenter, presenter.buildInfo, scope, NativeNostrReferenceParser)
         }
-    DisposableEffect(shellPresenter) {
-        onDispose { shellPresenter.close() }
-    }
+    DisposableEffect(shellPresenter) { onDispose { shellPresenter.close() } }
     val shellState by shellPresenter.state.collectAsState()
-    var shutdownProblem by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(closeRequested, presenter) {
-        if (closeRequested) {
-            lifecycle.closeClipboard()
-            val receipt = withTimeoutOrNull(shutdownTimeoutMillis) { presenter.close() }
-            if (receipt?.closed == true) {
-                lifecycle.completeNormalClose()
-                onExitApproved()
-            } else {
-                shutdownProblem = "Native shutdown did not complete within the safe timeout."
-            }
-        }
-    }
-
-    shutdownProblem?.let { problem ->
-        ShutdownFailureScreen(problem = problem, forceExit = onExitApproved)
-        return
-    }
 
     val identityActions =
         HarvestCircleUiActions(
@@ -140,57 +140,21 @@ internal fun HarvestCircleApplicationWithDependencies(
 
 internal const val DEFAULT_SHUTDOWN_TIMEOUT_MILLIS = 5_000L
 
-internal class ApplicationLifecycleResources(
-    private val applicationScope: CoroutineScope,
-    private val clipboard: AutoCloseable?,
-    private val closePresenter: (suspend () -> ShutdownReceipt?)?,
-    private val shutdownTimeoutMillis: Long,
-    private val fallbackDispatcher: CoroutineDispatcher = Dispatchers.Default,
-) {
-    private val clipboardClosed = AtomicBoolean(false)
-    private val normalCloseCompleted = AtomicBoolean(false)
-    private val disposed = AtomicBoolean(false)
-
-    init {
-        require(shutdownTimeoutMillis > 0L) { "Shutdown timeout must be positive" }
-    }
-
-    fun closeClipboard() {
-        if (clipboardClosed.compareAndSet(false, true)) clipboard?.close()
-    }
-
-    fun completeNormalClose() {
-        normalCloseCompleted.set(true)
-        closeClipboard()
-        applicationScope.cancel()
-    }
-
-    fun dispose() {
-        if (!disposed.compareAndSet(false, true)) return
-        closeClipboard()
-        applicationScope.cancel()
-        val close = closePresenter ?: return
-        if (normalCloseCompleted.get()) return
-
-        val fallbackJob = SupervisorJob()
-        CoroutineScope(fallbackJob + fallbackDispatcher).launch {
-            try {
-                withTimeoutOrNull(shutdownTimeoutMillis) { close() }
-            } finally {
-                fallbackJob.cancel()
-            }
-        }
-    }
-}
-
 internal fun createHarvestCirclePresenter(scope: CoroutineScope): HarvestCirclePresenter {
     val developmentMode = java.lang.Boolean.getBoolean("harvestcircle.development")
-    return HarvestCirclePresenter(
-        runtime = NativeHarvestCircleRuntime.open(desktopRuntimeOpenConfiguration(developmentMode)),
-        scope = scope,
-        clock = DesktopApplicationClock,
-        operationIds = DesktopOperationIdSource,
-    )
+    val runtime = NativeHarvestCircleRuntime.open(desktopRuntimeOpenConfiguration(developmentMode))
+    try {
+        return HarvestCirclePresenter(
+            runtime = runtime,
+            scope = scope,
+            clock = DesktopApplicationClock,
+            operationIds = DesktopOperationIdSource,
+        )
+    } catch (error: Exception) {
+        throw StartupConstructionFailure(error) { runtime.shutdown().closed }
+    } catch (error: LinkageError) {
+        throw StartupConstructionFailure(error) { runtime.shutdown().closed }
+    }
 }
 
 private object DesktopApplicationClock : ApplicationClock {

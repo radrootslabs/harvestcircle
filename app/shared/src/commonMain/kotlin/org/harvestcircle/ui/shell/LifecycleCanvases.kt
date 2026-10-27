@@ -45,9 +45,33 @@ fun ShellLifecycleCanvas(
 }
 
 @Composable
-fun StartupFailureScreen(problem: String) {
+fun StartupProgressScreen(closing: Boolean = false) {
     HarvestCircleTheme(AppearanceState()) {
-        FailureCanvas("HarvestCircle could not start", problem, "startup-failure")
+        FailureCanvas(
+            if (closing) "Closing HarvestCircle" else "Opening HarvestCircle",
+            if (closing) "Waiting for the local runtime to close safely." else "Preparing local data.",
+            "startup-progress",
+        )
+    }
+}
+
+@Composable
+fun StartupFailureScreen(
+    problem: String,
+    close: (() -> Unit)? = null,
+    retry: (() -> Unit)? = null,
+    copyDiagnostics: (() -> Unit)? = null,
+    copyStatus: String? = null,
+) {
+    HarvestCircleTheme(AppearanceState()) {
+        FailureCanvas("HarvestCircle could not start", problem, "startup-failure") {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                retry?.let { HarvestCircleShellButton("Try again", it, primary = true) }
+                copyDiagnostics?.let { HarvestCircleShellButton("Copy diagnostics", it) }
+                close?.let { HarvestCircleShellButton("Close", it) }
+            }
+            copyStatus?.let { HarvestCircleShellText(it) }
+        }
     }
 }
 
@@ -82,6 +106,7 @@ private fun FailureCanvas(
     title: String,
     problem: String,
     tag: String,
+    actions: @Composable () -> Unit = {},
 ) {
     CanvasScaffold(
         textSize = TextSizePreference.Default,
@@ -91,7 +116,7 @@ private fun FailureCanvas(
                 HarvestCircleShellText(problem, Modifier.testTag("startup-problem"))
             }
         },
-        actionBar = {},
+        actionBar = actions,
     )
 }
 

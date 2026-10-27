@@ -23,8 +23,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.runTest
 import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeEnvironment
 import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeExclusion
 import kotlin.test.Test
@@ -139,38 +137,10 @@ class HarvestCircleApplicationTest {
             }
 
             onNodeWithTag("dispose-application").performClick()
-            waitUntil { runtime?.closed == true }
+            waitUntil { runtime?.closed == true && applicationJob?.isCancelled == true }
 
             assertEquals(1, runtime?.shutdownCalls)
             assertTrue(applicationJob?.isCancelled == true)
-        }
-
-    @Test
-    fun repeatedDisposalIsIdempotentAndDoesNotLeaveCleanupWork() =
-        runTest {
-            val dispatcher = StandardTestDispatcher(testScheduler)
-            val applicationJob = Job()
-            var clipboardCloses = 0
-            var presenterCloses = 0
-            val lifecycle =
-                ApplicationLifecycleResources(
-                    applicationScope = kotlinx.coroutines.CoroutineScope(applicationJob + dispatcher),
-                    clipboard = AutoCloseable { clipboardCloses += 1 },
-                    closePresenter = {
-                        presenterCloses += 1
-                        ShutdownReceipt(SnapshotRevision(1UL), closed = true)
-                    },
-                    shutdownTimeoutMillis = 5_000,
-                    fallbackDispatcher = dispatcher,
-                )
-
-            lifecycle.dispose()
-            lifecycle.dispose()
-            testScheduler.advanceUntilIdle()
-
-            assertTrue(applicationJob.isCancelled)
-            assertEquals(1, clipboardCloses)
-            assertEquals(1, presenterCloses)
         }
 
     @OptIn(ExperimentalTestApi::class)
@@ -235,7 +205,7 @@ class HarvestCircleApplicationTest {
             }
 
             onNodeWithTag("startup-failure").assertIsDisplayed()
-            onNodeWithText("The application could not start.").assertIsDisplayed()
+            onNodeWithText("HarvestCircle could not start. Copy the diagnostics when reporting this problem.").assertIsDisplayed()
             onAllNodesWithText("sensitive internal startup detail").assertCountEquals(0)
         }
 }
@@ -245,6 +215,7 @@ private fun ComposeUiTest.setApplicationContent(content: @Composable () -> Unit)
     setContent {
         HarvestCircleWindowChromeEnvironment(HarvestCircleWindowChromeExclusion.None, content)
     }
+    waitUntil { onAllNodesWithTag("startup-progress").fetchSemanticsNodes().isEmpty() }
 }
 
 private fun testPresenter(scope: kotlinx.coroutines.CoroutineScope): HarvestCirclePresenter =

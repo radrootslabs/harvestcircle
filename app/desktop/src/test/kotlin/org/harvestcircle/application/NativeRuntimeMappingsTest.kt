@@ -503,9 +503,13 @@ class NativeRuntimeMappingsTest {
             mixed.map { it.destination },
         )
         assertTrue(mixed.all { it.read && it.write })
-        assertFailsWith<IllegalArgumentException> {
-            desktopRelayBootstrapInput(developmentMode = true, configuredValue = "wss://unclassified.example")
-        }
+        val malformed =
+            assertFailsWith<ApplicationFailure> {
+                desktopRelayBootstrapInput(developmentMode = true, configuredValue = "wss://unclassified.example")
+            }
+        assertEquals(ApplicationErrorCode.InvalidRelayConfiguration, malformed.problem.code)
+        assertEquals(RecoveryAction.CheckConfiguration, malformed.problem.recoveryAction)
+        assertFalse(malformed.problem.permitsStartupRetry())
     }
 }
 

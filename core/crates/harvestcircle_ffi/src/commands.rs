@@ -737,16 +737,21 @@ impl HarvestCircleAppCore {
         context: &RuntimeContext,
         relays: RelayConfiguration,
     ) -> Result<Arc<Self>, HarvestCircleError> {
-        let runtime = HostRuntime::new().map_err(|()| runtime_unavailable())?;
-        let runtime_handle = runtime.handle().clone();
-        let keyring = BoundedKeyringWorker::new(OsKeyringSecretStore::default())
-            .map_err(HarvestCircleError::from)?;
-        let secrets: Arc<dyn SecretStore> = keyring.clone();
         let build = migration_build_identity()?;
         let actor_capacity = actor_mailbox_capacity()?;
+        let runtime = HostRuntime::new().map_err(|()| runtime_unavailable())?;
+        let runtime_handle = runtime.handle().clone();
+        let keyring = match BoundedKeyringWorker::new(OsKeyringSecretStore::default()) {
+            Ok(keyring) => keyring,
+            Err(error) => {
+                finish_failed_open(&runtime, None)?;
+                return Err(HarvestCircleError::from(error));
+            }
+        };
+        let secrets: Arc<dyn SecretStore> = keyring.clone();
         let owned_context = context.clone();
         let actor_runtime = runtime_handle.clone();
-        let actor = runtime
+        let actor_result = runtime
             .block_on(async move {
                 RuntimeActorHandle::open(
                     &owned_context,
@@ -763,7 +768,15 @@ impl HarvestCircleAppCore {
                 )
                 .await
             })
-            .map_err(|()| runtime_unavailable())??;
+            .map_err(|()| runtime_unavailable())
+            .and_then(|result| result.map_err(HarvestCircleError::from));
+        let actor = match actor_result {
+            Ok(actor) => actor,
+            Err(error) => {
+                finish_failed_open(&runtime, Some(&keyring))?;
+                return Err(error);
+            }
+        };
         Ok(Arc::new(Self {
             inner: Arc::new(RuntimeCore {
                 actor,
@@ -784,9 +797,62 @@ impl HarvestCircleAppCore {
     }
 }
 
+// A failed constructor has no public handle through which callers could await
+// shutdown. Join its workers before returning a retryable storage/configuration
+// error. Use a separate executor so this sync constructor also works from an
+// existing Tokio caller; never ask the host runtime to join itself.
+fn finish_failed_open(
+    runtime: &Arc<HostRuntime>,
+    keyring: Option<&Arc<BoundedKeyringWorker>>,
+) -> Result<(), HarvestCircleError> {
+    let completed = std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let executor = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|_| ())?;
+                executor.block_on(async {
+                    let keyring_closed = if let Some(keyring) = keyring {
+                        let keyring = Arc::clone(keyring);
+                        matches!(
+                            runtime.run(async move { keyring.close().await }).await,
+                            Ok(Ok(()))
+                        )
+                    } else {
+                        true
+                    };
+                    let runtime_closed = runtime.shutdown().await.is_ok();
+                    if keyring_closed && runtime_closed {
+                        Ok(())
+                    } else {
+                        Err(())
+                    }
+                })
+            })
+            .join()
+            .unwrap_or(Err(()))
+    });
+    completed.map_err(|()| HarvestCircleError::Failure {
+        code: WireErrorCode::Internal,
+        category: WireErrorCategory::Lifecycle,
+        retryable: false,
+        recovery_action: WireRecoveryAction::RestartApplication,
+        correlation_id: None,
+        safe_message:
+            "Startup cleanup could not complete. Close HarvestCircle before opening it again."
+                .to_owned(),
+    })
+}
+
 fn validated_relay_configuration(
     relay_input: &RelayBootstrapInputDto,
 ) -> Result<RelayConfiguration, HarvestCircleError> {
+    // No configured endpoint means offline startup, never an ambient network
+    // fallback. The explicit-endpoint parser below remains strict.
+    if relay_input.endpoints.is_empty() {
+        return Ok(RelayConfiguration::default());
+    }
     if relay_input.endpoints.len() > MAX_CONFIGURED_RELAYS {
         return Err(invalid_relay_configuration());
     }
@@ -1702,6 +1768,25 @@ mod tests {
             assert!(!commands.contains(&forbidden));
             assert!(!observer.contains(&forbidden));
         }
+    }
+
+    #[test]
+    fn absent_relay_input_opens_offline_without_accepting_invalid_endpoints() {
+        let offline =
+            super::validated_relay_configuration(&RelayBootstrapInputDto { endpoints: vec![] })
+                .unwrap();
+        assert!(offline.relays().is_empty());
+        assert!(
+            super::validated_relay_configuration(&RelayBootstrapInputDto {
+                endpoints: vec![RelayEndpointDto {
+                    url: "not-a-relay".to_owned(),
+                    destination: RelayDestinationDto::Public,
+                    read: true,
+                    write: true,
+                }],
+            })
+            .is_err()
+        );
     }
 
     #[test]

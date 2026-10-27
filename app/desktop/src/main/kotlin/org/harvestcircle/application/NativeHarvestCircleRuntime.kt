@@ -33,9 +33,8 @@ import org.harvestcircle.ffi.buildInfo as nativeBuildInfo
 class NativeHarvestCircleRuntime internal constructor(
     private val native: NativeCorePort,
     private val handleIds: NativeHandleIdSource = GeneratedNativeHandleIdSource,
+    override val buildInfo: BuildInfo = nativeBuildInfo().toBuildInfo(compatibilityDescriptor()),
 ) : HarvestCircleRuntime {
-    override val buildInfo: BuildInfo = nativeBuildInfo().toBuildInfo(compatibilityDescriptor())
-
     private val recoveryMutex = Mutex()
     private val recoveryHandles = mutableMapOf<RecoveryRequestId, NativeGeneratedRecoveryHandle>()
     private val removalMutex = Mutex()
@@ -304,8 +303,10 @@ class NativeHarvestCircleRuntime internal constructor(
     companion object {
         internal fun open(configuration: DesktopRuntimeOpenConfiguration): NativeHarvestCircleRuntime {
             val expectation = verifyNativeCompatibility(compatibilityDescriptor())
+            val build = nativeBuildInfo().toBuildInfo(compatibilityDescriptor())
             return NativeHarvestCircleRuntime(
                 UniFfiNativeCorePort(HarvestCircleAppCore.openCompatible(expectation, configuration.toNative())),
+                buildInfo = build,
             )
         }
     }
@@ -357,7 +358,22 @@ internal fun desktopRelayBootstrapInput(
             developmentMode -> listOf(HARVESTCIRCLE_LOCAL_DEVELOPMENT_RELAY)
             else -> emptyList()
         }
-    return RelayBootstrapInputDto(entries.map(::parseRelayEndpoint))
+    val endpoints =
+        try {
+            entries.map(::parseRelayEndpoint)
+        } catch (_: IllegalArgumentException) {
+            throw ApplicationFailure(
+                ApplicationProblem(
+                    ApplicationErrorCode.InvalidRelayConfiguration,
+                    ApplicationErrorCategory.Network,
+                    false,
+                    RecoveryAction.CheckConfiguration,
+                    null,
+                    "The relay configuration is invalid. Check the configured relay destinations and restart HarvestCircle.",
+                ),
+            )
+        }
+    return RelayBootstrapInputDto(endpoints)
 }
 
 private fun parseRelayEndpoint(value: String): RelayEndpointDto {
@@ -370,7 +386,7 @@ private fun parseRelayEndpoint(value: String): RelayEndpointDto {
             "local" -> RelayDestinationDto.LOCAL
             "private" -> RelayDestinationDto.PRIVATE_NETWORK
             "public" -> RelayDestinationDto.PUBLIC
-            else -> error("Relay destination classification is invalid")
+            else -> throw IllegalArgumentException("Relay destination classification is invalid")
         }
     return RelayEndpointDto(
         url = parts[1].trim(),

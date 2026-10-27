@@ -98,7 +98,7 @@ fun main(args: Array<String>) {
                         onExitApproved = ::exitApplication,
                     )
                 } else {
-                    StartupFailureScreen(nativeStartupProblem)
+                    StartupFailureScreen(nativeStartupProblem, close = ::exitApplication)
                 }
             }
         }
