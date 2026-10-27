@@ -10,13 +10,10 @@ import org.gradle.jvm.tasks.Jar
 import org.harvestcircle.buildlogic.contracts.FfiCompatibilityBaseline
 import org.harvestcircle.buildlogic.contracts.ProductCoordinates
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyDesktopBuildMetadataArtifact
-import org.harvestcircle.buildlogic.plugins.tasks.VerifyMacOsDeveloperIdSignature
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyMacOsDistribution
-import org.harvestcircle.buildlogic.plugins.tasks.VerifyMacOsNotarization
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyMacOsPackage
-import org.harvestcircle.buildlogic.plugins.tasks.VerifyNativeInstallPackage
+import org.harvestcircle.buildlogic.plugins.tasks.VerifyLinuxPackage
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyPackagedApplicationHealth
-import org.harvestcircle.buildlogic.plugins.tasks.VerifyReleaseBuildProvenance
 import org.jetbrains.compose.ComposeExtension
 import org.jetbrains.compose.desktop.DesktopExtension
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
@@ -46,13 +43,9 @@ public class HarvestCirclePackagingPlugin : Plugin<Project> {
         val productSlug = coordinates["product.slug"]
         val bundleId = coordinates["desktop.bundle_id"]
         val nativeOsName = rustFfi.nativeOsName.get()
-        val nativeArchitecture = rustFfi.nativeArchitecture.get()
         val isMacOsHost = nativeOsName.lowercase().startsWith("mac")
         val isLinuxHost = nativeOsName.lowercase().startsWith("linux")
-        val isWindowsHost = nativeOsName.lowercase().startsWith("windows")
-        val isGovernedMacOsTarget =
-            isMacOsHost && nativeArchitecture.lowercase() == coordinates["platform.macos.architecture"]
-        if (!isMacOsHost && !isLinuxHost && !isWindowsHost) {
+        if (!isMacOsHost && !isLinuxHost) {
             throw GradleException("Unsupported desktop package host: $nativeOsName")
         }
         val appVersion = target.version.toString()
@@ -110,8 +103,7 @@ public class HarvestCirclePackagingPlugin : Plugin<Project> {
                 distribution.targetFormats(
                     when {
                         isMacOsHost -> TargetFormat.Dmg
-                        isLinuxHost -> TargetFormat.Deb
-                        else -> TargetFormat.Msi
+                        else -> TargetFormat.Deb
                     },
                 )
                 distribution.packageName = applicationName
@@ -145,8 +137,7 @@ public class HarvestCirclePackagingPlugin : Plugin<Project> {
             appDirectory.map { directory ->
                 when {
                     isMacOsHost -> directory.file("Contents/MacOS/$applicationName")
-                    isLinuxHost -> directory.file("bin/$applicationName")
-                    else -> directory.file("$applicationName.exe")
+                    else -> directory.file("bin/$applicationName")
                 }
             }
         val verifyHealth =
@@ -182,98 +173,23 @@ public class HarvestCirclePackagingPlugin : Plugin<Project> {
                         task.expectedFileName.set("$applicationName-$installableVersion.dmg")
                     }
                 }
-                isLinuxHost ->
-                    target.tasks.register("verifyLinuxPackage", VerifyNativeInstallPackage::class.java) { task ->
+                else ->
+                    target.tasks.register("verifyLinuxPackage", VerifyLinuxPackage::class.java) { task ->
                         task.dependsOn("packageDeb", "verifyReleaseNativeLibrary")
                         task.packageDirectory.set(target.layout.buildDirectory.dir("compose/binaries/main/deb"))
                         task.releaseLibrary.set(rustLibrary)
-                        task.packageExtension.set("deb")
                         task.expectedVersion.set(installableVersion)
                         task.expectedNativeEntry.set(expectedNativeEntry)
-                        task.hostFamily.set("linux")
-                    }
-                else ->
-                    target.tasks.register("verifyWindowsPackage", VerifyNativeInstallPackage::class.java) { task ->
-                        task.dependsOn("packageMsi", "verifyReleaseNativeLibrary")
-                        task.packageDirectory.set(target.layout.buildDirectory.dir("compose/binaries/main/msi"))
-                        task.releaseLibrary.set(rustLibrary)
-                        task.packageExtension.set("msi")
-                        task.expectedVersion.set(installableVersion)
-                        task.expectedNativeEntry.set(expectedNativeEntry)
-                        task.hostFamily.set("windows")
                     }
             }
-        val verifyHostPackage = target.tasks.register("verifyHostPackage") { it.dependsOn(hostPackage, verifyHealth) }
+        target.tasks.register("verifyHostPackage") { it.dependsOn(hostPackage, verifyHealth) }
 
-        val verifySignature =
-            target.tasks.register(
-                "verifyMacOsDeveloperIdSignature",
-                VerifyMacOsDeveloperIdSignature::class.java,
-            ) { task ->
-                task.dependsOn(hostPackage)
-                task.appDirectory.set(appDirectory)
-                task.onlyIf { isMacOsHost }
-            }
-        val verifyNotarization =
-            target.tasks.register("verifyMacOsNotarization", VerifyMacOsNotarization::class.java) { task ->
-                task.dependsOn(hostPackage)
-                task.diskImage.set(
-                    target.layout.buildDirectory.file(
-                        "compose/binaries/main/dmg/$applicationName-$installableVersion.dmg",
-                    ),
-                )
-                task.onlyIf { isMacOsHost }
-            }
-        val verifyProvenance =
-            target.tasks.register(
-                "verifyReleaseBuildProvenance",
-                VerifyReleaseBuildProvenance::class.java,
-            ) { task ->
-                task.sourceCommit.set(rustFfi.sourceCommit)
-                task.sourceDirty.set(rustFfi.sourceDirty)
-                task.radrootsRevision.set(rustFfi.radrootsRevision)
-                task.sourceDateEpoch.set(rustFfi.sourceDateEpoch)
-            }
-        val sourceReadiness =
-            target.tasks.register("sourceReadiness") { task ->
-                task.dependsOn(
-                    ":verifyProductCoordinates",
-                    ":app:shared:check",
-                    "check",
-                    "verifyUniFfiBindings",
-                )
-            }
-        val packageReadiness =
-            target.tasks.register("packageReadiness") { task ->
-                task.dependsOn(verifyHostPackage, verifyProvenance, verifyMetadata)
-            }
-        val signingReadiness = target.tasks.register("signingReadiness") { it.dependsOn(verifySignature) }
-        val notarizationReadiness = target.tasks.register("notarizationReadiness") { it.dependsOn(verifyNotarization) }
-        val unsignedReleaseReadiness = target.tasks.register("unsignedReleaseReadiness") { task ->
-            if (!isGovernedMacOsTarget) {
-                task.dependsOn(
-                    target.providers.provider<List<String>> {
-                        throw GradleException(
-                            "Unsigned release contract requires macOS/aarch64, not $nativeOsName/$nativeArchitecture",
-                        )
-                    },
-                )
-            } else {
-                task.dependsOn(
-                    "checkLicense",
-                    sourceReadiness,
-                    packageReadiness,
-                    "packageDmg",
-                    "verifyMacOsPackage",
-                )
-            }
-        }
-        target.tasks.register("releaseReadiness") { task ->
+        target.tasks.register("sourceReadiness") { task ->
             task.dependsOn(
-                "dependencyCheckAnalyze",
-                unsignedReleaseReadiness,
-                signingReadiness,
-                notarizationReadiness,
+                ":verifyProductCoordinates",
+                ":app:shared:check",
+                "check",
+                "verifyUniFfiBindings",
             )
         }
         target.tasks.named("check") { it.dependsOn(verifyMetadata) }

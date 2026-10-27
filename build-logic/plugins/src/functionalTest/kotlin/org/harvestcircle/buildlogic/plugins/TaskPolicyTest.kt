@@ -8,14 +8,11 @@ import org.harvestcircle.buildlogic.plugins.tasks.StageReleaseNativeLibrary
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyDesktopBuildMetadataArtifact
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyGeneratedCompatibilityExpectations
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyGeneratedDesktopBuildMetadata
-import org.harvestcircle.buildlogic.plugins.tasks.VerifyMacOsDeveloperIdSignature
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyMacOsDistribution
-import org.harvestcircle.buildlogic.plugins.tasks.VerifyMacOsNotarization
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyMacOsPackage
-import org.harvestcircle.buildlogic.plugins.tasks.VerifyNativeInstallPackage
+import org.harvestcircle.buildlogic.plugins.tasks.VerifyLinuxPackage
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyPackagedApplicationHealth
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyProductCoordinates
-import org.harvestcircle.buildlogic.plugins.tasks.VerifyReleaseBuildProvenance
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyReleaseNativeLibrary
 import org.harvestcircle.buildlogic.plugins.tasks.VerifySharedBoundary
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyTestBridgeIsolation
@@ -45,11 +42,8 @@ class TaskPolicyTest {
             VerifyDesktopBuildMetadataArtifact::class.java,
             VerifyMacOsDistribution::class.java,
             VerifyMacOsPackage::class.java,
-            VerifyNativeInstallPackage::class.java,
+            VerifyLinuxPackage::class.java,
             VerifyPackagedApplicationHealth::class.java,
-            VerifyMacOsDeveloperIdSignature::class.java,
-            VerifyMacOsNotarization::class.java,
-            VerifyReleaseBuildProvenance::class.java,
         ).forEach { taskType ->
             assertNotNull(taskType.getAnnotation(DisableCachingByDefault::class.java), taskType.name)
         }

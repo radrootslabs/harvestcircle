@@ -542,89 +542,15 @@ class ConventionPluginSmokeTest {
     }
 
     @Test
-    fun packagingPluginAcceptsGovernedProvenanceAndRejectsUnknownInputs() {
-        val governed = createTempDirectory("harvestcircle-package-governed-provenance-")
-        preparePackagingBuild(governed, "exit 0")
-        val governedEnvironment =
-            System.getenv() +
-                mapOf(
-                    "HARVESTCIRCLE_BUILD_SOURCE_COMMIT" to "a".repeat(40),
-                    "HARVESTCIRCLE_BUILD_SOURCE_DIRTY" to "false",
-                    "HARVESTCIRCLE_BUILD_RADROOTS_REVISION" to "b".repeat(40),
-                    "SOURCE_DATE_EPOCH" to "1770000000",
-                )
-        val success =
-            GradleRunner.create()
-                .withProjectDir(governed.toFile())
-                .withPluginClasspath()
-                .withEnvironment(governedEnvironment)
-                .withArguments(":app:desktop:verifyReleaseBuildProvenance", "--stacktrace")
-                .build()
-        assertTrue(success.output.contains("BUILD SUCCESSFUL"), success.output)
-
-        val standalone = createTempDirectory("harvestcircle-package-unknown-provenance-")
-        preparePackagingBuild(standalone, "exit 0")
-        val failure =
-            GradleRunner.create()
-                .withProjectDir(standalone.toFile())
-                .withPluginClasspath()
-                .withEnvironment(
-                    System.getenv() -
-                        setOf(
-                            "HARVESTCIRCLE_BUILD_SOURCE_COMMIT",
-                            "HARVESTCIRCLE_BUILD_SOURCE_DIRTY",
-                            "HARVESTCIRCLE_BUILD_RADROOTS_REVISION",
-                            "SOURCE_DATE_EPOCH",
-                        ),
-                ).withArguments(":app:desktop:verifyReleaseBuildProvenance", "--stacktrace")
-                .buildAndFail()
-        assertTrue(failure.output.contains("Release source commit provenance is unknown or malformed"), failure.output)
-    }
-
-    @Test
-    fun unsignedReleaseReadinessIsBoundToTheMacOsAarch64Package() {
-        val fixture = createTempDirectory("harvestcircle-unsigned-release-")
+    fun packagingRejectsUnsupportedWindowsHosts() {
+        val fixture = createTempDirectory("harvestcircle-windows-packaging-")
         preparePackagingBuild(fixture, "exit 0")
-
-        val unsigned =
-            GradleRunner.create()
-                .withProjectDir(fixture.toFile())
-                .withPluginClasspath()
-                .withArguments(
-                    ":app:desktop:unsignedReleaseReadiness",
-                    "-PnativeOs=Mac OS X",
-                    "-PnativeArch=aarch64",
-                    "--dry-run",
-                    "--stacktrace",
-                )
-                .build()
-        assertTrue(unsigned.output.contains(":app:desktop:unsignedReleaseReadiness"), unsigned.output)
-        assertTrue(unsigned.output.contains(":app:desktop:packageDmg"), unsigned.output)
-        assertTrue(unsigned.output.contains(":app:desktop:verifyMacOsPackage"), unsigned.output)
-        listOf(
-            ":app:desktop:dependencyCheckAnalyze",
-            ":app:desktop:signingReadiness",
-            ":app:desktop:notarizationReadiness",
-            ":app:desktop:verifyMacOsDeveloperIdSignature",
-            ":app:desktop:verifyMacOsNotarization",
-        ).forEach { forbidden -> assertFalse(unsigned.output.contains(forbidden), unsigned.output) }
-
-        val signed =
-            GradleRunner.create()
-                .withProjectDir(fixture.toFile())
-                .withPluginClasspath()
-                .withArguments(
-                    ":app:desktop:releaseReadiness",
-                    "-PnativeOs=Mac OS X",
-                    "-PnativeArch=aarch64",
-                    "--dry-run",
-                    "--stacktrace",
-                )
-                .build()
-        assertTrue(signed.output.contains(":app:desktop:unsignedReleaseReadiness"), signed.output)
-        assertTrue(signed.output.contains(":app:desktop:dependencyCheckAnalyze"), signed.output)
-        assertTrue(signed.output.contains(":app:desktop:signingReadiness"), signed.output)
-        assertTrue(signed.output.contains(":app:desktop:notarizationReadiness"), signed.output)
+        val result = GradleRunner.create()
+            .withProjectDir(fixture.toFile())
+            .withPluginClasspath()
+            .withArguments("tasks", "-PnativeOs=Windows 11", "-PnativeArch=amd64", "--stacktrace")
+            .buildAndFail()
+        assertTrue(result.output.contains("Unsupported desktop package host"), result.output)
     }
 
     @Test
@@ -649,42 +575,6 @@ class ConventionPluginSmokeTest {
         val second = runner.build()
         assertTrue(second.output.contains("Reusing configuration cache"), second.output)
         assertTrue(second.output.contains("BUILD SUCCESSFUL"), second.output)
-    }
-
-    @Test
-    fun unsignedReleaseReadinessRejectsEveryNonContractPlatformDuringConfiguration() {
-        listOf(
-            Triple("linux", "Linux", "aarch64"),
-            Triple("linux-amd64", "Linux", "amd64"),
-            Triple("macos-x86", "Mac OS X", "x86_64"),
-        ).forEach { (caseName, osName, architecture) ->
-            val fixture = createTempDirectory("harvestcircle-unsigned-release-$caseName-")
-            preparePackagingBuild(fixture, "exit 0")
-
-            listOf("unsignedReleaseReadiness", "releaseReadiness").forEach { selectedTask ->
-                val result =
-                    GradleRunner.create()
-                        .withProjectDir(fixture.toFile())
-                        .withPluginClasspath()
-                        .withArguments(
-                            ":app:desktop:$selectedTask",
-                            "-PnativeOs=$osName",
-                            "-PnativeArch=$architecture",
-                            "--dry-run",
-                            "--configuration-cache",
-                            "--configuration-cache-problems=fail",
-                            "--stacktrace",
-                        ).buildAndFail()
-
-                assertTrue(
-                    result.output.contains(
-                        "Unsigned release contract requires macOS/aarch64, not $osName/$architecture",
-                    ),
-                    result.output,
-                )
-                assertTrue(result.tasks.isEmpty(), result.output)
-            }
-        }
     }
 
     private fun prepareDesktopBuild(

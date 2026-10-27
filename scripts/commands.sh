@@ -17,8 +17,8 @@ case "$command_name" in
             'Design: design-source-check design-goldens-update' \
             'Maintenance: metadata lock' \
             'Complete development: development-check' \
-            'Packaging: package host-package-check unsigned-release-check' \
-            'Other checks: audit host-ui-lifecycle-check signing-check notarization-check release-check' \
+            'Packaging: package host-package-check' \
+            'Other checks: audit host-ui-lifecycle-check' \
             'Linux qualification: BUILD_MODE=governed linux-check' \
             'Standalone is the default; add BUILD_MODE=governed and optional EXTBUILD_MACHINE_CONFIG=/path/to/profile.toml for extbuild.'
         exit 0
@@ -29,9 +29,8 @@ case "$command_name" in
         ;;
     doctor|repo-check|lock|metadata|build-logic-check|mode-check|design-source-check|\
     design-goldens-update|format|format-fix|lint|test|check|build|\
-    bindings|dev-check|dev|run|audit|licenses|\
-    package|host-package-check|source-check|integration-check|host-ui-lifecycle-check|clean|linux-check|\
-    unsigned-release-check|signing-check|notarization-check|release-check) ;;
+    bindings|dev-check|dev|run|audit|licenses|package|\
+    host-package-check|source-check|integration-check|host-ui-lifecycle-check|clean|linux-check) ;;
     *) fail "unknown command: $command_name; use make help" ;;
 esac
 
@@ -143,22 +142,5 @@ case "$command_name" in
         ;;
     linux-check)
         exec scripts/check-linux-x86_64.sh
-        ;;
-    unsigned-release-check)
-        scripts/check-prerequisites.sh licenses
-        cargo "+$HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN" deny --manifest-path "$CARGO_MANIFEST" check --config core/deny.toml licenses sources
-        exec "$GRADLE" --no-daemon --no-parallel --no-configuration-cache :app:desktop:unsignedReleaseReadiness
-        ;;
-    signing-check)
-        exec "$GRADLE" --no-daemon :app:desktop:signingReadiness
-        ;;
-    notarization-check)
-        exec "$GRADLE" --no-daemon :app:desktop:notarizationReadiness
-        ;;
-    release-check)
-        scripts/check-prerequisites.sh audit
-        cargo "+$HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN" audit --file core/Cargo.lock
-        cargo "+$HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN" deny --manifest-path "$CARGO_MANIFEST" check --config core/deny.toml advisories licenses sources
-        exec "$GRADLE" --no-daemon --no-parallel --no-configuration-cache :app:desktop:releaseReadiness
         ;;
 esac

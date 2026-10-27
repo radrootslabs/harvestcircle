@@ -144,7 +144,7 @@ public abstract class VerifyMacOsPackage : DefaultTask() {
 }
 
 @DisableCachingByDefault(because = "Installation package extraction invokes host tools")
-public abstract class VerifyNativeInstallPackage
+public abstract class VerifyLinuxPackage
     @Inject
     constructor(
         private val execOperations: ExecOperations,
@@ -158,20 +158,14 @@ public abstract class VerifyNativeInstallPackage
     public abstract val releaseLibrary: RegularFileProperty
 
     @get:Input
-    public abstract val packageExtension: Property<String>
-
-    @get:Input
     public abstract val expectedVersion: Property<String>
 
     @get:Input
     public abstract val expectedNativeEntry: Property<String>
 
-    @get:Input
-    public abstract val hostFamily: Property<String>
-
     @TaskAction
     public fun verify() {
-        val extension = packageExtension.get()
+        val extension = "deb"
         val packages = packageDirectory.asFileTree.files.filter { it.isFile && it.extension == extension }
         require(packages.size == 1) { "Expected exactly one .$extension installation package" }
         val installPackage = packages.single()
@@ -181,24 +175,7 @@ public abstract class VerifyNativeInstallPackage
         require(installPackage.length() > 0L) { "Installation package is empty" }
 
         val extracted = temporaryDir.resolve("extracted").apply { mkdirs() }
-        when (hostFamily.get()) {
-            "linux" ->
-                execOperations.commandOutput(
-                    "dpkg-deb",
-                    "--extract",
-                    installPackage.absolutePath,
-                    extracted.absolutePath,
-                )
-            "windows" ->
-                execOperations.commandOutput(
-                    "msiexec.exe",
-                    "/a",
-                    installPackage.absolutePath,
-                    "/qn",
-                    "TARGETDIR=${extracted.absolutePath}",
-                )
-            else -> throw GradleException("Unsupported native package host")
-        }
+        execOperations.commandOutput("dpkg-deb", "--extract", installPackage.absolutePath, extracted.absolutePath)
 
         val packagedLibraries = packagedNativeLibraries(extracted, expectedNativeEntry.get())
         require(packagedLibraries.size == 1) {
@@ -251,89 +228,6 @@ public abstract class VerifyPackagedApplicationHealth : DefaultTask() {
             "Packaged application did not clean its isolated health data root"
         }
         if (dataRoot.exists()) require(dataRoot.delete()) { "Isolated health data root could not be removed" }
-    }
-}
-
-@DisableCachingByDefault(because = "Signing verification invokes the host codesign tool")
-public abstract class VerifyMacOsDeveloperIdSignature
-    @Inject
-    constructor(
-        private val execOperations: ExecOperations,
-    ) : DefaultTask() {
-    @get:InputDirectory
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    public abstract val appDirectory: DirectoryProperty
-
-    @TaskAction
-    public fun verify() {
-        val app = appDirectory.get().asFile
-        execOperations.commandOutput("/usr/bin/codesign", "--verify", "--deep", "--strict", "--verbose=2", app.absolutePath)
-        val signature = execOperations.commandOutput("/usr/bin/codesign", "--display", "--verbose=4", app.absolutePath)
-        require(!signature.contains("Signature=adhoc")) {
-            "Release application is ad-hoc signed; a Developer ID Application signature is required"
-        }
-        require(signature.lineSequence().any { it.startsWith("Authority=Developer ID Application:") }) {
-            "Release application is not signed by a Developer ID Application identity"
-        }
-        require(signature.lineSequence().any { it.startsWith("TeamIdentifier=") && it != "TeamIdentifier=not set" }) {
-            "Release application signature has no Apple team identifier"
-        }
-    }
-}
-
-@DisableCachingByDefault(because = "Notarization verification invokes host Apple tools")
-public abstract class VerifyMacOsNotarization
-    @Inject
-    constructor(
-        private val execOperations: ExecOperations,
-    ) : DefaultTask() {
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.NONE)
-    public abstract val diskImage: RegularFileProperty
-
-    @TaskAction
-    public fun verify() {
-        val image = diskImage.get().asFile
-        execOperations.commandOutput("/usr/bin/xcrun", "stapler", "validate", image.absolutePath)
-        execOperations.commandOutput(
-            "/usr/sbin/spctl",
-            "--assess",
-            "--type",
-            "open",
-            "--context",
-            "context:primary-signature",
-            "--verbose=2",
-            image.absolutePath,
-        )
-    }
-}
-
-@DisableCachingByDefault(because = "Release provenance verification produces no reusable output")
-public abstract class VerifyReleaseBuildProvenance : DefaultTask() {
-    @get:Input
-    public abstract val sourceCommit: Property<String>
-
-    @get:Input
-    public abstract val sourceDirty: Property<String>
-
-    @get:Input
-    public abstract val radrootsRevision: Property<String>
-
-    @get:Input
-    public abstract val sourceDateEpoch: Property<String>
-
-    @TaskAction
-    public fun verify() {
-        require(Regex("[0-9a-f]{40}").matches(sourceCommit.get())) {
-            "Release source commit provenance is unknown or malformed"
-        }
-        require(sourceDirty.get() == "false") { "Release provenance reports a dirty or unknown source tree" }
-        require(Regex("[0-9a-f]{40}").matches(radrootsRevision.get())) {
-            "Release Radroots revision provenance is unknown or malformed"
-        }
-        require(sourceDateEpoch.get().toULongOrNull()?.let { it > 0UL } == true) {
-            "Release SOURCE_DATE_EPOCH provenance is unknown or malformed"
-        }
     }
 }
 

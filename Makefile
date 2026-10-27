@@ -45,8 +45,7 @@ COMMANDS := \
     doctor repo-check lock metadata build-logic-check mode-check design-source-check \
     design-goldens-update format format-fix lint test check build \
     bindings dev-check dev run audit licenses \
-    package host-package-check source-check integration-check host-ui-lifecycle-check clean linux-check \
-    unsigned-release-check signing-check notarization-check release-check
+    package host-package-check source-check integration-check host-ui-lifecycle-check clean linux-check
 .PHONY: help _extbuild-doctor _require-governed development-check acceptance-check $(COMMANDS)
 
 help:
@@ -92,7 +91,3 @@ acceptance-check: integration-check host-package-check
 clean: doctor
 development-check: source-check integration-check
 linux-check: _require-governed doctor
-unsigned-release-check: _require-governed doctor
-signing-check: _require-governed doctor
-notarization-check: _require-governed doctor
-release-check: _require-governed doctor

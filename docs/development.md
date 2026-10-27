@@ -63,8 +63,9 @@ claim platform acceptance when its actual command ran successfully.
 Golden PNGs are expected test data; their manifest hashes describe bytes, not a
 claim that a host check has run. Regeneration requires reviewing the actual images.
 
-Distribution, signing and notarization have separate prerequisites and candidate
-checks. Building the development app does not establish release qualification.
+Basic macOS/Linux packages are available for development. Production signing,
+notarization and release certification are deferred until distribution requirements
+are established; a development package is not a production release.
 Do not alter identities, bypass clean-source or compatibility checks, or infer
 permission to publish from a build command. Keep exact source/lock agreement and
 current FFI and storage checks when changing producer contracts.

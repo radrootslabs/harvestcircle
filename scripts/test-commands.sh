@@ -162,7 +162,7 @@ for mode in standalone governed; do
         [ "$(grep -c "$(printf '\t')-p$(printf '\t')build-logic" "$fixture/lane.log")" -eq 1 ]
     done
     development_output=$(tr '\t' ' ' < "$fixture/lane.log")
-    for forbidden in 'cargo audit' dependencyCheckAnalyze verifyHostPackage releaseReadiness unsignedReleaseReadiness signingReadiness notarizationReadiness packageDmg packageDeb; do
+    for forbidden in 'cargo audit' dependencyCheckAnalyze verifyHostPackage packageDmg packageDeb; do
         if printf '%s\n' "$development_output" | grep -q "$forbidden"; then
             printf '%s\n' "development-check selected deferred release work: $forbidden" >&2; exit 1
         fi
@@ -205,20 +205,15 @@ HCR_TEST_DIRTY=true run_dispatch standalone dev-check "$fixture/dirty.log" > "$f
 awk -F '\t' '$5 != "true" { exit 1 }' "$fixture/dirty.log"
 unset HCR_TEST_PROFILE HCR_TEST_DIRTY
 
-for target in unsigned-release-check signing-check notarization-check release-check linux-check; do
-    if run_dispatch standalone "$target" "$fixture/release.log" > "$fixture/release-output.log" 2>&1; then exit 1; fi
-    grep -q 'requires BUILD_MODE=governed' "$fixture/release-output.log"
-    [ ! -s "$fixture/release.log" ]
-    run_dispatch governed "$target" "$fixture/guarded.log" > "$fixture/guarded-output.log" 2>&1 || { cat "$fixture/guarded-output.log"; exit 1; }
-    case "$target" in
-        linux-check) grep -q '^check-linux-x86_64.sh' "$fixture/guarded.log" ;;
-        *) grep -q '^gradlew' "$fixture/guarded.log" ;;
-    esac
-done
+if run_dispatch standalone linux-check "$fixture/release.log" > "$fixture/release-output.log" 2>&1; then exit 1; fi
+grep -q 'requires BUILD_MODE=governed' "$fixture/release-output.log"
+[ ! -s "$fixture/release.log" ]
+run_dispatch governed linux-check "$fixture/guarded.log" > "$fixture/guarded-output.log" 2>&1 || { cat "$fixture/guarded-output.log"; exit 1; }
+grep -q '^check-linux-x86_64.sh' "$fixture/guarded.log"
 printf '%s\n' 'harvestcircle.guarded-commands=standalone-denial,governed-dispatch:pass'
 if "$make_command" --no-print-directory -C "$dispatch_root" BUILD_MODE=unsupported help > "$fixture/unknown.log" 2>&1; then exit 1; fi
 grep -q "Unknown BUILD_MODE 'unsupported'" "$fixture/unknown.log"
-for retired in native-dev governed-development-check affected-check api-check; do
+for retired in native-dev governed-development-check affected-check api-check unsigned-release-check signing-check notarization-check release-check; do
     if "$make_command" --no-print-directory -C "$dispatch_root" "$retired" > "$fixture/retired.log" 2>&1; then exit 1; fi
 done
 
