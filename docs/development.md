@@ -2,11 +2,14 @@
 
 Run commands from the repository root or use `make -C /path/to/harvestcircle`.
 The root Makefile is the only Make configuration surface. `make doctor` diagnoses
-selected tooling; the Gradle wrapper and native build use pinned inputs.
+selected JDK, Rust components and native compiler prerequisites before a workload.
+It reports installation commands for missing tools. The Gradle wrapper may
+download its pinned distribution; prerequisite checks never install host tools.
 
 | Command | Purpose |
 | --- | --- |
 | `make dev` / `make run` | Hot-reload development / normal desktop launch |
+| `make dev-check` | Finite launch-classpath and isolated native startup/shutdown checks |
 | `make build` | Build product Rust and the desktop application |
 | `make format` / `make format-fix` | Check / apply formatting |
 | `make lint` / `make test` | Static analysis / Rust and Kotlin tests |
@@ -45,7 +48,7 @@ shortcut can exempt files from source safety.
 Use tests appropriate to the changed owner and preserve meaningful negative
 cases. Native lifecycle tests must use isolated data; tests that deliberately
 mutate the real OS credential store are opt-in and are not routine validation.
-The existing Linux development script is an explicit Docker/extbuild lane; only
+Run `make BUILD_MODE=governed linux-check` for the Docker/extbuild Linux lane; only
 claim platform acceptance when its actual command ran successfully.
 
 Golden PNGs are expected test data; their manifest hashes describe bytes, not a

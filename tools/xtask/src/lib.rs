@@ -110,7 +110,14 @@ fn is_private_state_path(path: &str) -> bool {
     path.split('/').any(|part| {
         matches!(
             part,
-            ".act" | ".beads" | ".metaswarm" | ".claude" | "handoff" | "handoffs" | "sessions"
+            ".act"
+                | ".beads"
+                | ".metaswarm"
+                | ".claude"
+                | "handoff"
+                | "handoffs"
+                | "sessions"
+                | ".harvestcircle.local.mk"
         )
     })
 }

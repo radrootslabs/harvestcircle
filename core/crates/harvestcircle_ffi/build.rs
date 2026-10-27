@@ -91,6 +91,7 @@ fn main() {
     emit("HARVESTCIRCLE_FFI_CONTRACT_DIGEST", &contract_digest);
     let source_commit = git_value(&["rev-parse", "--verify", "HEAD"]);
     let source_dirty = git_dirty();
+    let source_epoch = git_value(&["show", "-s", "--format=%ct", "HEAD"]);
     let mut build_provenance = Vec::new();
     for (output, input, default) in [
         (
@@ -126,11 +127,26 @@ fn main() {
         (
             "HARVESTCIRCLE_BUILD_SOURCE_DATE_EPOCH",
             "SOURCE_DATE_EPOCH",
-            "0",
+            source_epoch.as_str(),
         ),
     ] {
         let value = std::env::var(input).unwrap_or_else(|_| default.to_owned());
         assert_build_value(input, &value);
+        match input {
+            "HARVESTCIRCLE_BUILD_SOURCE_COMMIT" => assert_eq!(
+                value, source_commit,
+                "build source differs from checkout HEAD"
+            ),
+            "HARVESTCIRCLE_BUILD_SOURCE_DIRTY" => assert_eq!(
+                value, source_dirty,
+                "build dirty state differs from checkout"
+            ),
+            "SOURCE_DATE_EPOCH" => assert_eq!(
+                value, source_epoch,
+                "build epoch differs from source commit"
+            ),
+            _ => {}
+        }
         if input == "HARVESTCIRCLE_BUILD_RADROOTS_REVISION" {
             assert_eq!(
                 value,
@@ -154,7 +170,18 @@ fn main() {
 }
 
 fn git_value(arguments: &[&str]) -> String {
-    let output = std::process::Command::new("git")
+    let mut command = std::process::Command::new("git");
+    for name in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    ] {
+        command.env_remove(name);
+    }
+    let output = command
         .args(arguments)
         .output()
         .expect("Git is required for native source identity");

@@ -8,7 +8,13 @@ keyring custody, a SQLx-backed state database and configurable relay bootstrap.
 ## Get started
 
 Install Git, Make, JDK 21 (selected through `JAVA_HOME`) and Rust 1.99.0 through
-rustup. Supported hosts are macOS aarch64 and Linux x86_64. macOS needs Xcode
+rustup, including its `clippy` and `rustfmt` components:
+
+```sh
+rustup toolchain install 1.99.0 --component clippy --component rustfmt
+```
+
+Supported hosts are macOS aarch64 and Linux x86_64. macOS needs Xcode
 Command Line Tools. Linux needs a C/C++ toolchain, OpenSSL development headers,
 desktop libraries and a graphical session; see the package list in the
 [Linux verification script](tools/run-linux-x86_64-development-check.sh).

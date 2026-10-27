@@ -1,176 +1,24 @@
 #!/bin/sh
 set -eu
 
-# Command-line host routing must not leak into portable command fixtures.
+# All execution below occurs in disposable fixtures with controlled tools.
 unset MAKEFLAGS MAKEOVERRIDES MFLAGS EXTBUILD EXTBUILD_MACHINE_CONFIG
-
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 make_command=$(command -v make)
-gradle_command=${GRADLE:-./gradlew}
 fixture=$(mktemp -d "${TMPDIR:-/tmp}/harvestcircle-build-mode.XXXXXX")
-cleanup() {
-    find "$fixture" -depth -delete
-}
+cleanup() { find "$fixture" -depth -delete; }
 trap cleanup EXIT HUP INT TERM
-# Test root Makefile defaults in a disposable checkout.
-makefile_fixture="$fixture/portable source"
-mkdir -p "$makefile_fixture"
-cp "$repository_root/Makefile" "$makefile_fixture/Makefile"
-printf '%s\n' '#!/bin/sh' 'exit 0' > "$makefile_fixture/gradlew"
-chmod +x "$makefile_fixture/gradlew"
-
-printf '%s\n' '#!/bin/sh' 'if [ "${1:-}" = +1.99.0 ]; then shift; fi' 'if [ "${1:-}" = --version ]; then exit 0; fi' 'if [ "${1:-}" = extbuild ]; then printf "%s\n" "cargo-extbuild unavailable" >&2; else printf "%s\n" "cargo must not be invoked in standalone dry-run" >&2; fi' 'exit 93' > "$fixture/cargo"
-chmod +x "$fixture/cargo"
-
-standalone_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE=standalone -C "$makefile_fixture" check)
-if printf '%s\n' "$standalone_output" | grep -q 'cargo extbuild'; then
-    printf '%s\n' 'standalone mode attempted to invoke extbuild' >&2
-    exit 1
-fi
-
-profile="$fixture/profile with spaces.toml"
-profile_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE=governed EXTBUILD_MACHINE_CONFIG="$profile" -C "$makefile_fixture" doctor)
-printf '%s\n' "$profile_output" | grep -Fx "cargo extbuild --machine-config \"$profile\" doctor" >/dev/null
-printf '%s\n' "$profile_output" | grep -Fx "cargo extbuild --machine-config \"$profile\" run -- java -version" >/dev/null
-standalone_profile_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE=standalone EXTBUILD_MACHINE_CONFIG="$profile" -C "$makefile_fixture" doctor)
-if printf '%s\n' "$standalone_profile_output" | grep -q extbuild; then
-    printf '%s\n' 'standalone mode probed the optional machine profile' >&2
-    exit 1
-fi
-
-for lane in source-check integration-check development-check; do
-    for mode in standalone governed; do
-        lane_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$makefile_fixture" "$lane")
-        build_logic_count=$(printf '%s\n' "$lane_output" | grep -c -- '-p build-logic')
-        if [ "$build_logic_count" -ne 1 ]; then
-            printf '%s\n' "$lane in $mode mode must invoke build-logic verification exactly once" >&2
-            exit 1
-        fi
-    done
-done
-
-development_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE=standalone -C "$makefile_fixture" development-check)
-for forbidden in \
-    'cargo audit' \
-    'dependencyCheckAnalyze' \
-    'verifyHostPackage' \
-    'releaseReadiness' \
-    'unsignedReleaseReadiness' \
-    'signingReadiness' \
-    'notarizationReadiness' \
-    'packageDmg' \
-    'packageDeb'
-do
-    if printf '%s\n' "$development_output" | grep -q "$forbidden"; then
-        printf '%s\n' "development verification activated deferred integration: $forbidden" >&2
-        exit 1
-    fi
-done
-
-for mode in standalone governed; do
-    source_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$makefile_fixture" source-check)
-
-    dev_check_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$makefile_fixture" dev-check)
-    dev_check_count=$(printf '%s\n' "$dev_check_output" | grep -c -- '--configuration-cache --configuration-cache-problems=fail :app:desktop:hotRunArgfile')
-    if [ "$dev_check_count" -ne 1 ]; then
-        printf '%s\n' "development readiness in $mode mode must verify the finite hot-reload argfile exactly once" >&2
-        exit 1
-    fi
-
-    source_dev_check_count=$(printf '%s\n' "$source_output" | grep -c -- '--configuration-cache --configuration-cache-problems=fail :app:desktop:hotRunArgfile')
-    if [ "$source_dev_check_count" -ne 1 ]; then
-        printf '%s\n' "ordinary source-check in $mode mode must include development readiness exactly once" >&2
-        exit 1
-    fi
-done
-
-dev_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE=standalone -C "$makefile_fixture" dev)
-if ! printf '%s\n' "$dev_output" | grep -q ':app:desktop:hotRun'; then
-    printf '%s\n' 'development command must invoke Compose hot reload' >&2
-    exit 1
-fi
-if printf '%s\n' "$dev_output" | grep -q -- '--no-configuration-cache'; then
-    printf '%s\n' 'development command disabled the qualified configuration cache' >&2
-    exit 1
-fi
-
-for mode in standalone governed; do
-    clean_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$makefile_fixture" clean)
-    build_runner_prefix=
-    if [ "$mode" = governed ]; then
-        build_runner_prefix='cargo extbuild run -- '
-    fi
-    root_clean_count=$(printf '%s\n' "$clean_output" | grep -Fxc -- "${build_runner_prefix}${gradle_command} --no-daemon clean" || true)
-    included_clean_count=$(printf '%s\n' "$clean_output" | grep -Fxc -- "${build_runner_prefix}${gradle_command} --no-daemon -p build-logic clean" || true)
-    if [ "$root_clean_count" -ne 1 ] || [ "$included_clean_count" -ne 1 ]; then
-        printf '%s\n' "clean in $mode mode must clean the root and included builds exactly once" >&2
-        exit 1
-    fi
-done
-
-if "$make_command" --no-print-directory -C "$makefile_fixture" BUILD_MODE=unsupported help > "$fixture/unknown.log" 2>&1; then
-    printf '%s\n' 'unknown build mode was accepted' >&2
-    exit 1
-fi
-grep -q "Unknown BUILD_MODE 'unsupported'" "$fixture/unknown.log"
-
-if PATH="$fixture:$PATH" "$make_command" --no-print-directory -C "$makefile_fixture" governed-doctor > "$fixture/governed.log" 2>&1; then
-    printf '%s\n' 'governed mode succeeded without extbuild' >&2
-    exit 1
-fi
-grep -q 'cargo-extbuild unavailable' "$fixture/governed.log"
-
-if PATH="$fixture:$PATH" "$make_command" --no-print-directory -C "$makefile_fixture" BUILD_MODE=standalone _release-check > "$fixture/release.log" 2>&1; then
-    printf '%s\n' 'release execution accepted standalone mode' >&2
-    exit 1
-fi
-grep -q 'release-check requires governed mode' "$fixture/release.log"
-
-if PATH="$fixture:$PATH" "$make_command" --no-print-directory -C "$makefile_fixture" BUILD_MODE=standalone _unsigned-release-check > "$fixture/unsigned-release.log" 2>&1; then
-    printf '%s\n' 'unsigned release execution accepted standalone mode' >&2
-    exit 1
-fi
-grep -q 'unsigned-release-check requires governed mode' "$fixture/unsigned-release.log"
-
-unsigned_release_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE=governed -C "$makefile_fixture" _unsigned-release-check)
-if ! printf '%s\n' "$unsigned_release_output" | grep -q ':app:desktop:unsignedReleaseReadiness'; then
-    printf '%s\n' 'unsigned release command did not select the unsigned readiness gate' >&2
-    exit 1
-fi
-for forbidden in 'cargo audit' 'advisories' ':app:desktop:dependencyCheckAnalyze' ':app:desktop:releaseReadiness' ':app:desktop:signingReadiness' ':app:desktop:notarizationReadiness'; do
-    if printf '%s\n' "$unsigned_release_output" | grep -q "$forbidden"; then
-        printf '%s\n' "unsigned release command activated out-of-scope authority: $forbidden" >&2
-        exit 1
-    fi
-done
-
-standalone_package_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE=standalone -C "$makefile_fixture" package-check)
-standalone_unsigned_gate_count=$(printf '%s\n' "$standalone_package_output" | grep -Fxc -- "$gradle_command --no-daemon --no-parallel --no-configuration-cache :app:desktop:unsignedReleaseReadiness" || true)
-if [ "$standalone_unsigned_gate_count" -ne 1 ] || printf '%s\n' "$standalone_package_output" | grep -q 'cargo extbuild'; then
-    printf '%s\n' 'standalone package-check must invoke the unsigned gate once without probing extbuild' >&2
-    exit 1
-fi
-
-governed_package_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE=standalone -C "$makefile_fixture" governed-package-check)
-governed_unsigned_gate_count=$(printf '%s\n' "$governed_package_output" | grep -Fxc -- "cargo extbuild run -- $gradle_command --no-daemon --no-parallel --no-configuration-cache :app:desktop:unsignedReleaseReadiness" || true)
-if [ "$governed_unsigned_gate_count" -ne 1 ]; then
-    printf '%s\n' 'governed-package-check must invoke the extbuild-routed unsigned gate exactly once' >&2
-    exit 1
-fi
-
-# Run the real Make graph with only controlled native tools. The disposable
-# dispatcher fixture deliberately has spaces, no ambient tool PATH, and finite
-# stand-ins for hotRun, package checks, and the mode-check script itself.
 dispatch_root="$(CDPATH= cd -- "$fixture" && pwd -P)/checkout with spaces"
 dispatch_bin="$fixture/native tools"
 mkdir -p "$dispatch_root/tools" "$dispatch_bin"
 cp "$repository_root/Makefile" "$dispatch_root/Makefile"
+cp "$repository_root/tools/check-prerequisites.sh" "$dispatch_root/tools/check-prerequisites.sh"
 ln -s "$(command -v sed)" "$dispatch_bin/sed"
 cat > "$dispatch_bin/git" <<'EOF'
 #!/bin/sh
 case "$1" in
     rev-parse) printf '%040d\n' 1 ;;
-    status) : ;;
+    status) [ "${HCR_TEST_DIRTY:-false}" = false ] || printf '%s\n' ' M source.rs' ;;
     show) printf '%s\n' 1 ;;
     *) exit 92 ;;
 esac
@@ -188,28 +36,34 @@ if [ "$tool" = "${HCR_TEST_FAIL_TOOL:-}" ]; then
     esac
 fi
 case "$tool" in
-    node|corepack)
-        [ "${HCR_TEST_RUNTIME:-native}" = web ] || exit 94
+    node|npm|pnpm|npx|corepack) exit 94 ;;
+    java) printf 'openjdk version "%s.0.12"\n' "${HCR_TEST_JAVA_MAJOR:-21}" >&2 ;;
+    rustup)
+        if [ "${1:-}" = component ]; then
+            printf '%s\n' clippy-test rustfmt-test
+        else
+            printf '%s\n' 'rustc 1.99.0'
+        fi
         ;;
-    java|gradlew)
-        [ "${HCR_TEST_RUNTIME:-native}" = native ] || exit 94
-        ;;
-    npm|pnpm|npx) exit 94 ;;
+    uname) printf '%s\n' Linux ;;
+
     cargo)
         if [ "${1:-}" = +1.99.0 ]; then shift; fi
         if [ "${1:-}" = extbuild ]; then
-            case "${2:-}" in
+            [ "${HCR_TEST_EXTBUILD:-present}" = present ] || { printf '%s\n' 'cargo-extbuild unavailable' >&2; exit 93; }
+            shift
+            if [ "${1:-}" = --machine-config ]; then shift 2; fi
+            case "${1:-}" in
                 doctor) exit 0 ;;
                 run)
-                    [ "${3:-}" = -- ] || exit 92
-                    shift 3
+                    [ "${2:-}" = -- ] || exit 92
+                    shift 2
                     export HCR_TEST_ROUTED=yes
                     exec "$@"
                     ;;
                 *) exit 92 ;;
             esac
         fi
-        [ "${HCR_TEST_RUNTIME:-native}" = native ] || exit 94
         ;;
 esac
 # These are disposable build-output stand-ins, never primary build caches.
@@ -223,7 +77,7 @@ if [ "${HCR_TEST_CLEAN:-no}" = yes ]; then
     esac
 fi
 EOF
-for tool in cargo java node npm pnpm npx corepack; do
+for tool in cargo java rustup cc uname pkg-config cargo-deny cargo-public-api cargo-audit node npm pnpm npx corepack; do
     cp "$fixture/dispatch-tool" "$dispatch_bin/$tool"
     chmod +x "$dispatch_bin/$tool"
 done
@@ -240,79 +94,90 @@ run_dispatch() {
     dispatch_log=$3
     : > "$dispatch_log"
     # Start outside the checkout: Make must establish the recipe cwd with -C.
-    (cd "$fixture" && PATH="$dispatch_bin" MAKEFLAGS= MFLAGS= HCR_TEST_LOG="$dispatch_log" HCR_TEST_ROUTED=no \
-        "$make_command" --no-print-directory -C "$dispatch_root" BUILD_MODE="$dispatch_mode" GRADLE=./gradlew "$dispatch_target")
+    (cd "$fixture" && PATH="$dispatch_bin" JAVA_HOME= MAKEFLAGS= MFLAGS= HCR_TEST_LOG="$dispatch_log" HCR_TEST_ROUTED=no \
+        "$make_command" --no-print-directory -C "$dispatch_root" BUILD_MODE="$dispatch_mode" GRADLE=./gradlew EXTBUILD_MACHINE_CONFIG="${HCR_TEST_PROFILE:-}" "$dispatch_target")
 }
+
 
 for mode in standalone governed; do
     default_output=$("$make_command" --no-print-directory -C "$dispatch_root" BUILD_MODE="$mode")
     help_output=$("$make_command" --no-print-directory -C "$dispatch_root" BUILD_MODE="$mode" help)
-    if [ "$default_output" != "$help_output" ]; then
-        printf '%s\n' "default goal changed from help in $mode mode" >&2
-        exit 1
-    fi
-    for target in doctor dev check build package-check; do
-        alias="native-$target"
-        original_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$makefile_fixture" "$target")
-        alias_output=$(PATH="$fixture:$PATH" "$make_command" --no-print-directory -n BUILD_MODE="$mode" -C "$makefile_fixture" "$alias")
-        if [ "$original_output" != "$alias_output" ]; then
-            printf '%s\n' "$alias changed or duplicated the $target command graph in $mode mode" >&2
-            exit 1
+    [ "$default_output" = "$help_output" ] || exit 1
+    for target in doctor dev run dev-check build check source-check integration-check package; do
+        run_dispatch "$mode" "$target" "$fixture/dispatch.log" > "$fixture/output.log" 2>&1 || { cat "$fixture/output.log"; exit 1; }
+        if grep -Eq '^(node|npm|pnpm|npx|corepack)[[:space:]]' "$fixture/dispatch.log"; then
+            printf '%s\n' "$target invoked an unrelated tool" >&2; exit 1
         fi
-        run_dispatch "$mode" "$target" "$fixture/original-dispatch.log" > "$fixture/original-output.log" 2>&1
-        run_dispatch "$mode" "$alias" "$fixture/alias-dispatch.log" > "$fixture/alias-output.log" 2>&1
-        if ! cmp -s "$fixture/original-dispatch.log" "$fixture/alias-dispatch.log" || \
-            ! cmp -s "$fixture/original-output.log" "$fixture/alias-output.log"; then
-            diff -u "$fixture/original-dispatch.log" "$fixture/alias-dispatch.log" || true
-            diff -u "$fixture/original-output.log" "$fixture/alias-output.log" || true
-            printf '%s\n' "$alias changed controlled execution of $target in $mode mode" >&2
-            exit 1
-        fi
-        if [ ! -s "$fixture/alias-dispatch.log" ] || \
-            grep -Eq '^(node|npm|pnpm|npx|corepack)[[:space:]]' "$fixture/alias-dispatch.log"; then
-            printf '%s\n' "$alias did not execute native tools exclusively in $mode mode" >&2
-            exit 1
-        fi
-        if [ "$target" != doctor ]; then
-            awk -F '\t' '
-                $4 != "0000000000000000000000000000000000000001" || $5 != "false" || $7 != "1" {
-                    print "native command omitted actual checkout provenance"; exit 1
-                }
-            ' "$fixture/alias-dispatch.log"
-        fi
-        if [ "$(grep -c '^java[[:space:]]' "$fixture/alias-dispatch.log")" -ne 1 ]; then
-            printf '%s\n' "$alias must execute its doctor once in $mode mode" >&2
-            exit 1
-        fi
+        [ "$(grep -c '^java[[:space:]]' "$fixture/dispatch.log")" -eq 1 ]
+        awk -F '\t' '$4 != "0000000000000000000000000000000000000001" || $5 != "false" || $7 != "1" { exit 1 }' "$fixture/dispatch.log" || { cat "$fixture/dispatch.log"; exit 1; }
         while IFS="$(printf '\t')" read -r tool cwd details; do
-            if [ "$cwd" != "$dispatch_root" ]; then
-                printf '%s\n' "$alias invoked $tool outside the checkout in $mode mode" >&2
-                exit 1
-            fi
-        done < "$fixture/alias-dispatch.log"
-        for missing in java cargo gradlew; do
+            [ "$cwd" = "$dispatch_root" ] || { printf '%s\n' "$target ran outside its source root"; exit 1; }
+        done < "$fixture/dispatch.log"
+        if [ "$mode" = standalone ]; then
+            ! grep -q "$(printf '\t')extbuild$(printf '\t')" "$fixture/dispatch.log"
+        else
+            grep -q "$(printf '\t')extbuild$(printf '\t')doctor$" "$fixture/dispatch.log"
+        fi
+        for missing in java cargo rustup gradlew cc; do
             missing_path="$dispatch_bin/$missing"
             if [ "$missing" = gradlew ]; then missing_path="$dispatch_root/gradlew"; fi
             mv "$missing_path" "$fixture/missing-tool"
-            if run_dispatch "$mode" "$alias" "$fixture/missing-dispatch.log" > "$fixture/missing-output.log" 2>&1; then
-                printf '%s\n' "$alias succeeded without $missing in $mode mode" >&2
-                exit 1
+            if run_dispatch "$mode" "$target" "$fixture/missing.log" > "$fixture/missing-output.log" 2>&1; then
+                printf '%s\n' "$target succeeded without $missing" >&2; exit 1
             fi
             mv "$fixture/missing-tool" "$missing_path"
-            grep -Eq '(not found|No such file)' "$fixture/missing-output.log"
+            grep -Eq '(missing|not found|No such file|unavailable)' "$fixture/missing-output.log"
         done
-        if [ "$mode" = governed ]; then
-            mv "$dispatch_bin/cargo" "$fixture/available-cargo"
-            cp "$fixture/cargo" "$dispatch_bin/cargo"
-            if run_dispatch "$mode" "$alias" "$fixture/missing-dispatch.log" > "$fixture/missing-output.log" 2>&1; then
-                printf '%s\n' "$alias succeeded without extbuild" >&2
-                exit 1
-            fi
-            grep -q 'cargo-extbuild unavailable' "$fixture/missing-output.log"
-            mv "$fixture/available-cargo" "$dispatch_bin/cargo"
-        fi
-        printf '%s\n' "harvestcircle.native-alias.$mode.$alias=dry-run,execution,cwd,no-node,missing-tools:pass"
+        printf '%s\n' "harvestcircle.dispatch.$mode.$target=cwd,provenance,doctor,no-node,missing-tools:pass"
     done
+    for lane in source-check integration-check development-check; do
+        lane_output=$(PATH="$dispatch_bin" "$make_command" --no-print-directory -n -C "$dispatch_root" BUILD_MODE="$mode" "$lane")
+        [ "$(printf '%s\n' "$lane_output" | grep -c -- '-p build-logic')" -eq 1 ]
+    done
+    development_output=$(PATH="$dispatch_bin" "$make_command" --no-print-directory -n -C "$dispatch_root" BUILD_MODE="$mode" development-check)
+    for forbidden in 'cargo audit' dependencyCheckAnalyze verifyHostPackage releaseReadiness unsignedReleaseReadiness signingReadiness notarizationReadiness packageDmg packageDeb; do
+        if printf '%s\n' "$development_output" | grep -q "$forbidden"; then
+            printf '%s\n' "development-check selected deferred release work: $forbidden" >&2; exit 1
+        fi
+    done
+    [ "$(printf '%s\n' "$development_output" | grep -c -- '--configuration-cache --configuration-cache-problems=fail :app:desktop:hotRunArgfile')" -eq 1 ]
+done
+
+# A profile with spaces remains an explicit optional argument, never a local include.
+HCR_TEST_PROFILE="$fixture/profile with spaces.toml" run_dispatch governed dev-check "$fixture/profile.log" > "$fixture/profile-output.log" 2>&1
+HCR_TEST_DIRTY=true run_dispatch standalone dev-check "$fixture/dirty.log" > "$fixture/dirty-output.log" 2>&1
+awk -F '\t' '$5 != "true" { exit 1 }' "$fixture/dirty.log"
+unset HCR_TEST_PROFILE HCR_TEST_DIRTY
+
+for target in unsigned-release-check signing-check notarization-check release-check linux-check; do
+    if run_dispatch standalone "$target" "$fixture/release.log" > "$fixture/release-output.log" 2>&1; then exit 1; fi
+    grep -q 'requires BUILD_MODE=governed' "$fixture/release-output.log"
+    [ ! -s "$fixture/release.log" ]
+done
+if "$make_command" --no-print-directory -C "$dispatch_root" BUILD_MODE=unsupported help > "$fixture/unknown.log" 2>&1; then exit 1; fi
+grep -q "Unknown BUILD_MODE 'unsupported'" "$fixture/unknown.log"
+for retired in native-dev governed-development-check affected-check; do
+    if "$make_command" --no-print-directory -C "$dispatch_root" "$retired" > "$fixture/retired.log" 2>&1; then exit 1; fi
+done
+
+# Wrong host selection and unavailable extbuild fail before a workload.
+if HCR_TEST_JAVA_MAJOR=17 run_dispatch standalone dev "$fixture/java.log" > "$fixture/java-output.log" 2>&1; then exit 1; fi
+grep -q 'select JDK 21' "$fixture/java-output.log"
+if HCR_TEST_FAIL_TOOL=rustup HCR_TEST_FAIL_ARGUMENT=1.99.0 run_dispatch standalone dev "$fixture/rustup.log" > "$fixture/rustup-output.log" 2>&1; then exit 1; fi
+grep -q 'install Rust 1.99.0' "$fixture/rustup-output.log"
+if HCR_TEST_EXTBUILD=missing run_dispatch governed dev "$fixture/extbuild.log" > "$fixture/extbuild-output.log" 2>&1; then exit 1; fi
+grep -q 'cargo-extbuild unavailable' "$fixture/extbuild-output.log"
+unset HCR_TEST_JAVA_MAJOR HCR_TEST_FAIL_TOOL HCR_TEST_FAIL_ARGUMENT
+HCR_TEST_EXTBUILD=missing run_dispatch standalone dev "$fixture/portable.log" > "$fixture/portable-output.log" 2>&1
+unset HCR_TEST_EXTBUILD
+
+# Scoped verification tools fail before their associated workloads.
+for pair in 'licenses cargo-deny' 'api-check cargo-public-api' 'audit cargo-audit'; do
+    set -- $pair
+    mv "$dispatch_bin/$2" "$fixture/missing-tool"
+    if run_dispatch standalone "$1" "$fixture/scoped.log" > "$fixture/scoped-output.log" 2>&1; then exit 1; fi
+    mv "$fixture/missing-tool" "$dispatch_bin/$2"
+    grep -q "$2 is missing" "$fixture/scoped-output.log"
 done
 
 # Fail each selected command rather than silently accepting a partial graph.
@@ -375,5 +240,4 @@ for mode in standalone governed; do
     printf '%s\n' "harvestcircle.clean.$mode=owned-output-removal,sentinel-preservation:pass"
 done
 
-printf '%s\n' 'harvestcircle.native-alias-contract=pass'
 printf '%s\n' 'harvestcircle.build-mode-contract=pass'

@@ -12,8 +12,7 @@ override CARGO := cargo +1.99.0
 CARGO_MANIFEST := core/Cargo.toml
 XTASK_MANIFEST := tools/xtask/Cargo.toml
 BUILD_MODE ?= standalone
-# Recipes use this mode explicitly. Standalone fixture Make processes must not
-# inherit it as an environment default; recursive governed targets pass it.
+# Portable fixture Make processes select their own mode explicitly.
 unexport BUILD_MODE
 VALID_BUILD_MODES := standalone governed
 
@@ -27,56 +26,37 @@ else
 override BUILD_RUNNER :=
 endif
 
-# Native startup validates build identity even in development. Supply actual
-# checkout provenance to ordinary app commands as well as qualification lanes.
-NATIVE_PROVENANCE_TARGETS := dev run dev-check build bindings test check source-check integration-check host-ui-lifecycle-check host-package-check
-$(NATIVE_PROVENANCE_TARGETS): export HARVESTCIRCLE_BUILD_SOURCE_COMMIT = $(shell git rev-parse --verify HEAD)
-$(NATIVE_PROVENANCE_TARGETS): export HARVESTCIRCLE_BUILD_SOURCE_DIRTY = $(if $(strip $(shell git status --porcelain --untracked-files=all)),true,false)
-$(NATIVE_PROVENANCE_TARGETS): export HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN = 1.99.0
-$(NATIVE_PROVENANCE_TARGETS): export SOURCE_DATE_EPOCH = $(shell git show -s --format=%ct HEAD)
+# Serialize lifecycle targets that share native and Gradle output roots.
+.NOTPARALLEL:
+# Producers always describe this checkout, including ordinary development builds.
+override HARVESTCIRCLE_BUILD_SOURCE_COMMIT := $(shell git rev-parse --verify HEAD 2>/dev/null)
+override HARVESTCIRCLE_BUILD_SOURCE_DIRTY := $(if $(strip $(shell git status --porcelain --untracked-files=all 2>/dev/null)),true,false)
+override HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN := 1.99.0
+override SOURCE_DATE_EPOCH := $(shell git show -s --format=%ct HEAD 2>/dev/null)
+export HARVESTCIRCLE_BUILD_SOURCE_COMMIT HARVESTCIRCLE_BUILD_SOURCE_DIRTY HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN SOURCE_DATE_EPOCH
 
-.PHONY: help doctor governed-doctor lock metadata build-logic-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-provenance-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check unsigned-release-check _unsigned-release-check signing-check _signing-check notarization-check _notarization-check release-check _release-check clean
-.PHONY: native-doctor native-dev native-check native-build native-package-check
-.PHONY: repo-check check-all
-
-repo-check:
-	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- repo-audit
-
-check-all:
-	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) tools/check-all.sh
-
-ifeq ($(BUILD_MODE),governed)
-repo-check check-all mode-check: governed-doctor
-endif
-
-native-doctor: doctor
-native-dev: dev
-native-check: check
-native-build: build
-native-package-check: package-check
+.PHONY: help doctor _extbuild-doctor _require-governed repo-check lock metadata build-logic-check mode-check design-source-check design-goldens-update format format-fix lint test check build bindings api-check dev-check dev run audit licenses package host-package-check source-check integration-check development-check linux-check host-ui-lifecycle-check acceptance-check unsigned-release-check signing-check notarization-check release-check clean
 
 help:
-	@printf '%s\n' 'Repository: repo-check' 'KMP/native source aggregate: check-all'
-	@printf '%s\n' doctor governed-doctor lock metadata build-logic-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check unsigned-release-check signing-check notarization-check release-check clean
-
-design-source-check: doctor
-	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- design-source-audit
-
-design-goldens-update: doctor
-	$(BUILD_RUNNER) $(GRADLE) --no-daemon -Pharvestcircle.updateMacosGoldens=true :app:shared:desktopTest --tests org.harvestcircle.ui.shell.HarvestCircleMacGoldenTest
+	@printf '%s\n' 'Start: doctor dev run dev-check' 'Build: build check clean' 'Focused checks: repo-check format format-fix lint test build-logic-check mode-check bindings api-check licenses source-check integration-check' 'Design: design-source-check design-goldens-update' 'Maintenance: metadata lock' 'Complete development: development-check' 'Packaging: package host-package-check unsigned-release-check' 'Other checks: audit host-ui-lifecycle-check signing-check notarization-check release-check' 'Linux qualification: BUILD_MODE=governed linux-check' 'Standalone is the default; add BUILD_MODE=governed and optional EXTBUILD_MACHINE_CONFIG=/path/to/profile.toml for extbuild.'
 
 doctor:
 	@printf '%s\n' "harvestcircle.build.mode=$(BUILD_MODE)"
-	$(BUILD_RUNNER) java -version
-	$(BUILD_RUNNER) $(CARGO) --version
+	$(BUILD_RUNNER) tools/check-prerequisites.sh common
 	$(BUILD_RUNNER) $(GRADLE) --version
 
-governed-doctor:
+_extbuild-doctor:
 	$(EXTBUILD) doctor
 
+_require-governed:
+	@test "$(BUILD_MODE)" = governed || { printf '%s\n' 'This check requires BUILD_MODE=governed'; exit 2; }
+
 ifeq ($(BUILD_MODE),governed)
-doctor: governed-doctor
+doctor: _extbuild-doctor
 endif
+
+repo-check: doctor
+	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- qualification-report
 
 lock: doctor
 	$(BUILD_RUNNER) $(CARGO) generate-lockfile --manifest-path $(CARGO_MANIFEST)
@@ -88,8 +68,14 @@ metadata: doctor
 build-logic-check: doctor
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon -p build-logic :contracts:check :plugins:check :plugins:functionalTest
 
-mode-check:
+mode-check: doctor
 	$(BUILD_RUNNER) tools/test-build-modes.sh
+
+design-source-check: doctor
+	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- design-source-audit
+
+design-goldens-update: doctor
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon -Pharvestcircle.updateMacosGoldens=true :app:shared:desktopTest --tests org.harvestcircle.ui.shell.HarvestCircleMacGoldenTest
 
 format: doctor
 	$(BUILD_RUNNER) $(CARGO) fmt --manifest-path $(CARGO_MANIFEST) --all -- --check
@@ -111,11 +97,8 @@ test: doctor
 	$(BUILD_RUNNER) $(CARGO) test --manifest-path $(XTASK_MANIFEST) --locked
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:shared:desktopTest :app:desktop:test designTest
 
-check: format lint test foundation-check mode-check
+check: repo-check format lint test mode-check
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:shared:check :app:desktop:check designCheck
-
-governed-check:
-	$(MAKE) --no-print-directory BUILD_MODE=governed check
 
 build: doctor
 	$(BUILD_RUNNER) $(CARGO) build --manifest-path $(CARGO_MANIFEST) --workspace --locked
@@ -125,10 +108,12 @@ bindings: doctor
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:verifyUniFfiBindings :app:desktop:verifyReleaseNativeLibrary
 
 api-check: doctor
+	$(BUILD_RUNNER) tools/check-prerequisites.sh api
 	$(BUILD_RUNNER) tools/verify-storage-api.sh
 
 dev-check: doctor
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon --configuration-cache --configuration-cache-problems=fail :app:desktop:hotRunArgfile
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:test --tests org.harvestcircle.application.NativeGeneratedRecoveryTest
 
 dev: doctor
 	$(BUILD_RUNNER) $(GRADLE) :app:desktop:hotRun
@@ -137,16 +122,15 @@ run: doctor
 	$(BUILD_RUNNER) $(GRADLE) :app:desktop:run
 
 audit: doctor
+	$(BUILD_RUNNER) tools/check-prerequisites.sh audit
 	$(BUILD_RUNNER) $(CARGO) audit --file core/Cargo.lock
 	$(BUILD_RUNNER) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml advisories
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon --no-configuration-cache :app:desktop:dependencyCheckAnalyze :app:design_system:dependencyCheckAnalyze :tools:design_catalog:dependencyCheckAnalyze
 
 licenses: doctor
+	$(BUILD_RUNNER) tools/check-prerequisites.sh licenses
 	$(BUILD_RUNNER) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml licenses sources
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:checkLicense :app:design_system:checkLicense :tools:design_catalog:checkLicense
-
-foundation-check: design-source-check
-	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- qualification-report
 
 package: check
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:verifyHostPackage
@@ -154,85 +138,41 @@ package: check
 host-package-check: doctor
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:verifyHostPackage
 
-governed-package-check:
-	$(MAKE) --no-print-directory BUILD_MODE=governed package-check
-
 source-check: build-logic-check check bindings api-check licenses dev-check
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:sourceReadiness
 
-governed-source-check:
-	$(MAKE) --no-print-directory BUILD_MODE=governed source-check
-
-package-check: export HARVESTCIRCLE_BUILD_SOURCE_COMMIT = $(shell git rev-parse --verify HEAD)
-package-check: export HARVESTCIRCLE_BUILD_SOURCE_DIRTY = $(if $(strip $(shell git status --porcelain --untracked-files=all)),true,false)
-package-check: export HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN = 1.99.0
-package-check: export SOURCE_DATE_EPOCH = $(shell git show -s --format=%ct HEAD)
-package-check: source-check
-	$(BUILD_RUNNER) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:unsignedReleaseReadiness
-
 integration-check: build-logic-check check
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:integrationTest :app:desktop:verifyTestBridgeIsolation
-
-governed-integration-check:
-	$(MAKE) --no-print-directory BUILD_MODE=governed integration-check
-
-development-check: export HARVESTCIRCLE_BUILD_SOURCE_COMMIT = $(shell git rev-parse --verify HEAD)
-development-check: export HARVESTCIRCLE_BUILD_SOURCE_DIRTY = $(if $(strip $(shell git status --porcelain --untracked-files=all)),true,false)
-development-check: export HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN = 1.99.0
-development-check: export SOURCE_DATE_EPOCH = $(shell git show -s --format=%ct HEAD)
-development-check: development-provenance-check source-check integration-check
-
-development-provenance-check:
-	@test "$${#HARVESTCIRCLE_BUILD_SOURCE_COMMIT}" -eq 40
-	@case "$$SOURCE_DATE_EPOCH" in ''|*[!0-9]*) exit 2 ;; esac
-	@test "$$HARVESTCIRCLE_BUILD_SOURCE_DIRTY" = true -o "$$HARVESTCIRCLE_BUILD_SOURCE_DIRTY" = false
-
-governed-development-check:
-	$(MAKE) --no-print-directory BUILD_MODE=governed development-check
-
-governed-linux-x86_64-development-check: governed-doctor
-	$(EXTBUILD) run -- tools/run-linux-x86_64-development-check.sh
 
 host-ui-lifecycle-check: doctor
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:hostUiLifecycleTest
 
 acceptance-check: integration-check host-package-check
 
-unsigned-release-check:
-	$(MAKE) --no-print-directory BUILD_MODE=governed _unsigned-release-check
-
-_unsigned-release-check: export HARVESTCIRCLE_BUILD_SOURCE_COMMIT = $(shell git rev-parse --verify HEAD)
-_unsigned-release-check: export HARVESTCIRCLE_BUILD_SOURCE_DIRTY = $(if $(strip $(shell git status --porcelain --untracked-files=all)),true,false)
-_unsigned-release-check: export HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN = 1.99.0
-_unsigned-release-check: export SOURCE_DATE_EPOCH = $(shell git show -s --format=%ct HEAD)
-_unsigned-release-check: doctor
-	@test "$(BUILD_MODE)" = governed || { printf '%s\n' 'unsigned-release-check requires governed mode'; exit 2; }
-	$(BUILD_RUNNER) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml licenses sources
-	$(BUILD_RUNNER) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:unsignedReleaseReadiness
-
-signing-check:
-	$(MAKE) --no-print-directory BUILD_MODE=governed _signing-check
-
-_signing-check: doctor
-	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:signingReadiness
-
-notarization-check:
-	$(MAKE) --no-print-directory BUILD_MODE=governed _notarization-check
-
-_notarization-check: doctor
-	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:notarizationReadiness
-
-release-check:
-	$(MAKE) --no-print-directory BUILD_MODE=governed _release-check
-
-_release-check: doctor
-	@test "$(BUILD_MODE)" = governed || { printf '%s\n' 'release-check requires governed mode'; exit 2; }
-	$(BUILD_RUNNER) $(CARGO) audit --file core/Cargo.lock
-	$(BUILD_RUNNER) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml advisories licenses sources
-	$(BUILD_RUNNER) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:releaseReadiness
-
 clean: doctor
 	$(BUILD_RUNNER) $(CARGO) clean --manifest-path $(CARGO_MANIFEST)
 	$(BUILD_RUNNER) $(CARGO) clean --manifest-path $(XTASK_MANIFEST)
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon clean
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon -p build-logic clean
+
+development-check: source-check integration-check
+
+linux-check: _require-governed doctor
+	$(EXTBUILD) run -- tools/run-linux-x86_64-development-check.sh
+
+unsigned-release-check: _require-governed doctor
+	$(BUILD_RUNNER) tools/check-prerequisites.sh licenses
+	$(BUILD_RUNNER) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml licenses sources
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:unsignedReleaseReadiness
+
+signing-check: _require-governed doctor
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:signingReadiness
+
+notarization-check: _require-governed doctor
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:notarizationReadiness
+
+release-check: _require-governed doctor
+	$(BUILD_RUNNER) tools/check-prerequisites.sh audit
+	$(BUILD_RUNNER) $(CARGO) audit --file core/Cargo.lock
+	$(BUILD_RUNNER) $(CARGO) deny --manifest-path $(CARGO_MANIFEST) check --config core/deny.toml advisories licenses sources
+	$(BUILD_RUNNER) $(GRADLE) --no-daemon --no-parallel --no-configuration-cache :app:desktop:releaseReadiness

@@ -683,6 +683,7 @@ fn public_docs_are_allowed_but_private_orchestration_is_rejected() {
         ".act/workflows/private.yml",
         ".beads/issues.jsonl",
         "nested/sessions/history.md",
+        ".harvestcircle.local.mk",
     ] {
         assert!(is_private_state_path(path), "{path}");
     }
