@@ -13,7 +13,7 @@ case "$command_name" in
         printf '%s\n' \
             'Start: doctor dev run dev-check' \
             'Build: build check clean' \
-            'Focused checks: repo-check format format-fix lint test build-logic-check mode-check bindings api-check licenses source-check integration-check' \
+            'Focused checks: repo-check format format-fix lint test build-logic-check mode-check bindings licenses source-check integration-check' \
             'Design: design-source-check design-goldens-update' \
             'Maintenance: metadata lock' \
             'Complete development: development-check' \
@@ -29,7 +29,7 @@ case "$command_name" in
         ;;
     doctor|repo-check|lock|metadata|build-logic-check|mode-check|design-source-check|\
     design-goldens-update|format|format-fix|lint|test|check|build|\
-    bindings|api-check|dev-check|dev|run|audit|licenses|\
+    bindings|dev-check|dev|run|audit|licenses|\
     package|host-package-check|source-check|integration-check|host-ui-lifecycle-check|clean|linux-check|\
     unsigned-release-check|signing-check|notarization-check|release-check) ;;
     *) fail "unknown command: $command_name; use make help" ;;
@@ -98,10 +98,6 @@ case "$command_name" in
         ;;
     bindings)
         exec "$GRADLE" --no-daemon :app:desktop:verifyUniFfiBindings :app:desktop:verifyReleaseNativeLibrary
-        ;;
-    api-check)
-        scripts/check-prerequisites.sh api
-        exec scripts/check-storage-api.sh
         ;;
     dev-check)
         "$GRADLE" --no-daemon --configuration-cache --configuration-cache-problems=fail :app:desktop:hotRunArgfile

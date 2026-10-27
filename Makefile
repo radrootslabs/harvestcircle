@@ -44,7 +44,7 @@ export HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN HARVESTCIRCLE_BUILD_MODE SOURCE_DATE_E
 COMMANDS := \
     doctor repo-check lock metadata build-logic-check mode-check design-source-check \
     design-goldens-update format format-fix lint test check build \
-    bindings api-check dev-check dev run audit licenses \
+    bindings dev-check dev run audit licenses \
     package host-package-check source-check integration-check host-ui-lifecycle-check clean linux-check \
     unsigned-release-check signing-check notarization-check release-check
 .PHONY: help _extbuild-doctor _require-governed development-check acceptance-check $(COMMANDS)
@@ -78,7 +78,6 @@ test: doctor
 check: repo-check format lint test mode-check
 build: doctor
 bindings: doctor
-api-check: doctor
 dev-check: doctor
 dev: doctor
 run: doctor
@@ -86,7 +85,7 @@ audit: doctor
 licenses: doctor
 package: check
 host-package-check: doctor
-source-check: build-logic-check check bindings api-check licenses dev-check
+source-check: build-logic-check check bindings licenses dev-check
 integration-check: build-logic-check check
 host-ui-lifecycle-check: doctor
 acceptance-check: integration-check host-package-check

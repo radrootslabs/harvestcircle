@@ -94,13 +94,13 @@ if [ "${HCR_TEST_CLEAN:-no}" = yes ]; then
     esac
 fi
 EOF
-for tool in cargo java rustup cc uname pkg-config cargo-deny cargo-public-api cargo-audit node npm pnpm npx corepack; do
+for tool in cargo java rustup cc uname pkg-config cargo-deny cargo-audit node npm pnpm npx corepack; do
     cp "$fixture/dispatch-tool" "$dispatch_bin/$tool"
     chmod +x "$dispatch_bin/$tool"
 done
 cp "$fixture/dispatch-tool" "$dispatch_root/gradlew"
 chmod +x "$dispatch_root/gradlew"
-for tool in test-commands.sh check-storage-api.sh check-linux-x86_64.sh; do
+for tool in test-commands.sh check-linux-x86_64.sh; do
     cp "$fixture/dispatch-tool" "$dispatch_root/scripts/$tool"
     chmod +x "$dispatch_root/scripts/$tool"
 done
@@ -218,7 +218,7 @@ done
 printf '%s\n' 'harvestcircle.guarded-commands=standalone-denial,governed-dispatch:pass'
 if "$make_command" --no-print-directory -C "$dispatch_root" BUILD_MODE=unsupported help > "$fixture/unknown.log" 2>&1; then exit 1; fi
 grep -q "Unknown BUILD_MODE 'unsupported'" "$fixture/unknown.log"
-for retired in native-dev governed-development-check affected-check; do
+for retired in native-dev governed-development-check affected-check api-check; do
     if "$make_command" --no-print-directory -C "$dispatch_root" "$retired" > "$fixture/retired.log" 2>&1; then exit 1; fi
 done
 
@@ -234,7 +234,7 @@ HCR_TEST_EXTBUILD=missing run_dispatch standalone dev "$fixture/portable.log" > 
 unset HCR_TEST_EXTBUILD
 
 # Scoped verification tools fail before their associated workloads.
-for pair in 'licenses cargo-deny' 'api-check cargo-public-api' 'audit cargo-audit'; do
+for pair in 'licenses cargo-deny' 'audit cargo-audit'; do
     scoped_target=${pair%% *}
     scoped_tool=${pair#* }
     mv "$dispatch_bin/$scoped_tool" "$fixture/missing-tool"

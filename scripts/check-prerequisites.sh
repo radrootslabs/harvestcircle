@@ -17,7 +17,7 @@ check_cache_path() {
     [ -w "$cache_path" ] && [ -x "$cache_path" ] || fail "Gradle cache directory is not writable/searchable: $cache_path; select a usable GRADLE_USER_HOME or BUILD_MODE=governed"
 }
 
-[ "$#" -eq 1 ] || fail 'expected one scope: common, licenses, api or audit'
+[ "$#" -eq 1 ] || fail 'expected one scope: common, licenses or audit'
 case "$1" in
     common)
         require git 'install Git and use a Git checkout'
@@ -51,13 +51,9 @@ case "$1" in
         printf '%s\n' 'harvestcircle.prerequisites=ready'
         ;;
     licenses) require cargo-deny 'install cargo-deny with cargo install --locked cargo-deny' ;;
-    api)
-        require cargo-public-api 'install cargo-public-api with cargo install --locked cargo-public-api'
-        rustup run nightly-2026-07-16 rustc --version || fail 'install the API snapshot toolchain with rustup toolchain install nightly-2026-07-16'
-        ;;
     audit)
         require cargo-audit 'install cargo-audit with cargo install --locked cargo-audit'
         require cargo-deny 'install cargo-deny with cargo install --locked cargo-deny'
         ;;
-    *) fail 'expected common, licenses, api or audit' ;;
+    *) fail 'expected common, licenses or audit' ;;
 esac

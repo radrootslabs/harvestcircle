@@ -17,7 +17,6 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
     let evidence_source = read(&crate_root.join("src/availability_evidence.rs"));
     let journal_source = read(&crate_root.join("src/journal.rs"));
     let keyring_source = read(&crate_root.join("src/os_keyring.rs"));
-    let api = read(&workspace_root.join("compatibility/harvestcircle-storage-api-v3.txt"));
 
     for forbidden in ["rusqlite", "refinery", "hmac", "rustix"] {
         assert!(
@@ -132,54 +131,6 @@ fn storage_package_keeps_one_sqlite_authority_and_a_sealed_public_surface() {
     }
     assert!(evidence_source.contains("verify_nip01_event("));
     assert!(evidence_source.contains("Nip01EventWire::parse_json_unverified("));
-
-    for required in [
-        "pub struct harvestcircle_storage::Database",
-        "pub async fn harvestcircle_storage::Database::open",
-        "pub async fn harvestcircle_storage::Database::close",
-        "pub async fn harvestcircle_storage::Database::retain_availability_version",
-        "pub async fn harvestcircle_storage::Database::load_availability_version",
-        "pub async fn harvestcircle_storage::Database::capture_online_backup",
-        "pub async fn harvestcircle_storage::Database::restore_verified_backup",
-        "pub struct harvestcircle_storage::VerifiedHarvestCircleBackup",
-        "pub fn harvestcircle_storage::verify_harvestcircle_backup",
-        "impl harvestcircle_application::ports::DurableOperationRepository for harvestcircle_storage::Database",
-        "harvestcircle_application::ports::BoxFuture",
-        "pub fn harvestcircle_storage::OsKeyringSecretStore::contains(&self, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture",
-        "pub fn harvestcircle_storage::OsKeyringSecretStore::put<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_domain::key::PublicKey, harvestcircle_domain::key::SecretKeyInput) -> harvestcircle_application::ports::BoxFuture<'a",
-        "pub fn harvestcircle_storage::OsKeyringSecretStore::verify<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_domain::key::PublicKey, harvestcircle_domain::key::SecretKeyInput) -> harvestcircle_application::ports::BoxFuture<'a",
-        "pub fn harvestcircle_storage::OsKeyringSecretStore::delete<'a>(&'a self, &'a harvestcircle_application::ports::DurableRequestId, harvestcircle_domain::key::PublicKey) -> harvestcircle_application::ports::BoxFuture<'a",
-        "pub fn harvestcircle_storage::harvestcircle_migration_catalog()",
-        "pub fn harvestcircle_storage::harvestcircle_schema_catalog()",
-        "pub const harvestcircle_storage::HARVESTCIRCLE_DURABLE_OPERATION_CAPACITY: usize",
-        "pub const harvestcircle_storage::HARVESTCIRCLE_DURABLE_OPERATION_CLEANUP_BATCH: usize",
-        "pub const harvestcircle_storage::HARVESTCIRCLE_TERMINAL_RECEIPT_RETENTION_SECONDS: i64",
-    ] {
-        assert!(api.contains(required), "API baseline is missing {required}");
-    }
-    for forbidden in [
-        "rusqlite::",
-        "refinery::",
-        "sqlx::",
-        "OperationJournal",
-        "harvestcircle_initial_schema_sql",
-        "SELECT_AVAILABILITY_VERSION_SQL",
-        "decode_availability_row",
-        "retain_availability_version_on",
-        "ServiceSqliteTransaction",
-        "VerifiedServiceBackup",
-        "StagedServiceRestore",
-        "verify_backup_bundle",
-        "stage_verified_restore",
-        "finalize_staged_restore",
-        "repair",
-        "preflight",
-    ] {
-        assert!(
-            !api.contains(forbidden),
-            "API baseline exposes forbidden surface {forbidden}"
-        );
-    }
 
     for required in [
         "pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 3;",

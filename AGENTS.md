@@ -11,7 +11,7 @@ docs before changing its architecture or behavior.
 - `build-logic/`: Gradle conventions and native integration.
 - `scripts/`: lifecycle command dispatch, prerequisites and shell checks.
 - `tools/`: Rust engineering tools and the design catalog.
-- `config/` and `contracts/`: current machine-readable build inputs.
+- `config/`: current machine-readable build inputs.
 - `docs/`: public architecture and contributor guidance.
 
 Keep shared Radroots policy in its independently published libraries. Use exact

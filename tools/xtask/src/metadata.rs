@@ -152,40 +152,13 @@ pub(super) fn provenance_check(root: &Path, inventory: &Inventory, findings: &mu
                 .to_owned(),
         );
     }
-    const STORAGE_API_BASELINE: &str = "core/compatibility/harvestcircle-storage-api-v3.txt";
-    let storage_api = read_text(root, STORAGE_API_BASELINE, findings);
-    for forbidden in [
-        "rusqlite::",
-        "refinery::",
-        "sqlx::",
-        "OperationJournal",
-        "harvestcircle_initial_schema_sql",
-        "SELECT_AVAILABILITY_VERSION_SQL",
-        "decode_availability_row",
-        "retain_availability_version_on",
-        "ServiceSqliteTransaction",
-        "VerifiedServiceBackup",
-        "StagedServiceRestore",
-        "verify_backup_bundle",
-        "stage_verified_restore",
-        "finalize_staged_restore",
-        "repair",
-        "preflight",
-    ] {
-        if storage_api.contains(forbidden) {
-            findings.push(format!(
-                "{STORAGE_API_BASELINE}: dependency-owned API leaked: {forbidden}"
-            ));
-        }
-    }
-    for required in [
-        STORAGE_API_BASELINE,
-        "scripts/check-linux-x86_64.sh",
-        "scripts/check-storage-api.sh",
-    ] {
-        if !inventory.paths.iter().any(|path| path == required) {
-            findings.push(format!("{required}: governed source evidence is missing"));
-        }
+    if !inventory
+        .paths
+        .iter()
+        .any(|path| path == "scripts/check-linux-x86_64.sh")
+    {
+        findings
+            .push("scripts/check-linux-x86_64.sh: Linux development checker is missing".to_owned());
     }
 }
 

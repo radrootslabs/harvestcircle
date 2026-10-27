@@ -22,13 +22,11 @@ download its pinned distribution; prerequisite checks never install host tools.
 | `make repo-check` | Repository source and dependency boundaries |
 | `make build-logic-check` | Gradle contract and convention-plugin tests |
 | `make bindings` | Native library and generated binding consistency |
-| `make api-check` | Storage public API comparison |
 | `make licenses` / `make audit` | Licence/source policy / network advisory checks |
 | `make integration-check` | Native application integration and isolation |
 
 Advanced checks require their corresponding tools: `cargo-deny` for licence and
-source policy, `cargo-audit` for Rust advisories, and `cargo-public-api` with the
-pinned nightly named in `scripts/check-storage-api.sh` for API comparison. Advisory
+source policy and `cargo-audit` for Rust advisories. Advisory
 checks may need external services. Select these lanes explicitly and report
 unavailable tooling rather than interpreting it as a pass.
 
@@ -69,4 +67,8 @@ Distribution, signing and notarization have separate prerequisites and candidate
 checks. Building the development app does not establish release qualification.
 Do not alter identities, bypass clean-source or compatibility checks, or infer
 permission to publish from a build command. Keep exact source/lock agreement and
-current ABI/API checks when changing producer contracts.
+current FFI and storage checks when changing producer contracts.
+
+Internal Rust APIs evolve with their workspace consumers during MVP development;
+there is no exact public-API snapshot or nightly API-tool requirement. Compiler,
+behavioral, storage/migration and generated FFI compatibility checks remain active.
