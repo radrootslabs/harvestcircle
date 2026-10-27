@@ -16,7 +16,6 @@ trap cleanup EXIT HUP INT TERM
 makefile_fixture="$fixture/portable source"
 mkdir -p "$makefile_fixture"
 cp "$repository_root/Makefile" "$makefile_fixture/Makefile"
-cp "$repository_root/radroots.lib.source-lock.v1.toml" "$makefile_fixture/"
 printf '%s\n' '#!/bin/sh' 'exit 0' > "$makefile_fixture/gradlew"
 chmod +x "$makefile_fixture/gradlew"
 
@@ -166,7 +165,6 @@ dispatch_root="$(CDPATH= cd -- "$fixture" && pwd -P)/checkout with spaces"
 dispatch_bin="$fixture/native tools"
 mkdir -p "$dispatch_root/tools" "$dispatch_bin"
 cp "$repository_root/Makefile" "$dispatch_root/Makefile"
-cp "$repository_root/radroots.lib.source-lock.v1.toml" "$dispatch_root/"
 ln -s "$(command -v sed)" "$dispatch_bin/sed"
 cat > "$dispatch_bin/git" <<'EOF'
 #!/bin/sh
@@ -276,9 +274,8 @@ for mode in standalone governed; do
             exit 1
         fi
         if [ "$target" != doctor ]; then
-            expected_revision=$(sed -n 's/^revision = "\([0-9a-f]\{40\}\)"$/\1/p' "$repository_root/radroots.lib.source-lock.v1.toml")
-            awk -F '\t' -v revision="$expected_revision" '
-                $4 != "0000000000000000000000000000000000000001" || $5 != "false" || $6 != revision || $7 != "1" {
+            awk -F '\t' '
+                $4 != "0000000000000000000000000000000000000001" || $5 != "false" || $7 != "1" {
                     print "native command omitted actual checkout provenance"; exit 1
                 }
             ' "$fixture/alias-dispatch.log"

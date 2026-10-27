@@ -120,7 +120,7 @@ fn main() {
         (
             "HARVESTCIRCLE_BUILD_RADROOTS_REVISION",
             "HARVESTCIRCLE_BUILD_RADROOTS_REVISION",
-            provenance.canonical_radroots_revision(),
+            harvestcircle_product::RADROOTS_LIB_REVISION,
         ),
         (
             "HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN",

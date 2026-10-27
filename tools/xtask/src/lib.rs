@@ -140,7 +140,6 @@ fn validate_product_root(root: &Path) -> Result<PathBuf, String> {
         "build.gradle.kts",
         "gradlew",
         "config/product/harvestcircle-v1.properties",
-        "radroots.lib.source-lock.v1.toml",
         "core/Cargo.toml",
         "core/Cargo.lock",
         "core/rust-toolchain.toml",
@@ -1297,120 +1296,10 @@ fn development_integration_policy(root: &Path, findings: &mut Vec<String>) {
 }
 
 fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
-    const LIB_REVISION: &str = "189c49b74b4bafc142b00b76b296477931139e72";
-    const PROVENANCE_PATH: &str = "core/provenance/harvestcircle-v1.toml";
-    const SOURCE_LOCK_PATH: &str = "radroots.lib.source-lock.v1.toml";
-    const MAX_SOURCE_LOCK_BYTES: u64 = 1024 * 1024;
-    const MAX_CARGO_LOCK_BYTES: u64 = 32 * 1024 * 1024;
-    let cargo = read_text(root, "core/Cargo.toml", findings);
-    for authority in [
-        "repository = \"https://github.com/radrootslabs/harvestcircle\"".to_owned(),
-        format!(
-            "radroots_event = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
-        ),
-        format!(
-            "radroots_event_codec = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
-        ),
-        format!(
-            "radroots_identity = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
-        ),
-        format!(
-            "radroots_runtime_paths = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
-        ),
-        format!(
-            "radroots_service_sqlite = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
-        ),
-        format!(
-            "radroots_storage = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
-        ),
-        format!(
-            "radroots_transport = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
-        ),
-        format!(
-            "radroots_transport_nostr = {{ git = \"https://github.com/radrootslabs/lib\", rev = \"{LIB_REVISION}\", version = \"=0.1.0-alpha\", default-features = false }}"
-        ),
-    ] {
-        if cargo
-            .lines()
-            .filter(|line| line.trim() == authority)
-            .count()
-            != 1
-        {
-            findings.push(format!(
-                "core/Cargo.toml: missing exact authority: {authority}"
-            ));
-        }
-    }
-    let provenance = read_text(root, PROVENANCE_PATH, findings);
-    if !provenance.contains("source_product = \"HarvestCircle\"")
-        || !provenance
-            .contains("source_repository = \"https://github.com/radrootslabs/harvestcircle\"")
-        || !provenance.contains(&format!("canonical_radroots_revision = \"{LIB_REVISION}\""))
-        || !provenance
-            .contains("foundation_baseline = \"c08d18ea569351dddeef70d4c1410708daf067b6\"")
-    {
-        findings.push(format!(
-            "{PROVENANCE_PATH}: exact source provenance changed"
-        ));
-    }
-    let expected_source_lock = concat!(
-        "schema = \"radroots.lib.source-lock.v1\"\n",
-        "repository = \"https://github.com/radrootslabs/lib\"\n",
-        "revision = \"189c49b74b4bafc142b00b76b296477931139e72\"\n",
-        "architecture = \"radroots.crates.release.v2\"\n",
-        "workspace_catalog_sha256 = \"ee295f2352e2577a4052d980624415aec9871197d4fc9910a4c21c83a9179200\"\n",
-        "version = \"0.1.0-alpha\"\n",
-        "source_archive_sha256 = \"c648a3ab993d10253b9073e7e86db7b8970863bdf1d394d9fc30d66825695240\"\n",
-        "lockfile = \"core/Cargo.lock\"\n",
-        "lockfile_sha256 = \"b57fae5737cc9401d38f464c019b07d10c48c13ebcc9c9ac8593fe0fa61ffae8\"\n",
-    );
-    let source_lock_bytes =
-        match bounded_no_follow_bytes(root, Path::new(SOURCE_LOCK_PATH), MAX_SOURCE_LOCK_BYTES) {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                findings.push(format!("{SOURCE_LOCK_PATH}: {error}"));
-                Vec::new()
-            }
-        };
-    let source_lock = String::from_utf8(source_lock_bytes).unwrap_or_default();
-    if source_lock != expected_source_lock {
-        findings.push(format!("{SOURCE_LOCK_PATH}: exact Lib source lock changed"));
-    }
-    let lockfile = exact_string_assignment(&source_lock, "lockfile");
-    let declared_lockfile_sha256 = exact_string_assignment(&source_lock, "lockfile_sha256");
-    let cargo_lock_bytes = lockfile
-        .as_deref()
-        .ok_or_else(|| "lockfile assignment is missing or duplicated".to_owned())
-        .and_then(|path| bounded_no_follow_bytes(root, Path::new(path), MAX_CARGO_LOCK_BYTES));
-    if let (Ok(bytes), Some(declared)) = (&cargo_lock_bytes, declared_lockfile_sha256.as_deref()) {
-        let actual = format!("{:x}", Sha256::digest(bytes));
-        if actual != declared {
-            findings.push(format!(
-                "{SOURCE_LOCK_PATH}: lockfile_sha256 does not match actual bounded no-follow bytes"
-            ));
-        }
-    } else {
-        let error = cargo_lock_bytes
-            .as_ref()
-            .err()
-            .map(String::as_str)
-            .unwrap_or("lockfile_sha256 assignment is missing or duplicated");
-        findings.push(format!("{SOURCE_LOCK_PATH}: {error}"));
-    }
-    let cargo_lock = match cargo_lock_bytes {
-        Ok(bytes) => match String::from_utf8(bytes) {
-            Ok(source) => source,
-            Err(error) => {
-                findings.push(format!("core/Cargo.lock: invalid source UTF-8: {error}"));
-                String::new()
-            }
-        },
-        Err(_) => String::new(), // The bounded-read failure was recorded above.
-    };
-    if !cargo_lock.contains(&format!(
-        "source = \"git+https://github.com/radrootslabs/lib?rev={LIB_REVISION}#{LIB_REVISION}\""
-    )) {
-        findings.push("core/Cargo.lock: selected Lib revision is missing".to_owned());
+    let manifest = read_text(root, "core/Cargo.toml", findings);
+    let lock = read_text(root, "core/Cargo.lock", findings);
+    if let Err(error) = harvestcircle_product::dependencies::lib_revision(&manifest, &lock) {
+        findings.push(format!("Cargo shared dependency identity: {error}"));
     }
     sqlite_dependency_topology(root, inventory, findings);
     development_integration_policy(root, findings);
@@ -1536,8 +1425,7 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
         }
     }
     for required in [
-        PROVENANCE_PATH,
-        SOURCE_LOCK_PATH,
+        "core/provenance/harvestcircle-v1.toml",
         STORAGE_API_BASELINE,
         "config/verification/lanes-v3.properties",
         "tools/run-linux-x86_64-development-check.sh",
@@ -2867,7 +2755,7 @@ mod tests {
     }
 
     #[test]
-    fn mutable_git_dependency_and_provenance_mutation_fail_closed() {
+    fn mutable_or_inconsistent_git_dependencies_fail_closed() {
         let root = fixture("provenance");
         write(
             &root,
@@ -2899,51 +2787,17 @@ mod tests {
         assert!(
             findings
                 .iter()
-                .any(|finding| finding.contains("exact source provenance changed"))
+                .any(|finding| finding.contains("Cargo shared dependency identity"))
         );
-        assert!(
-            findings
-                .iter()
-                .any(|finding| finding.contains("exact Lib source lock changed"))
-        );
-        fs::remove_dir_all(root).expect("remove fixture");
-    }
-
-    #[test]
-    fn source_lock_digest_rejects_actual_byte_mismatch() {
-        let root = fixture("source-lock-digest");
-        write(
-            &root,
-            "radroots.lib.source-lock.v1.toml",
-            concat!(
-                "schema = \"radroots.lib.source-lock.v1\"\n",
-                "repository = \"https://github.com/radrootslabs/lib\"\n",
-                "revision = \"189c49b74b4bafc142b00b76b296477931139e72\"\n",
-                "architecture = \"radroots.crates.release.v2\"\n",
-                "workspace_catalog_sha256 = \"ee295f2352e2577a4052d980624415aec9871197d4fc9910a4c21c83a9179200\"\n",
-                "version = \"0.1.0-alpha\"\n",
-                "source_archive_sha256 = \"c648a3ab993d10253b9073e7e86db7b8970863bdf1d394d9fc30d66825695240\"\n",
-                "lockfile = \"core/Cargo.lock\"\n",
-                "lockfile_sha256 = \"b57fae5737cc9401d38f464c019b07d10c48c13ebcc9c9ac8593fe0fa61ffae8\"\n",
-            ),
-        );
-        write(&root, "core/Cargo.toml", "");
-        write(&root, "core/Cargo.lock", "version = 3\n");
-        let inventory = Inventory::load(&root).expect("source-lock inventory");
-        let mut findings = Vec::new();
-        provenance_check(&root, &inventory, &mut findings);
-        assert!(findings.iter().any(|finding| {
-            finding.contains("lockfile_sha256 does not match actual bounded no-follow bytes")
-        }));
         fs::remove_dir_all(root).expect("remove fixture");
     }
 
     #[cfg(unix)]
     #[test]
-    fn bounded_source_lock_reads_reject_final_and_intermediate_symlinks() {
+    fn bounded_cargo_input_reads_reject_final_and_intermediate_symlinks() {
         use std::os::unix::fs::symlink;
 
-        let root = fixture("source-lock-symlinks");
+        let root = fixture("cargo-input-symlinks");
         write(&root, "actual/Cargo.lock", "version = 4\n");
         symlink(root.join("actual/Cargo.lock"), root.join("final.lock"))
             .expect("create final symlink");

@@ -7,6 +7,7 @@ kotlin {
 }
 
 dependencies {
+    implementation("org.tomlj:tomlj:1.0.0")
     testImplementation(kotlin("test"))
 }
 

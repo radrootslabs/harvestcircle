@@ -139,8 +139,23 @@ class ConventionPluginSmokeTest {
         fixture.resolve("config/product").createDirectories().resolve("harvestcircle-v1.properties").writeText(productCoordinates)
         fixture.resolve("config/licenses").createDirectories().resolve("allowed-licenses.json").writeText("{}\n")
         fixture.resolve("core/compatibility").createDirectories().resolve("harvestcircle-ffi-v4.properties").writeText(ffiBaseline)
+        val revision = "b".repeat(40)
         fixture.resolve("core").resolve("Cargo.toml").writeText(
-            "[workspace.package]\nversion = \"0.1.0-alpha\"\n",
+            """
+            [workspace.package]
+            version = "0.1.0-alpha"
+            [workspace.dependencies]
+            radroots_core = { version = "=0.1.0-alpha", git = "https://github.com/radrootslabs/lib", rev = "$revision" }
+            """.trimIndent(),
+        )
+        fixture.resolve("core/Cargo.lock").writeText(
+            """
+            version = 4
+            [[package]]
+            name = "radroots_core"
+            version = "0.1.0-alpha"
+            source = "git+https://github.com/radrootslabs/lib?rev=$revision#$revision"
+            """.trimIndent(),
         )
         if (withUnitTest) {
             fixture.resolve("app/desktop/src/test/kotlin").createDirectories().resolve("FixtureTest.kt").writeText(
@@ -322,8 +337,10 @@ class ConventionPluginSmokeTest {
                 .withPluginClasspath()
                 // No Cargo runs; keep synthetic libraries inside this owned fixture.
                 .withEnvironment(
-                    (System.getenv() - "CARGO_TARGET_DIR") +
-                        ("EXT_BUILD_GRADLE_BUILD_DIR" to fixture.resolve("fixture-build-output").toString()),
+                    System.getenv() + mapOf(
+                        "CARGO_TARGET_DIR" to fixture.resolve("core/target").toString(),
+                        "EXT_BUILD_GRADLE_BUILD_DIR" to fixture.resolve("fixture-build-output").toString(),
+                    ),
                 )
                 .withArguments(
                     ":app:desktop:test", ":app:desktop:integrationTest",
@@ -341,10 +358,11 @@ class ConventionPluginSmokeTest {
         }
         outcomes(TaskOutcome.SUCCESS, TaskOutcome.SUCCESS)
         outcomes(TaskOutcome.UP_TO_DATE, TaskOutcome.UP_TO_DATE)
-        production.writeText("production-two")
+        // Change size as well as bytes so filesystem timestamp granularity cannot hide the mutation.
+        production.writeText("production-version-two")
         outcomes(TaskOutcome.SUCCESS, TaskOutcome.SUCCESS)
         outcomes(TaskOutcome.UP_TO_DATE, TaskOutcome.UP_TO_DATE)
-        bridge.writeText("bridge-two")
+        bridge.writeText("bridge-version-two")
         outcomes(TaskOutcome.UP_TO_DATE, TaskOutcome.SUCCESS)
         outcomes(TaskOutcome.UP_TO_DATE, TaskOutcome.UP_TO_DATE)
     }

@@ -4,6 +4,9 @@ use std::path::PathBuf;
 #[path = "src/parser.rs"]
 mod parser;
 
+#[path = "src/dependencies.rs"]
+mod dependencies;
+
 use parser::generate_rust_constants;
 
 const MANIFEST_PATH: &str = "../../../config/product/harvestcircle-v1.properties";
@@ -13,6 +16,14 @@ fn main() {
     let generated =
         generate_rust_constants(&source).expect("validate HarvestCircle product manifest");
 
+    println!("cargo:rerun-if-changed=../../Cargo.toml");
+    println!("cargo:rerun-if-changed=../../Cargo.lock");
+    let revision = dependencies::lib_revision(
+        &fs::read_to_string("../../Cargo.toml").expect("read Cargo manifest"),
+        &fs::read_to_string("../../Cargo.lock").expect("read Cargo lockfile"),
+    )
+    .expect("validate shared dependency identity");
+    let generated = format!("{generated}\npub const RADROOTS_LIB_REVISION: &str = {revision:?};\n");
     fs::write(out_file("product_coordinates.rs"), generated)
         .expect("write generated product coordinates");
 }

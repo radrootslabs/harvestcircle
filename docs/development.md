@@ -24,6 +24,10 @@ pinned nightly named in `tools/verify-storage-api.sh` for API comparison. Adviso
 checks may need external services. Select these lanes explicitly and report
 unavailable tooling rather than interpreting it as a pass.
 
+Shared Lib identity comes from `core/Cargo.toml` and `core/Cargo.lock`. Native
+and Gradle producers validate exact public Git source, revision and version
+agreement; there is no separate source-lock file or implicit sibling override.
+
 ## External build storage
 
 Standalone is the default and uses standard ignored build directories. To select

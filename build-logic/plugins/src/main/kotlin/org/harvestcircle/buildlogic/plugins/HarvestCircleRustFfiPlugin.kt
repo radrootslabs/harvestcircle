@@ -9,6 +9,7 @@ import org.gradle.api.tasks.JavaExec
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.tasks.Jar
+import org.harvestcircle.buildlogic.contracts.CargoSources
 import org.harvestcircle.buildlogic.contracts.FfiCompatibilityBaseline
 import org.harvestcircle.buildlogic.contracts.ProductCoordinates
 import org.harvestcircle.buildlogic.contracts.resolveNativeTarget
@@ -72,7 +73,7 @@ public class HarvestCircleRustFfiPlugin : Plugin<Project> {
         val sourceCommit = target.providers.environmentVariable(productEnvironment("BUILD_SOURCE_COMMIT")).orElse("unknown")
         val sourceDirty = target.providers.environmentVariable(productEnvironment("BUILD_SOURCE_DIRTY")).orElse("unknown")
         val radrootsRevision =
-            target.providers.environmentVariable(productEnvironment("BUILD_RADROOTS_REVISION")).orElse("unknown")
+            target.providers.provider { CargoSources.load(target.rootProject.layout.projectDirectory.asFile).libRevision }
         val rustToolchain =
             target.providers.environmentVariable(productEnvironment("BUILD_RUST_TOOLCHAIN")).orElse("1.99.0")
         val javaToolchain =

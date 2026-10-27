@@ -172,7 +172,6 @@ fn required_native_inputs() -> Vec<&'static str> {
         "gradle.properties",
         "gradlew",
         "gradlew.bat",
-        "radroots.lib.source-lock.v1.toml",
         "config/design/harvestcircle-v1.toml",
         "config/detekt/detekt.yml",
         "config/licenses/allowed-licenses.json",

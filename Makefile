@@ -32,7 +32,6 @@ endif
 NATIVE_PROVENANCE_TARGETS := dev run dev-check build bindings test check source-check integration-check host-ui-lifecycle-check host-package-check
 $(NATIVE_PROVENANCE_TARGETS): export HARVESTCIRCLE_BUILD_SOURCE_COMMIT = $(shell git rev-parse --verify HEAD)
 $(NATIVE_PROVENANCE_TARGETS): export HARVESTCIRCLE_BUILD_SOURCE_DIRTY = $(if $(strip $(shell git status --porcelain --untracked-files=all)),true,false)
-$(NATIVE_PROVENANCE_TARGETS): export HARVESTCIRCLE_BUILD_RADROOTS_REVISION = $(shell sed -n 's/^revision = "\([0-9a-f]\{40\}\)"$$/\1/p' radroots.lib.source-lock.v1.toml)
 $(NATIVE_PROVENANCE_TARGETS): export HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN = 1.99.0
 $(NATIVE_PROVENANCE_TARGETS): export SOURCE_DATE_EPOCH = $(shell git show -s --format=%ct HEAD)
 
@@ -171,7 +170,6 @@ governed-source-check:
 
 package-check: export HARVESTCIRCLE_BUILD_SOURCE_COMMIT = $(shell git rev-parse --verify HEAD)
 package-check: export HARVESTCIRCLE_BUILD_SOURCE_DIRTY = $(if $(strip $(shell git status --porcelain --untracked-files=all)),true,false)
-package-check: export HARVESTCIRCLE_BUILD_RADROOTS_REVISION = $(shell sed -n 's/^revision = "\([0-9a-f]\{40\}\)"$$/\1/p' radroots.lib.source-lock.v1.toml)
 package-check: export HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN = 1.99.0
 package-check: export SOURCE_DATE_EPOCH = $(shell git show -s --format=%ct HEAD)
 package-check: source-check
@@ -185,14 +183,12 @@ governed-integration-check:
 
 development-check: export HARVESTCIRCLE_BUILD_SOURCE_COMMIT = $(shell git rev-parse --verify HEAD)
 development-check: export HARVESTCIRCLE_BUILD_SOURCE_DIRTY = $(if $(strip $(shell git status --porcelain --untracked-files=all)),true,false)
-development-check: export HARVESTCIRCLE_BUILD_RADROOTS_REVISION = $(shell sed -n 's/^revision = "\([0-9a-f]\{40\}\)"$$/\1/p' radroots.lib.source-lock.v1.toml)
 development-check: export HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN = 1.99.0
 development-check: export SOURCE_DATE_EPOCH = $(shell git show -s --format=%ct HEAD)
 development-check: development-provenance-check source-check integration-check
 
 development-provenance-check:
 	@test "$${#HARVESTCIRCLE_BUILD_SOURCE_COMMIT}" -eq 40
-	@test "$${#HARVESTCIRCLE_BUILD_RADROOTS_REVISION}" -eq 40
 	@case "$$SOURCE_DATE_EPOCH" in ''|*[!0-9]*) exit 2 ;; esac
 	@test "$$HARVESTCIRCLE_BUILD_SOURCE_DIRTY" = true -o "$$HARVESTCIRCLE_BUILD_SOURCE_DIRTY" = false
 
@@ -212,7 +208,6 @@ unsigned-release-check:
 
 _unsigned-release-check: export HARVESTCIRCLE_BUILD_SOURCE_COMMIT = $(shell git rev-parse --verify HEAD)
 _unsigned-release-check: export HARVESTCIRCLE_BUILD_SOURCE_DIRTY = $(if $(strip $(shell git status --porcelain --untracked-files=all)),true,false)
-_unsigned-release-check: export HARVESTCIRCLE_BUILD_RADROOTS_REVISION = $(shell sed -n 's/^revision = "\([0-9a-f]\{40\}\)"$$/\1/p' radroots.lib.source-lock.v1.toml)
 _unsigned-release-check: export HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN = 1.99.0
 _unsigned-release-check: export SOURCE_DATE_EPOCH = $(shell git show -s --format=%ct HEAD)
 _unsigned-release-check: doctor

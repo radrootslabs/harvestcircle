@@ -76,13 +76,6 @@
       ]
     },
     {
-      "path": "radroots.lib.source-lock.v1.toml",
-      "kind": "exact",
-      "owners": [
-        "native"
-      ]
-    },
-    {
       "path": "config/design/harvestcircle-v1.toml",
       "kind": "exact",
       "owners": [

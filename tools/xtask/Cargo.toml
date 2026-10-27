@@ -9,6 +9,7 @@ publish = false
 [workspace]
 
 [dependencies]
+harvestcircle_product = { path = "../../core/crates/harvestcircle_product" }
 libc = "0.2.189"
 sha2 = "0.10.9"
 serde = { version = "=1.0.229", features = ["derive"] }

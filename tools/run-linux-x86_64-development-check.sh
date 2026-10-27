@@ -24,13 +24,6 @@ case "$source_epoch" in
     ''|*[!0-9]*) fail "source epoch is invalid" ;;
 esac
 
-source_lock="$repository_root/radroots.lib.source-lock.v1.toml"
-[ -f "$source_lock" ] || fail "source lock is missing"
-radroots_revision=$(sed -n 's/^revision = "\([0-9a-f]\{40\}\)"$/\1/p' "$source_lock")
-[ "$(printf '%s\n' "$radroots_revision" | wc -l | tr -d ' ')" -eq 1 ] ||
-    fail "source lock revision is not unique"
-[ "${#radroots_revision}" -eq 40 ] || fail "source lock revision is invalid"
-
 runner_root="$EXT_BUILD_PROJECT_DIR/linux-x86_64-development"
 cargo_home="$runner_root/cargo-home"
 cargo_target="$runner_root/cargo-target"
@@ -85,7 +78,6 @@ docker run \
     --env HARVESTCIRCLE_BUILD_MODE=governed \
     --env HARVESTCIRCLE_BUILD_SOURCE_COMMIT="$source_commit" \
     --env HARVESTCIRCLE_BUILD_SOURCE_DIRTY=false \
-    --env HARVESTCIRCLE_BUILD_RADROOTS_REVISION="$radroots_revision" \
     --env SOURCE_DATE_EPOCH="$source_epoch" \
     --mount "type=bind,src=$workspace/source,dst=/workspace/source" \
     --mount "type=bind,src=$container_home,dst=/workspace/home" \
@@ -154,4 +146,3 @@ docker run \
 
 printf '%s\n' "harvestcircle.linux_x86_64.development=pass"
 printf '%s\n' "harvestcircle.source_commit=$source_commit"
-printf '%s\n' "harvestcircle.radroots_revision=$radroots_revision"

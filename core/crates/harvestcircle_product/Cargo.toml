@@ -14,6 +14,7 @@ include = ["build.rs", "src/**", "Cargo.toml"]
 
 [build-dependencies]
 sha2.workspace = true
+toml.workspace = true
 
 [dependencies]
 sha2.workspace = true

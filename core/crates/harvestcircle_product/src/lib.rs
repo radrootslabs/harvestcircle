@@ -1,5 +1,6 @@
 //! Validated, generated HarvestCircle product coordinates and provenance.
 
+pub mod dependencies;
 pub mod parser;
 pub mod provenance;
 
