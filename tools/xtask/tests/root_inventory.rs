@@ -228,10 +228,7 @@ fn invalid_native_source_and_required_license_cannot_pass() {
     let fixture = Fixture::new();
     let capsule = fixture.0.join("capsule");
     copy_source(&capsule);
-    for path in [
-        "core/crates/harvestcircle_domain/src/lib.rs",
-        "LICENSES/GPL-3.0-only.txt",
-    ] {
+    for path in ["core/crates/harvestcircle_domain/src/lib.rs", "LICENSE"] {
         let saved = fs::read(capsule.join(path)).unwrap();
         fs::write(capsule.join(path), [0xff]).unwrap();
         let output = cli(&capsule, "qualification-report");

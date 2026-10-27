@@ -59,7 +59,7 @@ public class HarvestCircleDesktopAppPlugin : Plugin<Project> {
             "FFI compatibility product-coordinate digest is stale"
         }
 
-        target.group = productCoordinates["desktop.application_id"]
+        target.group = productCoordinates["kotlin.root_namespace"]
         target.version = appVersion
         target.providers.environmentVariable("EXT_BUILD_GRADLE_BUILD_DIR").orNull?.let { outputRoot ->
             target.layout.buildDirectory.set(target.file(outputRoot).resolve("app-desktop"))
@@ -88,7 +88,7 @@ public class HarvestCircleDesktopAppPlugin : Plugin<Project> {
         target.extensions.configure(LicenseReportExtension::class.java) { extension ->
             extension.projects = arrayOf(target)
             extension.configurations = arrayOf("runtimeClasspath")
-            extension.excludeGroups = arrayOf("harvestcircle.app")
+            extension.excludeGroups = arrayOf(target.group.toString())
             extension.filters = arrayOf(SpdxLicenseBundleNormalizer())
             extension.allowedLicensesFile =
                 target.rootProject.layout.projectDirectory.file("config/licenses/allowed-licenses.json")

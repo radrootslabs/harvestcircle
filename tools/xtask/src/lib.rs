@@ -379,12 +379,10 @@ fn repo_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
 fn global_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
     let required = [
         "README.md",
-        "NOTICE",
         "CONTRIBUTING.md",
         "SECURITY.md",
         "LICENSE",
-        "LICENSES/GPL-3.0-only.txt",
-        "LICENSES/OFL-1.1.txt",
+        "app/design_system/src/commonMain/composeResources/files/licenses/inter-OFL-1.1.txt",
     ];
     for required_path in required {
         if !inventory.paths.iter().any(|path| path == required_path) {
@@ -1654,38 +1652,57 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
             }
         }
     }
-    for (path, sha256) in [
-        (
-            "app/design_system/src/commonMain/composeResources/font/inter_bold.ttf",
-            "288316099b1e0a47a4716d159098005eef7c0066921f34e3200393dbdb01947f",
-        ),
-        (
-            "app/design_system/src/commonMain/composeResources/font/inter_medium.ttf",
-            "97ad806f526e41546d46365bb3a393145f75b7b1568913db74549ad8b8dba872",
-        ),
-        (
-            "app/design_system/src/commonMain/composeResources/font/inter_regular.ttf",
-            "40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82",
-        ),
-        (
-            "app/design_system/src/commonMain/composeResources/font/inter_semibold.ttf",
-            "78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3",
-        ),
-    ] {
-        if sha256_file(root, path, findings).as_deref() != Some(sha256) {
-            findings.push(format!(
-                "{path}: Inter font digest differs from the baseline"
-            ));
-        }
-    }
-    let font_license = read_text(root, "LICENSES/OFL-1.1.txt", findings);
-    let packaged_font_license = read_text(
+    font_source_audit(root, inventory, findings);
+}
+
+fn font_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
+    const PREFIX: &str = "app/design_system/src/commonMain/composeResources/";
+    let manifest = read_text(
         root,
-        "app/design_system/src/commonMain/composeResources/files/licenses/inter-OFL-1.1.txt",
+        &format!("{PREFIX}files/licenses/inter-fonts.toml"),
         findings,
     );
-    if font_license.is_empty() || packaged_font_license != font_license {
-        findings.push("Inter font licence is missing or differs in packaged resources".to_owned());
+    let header = manifest.split("[[font]]").next().unwrap_or_default();
+    let license = exact_string_assignment(header, "license").unwrap_or_default();
+    if license.is_empty() || license.contains(['/', '\\']) || license.starts_with('.') {
+        findings.push("font manifest: invalid licence resource".to_owned());
+        return;
+    }
+    let license_path = format!("{PREFIX}files/licenses/{license}");
+    let text = read_text(root, &license_path, findings);
+    if !text.contains("Copyright (c) 2016 The Inter Project Authors")
+        || !text.contains("SIL OPEN FONT LICENSE Version 1.1")
+        || sha256_file(root, &license_path, findings)
+            != exact_string_assignment(header, "license_sha256")
+    {
+        findings.push("font manifest: complete Inter licence or digest differs".to_owned());
+    }
+    let mut declared = BTreeSet::new();
+    for font in manifest.split("[[font]]").skip(1) {
+        let resource = exact_string_assignment(font, "resource").unwrap_or_default();
+        let Some(filename) = resource.strip_prefix("../../font/") else {
+            findings.push("font manifest: font resource escapes its owner".to_owned());
+            continue;
+        };
+        if filename.is_empty() || filename.contains(['/', '\\']) || filename.starts_with('.') {
+            findings.push("font manifest: invalid font resource".to_owned());
+            continue;
+        }
+        let path = format!("{PREFIX}font/{filename}");
+        if !declared.insert(path.clone())
+            || sha256_file(root, &path, findings) != exact_string_assignment(font, "sha256")
+        {
+            findings.push(format!("{path}: duplicate font or manifest digest differs"));
+        }
+    }
+    let actual = inventory
+        .paths
+        .iter()
+        .filter(|p| p.starts_with(&format!("{PREFIX}font/")) && p.ends_with(".ttf"))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if declared.is_empty() || declared != actual {
+        findings.push("font manifest: declared fonts differ from tracked resources".to_owned());
     }
 }
 
@@ -1852,7 +1869,6 @@ fn is_text(relative: &str) -> bool {
             "AGENTS.md",
             "LICENSE",
             "Makefile",
-            "NOTICE",
             "gradlew",
             "gradlew.bat",
         ]
@@ -2279,6 +2295,47 @@ mod tests {
                 .any(|finding| finding.contains("missing or duplicate authority"))
         );
         fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn font_manifest_detects_tampering_and_resource_escape() {
+        let root = fixture("font-manifest");
+        let prefix = "app/design_system/src/commonMain/composeResources/";
+        let license =
+            "Copyright (c) 2016 The Inter Project Authors\nSIL OPEN FONT LICENSE Version 1.1\n";
+        write(
+            &root,
+            &format!("{prefix}files/licenses/inter-OFL-1.1.txt"),
+            license,
+        );
+        write(
+            &root,
+            &format!("{prefix}font/inter_regular.ttf"),
+            "font bytes",
+        );
+        let manifest = format!(
+            "license = \"inter-OFL-1.1.txt\"\nlicense_sha256 = \"{:x}\"\n[[font]]\nresource = \"../../font/inter_regular.ttf\"\nsha256 = \"{:x}\"\n",
+            Sha256::digest(license.as_bytes()),
+            Sha256::digest(b"font bytes")
+        );
+        let path = format!("{prefix}files/licenses/inter-fonts.toml");
+        write(&root, &path, &manifest);
+        let inventory = Inventory::load(&root).unwrap();
+        let mut findings = Vec::new();
+        font_source_audit(&root, &inventory, &mut findings);
+        assert!(findings.is_empty(), "{findings:?}");
+        write(&root, &format!("{prefix}font/inter_regular.ttf"), "changed");
+        font_source_audit(&root, &inventory, &mut findings);
+        assert!(findings.iter().any(|f| f.contains("digest differs")));
+        findings.clear();
+        write(
+            &root,
+            &path,
+            &manifest.replace("../../font/inter_regular.ttf", "../../font/../outside.ttf"),
+        );
+        font_source_audit(&root, &inventory, &mut findings);
+        assert!(findings.iter().any(|f| f.contains("invalid font resource")));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -110,7 +110,7 @@ class ProductNamespaceGuardTest {
                 "yaml",
                 "yml",
             )
-        val textNames = setOf(".gitattributes", ".gitignore", "AGENTS.md", "LICENSE", "Makefile", "NOTICE", "gradlew", "gradlew.bat")
+        val textNames = setOf(".gitattributes", ".gitignore", "AGENTS.md", "LICENSE", "Makefile", "gradlew", "gradlew.bat")
         val findings =
             trackedFiles(root).flatMap { relative ->
                 buildList {

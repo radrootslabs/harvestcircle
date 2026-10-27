@@ -54,4 +54,5 @@ Report security issues privately to [security@radroots.org](mailto:security@radr
 Do not post secret keys or private event contents in public issues.
 
 HarvestCircle is GPL-3.0-only; see [LICENSE](LICENSE). Bundled Inter fonts use
-OFL-1.1; see [NOTICE](NOTICE) and the packaged font licence resources.
+OFL-1.1; their [copyright and licence](app/design_system/src/commonMain/composeResources/files/licenses/inter-OFL-1.1.txt)
+are included in the application resources.

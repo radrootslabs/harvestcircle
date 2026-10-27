@@ -13,6 +13,7 @@ import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
 import org.owasp.dependencycheck.gradle.extension.DependencyCheckExtension
 
 internal fun Project.applyDesktopDesignKmp() {
+    group = "org.harvestcircle"
     pluginManager.apply("org.jetbrains.kotlin.multiplatform")
     pluginManager.apply("org.jetbrains.compose")
     pluginManager.apply("org.jetbrains.kotlin.plugin.compose")
@@ -47,7 +48,7 @@ internal fun Project.applyDesktopDesignKmp() {
     extensions.configure(LicenseReportExtension::class.java) { extension ->
         extension.projects = arrayOf(this@applyDesktopDesignKmp)
         extension.configurations = arrayOf("desktopRuntimeClasspath")
-        extension.excludeGroups = arrayOf("harvestcircle.app")
+        extension.excludeGroups = arrayOf(group.toString())
         extension.filters = arrayOf(SpdxLicenseBundleNormalizer())
         extension.allowedLicensesFile =
             rootProject.layout.projectDirectory.file("config/licenses/allowed-licenses.json")

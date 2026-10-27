@@ -178,14 +178,6 @@
       ]
     },
     {
-      "path": "NOTICE",
-      "kind": "exact",
-      "owners": [
-        "native",
-        "governance"
-      ]
-    },
-    {
       "path": "CONTRIBUTING.md",
       "kind": "exact",
       "owners": [
@@ -204,14 +196,6 @@
     {
       "path": "LICENSE",
       "kind": "exact",
-      "owners": [
-        "native",
-        "governance"
-      ]
-    },
-    {
-      "path": "LICENSES",
-      "kind": "prefix",
       "owners": [
         "native",
         "governance"
