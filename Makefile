@@ -37,21 +37,16 @@ $(NATIVE_PROVENANCE_TARGETS): export SOURCE_DATE_EPOCH = $(shell git show -s --f
 
 .PHONY: help doctor governed-doctor lock metadata build-logic-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-provenance-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check unsigned-release-check _unsigned-release-check signing-check _signing-check notarization-check _notarization-check release-check _release-check clean
 .PHONY: native-doctor native-dev native-check native-build native-package-check
-.PHONY: repo-check check-all affected-check
+.PHONY: repo-check check-all
 
 repo-check:
 	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- repo-audit
-
-# Missing BASE deliberately widens selection; this diagnostic executes no lane.
-affected-check: export HARVESTCIRCLE_AFFECTED_BASE = $(BASE)
-affected-check:
-	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- affected-report
 
 check-all:
 	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) tools/check-all.sh
 
 ifeq ($(BUILD_MODE),governed)
-repo-check affected-check check-all mode-check: governed-doctor
+repo-check check-all mode-check: governed-doctor
 endif
 
 native-doctor: doctor
@@ -61,7 +56,7 @@ native-build: build
 native-package-check: package-check
 
 help:
-	@printf '%s\n' 'Repository: repo-check affected-check BASE=<commit>' 'KMP/native source aggregate: check-all'
+	@printf '%s\n' 'Repository: repo-check' 'KMP/native source aggregate: check-all'
 	@printf '%s\n' doctor governed-doctor lock metadata build-logic-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check unsigned-release-check signing-check notarization-check release-check clean
 
 design-source-check: doctor

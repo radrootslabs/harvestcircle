@@ -38,6 +38,10 @@ externally. Machine configuration and cache links are workstation-local state.
 
 ## Verification boundaries
 
+Source checks inspect every source input, including untracked files and unknown
+paths. There is one application runtime; no ownership selection or affected-only
+shortcut can exempt files from source safety.
+
 Use tests appropriate to the changed owner and preserve meaningful negative
 cases. Native lifecycle tests must use isolated data; tests that deliberately
 mutate the real OS credential store are opt-in and are not routine validation.

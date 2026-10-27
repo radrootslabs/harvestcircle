@@ -184,7 +184,7 @@ fn assert_pass(root: &Path, kind: &str) {
 }
 
 #[test]
-fn ownership_dispatch_keeps_global_safety_and_native_guards_active() {
+fn every_command_retains_global_safety_and_native_guards() {
     let fixture = Fixture::new();
     let capsule = fixture.0.join("capsule");
     copy_source(&capsule);
@@ -293,7 +293,7 @@ fn git_global_artifacts_fail_each_command_and_unknown_inputs_retain_native_rules
         String::from_utf8_lossy(&output.stderr)
     );
     let report = String::from_utf8(output.stdout).unwrap();
-    assert!(report.contains("ownership_reason=unclassified input unknown.json"));
+    assert!(report.contains("source_inputs="));
 }
 
 #[test]

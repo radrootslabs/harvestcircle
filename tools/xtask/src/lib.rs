@@ -12,9 +12,6 @@ use metadata::*;
 use runtime::*;
 use source::*;
 
-pub mod affected;
-pub mod runtime_ownership;
-
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::str::FromStr;
@@ -57,44 +54,21 @@ pub fn run(root: &Path, command: Command) -> Result<String, Vec<String>> {
     }
     let inventory = Inventory::load(root).map_err(|finding| vec![finding])?;
     let mut findings = Vec::new();
-    let ownership = load_ownership(root).map_err(|finding| vec![finding])?;
-    ownership
-        .validate_native_inputs(&inventory.paths)
-        .map_err(|finding| vec![finding])?;
-    let mut native_paths = Vec::new();
-    let mut ownership_reasons = Vec::new();
-    for path in &inventory.paths {
-        let classification = ownership.classify(path).map_err(|finding| vec![finding])?;
-        if classification
-            .owners
-            .contains(&runtime_ownership::Owner::Native)
-        {
-            native_paths.push(path.clone());
-        }
-        if let Some(reason) = classification.reason {
-            ownership_reasons.push(reason);
-        }
-    }
-    let native_inventory = Inventory {
-        paths: native_paths,
-        git_aware: inventory.git_aware,
-    };
-    // Every command retains global safety. Only native-owned inputs enter the
-    // existing native implementation rules; unknown inputs widen conservatively.
+    // Every selected audit sees all source inputs and retains global safety.
     if !matches!(command, Command::RepoAudit | Command::QualificationReport) {
         global_source_audit(root, &inventory, &mut findings);
     }
     match command {
-        Command::DesignSourceAudit => design_source_audit(root, &native_inventory, &mut findings),
+        Command::DesignSourceAudit => design_source_audit(root, &inventory, &mut findings),
         Command::RepoAudit => repo_audit(root, &inventory, &mut findings),
-        Command::NamespaceAudit => namespace_audit(root, &native_inventory, &mut findings),
-        Command::ProvenanceCheck => provenance_check(root, &native_inventory, &mut findings),
+        Command::NamespaceAudit => namespace_audit(root, &inventory, &mut findings),
+        Command::ProvenanceCheck => provenance_check(root, &inventory, &mut findings),
         Command::QualificationReport => {
             repo_audit(root, &inventory, &mut findings);
-            namespace_audit(root, &native_inventory, &mut findings);
-            provenance_check(root, &native_inventory, &mut findings);
-            design_source_audit(root, &native_inventory, &mut findings);
-            product_shell_audit(root, &native_inventory, &mut findings);
+            namespace_audit(root, &inventory, &mut findings);
+            provenance_check(root, &inventory, &mut findings);
+            design_source_audit(root, &inventory, &mut findings);
+            product_shell_audit(root, &inventory, &mut findings);
         }
     }
     findings.sort();
@@ -118,12 +92,8 @@ pub fn run(root: &Path, command: Command) -> Result<String, Vec<String>> {
             String::new()
         };
         Ok(format!(
-            "harvestcircle.xtask.command={command_name}\nharvestcircle.xtask.inventory={inventory_kind}\n{mode}harvestcircle.xtask.global_source_safety=checked\nharvestcircle.xtask.native_inputs={}\n{}harvestcircle.xtask.result=pass\n",
-            native_inventory.paths.len(),
-            ownership_reasons
-                .into_iter()
-                .map(|reason| format!("harvestcircle.xtask.ownership_reason={reason}\n"))
-                .collect::<String>()
+            "harvestcircle.xtask.command={command_name}\nharvestcircle.xtask.inventory={inventory_kind}\n{mode}harvestcircle.xtask.global_source_safety=checked\nharvestcircle.xtask.source_inputs={}\nharvestcircle.xtask.result=pass\n",
+            inventory.paths.len(),
         ))
     } else {
         Err(findings)
@@ -132,24 +102,8 @@ pub fn run(root: &Path, command: Command) -> Result<String, Vec<String>> {
 
 fn repo_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
     global_source_audit(root, inventory, findings);
-    runtime_ownership_audit(root, inventory, findings);
     git_source_policy(root, inventory, findings);
     native_runtime_boundary(root, findings);
-}
-
-fn runtime_ownership_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
-    let result = load_ownership(root).and_then(|map| map.validate_native_inputs(&inventory.paths));
-    if let Err(error) = result {
-        findings.push(format!("{}: {error}", runtime_ownership::MAP_PATH));
-    }
-}
-
-fn load_ownership(root: &Path) -> Result<runtime_ownership::OwnershipMap, String> {
-    bounded_no_follow_bytes(root, Path::new(runtime_ownership::MAP_PATH), 64 * 1024)
-        .and_then(|bytes| {
-            String::from_utf8(bytes).map_err(|error| format!("invalid ownership UTF-8: {error}"))
-        })
-        .and_then(|source| runtime_ownership::OwnershipMap::parse(&source))
 }
 
 fn is_private_state_path(path: &str) -> bool {
