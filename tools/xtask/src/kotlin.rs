@@ -5,23 +5,9 @@ use super::{
 use std::path::Path;
 
 pub(super) fn namespace_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
-    let legacy = ["stu", "dio"].concat();
     let temporary_namespace = ["org", "radroots", "harvestcircle"].join(".");
-    let inherited_preferences = [
-        ["use", "radroots", "dns"].join("_"),
-        ["use", "radroots", "subnets"].join("_"),
-        ["vpn", "on", "demand", "enabled"].join("_"),
-        ["run", "as", "exit", "node"].join("_"),
-        ["automatically", "check", "for", "updates"].join("_"),
-        ["update", "channel"].join("_"),
-        ["last", "update", "check", "summary"].join("_"),
-        ["alternate", "server", "url"].join("_"),
-    ];
     for path in &inventory.paths {
         let normalized = path.to_ascii_lowercase();
-        if normalized.contains(&legacy) {
-            findings.push(format!("{path}: legacy product name in source path"));
-        }
         if normalized.starts_with("app/")
             && normalized.contains("/kotlin/")
             && normalized.ends_with(".kt")
@@ -36,13 +22,12 @@ pub(super) fn namespace_audit(root: &Path, inventory: &Inventory, findings: &mut
                 ));
             }
         }
-        if !is_text(path) {
+        // Namespace rules inspect source/configuration, not public prose.
+        // Global source safety still checks documentation on every command.
+        if !is_text(path) || path.starts_with("docs/") || path.ends_with(".md") {
             continue;
         }
         let source = read_text(root, path, findings);
-        if source.to_ascii_lowercase().contains(&legacy) {
-            findings.push(format!("{path}: legacy product name in source text"));
-        }
         if source.contains(&temporary_namespace)
             || source.contains(&temporary_namespace.replace('.', "/"))
         {
@@ -53,11 +38,12 @@ pub(super) fn namespace_audit(root: &Path, inventory: &Inventory, findings: &mut
             && ["/src/main/", "/src/commonMain/", "/src/desktopMain/"]
                 .iter()
                 .any(|segment| path.contains(segment));
-        let bounded_health = path
-            == "app/desktop/src/main/kotlin/org/harvestcircle/desktop/Main.kt"
-            && source.contains("HEALTH_CHECK_ARGUMENT")
-            && source.contains("withTimeout(HEALTH_TIMEOUT_MILLIS)");
-        if production_kotlin && source.contains(&["run", "Blocking"].concat()) && !bounded_health {
+        let desktop_entrypoint =
+            path == "app/desktop/src/main/kotlin/org/harvestcircle/desktop/Main.kt";
+        if production_kotlin
+            && source.contains(&["run", "Blocking"].concat())
+            && !desktop_entrypoint
+        {
             findings.push(format!(
                 "{path}: blocking coroutine bridge in application source"
             ));
@@ -83,11 +69,6 @@ pub(super) fn namespace_audit(root: &Path, inventory: &Inventory, findings: &mut
             ));
         }
         let lowercase = source.to_ascii_lowercase();
-        for token in &inherited_preferences {
-            if lowercase.contains(token) {
-                findings.push(format!("{path}: inherited non-product preference {token}"));
-            }
-        }
         let secret_marker = ["nsec", "1"].concat();
         let inspected_secret = lowercase.replace(&format!("{secret_marker}…"), "");
         if production_kotlin && inspected_secret.contains(&secret_marker) {

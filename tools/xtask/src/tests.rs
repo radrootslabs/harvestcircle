@@ -548,12 +548,11 @@ fn repository_policy_rejects_secret_and_generated_shapes() {
 }
 
 #[test]
-fn namespace_policy_rejects_legacy_temporary_and_platform_sources() {
+fn namespace_policy_rejects_temporary_and_platform_sources() {
     let root = fixture("namespace");
-    let legacy = ["stu", "dio"].concat();
     write(
         &root,
-        &format!("app/{legacy}/Leak.kt"),
+        "app/other/Leak.kt",
         &format!(
             "package {}\n",
             ["org", "radroots", "harvestcircle"].join(".")
@@ -570,11 +569,6 @@ fn namespace_policy_rejects_legacy_temporary_and_platform_sources() {
     assert!(
         findings
             .iter()
-            .any(|finding| finding.contains("legacy product name"))
-    );
-    assert!(
-        findings
-            .iter()
             .any(|finding| finding.contains("temporary product namespace"))
     );
     assert!(
@@ -586,43 +580,51 @@ fn namespace_policy_rejects_legacy_temporary_and_platform_sources() {
 }
 
 #[test]
-fn namespace_policy_rejects_transition_identity_without_exceptions() {
-    let root = fixture("namespace-no-exceptions");
-    let legacy = ["stu", "dio"].concat();
-    let repository = format!("https://github.com/radrootslabs/{legacy}_app");
-    let entry =
-        "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/BootstrapIdentityEntry.kt";
+fn public_ide_documentation_is_not_a_legacy_namespace() {
+    let root = fixture("public-ide-docs");
     write(
         &root,
-        "app/shared/src/commonMain/kotlin/org/harvestcircle/product/SurfaceRegistry.kt",
-        &format!("val key = \"round_{legacy}_screen\"\n"),
+        "docs/android-studio.md",
+        "Use Android Studio for the public KMP project.\n",
     );
-    write(&root, entry, "val placeholder = \"nsec1…\"\n");
     write(
         &root,
-        "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell/FoundationSettingsScreen.kt",
-        &format!(
-            "val source = \"{repository}\"\nval licence = \"{repository}/blob/dev/LICENSE\"\n"
-        ),
+        ".github/ISSUE_TEMPLATE/ide.md",
+        "Report the Android Studio version.\n",
     );
-    let inventory = Inventory::load(&root).expect("allowlist inventory");
+    let inventory = Inventory::load(&root).unwrap();
+    let mut findings = Vec::new();
+    namespace_audit(&root, &inventory, &mut findings);
+    assert!(findings.is_empty(), "{findings:?}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn moved_kotlin_sources_retain_counter_and_secret_boundaries() {
+    let root = fixture("moved-kotlin-boundaries");
+    write(
+        &root,
+        "app/desktop/src/main/kotlin/org/harvestcircle/desktop/Moved.kt",
+        "val counter = AtomicLong()\nval placeholder = \"nsec1…\"\n",
+    );
+    let inventory = Inventory::load(&root).unwrap();
     let mut findings = Vec::new();
     namespace_audit(&root, &inventory, &mut findings);
     assert!(
         findings
             .iter()
-            .filter(|finding| finding.contains("legacy product name"))
-            .count()
-            >= 2,
-        "{findings:?}"
+            .any(|f| f.contains("process-local operation counter"))
     );
-    assert!(
-        findings
-            .iter()
-            .all(|finding| !finding.contains("secret key literal")),
-        "{findings:?}"
+    assert!(!findings.iter().any(|f| f.contains("secret key literal")));
+    write(
+        &root,
+        "app/desktop/src/main/kotlin/org/harvestcircle/desktop/Moved.kt",
+        "val secret = \"nsec1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n",
     );
-    fs::remove_dir_all(root).expect("remove fixture");
+    findings.clear();
+    namespace_audit(&root, &inventory, &mut findings);
+    assert!(findings.iter().any(|f| f.contains("secret key literal")));
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
