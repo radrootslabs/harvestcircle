@@ -9,6 +9,7 @@ publish = false
 [workspace]
 
 [dependencies]
+syn = { version = "2", features = ["full", "visit"] }
 toml = "1.1.4"
 harvestcircle_product = { path = "../../core/crates/harvestcircle_product" }
 libc = "0.2.189"
