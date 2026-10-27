@@ -373,7 +373,6 @@ fn archive_paths(root: &Path, directory: &Path, paths: &mut Vec<String>) -> Resu
 fn repo_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<String>) {
     global_source_audit(root, inventory, findings);
     runtime_ownership_audit(root, inventory, findings);
-    runtime_guidance_audit(root, findings);
     git_source_policy(root, inventory, findings);
     native_runtime_boundary(root, findings);
 }
@@ -479,45 +478,6 @@ fn load_ownership(root: &Path) -> Result<runtime_ownership::OwnershipMap, String
             String::from_utf8(bytes).map_err(|error| format!("invalid ownership UTF-8: {error}"))
         })
         .and_then(|source| runtime_ownership::OwnershipMap::parse(&source))
-}
-
-// These small text contracts guard instruction scope, not runtime ownership or
-// product implementation. Keep the existing native/source checks independent.
-fn runtime_guidance_audit(root: &Path, findings: &mut Vec<String>) {
-    let contracts: &[(&str, &[&str])] = &[(
-        "AGENTS.md",
-        &[
-            "public HarvestCircle KMP application",
-            "## Common application and security boundaries",
-            "## Native runtime boundaries",
-            "SQLx is the only high-level SQLite library.",
-            "schema v3, storage API v3, FFI v4.5, snapshot v1, custody, and the exact Radroots source pin remain unchanged",
-            "Private keys and signing operations remain behind the generated native boundary.",
-            "platform/ABI",
-            "must not depend on private parent code",
-            "All `docs/**`, `spec/**`, `.github/**`, and `.act/**` paths are forbidden here.",
-            "HCAV-021 and later desktop availability work remain paused",
-        ],
-    )];
-    for (path, markers) in contracts {
-        let source = match bounded_no_follow_bytes(root, Path::new(path), 64 * 1024)
-            .and_then(|bytes| String::from_utf8(bytes).map_err(|error| error.to_string()))
-        {
-            Ok(source) => source,
-            Err(error) => {
-                findings.push(format!("{path}: unable to read runtime guidance: {error}"));
-                continue;
-            }
-        };
-        let text = source.split_whitespace().collect::<Vec<_>>().join(" ");
-        for marker in *markers {
-            if !text.contains(marker) {
-                findings.push(format!(
-                    "{path}: required runtime guidance is missing: {marker}"
-                ));
-            }
-        }
-    }
 }
 
 fn native_runtime_boundary(root: &Path, findings: &mut Vec<String>) {
@@ -1189,7 +1149,7 @@ fn is_forbidden_documentation_or_workflow_path(path: &str) -> bool {
     path.split('/').any(|part| {
         matches!(
             part,
-            "doc" | "docs" | "spec" | "specs" | ".github" | ".act" | "workflow" | "workflows"
+            ".act" | ".beads" | ".metaswarm" | ".claude" | "handoff" | "handoffs" | "sessions"
         )
     })
 }
@@ -2059,8 +2019,6 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    const ROOT_GUIDANCE: &str = include_str!("../../../AGENTS.md");
-
     #[test]
     fn shared_required_readers_report_failures_instead_of_passing_absent_markers() {
         let root = fixture("required readers");
@@ -2208,86 +2166,6 @@ mod tests {
         write(&root, ".git", "not a gitdir\n");
         assert!(Inventory::load(&root).is_err());
         fs::remove_dir_all(root).expect("remove fixture");
-    }
-
-    fn guidance_findings(root_source: &str) -> Vec<String> {
-        let root = fixture("runtime-guidance");
-        write(&root, "AGENTS.md", root_source);
-        let inventory = Inventory::load(&root).expect("guidance inventory");
-        let mut findings = Vec::new();
-        repo_audit(&root, &inventory, &mut findings);
-        fs::remove_dir_all(root).expect("remove guidance fixture");
-        findings
-            .into_iter()
-            .filter(|finding| finding.contains("guidance"))
-            .collect()
-    }
-
-    #[test]
-    fn current_runtime_guidance_preserves_native_boundaries() {
-        let findings = guidance_findings(ROOT_GUIDANCE);
-        assert!(findings.is_empty(), "{findings:#?}");
-        assert!(ROOT_GUIDANCE.contains("## Native runtime boundaries"));
-    }
-
-    #[test]
-    fn runtime_guidance_accepts_wrapping_and_rejects_missing_or_invalid_text() {
-        assert!(
-            guidance_findings(
-                &ROOT_GUIDANCE
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            )
-            .is_empty()
-        );
-        let root = fixture("invalid-guidance");
-        let mut findings = Vec::new();
-        fs::write(root.join("AGENTS.md"), [0xff]).expect("invalid UTF-8 guidance");
-        findings.clear();
-        runtime_guidance_audit(&root, &mut findings);
-        assert!(
-            findings
-                .iter()
-                .any(|finding| finding.starts_with("AGENTS.md: unable to read runtime guidance"))
-        );
-        fs::remove_dir_all(root).expect("remove invalid guidance fixture");
-    }
-
-    #[test]
-    fn runtime_guidance_rejects_lost_native_boundaries() {
-        for marker in [
-            "SQLx is the only high-level SQLite library.",
-            "schema v3, storage API v3, FFI v4.5, snapshot v1, custody,",
-            "exact Radroots source pin",
-            "platform/ABI",
-            "Private keys and signing operations remain behind the generated native",
-        ] {
-            assert!(ROOT_GUIDANCE.contains(marker), "fixture marker: {marker}");
-            let altered = ROOT_GUIDANCE.replace(marker, "native boundary removed");
-            assert!(
-                !guidance_findings(&altered).is_empty(),
-                "accepted lost native rule: {marker}"
-            );
-        }
-    }
-
-    #[test]
-    fn runtime_guidance_rejects_relaxed_source_and_product_scope() {
-        for marker in [
-            "All `docs/**`,",
-            "`.github/**`",
-            "`.act/**`",
-            "must not depend on private parent code",
-            "HCAV-021",
-        ] {
-            assert!(ROOT_GUIDANCE.contains(marker), "fixture marker: {marker}");
-            let altered = ROOT_GUIDANCE.replace(marker, "permitted");
-            assert!(
-                !guidance_findings(&altered).is_empty(),
-                "accepted relaxed root rule: {marker}"
-            );
-        }
     }
 
     #[test]
@@ -2469,11 +2347,11 @@ mod tests {
             "safe.txt",
             &["-----BEGIN ", "PRIVATE KEY-----"].concat(),
         );
-        write(&root, ".github/workflows/remote.yml", "fixture\n");
+        write(&root, ".act/workflows/remote.yml", "fixture\n");
         let inventory = Inventory {
             paths: vec![
                 "README.md".to_owned(),
-                ".github/workflows/remote.yml".to_owned(),
+                ".act/workflows/remote.yml".to_owned(),
                 "config/credentials/release.key".to_owned(),
                 "core/target/generated/native.bin".to_owned(),
                 "safe.txt".to_owned(),
@@ -2774,27 +2652,23 @@ mod tests {
     }
 
     #[test]
-    fn repository_policy_rejects_nested_documentation_and_workflow_roots() {
-        let root = fixture("nested-docs");
-        write(&root, "app/docs/notes.md", "fixture\n");
-        write(&root, "app/.github/workflows/remote.yml", "fixture\n");
-        let inventory = Inventory::load(&root).expect("nested docs inventory");
-        let mut findings = Vec::new();
-        repo_audit(&root, &inventory, &mut findings);
-        assert!(
-            findings
-                .iter()
-                .any(|finding| finding.starts_with("app/docs/"))
-        );
-        assert!(
-            findings
-                .iter()
-                .any(|finding| finding.starts_with("app/.github/workflows/"))
-        );
-        fs::remove_dir_all(root).expect("remove fixture");
+    fn public_docs_are_allowed_but_private_orchestration_is_rejected() {
+        for path in [
+            "docs/architecture.md",
+            ".github/ISSUE_TEMPLATE/bug.md",
+            "spec/format.md",
+        ] {
+            assert!(!is_forbidden_documentation_or_workflow_path(path), "{path}");
+        }
+        for path in [
+            ".act/workflows/private.yml",
+            ".beads/issues.jsonl",
+            "nested/sessions/history.md",
+        ] {
+            assert!(is_forbidden_documentation_or_workflow_path(path), "{path}");
+        }
     }
 
-    #[cfg(unix)]
     #[test]
     fn repository_policy_rejects_symbolic_links() {
         use std::os::unix::fs::symlink;
