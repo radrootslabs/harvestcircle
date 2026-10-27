@@ -8,8 +8,6 @@ pub const MAP_PATH: &str = "config/repository/runtime-ownership.v1.json";
 #[serde(rename_all = "snake_case")]
 pub enum Owner {
     Native,
-    Web,
-    Interop,
     Governance,
 }
 
@@ -58,7 +56,7 @@ fn validate_path(path: &str) -> Result<(), String> {
 }
 
 // Ownership declarations forbid glob syntax. Inventory paths are literal file
-// identities: brackets in Svelte routes are never interpreted as patterns.
+// identities: literal path characters are never interpreted as patterns.
 fn validate_declaration_path(path: &str) -> Result<(), String> {
     validate_path(path)?;
     if path.contains(['[', ']']) {
@@ -90,9 +88,9 @@ impl OwnershipMap {
         if map.schema_version != 1 {
             return Err("unsupported ownership schema version".to_owned());
         }
-        if map.owners.len() != 4 || map.owners.iter().copied().collect::<BTreeSet<_>>().len() != 4 {
+        if map.owners.len() != 2 || map.owners.iter().copied().collect::<BTreeSet<_>>().len() != 2 {
             return Err(
-                "ownership map must declare each of the four owners exactly once".to_owned(),
+                "ownership map must declare each of the two owners exactly once".to_owned(),
             );
         }
         for rules in [&map.inputs, &map.outputs] {
@@ -259,7 +257,7 @@ mod tests {
         let shared = map.classify("tools/xtask/Cargo.lock").unwrap();
         assert!(shared.owners.contains(&Owner::Native));
         assert!(shared.owners.contains(&Owner::Governance));
-        let rule = r#"{"path":"app/src", "kind":"prefix", "owners":["web"]}"#;
+        let rule = r#"{"path":"app/src", "kind":"prefix", "owners":["governance"]}"#;
         let source = MAP.replacen("\"inputs\": [", &format!("\"inputs\": [{rule},"), 1);
         assert!(OwnershipMap::parse(&source).is_err());
         assert!(
@@ -287,22 +285,10 @@ mod tests {
             "new_runtime/main.rs",
         ] {
             let result = map.classify(path).unwrap();
-            assert_eq!(result.owners.len(), 4);
+            assert_eq!(result.owners.len(), 2);
             assert!(result.reason.unwrap().contains(path));
         }
         assert!(map.classify("../app").is_err());
-        assert!(
-            map.classify("web/src/main.ts")
-                .unwrap()
-                .owners
-                .contains(&Owner::Web)
-        );
-        assert!(
-            map.classify("contracts/interop/food.json")
-                .unwrap()
-                .owners
-                .contains(&Owner::Interop)
-        );
     }
 
     #[test]
@@ -326,42 +312,6 @@ mod tests {
                 .reason
                 .is_some()
         );
-    }
-
-    #[test]
-    fn literal_svelte_route_inputs_are_classified_without_glob_declarations() {
-        let map = OwnershipMap::parse(MAP).unwrap();
-        for path in [
-            "web/src/routes/messages/[conversationId=local_id]/+page.svelte",
-            "web/src/routes/my/listings/[listingId=local_id]/+page.svelte",
-            "web/src/routes/[id]/+page.svelte",
-        ] {
-            let result = map.classify(path).unwrap();
-            assert_eq!(result.owners, vec![Owner::Web]);
-            assert!(result.reason.is_none());
-        }
-        let literal = "new_runtime/[literal].rs";
-        let unknown = map.classify(literal).unwrap();
-        assert_eq!(unknown.owners.len(), 4);
-        assert!(unknown.reason.unwrap().contains(literal));
-        for declaration in ["app/[id]", "app/[[optional]]", "app/[a-z]"] {
-            let source = MAP.replacen("\"app\"", &format!("\"{declaration}\""), 1);
-            assert!(
-                OwnershipMap::parse(&source).is_err(),
-                "accepted {declaration}"
-            );
-        }
-        for hostile in [
-            "web/../[id]",
-            "web//[id]",
-            "/web/[id]",
-            "web/[id]\\child",
-            "web/[id]%2fchild",
-            "web/[id]*",
-            "web/[id]?",
-        ] {
-            assert!(map.classify(hostile).is_err(), "accepted {hostile}");
-        }
     }
 
     #[test]

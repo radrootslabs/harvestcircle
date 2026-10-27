@@ -188,23 +188,6 @@ fn ownership_dispatch_keeps_global_safety_and_native_guards_active() {
     let fixture = Fixture::new();
     let capsule = fixture.0.join("capsule");
     copy_source(&capsule);
-    fs::create_dir_all(capsule.join("web/src")).unwrap();
-    // These are native implementation rules, not browser product policy.
-    fs::write(
-        capsule.join("web/src/ordinary.json"),
-        [
-            "{\"example\":\"",
-            "stu",
-            "dio",
-            " org.",
-            "radroots.",
-            "harvestcircle use_",
-            "radroots_dns\"}",
-        ]
-        .concat(),
-    )
-    .unwrap();
-    assert_pass(&capsule, "archive");
     for command in [
         "design-source-audit",
         "repo-audit",
@@ -213,7 +196,7 @@ fn ownership_dispatch_keeps_global_safety_and_native_guards_active() {
         "qualification-report",
     ] {
         fs::write(
-            capsule.join("web/src/unsafe.ts"),
+            capsule.join("app/shared/unsafe.kt"),
             ["-----BEGIN ", "PRIVATE KEY-----"].concat(),
         )
         .unwrap();
@@ -222,9 +205,9 @@ fn ownership_dispatch_keeps_global_safety_and_native_guards_active() {
         assert!(
             String::from_utf8(output.stderr)
                 .unwrap()
-                .contains("unsafe.ts")
+                .contains("unsafe.kt")
         );
-        fs::remove_file(capsule.join("web/src/unsafe.ts")).unwrap();
+        fs::remove_file(capsule.join("app/shared/unsafe.kt")).unwrap();
     }
     fs::write(
         capsule.join("core/crates/harvestcircle_domain/src/relay.rs"),
@@ -265,9 +248,12 @@ fn git_global_artifacts_fail_each_command_and_unknown_inputs_retain_native_rules
     copy_source(&capsule);
     git(&capsule, &["init", "--quiet"]);
     git(&capsule, &["add", "--", "."]);
-    fs::create_dir_all(capsule.join("web/build")).unwrap();
-    fs::write(capsule.join("web/build/index.html"), "generated").unwrap();
-    git(&capsule, &["add", "--force", "--", "web/build/index.html"]);
+    fs::create_dir_all(capsule.join("app/desktop/build")).unwrap();
+    fs::write(capsule.join("app/desktop/build/index.html"), "generated").unwrap();
+    git(
+        &capsule,
+        &["add", "--force", "--", "app/desktop/build/index.html"],
+    );
     for command in [
         "design-source-audit",
         "repo-audit",
@@ -283,7 +269,10 @@ fn git_global_artifacts_fail_each_command_and_unknown_inputs_retain_native_rules
                 .contains("generated build output")
         );
     }
-    git(&capsule, &["rm", "--force", "--", "web/build/index.html"]);
+    git(
+        &capsule,
+        &["rm", "--force", "--", "app/desktop/build/index.html"],
+    );
     fs::write(
         capsule.join("unknown.json"),
         ["org.", "radroots.", "harvestcircle"].concat(),
@@ -308,7 +297,6 @@ fn git_global_artifacts_fail_each_command_and_unknown_inputs_retain_native_rules
     );
     let report = String::from_utf8(output.stdout).unwrap();
     assert!(report.contains("ownership_reason=unclassified input unknown.json"));
-    assert!(report.contains("web_qualification=unclaimed"));
 }
 
 #[test]
@@ -377,7 +365,7 @@ fn cli_rejects_wrong_cwd_missing_native_markers_and_corrupt_git() {
         "provenance-check",
         "qualification-report",
     ] {
-        for root in [&fixture.0, &capsule.join("core"), &capsule.join("web")] {
+        for root in [&fixture.0, &capsule.join("core"), &capsule.join("app")] {
             let output = cli(root, command);
             assert!(!output.status.success());
             assert!(

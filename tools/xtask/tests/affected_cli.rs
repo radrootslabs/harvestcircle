@@ -92,9 +92,7 @@ fn report(root: &Path, base: Option<&str>, env: &[(&str, &str)]) -> (Output, Val
     (output, value)
 }
 fn assert_all(value: &Value) {
-    for lane in ["native", "web", "interop"] {
-        assert_eq!(value["selection"][lane], true, "{}", value["selection"]);
-    }
+    assert_eq!(value["selection"]["native"], true, "{}", value["selection"]);
 }
 fn append(root: &Path, path: &str) {
     let p = root.join(path);
@@ -104,49 +102,18 @@ fn append(root: &Path, path: &str) {
 }
 
 #[test]
-fn web_only_changes_keep_native_source_identity_but_not_head_provenance() {
-    let fixture = Fixture::new();
-    let base = fixture.init();
-    let (first, before) = report(&fixture.0, Some(&base), &[]);
-    assert!(first.status.success());
-    append(&fixture.0, "web/src/app.html");
-    fixture.commit();
-    let (second, after) = report(&fixture.0.join("web/src"), Some(&base), &[]);
-    assert!(second.status.success());
-    assert_eq!(after["selection"]["web"], true);
-    if after["native"]["input_identity"].is_null() || after["web"]["input_identity"].is_null() {
-        assert_all(&after);
-    } else {
-        assert_eq!(after["selection"]["native"], false);
-    }
-    assert_eq!(
-        before["native"]["source_identity"],
-        after["native"]["source_identity"]
-    );
-    assert_ne!(
-        before["web"]["source_identity"],
-        after["web"]["source_identity"]
-    );
-    assert_ne!(
-        before["source_provenance"]["head"],
-        after["source_provenance"]["head"]
-    );
-    assert_eq!(after["native"]["execution"], "NOT_EXECUTED");
-    assert_eq!(after["native"]["reuse"], "NOT_ACCEPTED_BY_THIS_REPORT");
-}
-#[test]
 fn old_and_new_rename_paths_deletion_unknown_and_missing_base_widen() {
     let fixture = Fixture::new();
     fixture.init();
     fs::write(
-        fixture.0.join("web/old name.ts"),
+        fixture.0.join("app/old name.txt"),
         "export const fixture = 1;\n",
     )
     .unwrap();
     fixture.commit();
     fs::rename(
-        fixture.0.join("web/old name.ts"),
-        fixture.0.join("web/new name.ts"),
+        fixture.0.join("app/old name.txt"),
+        fixture.0.join("app/new name.txt"),
     )
     .unwrap();
     fixture.commit();
@@ -155,10 +122,10 @@ fn old_and_new_rename_paths_deletion_unknown_and_missing_base_widen() {
     let (_, renamed) = report(&fixture.0, Some(previous.trim()), &[]);
     assert_all(&renamed);
     let paths = renamed["selection"]["changed_paths"].as_array().unwrap();
-    assert!(paths.contains(&Value::from("web/old name.ts")));
-    assert!(paths.contains(&Value::from("web/new name.ts")));
+    assert!(paths.contains(&Value::from("app/old name.txt")));
+    assert!(paths.contains(&Value::from("app/new name.txt")));
     let deletion_base = fixture.commit();
-    fs::remove_file(fixture.0.join("web/new name.ts")).unwrap();
+    fs::remove_file(fixture.0.join("app/new name.txt")).unwrap();
     let (deleted, value) = report(&fixture.0, Some(&deletion_base), &[]);
     assert!(!deleted.status.success());
     assert_all(&value);
@@ -205,13 +172,13 @@ fn native_lock_shared_fixture_make_and_environment_invalidate_inputs() {
         both["native"]["source_identity"],
         environment["native"]["source_identity"]
     );
-    let shared = fixture.0.join("contracts/interop/affected fixture.json");
+    let shared = fixture.0.join("contracts/affected fixture.json");
     fs::write(shared, "{}\n").unwrap();
     let (_, shared) = report(&fixture.0, Some(&base), &[]);
     assert_all(&shared);
     assert_ne!(
-        both["web"]["source_identity"],
-        shared["web"]["source_identity"]
+        both["native"]["source_identity"],
+        shared["native"]["source_identity"]
     );
 }
 #[test]
@@ -277,15 +244,14 @@ fn forced_generated_input_never_escapes_fresh_policy_and_missing_tools_never_cla
     );
     assert_all(&v);
     assert_eq!(v["native"]["availability"], "TOOL_UNAVAILABLE");
-    assert_eq!(v["web"]["availability"], "TOOL_UNAVAILABLE");
     assert!(v["native"]["input_identity"].is_null());
-    fs::create_dir_all(fixture.0.join("web/build")).unwrap();
+    fs::create_dir_all(fixture.0.join("app/desktop/build")).unwrap();
     fs::write(
-        fixture.0.join("web/build/forced.js"),
+        fixture.0.join("app/desktop/build/forced.txt"),
         "ordinary generated output\n",
     )
     .unwrap();
-    git(&fixture.0, &["add", "-f", "web/build/forced.js"]);
+    git(&fixture.0, &["add", "-f", "app/desktop/build/forced.txt"]);
     let (output, v) = report(&fixture.0, Some(&base), &[]);
     assert!(!output.status.success());
     assert_eq!(v["repository_safety"]["status"], "FAIL");
@@ -310,14 +276,14 @@ fn linked_worktree_has_own_history_and_malformed_paths_fail_fresh_policy() {
             "HEAD",
         ],
     );
-    append(&linked.0, "web/src/app.html");
-    let (output, v) = report(&linked.0.join("web"), Some(&base), &[]);
+    append(&linked.0, "app/shared/build.gradle.kts");
+    let (output, v) = report(&linked.0.join("app"), Some(&base), &[]);
     assert!(output.status.success());
     assert_eq!(v["selection"]["merge_base"], base);
     assert_eq!(v["source_provenance"]["head"], base);
     assert_eq!(v["source_provenance"]["dirty"], true);
     fs::write(
-        linked.0.join("web/literal%2fescape.ts"),
+        linked.0.join("app/literal%2fescape.kt"),
         "export const fixture = true;\n",
     )
     .unwrap();
@@ -343,10 +309,6 @@ fn executable_mode_and_profile_feature_inputs_change_identity() {
     assert_ne!(
         before["native"]["source_identity"],
         after["native"]["source_identity"]
-    );
-    assert_ne!(
-        before["web"]["source_identity"],
-        after["web"]["source_identity"]
     );
     let (_, configured) = report(
         &fixture.0,

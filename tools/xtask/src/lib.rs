@@ -111,7 +111,7 @@ pub fn run(root: &Path, command: Command) -> Result<String, Vec<String>> {
             String::new()
         };
         Ok(format!(
-            "harvestcircle.xtask.command={command_name}\nharvestcircle.xtask.inventory={inventory_kind}\n{mode}harvestcircle.xtask.global_source_safety=checked\nharvestcircle.xtask.native_inputs={}\nharvestcircle.xtask.web_qualification=unclaimed\n{}harvestcircle.xtask.result=pass\n",
+            "harvestcircle.xtask.command={command_name}\nharvestcircle.xtask.inventory={inventory_kind}\n{mode}harvestcircle.xtask.global_source_safety=checked\nharvestcircle.xtask.native_inputs={}\n{}harvestcircle.xtask.result=pass\n",
             native_inventory.paths.len(),
             ownership_reasons
                 .into_iter()
@@ -341,10 +341,9 @@ fn archive_paths(root: &Path, directory: &Path, paths: &mut Vec<String>) -> Resu
         if matches!(
             first,
             ".git" | ".gradle" | ".kotlin" | ".idea" | "build" | "target" | "out"
-        ) || is_web_output_path(&relative)
-            || relative
-                .split('/')
-                .any(|part| matches!(part, "build" | "target" | "out"))
+        ) || relative
+            .split('/')
+            .any(|part| matches!(part, "build" | "target" | "out"))
         {
             continue;
         }
@@ -457,19 +456,9 @@ fn global_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
     }
 }
 
-fn is_web_output_path(path: &str) -> bool {
-    path.starts_with("web/")
-        && (path.split('/').any(|part| part == "node_modules")
-            || matches!(
-                path.split('/').nth(1),
-                Some(".svelte-kit" | "build" | "coverage" | "test-results" | "playwright-report")
-            ))
-}
-
 fn is_generated_output_path(path: &str) -> bool {
     path.split('/')
         .any(|part| matches!(part, "node_modules" | ".svelte-kit" | "build" | "target"))
-        || is_web_output_path(path)
         || path.contains("/generated/")
         || path.contains("generated/uniffi")
         || [".dylib", ".so", ".dll", ".class", ".wasm", ".node"]
@@ -495,40 +484,21 @@ fn load_ownership(root: &Path) -> Result<runtime_ownership::OwnershipMap, String
 // These small text contracts guard instruction scope, not runtime ownership or
 // product implementation. Keep the existing native/source checks independent.
 fn runtime_guidance_audit(root: &Path, findings: &mut Vec<String>) {
-    let contracts: &[(&str, &[&str])] = &[
-        (
-            "AGENTS.md",
-            &[
-                "public HarvestCircle product with separate native and browser runtimes",
-                "## Common application and security boundaries",
-                "## Native runtime boundaries",
-                "native storage, OS custody, transport, and ABI rules below apply only to the native runtime",
-                "SQLx is the only high-level SQLite library.",
-                "schema v3, storage API v3, FFI v4.5, snapshot v1, custody, and the exact Radroots source pin remain unchanged",
-                "Private keys and signing operations remain behind the generated native boundary.",
-                "platform/ABI",
-                "must not depend on private parent code",
-                "All `docs/**`, `spec/**`, `.github/**`, and `.act/**` paths are forbidden here.",
-                "HCAV-021 and later desktop availability work remain paused",
-                "do not wire browser dependencies into native commands or require native tools for ordinary browser install, check, or build",
-            ],
-        ),
-        (
-            "web/AGENTS.md",
-            &[
-                "instructions apply only to `web/**`",
-                "guidance alone is not an implemented application or a passing qualification",
-                "Browser persistence uses bounded IndexedDB",
-                "desktop SQLx database, operating-system keyring, and UniFFI implementation",
-                "Identity and signing require explicit extension interaction",
-                "Generic Nostr belongs in `src/lib/nostr`, using qualified Applesauce",
-                "WASM launch dependency",
-                "dependency on parent documentation",
-                "Do not introduce `docs/**`, `spec/**`, `.github/**`, or `.act/**` anywhere in this standalone repository.",
-                "do not invent commands or claim an absent web suite passed",
-            ],
-        ),
-    ];
+    let contracts: &[(&str, &[&str])] = &[(
+        "AGENTS.md",
+        &[
+            "public HarvestCircle KMP application",
+            "## Common application and security boundaries",
+            "## Native runtime boundaries",
+            "SQLx is the only high-level SQLite library.",
+            "schema v3, storage API v3, FFI v4.5, snapshot v1, custody, and the exact Radroots source pin remain unchanged",
+            "Private keys and signing operations remain behind the generated native boundary.",
+            "platform/ABI",
+            "must not depend on private parent code",
+            "All `docs/**`, `spec/**`, `.github/**`, and `.act/**` paths are forbidden here.",
+            "HCAV-021 and later desktop availability work remain paused",
+        ],
+    )];
     for (path, markers) in contracts {
         let source = match bounded_no_follow_bytes(root, Path::new(path), 64 * 1024)
             .and_then(|bytes| String::from_utf8(bytes).map_err(|error| error.to_string()))
@@ -2090,7 +2060,6 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     const ROOT_GUIDANCE: &str = include_str!("../../../AGENTS.md");
-    const WEB_GUIDANCE: &str = include_str!("../../../web/AGENTS.md");
 
     #[test]
     fn shared_required_readers_report_failures_instead_of_passing_absent_markers() {
@@ -2241,10 +2210,9 @@ mod tests {
         fs::remove_dir_all(root).expect("remove fixture");
     }
 
-    fn guidance_findings(root_source: &str, web_source: &str) -> Vec<String> {
+    fn guidance_findings(root_source: &str) -> Vec<String> {
         let root = fixture("runtime-guidance");
         write(&root, "AGENTS.md", root_source);
-        write(&root, "web/AGENTS.md", web_source);
         let inventory = Inventory::load(&root).expect("guidance inventory");
         let mut findings = Vec::new();
         repo_audit(&root, &inventory, &mut findings);
@@ -2256,11 +2224,10 @@ mod tests {
     }
 
     #[test]
-    fn current_runtime_guidance_preserves_separate_boundaries() {
-        let findings = guidance_findings(ROOT_GUIDANCE, WEB_GUIDANCE);
+    fn current_runtime_guidance_preserves_native_boundaries() {
+        let findings = guidance_findings(ROOT_GUIDANCE);
         assert!(findings.is_empty(), "{findings:#?}");
         assert!(ROOT_GUIDANCE.contains("## Native runtime boundaries"));
-        assert!(WEB_GUIDANCE.contains("IndexedDB"));
     }
 
     #[test]
@@ -2271,23 +2238,11 @@ mod tests {
                     .split_whitespace()
                     .collect::<Vec<_>>()
                     .join("\n"),
-                &WEB_GUIDANCE
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join("\n"),
             )
             .is_empty()
         );
         let root = fixture("invalid-guidance");
-        write(&root, "AGENTS.md", ROOT_GUIDANCE);
         let mut findings = Vec::new();
-        runtime_guidance_audit(&root, &mut findings);
-        assert!(
-            findings.iter().any(
-                |finding| finding.starts_with("web/AGENTS.md: unable to read runtime guidance")
-            )
-        );
-        write(&root, "web/AGENTS.md", WEB_GUIDANCE);
         fs::write(root.join("AGENTS.md"), [0xff]).expect("invalid UTF-8 guidance");
         findings.clear();
         runtime_guidance_audit(&root, &mut findings);
@@ -2311,27 +2266,8 @@ mod tests {
             assert!(ROOT_GUIDANCE.contains(marker), "fixture marker: {marker}");
             let altered = ROOT_GUIDANCE.replace(marker, "native boundary removed");
             assert!(
-                !guidance_findings(&altered, WEB_GUIDANCE).is_empty(),
+                !guidance_findings(&altered).is_empty(),
                 "accepted lost native rule: {marker}"
-            );
-        }
-    }
-
-    #[test]
-    fn runtime_guidance_rejects_lost_browser_boundaries() {
-        for marker in [
-            "IndexedDB",
-            "explicit\n  extension interaction",
-            "Applesauce",
-            "operating-system keyring",
-            "UniFFI implementation",
-            "do not invent commands or claim an absent web suite passed",
-        ] {
-            assert!(WEB_GUIDANCE.contains(marker), "fixture marker: {marker}");
-            let altered = WEB_GUIDANCE.replace(marker, "browser boundary removed");
-            assert!(
-                !guidance_findings(ROOT_GUIDANCE, &altered).is_empty(),
-                "accepted lost browser rule: {marker}"
             );
         }
     }
@@ -2348,22 +2284,8 @@ mod tests {
             assert!(ROOT_GUIDANCE.contains(marker), "fixture marker: {marker}");
             let altered = ROOT_GUIDANCE.replace(marker, "permitted");
             assert!(
-                !guidance_findings(&altered, WEB_GUIDANCE).is_empty(),
+                !guidance_findings(&altered).is_empty(),
                 "accepted relaxed root rule: {marker}"
-            );
-        }
-        for marker in [
-            "Do not introduce `docs/**`",
-            "`.github/**`",
-            "`.act/**`",
-            "dependency on parent documentation",
-            "WASM launch dependency",
-        ] {
-            assert!(WEB_GUIDANCE.contains(marker), "fixture marker: {marker}");
-            let altered = WEB_GUIDANCE.replace(marker, "permitted");
-            assert!(
-                !guidance_findings(ROOT_GUIDANCE, &altered).is_empty(),
-                "accepted relaxed subtree rule: {marker}"
             );
         }
     }
@@ -2501,215 +2423,7 @@ mod tests {
     }
 
     #[test]
-    fn web_policy_git_ignored_outputs_are_not_traversed_but_forced_inputs_fail() {
-        let root = fixture("web-git-policy");
-        initialize_git_fixture(&root);
-        write(&root, ".gitignore", include_str!("../../../.gitignore"));
-        let outputs = [
-            "node_modules",
-            ".svelte-kit",
-            "build",
-            "coverage",
-            "test-results",
-            "playwright-report",
-        ];
-        for output in outputs {
-            write(
-                &root,
-                &format!("web/{output}/nested/dependency.ts"),
-                "ignored output",
-            );
-        }
-        #[cfg(unix)]
-        std::os::unix::fs::symlink("/does-not-exist", root.join("web/node_modules/external"))
-            .expect("ignored dependency symlink");
-        let inventory = Inventory::load(&root).expect("ignored outputs are not inspected");
-        assert_eq!(inventory.paths, vec![".gitignore"]);
-        let forbidden = [
-            "node_modules/dependency.ts",
-            "web/node_modules/dependency.ts",
-            "web/.svelte-kit/output.js",
-            "web/build/index.html",
-            "web/coverage/report.json",
-            "web/test-results/report.json",
-            "web/playwright-report/index.html",
-            "web/src/module.wasm",
-            "web/src/addon.node",
-            "web/.env.local",
-            "web/.env.example",
-            "config/.env.production",
-        ];
-        for path in forbidden {
-            write(&root, path, "forced source");
-            assert!(
-                ProcessCommand::new("git")
-                    .arg("-C")
-                    .arg(&root)
-                    .args(["add", "--force", "--", path])
-                    .status()
-                    .expect("force index")
-                    .success()
-            );
-        }
-        let inventory = Inventory::load(&root).expect("forced regular sources inventoried");
-        let mut findings = Vec::new();
-        repo_audit(&root, &inventory, &mut findings);
-        for path in forbidden {
-            assert!(
-                findings
-                    .iter()
-                    .any(|finding| finding.starts_with(&format!("{path}:"))
-                        && (finding.contains("generated build output")
-                            || finding.contains("secret-shaped"))),
-                "{path}: {findings:#?}"
-            );
-        }
-        #[cfg(unix)]
-        {
-            assert!(
-                ProcessCommand::new("git")
-                    .arg("-C")
-                    .arg(&root)
-                    .args(["add", "--force", "--", "web/node_modules/external"])
-                    .status()
-                    .expect("force index dependency symlink")
-                    .success()
-            );
-            assert!(
-                Inventory::load(&root)
-                    .expect_err("tracked dependency symlink must fail")
-                    .contains("symbolic link")
-            );
-        }
-        fs::remove_dir_all(root).expect("remove fixture");
-    }
-
-    #[test]
-    fn web_policy_archive_outputs_are_excluded_and_global_source_is_inspected() {
-        let root = fixture("web-archive-policy");
-        for output in [
-            "node_modules",
-            ".svelte-kit",
-            "build",
-            "coverage",
-            "test-results",
-            "playwright-report",
-        ] {
-            write(
-                &root,
-                &format!("web/{output}/nested/dependency.ts"),
-                "ignored output",
-            );
-        }
-        #[cfg(unix)]
-        std::os::unix::fs::symlink("/does-not-exist", root.join("web/node_modules/external"))
-            .expect("archive dependency symlink");
-        let marker = ["-----BEGIN ", "PRIVATE KEY-----"].concat();
-        let mut sources = Vec::new();
-        for owner in ["web/src", "tools", "app"] {
-            for extension in ["svelte", "ts", "js", "css", "html", "sh", "py", "json"] {
-                let path = format!("{owner}/ordinary.{extension}");
-                write(&root, &path, &marker);
-                sources.push(path);
-            }
-        }
-        for path in [
-            "web/src/unsafe.TS",
-            "web/src/unsafe.Svelte",
-            "web/src/unsafe.JSON",
-            "web/src/coverage/handler.ts",
-            "web/coverage-extra/handler.ts",
-        ] {
-            write(&root, path, &marker);
-            sources.push(path.to_owned());
-        }
-        let inventory = Inventory::load(&root).expect("archive inventory");
-        assert!(
-            inventory
-                .paths
-                .iter()
-                .all(|path| !path.contains("dependency") && !path.contains("external"))
-        );
-        let mut findings = Vec::new();
-        repo_audit(&root, &inventory, &mut findings);
-        for path in sources {
-            assert!(
-                findings.iter().any(|finding| finding
-                    == &format!("{path}: credential or private-key material in source text")),
-                "{findings:#?}"
-            );
-        }
-        fs::remove_dir_all(root).expect("remove fixture");
-        // Use a separate fixture so this assertion also works on case-insensitive hosts.
-        let root = fixture("web-archive-case");
-        write(
-            &root,
-            "WEB/coverage/unsafe.ts",
-            "case-sensitive archive source",
-        );
-        let inventory = Inventory::load(&root).expect("uppercase archive source");
-        assert!(
-            inventory
-                .paths
-                .contains(&"WEB/coverage/unsafe.ts".to_owned())
-        );
-        fs::remove_dir_all(root).expect("remove case fixture");
-    }
-
-    #[test]
-    fn web_policy_preserves_ordinary_sources_and_native_binary_inputs() {
-        let root = fixture("web-policy-preserved-inputs");
-        let sources = [
-            "web/src/coverage/handler.ts",
-            "web/coverage-extra/handler.ts",
-            "web/src/ordinary.svelte",
-            "web/src/ordinary.ts",
-            "web/src/ordinary.js",
-            "web/src/ordinary.css",
-            "web/src/ordinary.html",
-            "web/scripts/ordinary.sh",
-            "tools/ordinary.py",
-            "web/package.json",
-            "web/src/coverage_rules.ts",
-            "web/.svelte-kit.config.ts",
-        ];
-        let assets = [
-            "gradle/wrapper/gradle-wrapper.jar",
-            "app/design_system/src/commonMain/resources/font/font.ttf",
-            "app/desktop/src/main/resources/icon.png",
-        ];
-        write(&root, ".gitignore", include_str!("../../../.gitignore"));
-        for path in sources {
-            write(&root, path, "ordinary source");
-        }
-        for path in assets {
-            let target = root.join(path);
-            fs::create_dir_all(target.parent().expect("asset parent")).expect("asset directory");
-            fs::write(target, [0xff, 0x00]).expect("binary input");
-        }
-        for git_aware in [false, true] {
-            if git_aware {
-                initialize_git_fixture(&root);
-            }
-            let inventory = Inventory::load(&root).expect("ordinary inventory");
-            assert_eq!(inventory.git_aware, git_aware);
-            let mut findings = Vec::new();
-            repo_audit(&root, &inventory, &mut findings);
-            for path in sources.into_iter().chain(assets) {
-                assert!(inventory.paths.iter().any(|value| value == path), "{path}");
-                assert!(
-                    !findings
-                        .iter()
-                        .any(|finding| finding.starts_with(&format!("{path}:"))),
-                    "{findings:#?}"
-                );
-            }
-        }
-        fs::remove_dir_all(root).expect("remove fixture");
-    }
-
-    #[test]
-    fn web_policy_rejects_invalid_text_without_reading_symlinks_or_directories() {
+    fn source_policy_rejects_invalid_text_without_reading_symlinks_or_directories() {
         let root = fixture("web-invalid-text");
         fs::write(root.join("invalid.ts"), [0xff]).expect("invalid text");
         fs::create_dir(root.join("directory.js")).expect("source-shaped directory");

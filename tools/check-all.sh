@@ -8,13 +8,13 @@ cd "$repository_root"
 # Keep each selected lane's explicit mode, without exporting command-line Make
 # overrides into its standalone test fixtures or starting inherited parallel jobs.
 unset MAKEFLAGS MAKEOVERRIDES MFLAGS
-for tool in make rustup cargo java node corepack; do
+for tool in make rustup cargo java; do
     command -v "$tool" >/dev/null 2>&1 || fail "required tool is unavailable: $tool"
 done
 [ -x ./gradlew ] || fail "Gradle wrapper is unavailable"
 java_major=$(java -version 2>&1 | sed -n 's/.*version "\([0-9]*\).*/\1/p' | head -n 1)
 [ "$java_major" = 21 ] || fail "selected JDK must be 21; install/select it explicitly"
-# Preflight before any consumer. Neither rustup run nor offline Corepack installs.
+# Preflight before any consumer. rustup run never installs.
 rustup run 1.99.0 cargo --version
 # Refuse a wrapper download when its selected distribution is not installed.
 gradle_version=$(sed -n 's@^distributionUrl=.*\/gradle-\([0-9.]*\)-bin.zip$@\1@p' gradle/wrapper/gradle-wrapper.properties)
@@ -25,9 +25,7 @@ for executable in "$gradle_cache_root/wrapper/dists/gradle-$gradle_version-bin/"
     if [ -x "$executable" ]; then gradle_ready=true; fi
 done
 [ "$gradle_ready" = true ] || fail "pinned Gradle distribution is not cached; install explicitly"
-export COREPACK_ENABLE_NETWORK=0
-make --no-print-directory MAKEOVERRIDES= BUILD_MODE="${HARVESTCIRCLE_BUILD_MODE:-standalone}" web-doctor
-for lane in repo-check native-check web-check web-integration-check interop-check; do
+for lane in repo-check native-check; do
     printf '%s\n' "harvestcircle.aggregate.$lane=running"
     make --no-print-directory MAKEOVERRIDES= BUILD_MODE="${HARVESTCIRCLE_BUILD_MODE:-standalone}" \
         GRADLE='./gradlew -Porg.gradle.java.installations.auto-download=false' "$lane"

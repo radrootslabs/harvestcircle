@@ -85,3 +85,7 @@ val functionalTest by tasks.registering(Test::class) {
 tasks.check {
     dependsOn(functionalTest)
 }
+
+providers.environmentVariable("EXT_BUILD_GRADLE_BUILD_DIR").orNull?.let { outputRoot ->
+    layout.buildDirectory.set(file(outputRoot).resolve("build-logic-plugins"))
+}

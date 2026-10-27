@@ -25,70 +25,56 @@ The MVP is designed to work without a managed HarvestCircle account or API.
 Future work adds canonical Radroots collective-market contracts, private buyer
 commitments, a selectable open reference authority, pickup, and proof.
 
-## Browser prototype bootstrap
-
-The isolated bootstrap under `web/` uses SvelteKit, strict TypeScript, and
-static output. Product controllers remain planned. It will use separate browser
-IndexedDB storage and sessions, explicit extension identity and signing without
-raw private-key custody, and Applesauce for generic Nostr behavior. Shared Radroots contracts must conform to the
-exact pinned public Rust oracle without requiring native binaries or the
-consuming monorepo to build the browser application.
-
-The desktop runtime retains its Kotlin/Compose/Rust implementation, native
-commands, database/schema/API, operating-system keyring custody, and exact
-Radroots dependency pin. Desktop availability work beyond HCAV-020 remains
-paused. See `web/AGENTS.md` for the browser source boundary.
-
 ## Contributor entry points
 
-Run commands from the standalone HarvestCircle repository root.
+Run commands from the standalone HarvestCircle repository root. The KMP app
+uses Kotlin/Compose in `app/`, the product Rust core in `core/`, and generated
+UniFFI bindings. Install Git, Make, JDK 21 (selected through `JAVA_HOME`),
+and Rust 1.99.0 through rustup. Supported hosts are macOS aarch64 and Linux
+x86_64. macOS needs Xcode Command Line Tools; Linux needs a C/C++ toolchain,
+OpenSSL development headers, and desktop libraries. The Debian package list is
+maintained in [the Linux verification script](tools/run-linux-x86_64-development-check.sh).
+Running the UI requires a graphical session; identity custody uses macOS
+Keychain or a Linux Secret Service provider.
 
-| | Native desktop (implemented) | Browser bootstrap |
-|---|---|---|
-| Source | Kotlin/Compose in `app/`, product Rust in `core/`, root Gradle inputs | SvelteKit with strict TypeScript and static output in `web/` |
-| State and custody | SQLx service database, OS keyring, generated UniFFI boundary | Separate IndexedDB and sessions; explicit extension identity/signing without raw private-key custody |
-| Start | `make native-doctor`, then `make native-dev` | `make web-doctor`, `make web-install`, then `make web-dev` |
-| Check/build | `make native-check`, `make native-build` | `make web-check`, `make web-build` |
-
-Browser commands require Node 24.21.0, Corepack with pnpm 12.9.1 available,
-Make, Git for build provenance, and standard Unix shell/`mkfifo` utilities for
-the provenance tests. The doctor checks exact selected versions
-without downloading tooling; install uses the frozen web lock. Check runs the
-actual type/Svelte, lint/style/import, unit/provenance, and static-conformance
-assertions. It requires no Rust, Java, Gradle, or browser installation.
-Controlled browser tests remain separate web package scripts requiring a
-qualified Playwright browser. Browser commands use the web directory before
-Corepack resolves its package manager; no root JavaScript workspace is added.
-
-Native prerequisites include JDK 21, Rust 1.99.0, and platform packaging tools.
-Node is not a native prerequisite. The `native-*` targets are recipe-free
-aliases of the existing native targets:
-
-| Alias | Existing target |
-|---|---|
-| `native-doctor` | `doctor` |
-| `native-dev` | `dev` |
-| `native-check` | `check` |
-| `native-build` | `build` |
-| `native-package-check` | `package-check` |
-
-Unqualified `doctor`, `dev`, `check`, `build`, and `package-check` retain their
-native meanings. The default `BUILD_MODE=standalone` lane runs without
-extbuild or a private parent checkout. For example:
+The checked-in Gradle wrapper downloads its pinned distribution. Make builds
+the Rust library and generates UniFFI bindings automatically. The first build
+needs network access to the public dependency sources.
 
 ```sh
-make native-doctor
-make native-check
-make native-build
+git clone --branch dev https://github.com/radrootslabs/harvestcircle.git
+cd harvestcircle
+make doctor
+make dev       # Compose hot reload
+make run       # desktop launch
+make build
+make check
 ```
 
-For an extbuild-governed lane, run the diagnostic before mutating checks and
-select `BUILD_MODE=governed`; aliases inherit the selected mode:
+The `native-doctor`, `native-dev`, `native-check`, `native-build`, and
+`native-package-check` aliases remain available. Public clones default to
+`BUILD_MODE=standalone`, without extbuild or a private parent checkout.
+
+To use external build storage, configure an approved extbuild machine profile
+and select governed mode:
 
 ```sh
-cargo extbuild doctor
-make BUILD_MODE=governed native-check
+make BUILD_MODE=governed doctor
+make BUILD_MODE=governed dev
 ```
+
+The root Makefile owns all Make configuration. Select a non-default approved
+machine profile explicitly when needed:
+
+```sh
+make BUILD_MODE=governed EXTBUILD_MACHINE_CONFIG=/absolute/path/to/profile.toml dev
+```
+
+Each governed workload runs extbuild doctor first. Cargo and Gradle build output
+use the external project directory; Gradle user and build caches use extbuild
+locations. Local `.gradle`, `build-logic/.gradle`, and `.kotlin` metadata directories
+may be linked into that external project cache by workstation setup. Host paths
+and machine policy stay outside portable source.
 
 `make governed-check` and `make governed-integration-check` also select governed
 mode for their existing native checks. The active development milestone uses
@@ -105,44 +91,22 @@ advisory services, signing, notarization, Nix, and OCI qualification remain
 deferred and unclaimed until a release candidate is declared with fresh
 authority. Listing a target does not authorize its deferred effects.
 
-## Conformance and source provenance
+## Source checks and provenance
 
-Checked Food fixtures under `contracts/interop/` exercise the exact pinned
-public Rust codec and browser adapters. `make interop-check` runs both actual
-consumers and reports unsupported browser cases explicitly. Ordinary browser
-conformance uses checked vectors without invoking native tools. This is source
-conformance evidence; Message interoperability and independent-client, relay,
-extension and deployed Tera qualification remain pending.
-
-`make repo-check` runs fresh repository source policy without Node.
-`make web-integration-check` runs web integration and browser tests without
-native tooling. `make check-all` explicitly requires both toolchains and runs
-repository, native, web, browser integration and interop checks; an unavailable
-tool or failed lane fails the aggregate. It does not install dependencies.
-Existing unqualified `check`, `build`, `dev` and `package-check` retain their
-native meanings.
-
-`make affected-check BASE=<commit>` reports the actual Git merge-base diff,
-dirty inputs, runtime selection and complete input fingerprints. Renames,
-deletions, unknown paths, shallow or missing history widen selection to all
-runtimes. It always runs fresh source policy. The report records source HEAD
-separately from runtime input identity; selection and equal fingerprints do
-not mean runtime checks executed or qualify reuse of old artifact provenance.
-Missing tools are explicit, and the diagnostic never installs them.
-Fingerprints cover default repository source checks. Custom compiler wrappers,
-external build configuration or additional command arguments require separate
-evidence; the diagnostic never qualifies their artifacts or automatic reuse.
+`make repo-check` runs repository source policy. `make check-all` runs both
+repository and KMP/native checks with their existing toolchain prerequisites.
+`make affected-check BASE=<commit>` reports changed inputs, the native input
+fingerprint, and current source policy; it executes no product checks and
+never authorizes artifact reuse. Missing tools and history remain explicit.
 
 The native artifact contract v3 requires an exact clean Git-revision tree
-source archive, including newly tracked `web/` files. A native-only filtered
-bundle cannot satisfy that whole-tree contract. Source archives are distinct
-from compiled desktop packages and future static website output. A new source
-revision changes provenance even when native runtime inputs are unchanged;
-it does not imply byte-identical binaries or production archive qualification.
+source archive. A filtered bundle cannot satisfy that contract. Source
+archives and compiled desktop packages have separate payload boundaries.
+Production archive and release qualification remain deferred and unclaimed.
 
 ## Development branch
 
-Active implementation proceeds on `master`.
+Active implementation proceeds on `dev`.
 
 ## Local state
 

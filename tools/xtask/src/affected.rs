@@ -180,7 +180,7 @@ fn selection(root: &Path, map: &OwnershipMap, base: Option<&str>, head: &str) ->
             }
             for owner in classification.owners {
                 if owner == Owner::Governance {
-                    selected.extend([Owner::Native, Owner::Web, Owner::Interop]);
+                    selected.extend([Owner::Native]);
                 } else {
                     selected.insert(owner);
                 }
@@ -192,11 +192,10 @@ fn selection(root: &Path, map: &OwnershipMap, base: Option<&str>, head: &str) ->
         reasons.push(reason);
     }
     if !reasons.is_empty() {
-        selected.extend([Owner::Native, Owner::Web, Owner::Interop]);
+        selected.extend([Owner::Native]);
     }
     json!({"merge_base": merge_base, "resolved_head": resolved_head, "checked_out_head": checked_out_head, "changed_paths": paths,
-        "reasons": reasons, "native": selected.contains(&Owner::Native), "web": selected.contains(&Owner::Web),
-        "interop": selected.contains(&Owner::Interop), "repository_check": "REQUIRED_FRESH", "execution": "NOT_EXECUTED"})
+        "reasons": reasons, "native": selected.contains(&Owner::Native), "repository_check": "REQUIRED_FRESH", "execution": "NOT_EXECUTED"})
 }
 
 fn digest(bytes: &[u8]) -> String {
@@ -389,11 +388,8 @@ fn fingerprint(
             continue;
         } // Archive inventories include ordinary directories.
         let owners = map.classify(path)?.owners;
-        // Interop/governance are shared proof inputs, even for a runtime-only command.
-        if !owners.contains(&owner)
-            && !owners.contains(&Owner::Governance)
-            && !owners.contains(&Owner::Interop)
-        {
+        // Governance is a shared proof input for native commands.
+        if !owners.contains(&owner) && !owners.contains(&Owner::Governance) {
             continue;
         }
         let bytes = bounded_no_follow_bytes(root, Path::new(path), 32 * 1024 * 1024)?;
@@ -410,57 +406,45 @@ fn fingerprint(
         };
         files.push(json!({"path":path,"mode":mode,"bytes":bytes.len(),"sha256":digest(&bytes)}));
     }
-    let environment_names: &[&str] = if owner == Owner::Native {
-        &[
-            "HARVESTCIRCLE_BUILD_MODE",
-            "HARVESTCIRCLE_NATIVE_FEATURES",
-            "HARVESTCIRCLE_NATIVE_PROFILE",
-            "SOURCE_DATE_EPOCH",
-            "HARVESTCIRCLE_BUILD_RADROOTS_REVISION",
-            "HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN",
-            "HARVESTCIRCLE_BUILD_JAVA_TOOLCHAIN",
-            "HARVESTCIRCLE_BUILD_KOTLIN_TOOLCHAIN",
-            "RUSTFLAGS",
-            "CARGO_ENCODED_RUSTFLAGS",
-            "CARGO_ENCODED_RUSTDOCFLAGS",
-            "RUSTDOCFLAGS",
-            "RUSTC",
-            "RUSTDOC",
-            "RUSTFMT",
-            "RUSTC_WRAPPER",
-            "RUSTC_WORKSPACE_WRAPPER",
-            "CARGO_HOME",
-            "GRADLE_USER_HOME",
-            "PATH",
-            "CARGO_INCREMENTAL",
-            "CC",
-            "CXX",
-            "AR",
-            "LD",
-            "RANLIB",
-            "CFLAGS",
-            "CXXFLAGS",
-            "CPPFLAGS",
-            "LDFLAGS",
-            "JAVA_TOOL_OPTIONS",
-            "JDK_JAVA_OPTIONS",
-            "_JAVA_OPTIONS",
-            "JAVA_OPTS",
-            "GRADLE_OPTS",
-            "JAVA_HOME",
-            "RUSTUP_TOOLCHAIN",
-        ]
-    } else {
-        &[
-            "HARVESTCIRCLE_BUILD_MODE",
-            "NODE_OPTIONS",
-            "NODE_ENV",
-            "CI",
-            "COREPACK_ENABLE_NETWORK",
-            "PATH",
-            "PNPM_HOME",
-        ]
-    };
+    let environment_names: &[&str] = &[
+        "HARVESTCIRCLE_BUILD_MODE",
+        "HARVESTCIRCLE_NATIVE_FEATURES",
+        "HARVESTCIRCLE_NATIVE_PROFILE",
+        "SOURCE_DATE_EPOCH",
+        "HARVESTCIRCLE_BUILD_RADROOTS_REVISION",
+        "HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN",
+        "HARVESTCIRCLE_BUILD_JAVA_TOOLCHAIN",
+        "HARVESTCIRCLE_BUILD_KOTLIN_TOOLCHAIN",
+        "RUSTFLAGS",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "CARGO_ENCODED_RUSTDOCFLAGS",
+        "RUSTDOCFLAGS",
+        "RUSTC",
+        "RUSTDOC",
+        "RUSTFMT",
+        "RUSTC_WRAPPER",
+        "RUSTC_WORKSPACE_WRAPPER",
+        "CARGO_HOME",
+        "GRADLE_USER_HOME",
+        "PATH",
+        "CARGO_INCREMENTAL",
+        "CC",
+        "CXX",
+        "AR",
+        "LD",
+        "RANLIB",
+        "CFLAGS",
+        "CXXFLAGS",
+        "CPPFLAGS",
+        "LDFLAGS",
+        "JAVA_TOOL_OPTIONS",
+        "JDK_JAVA_OPTIONS",
+        "_JAVA_OPTIONS",
+        "JAVA_OPTS",
+        "GRADLE_OPTS",
+        "JAVA_HOME",
+        "RUSTUP_TOOLCHAIN",
+    ];
     let environment = environment_identity(environment_names, owner == Owner::Native);
     let environment_finding = environment.as_ref().err().cloned();
     let environment = environment.unwrap_or_default();
@@ -500,12 +484,6 @@ fn fingerprint(
         tools.insert("java".to_owned(), json!(tool(root, "java", &["-version"])));
         // Only invoke an already cached distribution, never a downloading wrapper.
         tools.insert("gradle".to_owned(), json!(cached_gradle(root)));
-    } else {
-        tools.insert("node".to_owned(), json!(tool(root, "node", &["--version"])));
-        tools.insert(
-            "pnpm".to_owned(),
-            json!(tool(&root.join("web"), "corepack", &["pnpm", "--version"])),
-        );
     }
     let tools_available = tools.values().all(|v| !v.is_null());
     let available = !custom && environment_finding.is_none() && tools_available;
@@ -563,26 +541,22 @@ pub fn report(start: &Path, base: Option<&str>, head: &str) -> Result<(String, b
         json!({"availability":"INPUT_UNAVAILABLE","finding":reason,
         "input_identity":null,"execution":"NOT_EXECUTED","reuse":"NOT_ACCEPTED_BY_THIS_REPORT"})
     };
-    let (native, web) = match Inventory::load(&root) {
-        Ok(inventory) => (
-            fingerprint(&root, &map, &inventory, Owner::Native).unwrap_or_else(&unavailable),
-            fingerprint(&root, &map, &inventory, Owner::Web).unwrap_or_else(&unavailable),
-        ),
-        Err(reason) => (unavailable(reason.clone()), unavailable(reason)),
-    };
-    if native["input_identity"].is_null() || web["input_identity"].is_null() {
-        for lane in ["native", "web", "interop"] {
-            selected[lane] = json!(true);
+    let native = match Inventory::load(&root) {
+        Ok(inventory) => {
+            fingerprint(&root, &map, &inventory, Owner::Native).unwrap_or_else(&unavailable)
         }
+        Err(reason) => unavailable(reason),
+    };
+    if native["input_identity"].is_null() {
+        selected["native"] = json!(true);
         selected["reasons"].as_array_mut().unwrap().push(json!(
-            "complete runtime fingerprint unavailable; checks remain required"
+            "complete native fingerprint unavailable; checks remain required"
         ));
     }
     let report = json!({"schema":"harvestcircle.affected.v1","selection":selected,
         "source_provenance":{"head":source,"dirty":dirty,"producer_environment_sha256":provenance_environment,"artifact_evidence":"NOT_PRODUCED"},
         "repository_safety":{"status":if safety.is_ok(){"PASS_FRESH"}else{"FAIL"},"findings":safety.err().unwrap_or_default()},
-        "native":native,
-        "web":web});
+        "native":native});
     let green = report["repository_safety"]["status"] == "PASS_FRESH";
     Ok((serde_json::to_string_pretty(&report).unwrap() + "\n", green))
 }

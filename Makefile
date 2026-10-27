@@ -1,5 +1,12 @@
 .DEFAULT_GOAL := help
 
+# All Make configuration is owned here; host profiles are explicit arguments.
+EXTBUILD ?= cargo extbuild
+EXTBUILD_MACHINE_CONFIG ?=
+ifneq ($(strip $(EXTBUILD_MACHINE_CONFIG)),)
+override EXTBUILD += --machine-config "$(EXTBUILD_MACHINE_CONFIG)"
+endif
+
 GRADLE ?= ./gradlew
 override CARGO := cargo +1.99.0
 CARGO_MANIFEST := core/Cargo.toml
@@ -15,16 +22,23 @@ $(error Unknown BUILD_MODE '$(BUILD_MODE)'; expected standalone or governed)
 endif
 
 ifeq ($(BUILD_MODE),governed)
-override BUILD_RUNNER := cargo extbuild run --
+override BUILD_RUNNER := $(EXTBUILD) run --
 else
 override BUILD_RUNNER :=
 endif
 
+# Native startup validates build identity even in development. Supply actual
+# checkout provenance to ordinary app commands as well as qualification lanes.
+NATIVE_PROVENANCE_TARGETS := dev run dev-check build bindings test check source-check integration-check host-ui-lifecycle-check host-package-check
+$(NATIVE_PROVENANCE_TARGETS): export HARVESTCIRCLE_BUILD_SOURCE_COMMIT = $(shell git rev-parse --verify HEAD)
+$(NATIVE_PROVENANCE_TARGETS): export HARVESTCIRCLE_BUILD_SOURCE_DIRTY = $(if $(strip $(shell git status --porcelain --untracked-files=all)),true,false)
+$(NATIVE_PROVENANCE_TARGETS): export HARVESTCIRCLE_BUILD_RADROOTS_REVISION = $(shell sed -n 's/^revision = "\([0-9a-f]\{40\}\)"$$/\1/p' radroots.lib.source-lock.v1.toml)
+$(NATIVE_PROVENANCE_TARGETS): export HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN = 1.99.0
+$(NATIVE_PROVENANCE_TARGETS): export SOURCE_DATE_EPOCH = $(shell git show -s --format=%ct HEAD)
+
 .PHONY: help doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-provenance-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check unsigned-release-check _unsigned-release-check signing-check _signing-check notarization-check _notarization-check release-check _release-check clean
 .PHONY: native-doctor native-dev native-check native-build native-package-check
-.PHONY: web-doctor web-install web-dev web-check web-build
-.PHONY: interop-check
-.PHONY: repo-check web-integration-check check-all affected-check
+.PHONY: repo-check check-all affected-check
 
 repo-check:
 	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- repo-audit
@@ -34,45 +48,12 @@ affected-check: export HARVESTCIRCLE_AFFECTED_BASE = $(BASE)
 affected-check:
 	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) $(CARGO) run --manifest-path $(XTASK_MANIFEST) --locked -- affected-report
 
-web-integration-check: web-doctor
-	cd web && $(BUILD_RUNNER) corepack pnpm run test:integration
-	cd web && $(BUILD_RUNNER) corepack pnpm run test:e2e
-
 check-all:
 	HARVESTCIRCLE_BUILD_MODE=$(BUILD_MODE) $(BUILD_RUNNER) tools/check-all.sh
 
 ifeq ($(BUILD_MODE),governed)
-repo-check affected-check check-all: governed-doctor
+repo-check affected-check check-all mode-check: governed-doctor
 endif
-
-interop-check:
-	$(BUILD_RUNNER) tools/check-interop.sh
-
-ifeq ($(BUILD_MODE),governed)
-interop-check: governed-doctor
-endif
-
-web-doctor:
-	cd web && $(BUILD_RUNNER) node tools/doctor.mjs
-
-ifeq ($(BUILD_MODE),governed)
-web-doctor: governed-doctor
-endif
-
-web-install: web-doctor
-	cd web && $(BUILD_RUNNER) corepack pnpm install --frozen-lockfile
-
-web-dev: web-doctor
-	cd web && $(BUILD_RUNNER) corepack pnpm run dev
-
-web-check: web-doctor
-	cd web && $(BUILD_RUNNER) corepack pnpm run check
-	cd web && $(BUILD_RUNNER) corepack pnpm run lint
-	cd web && $(BUILD_RUNNER) corepack pnpm run test:unit
-	cd web && $(BUILD_RUNNER) corepack pnpm run test:conformance
-
-web-build: web-doctor
-	cd web && $(BUILD_RUNNER) corepack pnpm run build
 
 native-doctor: doctor
 native-dev: dev
@@ -81,9 +62,7 @@ native-build: build
 native-package-check: package-check
 
 help:
-	@printf '%s\n' 'Unqualified targets below retain native meaning.' 'Browser: web-doctor web-install web-dev web-check web-build'
-	@printf '%s\n' 'Explicit cross-runtime fixture gate: interop-check'
-	@printf '%s\n' 'Repository: repo-check affected-check BASE=<commit>' 'Browser integration: web-integration-check' 'Explicit all-runtime source aggregate: check-all'
+	@printf '%s\n' 'Repository: repo-check affected-check BASE=<commit>' 'KMP/native source aggregate: check-all'
 	@printf '%s\n' doctor governed-doctor lock metadata build-logic-check build-logic-stability-check mode-check design-source-check design-goldens-update format format-fix lint test check governed-check build bindings api-check dev-check dev run audit licenses foundation-check package host-package-check governed-package-check source-check governed-source-check package-check integration-check governed-integration-check development-check governed-development-check governed-linux-x86_64-development-check host-ui-lifecycle-check acceptance-check unsigned-release-check signing-check notarization-check release-check clean
 
 design-source-check: doctor
@@ -99,7 +78,7 @@ doctor:
 	$(BUILD_RUNNER) $(GRADLE) --version
 
 governed-doctor:
-	$(CARGO) extbuild doctor
+	$(EXTBUILD) doctor
 
 ifeq ($(BUILD_MODE),governed)
 doctor: governed-doctor
@@ -119,7 +98,7 @@ build-logic-stability-check: doctor
 	$(BUILD_RUNNER) tools/test-build-logic-stability.sh
 
 mode-check:
-	tools/test-build-modes.sh
+	$(BUILD_RUNNER) tools/test-build-modes.sh
 
 format: doctor
 	$(BUILD_RUNNER) $(CARGO) fmt --manifest-path $(CARGO_MANIFEST) --all -- --check
@@ -224,7 +203,7 @@ governed-development-check:
 	$(MAKE) --no-print-directory BUILD_MODE=governed development-check
 
 governed-linux-x86_64-development-check: governed-doctor
-	$(CARGO) extbuild run -- tools/run-linux-x86_64-development-check.sh
+	$(EXTBUILD) run -- tools/run-linux-x86_64-development-check.sh
 
 host-ui-lifecycle-check: doctor
 	$(BUILD_RUNNER) $(GRADLE) --no-daemon :app:desktop:hostUiLifecycleTest

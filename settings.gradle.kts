@@ -49,3 +49,12 @@ include(
     ":app:shared",
     ":tools:design_catalog",
 )
+
+// extbuild supplies host-local output locations; standalone uses Gradle defaults.
+buildCache {
+    local {
+        providers.environmentVariable("EXT_BUILD_GRADLE_LOCAL_BUILD_CACHE").orNull?.let { cacheRoot ->
+            directory = file(cacheRoot)
+        }
+    }
+}

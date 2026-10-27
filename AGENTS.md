@@ -5,21 +5,12 @@ A more specific `AGENTS.md` may refine them for its subtree.
 
 ## Repository role and source boundary
 
-This repository owns the public HarvestCircle product with separate native
-and browser runtimes. The native runtime owns the Kotlin/Compose presentation
-shell, desktop lifecycle, client-side state,
+This repository owns the public HarvestCircle KMP application. The native
+runtime owns the Kotlin/Compose presentation shell, desktop lifecycle, client-side state,
 generated UniFFI integration, host packaging, product-specific Rust core, and
 their tests. The Rust workspace under `core/**` owns HarvestCircle application,
 domain, runtime, persistence, Nostr-adapter, preference, native FFI, and UniFFI
 binding-generator implementation.
-
-The repository also authorizes an isolated browser runtime under `web/**`.
-Its implementation is planned; this guidance does not establish a working
-browser application or new commands. Browser source, dependencies, storage,
-sessions, and extension signing belong only to that subtree, governed by
-`web/AGENTS.md`. Native-specific guidance below continues to govern the
-desktop runtime; it does not make browser state use the native database,
-keyring, UniFFI boundary, or native transport implementation.
 
 HarvestCircle remains a client of canonical public Radroots library packages.
 It does not own shared Radroots identity, transport, signing, wire-contract, or
@@ -83,40 +74,17 @@ the active Gradle and Cargo build locations, and inspect the result. Never
 hand-edit or check in generated bindings or native binaries as a source
 substitute.
 
-## Isolated browser source boundary
-
-Use SvelteKit with strict TypeScript and static output under `web/**`, with
-one web-owned pnpm lockfile and pinned toolchain and package inputs. Do not add
-a root JavaScript workspace, aggregate Cargo workspace, shared UI, hosted
-backend, or browser dependency on native binaries or WASM. Existing native
-Make targets, Gradle inputs, both Cargo graphs, product/install identities,
-persisted paths, schema v3, storage API v3, FFI v4.5, snapshot v1, custody,
-and the exact Radroots source pin remain unchanged by browser work unless a
-separate change is explicitly authorized.
-
-Browser storage and sessions are separate from native state. Browser identity
-and signing use explicit extension interaction without raw private-key custody.
-Generic browser Nostr implementation uses Applesauce in `web/src/lib/nostr`;
-pure Radroots contract adapters must conform to the exact pinned public Rust
-oracle rather than invent shared policy. Public interop vectors belong under
-`contracts/interop/**`; they do not introduce a runtime dependency on Rust or
-the parent tree. Browser build and test inputs remain standalone, subject to
-the same forbidden document roots and private-dependency rules as native
-source. Planned web command surfaces must be implemented and verified before
-being advertised as available. HCAV-021 and later desktop availability work
-remain paused; authorizing `web/**` does not resume them.
-
 ## Common application and security boundaries
 
-Both runtimes preserve protocol fidelity, bounded resource use, explicit
+The application preserves protocol fidelity, bounded resource use, explicit
 user-authorized effects, and independent buildability. Keep secret material
 out of logs, crash text, analytics, filenames, public caches, and long-lived
 presentation state. Keep lifecycle work structured, cancelable, and scoped;
 never infer external mutation from environment state. Presentation code is
 client orchestration, not domain or shared-library authority. Tests and
 qualification records must identify actual checked inputs and executed lanes.
-Browser custody and persistence follow `web/AGENTS.md`; native storage, OS
-custody, transport, and ABI rules below apply only to the native runtime.
+HCAV-021 and later desktop availability work remain paused. The current
+schema v3, storage API v3, FFI v4.5, snapshot v1, custody, and the exact Radroots source pin remain unchanged.
 
 ## Native runtime boundaries
 
@@ -203,17 +171,14 @@ configuration before editing. Make one coherent, reviewable change at a time;
 keep implementation, tests, generated outputs, dependency evidence, and public
 behavior aligned while preserving unrelated work.
 
-The currently implemented root Make and Gradle commands below qualify the
-native runtime only. They do not qualify a browser application. Browser checks
-follow `web/AGENTS.md` once their actual standalone scripts exist; do not wire
-browser dependencies into native commands or require native tools for ordinary
-browser install, check, or build. Root guidance and audit changes require fresh
-affected native and repository checks. Browser evidence must be reported as
-unimplemented until the corresponding real checks exist and run.
-
 The root `Makefile` is the standalone command surface and its durable behavior
 belongs in Gradle or public producer tools. Standalone targets never invoke or
-probe extbuild, even when it is installed. Explicit `governed-*` targets run a
+probe extbuild, even when it is installed. Select `BUILD_MODE=governed` and,
+when needed,
+`EXTBUILD_MACHINE_CONFIG` on the Make command line. The root Makefile is the
+only Make configuration surface; do not add local include files. Host paths
+and machine policy remain outside portable source. Explicit `governed-*`
+targets run a
 green extbuild doctor and route the same underlying commands through extbuild.
 Gradle otherwise uses its standard ignored `build/` directories and Cargo uses
 the ignored target trees. Run `make doctor` before the first standalone

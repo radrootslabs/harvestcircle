@@ -2,8 +2,6 @@
   "schema_version": 1,
   "owners": [
     "native",
-    "web",
-    "interop",
     "governance"
   ],
   "inputs": [
@@ -177,46 +175,10 @@
       ]
     },
     {
-      "path": "web",
-      "kind": "prefix",
-      "owners": [
-        "web"
-      ]
-    },
-    {
-      "path": "contracts/interop",
-      "kind": "prefix",
-      "owners": [
-        "native",
-        "web",
-        "interop"
-      ]
-    },
-    {
-      "path": "tools/check-interop.sh",
-      "kind": "exact",
-      "owners": [
-        "native",
-        "web",
-        "interop"
-      ]
-    },
-    {
-      "path": "tools/interop",
-      "kind": "prefix",
-      "owners": [
-        "native",
-        "web",
-        "interop"
-      ]
-    },
-    {
       "path": "Makefile",
       "kind": "exact",
       "owners": [
         "native",
-        "web",
-        "interop",
         "governance"
       ]
     },
@@ -225,8 +187,6 @@
       "kind": "exact",
       "owners": [
         "native",
-        "web",
-        "interop",
         "governance"
       ]
     },
@@ -235,8 +195,6 @@
       "kind": "exact",
       "owners": [
         "native",
-        "web",
-        "interop",
         "governance"
       ]
     },
@@ -245,8 +203,6 @@
       "kind": "exact",
       "owners": [
         "native",
-        "web",
-        "interop",
         "governance"
       ]
     },
@@ -255,8 +211,6 @@
       "kind": "exact",
       "owners": [
         "native",
-        "web",
-        "interop",
         "governance"
       ]
     },
@@ -265,8 +219,6 @@
       "kind": "exact",
       "owners": [
         "native",
-        "web",
-        "interop",
         "governance"
       ]
     },
@@ -275,8 +227,6 @@
       "kind": "exact",
       "owners": [
         "native",
-        "web",
-        "interop",
         "governance"
       ]
     },
@@ -285,8 +235,6 @@
       "kind": "prefix",
       "owners": [
         "native",
-        "web",
-        "interop",
         "governance"
       ]
     },
@@ -295,8 +243,6 @@
       "kind": "exact",
       "owners": [
         "native",
-        "web",
-        "interop",
         "governance"
       ]
     },
@@ -305,8 +251,6 @@
       "kind": "exact",
       "owners": [
         "native",
-        "web",
-        "interop",
         "governance"
       ]
     },
@@ -315,8 +259,6 @@
       "kind": "exact",
       "owners": [
         "native",
-        "web",
-        "interop",
         "governance"
       ]
     },
@@ -325,8 +267,6 @@
       "kind": "exact",
       "owners": [
         "native",
-        "web",
-        "interop",
         "governance"
       ]
     }
