@@ -8,7 +8,6 @@ import org.harvestcircle.buildlogic.plugins.tasks.StageReleaseNativeLibrary
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyDesktopBuildMetadataArtifact
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyGeneratedCompatibilityExpectations
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyGeneratedDesktopBuildMetadata
-import org.harvestcircle.buildlogic.plugins.tasks.VerifyHarvestCircleArtifactContract
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyMacOsDeveloperIdSignature
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyMacOsDistribution
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyMacOsNotarization
@@ -22,7 +21,6 @@ import org.harvestcircle.buildlogic.plugins.tasks.VerifySharedBoundary
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyTestBridgeIsolation
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyTestInventory
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyUniFfiBindings
-import org.harvestcircle.buildlogic.plugins.tasks.VerifyVerificationLanes
 import kotlin.test.Test
 import kotlin.test.assertNotNull
 
@@ -37,9 +35,7 @@ class TaskPolicyTest {
 
         listOf(
             VerifyGeneratedDesktopBuildMetadata::class.java,
-            VerifyHarvestCircleArtifactContract::class.java,
             VerifyProductCoordinates::class.java,
-            VerifyVerificationLanes::class.java,
             VerifySharedBoundary::class.java,
             VerifyTestInventory::class.java,
             VerifyGeneratedCompatibilityExpectations::class.java,

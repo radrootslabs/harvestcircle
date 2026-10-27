@@ -1,6 +1,6 @@
 [package]
 name = "harvestcircle_runtime"
-description = "Private supervised composition runtime for HarvestCircle"
+description = "supervised composition runtime for HarvestCircle"
 version = "0.1.0-alpha"
 edition.workspace = true
 authors.workspace = true

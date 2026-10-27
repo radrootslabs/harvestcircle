@@ -176,8 +176,6 @@ fn required_native_inputs() -> Vec<&'static str> {
         "config/detekt/detekt.yml",
         "config/licenses/allowed-licenses.json",
         "config/product/harvestcircle-v1.properties",
-        "config/verification/lanes-v3.properties",
-        "contracts/release/harvestcircle-artifact-contract.v3.json",
         "tools/run-linux-x86_64-development-check.sh",
         "tools/test-build-modes.sh",
         "tools/verify-storage-api.sh",

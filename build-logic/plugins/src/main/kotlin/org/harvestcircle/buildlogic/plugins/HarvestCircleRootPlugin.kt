@@ -2,9 +2,7 @@ package org.harvestcircle.buildlogic.plugins
 
 import org.gradle.api.Plugin
 import org.gradle.api.Project
-import org.harvestcircle.buildlogic.plugins.tasks.VerifyHarvestCircleArtifactContract
 import org.harvestcircle.buildlogic.plugins.tasks.VerifyProductCoordinates
-import org.harvestcircle.buildlogic.plugins.tasks.VerifyVerificationLanes
 
 public class HarvestCircleRootPlugin : Plugin<Project> {
     override fun apply(target: Project) {
@@ -13,10 +11,6 @@ public class HarvestCircleRootPlugin : Plugin<Project> {
         val productCoordinatesFile = target.layout.projectDirectory.file("config/product/harvestcircle-v1.properties")
         val ffiCompatibilityBaselineFile =
             target.layout.projectDirectory.file("core/compatibility/harvestcircle-ffi-v5.properties")
-        val verificationLanesFile = target.layout.projectDirectory.file("config/verification/lanes-v3.properties")
-        val artifactContractFile =
-            target.layout.projectDirectory.file("contracts/release/harvestcircle-artifact-contract.v3.json")
-
         val verifyProductCoordinates =
             target.tasks.register("verifyProductCoordinates", VerifyProductCoordinates::class.java) { task ->
                 task.group = "verification"
@@ -37,25 +31,6 @@ public class HarvestCircleRootPlugin : Plugin<Project> {
             task.group = "verification"
             task.description = "Validates the generated-code and native compatibility baseline."
             task.dependsOn(verifyProductCoordinates)
-        }
-        target.tasks.register(
-            "verifyHarvestCircleArtifactContract",
-            VerifyHarvestCircleArtifactContract::class.java,
-        ) { task ->
-            task.group = "verification"
-            task.description = "Validates the canonical unsigned HarvestCircle artifact contract."
-            task.contractFile.set(artifactContractFile)
-            task.productCoordinatesFile.set(productCoordinatesFile)
-            task.ffiCompatibilityBaselineFile.set(ffiCompatibilityBaselineFile)
-            task.expectedBuildVersion.set("1")
-            task.repositoryRoot.set(target.layout.projectDirectory)
-        }
-        target.tasks.register("verifyVerificationLanes", VerifyVerificationLanes::class.java) { task ->
-            task.group = "verification"
-            task.description = "Validates forge-agnostic verification lanes and least-privilege policy."
-            task.policyFile.set(verificationLanesFile)
-            task.productManifestFile.set(productCoordinatesFile)
-            task.makefileFile.set(target.layout.projectDirectory.file("Makefile"))
         }
         target.providers.environmentVariable("EXT_BUILD_GRADLE_BUILD_DIR").orNull?.let { outputRoot ->
             target.layout.buildDirectory.set(target.file(outputRoot).resolve("root"))

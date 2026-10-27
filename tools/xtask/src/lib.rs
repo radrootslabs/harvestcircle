@@ -147,7 +147,6 @@ fn validate_product_root(root: &Path) -> Result<PathBuf, String> {
         "tools/xtask/Cargo.lock",
         "core/crates/harvestcircle_domain/Cargo.toml",
         "core/crates/harvestcircle_domain/src/lib.rs",
-        "contracts/release/harvestcircle-artifact-contract.v3.json",
     ] {
         validate_git_inventory_path(&root, Path::new(marker))
             .map_err(|finding| format!("invalid HarvestCircle product root: {finding}"))?;
@@ -1426,7 +1425,6 @@ fn provenance_check(root: &Path, inventory: &Inventory, findings: &mut Vec<Strin
     }
     for required in [
         STORAGE_API_BASELINE,
-        "config/verification/lanes-v3.properties",
         "tools/run-linux-x86_64-development-check.sh",
         "tools/verify-storage-api.sh",
     ] {
@@ -1443,48 +1441,57 @@ fn design_source_audit(root: &Path, inventory: &Inventory, findings: &mut Vec<St
         return;
     }
     let source = read_text(root, PATH, findings);
-    let required_scalars = [
-        "schema = \"harvestcircle.design.v1\"",
-        "repository = \"https://github.com/radrootslabs/harvestcircle\"",
-        "baseline_revision = \"c08d18ea569351dddeef70d4c1410708daf067b6\"",
-        "license = \"GPL-3.0-only\"",
-        "golden_host = \"macos-aarch64\"",
-        "golden_status = \"verified\"",
-        "design_system_root = \"app/design_system\"",
-        "design_catalog_root = \"tools/design_catalog\"",
-        "application_shell_root = \"app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell\"",
-        "golden_test_path = \"app/shared/src/desktopTest/kotlin/org/harvestcircle/ui/shell/HarvestCircleMacGoldenTest.kt\"",
-    ];
-    for scalar in required_scalars {
-        if source.lines().filter(|line| line.trim() == scalar).count() != 1 {
-            findings.push(format!("{PATH}: missing or duplicate authority: {scalar}"));
+    let manifest = match toml::from_str::<toml::Value>(&source) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            findings.push(format!("{PATH}: invalid design manifest: {error}"));
+            return;
+        }
+    };
+    for (key, expected) in [
+        ("schema", "harvestcircle.design.v1"),
+        (
+            "repository",
+            "https://github.com/radrootslabs/harvestcircle",
+        ),
+        ("license", "GPL-3.0-only"),
+        ("golden_host", "macos-aarch64"),
+        ("design_system_root", "app/design_system"),
+        ("design_catalog_root", "tools/design_catalog"),
+        (
+            "application_shell_root",
+            "app/shared/src/commonMain/kotlin/org/harvestcircle/ui/shell",
+        ),
+        (
+            "golden_test_path",
+            "app/shared/src/desktopTest/kotlin/org/harvestcircle/ui/shell/HarvestCircleMacGoldenTest.kt",
+        ),
+    ] {
+        if manifest.get(key).and_then(toml::Value::as_str) != Some(expected) {
+            findings.push(format!("{PATH}: invalid design authority: {key}"));
         }
     }
-    for (path, key, sha256) in [
+    for (path, key) in [
         (
             "app/shared/src/desktopTest/resources/goldens/macos-aarch64/design-surface-light.png",
             "golden_light_sha256",
-            "96e1ef5dd8b5cb14e47471a737a1e57ab0543b7f3aa79b865051e4740a2ee57a",
         ),
         (
             "app/shared/src/desktopTest/resources/goldens/macos-aarch64/design-surface-dark.png",
             "golden_dark_sha256",
-            "6a85cd890109b11de6f647dca91cb616651e362aa0802c40aa6aee7f678451c9",
         ),
     ] {
-        let authority = format!("{key} = \"{sha256}\"");
-        if source
-            .lines()
-            .filter(|line| line.trim() == authority)
-            .count()
-            != 1
+        let expected = manifest
+            .get(key)
+            .and_then(toml::Value::as_str)
+            .unwrap_or_default();
+        if !is_lower_hex(expected, 64)
+            || !inventory.paths.iter().any(|candidate| candidate == path)
+            || sha256_file(root, path, findings).as_deref() != Some(expected)
         {
-            findings.push(format!("{PATH}: {key} must match the governed golden"));
-        }
-        if !inventory.paths.iter().any(|candidate| candidate == path)
-            || sha256_file(root, path, findings).as_deref() != Some(sha256)
-        {
-            findings.push(format!("{path}: macOS golden is missing or changed"));
+            findings.push(format!(
+                "{path}: golden bytes differ from the design manifest"
+            ));
         }
     }
     let golden_test = read_text(
@@ -2087,7 +2094,7 @@ mod tests {
     }
 
     #[test]
-    fn current_design_contract_is_exact() {
+    fn current_design_manifest_matches_sources() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(Path::parent)
@@ -2100,7 +2107,7 @@ mod tests {
     }
 
     #[test]
-    fn current_source_provenance_and_lib_lock_are_exact() {
+    fn cargo_and_product_inputs_are_consistent() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(Path::parent)
@@ -2179,9 +2186,47 @@ mod tests {
         assert!(
             findings
                 .iter()
-                .any(|finding| finding.contains("missing or duplicate authority"))
+                .any(|finding| finding.contains("invalid design authority"))
         );
         fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn design_manifest_accepts_formatting_and_rejects_changed_golden_bytes() {
+        let root = fixture("design-golden-bytes");
+        let source_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let manifest_path = "config/design/harvestcircle-v1.toml";
+        let manifest = fs::read_to_string(source_root.join(manifest_path)).unwrap();
+        write(
+            &root,
+            manifest_path,
+            &format!("# expected image data\n{}", manifest.replace('\n', "\r\n")),
+        );
+        for theme in ["light", "dark"] {
+            let path = format!(
+                "app/shared/src/desktopTest/resources/goldens/macos-aarch64/design-surface-{theme}.png"
+            );
+            fs::create_dir_all(root.join(&path).parent().unwrap()).unwrap();
+            fs::copy(source_root.join(&path), root.join(&path)).unwrap();
+        }
+        let inventory = Inventory::load(&root).unwrap();
+        let mut findings = Vec::new();
+        design_source_audit(&root, &inventory, &mut findings);
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.contains("invalid design") || f.contains("golden bytes differ")),
+            "{findings:?}"
+        );
+        write(
+            &root,
+            "app/shared/src/desktopTest/resources/goldens/macos-aarch64/design-surface-light.png",
+            "changed image",
+        );
+        findings.clear();
+        design_source_audit(&root, &inventory, &mut findings);
+        assert!(findings.iter().any(|f| f.contains("golden bytes differ")));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

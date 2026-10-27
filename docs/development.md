@@ -44,6 +44,9 @@ mutate the real OS credential store are opt-in and are not routine validation.
 The existing Linux development script is an explicit Docker/extbuild lane; only
 claim platform acceptance when its actual command ran successfully.
 
+Golden PNGs are expected test data; their manifest hashes describe bytes, not a
+claim that a host check has run. Regeneration requires reviewing the actual images.
+
 Distribution, signing and notarization have separate prerequisites and candidate
 checks. Building the development app does not establish release qualification.
 Do not alter identities, bypass clean-source or compatibility checks, or infer

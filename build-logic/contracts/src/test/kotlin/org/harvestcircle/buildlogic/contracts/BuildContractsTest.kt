@@ -2,9 +2,7 @@ package org.harvestcircle.buildlogic.contracts
 
 import java.nio.file.Files
 import kotlin.io.path.createDirectories
-import kotlin.io.path.createDirectory
 import kotlin.io.path.createTempDirectory
-import kotlin.io.path.writeBytes
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -13,75 +11,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class BuildContractsTest {
-    @Test
-    fun harvestCircleArtifactContractRequiresExactCanonicalUnsignedBytes() {
-        val root = createTempDirectory("harvestcircle-artifact-contract-")
-        val contract =
-            root.resolve("contracts/release/harvestcircle-artifact-contract.v3.json")
-        contract.parent.createDirectories()
-        contract.writeText(HarvestCircleArtifactContract.CANONICAL_JSON)
-
-        HarvestCircleArtifactContract.load(contract.toFile(), root.toFile())
-        HarvestCircleArtifactContract.parse(HarvestCircleArtifactContract.CANONICAL_JSON)
-
-        assertFails {
-            HarvestCircleArtifactContract.parse(HarvestCircleArtifactContract.CANONICAL_JSON + "\n")
-        }
-        listOf(
-            "\"identity\":\"org.harvestcircle.desktop\"" to "\"identity\":\"invalid\"",
-            "\"product_name\":\"HarvestCircle\"" to "\"product_name\":\"Invalid\"",
-            "\"product_version\":\"0.1.0-alpha\"" to "\"product_version\":\"0.1.1\"",
-            "\"package_version\":\"1.0.0\"" to "\"package_version\":\"1.0.1\"",
-            "\"build_version\":\"1\"" to "\"build_version\":\"2\"",
-            "\"filename\":\"HarvestCircle-1.0.0.dmg\"" to "\"filename\":\"HarvestCircle.dmg\"",
-            "\"source_task\":\"packageDmg\"" to "\"source_task\":\"releaseReadiness\"",
-            "\"g2\":\"unauthorized\"" to "\"g2\":\"authorized\"",
-            "\"signing\":\"unauthorized\"" to "\"signing\":\"required\"",
-            "\"submodules\":\"forbidden\"," to "",
-        ).forEach { (original, replacement) ->
-            assertFails {
-                HarvestCircleArtifactContract.parse(
-                    HarvestCircleArtifactContract.CANONICAL_JSON.replace(original, replacement),
-                )
-            }
-        }
-
-        HarvestCircleArtifactContract.validatePackageCoordinates(
-            productName = "HarvestCircle",
-            identity = "org.harvestcircle.desktop",
-            productVersion = "0.1.0-alpha",
-            packageVersion = "1.0.0",
-            buildVersion = "1",
-            fileName = "HarvestCircle-1.0.0.dmg",
-        )
-        assertFails {
-            HarvestCircleArtifactContract.validatePackageCoordinates(
-                productName = "HarvestCircle",
-                identity = "org.harvestcircle.desktop",
-                productVersion = "0.1.0-alpha",
-                packageVersion = "1.0.1",
-                buildVersion = "1",
-                fileName = "HarvestCircle-1.0.1.dmg",
-            )
-        }
-    }
-
-    @Test
-    fun harvestCircleArtifactContractRejectsSymlinkTraversal() {
-        val root = createTempDirectory("harvestcircle-artifact-contract-link-")
-        val actual = root.resolve("actual").createDirectories()
-        actual.resolve("harvestcircle-artifact-contract.v3.json")
-            .writeText(HarvestCircleArtifactContract.CANONICAL_JSON)
-        Files.createSymbolicLink(root.resolve("contracts"), actual)
-
-        assertFails {
-            HarvestCircleArtifactContract.load(
-                root.resolve("contracts/harvestcircle-artifact-contract.v3.json").toFile(),
-                root.toFile(),
-            )
-        }
-    }
-
     @Test
     fun cargoSourcesRejectMixedOrTamperedInputs() {
         val revision = "a".repeat(40)

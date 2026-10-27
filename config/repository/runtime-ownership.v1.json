@@ -104,20 +104,6 @@
       ]
     },
     {
-      "path": "config/verification/lanes-v3.properties",
-      "kind": "exact",
-      "owners": [
-        "native"
-      ]
-    },
-    {
-      "path": "contracts/release/harvestcircle-artifact-contract.v3.json",
-      "kind": "exact",
-      "owners": [
-        "native"
-      ]
-    },
-    {
       "path": "tools/run-linux-x86_64-development-check.sh",
       "kind": "exact",
       "owners": [

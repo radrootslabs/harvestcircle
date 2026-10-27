@@ -1,6 +1,6 @@
 [package]
 name = "harvestcircle_ffi"
-description = "Private native FFI boundary for HarvestCircle"
+description = "native FFI boundary for HarvestCircle"
 version = "0.1.0-alpha"
 edition.workspace = true
 authors.workspace = true

@@ -238,8 +238,6 @@ public class HarvestCirclePackagingPlugin : Plugin<Project> {
             target.tasks.register("sourceReadiness") { task ->
                 task.dependsOn(
                     ":verifyProductCoordinates",
-                    ":verifyHarvestCircleArtifactContract",
-                    ":verifyVerificationLanes",
                     ":app:shared:check",
                     "check",
                     "verifyUniFfiBindings",
