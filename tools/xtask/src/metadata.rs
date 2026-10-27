@@ -180,8 +180,8 @@ pub(super) fn provenance_check(root: &Path, inventory: &Inventory, findings: &mu
     }
     for required in [
         STORAGE_API_BASELINE,
-        "tools/run-linux-x86_64-development-check.sh",
-        "tools/verify-storage-api.sh",
+        "scripts/check-linux-x86_64.sh",
+        "scripts/check-storage-api.sh",
     ] {
         if !inventory.paths.iter().any(|path| path == required) {
             findings.push(format!("{required}: governed source evidence is missing"));

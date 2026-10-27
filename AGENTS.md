@@ -9,7 +9,8 @@ docs before changing its architecture or behavior.
 - `app/`: Kotlin presentation, application coordination and desktop lifecycle.
 - `core/`: product domain, application, runtime, persistence, Nostr and FFI.
 - `build-logic/`: Gradle conventions and native integration.
-- `tools/`: engineering tools and the design catalog.
+- `scripts/`: lifecycle command dispatch, prerequisites and shell checks.
+- `tools/`: Rust engineering tools and the design catalog.
 - `config/` and `contracts/`: current machine-readable build inputs.
 - `docs/`: public architecture and contributor guidance.
 
@@ -36,7 +37,9 @@ outcomes, idempotent recovery and current permission checks.
 
 ## Commands and changes
 
-The root Makefile is the only Make configuration surface. No local include files
+The root Makefile owns lifecycle targets, dependencies and configuration;
+`scripts/commands.sh` owns command execution. Public submodule runtimes are managed
+through this Makefile, independently of a parent repository. No local include files
 or workstation paths. Standalone is the default. Select governed execution with
 `BUILD_MODE=governed` and an optional `EXTBUILD_MACHINE_CONFIG`; a successful
 extbuild doctor must precede governed workloads. Build output stays external in

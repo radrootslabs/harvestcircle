@@ -1,7 +1,9 @@
 #!/bin/sh
 set -eu
 
-repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+[ "$#" -eq 0 ] || { printf '%s\n' "Usage: $0" >&2; exit 2; }
+
+repository_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 
 fail() {
     printf '%s\n' "linux-x86_64 development check: $1" >&2
@@ -54,7 +56,10 @@ workspace=$(mktemp -d "$EXT_BUILD_TMPDIR/harvestcircle-linux-x86_64.XXXXXX")
 cleanup() {
     find "$workspace" -depth -delete
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 git clone --no-local --no-hardlinks "$repository_root" "$workspace/source"
 git -C "$workspace/source" checkout --detach "$source_commit"
@@ -126,7 +131,7 @@ docker run \
         # Subprocess-heavy tooling tests run serially on translated/limited hosts.
         cargo test --manifest-path tools/xtask/Cargo.toml --locked -- --test-threads=1
         cargo run --manifest-path tools/xtask/Cargo.toml --locked -- qualification-report
-        tools/test-build-modes.sh
+        scripts/test-commands.sh
         ./gradlew --no-daemon --no-parallel --no-configuration-cache \
             --project-cache-dir /workspace/gradle-project-cache -p build-logic \
             :contracts:check :plugins:check :plugins:functionalTest

@@ -1,22 +1,32 @@
 #!/bin/sh
 set -eu
 
+[ "$#" -eq 0 ] || { printf '%s\n' "Usage: $0" >&2; exit 2; }
+
 # All execution below occurs in disposable fixtures with controlled tools.
 unset MAKEFLAGS MAKEOVERRIDES MFLAGS EXTBUILD EXTBUILD_MACHINE_CONFIG
 repository_root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+for script in "$repository_root"/scripts/*.sh; do
+    /bin/sh -n "$script"
+done
 make_command=$(command -v make)
 fixture=$(mktemp -d "${TMPDIR:-/tmp}/harvestcircle-build-mode.XXXXXX")
 cleanup() { find "$fixture" -depth -delete; }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 dispatch_root="$(CDPATH='' cd -- "$fixture" && pwd -P)/checkout with spaces"
 dispatch_bin="$fixture/native tools"
-mkdir -p "$dispatch_root/tools" "$dispatch_root/gradle/wrapper" "$dispatch_bin" "$fixture/host home/.gradle"
+mkdir -p "$dispatch_root/scripts" "$dispatch_root/gradle/wrapper" "$dispatch_bin" "$fixture/host home/.gradle"
 cp "$repository_root/gradle/wrapper/gradle-wrapper.properties" "$dispatch_root/gradle/wrapper/gradle-wrapper.properties"
 # Ordinary host Gradle caches are deliberately broken throughout these tests.
 ln -s "$fixture/missing ambient cache" "$fixture/host home/.gradle/caches"
 cp "$repository_root/Makefile" "$dispatch_root/Makefile"
-cp "$repository_root/tools/check-prerequisites.sh" "$dispatch_root/tools/check-prerequisites.sh"
+cp "$repository_root/scripts/commands.sh" "$dispatch_root/scripts/commands.sh"
+cp "$repository_root/scripts/check-prerequisites.sh" "$dispatch_root/scripts/check-prerequisites.sh"
 ln -s "$(command -v sed)" "$dispatch_bin/sed"
+ln -s "$(command -v dirname)" "$dispatch_bin/dirname"
 cat > "$dispatch_bin/git" <<'EOF'
 #!/bin/sh
 case "$1" in
@@ -90,9 +100,9 @@ for tool in cargo java rustup cc uname pkg-config cargo-deny cargo-public-api ca
 done
 cp "$fixture/dispatch-tool" "$dispatch_root/gradlew"
 chmod +x "$dispatch_root/gradlew"
-for tool in test-build-modes.sh verify-storage-api.sh; do
-    cp "$fixture/dispatch-tool" "$dispatch_root/tools/$tool"
-    chmod +x "$dispatch_root/tools/$tool"
+for tool in test-commands.sh check-storage-api.sh check-linux-x86_64.sh; do
+    cp "$fixture/dispatch-tool" "$dispatch_root/scripts/$tool"
+    chmod +x "$dispatch_root/scripts/$tool"
 done
 
 run_dispatch() {
@@ -133,6 +143,7 @@ for mode in standalone governed; do
             fi
         else
             grep -q "$(printf '\t')extbuild$(printf '\t')doctor$" "$fixture/dispatch.log"
+            awk -F '\t' '$1 == "cargo" && $8 == "extbuild" { next } $3 != "yes" { exit 1 }' "$fixture/dispatch.log"
         fi
         for missing in java cargo rustup gradlew cc; do
             missing_path="$dispatch_bin/$missing"
@@ -147,10 +158,10 @@ for mode in standalone governed; do
         printf '%s\n' "harvestcircle.dispatch.$mode.$target=cwd,provenance,doctor,no-node,missing-tools:pass"
     done
     for lane in source-check integration-check development-check; do
-        lane_output=$(PATH="$dispatch_bin" "$make_command" --no-print-directory -n -C "$dispatch_root" BUILD_MODE="$mode" "$lane")
-        [ "$(printf '%s\n' "$lane_output" | grep -c -- '-p build-logic')" -eq 1 ]
+        run_dispatch "$mode" "$lane" "$fixture/lane.log" > "$fixture/lane-output.log" 2>&1 || { cat "$fixture/lane-output.log"; exit 1; }
+        [ "$(grep -c "$(printf '\t')-p$(printf '\t')build-logic" "$fixture/lane.log")" -eq 1 ]
     done
-    development_output=$(PATH="$dispatch_bin" "$make_command" --no-print-directory -n -C "$dispatch_root" BUILD_MODE="$mode" development-check)
+    development_output=$(tr '\t' ' ' < "$fixture/lane.log")
     for forbidden in 'cargo audit' dependencyCheckAnalyze verifyHostPackage releaseReadiness unsignedReleaseReadiness signingReadiness notarizationReadiness packageDmg packageDeb; do
         if printf '%s\n' "$development_output" | grep -q "$forbidden"; then
             printf '%s\n' "development-check selected deferred release work: $forbidden" >&2; exit 1
@@ -158,6 +169,16 @@ for mode in standalone governed; do
     done
     [ "$(printf '%s\n' "$development_output" | grep -c -- '--configuration-cache --configuration-cache-problems=fail :app:desktop:hotRunArgfile')" -eq 1 ]
 done
+
+# Reject invalid internal commands and arguments before touching build state.
+for script in "$repository_root"/scripts/*.sh; do
+    if "$script" unexpected extra > "$fixture/arguments.log" 2>&1; then
+        printf '%s\n' "$script accepted unexpected arguments" >&2; exit 1
+    fi
+done
+if "$dispatch_root/scripts/commands.sh" unknown > "$fixture/unknown-command.log" 2>&1; then exit 1; fi
+grep -q 'unknown command: unknown' "$fixture/unknown-command.log"
+printf '%s\n' 'harvestcircle.script-contract=posix-syntax,unknown-commands,argument-validation:pass'
 
 # Explicit standalone homes are honored; unusable paths fail before Gradle.
 HCR_TEST_GRADLE_HOME="$fixture/custom cache with spaces" run_dispatch standalone dev-check "$fixture/custom.log" > "$fixture/custom-output.log" 2>&1
@@ -188,7 +209,13 @@ for target in unsigned-release-check signing-check notarization-check release-ch
     if run_dispatch standalone "$target" "$fixture/release.log" > "$fixture/release-output.log" 2>&1; then exit 1; fi
     grep -q 'requires BUILD_MODE=governed' "$fixture/release-output.log"
     [ ! -s "$fixture/release.log" ]
+    run_dispatch governed "$target" "$fixture/guarded.log" > "$fixture/guarded-output.log" 2>&1 || { cat "$fixture/guarded-output.log"; exit 1; }
+    case "$target" in
+        linux-check) grep -q '^check-linux-x86_64.sh' "$fixture/guarded.log" ;;
+        *) grep -q '^gradlew' "$fixture/guarded.log" ;;
+    esac
 done
+printf '%s\n' 'harvestcircle.guarded-commands=standalone-denial,governed-dispatch:pass'
 if "$make_command" --no-print-directory -C "$dispatch_root" BUILD_MODE=unsupported help > "$fixture/unknown.log" 2>&1; then exit 1; fi
 grep -q "Unknown BUILD_MODE 'unsupported'" "$fixture/unknown.log"
 for retired in native-dev governed-development-check affected-check; do

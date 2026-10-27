@@ -17,7 +17,8 @@ check_cache_path() {
     [ -w "$cache_path" ] && [ -x "$cache_path" ] || fail "Gradle cache directory is not writable/searchable: $cache_path; select a usable GRADLE_USER_HOME or BUILD_MODE=governed"
 }
 
-case "${1:-}" in
+[ "$#" -eq 1 ] || fail 'expected one scope: common, licenses, api or audit'
+case "$1" in
     common)
         require git 'install Git and use a Git checkout'
         require cargo 'install Rust through rustup'

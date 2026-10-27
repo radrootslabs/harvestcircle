@@ -17,7 +17,7 @@ rustup toolchain install 1.99.0 --component clippy --component rustfmt
 Supported hosts are macOS aarch64 and Linux x86_64. macOS needs Xcode
 Command Line Tools. Linux needs a C/C++ toolchain, OpenSSL development headers,
 desktop libraries and a graphical session; see the package list in the
-[Linux verification script](tools/run-linux-x86_64-development-check.sh).
+[Linux verification script](scripts/check-linux-x86_64.sh).
 Identity custody uses macOS Keychain or a Linux Secret Service provider.
 
 ```sh

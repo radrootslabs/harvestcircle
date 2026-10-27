@@ -1,7 +1,12 @@
 # Development and verification
 
 Run commands from the repository root or use `make -C /path/to/harvestcircle`.
-The root Makefile is the only Make configuration surface. `make doctor` diagnoses
+The root Makefile owns command configuration and target dependencies;
+`scripts/commands.sh` implements their leaf actions. Lifecycle shell scripts live
+under `scripts/`; Rust tooling and the design catalog live under `tools/`.
+Use Make as the public entry point, including from a consuming monorepo; its parent
+Makefile does not manage HarvestCircle's application runtime. No local Make include
+or second command dependency graph is supported. `make doctor` diagnoses
 selected JDK, Rust components and native compiler prerequisites before a workload.
 It reports installation commands for missing tools. The Gradle wrapper may
 download its pinned distribution; prerequisite checks never install host tools.
@@ -23,7 +28,7 @@ download its pinned distribution; prerequisite checks never install host tools.
 
 Advanced checks require their corresponding tools: `cargo-deny` for licence and
 source policy, `cargo-audit` for Rust advisories, and `cargo-public-api` with the
-pinned nightly named in `tools/verify-storage-api.sh` for API comparison. Advisory
+pinned nightly named in `scripts/check-storage-api.sh` for API comparison. Advisory
 checks may need external services. Select these lanes explicitly and report
 unavailable tooling rather than interpreting it as a pass.
 
