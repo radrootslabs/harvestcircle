@@ -100,7 +100,9 @@ case "$command_name" in
         ;;
     dev-check)
         "$GRADLE" --no-daemon --configuration-cache --configuration-cache-problems=fail :app:desktop:hotRunArgfile
-        exec "$GRADLE" --no-daemon :app:desktop:test --tests org.harvestcircle.application.NativeGeneratedRecoveryTest
+        exec "$GRADLE" --no-daemon :app:desktop:test \
+            --tests org.harvestcircle.application.NativeGeneratedRecoveryTest \
+            --tests org.harvestcircle.application.DefaultProfileStartupTest
         ;;
     dev)
         exec "$GRADLE" :app:desktop:hotRun

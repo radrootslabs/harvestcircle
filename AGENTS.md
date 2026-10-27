@@ -31,7 +31,10 @@ Native libraries must match generated bindings, ABI, product and storage inputs;
 never accept an ambient or stale binary. Generated bindings and native binaries
 are build output and must remain untracked. Change the Rust producer first.
 
-Keep lifecycle work bounded, cancelable and explicitly owned. Do not log secret
+Keep lifecycle work bounded, cancelable and explicitly owned. Open the native
+runtime off the UI thread and retain late results until confirmed shutdown.
+Qualify first launch with an isolated default user profile and no development
+data override; prepared data roots alone do not qualify startup. Do not log secret
 material or infer external effects from environment state. Preserve unknown
 outcomes, idempotent recovery and current permission checks.
 

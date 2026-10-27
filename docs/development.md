@@ -14,7 +14,7 @@ download its pinned distribution; prerequisite checks never install host tools.
 | Command | Purpose |
 | --- | --- |
 | `make dev` / `make run` | Hot-reload development / normal desktop launch |
-| `make dev-check` | Finite launch-classpath and isolated native startup/shutdown checks |
+| `make dev-check` | Finite launch-classpath, fresh default-profile UI and isolated native lifecycle checks |
 | `make build` | Build product Rust and the desktop application |
 | `make format` / `make format-fix` | Check / apply formatting |
 | `make lint` / `make test` | Static analysis / Rust and Kotlin tests |
@@ -33,6 +33,34 @@ unavailable tooling rather than interpreting it as a pass.
 Shared Lib identity comes from `core/Cargo.toml` and `core/Cargo.lock`. Native
 and Gradle producers validate exact public Git source, revision and version
 agreement; there is no separate source-lock file or implicit sibling override.
+
+## First launch and recovery
+
+Normal startup prepares the canonical user data location automatically. On macOS
+it is `$HOME/Library/Application Support/Radroots/data`; on Linux it is the
+Radroots directory under the resolved XDG data home. The app preserves existing
+data and permissions. Explicit development data roots must still exist and be
+canonical; they are not a substitute for testing the default user profile.
+
+Opening runs in the background. For unavailable local data, check disk/mount
+availability and directory permissions, close other HarvestCircle instances, then
+choose **Try again**. Compatibility or native-loading failures require a rebuild
+or reinstall. Startup never resets the database, deletes a lock or automatically
+retries. Closing waits for owned startup/shutdown; an exceeded safe timeout offers
+an explicit **Force exit** choice.
+
+**Copy diagnostics** copies a safe stage/code/attempt/version record. The same
+record is written to standard error without raw exceptions, filesystem paths,
+relay input or secret material. Clipboard failure does not block closing. Security
+reports go to [security@radroots.org](mailto:security@radroots.org).
+
+A normal launch without `HARVESTCIRCLE_NOSTR_RELAYS` opens offline. Network
+operations require explicitly configured relays. `make dev` retains the localhost
+development default; no connection is inferred for an ordinary packaged launch.
+`make dev-check` runs a separate JVM with a fresh HOME and no development-data
+override, checks first opening and reopening through the real application factory,
+and verifies a missing-library failure can still close safely. The ordinary
+`make check` includes these regressions and startup ownership/cancellation tests.
 
 ## External build storage
 

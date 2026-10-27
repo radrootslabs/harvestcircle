@@ -52,6 +52,20 @@ owns one Tokio runtime and a bounded eight-entry keyring worker per core lifetim
 shutdown is explicit, resumable and bounded to 30 seconds. Caller cancellation
 does not invent proof that an already-started external mutation did not happen.
 
+Desktop opening has one owner through Opening, Ready, Failed and Closing states.
+Closing during a synchronous native open never abandons its eventual handle;
+shutdown must be confirmed before exit or another open. A failed cleanup retains
+ownership and offers explicit force exit. Native constructors join their workers
+before returning an ordinary retryable failure. Metadata is checked before core
+acquisition. Expected failures become safe application problems; cancellation and
+VM fatal failures retain their semantics. Diagnostic lines contain only stage,
+code, a host-generated random attempt ID and the compiled product version.
+
+An absent relay list opens the existing offline configuration. No public relay
+or ambient endpoint is inferred. Explicit endpoints retain strict classification,
+count, URL and transport validation; network operations still require configured
+relays. Development keeps its explicit localhost default.
+
 Relay destination/DNS/connection policy comes from the pinned shared transport.
 Product code selects explicit profiles and validates product observations. Keep
 private material out of logs, filenames and long-lived UI state. Sensitive
