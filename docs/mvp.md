@@ -247,6 +247,18 @@ needs a linked replacement under the sample procedure; retain unused/superseded
 versions. Issue/print/reprint/export never posts physical departure. Reprint uses
 the issued version, not current reference data. Local output success/cancel/failure
 is independent of the physical event; no external acceptance/delivery claim.
+The pure preparation/identification policy lives in
+`core/crates/harvestcircle_domain/src/hub/dispatch.rs`. Preparation selects whole
+current physical groups; a smaller population first uses observed separation.
+Drafts reserve no stock, and two drafts may select the same source. Issuance checks
+current command versions and reviewed material; changed physical groups or material
+require review, while unrelated journal activity does not change the document.
+Issued recipient/source/reference snapshots remain immutable. Material replacement
+links a new version and supersedes the prior issue; marking unused is explicit and
+retains the as-issued content. Limits are64 lines and32 identification versions
+per preparation. These pure plans do not authorize departure. Native persistence,
+Dispatch UI and actual departure remain unfinished.
+
 Trace includes receipts, remaining stock, recipients, adjustments, returns and
 dispositions with explicit uncertainty and retrieval limits. Preserve every plausible
 source/recipient in supported unresolved-origin retrieval. Bound and safely render

@@ -170,6 +170,15 @@ The result digest checks stored consistency; it is not authentication or a futur
 permission grant. Kotlin copies native counts and action readiness without
 calculating treatment policy.
 
+Pure preparation and identification policy lives in
+`core/crates/harvestcircle_domain/src/hub/dispatch.rs`. It captures whole current
+physical groups and immutable source/recipient/reference snapshots without a
+stock reservation or work effect. Issue verifies the current selected material;
+changed material uses a linked version, while unused status retains originals.
+Native persistence, generated Dispatch transport, shared UI and actual departure
+remain unfinished. Existing stock and work, including Nostr identity and recovery,
+retain their separate contracts.
+
 ## Secrets, transport and lifecycle
 
 Private keys and signing stay in Rust behind opaque handles. OS custody uses
