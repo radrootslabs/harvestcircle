@@ -1,15 +1,16 @@
 # Food-hub demonstration MVP
 
-This is the accepted candidate product contract. The hub features described here
-are intended behavior and are not implemented yet. The current application
-provides Nostr identity, native custody, persistence and startup; existing
-functionality remains supported while the operational surface is developed.
+This is the accepted candidate product contract. Inventory workflows described
+here remain intended behavior. Isolated demo launch, native hub-owner setup and
+Work/Stock/Dispatch navigation are implemented alongside existing Nostr identity,
+custody, persistence and startup. Existing functionality remains supported while
+the remaining operational workflows are developed.
 
 ## Release scope
 
 The candidate demonstrates a single site's original whole-pack receipt-to-dispatch
 workflow with fictional data, one operator and one authoritative desktop. Work,
-Stock and Dispatch will be primary navigation; identity, Network and Settings
+Stock and Dispatch are primary navigation; identity, Network and Settings
 remain reachable. Qualification targets a packaged macOS app on the development
 Mac and the existing Make development loop. Preserve existing Linux support.
 
@@ -79,6 +80,19 @@ multi-line effects. Counts carry units; unlike variants are not aggregated as
 fungible stock. Nominal weight is metadata, not measured mass. Pack-size change
 creates another variant rather than rewriting history. Define finite command,
 query/page, text and output bounds in the public contract and test limit failures.
+
+The pure reference policy lives in `core/crates/harvestcircle_domain/src/hub/reference.rs`.
+It permits at most 512 current references, with 64 rows per reference page and a
+16,384-version history bound for the persistence adapter. Labels are at most 120
+UTF-8 bytes, source codes 128 and provenance 512. Original source text is preserved;
+blank text, controls and bidi overrides are rejected. IDs use 32 lowercase hex
+characters for 16 nonzero opaque bytes. Nominal mass is optional metadata bounded
+to 1..1,000,000,000 grams. A counted quantity is 0..1,000,000 original packs with
+checked arithmetic; quantities from different pack variants cannot be summed.
+Pack definitions and location purposes are immutable; a changed definition creates
+another identity. Label revisions retain the complete before/after versions.
+Reference persistence, historical capacity enforcement and editors are being
+implemented; passing pure policy tests alone does not qualify those features.
 
 ### C04: Physical events, portions and eligibility
 
