@@ -28,6 +28,8 @@ import org.harvestcircle.application.ReferenceViewState
 import org.harvestcircle.application.ShellFocusTarget
 import org.harvestcircle.application.ShellRoot
 import org.harvestcircle.application.StatusOverlayKey
+import org.harvestcircle.application.StockPresenter
+import org.harvestcircle.application.StockViewState
 import org.harvestcircle.application.deriveShellStatus
 import org.harvestcircle.designsystem.layout.HarvestCircleFrameLayoutClass
 import org.harvestcircle.designsystem.shell.HarvestCircleShellButton
@@ -54,6 +56,9 @@ fun HarvestCircleShell(
     hubState: HubViewState = HubViewState.Unavailable,
     initializeHub: () -> Unit = {},
     refreshHub: () -> Unit = {},
+    stockState: StockViewState = StockViewState(),
+    stockPresenter: StockPresenter? = null,
+    submitReceipt: () -> Unit = {},
     referenceState: ReferenceViewState = ReferenceViewState(),
     referencePresenter: ReferencePresenter? = null,
     submitReference: () -> Unit = {},
@@ -73,6 +78,9 @@ fun HarvestCircleShell(
                     hubState,
                     initializeHub,
                     refreshHub,
+                    stockState,
+                    stockPresenter,
+                    submitReceipt,
                     referenceState,
                     referencePresenter,
                     submitReference,
@@ -91,6 +99,9 @@ private fun HarvestCircleShellContent(
     hubState: HubViewState = HubViewState.Unavailable,
     initializeHub: () -> Unit = {},
     refreshHub: () -> Unit = {},
+    stockState: StockViewState = StockViewState(),
+    stockPresenter: StockPresenter? = null,
+    submitReceipt: () -> Unit = {},
     referenceState: ReferenceViewState = ReferenceViewState(),
     referencePresenter: ReferencePresenter? = null,
     submitReference: () -> Unit = {},
@@ -152,6 +163,9 @@ private fun HarvestCircleShellContent(
                     hubState,
                     initializeHub,
                     refreshHub,
+                    stockState,
+                    stockPresenter,
+                    submitReceipt,
                     referenceState,
                     referencePresenter,
                     submitReference,
@@ -249,6 +263,9 @@ private fun DashboardRoot(
     hubState: HubViewState = HubViewState.Unavailable,
     initializeHub: () -> Unit = {},
     refreshHub: () -> Unit = {},
+    stockState: StockViewState = StockViewState(),
+    stockPresenter: StockPresenter? = null,
+    submitReceipt: () -> Unit = {},
     referenceState: ReferenceViewState = ReferenceViewState(),
     referencePresenter: ReferencePresenter? = null,
     submitReference: () -> Unit = {},
@@ -337,7 +354,20 @@ private fun DashboardRoot(
                         "${route.title()} main content",
                     ) {
                         when (route) {
-                            AppRoute.HubWork, AppRoute.HubStock, AppRoute.HubDispatch ->
+                            AppRoute.HubWork, AppRoute.HubStock -> {
+                                if (hubState is HubViewState.Ready && stockPresenter != null && stockState.available) {
+                                    StockWorkspace(
+                                        route,
+                                        stockState,
+                                        stockPresenter,
+                                        submitReceipt,
+                                        openReferences = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubReferences)) },
+                                    )
+                                } else {
+                                    HubWorkspace(route, hubState, initializeHub, refreshHub)
+                                }
+                            }
+                            AppRoute.HubDispatch ->
                                 HubWorkspace(
                                     route,
                                     hubState,

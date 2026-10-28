@@ -19,10 +19,23 @@ import org.harvestcircle.application.ApplicationSnapshot
 import org.harvestcircle.application.BuildInfo
 import org.harvestcircle.application.GeneratedIdentityRecovery
 import org.harvestcircle.application.GeneratedKeyBackup
+import org.harvestcircle.application.HarvestCircleHubRuntime
+import org.harvestcircle.application.HarvestCircleReferenceRuntime
 import org.harvestcircle.application.HarvestCircleRuntime
+import org.harvestcircle.application.HarvestCircleStockRuntime
+import org.harvestcircle.application.HubContext
+import org.harvestcircle.application.HubReceiptInput
+import org.harvestcircle.application.HubReferenceEdit
+import org.harvestcircle.application.HubReferencePage
+import org.harvestcircle.application.HubReferenceQuery
+import org.harvestcircle.application.HubReferenceReceipt
+import org.harvestcircle.application.HubStockPage
+import org.harvestcircle.application.HubStockQuery
+import org.harvestcircle.application.HubStockReceipt
 import org.harvestcircle.application.IdentityId
 import org.harvestcircle.application.IdentityRemovalRequest
 import org.harvestcircle.application.IdentitySummary
+import org.harvestcircle.application.OperationId
 import org.harvestcircle.application.ProfileLoadState
 import org.harvestcircle.application.ProfileSummary
 import org.harvestcircle.application.RecoveryAction
@@ -30,6 +43,7 @@ import org.harvestcircle.application.RecoveryRequestId
 import org.harvestcircle.application.RelayConnectionState
 import org.harvestcircle.application.RelaySummary
 import org.harvestcircle.application.RemovalRequestId
+import org.harvestcircle.application.RequestContext
 import org.harvestcircle.application.SessionLifecycle
 import org.harvestcircle.application.ShutdownReceipt
 import org.harvestcircle.application.SignerAvailability
@@ -37,6 +51,9 @@ import org.harvestcircle.application.SignerBindingKind
 import org.harvestcircle.application.SignerBindingSummary
 import org.harvestcircle.application.SnapshotRevision
 import org.harvestcircle.application.UnixSeconds
+import org.harvestcircle.application.toApplicationProblem
+import org.harvestcircle.application.toModel
+import org.harvestcircle.application.toNative
 import org.harvestcircle.testbridge.ffi.HarvestCircleTestBridge
 import org.harvestcircle.testbridge.ffi.TestBridgeException
 import org.harvestcircle.testbridge.ffi.TestGeneratedRecoveryRequest
@@ -48,7 +65,11 @@ import org.harvestcircle.testbridge.ffi.TestSnapshot
 
 internal class TestBridgeHarvestCircleRuntime private constructor(
     private val bridge: HarvestCircleTestBridge,
+    override val demoProfile: Boolean = false,
 ) : HarvestCircleRuntime,
+    HarvestCircleHubRuntime,
+    HarvestCircleReferenceRuntime,
+    HarvestCircleStockRuntime,
     AutoCloseable {
     override val buildInfo: BuildInfo = BuildInfo.unknown()
 
@@ -56,6 +77,74 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     private var removalRequest: PendingRemovalRequest? = null
     private var closed = false
     private var shutdownReceipt: ShutdownReceipt? = null
+
+    override suspend fun hubContext(): HubContext? =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            callBridge {
+                bridge.hubContext()?.let {
+                    HubContext(
+                        it.hubId,
+                        IdentityId.fromPublicKeyHex(it.ownerPublicKey),
+                        it.revision,
+                        it.sampleData,
+                    )
+                }
+            }
+        }
+
+    override suspend fun initializeHub(context: RequestContext): HubContext =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            callBridge {
+                bridge.initializeHub(context.operationId.value, context.expectedRevision.value).let {
+                    HubContext(it.hubId, IdentityId.fromPublicKeyHex(it.ownerPublicKey), it.revision, it.sampleData)
+                }
+            }
+        }
+
+    override suspend fun references(query: HubReferenceQuery): HubReferencePage =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            callBridge { bridge.references(query.toNative()).toModel() }
+        }
+
+    override suspend fun editReference(
+        context: RequestContext,
+        edit: HubReferenceEdit,
+    ): HubReferenceReceipt =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            callBridge { bridge.editReference(context.operationId.value, context.expectedRevision.value, edit.toNative()).toModel() }
+        }
+
+    override suspend fun referenceOperation(operation: OperationId): HubReferenceReceipt? =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            callBridge { bridge.referenceOperation(operation.value)?.toModel() }
+        }
+
+    override suspend fun referenceHistory(
+        id: String,
+        afterRevision: ULong,
+        limit: UInt,
+    ): List<HubReferenceReceipt> =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            callBridge { bridge.referenceHistory(id, afterRevision, limit).map { it.toModel() } }
+        }
+
+    override suspend fun stock(query: HubStockQuery): HubStockPage =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            callBridge { bridge.stock(query.toNative()).toModel() }
+        }
+
+    override suspend fun receiveStock(
+        context: RequestContext,
+        input: HubReceiptInput,
+    ): HubStockReceipt =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            callBridge { bridge.receiveStock(context.operationId.value, context.expectedRevision.value, input.toNative()).toModel() }
+        }
+
+    override suspend fun receiptOperation(operation: OperationId): HubStockReceipt? =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            callBridge { bridge.receiptOperation(operation.value)?.toModel() }
+        }
 
     override suspend fun bootstrap(): ApplicationSnapshot = callBridge { bridge.bootstrap().toApplicationSnapshot() }
 
@@ -255,6 +344,9 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     }
 
     companion object {
+        fun openDemo(dataDirectory: String): TestBridgeHarvestCircleRuntime =
+            TestBridgeHarvestCircleRuntime(HarvestCircleTestBridge.openDemo(dataDirectory), true)
+
         fun open(dataDirectory: String): TestBridgeHarvestCircleRuntime =
             TestBridgeHarvestCircleRuntime(HarvestCircleTestBridge.open(dataDirectory))
     }
@@ -363,6 +455,8 @@ private fun TestSnapshot.toApplicationSnapshot(): ApplicationSnapshot {
 private inline fun <T> callBridge(operation: () -> T): T =
     try {
         operation()
+    } catch (error: TestBridgeException.NativeFailure) {
+        throw ApplicationFailure(error.error.toApplicationProblem())
     } catch (error: TestBridgeException.Failure) {
         throw ApplicationFailure(
             ApplicationProblem(

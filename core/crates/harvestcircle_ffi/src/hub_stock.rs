@@ -195,7 +195,7 @@ pub struct HubReceiptInputDto {
     pub observation: String,
 }
 impl HubReceiptInputDto {
-    pub(crate) fn command(
+    pub fn command(
         self,
         operation: &DurableRequestId,
     ) -> Result<ReceiptCommand, HarvestCircleError> {
@@ -238,7 +238,7 @@ pub struct HubStockQueryDto {
     pub text: String,
 }
 impl HubStockQueryDto {
-    pub(crate) fn decode(self) -> Result<HubStockQuery, HarvestCircleError> {
+    pub fn decode(self) -> Result<HubStockQuery, HarvestCircleError> {
         let query = HubStockQuery {
             expected_catalog_revision: self.expected_catalog_revision.map(revision).transpose()?,
             expected_revision: self.expected_stock_revision.map(revision).transpose()?,

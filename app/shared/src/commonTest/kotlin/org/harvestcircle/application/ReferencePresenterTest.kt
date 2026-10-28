@@ -146,6 +146,29 @@ class ReferencePresenterTest {
         }
 
     @Test
+    fun knownRejectionIsNotDowngradedByAnAbsentOriginalReceipt() =
+        runTest {
+            val runtime = ReferenceFake().apply { failure = referenceConflict() }
+            val presenter = ReferencePresenter(runtime, this, OperationIdSource { referenceOperation })
+            presenter.attach("hub")
+            runCurrent()
+            presenter.create()
+            presenter.updateDraft { it.copy(label = "Retained") }
+            presenter.submit(SnapshotRevision(7UL))
+            runCurrent()
+            presenter.checkOriginal()
+            runCurrent()
+            assertIs<ReferenceSubmission.Rejected>(presenter.state.value.submission)
+            presenter.reviewRejected()
+            assertEquals(
+                "Retained",
+                presenter.state.value.draft
+                    ?.label,
+            )
+            presenter.close()
+        }
+
+    @Test
     fun lateUncancelableReadCannotRestoreClosedIdentityState() =
         runTest {
             val gate = CompletableDeferred<Unit>()

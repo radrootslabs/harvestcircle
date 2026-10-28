@@ -17,6 +17,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 harvestcircle_application.workspace = true
 harvestcircle_domain.workspace = true
+harvestcircle_ffi.workspace = true
 harvestcircle_nostr.workspace = true
 harvestcircle_runtime.workspace = true
 radroots_runtime_paths.workspace = true

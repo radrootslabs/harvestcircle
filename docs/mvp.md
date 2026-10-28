@@ -1,10 +1,10 @@
 # Food-hub demonstration MVP
 
-This is the accepted candidate product contract. Inventory workflows described
-here remain intended behavior. Isolated demo launch, native hub-owner setup and
-Work/Stock/Dispatch navigation are implemented alongside existing Nostr identity,
-custody, persistence and startup. Existing functionality remains supported while
-the remaining operational workflows are developed.
+This is the accepted candidate product contract. Isolated demo launch, native
+hub-owner/reference setup, whole-pack receiving and Work/Stock/Dispatch navigation
+are implemented alongside existing Nostr identity, custody, persistence and
+startup. Later operational workflows remain intended behavior. Existing
+functionality remains supported while those workflows are developed.
 
 ## Release scope
 
@@ -31,7 +31,6 @@ certification. Actual hub validation, procedures, external distribution, signing
 and notarization have separate acceptance. No delivery date is implied.
 
 ## Product contracts
-
 
 ### C01: Demo lifecycle and sample data
 
@@ -123,8 +122,11 @@ at Receiving; the planned destination creates no stock or completed work. The
 inventory contract bounds traces to 4,096, operational events to 32,768 and read
 pages to 64. Native receipt commands now persist the trace, Receiving position, pending work,
 physical event and original result atomically. Stock/original-operation reads are
-bounded and owner-protected. Receiving UI and durable pre-commit/restart recovery
-remain unfinished; native component tests do not qualify the complete demo.
+bounded and owner-protected. The shared receiving form and Stock/Work views use
+these native commands and projections. Original receipt details retain observed
+source certainty, historical labels and separate occurrence/recording clocks.
+Durable pre-commit/restart recovery and later physical workflows remain unfinished;
+receiving alone does not qualify the complete demo.
 
 ### C05: Work and time
 

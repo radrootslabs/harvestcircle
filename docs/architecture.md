@@ -7,8 +7,8 @@ Shared Radroots packages are immutable public Git dependencies, not sibling path
 
 The [food-hub MVP contract](mvp.md) defines the intended candidate operational
 surface. Demo-context setup and reads use native owner/session authorization.
-Native receipt commands now extend this architecture; the receiving UI and later
-physical workflows remain unfinished. No server, shared network database file or cloud
+Native receipt commands and the shared receiving/Stock workspace implement the
+first physical workflow; later stock workflows remain unfinished. No server, shared network database file or cloud
 evidence service is required for the selected demo.
 
 ## Source map
@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 6, FFI is 5.3 and snapshot schema is 1. Rust and
+The current storage schema is 6, FFI is 5.4 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -77,7 +77,6 @@ lookup. These reference interfaces do not create physical stock. Durable
 admission and recovery of pre-commit submissions across restart/restore remain
 part of the unfinished recovery surface.
 
-
 Whole-pack receipts commit original trace/reference versions, a Receiving position,
 pending put-away work, a physical event and an immutable operation result in one
 protected transaction. Planned locations do not create positions or completed work.
@@ -93,8 +92,11 @@ rows are bounded before decoding.
 The decoder reuses pure receipt planning and validates the stored intent hash.
 The bounds are 4,096 traces and 32,768 events; stock history has no identity-receipt expiry.
 Native submitted-operation admission across restart/restore is still the unfinished
-cross-feature recovery gate, and receipt UI completion is separately required.
-
+cross-feature recovery gate. The shared receiving workspace freezes original
+submission intent, retains unsubmitted input during navigation and uses read-only
+original-result lookup for uncertain outcomes. Current stock and catalog versions
+are reviewed explicitly before resubmitting known rejected input. Kotlin renders
+native stock/work projections; it does not calculate authoritative balances.
 
 ## Secrets, transport and lifecycle
 

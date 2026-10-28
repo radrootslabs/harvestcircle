@@ -1099,6 +1099,7 @@ version = "0.1.0-alpha"
 dependencies = [
  "harvestcircle_application",
  "harvestcircle_domain",
+ "harvestcircle_ffi",
  "harvestcircle_nostr",
  "harvestcircle_runtime",
  "nostr 0.44.1",

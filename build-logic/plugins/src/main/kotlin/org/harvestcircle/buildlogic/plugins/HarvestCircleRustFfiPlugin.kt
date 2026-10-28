@@ -169,6 +169,7 @@ public class HarvestCircleRustFfiPlugin : Plugin<Project> {
                 task.configFile.set(rustRoot.file("crates/harvestcircle_ffi/uniffi.toml"))
                 task.nativeLibrary.set(debugLibraryFile)
                 task.immutableArguments.set(immutableArguments)
+                task.componentName.set("harvestcircle_ffi")
                 task.outputDirectory.set(generatedUniFfi)
             }
         val generatedTestUniFfi = target.layout.buildDirectory.dir("generated/test-bridge/uniffi/kotlin")
@@ -180,6 +181,7 @@ public class HarvestCircleRustFfiPlugin : Plugin<Project> {
                 task.configFile.set(rustRoot.file("crates/harvestcircle_test_bridge/uniffi.toml"))
                 task.nativeLibrary.set(testBridgeLibraryFile)
                 task.immutableArguments.set(immutableArguments)
+                task.componentName.set("harvestcircle_test_bridge")
                 task.outputDirectory.set(generatedTestUniFfi)
             }
         val verifyTestBindings =

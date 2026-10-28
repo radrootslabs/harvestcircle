@@ -139,7 +139,12 @@ authorizes hub setup and reference reads/writes. After setup, open Reference dat
 to add fictional products, original packs, parties and locations. Pack definitions
 and location purposes are immutable; label changes retain history. Unknown command
 outcomes offer original-result lookup, while stale edits retain their input for
-explicit review. Unimplemented stock actions are labelled as such.
+explicit review. Receive original packs records an actual count at a Receiving
+location; a planned put-away destination does not move stock. Work shows native
+required/completed/no-longer-required/remaining counts, and Stock provides bounded
+location/search pages and original receipt details. Unsubmitted receipt input
+survives navigation; unresolved submissions retain their original operation for
+read-only result lookup. Unimplemented stock actions are labelled as such.
 An unresolved setup result retains its original operation ID; use Check local hub
 to read the durable result rather than submitting a new setup.
 

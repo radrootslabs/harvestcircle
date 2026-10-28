@@ -14,6 +14,11 @@ use harvestcircle_application::{
     RemovalConfirmationToken, SecretStore, SessionState, SnapshotRevision,
 };
 use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
+use harvestcircle_ffi::{
+    HarvestCircleError, HubContextDto, HubReceiptInputDto, HubReferenceEditDto,
+    HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto, HubStockPageDto,
+    HubStockQueryDto, HubStockReceiptDto, SafeErrorDto,
+};
 use harvestcircle_nostr::SdkNostrClient;
 use harvestcircle_runtime::{
     InstallationIdentity, InstallationIdentitySource, RuntimeActorHandle,
@@ -125,12 +130,14 @@ impl TestGeneratedRecoveryRequest {
 #[derive(Debug, uniffi::Error)]
 pub enum TestBridgeError {
     Failure { safe_message: String },
+    NativeFailure { error: SafeErrorDto },
 }
 
 impl Display for TestBridgeError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Failure { safe_message } => formatter.write_str(safe_message),
+            Self::NativeFailure { error } => formatter.write_str(&error.message),
         }
     }
 }
@@ -181,46 +188,131 @@ pub struct HarvestCircleTestBridge {
     relay_url: String,
     context: RuntimeContext,
     network_degraded: AtomicBool,
+    demo_profile: bool,
 }
 
 #[uniffi::export]
 impl HarvestCircleTestBridge {
     #[uniffi::constructor]
     pub fn open(data_directory: String) -> Result<Arc<Self>, TestBridgeError> {
-        let runtime = Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .map_err(|_| TestBridgeError::Failure {
-                safe_message: "The integration test runtime could not start.".to_owned(),
+        Self::open_mode(data_directory, false)
+    }
+    #[uniffi::constructor]
+    pub fn open_demo(data_directory: String) -> Result<Arc<Self>, TestBridgeError> {
+        Self::open_mode(data_directory, true)
+    }
+
+    pub fn hub_context(&self) -> Result<Option<HubContextDto>, TestBridgeError> {
+        self.runtime
+            .block_on(self.actor()?.hub_context())
+            .map(|hub| hub.map(Into::into))
+            .map_err(native_runtime_error)
+    }
+    pub fn initialize_hub(
+        &self,
+        operation_id: String,
+        expected_revision: u64,
+    ) -> Result<HubContextDto, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        self.runtime
+            .block_on(self.actor()?.initialize_hub(
+                operation,
+                SnapshotRevision::from_value(expected_revision),
+                Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            ))
+            .map(Into::into)
+            .map_err(native_runtime_error)
+    }
+    pub fn references(
+        &self,
+        query: HubReferenceQueryDto,
+    ) -> Result<HubReferencePageDto, TestBridgeError> {
+        query.validate().map_err(native_codec_error)?;
+        let catalog = self
+            .runtime
+            .block_on(self.actor()?.hub_references())
+            .map_err(native_runtime_error)?;
+        query.page(&catalog).map_err(native_codec_error)
+    }
+    pub fn edit_reference(
+        &self,
+        operation_id: String,
+        expected_revision: u64,
+        edit: HubReferenceEditDto,
+    ) -> Result<HubReferenceReceiptDto, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let command = edit.command(&operation).map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.apply_hub_reference(
+                operation,
+                command,
+                SnapshotRevision::from_value(expected_revision),
+                Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            ))
+            .map(Into::into)
+            .map_err(native_runtime_error)
+    }
+    pub fn reference_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubReferenceReceiptDto>, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_reference_operation(operation))
+            .map(|value| value.map(Into::into))
+            .map_err(native_runtime_error)
+    }
+    pub fn reference_history(
+        &self,
+        id: String,
+        after: u64,
+        limit: u32,
+    ) -> Result<Vec<HubReferenceReceiptDto>, TestBridgeError> {
+        let id =
+            harvestcircle_domain::hub::reference::HubRecordId::from_hex(&id).map_err(|_| {
+                TestBridgeError::Failure {
+                    safe_message: "Invalid test reference identity.".into(),
+                }
             })?;
-        let data_root = prepare_data_root(Path::new(&data_directory))?;
-        let context = runtime_context(&data_root)?;
-        let relay = runtime
-            .block_on(MockRelay::run())
-            .map_err(|_| TestBridgeError::Failure {
-                safe_message: "The local integration relay could not start.".to_owned(),
-            })?;
-        let relay_url = runtime.block_on(relay.url()).to_string();
-        let secrets = Arc::new(InMemorySecretStore::default());
-        let clock = Arc::new(FixedClock);
-        let actor = runtime.block_on(open_actor(
-            &context,
-            &relay_url,
-            Arc::clone(&secrets),
-            Arc::clone(&clock),
-            runtime.handle(),
-        ))?;
-        Ok(Arc::new(Self {
-            runtime,
-            actor: Mutex::new(Some(actor)),
-            observer: Mutex::new(None),
-            secrets,
-            clock,
-            relay: Mutex::new(Some(relay)),
-            relay_url,
-            context,
-            network_degraded: AtomicBool::new(false),
-        }))
+        self.runtime
+            .block_on(self.actor()?.hub_reference_history(id, after, limit))
+            .map(|rows| rows.into_iter().map(Into::into).collect())
+            .map_err(native_runtime_error)
+    }
+    pub fn stock(&self, query: HubStockQueryDto) -> Result<HubStockPageDto, TestBridgeError> {
+        let query = query.decode().map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_stock(query))
+            .map(Into::into)
+            .map_err(native_runtime_error)
+    }
+    pub fn receive_stock(
+        &self,
+        operation_id: String,
+        expected_revision: u64,
+        input: HubReceiptInputDto,
+    ) -> Result<HubStockReceiptDto, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let command = input.command(&operation).map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.receive_hub_stock(
+                operation,
+                command,
+                SnapshotRevision::from_value(expected_revision),
+                Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            ))
+            .map(Into::into)
+            .map_err(native_runtime_error)
+    }
+    pub fn receipt_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubStockReceiptDto>, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_receipt_operation(operation))
+            .map(|value| value.map(Into::into))
+            .map_err(native_runtime_error)
     }
 
     pub fn bootstrap(&self) -> Result<TestSnapshot, TestBridgeError> {
@@ -472,6 +564,7 @@ impl HarvestCircleTestBridge {
             Arc::clone(&self.secrets),
             Arc::clone(&self.clock),
             self.runtime.handle(),
+            self.demo_profile,
         ))?;
         let snapshot = actor.snapshot();
         *self
@@ -519,6 +612,45 @@ impl HarvestCircleTestBridge {
         snapshot
     }
 
+    fn open_mode(data_directory: String, demo_profile: bool) -> Result<Arc<Self>, TestBridgeError> {
+        let runtime = Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(|_| TestBridgeError::Failure {
+                safe_message: "The integration test runtime could not start.".to_owned(),
+            })?;
+        let data_root = prepare_data_root(Path::new(&data_directory))?;
+        let context = runtime_context(&data_root)?;
+        let relay = runtime
+            .block_on(MockRelay::run())
+            .map_err(|_| TestBridgeError::Failure {
+                safe_message: "The local integration relay could not start.".to_owned(),
+            })?;
+        let relay_url = runtime.block_on(relay.url()).to_string();
+        let secrets = Arc::new(InMemorySecretStore::default());
+        let clock = Arc::new(FixedClock);
+        let actor = runtime.block_on(open_actor(
+            &context,
+            &relay_url,
+            Arc::clone(&secrets),
+            Arc::clone(&clock),
+            runtime.handle(),
+            demo_profile,
+        ))?;
+        Ok(Arc::new(Self {
+            runtime,
+            actor: Mutex::new(Some(actor)),
+            observer: Mutex::new(None),
+            secrets,
+            clock,
+            relay: Mutex::new(Some(relay)),
+            relay_url,
+            context,
+            network_degraded: AtomicBool::new(false),
+            demo_profile,
+        }))
+    }
+
     fn actor(&self) -> Result<RuntimeActorHandle, TestBridgeError> {
         self.actor
             .lock()
@@ -548,6 +680,7 @@ async fn open_actor(
     secrets: Arc<InMemorySecretStore>,
     clock: Arc<FixedClock>,
     runtime: &tokio::runtime::Handle,
+    demo_profile: bool,
 ) -> Result<RuntimeActorHandle, TestBridgeError> {
     let relay = RelayEndpoint::new(relay_url, RelayUrlPolicy::Local, RelayAccess::ReadWrite)
         .map_err(|_| TestBridgeError::Failure {
@@ -561,6 +694,11 @@ async fn open_actor(
         ))),
         Arc::new(FixedInstallationIdentity),
     );
+    let dependencies = if demo_profile {
+        dependencies.with_demo_profile()
+    } else {
+        dependencies
+    };
     let build = migration_build_identity()?;
     Ok(RuntimeActorHandle::open(
         context,
@@ -679,3 +817,28 @@ fn relay_failed() -> TestBridgeError {
 }
 
 uniffi::setup_scaffolding!();
+
+fn native_runtime_error(error: SafeError) -> TestBridgeError {
+    TestBridgeError::NativeFailure {
+        error: error.into(),
+    }
+}
+fn native_codec_error(error: HarvestCircleError) -> TestBridgeError {
+    let HarvestCircleError::Failure {
+        code,
+        category,
+        retryable,
+        recovery_action,
+        safe_message,
+        ..
+    } = error;
+    TestBridgeError::NativeFailure {
+        error: SafeErrorDto {
+            code,
+            category,
+            retryable,
+            recovery_action,
+            message: safe_message,
+        },
+    }
+}

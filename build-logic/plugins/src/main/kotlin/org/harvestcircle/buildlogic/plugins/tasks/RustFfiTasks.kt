@@ -101,6 +101,9 @@ public abstract class GenerateUniFfiKotlinTask
         @get:Input
         public abstract val immutableArguments: ListProperty<String>
 
+        @get:Input
+        public abstract val componentName: Property<String>
+
         @get:OutputDirectory
         public abstract val outputDirectory: DirectoryProperty
 
@@ -127,6 +130,8 @@ public abstract class GenerateUniFfiKotlinTask
                                 "--",
                                 "generate",
                                 "--library",
+                                "--crate",
+                                componentName.get(),
                                 "--language",
                                 "kotlin",
                                 "--metadata-no-deps",

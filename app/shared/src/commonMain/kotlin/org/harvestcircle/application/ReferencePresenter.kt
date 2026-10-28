@@ -297,7 +297,9 @@ class ReferencePresenter(
         launchRead {
             val receipt = requireNotNull(runtime).referenceOperation(submission.attempt.operation)
             val result =
-                if (receipt == null) {
+                if (receipt == null && submission is ReferenceSubmission.Rejected) {
+                    submission
+                } else if (receipt == null) {
                     ReferenceSubmission.Uncertain(
                         submission.attempt,
                         "No receipt is visible. Retain this operation for review; restored history cannot prove absence. Do not use another ID.",

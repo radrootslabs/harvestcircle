@@ -1,3 +1,6 @@
 [crates.harvestcircle_test_bridge.bindings.kotlin]
 package_name = "org.harvestcircle.testbridge.ffi"
 cdylib_name = "harvestcircle_test_bridge"
+
+[crates.harvestcircle_test_bridge.bindings.kotlin.external_packages]
+harvestcircle_ffi = "org.harvestcircle.ffi"

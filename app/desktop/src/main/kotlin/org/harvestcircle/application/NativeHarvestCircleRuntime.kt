@@ -15,10 +15,14 @@ import org.harvestcircle.ffi.GeneratedRecoveryRequest
 import org.harvestcircle.ffi.HarvestCircleAppCore
 import org.harvestcircle.ffi.HarvestCircleChangeObserver
 import org.harvestcircle.ffi.HubContextDto
+import org.harvestcircle.ffi.HubReceiptInputDto
 import org.harvestcircle.ffi.HubReferenceEditDto
 import org.harvestcircle.ffi.HubReferencePageDto
 import org.harvestcircle.ffi.HubReferenceQueryDto
 import org.harvestcircle.ffi.HubReferenceReceiptDto
+import org.harvestcircle.ffi.HubStockPageDto
+import org.harvestcircle.ffi.HubStockQueryDto
+import org.harvestcircle.ffi.HubStockReceiptDto
 import org.harvestcircle.ffi.IdentityCommandReceiptDto
 import org.harvestcircle.ffi.IdentityDto
 import org.harvestcircle.ffi.ObserverSubscription
@@ -42,7 +46,18 @@ class NativeHarvestCircleRuntime internal constructor(
     override val demoProfile: Boolean = false,
 ) : HarvestCircleRuntime,
     HarvestCircleHubRuntime,
-    HarvestCircleReferenceRuntime {
+    HarvestCircleReferenceRuntime,
+    HarvestCircleStockRuntime {
+    override suspend fun stock(query: HubStockQuery): HubStockPage = callNative { hubPort().stock(query.toNative()).toModel() }
+
+    override suspend fun receiveStock(
+        context: RequestContext,
+        input: HubReceiptInput,
+    ): HubStockReceipt = callNative(context.operationId) { hubPort().receiveStock(context.toNative(), input.toNative()).toModel() }
+
+    override suspend fun receiptOperation(operation: OperationId): HubStockReceipt? =
+        callNative(operation) { hubPort().receiptOperation(operation.value)?.toModel() }
+
     override suspend fun hubContext(): HubContext? = callNative { hubPort().hubContext()?.toHubContext() }
 
     override suspend fun initializeHub(context: RequestContext): HubContext =
@@ -509,6 +524,15 @@ internal fun interface NativeSubscriptionHandle {
 }
 
 private interface NativeHubPort {
+    suspend fun stock(query: HubStockQueryDto): HubStockPageDto
+
+    suspend fun receiveStock(
+        context: RequestContextDto,
+        input: HubReceiptInputDto,
+    ): HubStockReceiptDto
+
+    suspend fun receiptOperation(operation: String): HubStockReceiptDto?
+
     suspend fun references(query: HubReferenceQueryDto): HubReferencePageDto
 
     suspend fun editReference(
@@ -535,6 +559,15 @@ private class UniFfiNativeCorePort(
     private val core: HarvestCircleAppCore,
 ) : NativeCorePort,
     NativeHubPort {
+    override suspend fun stock(query: HubStockQueryDto): HubStockPageDto = core.hubStock(query)
+
+    override suspend fun receiveStock(
+        context: RequestContextDto,
+        input: HubReceiptInputDto,
+    ): HubStockReceiptDto = core.receiveHubStock(context, input)
+
+    override suspend fun receiptOperation(operation: String): HubStockReceiptDto? = core.hubReceiptOperation(operation)
+
     override suspend fun hubContext(): HubContextDto? = core.hubContext()
 
     override suspend fun initializeHub(context: RequestContextDto): HubContextDto = core.initializeHub(context)

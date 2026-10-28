@@ -149,7 +149,7 @@ pub struct HubReferenceEditDto {
 }
 
 impl HubReferenceEditDto {
-    pub(crate) fn command(
+    pub fn command(
         self,
         operation: &DurableRequestId,
     ) -> Result<ReferenceCommand, HarvestCircleError> {
@@ -199,7 +199,7 @@ pub struct HubReferencePageDto {
 }
 
 impl HubReferenceQueryDto {
-    pub(crate) fn validate(&self) -> Result<(), HarvestCircleError> {
+    pub fn validate(&self) -> Result<(), HarvestCircleError> {
         if !(1..=HUB_REFERENCE_PAGE_ROWS)
             .contains(&usize::try_from(self.limit).map_err(|_| invalid_input())?)
             || usize::try_from(self.offset).map_err(|_| invalid_input())? > HUB_REFERENCE_CAPACITY
@@ -219,7 +219,7 @@ impl HubReferenceQueryDto {
         Ok(())
     }
 
-    pub(crate) fn page(
+    pub fn page(
         self,
         catalog: &ReferenceCatalog,
     ) -> Result<HubReferencePageDto, HarvestCircleError> {
