@@ -15,6 +15,11 @@ import org.harvestcircle.ffi.GeneratedRecoveryRequest
 import org.harvestcircle.ffi.HarvestCircleAppCore
 import org.harvestcircle.ffi.HarvestCircleChangeObserver
 import org.harvestcircle.ffi.HubContextDto
+import org.harvestcircle.ffi.HubDiscrepancyPageDto
+import org.harvestcircle.ffi.HubGroupViewDto
+import org.harvestcircle.ffi.HubHandlingInputDto
+import org.harvestcircle.ffi.HubHandlingQueryDto
+import org.harvestcircle.ffi.HubHandlingReceiptDto
 import org.harvestcircle.ffi.HubReceiptInputDto
 import org.harvestcircle.ffi.HubReferenceEditDto
 import org.harvestcircle.ffi.HubReferencePageDto
@@ -23,6 +28,7 @@ import org.harvestcircle.ffi.HubReferenceReceiptDto
 import org.harvestcircle.ffi.HubStockPageDto
 import org.harvestcircle.ffi.HubStockQueryDto
 import org.harvestcircle.ffi.HubStockReceiptDto
+import org.harvestcircle.ffi.HubWorkPageDto
 import org.harvestcircle.ffi.IdentityCommandReceiptDto
 import org.harvestcircle.ffi.IdentityDto
 import org.harvestcircle.ffi.ObserverSubscription
@@ -47,7 +53,25 @@ class NativeHarvestCircleRuntime internal constructor(
 ) : HarvestCircleRuntime,
     HarvestCircleHubRuntime,
     HarvestCircleReferenceRuntime,
-    HarvestCircleStockRuntime {
+    HarvestCircleStockRuntime,
+    HarvestCircleHandlingRuntime {
+    override suspend fun group(id: String): HubGroupView = callNative { hubPort().group(id).toModel() }
+
+    override suspend fun work(query: HubHandlingQuery): HubWorkPage = callNative { hubPort().work(query.toNative()).toModel() }
+
+    override suspend fun discrepancies(query: HubHandlingQuery): HubDiscrepancyPage =
+        callNative {
+            hubPort().discrepancies(query.toNative()).toModel()
+        }
+
+    override suspend fun applyHandling(
+        context: RequestContext,
+        input: HubHandlingInput,
+    ): HubHandlingReceipt = callNative(context.operationId) { hubPort().applyHandling(context.toNative(), input.toNative()).toModel() }
+
+    override suspend fun handlingOperation(operation: OperationId): HubHandlingReceipt? =
+        callNative(operation) { hubPort().handlingOperation(operation.value)?.toModel() }
+
     override suspend fun stock(query: HubStockQuery): HubStockPage = callNative { hubPort().stock(query.toNative()).toModel() }
 
     override suspend fun receiveStock(
@@ -524,6 +548,19 @@ internal fun interface NativeSubscriptionHandle {
 }
 
 private interface NativeHubPort {
+    suspend fun group(id: String): HubGroupViewDto
+
+    suspend fun work(query: HubHandlingQueryDto): HubWorkPageDto
+
+    suspend fun discrepancies(query: HubHandlingQueryDto): HubDiscrepancyPageDto
+
+    suspend fun applyHandling(
+        context: RequestContextDto,
+        input: HubHandlingInputDto,
+    ): HubHandlingReceiptDto
+
+    suspend fun handlingOperation(operation: String): HubHandlingReceiptDto?
+
     suspend fun stock(query: HubStockQueryDto): HubStockPageDto
 
     suspend fun receiveStock(
@@ -559,6 +596,19 @@ private class UniFfiNativeCorePort(
     private val core: HarvestCircleAppCore,
 ) : NativeCorePort,
     NativeHubPort {
+    override suspend fun group(id: String): HubGroupViewDto = core.hubGroup(id)
+
+    override suspend fun work(query: HubHandlingQueryDto): HubWorkPageDto = core.hubWork(query)
+
+    override suspend fun discrepancies(query: HubHandlingQueryDto): HubDiscrepancyPageDto = core.hubDiscrepancies(query)
+
+    override suspend fun applyHandling(
+        context: RequestContextDto,
+        input: HubHandlingInputDto,
+    ): HubHandlingReceiptDto = core.applyHubHandling(context, input)
+
+    override suspend fun handlingOperation(operation: String): HubHandlingReceiptDto? = core.hubHandlingOperation(operation)
+
     override suspend fun stock(query: HubStockQueryDto): HubStockPageDto = core.hubStock(query)
 
     override suspend fun receiveStock(

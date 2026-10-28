@@ -42,7 +42,7 @@ private fun HubSourceKindDto.toModel() =
         HubSourceKindDto.OTHER -> HubSourceKind.Other
     }
 
-private fun HubOccurrence.toNative() =
+internal fun HubOccurrence.toNative() =
     HubOccurrenceDto(
         when (kind) {
             HubOccurrenceKind.Known -> HubOccurrenceKindDto.KNOWN
@@ -53,7 +53,7 @@ private fun HubOccurrence.toNative() =
         endUnixSeconds,
     )
 
-private fun HubOccurrenceDto.toModel() =
+internal fun HubOccurrenceDto.toModel() =
     HubOccurrence(
         when (kind) {
             HubOccurrenceKindDto.KNOWN -> HubOccurrenceKind.Known
@@ -87,11 +87,11 @@ internal fun HubStockQuery.toNative() =
 
 private fun HubSourceDto.toModel() = HubSource(id, issuer?.toModel(), kind?.toModel(), code, provenance, certainty.toModel())
 
-private fun HubQuantityWorkDto.toModel() = HubQuantityWork(required, completed, noLongerRequired, remaining, revision, target?.toModel())
+internal fun HubQuantityWorkDto.toModel() = HubQuantityWork(required, completed, noLongerRequired, remaining, revision, target?.toModel())
 
 private fun HubStockPositionDto.toModel() = HubStockPosition(groupId, traceId, variantId, locationId, wholePacks, revision)
 
-private fun HubReceiptTraceDto.toModel() =
+internal fun HubReceiptTraceDto.toModel() =
     HubReceiptTrace(
         id,
         variant.toModel(),

@@ -115,7 +115,11 @@ row per requirement, rather than one copy per stock position. The native limits
 are 16,384 groups/requirements, 256 groups per requirement, 64 requirements per
 group and 4,096 discrepancies. A derived causal time floor follows each physical
 portion; an unknown occurrence does not erase earlier constraints or invent an
-actual time. The shared movement/work/discrepancy UI remains unfinished.
+actual time. Shared Kotlin transport and the desktop native adapter expose these
+closed commands and projections without calculating authoritative stock or work.
+Generated/native consumer tests exercise original results, restart, owner access,
+replanning, explicit new handling and discrepancy follow-up. The shared
+movement/work/discrepancy UI remains unfinished.
 
 ## Secrets, transport and lifecycle
 

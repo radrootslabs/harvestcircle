@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import org.harvestcircle.application.ActiveIdentity
 import org.harvestcircle.application.ApplicationChange
 import org.harvestcircle.application.ApplicationCommand
@@ -19,11 +20,17 @@ import org.harvestcircle.application.ApplicationSnapshot
 import org.harvestcircle.application.BuildInfo
 import org.harvestcircle.application.GeneratedIdentityRecovery
 import org.harvestcircle.application.GeneratedKeyBackup
+import org.harvestcircle.application.HarvestCircleHandlingRuntime
 import org.harvestcircle.application.HarvestCircleHubRuntime
 import org.harvestcircle.application.HarvestCircleReferenceRuntime
 import org.harvestcircle.application.HarvestCircleRuntime
 import org.harvestcircle.application.HarvestCircleStockRuntime
 import org.harvestcircle.application.HubContext
+import org.harvestcircle.application.HubDiscrepancyPage
+import org.harvestcircle.application.HubGroupView
+import org.harvestcircle.application.HubHandlingInput
+import org.harvestcircle.application.HubHandlingQuery
+import org.harvestcircle.application.HubHandlingReceipt
 import org.harvestcircle.application.HubReceiptInput
 import org.harvestcircle.application.HubReferenceEdit
 import org.harvestcircle.application.HubReferencePage
@@ -32,6 +39,7 @@ import org.harvestcircle.application.HubReferenceReceipt
 import org.harvestcircle.application.HubStockPage
 import org.harvestcircle.application.HubStockQuery
 import org.harvestcircle.application.HubStockReceipt
+import org.harvestcircle.application.HubWorkPage
 import org.harvestcircle.application.IdentityId
 import org.harvestcircle.application.IdentityRemovalRequest
 import org.harvestcircle.application.IdentitySummary
@@ -70,6 +78,7 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     HarvestCircleHubRuntime,
     HarvestCircleReferenceRuntime,
     HarvestCircleStockRuntime,
+    HarvestCircleHandlingRuntime,
     AutoCloseable {
     override val buildInfo: BuildInfo = BuildInfo.unknown()
 
@@ -79,7 +88,7 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     private var shutdownReceipt: ShutdownReceipt? = null
 
     override suspend fun hubContext(): HubContext? =
-        kotlinx.coroutines.withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
             callBridge {
                 bridge.hubContext()?.let {
                     HubContext(
@@ -93,7 +102,7 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
         }
 
     override suspend fun initializeHub(context: RequestContext): HubContext =
-        kotlinx.coroutines.withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
             callBridge {
                 bridge.initializeHub(context.operationId.value, context.expectedRevision.value).let {
                     HubContext(it.hubId, IdentityId.fromPublicKeyHex(it.ownerPublicKey), it.revision, it.sampleData)
@@ -102,7 +111,7 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
         }
 
     override suspend fun references(query: HubReferenceQuery): HubReferencePage =
-        kotlinx.coroutines.withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
             callBridge { bridge.references(query.toNative()).toModel() }
         }
 
@@ -110,12 +119,12 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
         context: RequestContext,
         edit: HubReferenceEdit,
     ): HubReferenceReceipt =
-        kotlinx.coroutines.withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
             callBridge { bridge.editReference(context.operationId.value, context.expectedRevision.value, edit.toNative()).toModel() }
         }
 
     override suspend fun referenceOperation(operation: OperationId): HubReferenceReceipt? =
-        kotlinx.coroutines.withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
             callBridge { bridge.referenceOperation(operation.value)?.toModel() }
         }
 
@@ -124,12 +133,35 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
         afterRevision: ULong,
         limit: UInt,
     ): List<HubReferenceReceipt> =
-        kotlinx.coroutines.withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
             callBridge { bridge.referenceHistory(id, afterRevision, limit).map { it.toModel() } }
         }
 
+    override suspend fun group(id: String): HubGroupView = withContext(Dispatchers.IO) { callBridge { bridge.group(id).toModel() } }
+
+    override suspend fun work(query: HubHandlingQuery): HubWorkPage =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.work(query.toNative()).toModel() }
+        }
+
+    override suspend fun discrepancies(query: HubHandlingQuery): HubDiscrepancyPage =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.discrepancies(query.toNative()).toModel() }
+        }
+
+    override suspend fun applyHandling(
+        context: RequestContext,
+        input: HubHandlingInput,
+    ): HubHandlingReceipt =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.applyHandling(context.operationId.value, context.expectedRevision.value, input.toNative()).toModel() }
+        }
+
+    override suspend fun handlingOperation(operation: OperationId): HubHandlingReceipt? =
+        withContext(Dispatchers.IO) { callBridge { bridge.handlingOperation(operation.value)?.toModel() } }
+
     override suspend fun stock(query: HubStockQuery): HubStockPage =
-        kotlinx.coroutines.withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
             callBridge { bridge.stock(query.toNative()).toModel() }
         }
 
@@ -137,12 +169,12 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
         context: RequestContext,
         input: HubReceiptInput,
     ): HubStockReceipt =
-        kotlinx.coroutines.withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
             callBridge { bridge.receiveStock(context.operationId.value, context.expectedRevision.value, input.toNative()).toModel() }
         }
 
     override suspend fun receiptOperation(operation: OperationId): HubStockReceipt? =
-        kotlinx.coroutines.withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
             callBridge { bridge.receiptOperation(operation.value)?.toModel() }
         }
 
