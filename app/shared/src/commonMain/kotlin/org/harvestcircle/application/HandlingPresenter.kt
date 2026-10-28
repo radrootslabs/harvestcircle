@@ -37,7 +37,17 @@ class HandlingPresenter(
     fun chooseTab(tab: HandlingTab) {
         val current = mutableState.value
         if (current.loading || current.submission != null) return
-        mutableState.value = current.copy(tab = tab, group = null, selectedWork = null, selectedDiscrepancy = null)
+        mutableState.value =
+            current.copy(
+                tab = tab,
+                group = null,
+                lineage = null,
+                treatment = null,
+                treatmentHistory = null,
+                treatmentChoices = emptyList(),
+                selectedWork = null,
+                selectedDiscrepancy = null,
+            )
         refresh()
     }
 
@@ -87,6 +97,9 @@ class HandlingPresenter(
                 discrepancies = if (tab == HandlingTab.Discrepancies) null else current.discrepancies,
                 group = null,
                 lineage = null,
+                treatment = null,
+                treatmentHistory = null,
+                treatmentChoices = emptyList(),
                 selectedWork = null,
                 selectedDiscrepancy = null,
             )
@@ -115,12 +128,14 @@ class HandlingPresenter(
 
     fun inspectGroup(id: String) {
         val current = mutableState.value
-        if (current.submission != null) return
+        if (current.loading || current.submission != null) return
         if (current.draft != null) {
             mutableState.value =
                 current.copy(formOpen = true, message = "Finish or discard your retained draft before selecting another group.")
             return
         }
+        mutableState.value =
+            current.copy(group = null, lineage = null, treatment = null, treatmentHistory = null, treatmentChoices = emptyList())
         read {
             val selected = requireNotNull(runtime).group(id)
             val lineage =
@@ -134,11 +149,29 @@ class HandlingPresenter(
                     lineage.total <= 256U &&
                     lineage.rows.size <= 64,
             )
+            val treatmentChoices = completeTreatmentChoices(requireNotNull(runtime), lineage)
+            val treatment =
+                requireNotNull(
+                    runtime,
+                ).treatment(HubTreatmentScope(selected.trace.id, selected.stockRevision, selected.catalogRevision))
+            check(
+                treatment.stockRevision == selected.stockRevision &&
+                    treatment.catalogRevision == selected.catalogRevision &&
+                    treatment.trace.id == selected.trace.id,
+            )
+            val history =
+                treatmentHistoryPage(
+                    requireNotNull(runtime),
+                    HubTreatmentQuery(selected.trace.id, selected.stockRevision, selected.catalogRevision),
+                )
             val choices = handlingReferenceChoices(requireNotNull(references), selected.catalogRevision)
             val update: (HandlingViewState) -> HandlingViewState = {
                 it.copy(
                     group = selected,
                     lineage = lineage,
+                    treatment = treatment,
+                    treatmentHistory = history,
+                    treatmentChoices = treatmentChoices,
                     selectedWork = null,
                     selectedDiscrepancy = null,
                     references = choices,
@@ -175,21 +208,70 @@ class HandlingPresenter(
         }
     }
 
+    fun nextTreatmentHistoryPage() {
+        val current = mutableState.value
+        val page = current.treatmentHistory ?: return
+        val trace = current.treatment?.trace?.id ?: return
+        if (!page.more || current.loading || current.draft != null || current.submission != null) return
+        read {
+            val next =
+                treatmentHistoryPage(
+                    requireNotNull(runtime),
+                    HubTreatmentQuery(
+                        trace,
+                        page.stockRevision,
+                        page.catalogRevision,
+                        page.offset + page.rows.size.toUInt(),
+                    ),
+                )
+            check(next.total == page.total && next.rows.isNotEmpty())
+            val update: (HandlingViewState) -> HandlingViewState = { it.copy(treatmentHistory = next) }
+            update
+        }
+    }
+
     fun selectWork(row: HubWorkRow) {
         val current = mutableState.value
         if (current.loading || current.draft != null || current.submission != null) return
-        mutableState.value = current.copy(selectedWork = row, selectedDiscrepancy = null, group = null, lineage = null)
+        mutableState.value =
+            current.copy(
+                selectedWork = row,
+                selectedDiscrepancy = null,
+                group = null,
+                lineage = null,
+                treatment = null,
+                treatmentHistory = null,
+                treatmentChoices = emptyList(),
+            )
     }
 
     fun selectDiscrepancy(row: HubDiscrepancyRow) {
         val current = mutableState.value
         if (current.loading || current.draft != null || current.submission != null) return
-        mutableState.value = current.copy(selectedDiscrepancy = row, selectedWork = null, group = null, lineage = null)
+        mutableState.value =
+            current.copy(
+                selectedDiscrepancy = row,
+                selectedWork = null,
+                group = null,
+                lineage = null,
+                treatment = null,
+                treatmentHistory = null,
+                treatmentChoices = emptyList(),
+            )
     }
 
     fun closeRecord() {
         if (mutableState.value.loading || mutableState.value.submission != null) return
-        mutableState.value = mutableState.value.copy(group = null, lineage = null, selectedWork = null, selectedDiscrepancy = null)
+        mutableState.value =
+            mutableState.value.copy(
+                group = null,
+                lineage = null,
+                treatment = null,
+                treatmentHistory = null,
+                treatmentChoices = emptyList(),
+                selectedWork = null,
+                selectedDiscrepancy = null,
+            )
     }
 
     fun begin(action: HandlingAction) {
@@ -202,6 +284,7 @@ class HandlingPresenter(
         }
         val draft =
             when (action) {
+                HandlingAction.SetAcceptance, HandlingAction.PlaceHold, HandlingAction.ReleaseHold -> treatmentDraft(current, action)
                 HandlingAction.Split -> current.group?.let { HandlingDraft.Split(it) }
                 HandlingAction.Move -> current.group?.let { HandlingDraft.Move(it) }
                 HandlingAction.NewWork -> current.group?.let { HandlingDraft.NewWork(it) }
@@ -252,7 +335,9 @@ class HandlingPresenter(
             } catch (_: IllegalArgumentException) {
                 mutableState.value =
                     current.copy(
-                        message = "Choose the required fields and enter a whole-pack count or an ISO timestamp with an explicit offset.",
+                        message =
+                            "Choose the required scope and decision and provide your observation. " +
+                                "Use whole packs or an ISO timestamp with an explicit offset where requested.",
                     )
                 return
             }
@@ -351,6 +436,9 @@ class HandlingPresenter(
                 formOpen = false,
                 group = null,
                 lineage = null,
+                treatment = null,
+                treatmentHistory = null,
+                treatmentChoices = emptyList(),
                 selectedWork = null,
                 selectedDiscrepancy = null,
                 review = null,

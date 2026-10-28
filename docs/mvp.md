@@ -147,7 +147,15 @@ Current owner/credential checks precede mutations; release-capacity reservations
 share the mutation transaction. Original results retain captured whole-pack scope,
 actors, basis and separate clocks through later handling and restart. Bounded
 current snapshots and pinned history expose native counts and action readiness.
-Shared acceptance/hold/release forms and full MVP qualification remain unfinished.
+Shared editors now record explicit acceptance, independent holds and selected
+whole-hold release. Operators choose whole groups by their native physical labels
+and locations; partial treatment requires observed separation first. Current
+restricted/eligible counts, original scopes, separate clocks and native action
+readiness remain inspectable. Drafts retain selected groups, decision, hold,
+occurrence and observation through ordinary navigation; uncertain submissions
+freeze the original intent. Context review is explicit and history continuation
+pins both native revisions. Native durable admission/session/restore recovery
+and full MVP qualification remain unfinished.
 
 Receipt planning is implemented as pure Rust in
 `core/crates/harvestcircle_domain/src/hub/stock.rs`. It captures original reference

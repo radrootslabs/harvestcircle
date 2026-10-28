@@ -26,6 +26,7 @@ internal suspend fun refreshHandlingDraft(
     draft: HandlingDraft,
 ): HandlingDraft =
     when (draft) {
+        is HandlingDraft.Treatment -> refreshTreatmentDraft(runtime, draft)
         is HandlingDraft.Split -> draft.copy(selected = runtime.group(draft.selected.group.id))
         is HandlingDraft.Move -> draft.copy(selected = runtime.group(draft.selected.group.id))
         is HandlingDraft.NewWork -> draft.copy(selected = runtime.group(draft.selected.group.id))

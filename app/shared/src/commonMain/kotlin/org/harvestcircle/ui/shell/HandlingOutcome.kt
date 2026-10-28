@@ -64,6 +64,7 @@ internal fun HandlingOutcome(
 private fun HandlingResultSummary(result: HubHandlingResult) {
     when (result) {
         is HubHandlingResult.Treatment -> {
+            TreatmentChangeSummary(result.value.change)
             val summary = result.value.summary
             HarvestCircleShellText("Sample treatment recorded for ${result.value.affectedWholePacks} original packs")
             HarvestCircleShellText("Recorded eligible physical on hand: ${summary.departureEligible}")

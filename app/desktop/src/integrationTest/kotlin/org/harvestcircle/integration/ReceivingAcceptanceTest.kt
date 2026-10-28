@@ -28,6 +28,8 @@ import org.harvestcircle.application.HubReferenceKind
 import org.harvestcircle.application.HubReferenceQuery
 import org.harvestcircle.application.HubReferenceValue
 import org.harvestcircle.application.HubStockQuery
+import org.harvestcircle.application.HubTreatmentChange
+import org.harvestcircle.application.HubTreatmentScope
 import org.harvestcircle.application.OperationId
 import org.harvestcircle.application.OperationIdSource
 import org.harvestcircle.application.RequestContext
@@ -301,6 +303,57 @@ class ReceivingAcceptanceTest {
                     timeoutMillis = 10_000,
                 ) { onNodeWithText("Physical identifier: Purple five").runCatching { fetchSemanticsNode() }.isSuccess }
                 onNodeWithText("Physical identifier: Purple five").performScrollTo().assertIsDisplayed()
+                onNodeWithTag("treatment-begin-acceptance").performScrollTo().performClick()
+                onNodeWithTag("treatment-status-Accepted").performScrollTo().performClick()
+                record("Explicit sample acceptance of the purple five")
+                done()
+                openGroup(five.id)
+                onNodeWithTag("treatment-begin-hold").performScrollTo().performClick()
+                record("Independent sample hold A on the purple five")
+                done()
+                openGroup(five.id)
+                onNodeWithTag("treatment-begin-hold").performScrollTo().performClick()
+                record("Independent sample hold B on the same purple five")
+                done()
+                val treatmentScope =
+                    HubTreatmentScope(
+                        first.rows
+                            .single()
+                            .trace.id,
+                    )
+                val held = runBlocking { runtime.treatment(treatmentScope) }
+                assertEquals(5U, held.summary.restricted)
+                assertEquals(0U, held.summary.departureEligible)
+                assertEquals(2, held.holds.size)
+                held.holds.forEachIndexed { index, row ->
+                    openGroup(five.id)
+                    onNodeWithTag("treatment-begin-release").performScrollTo().performClick()
+                    onNodeWithTag("treatment-hold-${row.hold.stamp.id}").performScrollTo().performClick()
+                    record("Explicitly reviewed and released only selected sample hold ${index + 1}")
+                    val submitted = runBlocking { runtime.treatment(treatmentScope) }
+                    assertEquals(if (index == 0) 5U else 0U, submitted.summary.restricted)
+                    assertEquals(if (index == 0) 0U else 5U, submitted.summary.departureEligible)
+                    val releaseOperation =
+                        assertNotNull(submitted.holds.single { it.hold.stamp.id == row.hold.stamp.id }.releasedOperationId)
+                    val originalRelease =
+                        assertIs<HubHandlingResult.Treatment>(runBlocking { runtime.handlingOperation(releaseOperation) }?.result)
+                    assertEquals(row.hold.stamp.id, assertIs<HubTreatmentChange.HoldReleased>(originalRelease.value.change).holdId)
+                    done()
+                }
+                openGroup(five.id)
+                onNodeWithTag("treatment-summary").performScrollTo().assertIsDisplayed()
+                val finalTreatment = runBlocking { runtime.treatment(treatmentScope) }
+                val finalLineage =
+                    runBlocking {
+                        runtime.lineage(
+                            HubLineageQuery(
+                                first.rows
+                                    .single()
+                                    .trace.id,
+                            ),
+                        )
+                    }
+                assertEquals(lineage.rows, finalLineage.rows)
                 val finalStock = runBlocking { runtime.stock(HubStockQuery()) }
                 assertEquals(20UL, finalStock.rows.sumOf { it.position.wholePacks.toULong() })
                 assertTrue(finalStock.rows.all { it.position.locationId == receiving })
@@ -325,8 +378,9 @@ class ReceivingAcceptanceTest {
                     runtime.execute(ApplicationCommand.ActivateIdentity(owner))
                     val reopened = runtime.stock(HubStockQuery())
                     assertEquals(finalStock, reopened)
+                    assertEquals(finalTreatment, runtime.treatment(treatmentScope))
                     assertEquals(
-                        lineage,
+                        finalLineage,
                         runtime.lineage(
                             HubLineageQuery(
                                 first.rows

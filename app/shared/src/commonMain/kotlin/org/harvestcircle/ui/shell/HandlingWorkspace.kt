@@ -210,12 +210,17 @@ private fun HandlingGroupRecord(
     }
     HarvestCircleShellText("Group: ${view.group.id}")
     view.group.parentId?.let { HarvestCircleShellText("Separated from: $it") }
+    val actions =
+        state.treatment
+            ?.groups
+            ?.find { it.groupId == view.group.id }
+            ?.actions
     HarvestCircleShellButton("Record actual movement", {
         presenter.begin(HandlingAction.Move)
-    }, Modifier.testTag("handling-begin-move"), primary = true, enabled = !state.loading)
+    }, Modifier.testTag("handling-begin-move"), primary = true, enabled = !state.loading && actions?.internalRelocation == true)
     HarvestCircleShellButton("Separate identified portion", {
         presenter.begin(HandlingAction.Split)
-    }, Modifier.testTag("handling-begin-split"), enabled = !state.loading)
+    }, Modifier.testTag("handling-begin-split"), enabled = !state.loading && actions?.observedSeparation == true)
     HarvestCircleShellButton("New handling requirement", {
         presenter.begin(HandlingAction.NewWork)
     }, Modifier.testTag("handling-begin-new-work"), enabled = !state.loading)
@@ -230,6 +235,7 @@ private fun HandlingGroupRecord(
             HarvestCircleShellText("Requirement: ${allocation.requirement.id}")
         }
     }
+    state.treatment?.let { TreatmentRecord(it, state, presenter) }
     ReceiptTraceSummary(view.trace)
     state.lineage?.let { PortionLineage(it, state.loading, presenter, view.group.id) }
 }
@@ -297,7 +303,7 @@ private fun handlingSurface(state: HandlingViewState): String =
         state.submission is org.harvestcircle.application.HandlingSubmission.Rejected -> "rejected"
         state.submission is org.harvestcircle.application.HandlingSubmission.Uncertain -> "uncertain"
         state.formOpen && state.draft != null -> handlingTitle(state.draft)
-        state.group != null -> "group-${state.group.group.id}-${state.lineage?.offset}"
+        state.group != null -> "group-${state.group.group.id}-${state.lineage?.offset}-${state.treatmentHistory?.offset}"
         state.selectedWork != null -> "work-${state.selectedWork.work.id}"
         state.selectedDiscrepancy != null -> "discrepancy-${state.selectedDiscrepancy.value.id}"
         else -> "queue-${state.tab}-${state.work?.offset}-${state.discrepancies?.offset}"

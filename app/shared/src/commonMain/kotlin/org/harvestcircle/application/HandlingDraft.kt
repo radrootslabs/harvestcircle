@@ -2,7 +2,7 @@ package org.harvestcircle.application
 
 import kotlin.time.Instant
 
-enum class HandlingAction { Split, Move, Replan, NewWork, OpenDiscrepancy, ResolveDiscrepancy }
+enum class HandlingAction { SetAcceptance, PlaceHold, ReleaseHold, Split, Move, Replan, NewWork, OpenDiscrepancy, ResolveDiscrepancy }
 
 enum class MovementScope { WholeGroup, IdentifiedPortion }
 
@@ -12,6 +12,9 @@ data class HandlingVersions(
 )
 
 data class HandlingFields(
+    val treatmentGroups: List<String> = emptyList(),
+    val acceptanceStatus: HubAcceptanceStatus? = null,
+    val holdId: String? = null,
     val targetId: String? = null,
     val scope: MovementScope = MovementScope.WholeGroup,
     val quantity: String = "",
@@ -27,6 +30,15 @@ data class HandlingFields(
 sealed interface HandlingDraft {
     val fields: HandlingFields
     val versions: HandlingVersions
+
+    data class Treatment(
+        val selected: HubTreatmentSnapshot,
+        val action: TreatmentEditorAction,
+        override val fields: HandlingFields = HandlingFields(),
+        val choices: List<HubLineageRow> = emptyList(),
+    ) : HandlingDraft {
+        override val versions get() = HandlingVersions(selected.stockRevision, selected.catalogRevision)
+    }
 
     data class Split(
         val selected: HubGroupView,
@@ -71,6 +83,7 @@ sealed interface HandlingDraft {
 
 internal fun HandlingDraft.edit(fields: HandlingFields): HandlingDraft =
     when (this) {
+        is HandlingDraft.Treatment -> copy(fields = fields)
         is HandlingDraft.Split -> copy(fields = fields)
         is HandlingDraft.Move -> copy(fields = fields)
         is HandlingDraft.Replan -> copy(fields = fields)
@@ -81,6 +94,7 @@ internal fun HandlingDraft.edit(fields: HandlingFields): HandlingDraft =
 
 internal fun HandlingDraft.input(): HubHandlingInput =
     when (this) {
+        is HandlingDraft.Treatment -> treatmentInput()
         is HandlingDraft.Split ->
             HubHandlingInput.Split(
                 versions.stock,
@@ -145,7 +159,7 @@ internal fun HandlingDraft.input(): HubHandlingInput =
             )
     }
 
-private fun HandlingFields.occurrence(): HubOccurrence =
+internal fun HandlingFields.occurrence(): HubOccurrence =
     when (occurrenceKind) {
         HubOccurrenceKind.Unknown -> HubOccurrence(HubOccurrenceKind.Unknown)
         HubOccurrenceKind.Known -> HubOccurrence(HubOccurrenceKind.Known, Instant.parse(occurrenceStart.trim()).epochSeconds)
@@ -158,11 +172,14 @@ private fun HandlingFields.occurrence(): HubOccurrence =
     }
 
 internal fun HandlingFields.bounded() =
-    listOf(
-        quantity,
-        physicalLabel,
-        physicalObservation,
-        observation,
-        occurrenceStart,
-        occurrenceEnd,
-    ).all { it.length <= 1024 }
+    treatmentGroups.size <= 64 &&
+        treatmentGroups.all { it.length <= 32 } &&
+        (holdId?.length ?: 0) <= 32 &&
+        listOf(
+            quantity,
+            physicalLabel,
+            physicalObservation,
+            observation,
+            occurrenceStart,
+            occurrenceEnd,
+        ).all { it.length <= 1024 }

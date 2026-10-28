@@ -149,9 +149,13 @@ acceptance/hold policy is implemented as pure checked data in
 `core/crates/harvestcircle_domain/src/hub/treatment.rs`. Forward schema9, native
 commands and FFI5.7 retain original decisions, scopes and releases. Current reads
 validate complete lineage and treatment history before projecting bounded group
-readiness. Shared acceptance/hold/release forms remain unfinished. Current acceptance
-follows explicit native recording order within the selected population, not a claim
-about historical occurrence. Hold
+readiness. Shared acceptance/hold/release editors select current whole identified
+groups, preserve observations and show original scopes, actors and clocks. Physical
+labels and locations use complete bounded, stock/catalog-pinned native lineage
+reads. Selected release requires an explicit hold choice and retains independent
+holds. Native current counts and action readiness stay separate from original
+operation history and its pinned pages. Current acceptance follows native recording
+order within the selected population, not a claim about historical occurrence. Hold
 union deduplicates physical groups; releasing one hold preserves others and does
 not supply acceptance. Original stamps retain the reviewed sample basis. Bounded
 primary history leaves each existing hold a separate release slot. Exhausted

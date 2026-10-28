@@ -32,6 +32,10 @@ internal fun HandlingEditor(
     HarvestCircleShellText(handlingTitle(draft), role = HarvestCircleShellTextRole.SectionTitle)
     HandlingDraftScope(draft)
     when (draft) {
+        is HandlingDraft.Treatment -> {
+            TreatmentFields(draft, presenter)
+            HandlingOccurrence(fields, presenter)
+        }
         is HandlingDraft.Move -> {
             HarvestCircleShellText("Record actual arrival. A planned destination alone never moves stock.")
             Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
@@ -138,6 +142,7 @@ internal fun HandlingEditor(
 @Composable
 internal fun HandlingDraftScope(draft: HandlingDraft) {
     when (draft) {
+        is HandlingDraft.Treatment -> TreatmentDraftScope(draft)
         is HandlingDraft.Split ->
             HarvestCircleShellText(
                 "Selected: ${draft.selected.group.wholePacks} original packs at ${draft.selected.location.value.label}",
@@ -201,6 +206,7 @@ private fun HandlingOccurrence(
 
 internal fun handlingTitle(draft: HandlingDraft) =
     when (draft) {
+        is HandlingDraft.Treatment -> treatmentTitle(draft.action)
         is HandlingDraft.Split -> "Separate identified portion"
         is HandlingDraft.Move -> "Record actual movement"
         is HandlingDraft.Replan -> "Replan remaining work"

@@ -3,9 +3,9 @@
 The [food-hub MVP contract](mvp.md) records implemented behavior and unfinished
 workflows. make demo opens an isolated named profile, and make hub-check exercises
 implemented native hub components and UI regressions. Receiving, handling and
-physical-portion editors are implemented; later MVP workflows and complete
-qualification remain unfinished. The commands below are the public lifecycle
-entry points. Do not use private planning material,
+physical-portion and sample acceptance/hold/release editors are implemented;
+later MVP workflows and complete qualification remain unfinished. The commands
+below are the public lifecycle entry points. Do not use private planning material,
 machine state or a sibling checkout to run the project.
 
 Run commands from the repository root or use `make -C /path/to/harvestcircle`.

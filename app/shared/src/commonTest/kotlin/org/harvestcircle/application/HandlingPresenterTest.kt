@@ -68,9 +68,38 @@ class HandlingPresenterTest {
             val queries = mutableListOf<HubLineageQuery>()
             val runtime =
                 object : HandlingFake() {
+                    init {
+                        groupView = groupView.copy(stockRevision = 3UL, group = groupView.group.copy(wholePacks = 12U, revision = 2UL))
+                        workPage = workPage.copy(stockRevision = 3UL)
+                    }
+
+                    override suspend fun treatment(scope: HubTreatmentScope): HubTreatmentSnapshot {
+                        val snapshot = super.treatment(scope)
+                        val group = snapshot.groups.single()
+                        return snapshot.copy(
+                            groups = listOf(group.copy(wholePacks = 12U), group.copy(groupId = "07".repeat(16), wholePacks = 8U)),
+                        )
+                    }
+
                     override suspend fun lineage(query: HubLineageQuery): HubLineagePage {
                         queries += query
-                        return super.lineage(query).copy(total = 2U, offset = query.offset, more = query.offset == 0U)
+                        val page = super.lineage(query)
+                        val original = page.rows.single()
+                        val row =
+                            if (query.offset == 0U) {
+                                original
+                            } else {
+                                original.copy(
+                                    id = "07".repeat(16),
+                                    parentId = original.id,
+                                    wholePacks = 8U,
+                                    identification = HubPhysicalIdentification("Blue eight", "Observed separately tagged crates"),
+                                    createdStockRevision = 3UL,
+                                    createdKind = HubGroupCreationKind.Separation,
+                                    createdOperationId = OperationId.from("01900000-0000-7000-8000-000000000032"),
+                                )
+                            }
+                        return page.copy(total = 2U, offset = query.offset, more = query.offset == 0U, rows = listOf(row))
                     }
                 }
             val presenter = HandlingPresenter(runtime, runtime, this, OperationIdSource { StockFixtures.operation })
@@ -82,13 +111,25 @@ class HandlingPresenterTest {
             runCurrent()
             val query = queries.last()
             assertEquals(StockFixtures.trace.id, query.traceId)
-            assertEquals(2UL, query.expectedStockRevision)
+            assertEquals(3UL, query.expectedStockRevision)
             assertEquals(5UL, query.expectedCatalogRevision)
             assertEquals(1U, query.offset)
             assertEquals(
                 1U,
                 presenter.state.value.lineage
                     ?.offset,
+            )
+            assertEquals(
+                listOf(12U, 8U),
+                presenter.state.value.treatmentChoices
+                    .map { it.wholePacks },
+            )
+            assertEquals(
+                "Blue eight",
+                presenter.state.value.treatmentChoices
+                    .last()
+                    .identification
+                    ?.label,
             )
             presenter.close()
         }
