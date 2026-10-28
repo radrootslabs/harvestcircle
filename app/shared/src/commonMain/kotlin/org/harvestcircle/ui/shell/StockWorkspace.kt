@@ -32,10 +32,15 @@ fun StockWorkspace(
     presenter: StockPresenter,
     submit: () -> Unit,
     openReferences: () -> Unit,
+    openHandling: ((String) -> Unit)? = null,
+    manageRoute: Boolean = true,
+    handlingEnabled: Boolean = true,
 ) {
     LaunchedEffect(route) {
-        presenter.hideReceipt()
-        presenter.closeInspection()
+        if (manageRoute) {
+            presenter.hideReceipt()
+            presenter.closeInspection()
+        }
     }
     Column(
         Modifier
@@ -57,7 +62,7 @@ fun StockWorkspace(
         when {
             state.submission != null -> ReceiptOutcomePanel(state, presenter)
             state.receiptOpen && state.draft != null -> ReceiptEditor(state, presenter, submit)
-            state.inspecting != null -> StockRecord(state.inspecting, presenter)
+            state.inspecting != null -> StockRecord(state.inspecting, presenter, openHandling, handlingEnabled)
             else -> StockRows(route, state, presenter)
         }
     }
@@ -78,6 +83,12 @@ private fun StockRows(
             enabled = !state.loading && state.page != null,
         )
         HarvestCircleShellButton("Refresh", presenter::refresh, Modifier.testTag("stock-refresh"), enabled = !state.loading)
+    }
+    state.traceFilter?.let {
+        HarvestCircleShellText("Stock from selected receipt: $it")
+        HarvestCircleShellButton("Show all receipts", {
+            presenter.showTrace(null)
+        }, Modifier.testTag("stock-clear-trace"), enabled = !state.loading)
     }
     HarvestCircleShellTextField(
         state.queryText,
@@ -131,18 +142,25 @@ private fun WorkSummary(row: HubStockRow) {
         "No longer required ${work.noLongerRequired} · Remaining ${work.remaining}",
         Modifier.testTag("stock-work-remaining"),
     )
-    HarvestCircleShellText("Movement is unavailable in this build. A planned destination does not move stock.")
+    HarvestCircleShellText("Totals for the original intake requirement. The handling record shows current scoped work and actual movement.")
 }
 
 @Composable
 private fun StockRecord(
     row: HubStockRow,
     presenter: StockPresenter,
+    openHandling: ((String) -> Unit)?,
+    handlingEnabled: Boolean,
 ) {
     HarvestCircleShellButton("Back to stock view", presenter::closeInspection, Modifier.testTag("stock-close-record"))
     HarvestCircleShellText(row.product.value.label, role = HarvestCircleShellTextRole.SectionTitle)
     HarvestCircleShellText("On hand here: ${row.position.wholePacks} original packs · ${row.location.value.label}")
     WorkSummary(row)
+    openHandling?.let { open ->
+        HarvestCircleShellButton("Handling and location", {
+            open(row.position.groupId)
+        }, Modifier.testTag("stock-handling-${row.position.groupId}"), primary = true, enabled = handlingEnabled)
+    }
     ReceiptTraceSummary(row.trace)
     HarvestCircleShellButton(
         if (row.trace.source.id == null) "Receive another intake" else "Receive more with this source",

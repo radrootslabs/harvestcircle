@@ -128,6 +128,15 @@ internal fun HarvestCircleApplicationWithDependencies(
         (hubState as? HubViewState.Ready)?.context?.let { stockPresenter.attach(it.id) }
     }
     val stockState by stockPresenter.state.collectAsState()
+    val handlingPresenter =
+        remember(presenter, hubIdentity) {
+            HandlingPresenter(presenter.handlingRuntime, presenter.referenceRuntime, hubScope, DesktopOperationIdSource)
+        }
+    DisposableEffect(handlingPresenter) { onDispose { handlingPresenter.close() } }
+    LaunchedEffect(handlingPresenter, hubState) {
+        (hubState as? HubViewState.Ready)?.context?.let { handlingPresenter.attach(it.id) }
+    }
+    val handlingState by handlingPresenter.state.collectAsState()
 
     val identityActions =
         HarvestCircleUiActions(
@@ -170,6 +179,9 @@ internal fun HarvestCircleApplicationWithDependencies(
         referenceState = referenceState,
         referencePresenter = referencePresenter,
         submitReference = { referencePresenter.submit(shellState.identity.snapshot.revision) },
+        handlingState = handlingState,
+        handlingPresenter = handlingPresenter,
+        submitHandling = { handlingPresenter.submit(shellState.identity.snapshot.revision) },
     )
 }
 

@@ -118,8 +118,14 @@ portion; an unknown occurrence does not erase earlier constraints or invent an
 actual time. Shared Kotlin transport and the desktop native adapter expose these
 closed commands and projections without calculating authoritative stock or work.
 Generated/native consumer tests exercise original results, restart, owner access,
-replanning, explicit new handling and discrepancy follow-up. The shared
-movement/work/discrepancy UI remains unfinished.
+replanning, explicit new handling and discrepancy follow-up. The shared handling
+workspace exposes current groups, requirement queues, actual movement, replanning,
+explicit new work and discrepancy follow-up. It retains unsubmitted observations
+across navigation and freezes submitted input until a known result or explicit
+known-rejection review. Stale scope requires a separate current-data review;
+uncertain outcomes permit original-result lookup without another mutation. Loading
+removes stale queue rows and disables unavailable actions. These in-memory draft
+controls do not replace the unfinished native admission/session/restore gate.
 
 ## Secrets, transport and lifecycle
 

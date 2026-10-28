@@ -71,6 +71,7 @@ data class StockViewState(
     val referenceRevision: ULong? = null,
     val queryText: String = "",
     val locationFilter: String? = null,
+    val traceFilter: String? = null,
     val inspecting: HubStockRow? = null,
     val draft: ReceiptDraft? = null,
     val receiptOpen: Boolean = false,
@@ -114,6 +115,13 @@ class StockPresenter(
         refresh()
     }
 
+    fun showTrace(id: String?) {
+        val current = mutableState.value
+        if (current.submission != null) return
+        mutableState.value = current.copy(traceFilter = id, locationFilter = null, inspecting = null, receiptOpen = false)
+        refresh()
+    }
+
     fun refresh() = loadPage(viewQuery())
 
     fun nextPage() {
@@ -129,7 +137,12 @@ class StockPresenter(
         )
     }
 
-    private fun viewQuery() = HubStockQuery(locationId = mutableState.value.locationFilter, text = mutableState.value.queryText)
+    private fun viewQuery() =
+        HubStockQuery(
+            locationId = mutableState.value.locationFilter,
+            traceId = mutableState.value.traceFilter,
+            text = mutableState.value.queryText,
+        )
 
     private fun loadPage(query: HubStockQuery) {
         if (!canRead() || mutableState.value.submission is ReceiptSubmission.Pending) return

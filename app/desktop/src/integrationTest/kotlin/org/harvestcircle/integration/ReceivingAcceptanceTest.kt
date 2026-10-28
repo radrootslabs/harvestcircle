@@ -4,8 +4,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -17,6 +19,8 @@ import org.harvestcircle.application.ApplicationClock
 import org.harvestcircle.application.ApplicationCommand
 import org.harvestcircle.application.HarvestCircleApplicationWithDependencies
 import org.harvestcircle.application.HarvestCirclePresenter
+import org.harvestcircle.application.HubHandlingQuery
+import org.harvestcircle.application.HubHandlingResult
 import org.harvestcircle.application.HubLocationPurpose
 import org.harvestcircle.application.HubReferenceEdit
 import org.harvestcircle.application.HubReferenceKind
@@ -34,13 +38,15 @@ import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeExclusion
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class ReceivingAcceptanceTest {
     @Test
-    fun receivingUsesNativeStorageAndSurvivesRestart() =
+    fun receivingAndHandlingUseNativeStorageAndSurviveRestart() =
         runDesktopComposeUiTest(width = 1100, height = 720) {
             val root = Files.createTempDirectory("harvestcircle-receiving-")
             val runtime = TestBridgeHarvestCircleRuntime.openDemo(root.toString())
@@ -72,6 +78,7 @@ class ReceivingAcceptanceTest {
                 val receiving =
                     add(HubReferenceValue(HubReferenceKind.Location, "Receiving", locationPurpose = HubLocationPurpose.Receiving))
                 val planned = add(HubReferenceValue(HubReferenceKind.Location, "A3", locationPurpose = HubLocationPurpose.Storage))
+                val alternate = add(HubReferenceValue(HubReferenceKind.Location, "B3", locationPurpose = HubLocationPurpose.Storage))
                 setContent {
                     HarvestCircleWindowChromeEnvironment(HarvestCircleWindowChromeExclusion.None) {
                         if (showApplication) {
@@ -143,8 +150,136 @@ class ReceivingAcceptanceTest {
                 assertEquals(0U, runBlocking { runtime.stock(HubStockQuery(locationId = planned)) }.total)
                 onNodeWithTag("receipt-done").performScrollTo().performClick()
                 waitUntil(timeoutMillis = 10_000) { onNodeWithText("At: Receiving").runCatching { fetchSemanticsNode() }.isSuccess }
+                val groupId =
+                    first.rows
+                        .single()
+                        .position.groupId
+
+                fun openGroup(id: String) {
+                    onNodeWithTag("sidebar-HubStock").performClick()
+                    waitUntil(timeoutMillis = 10_000) { onNodeWithTag("stock-inspect-$id").runCatching { fetchSemanticsNode() }.isSuccess }
+                    onNodeWithTag("stock-inspect-$id").performScrollTo().performClick()
+                    waitUntil(timeoutMillis = 10_000) { runCatching { onNodeWithTag("stock-handling-$id").assertIsEnabled() }.isSuccess }
+                    onNodeWithTag("stock-handling-$id").performScrollTo().performClick()
+                    waitUntil(
+                        timeoutMillis = 10_000,
+                    ) { onNodeWithTag("handling-begin-move").runCatching { fetchSemanticsNode() }.isSuccess }
+                }
+
+                fun destination(id: String) {
+                    onNodeWithTag("handling-target").performScrollTo().performClick()
+                    onNodeWithTag("handling-target-$id").performScrollTo().performClick()
+                }
+
+                fun record(basis: String) {
+                    onNodeWithTag("handling-observation").performScrollTo().performTextInput(basis)
+                    onNodeWithTag("handling-save").performScrollTo().performClick()
+                    waitUntil(timeoutMillis = 10_000) { onNodeWithTag("handling-recorded").runCatching { fetchSemanticsNode() }.isSuccess }
+                }
+
+                fun done() = onNodeWithTag("handling-done").performScrollTo().performClick()
+                openGroup(groupId)
+                onNodeWithTag("handling-begin-move").performScrollTo().performClick()
+                onNodeWithTag("handling-portion").performScrollTo().performClick()
+                onNodeWithTag("handling-quantity").performScrollTo().performTextInput("8")
+                onNodeWithTag("handling-physical-label").performScrollTo().performTextInput("Blue tagged stack")
+                onNodeWithTag("handling-physical-observation").performScrollTo().performTextInput("Eight separately tagged crates")
+                destination(planned)
+                record("Manually confirmed eight crates arrived at A3")
+                val moved = runBlocking { runtime.stock(HubStockQuery()) }
+                assertEquals(
+                    12U,
+                    moved.rows
+                        .single { it.position.groupId == groupId }
+                        .position.wholePacks,
+                )
+                val child =
+                    moved.rows
+                        .single { it.position.groupId != groupId }
+                        .position.groupId
+                assertEquals(
+                    8U,
+                    moved.rows
+                        .single { it.position.groupId == child }
+                        .position.wholePacks,
+                )
+                assertEquals(
+                    planned,
+                    moved.rows
+                        .single { it.position.groupId == child }
+                        .position.locationId,
+                )
+                val intakeWork = runBlocking { runtime.work(HubHandlingQuery()) }.rows.single()
+                assertEquals(8U, intakeWork.work.quantity.completed)
+                assertEquals(12U, intakeWork.work.quantity.remaining)
+                done()
                 onNodeWithTag("sidebar-HubWork").performClick()
-                onNodeWithTag("stock-work-remaining").performScrollTo().assertIsDisplayed()
+                waitUntil(
+                    timeoutMillis = 10_000,
+                ) { onNodeWithTag("work-inspect-${intakeWork.work.id}").runCatching { fetchSemanticsNode() }.isSuccess }
+                onAllNodesWithTag("work-row-${intakeWork.work.id}").assertCountEquals(1)
+                onNodeWithTag("work-inspect-${intakeWork.work.id}").performScrollTo().performClick()
+                onNodeWithTag("handling-begin-replan").performScrollTo().performClick()
+                destination(alternate)
+                record("Plan remaining twelve for B3 without moving stock")
+                val replanned = runBlocking { runtime.work(HubHandlingQuery(openOnly = false)) }
+                val old =
+                    replanned.rows
+                        .single { it.work.id == intakeWork.work.id }
+                        .work.quantity
+                assertEquals(8U, old.completed)
+                assertEquals(12U, old.noLongerRequired)
+                assertEquals(0U, old.remaining)
+                assertEquals(moved.rows.map { it.position }, runBlocking { runtime.stock(HubStockQuery()) }.rows.map { it.position })
+                done()
+                openGroup(groupId)
+                onNodeWithTag("handling-begin-discrepancy").performScrollTo().performClick()
+                record("Inspect outer packaging; retain this observation")
+                val issue = runBlocking { runtime.discrepancies(HubHandlingQuery()) }.rows.single()
+                done()
+                onNodeWithTag("sidebar-HubWork").performClick()
+                waitUntil(
+                    timeoutMillis = 10_000,
+                ) { onNodeWithTag("handling-discrepancies-tab").runCatching { fetchSemanticsNode() }.isSuccess }
+                waitUntil(
+                    timeoutMillis = 10_000,
+                ) { runCatching { onNodeWithTag("handling-discrepancies-tab").assertIsEnabled() }.isSuccess }
+                onNodeWithTag("handling-discrepancies-tab").performScrollTo().performClick()
+                waitUntil(
+                    timeoutMillis = 10_000,
+                ) { onNodeWithTag("discrepancy-inspect-${issue.value.id}").runCatching { fetchSemanticsNode() }.isSuccess }
+                onNodeWithTag("discrepancy-inspect-${issue.value.id}").performScrollTo().performClick()
+                onNodeWithTag("handling-begin-resolve").performScrollTo().performClick()
+                record("Packaging inspected; original observation retained")
+                assertEquals(0U, runBlocking { runtime.discrepancies(HubHandlingQuery()) }.total)
+                val originalIssue = runBlocking { runtime.handlingOperation(issue.createdOperation) }
+                assertNull(assertIs<HubHandlingResult.DiscrepancyChanged>(originalIssue?.result).value.resolution)
+                assertEquals(replanned.rows, runBlocking { runtime.work(HubHandlingQuery(openOnly = false)) }.rows)
+                done()
+                openGroup(child)
+                onNodeWithTag("handling-begin-new-work").performScrollTo().performClick()
+                destination(receiving)
+                record("Explicitly bring the eight previously put-away crates back to Receiving")
+                done()
+                openGroup(child)
+                onNodeWithTag("handling-begin-move").performScrollTo().performClick()
+                destination(receiving)
+                record("Manually confirmed the entire identified group arrived at Receiving")
+                done()
+                val finalStock = runBlocking { runtime.stock(HubStockQuery()) }
+                assertEquals(20UL, finalStock.rows.sumOf { it.position.wholePacks.toULong() })
+                assertTrue(finalStock.rows.all { it.position.locationId == receiving })
+                val finalWork = runBlocking { runtime.work(HubHandlingQuery(openOnly = false)) }
+                assertEquals(3U, finalWork.total)
+                assertEquals(
+                    old,
+                    finalWork.rows
+                        .single { it.work.id == intakeWork.work.id }
+                        .work.quantity,
+                )
+                val originalReceipt = runBlocking { runtime.receiptOperation(intakeWork.createdOperation) }
+                assertEquals(20U, originalReceipt?.initialPosition?.wholePacks)
+                assertEquals(20U, originalReceipt?.initialPutAway?.remaining)
                 closeRequested = true
                 waitUntil(timeoutMillis = 10_000) { approvedExits == 1 }
                 showApplication = false
@@ -154,7 +289,8 @@ class ReceivingAcceptanceTest {
                     runtime.restart()
                     runtime.execute(ApplicationCommand.ActivateIdentity(owner))
                     val reopened = runtime.stock(HubStockQuery())
-                    assertEquals(first, reopened)
+                    assertEquals(finalStock, reopened)
+                    assertEquals(finalWork, runtime.work(HubHandlingQuery(openOnly = false)))
                     assertNotNull(runtime.hubContext())
                 }
             } finally {

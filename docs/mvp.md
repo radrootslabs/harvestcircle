@@ -1,9 +1,10 @@
 # Food-hub demonstration MVP
 
 This is the accepted candidate product contract. Isolated demo launch, native
-hub-owner/reference setup, whole-pack receiving and Work/Stock/Dispatch navigation
-are implemented alongside existing Nostr identity, custody, persistence and
-startup. Later operational workflows remain intended behavior. Existing
+hub-owner/reference setup, whole-pack receiving, identified movement, quantity work,
+discrepancy follow-up and Work/Stock/Dispatch navigation are implemented alongside
+existing Nostr identity, custody, persistence and startup. Later operational
+workflows remain intended behavior. Existing
 functionality remains supported while those workflows are developed.
 
 ## Release scope
@@ -151,8 +152,14 @@ handling requirement is explicit and cannot silently replace pending work.
 Discrepancy resolution is follow-up only and has no stock/work/restriction effect.
 The native adapter must enforce complete scope and identity uniqueness within
 16,384 retained groups, 64 requirements per group and 256 groups per requirement.
-Native storage, authorization and FFI now implement these handling rules; the
-shared movement/work/discrepancy UI remains unfinished.
+Native storage, authorization and FFI implement these handling rules. The shared
+workspace records whole-group movement or an observed identifiable partial move,
+replans all remaining work on a requirement, creates explicit new handling and
+retains discrepancy observations after resolution. Work uses one native row per
+requirement. Unsubmitted input survives ordinary navigation; submissions freeze
+their original input, stale scope requires explicit review and uncertain outcomes
+offer read-only original-result lookup. Native durable admission and session/
+restore recovery remain unfinished; the demonstration is not release-qualified.
 
 ### C06: Commands, concurrency and durable outcomes
 
@@ -325,11 +332,13 @@ must run from an independent public checkout without external design documents.
 ## Repository bindings and implementation status
 
 The command inventory below contains implemented and planned responsibilities.
-Native demo-context initialization, reference edits, receiving and Stock/original-
-receipt reads persist through the serialized Rust actor and FFI. Explicit `make demo
+Native demo-context initialization, reference edits, receiving, identified movement,
+quantity work and discrepancy follow-up persist through the serialized Rust actor
+and FFI. Explicit `make demo
 DEMO_RUN=hub-preview` opens a named offline profile. The Work/Stock/Dispatch shell
-uses native hub setup and owner checks; inventory mutations remain unavailable
-from that UI until the receiving workspace is connected.
+uses native hub setup and owner checks. Shared receiving and handling forms consume
+native Stock, requirement and discrepancy projections; later lifecycle commands
+and Dispatch remain unfinished.
 The table identifies extension points, not completed inventory features.
 
 Pure hub identity, revision and ownership policy is implemented in
@@ -389,8 +398,11 @@ Use the owning commands in [development](development.md). Existing commands are
 make doctor, check, bindings, dev-check, ui-check, integration-check,
 host-package-check, host-ui-lifecycle-check, demo, hub-check and governed linux-check.
 The focused hub-check executes real Rust hub/SQLite/runtime/FFI tests, shared UI
-checks and native desktop integration. Its current native receipt coverage does
-not qualify an unfinished receiving UI or the complete MVP. Existing checks and generated/native compatibility remain active.
+checks and native desktop integration. Current UI acceptance executes receipt,
+identified movement, replanning, explicit new handling, discrepancy resolution and
+same-database restart at the minimum window size. This does not qualify the
+complete MVP, durable pre-commit recovery or a packaged release. Existing checks
+and generated/native compatibility remain active.
 
 Behavioral acceptance requires real SQLite transactions and FFI/UI integration,
 including failed/stale/replayed requests and lost responses. Rendered/macOS

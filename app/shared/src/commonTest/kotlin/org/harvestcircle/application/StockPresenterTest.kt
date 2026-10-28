@@ -225,6 +225,28 @@ class StockPresenterTest {
             assertNull(presenter.state.value.draft)
             presenter.close()
         }
+
+    @Test
+    fun receiptScopeNavigationRetainsUnsubmittedInputAndUsesNativeTraceFilter() =
+        runTest {
+            val runtime = StockFake()
+            val presenter = StockPresenter(runtime, runtime, this, OperationIdSource { StockFixtures.operation })
+            presenter.attach("hub")
+            runCurrent()
+            presenter.beginReceipt()
+            presenter.updateDraft(StockFixtures::readyDraft)
+            val draft = presenter.state.value.draft
+            presenter.showTrace(StockFixtures.trace.id)
+            runCurrent()
+            assertEquals(StockFixtures.trace.id, runtime.queries.last().traceId)
+            assertEquals(draft, presenter.state.value.draft)
+            assertFalse(presenter.state.value.receiptOpen)
+            presenter.showTrace(null)
+            runCurrent()
+            assertNull(runtime.queries.last().traceId)
+            assertEquals(draft, presenter.state.value.draft)
+            presenter.close()
+        }
 }
 
 private open class StockFake :

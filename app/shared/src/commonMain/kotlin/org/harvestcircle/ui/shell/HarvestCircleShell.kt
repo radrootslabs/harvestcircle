@@ -18,6 +18,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import org.harvestcircle.appearance.TextSizePreference
 import org.harvestcircle.application.FoundationOverlay
+import org.harvestcircle.application.HandlingPresenter
+import org.harvestcircle.application.HandlingViewState
 import org.harvestcircle.application.HarvestCircleIntent
 import org.harvestcircle.application.HarvestCircleShellIntent
 import org.harvestcircle.application.HarvestCircleShellState
@@ -62,6 +64,9 @@ fun HarvestCircleShell(
     referenceState: ReferenceViewState = ReferenceViewState(),
     referencePresenter: ReferencePresenter? = null,
     submitReference: () -> Unit = {},
+    handlingState: HandlingViewState = HandlingViewState(),
+    handlingPresenter: HandlingPresenter? = null,
+    submitHandling: () -> Unit = {},
 ) {
     HarvestCircleTheme(state.appearance) {
         val focusRegistry = remember { ShellFocusRegistry() }
@@ -84,6 +89,9 @@ fun HarvestCircleShell(
                     referenceState,
                     referencePresenter,
                     submitReference,
+                    handlingState,
+                    handlingPresenter,
+                    submitHandling,
                 )
             }
         }
@@ -105,6 +113,9 @@ private fun HarvestCircleShellContent(
     referenceState: ReferenceViewState = ReferenceViewState(),
     referencePresenter: ReferencePresenter? = null,
     submitReference: () -> Unit = {},
+    handlingState: HandlingViewState = HandlingViewState(),
+    handlingPresenter: HandlingPresenter? = null,
+    submitHandling: () -> Unit = {},
 ) {
     val modalOpen = state.overlays.current != null
     val fallback =
@@ -169,6 +180,9 @@ private fun HarvestCircleShellContent(
                     referenceState,
                     referencePresenter,
                     submitReference,
+                    handlingState,
+                    handlingPresenter,
+                    submitHandling,
                 )
         }
     }
@@ -269,6 +283,9 @@ private fun DashboardRoot(
     referenceState: ReferenceViewState = ReferenceViewState(),
     referencePresenter: ReferencePresenter? = null,
     submitReference: () -> Unit = {},
+    handlingState: HandlingViewState = HandlingViewState(),
+    handlingPresenter: HandlingPresenter? = null,
+    submitHandling: () -> Unit = {},
 ) {
     val route = root.navigation.current
     val status = deriveShellStatus(state)
@@ -356,13 +373,27 @@ private fun DashboardRoot(
                         when (route) {
                             AppRoute.HubWork, AppRoute.HubStock -> {
                                 if (hubState is HubViewState.Ready && stockPresenter != null && stockState.available) {
-                                    StockWorkspace(
-                                        route,
-                                        stockState,
-                                        stockPresenter,
-                                        submitReceipt,
-                                        openReferences = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubReferences)) },
-                                    )
+                                    if (handlingPresenter != null && handlingState.available) {
+                                        OperationalWorkspace(
+                                            route,
+                                            stockState,
+                                            stockPresenter,
+                                            submitReceipt,
+                                            handlingState,
+                                            handlingPresenter,
+                                            submitHandling,
+                                            openStock = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubStock)) },
+                                            openReferences = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubReferences)) },
+                                        )
+                                    } else {
+                                        StockWorkspace(
+                                            route,
+                                            stockState,
+                                            stockPresenter,
+                                            submitReceipt,
+                                            openReferences = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubReferences)) },
+                                        )
+                                    }
                                 } else {
                                     HubWorkspace(route, hubState, initializeHub, refreshHub)
                                 }
