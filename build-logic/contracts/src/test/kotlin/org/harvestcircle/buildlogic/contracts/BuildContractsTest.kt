@@ -96,7 +96,7 @@ class BuildContractsTest {
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("package.version=1.0.0", "package.version=invalid")) }
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("schema=harvestcircle.ffi.v5", "schema=harvestcircle.ffi.v3")) }
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.major=5", "contract.major=3")) }
-        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=2", "contract.minor=4")) }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=3", "contract.minor=4")) }
     }
 
     @Test
@@ -104,12 +104,12 @@ class BuildContractsTest {
         val baseline = FfiCompatibilityBaseline.parse(ffiBaseline)
 
         assertEquals("5", baseline["contract.major"])
-        assertEquals("2", baseline["contract.minor"])
+        assertEquals("3", baseline["contract.minor"])
         assertEquals("1", baseline["snapshot.schema"])
         assertEquals("1", baseline["storage.schema.minimum"])
-        assertEquals("5", baseline["storage.schema.current"])
-        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=2", "contract.minor=4")) }
-        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=2", "contract.minor=6")) }
+        assertEquals("6", baseline["storage.schema.current"])
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=3", "contract.minor=4")) }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=3", "contract.minor=6")) }
     }
 
     @Test
@@ -217,12 +217,12 @@ class BuildContractsTest {
         schema=harvestcircle.ffi.v5
         contract.id=harvestcircle-desktop-ffi-v5
         contract.major=5
-        contract.minor=2
+        contract.minor=3
         contract.hash=${"a".repeat(64)}
         product.coordinate_digest=${"b".repeat(64)}
         snapshot.schema=1
         storage.schema.minimum=1
-        storage.schema.current=5
+        storage.schema.current=6
         product.version=0.1.0-alpha
         package.version=1.0.0
         """.trimIndent() + "\n"

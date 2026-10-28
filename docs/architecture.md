@@ -7,8 +7,8 @@ Shared Radroots packages are immutable public Git dependencies, not sibling path
 
 The [food-hub MVP contract](mvp.md) defines the intended candidate operational
 surface. Demo-context setup and reads use native owner/session authorization.
-Inventory commands and rules will extend this same architecture; those workflows
-are not implemented yet. No server, shared network database file or cloud
+Native receipt commands now extend this architecture; the receiving UI and later
+physical workflows remain unfinished. No server, shared network database file or cloud
 evidence service is required for the selected demo.
 
 ## Source map
@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 5, FFI is 5.2 and snapshot schema is 1. Rust and
+The current storage schema is 6, FFI is 5.3 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -50,7 +50,7 @@ provenance, independently of installed identities. Its 4,096-version/120 MiB
 ordinary-growth bounds preserve an 8 MiB reserve within 128 MiB. Durable commands
 preserve terminal receipts for seven days, with 1,024 unfinished/4,096 total rows
 and bounded expiry cleanup. These are identity-operation bounds, not a stock
-idempotency policy. Planned inventory operations require separate durable
+idempotency policy. Inventory operations retain separate durable
 uniqueness for the lifetime of their history. Unknown outcomes require
 original-operation recovery.
 
@@ -76,6 +76,24 @@ explicit current-version review; uncertain outcomes expose only original-result
 lookup. These reference interfaces do not create physical stock. Durable
 admission and recovery of pre-commit submissions across restart/restore remain
 part of the unfinished recovery surface.
+
+
+Whole-pack receipts commit original trace/reference versions, a Receiving position,
+pending put-away work, a physical event and an immutable operation result in one
+protected transaction. Planned locations do not create positions or completed work.
+Source identity includes issuer, kind, original code and provenance; equal codes
+never merge sources. New trace/group/source IDs are deterministically namespaced
+from the native original operation. Existing-source selection must already resolve
+and retain its complete original identity. Current owner checks precede credential
+access and repeat inside SQL. Original-result replay is checked before fresh
+catalog versions and capacity; changed intent conflicts. Current Stock pages show
+current product/location names while retaining original receipt labels and versions.
+Pages are bounded to 64 rows and pin both stock and reference revisions. Original
+rows are bounded before decoding.
+The decoder reuses pure receipt planning and validates the stored intent hash.
+The bounds are 4,096 traces and 32,768 events; stock history has no identity-receipt expiry.
+Native submitted-operation admission across restart/restore is still the unfinished
+cross-feature recovery gate, and receipt UI completion is separately required.
 
 
 ## Secrets, transport and lifecycle

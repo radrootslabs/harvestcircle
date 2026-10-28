@@ -13,7 +13,7 @@ case "$command_name" in
         printf '%s\n' \
             'Start: doctor dev run demo DEMO_RUN=run-name dev-check' \
             'Build: build check clean' \
-            'Focused checks: repo-check format format-fix lint test ui-check build-logic-check mode-check bindings licenses source-check integration-check' \
+            'Focused checks: repo-check format format-fix lint test ui-check hub-check build-logic-check mode-check bindings licenses source-check integration-check' \
             'Design: design-source-check design-goldens-update' \
             'Maintenance: metadata lock' \
             'Complete development: development-check' \
@@ -29,7 +29,7 @@ case "$command_name" in
         ;;
     doctor|repo-check|lock|metadata|build-logic-check|mode-check|design-source-check|\
     design-goldens-update|format|format-fix|lint|test|check|build|\
-    bindings|dev-check|ui-check|dev|demo|run|audit|licenses|package|\
+    bindings|dev-check|ui-check|hub-check|dev|demo|run|audit|licenses|package|\
     host-package-check|source-check|integration-check|host-ui-lifecycle-check|clean|linux-check) ;;
     *) fail "unknown command: $command_name; use make help" ;;
 esac
@@ -103,6 +103,13 @@ case "$command_name" in
         exec "$GRADLE" --no-daemon :app:desktop:test \
             --tests org.harvestcircle.application.NativeGeneratedRecoveryTest \
             --tests org.harvestcircle.application.DefaultProfileStartupTest
+        ;;
+    hub-check)
+        cargo "+$HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN" test --manifest-path "$CARGO_MANIFEST" -p harvestcircle_domain --lib --locked hub::
+        cargo "+$HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN" test --manifest-path "$CARGO_MANIFEST" -p harvestcircle_storage --lib --locked hub::
+        cargo "+$HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN" test --manifest-path "$CARGO_MANIFEST" -p harvestcircle_runtime --lib --locked hub_
+        cargo "+$HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN" test --manifest-path "$CARGO_MANIFEST" -p harvestcircle_ffi --lib --locked hub_
+        exec "$GRADLE" --no-daemon :app:shared:check :app:desktop:check :app:desktop:integrationTest designCheck
         ;;
     ui-check)
         exec "$GRADLE" --no-daemon :app:shared:check :app:desktop:check designCheck

@@ -124,7 +124,7 @@ for mode in standalone governed; do
     default_output=$("$make_command" --no-print-directory -C "$dispatch_root" BUILD_MODE="$mode")
     help_output=$("$make_command" --no-print-directory -C "$dispatch_root" BUILD_MODE="$mode" help)
     [ "$default_output" = "$help_output" ] || exit 1
-    for target in doctor dev demo run dev-check ui-check build check source-check integration-check package; do
+    for target in doctor dev demo run dev-check ui-check hub-check build check source-check integration-check package; do
         run_dispatch "$mode" "$target" "$fixture/dispatch.log" > "$fixture/output.log" 2>&1 || { cat "$fixture/output.log"; exit 1; }
         if grep -Eq '^(node|npm|pnpm|npx|corepack)[[:space:]]' "$fixture/dispatch.log"; then
             printf '%s\n' "$target invoked an unrelated tool" >&2; exit 1

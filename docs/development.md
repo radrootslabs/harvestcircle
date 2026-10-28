@@ -1,9 +1,10 @@
 # Development and verification
 
-The [food-hub MVP contract](mvp.md) records intended behavior and current extension
-points. Hub features, isolated demo launch and focused hub acceptance are planned;
-there are no make demo or make hub-check targets yet. Existing commands below
-remain the public lifecycle entry points. Do not use private planning material,
+The [food-hub MVP contract](mvp.md) records implemented behavior and unfinished
+workflows. make demo opens an isolated named profile, and make hub-check exercises
+implemented native hub components and UI regressions. Receiving UI and complete
+MVP qualification remain unfinished. The commands below are the public lifecycle
+entry points. Do not use private planning material,
 machine state or a sibling checkout to run the project.
 
 Run commands from the repository root or use `make -C /path/to/harvestcircle`.
@@ -29,6 +30,7 @@ download its pinned distribution; prerequisite checks never install host tools.
 | `make build-logic-check` | Gradle contract and convention-plugin tests |
 | `make bindings` | Native library and generated binding consistency |
 | `make licenses` / `make audit` | Licence/source policy / Rust advisory checks |
+| `make hub-check` | Focused Rust hub rules/SQLite/runtime/FFI plus shared UI and native integration |
 | `make integration-check` | Native application integration and isolation |
 
 Advanced checks require their corresponding tools: `cargo-deny` for licence and

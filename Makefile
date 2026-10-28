@@ -46,7 +46,7 @@ export HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN HARVESTCIRCLE_BUILD_MODE SOURCE_DATE_E
 COMMANDS := \
     doctor repo-check lock metadata build-logic-check mode-check design-source-check \
     design-goldens-update format format-fix lint test check build \
-    bindings dev-check ui-check dev demo run audit licenses \
+    bindings dev-check ui-check hub-check dev demo run audit licenses \
     package host-package-check source-check integration-check host-ui-lifecycle-check clean linux-check
 .PHONY: help _extbuild-doctor _require-governed development-check acceptance-check $(COMMANDS)
 
@@ -81,6 +81,7 @@ build: doctor
 bindings: doctor
 dev-check: doctor
 ui-check: doctor
+hub-check: doctor
 dev: doctor
 demo: doctor
 run: doctor

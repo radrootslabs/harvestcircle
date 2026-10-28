@@ -7,6 +7,7 @@ mod contract;
 mod dto;
 mod host_runtime;
 mod hub_reference;
+mod hub_stock;
 mod keyring_worker;
 mod observer;
 
@@ -30,6 +31,11 @@ pub use hub_reference::{
     HubHandlingBasisDto, HubLocationPurposeDto, HubReferenceEditDto, HubReferenceInputDto,
     HubReferenceKindDto, HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto,
     HubReferenceRecordDto,
+};
+pub use hub_stock::{
+    HubOccurrenceDto, HubOccurrenceKindDto, HubQuantityWorkDto, HubReceiptInputDto,
+    HubReceiptTraceDto, HubSourceCertaintyDto, HubSourceDto, HubSourceInputDto, HubSourceKindDto,
+    HubStockPageDto, HubStockPositionDto, HubStockQueryDto, HubStockReceiptDto, HubStockRowDto,
 };
 pub use observer::{
     HarvestCircleChangeObserver, ObserverSubscription, ShutdownReceiptDto, SnapshotChangeDto,
@@ -67,7 +73,7 @@ mod tests {
         assert_eq!(env!("CARGO_PKG_VERSION"), "0.1.0-alpha");
         assert_eq!(super::FFI_CONTRACT_ID, "harvestcircle-desktop-ffi-v5");
         assert_eq!(super::FFI_CONTRACT_MAJOR, 5);
-        assert_eq!(super::FFI_CONTRACT_MINOR, 2);
+        assert_eq!(super::FFI_CONTRACT_MINOR, 3);
         assert_eq!(super::SNAPSHOT_SCHEMA_VERSION, 1);
         assert_eq!(
             super::PRODUCT_COORDINATE_DIGEST,

@@ -17,6 +17,34 @@ pub const HUB_TRACE_CAPACITY: usize = 4_096;
 pub const HUB_STOCK_EVENT_CAPACITY: usize = 32_768;
 pub const HUB_STOCK_PAGE_ROWS: usize = 64;
 
+/// Native-only deterministic identities retain the original operation across retries.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReceiptIdentities {
+    pub trace: HubRecordId,
+    pub group: HubRecordId,
+    pub source: HubRecordId,
+}
+
+impl ReceiptIdentities {
+    pub fn from_operation_bytes(operation: HubRecordId) -> Result<Self, StockError> {
+        let derive = |purpose: &[u8]| {
+            let mut hash = Sha256::new();
+            hash.update(b"harvestcircle.hub.receipt.identity.v1\0");
+            hash.update(purpose);
+            hash.update(operation.as_bytes());
+            let digest = hash.finalize();
+            let mut bytes = [0; 16];
+            bytes.copy_from_slice(&digest[..16]);
+            HubRecordId::from_bytes(bytes).map_err(StockError::from)
+        };
+        Ok(Self {
+            trace: derive(b"trace\0")?,
+            group: derive(b"group\0")?,
+            source: derive(b"source\0")?,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StockError {
     Reference(HubReferenceError),

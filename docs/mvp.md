@@ -121,8 +121,10 @@ versions and manual observations, preserves independent supplier/producer/issuer
 attribution and separates occurrence from recording time. Its initial position is
 at Receiving; the planned destination creates no stock or completed work. The
 inventory contract bounds traces to 4,096, operational events to 32,768 and read
-pages to 64. Persistence, native inventory commands and receiving UI remain
-unfinished; a pure plan does not record an intake.
+pages to 64. Native receipt commands now persist the trace, Receiving position, pending work,
+physical event and original result atomically. Stock/original-operation reads are
+bounded and owner-protected. Receiving UI and durable pre-commit/restart recovery
+remain unfinished; native component tests do not qualify the complete demo.
 
 ### C05: Work and time
 
@@ -307,10 +309,12 @@ must run from an independent public checkout without external design documents.
 
 ## Repository bindings and implementation status
 
-Inventory commands below are planned. Native demo-context initialization and
-reads persist through the serialized Rust actor and FFI. Explicit `make demo
+The command inventory below contains implemented and planned responsibilities.
+Native demo-context initialization, reference edits, receiving and Stock/original-
+receipt reads persist through the serialized Rust actor and FFI. Explicit `make demo
 DEMO_RUN=hub-preview` opens a named offline profile. The Work/Stock/Dispatch shell
-uses native hub setup and owner checks; inventory mutations remain unavailable.
+uses native hub setup and owner checks; inventory mutations remain unavailable
+from that UI until the receiving workspace is connected.
 The table identifies extension points, not completed inventory features.
 
 Pure hub identity, revision and ownership policy is implemented in
@@ -368,9 +372,10 @@ Preview/consequence calculation belongs in Rust; Kotlin formats its read models.
 
 Use the owning commands in [development](development.md). Existing commands are
 make doctor, check, bindings, dev-check, ui-check, integration-check,
-host-package-check, host-ui-lifecycle-check, demo and governed linux-check.
-make hub-check is planned and unavailable until its receiving implementation
-provides real behavior. Do not add passing stubs. Existing checks and generated/native compatibility remain active.
+host-package-check, host-ui-lifecycle-check, demo, hub-check and governed linux-check.
+The focused hub-check executes real Rust hub/SQLite/runtime/FFI tests, shared UI
+checks and native desktop integration. Its current native receipt coverage does
+not qualify an unfinished receiving UI or the complete MVP. Existing checks and generated/native compatibility remain active.
 
 Behavioral acceptance requires real SQLite transactions and FFI/UI integration,
 including failed/stale/replayed requests and lost responses. Rendered/macOS

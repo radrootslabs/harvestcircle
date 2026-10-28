@@ -472,3 +472,22 @@ fn original_intent_hash_covers_material_fields_and_has_a_stable_vector() {
         hash
     );
 }
+
+#[test]
+fn receipt_identities_are_stable_namespaced_and_bound_to_the_original_operation() {
+    let first = ReceiptIdentities::from_operation_bytes(id(60)).unwrap();
+    assert_eq!(first.trace.to_hex(), "2f54bfea8322b0d58cef5a3478ceee6f");
+    assert_eq!(first.group.to_hex(), "5b3ec50b5afed4fdbb89fda99999f3e9");
+    assert_eq!(first.source.to_hex(), "0e86c7ef7d9281d7bd769bb450c54312");
+    assert_eq!(
+        first,
+        ReceiptIdentities::from_operation_bytes(id(60)).unwrap()
+    );
+    assert_ne!(first.trace, first.group);
+    assert_ne!(first.group, first.source);
+    assert_ne!(first.trace, first.source);
+    assert_ne!(
+        first,
+        ReceiptIdentities::from_operation_bytes(id(61)).unwrap()
+    );
+}

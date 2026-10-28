@@ -233,7 +233,27 @@ async fn apply_on(
     })
 }
 
-async fn authorize_on(
+pub(super) async fn record_at_on(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    id: HubRecordId,
+    revision: HubRevision,
+) -> Result<ReferenceRecord, SafeError> {
+    let query = reference_select!(
+        " FROM hub_reference_versions WHERE hub_id=? AND record_id=? AND record_revision=? LIMIT 1"
+    );
+    let row = sqlx::query(query)
+        .bind(hub.as_bytes().as_slice())
+        .bind(id.as_bytes().as_slice())
+        .bind(i64::try_from(revision.value()).map_err(|_| corrupt_storage())?)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| storage_unavailable())?
+        .ok_or_else(corrupt_storage)?;
+    decode_record(&row)
+}
+
+pub(super) async fn authorize_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     actor: PublicKey,
 ) -> Result<HubOwnership, SafeError> {
@@ -266,7 +286,7 @@ pub(super) async fn validate_basis_on(
     .map_err(|_| corrupt_storage())
 }
 
-async fn load_catalog_on(
+pub(super) async fn load_catalog_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
 ) -> Result<ReferenceCatalog, SafeError> {

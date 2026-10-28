@@ -149,24 +149,12 @@ impl RuntimeActor {
                             )
                         }
                         HubReferenceCommand::Apply { operation, command } => {
-                            // Deny another owner before opening any credential.
-                            // The transaction still rechecks current ownership.
-                            adapter
-                                .database()
-                                .load_hub()
-                                .await?
-                                .ok_or_else(permission_denied)?
-                                .authorize(Some(actor))
-                                .map_err(|_| permission_denied())?;
-                            // Prove current credential possession outside SQL; the actor
-                            // serializes session changes until this bounded work returns.
-                            let material =
-                                adapter.key_material().import(secrets.load(actor).await?)?;
-                            let (actual, _, secret) = material.into_parts();
-                            drop(secret);
-                            if actual != actor {
-                                return Err(permission_denied());
-                            }
+                            hub_authority::require_owner_credential(
+                                adapter.as_ref(),
+                                secrets.as_ref(),
+                                actor,
+                            )
+                            .await?;
                             HubReferenceValue::Receipt(Some(
                                 adapter
                                     .database()

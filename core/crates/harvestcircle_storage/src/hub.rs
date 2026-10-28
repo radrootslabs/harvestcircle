@@ -1,5 +1,6 @@
 //! Local hub state has no foreign key to removable account or credential rows.
 pub(crate) mod reference;
+pub(crate) mod stock;
 use harvestcircle_application::DurableRequestId;
 use harvestcircle_domain::hub::{HubId, HubOwnership, HubRevision};
 use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage, UnixTimestamp};
@@ -127,6 +128,8 @@ impl Database {
                 .bind(candidate.owner().as_bytes().as_slice())
                 .bind(&operation).bind(now.as_seconds())
                 .execute(&mut *transaction).await.map_err(|_| storage_unavailable())?;
+            sqlx::query("INSERT INTO hub_stock_state (singleton, hub_id, revision, event_count) VALUES (1, ?, 1, 0)")
+                .bind(candidate.id().as_bytes().as_slice()).execute(&mut *transaction).await.map_err(|_| storage_unavailable())?;
             sqlx::query("INSERT INTO hub_handling_context (singleton, hub_id, basis_id, basis_version, site_timezone) VALUES (1, ?, 'whole-pack-demo-v1', 1, 'UTC')")
                 .bind(candidate.id().as_bytes().as_slice()).execute(&mut *transaction).await.map_err(|_| storage_unavailable())?;
             sqlx::query("INSERT INTO hub_history (sequence, hub_id, actor_public_key, event_kind, recorded_at_unix_s, owner_public_key, operation_id) VALUES (1, ?, ?, 'initialized', ?, ?, ?)")

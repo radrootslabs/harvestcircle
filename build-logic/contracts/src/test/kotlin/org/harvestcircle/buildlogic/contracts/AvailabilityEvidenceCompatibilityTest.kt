@@ -10,25 +10,27 @@ public class AvailabilityEvidenceCompatibilityTest {
         val baseline = FfiCompatibilityBaseline.parse(fixture)
 
         assertEquals("5", baseline["contract.major"])
-        assertEquals("2", baseline["contract.minor"])
+        assertEquals("3", baseline["contract.minor"])
         assertEquals("1", baseline["snapshot.schema"])
         assertEquals("1", baseline["storage.schema.minimum"])
-        assertEquals("5", baseline["storage.schema.current"])
+        assertEquals("6", baseline["storage.schema.current"])
         assertEquals("a".repeat(64), baseline["contract.hash"])
     }
 
     @Test
     public fun previousCurrentSchemaOrMinorAreRejected() {
         listOf(
-            fixture.replace("contract.minor=2", "contract.minor=0"),
-            fixture.replace("contract.minor=2", "contract.minor=1"),
-            fixture.replace("storage.schema.current=5", "storage.schema.current=4"),
-            fixture.replace("storage.schema.current=5", "storage.schema.current=3"),
-            fixture.replace("contract.minor=2", "contract.minor=4"),
-            fixture.replace("storage.schema.current=5", "storage.schema.current=2"),
-            fixture.replace("contract.minor=2", "contract.minor=4").replace("storage.schema.current=5", "storage.schema.current=2"),
-            fixture.replace("contract.minor=2", "contract.minor=6"),
-            fixture.replace("storage.schema.current=5", "storage.schema.current=6"),
+            fixture.replace("contract.minor=3", "contract.minor=0"),
+            fixture.replace("contract.minor=3", "contract.minor=1"),
+            fixture.replace("contract.minor=3", "contract.minor=2"),
+            fixture.replace("storage.schema.current=6", "storage.schema.current=5"),
+            fixture.replace("storage.schema.current=6", "storage.schema.current=4"),
+            fixture.replace("storage.schema.current=6", "storage.schema.current=3"),
+            fixture.replace("contract.minor=3", "contract.minor=4"),
+            fixture.replace("storage.schema.current=6", "storage.schema.current=2"),
+            fixture.replace("contract.minor=3", "contract.minor=4").replace("storage.schema.current=6", "storage.schema.current=2"),
+            fixture.replace("contract.minor=3", "contract.minor=6"),
+            fixture.replace("storage.schema.current=6", "storage.schema.current=7"),
             fixture.replace("contract.major=5", "contract.major=4"),
             fixture.replace("snapshot.schema=1", "snapshot.schema=2"),
             fixture.replace("storage.schema.minimum=1", "storage.schema.minimum=2"),
@@ -43,12 +45,12 @@ public class AvailabilityEvidenceCompatibilityTest {
         schema=harvestcircle.ffi.v5
         contract.id=harvestcircle-desktop-ffi-v5
         contract.major=5
-        contract.minor=2
+        contract.minor=3
         contract.hash=${"a".repeat(64)}
         product.coordinate_digest=${"b".repeat(64)}
         snapshot.schema=1
         storage.schema.minimum=1
-        storage.schema.current=5
+        storage.schema.current=6
         product.version=0.1.0-alpha
         package.version=1.0.0
         """.trimIndent() + "\n"

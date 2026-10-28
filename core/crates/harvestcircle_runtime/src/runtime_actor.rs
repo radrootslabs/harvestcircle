@@ -36,12 +36,22 @@ use harvestcircle_domain::hub::{HubId, HubOwnership};
 mod hub_reference;
 use hub_reference::{HubReferenceCommand, HubReferenceValue};
 
+#[path = "hub_stock.rs"]
+mod hub_stock;
+use hub_stock::{HubStockCommand, HubStockValue};
+#[path = "hub_authority.rs"]
+mod hub_authority;
+
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_TASK_CAPACITY: usize = 64;
 const MAX_OUTSTANDING_PROFILE_TASKS: usize = 64;
 
 enum RuntimeCommand {
     Snapshot,
+    HubStock {
+        generation: SessionGeneration,
+        command: HubStockCommand,
+    },
     HubReference {
         generation: SessionGeneration,
         command: HubReferenceCommand,
@@ -85,6 +95,7 @@ enum RuntimeCommand {
 enum RuntimeCommandValue {
     Hub(Option<HubOwnership>),
     HubReference(HubReferenceValue),
+    HubStock(HubStockValue),
     Snapshot(Box<AppSnapshot>),
     Generated(GenerateIdentityReceipt),
     GeneratedKeyStage(GeneratedKeyRecoveryHandle),
@@ -100,6 +111,7 @@ impl RuntimeCommand {
     const fn class(&self) -> RuntimeCommandClass {
         match self {
             Self::HubReference { command, .. } => command.class(),
+            Self::HubStock { command, .. } => command.class(),
             Self::Snapshot
             | Self::HubRead { .. }
             | Self::SubscribeChanges(_)
@@ -763,6 +775,13 @@ impl RuntimeActorHandle {
                 ..
             }
         );
+        let stock_mutation = matches!(
+            command,
+            RuntimeCommand::HubStock {
+                command: HubStockCommand::Receive { .. },
+                ..
+            }
+        );
         let context = CommandContext::new(request_id, expected_revision, deadline);
         let receipt = match self.mailbox.submit(context, command) {
             CommandSubmission::Accepted(ticket) => {
@@ -776,14 +795,17 @@ impl RuntimeActorHandle {
         };
         match receipt.into_result() {
             CommandResult::Completed(value) => Ok(value),
-            CommandResult::Conflicted { .. } if reference_mutation => Err(SafeError::new(
-                SafeErrorCode::HubConflict,
-                SafeMessage::new(
-                    "The active application context changed. Review before submitting.",
-                ),
-            )),
+            CommandResult::Conflicted { .. } if reference_mutation || stock_mutation => {
+                Err(SafeError::new(
+                    SafeErrorCode::HubConflict,
+                    SafeMessage::new(
+                        "The active application context changed. Review before submitting.",
+                    ),
+                ))
+            }
             CommandResult::Conflicted { .. } => Err(command_conflicted()),
             CommandResult::Rejected(_) => Err(command_rejected()),
+            CommandResult::TimedOut if stock_mutation => Err(hub_stock::outcome_unknown()),
             CommandResult::TimedOut if reference_mutation => Err(hub_reference::outcome_unknown()),
             CommandResult::TimedOut => Err(command_timed_out()),
             CommandResult::Closed => Err(runtime_closed()),
@@ -1057,6 +1079,10 @@ impl RuntimeActor {
         command: RuntimeCommand,
     ) -> CommandResult<RuntimeCommandValue> {
         let result = match command {
+            RuntimeCommand::HubStock {
+                generation,
+                command,
+            } => self.execute_hub_stock(generation, context, command).await,
             RuntimeCommand::HubReference {
                 generation,
                 command,
@@ -3679,6 +3705,272 @@ mod tests {
                 .is_err()
         );
         assert!(actor.adapter.database().load_hub().await.unwrap().is_none());
+        actor.close().await.unwrap();
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn hub_inventory_requires_current_owner_session_and_credential_and_keeps_original_receipts()
+     {
+        use harvestcircle_domain::hub::reference::{
+            HubLabel, HubRecordId, LocationPurpose, ReferenceCommand, ReferenceMutation,
+            ReferenceValue, SourceAttribution, SourceProvenance, WholePacks,
+        };
+        use harvestcircle_domain::hub::stock::{Occurrence, ReceiptCommand};
+        use harvestcircle_storage::HubStockQuery;
+        let secrets = Arc::new(InMemorySecretStore::default());
+        let actor = RuntimeActorHandle::in_memory(
+            RelayConfiguration::default(),
+            dependencies(secrets.clone(), Arc::new(OfflineNostr)).with_demo_profile(),
+            NonZeroUsize::new(8).unwrap(),
+            &tokio::runtime::Handle::current(),
+        )
+        .await
+        .unwrap();
+        let query = || HubStockQuery {
+            expected_catalog_revision: None,
+            expected_revision: None,
+            offset: 0,
+            limit: 64,
+            location: None,
+            trace: None,
+            text: String::new(),
+        };
+        assert_eq!(
+            actor.hub_stock(query()).await.unwrap_err().code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        let generated = actor
+            .generate_identity(
+                DurableRequestId::new_v7(),
+                actor.snapshot().revision(),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await
+            .unwrap();
+        let owner = generated.identity().public_key();
+        drop(generated);
+        actor.activate_identity(owner).await.unwrap();
+        actor
+            .initialize_hub(
+                DurableRequestId::new_v7(),
+                actor.snapshot().revision(),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await
+            .unwrap();
+        let record = |n| HubRecordId::from_bytes([n; 16]).unwrap();
+        for (n, value) in [
+            (
+                1,
+                ReferenceValue::Product {
+                    label: HubLabel::new("Fictional apples").unwrap(),
+                },
+            ),
+            (
+                2,
+                ReferenceValue::Pack {
+                    product: record(1),
+                    label: HubLabel::new("Original crate").unwrap(),
+                    nominal_grams: None,
+                },
+            ),
+            (
+                3,
+                ReferenceValue::Location {
+                    label: HubLabel::new("Receiving").unwrap(),
+                    purpose: LocationPurpose::Receiving,
+                },
+            ),
+            (
+                4,
+                ReferenceValue::Location {
+                    label: HubLabel::new("A3").unwrap(),
+                    purpose: LocationPurpose::Storage,
+                },
+            ),
+        ] {
+            let catalog = actor.hub_references().await.unwrap();
+            actor
+                .apply_hub_reference(
+                    DurableRequestId::new_v7(),
+                    ReferenceCommand {
+                        expected_catalog_revision: catalog.revision(),
+                        mutation: ReferenceMutation::Create {
+                            id: record(n),
+                            value,
+                        },
+                    },
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT,
+                )
+                .await
+                .unwrap();
+        }
+        let catalog = actor.hub_references().await.unwrap();
+        let input = ReceiptCommand {
+            expected_stock_revision: harvestcircle_domain::hub::HubRevision::INITIAL,
+            expected_catalog_revision: catalog.revision(),
+            variant: record(2),
+            supplier: None,
+            producer: None,
+            source: SourceAttribution::Unknown,
+            packs: WholePacks::from_value(20).unwrap(),
+            receiving: record(3),
+            planned_location: Some(record(4)),
+            occurred: Occurrence::Unknown,
+            observation: SourceProvenance::new("Manually counted twenty original crates").unwrap(),
+        };
+        let operation = DurableRequestId::new_v7();
+        let receipt = actor
+            .receive_hub_stock(
+                operation.clone(),
+                input.clone(),
+                actor.snapshot().revision(),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await
+            .unwrap();
+        assert_eq!(receipt.original.trace.actor, owner);
+        let page = actor.hub_stock(query()).await.unwrap();
+        assert_eq!(page.rows[0].position.packs.value(), 20);
+        assert_eq!(page.rows[0].position.location, record(3));
+        assert_eq!(page.rows[0].put_away.remaining().value(), 20);
+        assert_eq!(
+            actor
+                .hub_stock(HubStockQuery {
+                    location: Some(record(4)),
+                    ..query()
+                })
+                .await
+                .unwrap()
+                .total,
+            0
+        );
+        let old_generation = actor.session_generation();
+        let credential = secrets.load(owner).await.unwrap();
+        secrets
+            .delete(&DurableRequestId::new_v7(), owner)
+            .await
+            .unwrap();
+        assert_eq!(
+            actor
+                .receive_hub_stock(
+                    operation.clone(),
+                    input.clone(),
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::CredentialMissing
+        );
+        assert_eq!(
+            actor
+                .hub_receipt_operation(operation.clone())
+                .await
+                .unwrap(),
+            Some(receipt.clone())
+        );
+        secrets
+            .put(&DurableRequestId::new_v7(), owner, credential)
+            .await
+            .unwrap();
+        let second = actor
+            .generate_identity(
+                DurableRequestId::new_v7(),
+                actor.snapshot().revision(),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await
+            .unwrap()
+            .identity()
+            .public_key();
+        actor.activate_identity(second).await.unwrap();
+        let second_credential = secrets.load(second).await.unwrap();
+        secrets
+            .delete(&DurableRequestId::new_v7(), second)
+            .await
+            .unwrap();
+        assert_eq!(
+            actor
+                .receive_hub_stock(
+                    operation.clone(),
+                    input.clone(),
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert_eq!(
+            actor.hub_stock(query()).await.unwrap_err().code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert_eq!(
+            actor
+                .hub_receipt_operation(operation.clone())
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert!(
+            actor
+                .dispatch(
+                    RuntimeCommand::HubStock {
+                        generation: old_generation,
+                        command: super::HubStockCommand::Read(query())
+                    },
+                    None
+                )
+                .await
+                .is_err()
+        );
+        secrets
+            .put(&DurableRequestId::new_v7(), second, second_credential)
+            .await
+            .unwrap();
+        actor.activate_identity(owner).await.unwrap();
+        let expired = DurableRequestId::new_v7();
+        assert_eq!(
+            actor
+                .receive_hub_stock(
+                    expired.clone(),
+                    input.clone(),
+                    actor.snapshot().revision(),
+                    Duration::ZERO
+                )
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubOutcomeUnknown
+        );
+        assert!(
+            actor
+                .hub_receipt_operation(expired)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            actor
+                .receive_hub_stock(
+                    operation.clone(),
+                    input,
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .unwrap(),
+            receipt
+        );
+        actor.sign_out().await.unwrap();
+        assert_eq!(
+            actor.hub_stock(query()).await.unwrap_err().code(),
+            SafeErrorCode::HubPermissionDenied
+        );
         actor.close().await.unwrap();
     }
 }

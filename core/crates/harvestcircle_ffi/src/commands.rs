@@ -29,6 +29,7 @@ use radroots_service_sqlite::MigrationBuildIdentity;
 use crate::hub_reference::{
     HubReferenceEditDto, HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto,
 };
+use crate::hub_stock::{HubReceiptInputDto, HubStockPageDto, HubStockQueryDto, HubStockReceiptDto};
 use crate::{
     AppSnapshotDto, IdentityDto, RelayDestinationDto, RelayEndpointDto, WireErrorCategory,
     WireErrorCode, WireRecoveryAction,
@@ -514,6 +515,56 @@ impl HarvestCircleAppCore {
             )
             .await
             .map(HubContextDto::from)
+            .map_err(|error| HarvestCircleError::correlated(error, &request))
+    }
+
+    pub async fn hub_stock(
+        &self,
+        query: HubStockQueryDto,
+    ) -> Result<HubStockPageDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        self.inner
+            .actor
+            .hub_stock(query.decode()?)
+            .await
+            .map(Into::into)
+            .map_err(HarvestCircleError::from)
+    }
+
+    pub async fn receive_hub_stock(
+        &self,
+        context: RequestContextDto,
+        input: HubReceiptInputDto,
+    ) -> Result<HubStockReceiptDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let (request, timeout) = validate_request_context(&context)?;
+        let command = input.command(&request)?;
+        self.inner
+            .actor
+            .receive_hub_stock(
+                request.clone(),
+                command,
+                harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
+                timeout,
+            )
+            .await
+            .map(Into::into)
+            .map_err(|error| HarvestCircleError::correlated(error, &request))
+    }
+
+    /// Reads the immutable original; an absent receipt never authorizes replay.
+    pub async fn hub_receipt_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubStockReceiptDto>, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let request = DurableRequestId::parse(operation_id)
+            .map_err(|_| crate::hub_reference::invalid_input())?;
+        self.inner
+            .actor
+            .hub_receipt_operation(request.clone())
+            .await
+            .map(|value| value.map(Into::into))
             .map_err(|error| HarvestCircleError::correlated(error, &request))
     }
 
@@ -1500,6 +1551,179 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn hub_receiving_ffi_uses_actual_native_authority_and_preserves_original_physical_result()
+    {
+        use crate::HubReferenceEditDto;
+        use crate::{
+            HubLocationPurposeDto, HubOccurrenceDto, HubOccurrenceKindDto, HubReceiptInputDto,
+            HubReferenceInputDto, HubReferenceKindDto, HubSourceCertaintyDto, HubSourceInputDto,
+            HubStockQueryDto,
+        };
+        use harvestcircle_application::DurableRequestId;
+        let core = in_memory_core_with_mode(true).await;
+        let initial = core.bootstrap().await.unwrap();
+        let context = |revision| RequestContextDto {
+            request_id: DurableRequestId::new_v7().as_str().to_owned(),
+            expected_revision: revision,
+            deadline_millis: 5000,
+        };
+        let imported = core
+            .import_identity(
+                context(initial.revision),
+                b"7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7".to_vec(),
+            )
+            .await
+            .unwrap();
+        let key = imported.snapshot.identities[0].public_key_hex.clone();
+        core.activate_identity(key.clone()).await.unwrap();
+        core.initialize_hub(context(core.snapshot().revision))
+            .await
+            .unwrap();
+        let mut ids: Vec<String> = Vec::new();
+        let mut catalog_revision = 1;
+        for (kind, label, purpose) in [
+            (HubReferenceKindDto::Product, "Fictional apples", None),
+            (HubReferenceKindDto::Pack, "Original crate", None),
+            (
+                HubReferenceKindDto::Location,
+                "Receiving",
+                Some(HubLocationPurposeDto::Receiving),
+            ),
+            (
+                HubReferenceKindDto::Location,
+                "A3",
+                Some(HubLocationPurposeDto::Storage),
+            ),
+        ] {
+            let product_id = if kind == HubReferenceKindDto::Pack {
+                Some(ids[0].clone())
+            } else {
+                None
+            };
+            let saved = core
+                .apply_hub_reference(
+                    context(core.snapshot().revision),
+                    HubReferenceEditDto {
+                        expected_catalog_revision: catalog_revision,
+                        record_id: None,
+                        expected_record_revision: None,
+                        value: HubReferenceInputDto {
+                            kind,
+                            label: label.to_owned(),
+                            product_id,
+                            nominal_grams: None,
+                            location_purpose: purpose,
+                        },
+                    },
+                )
+                .await
+                .unwrap();
+            catalog_revision = saved.catalog_revision;
+            ids.push(saved.current.id);
+        }
+        let query = HubStockQueryDto {
+            expected_catalog_revision: None,
+            expected_stock_revision: None,
+            offset: 0,
+            limit: 64,
+            location_id: None,
+            trace_id: None,
+            text: String::new(),
+        };
+        let empty = core.hub_stock(query.clone()).await.unwrap();
+        assert_eq!(empty.total, 0);
+        let input = HubReceiptInputDto {
+            expected_stock_revision: empty.stock_revision,
+            expected_catalog_revision: catalog_revision,
+            variant_id: ids[1].clone(),
+            supplier_id: None,
+            producer_id: None,
+            source: HubSourceInputDto {
+                existing_source_id: None,
+                issuer_id: None,
+                kind: None,
+                code: None,
+                provenance: None,
+                certainty: HubSourceCertaintyDto::Unknown,
+            },
+            whole_packs: 20,
+            receiving_id: ids[2].clone(),
+            planned_location_id: Some(ids[3].clone()),
+            occurrence: HubOccurrenceDto {
+                kind: HubOccurrenceKindDto::Unknown,
+                start_unix_s: None,
+                end_unix_s: None,
+            },
+            observation: "Manually counted twenty original crates".into(),
+        };
+        let original_context = context(core.snapshot().revision);
+        let recorded = core
+            .receive_hub_stock(original_context.clone(), input.clone())
+            .await
+            .unwrap();
+        assert_eq!(recorded.operation_id, original_context.request_id);
+        assert_eq!(recorded.trace.actor_public_key, key);
+        assert_eq!(recorded.initial_position.whole_packs, 20);
+        assert_eq!(recorded.initial_position.location_id, ids[2]);
+        assert_eq!(recorded.initial_put_away.remaining, 20);
+        assert_eq!(recorded.initial_put_away.completed, 0);
+        assert!(recorded.trace.source_needs_review);
+        assert_eq!(
+            recorded.trace.source.certainty,
+            HubSourceCertaintyDto::Unknown
+        );
+        assert_eq!(
+            core.hub_stock(HubStockQueryDto {
+                location_id: Some(ids[3].clone()),
+                ..query.clone()
+            })
+            .await
+            .unwrap()
+            .total,
+            0
+        );
+        assert_eq!(
+            core.receive_hub_stock(original_context.clone(), input.clone())
+                .await
+                .unwrap(),
+            recorded
+        );
+        let changed = HubReceiptInputDto {
+            whole_packs: 21,
+            ..input
+        };
+        assert!(matches!(
+            core.receive_hub_stock(original_context.clone(), changed)
+                .await
+                .unwrap_err(),
+            HarvestCircleError::Failure {
+                code: WireErrorCode::HubConflict,
+                ..
+            }
+        ));
+        assert_eq!(
+            core.hub_stock(query.clone()).await.unwrap().rows[0]
+                .position
+                .whole_packs,
+            20
+        );
+        assert_eq!(
+            core.hub_receipt_operation(original_context.request_id.clone())
+                .await
+                .unwrap(),
+            Some(recorded)
+        );
+        core.sign_out().await.unwrap();
+        assert!(core.hub_stock(query).await.is_err());
+        assert!(
+            core.hub_receipt_operation(original_context.request_id)
+                .await
+                .is_err()
+        );
+        core.shutdown_v2().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn exported_bootstrap_and_snapshot_are_revisioned() {
         let core = in_memory_core().await;
         let bootstrapped = core.bootstrap().await.expect("bootstrap");
@@ -1985,7 +2209,7 @@ mod tests {
             .to_path_buf();
         assert!(database.ends_with("data/services/harvestcircle/desktop/state.sqlite"));
         assert!(!database.to_string_lossy().contains("harvestcircle.sqlite3"));
-        assert_eq!(CURRENT_SCHEMA_VERSION, 5);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 6);
     }
 
     #[test]
