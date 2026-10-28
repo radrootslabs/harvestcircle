@@ -200,6 +200,17 @@ replacement. Actual departure, durable admission/session/restore recovery and fu
 MVP qualification remain unfinished. Existing Nostr identity and recovery retain
 their separate contracts.
 
+Pure normal-departure policy lives in
+`core/crates/harvestcircle_domain/src/hub/departure.rs`. It binds an active current
+issued version to exact current material and reprojects complete native treatment
+at the same revision. All selected lines succeed as one plan. Pending exit retires
+quantity work once per shared requirement; completed work remains completion.
+Consumed groups retain their positive originals and ancestry rather than becoming
+invalid zero-pack domain objects. Original plan validation checks every effect,
+work transition, identity and causal clock. Native atomic outflow/usage storage,
+conservation readers, generated departure transport and the actual-departure UI
+remain unfinished; these pure plans confer no mutation or departure authority.
+
 ## Secrets, transport and lifecycle
 
 Private keys and signing stay in Rust behind opaque handles. OS custody uses

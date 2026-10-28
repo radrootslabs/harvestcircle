@@ -271,6 +271,14 @@ the original operation for read-only recovery. Reviewing current physical facts
 never silently rewrites the saved preparation. Actual departure and the remaining
 stock lifecycle/recovery/release qualification remain unfinished.
 
+The pure normal-departure planner now checks the current issued version, exact
+material, current acceptance/hold projection and separate occurrence/recording
+clocks for every line. It plans one atomic departure, preserves original paper
+history and retires only pending work. The 20/8/5 branch retains eight completed,
+retires five and leaves seven remaining. Native outflow/usage persistence,
+conservation readers, generated departure transport and actual UI recording remain
+unfinished. No current control records a physical departure yet.
+
 Trace includes receipts, remaining stock, recipients, adjustments, returns and
 dispositions with explicit uncertainty and retrieval limits. Preserve every plausible
 source/recipient in supported unresolved-origin retrieval. Bound and safely render

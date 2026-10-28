@@ -4,6 +4,7 @@
 //! session. Equality is a policy decision, not proof of credential possession.
 //! Persistence and native session checks must protect the complete command.
 
+pub mod departure;
 pub mod dispatch;
 pub mod movement;
 pub mod portions;
