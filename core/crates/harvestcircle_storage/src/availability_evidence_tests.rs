@@ -451,8 +451,8 @@ async fn fill_count(database: &Database, count: usize) -> (AvailabilityVersionVi
 fn historical_v1_v2_catalogs_preserve_exact_sql_and_digests() {
     let migrations = harvestcircle_migration_catalog().expect("current migrations");
     let schema = harvestcircle_schema_catalog().expect("current schemas");
-    assert_eq!(migrations.current_version(), 6);
-    assert_eq!(migrations.descriptors().len(), 5);
+    assert_eq!(migrations.current_version(), 7);
+    assert_eq!(migrations.descriptors().len(), 6);
     let previous = &migrations.descriptors()[0];
     assert_eq!(previous.target_version(), 2);
     assert_eq!(previous.name().as_str(), "bound_durable_operation_receipts");
@@ -467,7 +467,7 @@ fn historical_v1_v2_catalogs_preserve_exact_sql_and_digests() {
         MigrationChecksum::for_sql(MIGRATE_DURABLE_OPERATIONS_V2_SQL),
         previous.checksum()
     );
-    assert_eq!(schema.versions().len(), 6);
+    assert_eq!(schema.versions().len(), 7);
     assert_eq!(schema.versions()[0].version(), 1);
     assert_eq!(
         *schema.versions()[0].digest().as_bytes(),
@@ -531,7 +531,7 @@ fn historical_v1_v2_catalogs_preserve_exact_sql_and_digests() {
 async fn fresh_governed_database_installs_allocated_evidence_schema() {
     let fixture = Fixture::new();
     let database = fixture.open().await;
-    assert_eq!(database.metadata().state_schema_version().get(), 6);
+    assert_eq!(database.metadata().state_schema_version().get(), 7);
     assert_eq!(database.metadata().service().as_str(), "harvestcircle");
     assert_eq!(database.metadata().instance().as_str(), "desktop");
     assert_eq!(database.metadata().created_at_unix_ms(), 99);
@@ -541,12 +541,21 @@ async fn fresh_governed_database_installs_allocated_evidence_schema() {
         "SELECT version, name, checksum FROM schema_migrations ORDER BY version",
     )
     .await;
-    assert_eq!(ledger.len(), 5);
+    assert_eq!(ledger.len(), 6);
     assert_eq!(ledger[0].get::<i64, _>("version"), 2);
     assert_eq!(ledger[1].get::<i64, _>("version"), 3);
     assert_eq!(ledger[2].get::<i64, _>("version"), 4);
     assert_eq!(ledger[3].get::<i64, _>("version"), 5);
     assert_eq!(ledger[4].get::<i64, _>("version"), 6);
+    assert_eq!(ledger[5].get::<i64, _>("version"), 7);
+    assert_eq!(
+        ledger[5].get::<String, _>("name"),
+        "add_identified_stock_handling"
+    );
+    assert_eq!(
+        ledger[5].get::<Vec<u8>, _>("checksum"),
+        crate::hub::handling::schema::MIGRATION_CHECKSUM.as_bytes()
+    );
     assert_eq!(
         ledger[4].get::<String, _>("name"),
         "add_whole_pack_inventory"
@@ -659,7 +668,7 @@ async fn governed_v2_upgrade_preserves_original_state_and_source_identity() {
     assert!(state.iter().all(Option::is_some));
     host.close().await.unwrap();
     let database = fixture.open().await;
-    assert_eq!(database.metadata().state_schema_version().get(), 6);
+    assert_eq!(database.metadata().state_schema_version().get(), 7);
     assert_eq!(
         database.metadata().source_generation(),
         before.source_generation()
@@ -833,7 +842,7 @@ async fn real_migration_succeeds_after_rolled_back_creation() {
     let fixture = Fixture::new();
     let before = rollback_evidence_creation(&fixture).await;
     let database = fixture.open().await;
-    assert_eq!(database.metadata().state_schema_version().get(), 6);
+    assert_eq!(database.metadata().state_schema_version().get(), 7);
     assert_eq!(snapshot(database.host()).await, before);
     assert_usage(&database, 0, 0).await;
     let public = focused("after-real-retry");
@@ -866,7 +875,7 @@ async fn future_schema_and_integrity_failure_preserve_original_state() {
         database.close().await.unwrap();
         let mut connection = fixture.closed_connection().await;
         if future {
-            sqlx::query("UPDATE radroots_service_metadata SET state_schema_version = 7")
+            sqlx::query("UPDATE radroots_service_metadata SET state_schema_version = 8")
                 .execute(&mut connection)
                 .await
                 .unwrap();
@@ -2198,8 +2207,8 @@ async fn hub_history_conflict_rolls_back_context_and_preserves_history() {
 }
 
 #[tokio::test]
-async fn actual_pre_reference_schemas_upgrade_without_rewriting_originals() {
-    for version in [3, 4, 5] {
+async fn actual_pre_handling_schemas_upgrade_without_rewriting_originals() {
+    for (version, corrupt) in [(3, false), (4, false), (5, false), (6, false), (6, true)] {
         let fixture = Fixture::new();
         let contract =
             HarvestCircleStorageContract::from_runtime_context(&fixture.context).unwrap();
@@ -2270,7 +2279,7 @@ async fn actual_pre_reference_schemas_upgrade_without_rewriting_originals() {
                     .bind(hub.id().as_bytes().as_slice()).bind(hub.owner().as_bytes().as_slice()).bind(hub.owner().as_bytes().as_slice()).execute(&mut *tx).await.map_err(|_| SafeError::new(SafeErrorCode::StorageUnavailable, SafeMessage::new("Historical fixture insert failed.")))?;
                 Ok::<(), SafeError>(())
             })).await.unwrap();
-            if version == 5 {
+            if version >= 5 {
                 host.transaction(|tx| Box::pin(async move {
                     sqlx::query("INSERT INTO hub_handling_context VALUES (1, ?, 'whole-pack-demo-v1', 1, 'UTC')")
                         .bind(hub.id().as_bytes().as_slice()).execute(&mut *tx).await.map_err(|_| crate::db::storage_unavailable())?;
@@ -2294,7 +2303,60 @@ async fn actual_pre_reference_schemas_upgrade_without_rewriting_originals() {
         } else {
             None
         };
+        let historical_receipt = if version == 6 {
+            Some(seed_historical_v6_receipt(&host, historical_hub.unwrap()).await)
+        } else {
+            None
+        };
+        if corrupt {
+            host.transaction(|tx| {
+                Box::pin(async move {
+                    sqlx::query("UPDATE hub_putaway_work SET completed=1,remaining=19,revision=2")
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|_| crate::db::storage_unavailable())?;
+                    Ok::<(), SafeError>(())
+                })
+            })
+            .await
+            .unwrap();
+        }
         host.close().await.unwrap();
+        if corrupt {
+            assert!(
+                Database::open(&fixture.context, 99, 100, &fixture.build)
+                    .await
+                    .is_err()
+            );
+            let mut raw = fixture.closed_connection().await;
+            let retained: i64 =
+                sqlx::query_scalar("SELECT state_schema_version FROM radroots_service_metadata")
+                    .fetch_one(&mut raw)
+                    .await
+                    .unwrap();
+            assert_eq!(retained, 6);
+            let original:i64=sqlx::query_scalar("SELECT count(*) FROM hub_putaway_work WHERE completed=1 AND remaining=19 AND revision=2").fetch_one(&mut raw).await.unwrap();
+            assert_eq!(original, 1);
+            let partial: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM sqlite_schema WHERE name='hub_work_requirements'",
+            )
+            .fetch_one(&mut raw)
+            .await
+            .unwrap();
+            assert_eq!(partial, 0);
+            let ledger: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM schema_migrations WHERE version=7")
+                    .fetch_one(&mut raw)
+                    .await
+                    .unwrap();
+            assert_eq!(ledger, 0);
+            // Repair only this deliberately damaged owned fixture, then retry normally.
+            sqlx::query("UPDATE hub_putaway_work SET completed=0,remaining=20,revision=1")
+                .execute(&mut raw)
+                .await
+                .unwrap();
+            raw.close().await.unwrap();
+        }
         let database = fixture.open().await;
         assert_round_trip(
             &database
@@ -2304,7 +2366,7 @@ async fn actual_pre_reference_schemas_upgrade_without_rewriting_originals() {
                 .unwrap(),
             &public,
         );
-        assert_eq!(database.metadata().state_schema_version().get(), 6);
+        assert_eq!(database.metadata().state_schema_version().get(), 7);
         assert_eq!(
             database.metadata().source_generation(),
             original_metadata.source_generation()
@@ -2319,9 +2381,13 @@ async fn actual_pre_reference_schemas_upgrade_without_rewriting_originals() {
                     .unwrap()
                     .records()
                     .len(),
-                usize::from(version == 5)
+                if version == 6 {
+                    5
+                } else {
+                    usize::from(version == 5)
+                }
             );
-            if version == 5 {
+            if version >= 5 {
                 let original = database
                     .hub_reference_operation(
                         hub.owner(),
@@ -2340,7 +2406,7 @@ async fn actual_pre_reference_schemas_upgrade_without_rewriting_originals() {
                 assert_eq!(original.actor, hub.owner());
                 assert_eq!(original.recorded_at.as_seconds(), 100);
             }
-            let empty = database
+            let stock = database
                 .hub_stock_page(
                     hub.owner(),
                     crate::HubStockQuery {
@@ -2355,12 +2421,167 @@ async fn actual_pre_reference_schemas_upgrade_without_rewriting_originals() {
                 )
                 .await
                 .unwrap();
-            assert_eq!(
-                empty.revision,
-                harvestcircle_domain::hub::HubRevision::INITIAL
-            );
-            assert_eq!(empty.total, 0);
+            if let Some(original) = &historical_receipt {
+                assert_eq!(stock.total, 1);
+                assert_eq!(stock.rows[0].position.packs.value(), 20);
+                assert_eq!(stock.rows[0].put_away.remaining().value(), 20);
+                assert_eq!(
+                    database
+                        .hub_receipt_operation(hub.owner(), original.operation.clone())
+                        .await
+                        .unwrap()
+                        .as_ref(),
+                    Some(original)
+                );
+                let group = database
+                    .hub_group(hub.owner(), original.original.position.group)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    group.group.work[0].requirement.quantity,
+                    original.original.put_away
+                );
+            } else {
+                assert_eq!(
+                    stock.revision,
+                    harvestcircle_domain::hub::HubRevision::INITIAL
+                );
+                assert_eq!(stock.total, 0);
+            }
         }
         database.close().await.unwrap();
     }
+}
+
+/// Actual schema-6 SQL and its published receipt writer, without schema-7 tables.
+/// This qualifies stored-data upgrade, not an older packaged application.
+async fn seed_historical_v6_receipt(
+    host: &ServiceSqliteHost,
+    hub: harvestcircle_domain::hub::HubOwnership,
+) -> crate::HubStockReceipt {
+    use harvestcircle_application::DurableRequestId;
+    use harvestcircle_domain::hub::HubRevision;
+    use harvestcircle_domain::hub::reference::{
+        HubLabel, HubRecordId, LocationPurpose, ReferenceCatalog, ReferenceCommand,
+        ReferenceMutation, ReferenceValue, SourceAttribution, SourceProvenance, WholePacks,
+    };
+    use harvestcircle_domain::hub::stock::{Occurrence, ReceiptCommand, ReceiptIdentities};
+    let id = |n| HubRecordId::from_bytes([n; 16]).unwrap();
+    let operation = DurableRequestId::parse("01900000-0000-7000-8000-000000003000").unwrap();
+    let mut catalog = ReferenceCatalog::default();
+    catalog
+        .create(
+            HubRevision::INITIAL,
+            id(2),
+            ReferenceValue::Party {
+                label: HubLabel::new("Historical fictional orchard").unwrap(),
+            },
+        )
+        .unwrap();
+    let records = [
+        (
+            11,
+            ReferenceValue::Product {
+                label: HubLabel::new("Historical apples").unwrap(),
+            },
+        ),
+        (
+            12,
+            ReferenceValue::Pack {
+                product: id(11),
+                label: HubLabel::new("Original crate").unwrap(),
+                nominal_grams: None,
+            },
+        ),
+        (
+            13,
+            ReferenceValue::Location {
+                label: HubLabel::new("Historical Receiving").unwrap(),
+                purpose: LocationPurpose::Receiving,
+            },
+        ),
+        (
+            14,
+            ReferenceValue::Location {
+                label: HubLabel::new("Historical A3").unwrap(),
+                purpose: LocationPurpose::Storage,
+            },
+        ),
+    ];
+    for (n, value) in records {
+        let command = ReferenceCommand {
+            expected_catalog_revision: catalog.revision(),
+            mutation: ReferenceMutation::Create {
+                id: id(n),
+                value: value.clone(),
+            },
+        };
+        let hash = command.fingerprint(hub.id(), hub.owner());
+        catalog
+            .create(catalog.revision(), id(n), value.clone())
+            .unwrap();
+        let revision = catalog.revision();
+        let nonce = DurableRequestId::parse(format!(
+            "01900000-0000-7000-8000-{:012x}",
+            500 + u32::from(n)
+        ))
+        .unwrap();
+        host.transaction(|tx|Box::pin(async move{
+            let (kind,product,purpose)=match &value {
+                ReferenceValue::Product{..}=>("product",None,None),
+                ReferenceValue::Pack{product,..}=>("pack",Some(*product),None),
+                ReferenceValue::Location{purpose,..}=>("location",None,Some(match purpose{LocationPurpose::Receiving=>"receiving",LocationPurpose::Storage=>"storage",LocationPurpose::Other=>"other"})),
+                _=>return Err(crate::db::storage_unavailable()),
+            };
+            sqlx::query("INSERT INTO hub_reference_versions (record_id,record_revision,catalog_revision,hub_id,kind,label,product_id,nominal_grams,location_purpose,actor_public_key,operation_id,intent_hash,recorded_at_unix_s) VALUES (?,1,?,?,?,?,?,NULL,?,?,?,?,100)")
+                .bind(id(n).as_bytes().as_slice()).bind(i64::try_from(revision.value()).unwrap()).bind(hub.id().as_bytes().as_slice()).bind(kind).bind(value.label().as_str())
+                .bind(product.as_ref().map(|product|product.as_bytes().as_slice())).bind(purpose).bind(hub.owner().as_bytes().as_slice()).bind(nonce.as_str()).bind(hash.as_slice())
+                .execute(&mut *tx).await.map_err(|_|crate::db::storage_unavailable())?;
+            Ok::<(),SafeError>(())
+        })).await.unwrap();
+    }
+    let ids = ReceiptIdentities::from_operation_bytes(
+        HubRecordId::from_hex(&operation.as_str().replace('-', "")).unwrap(),
+    )
+    .unwrap();
+    let command = ReceiptCommand {
+        expected_stock_revision: HubRevision::INITIAL,
+        expected_catalog_revision: catalog.revision(),
+        variant: id(12),
+        supplier: Some(id(2)),
+        producer: None,
+        source: SourceAttribution::Unknown,
+        packs: WholePacks::from_value(20).unwrap(),
+        receiving: id(13),
+        planned_location: Some(id(14)),
+        occurred: Occurrence::Unknown,
+        observation: SourceProvenance::new("Historical manual count of twenty original crates")
+            .unwrap(),
+    };
+    let hash = command.fingerprint(hub.id(), hub.owner(), ids.trace, ids.group);
+    let plan = command
+        .plan(
+            &catalog,
+            HubRevision::INITIAL,
+            ids.trace,
+            ids.group,
+            hub.owner(),
+            UnixTimestamp::from_seconds(100).unwrap(),
+        )
+        .unwrap();
+    let result = crate::HubStockReceipt {
+        operation: operation.clone(),
+        original: plan.clone(),
+    };
+    host.transaction(|tx|Box::pin(async move {
+        sqlx::query("INSERT INTO hub_stock_state VALUES (1,?,2,1)").bind(hub.id().as_bytes().as_slice()).execute(&mut *tx).await.map_err(|_|crate::db::storage_unavailable())?;
+        sqlx::query("INSERT INTO hub_stock_operations VALUES (?,?,?,'receipt',?,6,2,?,100)").bind(operation.as_str()).bind(hub.id().as_bytes().as_slice()).bind(hub.owner().as_bytes().as_slice()).bind(hash.as_slice()).bind(ids.trace.as_bytes().as_slice()).execute(&mut *tx).await.map_err(|_|crate::db::storage_unavailable())?;
+        crate::hub::stock::insert_historical_receipt_on(tx,&operation,&plan).await?;
+        sqlx::query("INSERT INTO hub_stock_groups VALUES (?,?,1)").bind(ids.group.as_bytes().as_slice()).bind(ids.trace.as_bytes().as_slice()).execute(&mut *tx).await.map_err(|_|crate::db::storage_unavailable())?;
+        sqlx::query("INSERT INTO hub_stock_positions VALUES (?,?,1,20,1)").bind(ids.group.as_bytes().as_slice()).bind(id(13).as_bytes().as_slice()).execute(&mut *tx).await.map_err(|_|crate::db::storage_unavailable())?;
+        sqlx::query("INSERT INTO hub_putaway_work VALUES (?,20,0,0,20,?,1,1)").bind(ids.trace.as_bytes().as_slice()).bind(id(14).as_bytes().as_slice()).execute(&mut *tx).await.map_err(|_|crate::db::storage_unavailable())?;
+        sqlx::query("INSERT INTO hub_stock_events VALUES (1,?,'receipt',?,?,20,NULL,NULL,?,1,'unknown',NULL,NULL)").bind(operation.as_str()).bind(ids.trace.as_bytes().as_slice()).bind(ids.group.as_bytes().as_slice()).bind(id(13).as_bytes().as_slice()).execute(&mut *tx).await.map_err(|_|crate::db::storage_unavailable())?;
+        Ok::<(),SafeError>(())
+    })).await.unwrap();
+    result
 }

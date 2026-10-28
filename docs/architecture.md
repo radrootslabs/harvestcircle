@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 6, FFI is 5.4 and snapshot schema is 1. Rust and
+The current storage schema is 7, FFI is 5.5 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -97,6 +97,25 @@ submission intent, retains unsubmitted input during navigation and uses read-onl
 original-result lookup for uncertain outcomes. Current stock and catalog versions
 are reviewed explicitly before resubmitting known rejected input. Kotlin renders
 native stock/work projections; it does not calculate authoritative balances.
+
+Identified handling uses the same lifetime operation journal and physical event
+history. A forward migration preserves schema 6 receipts, counts and original
+work targets, then replaces its single work row with requirements and scoped
+allocations. Each physical group has one active location and a uniform status
+for each attributed requirement. Moving part requires an observed distinguishable
+portion; generated IDs do not prove physical identification. Native transactions
+conserve quantity, complete work only on first qualifying arrival and retain
+original movement results independently of later positions or work progress.
+
+Replanning retires only remaining work and creates a separate requirement. Explicit
+new handling cannot overwrite pending work. Discrepancy resolution preserves the
+original observation and changes neither stock nor work. Current native group,
+work and discrepancy queries are bounded and versioned. Work pages contain one
+row per requirement, rather than one copy per stock position. The native limits
+are 16,384 groups/requirements, 256 groups per requirement, 64 requirements per
+group and 4,096 discrepancies. A derived causal time floor follows each physical
+portion; an unknown occurrence does not erase earlier constraints or invent an
+actual time. The shared movement/work/discrepancy UI remains unfinished.
 
 ## Secrets, transport and lifecycle
 

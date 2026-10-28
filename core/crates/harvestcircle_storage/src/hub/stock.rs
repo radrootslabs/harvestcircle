@@ -19,9 +19,11 @@ fn receipt_ids(
         .map_err(|_| invalid_input())
 }
 
-mod read;
+pub(super) mod read;
 pub(crate) mod schema;
 mod write;
+#[cfg(test)]
+pub(crate) use write::insert_receipt_on as insert_historical_receipt_on;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HubStockReceipt {
@@ -55,7 +57,8 @@ impl HubStockQuery {
     pub fn validate(&self) -> Result<(), SafeError> {
         if !(1..=HUB_STOCK_PAGE_ROWS)
             .contains(&usize::try_from(self.limit).map_err(|_| invalid_input())?)
-            || usize::try_from(self.offset).map_err(|_| invalid_input())? > HUB_TRACE_CAPACITY
+            || usize::try_from(self.offset).map_err(|_| invalid_input())?
+                > harvestcircle_domain::hub::movement::HUB_GROUP_CAPACITY
             || self.text.len() > HUB_LABEL_UTF8_BYTES
         {
             return Err(invalid_input());
@@ -83,13 +86,13 @@ pub struct HubStockPage {
     pub rows: Vec<HubStockRow>,
 }
 
-const fn invalid_input() -> SafeError {
+pub(super) const fn invalid_input() -> SafeError {
     SafeError::new(
         SafeErrorCode::HubInvalidInput,
         SafeMessage::new("Review the whole-pack inventory input and its bounded scope."),
     )
 }
-const fn conflict() -> SafeError {
+pub(super) const fn conflict() -> SafeError {
     SafeError::new(
         SafeErrorCode::HubConflict,
         SafeMessage::new(
@@ -97,7 +100,7 @@ const fn conflict() -> SafeError {
         ),
     )
 }
-const fn capacity() -> SafeError {
+pub(super) const fn capacity() -> SafeError {
     SafeError::new(
         SafeErrorCode::HubCapacity,
         SafeMessage::new(
@@ -107,4 +110,4 @@ const fn capacity() -> SafeError {
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::hub) mod tests;

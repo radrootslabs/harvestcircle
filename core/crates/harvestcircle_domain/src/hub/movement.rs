@@ -18,8 +18,12 @@ mod work;
 pub use work::{Discrepancy, ReplanCommand, ReplanPlan, WorkRequirement};
 mod requirements;
 pub use requirements::{NewWorkCommand, NewWorkPlan};
+mod command;
+pub use command::{DiscrepancyAction, DiscrepancyCommand, HandlingCommand};
 
 pub const HUB_GROUP_CAPACITY: usize = 16_384;
+pub const HUB_WORK_CAPACITY: usize = 16_384;
+pub const HUB_DISCREPANCY_CAPACITY: usize = 4_096;
 pub const HUB_GROUP_REQUIREMENTS: usize = 64;
 pub const HUB_REQUIREMENT_GROUPS: usize = 256;
 
@@ -112,6 +116,9 @@ pub struct PhysicalStockGroup {
     pub location: HubRecordId,
     pub packs: WholePacks,
     pub revision: HubRevision,
+    /// Derived lower bound from this portion's causal physical history, not an
+    /// assertion that an unknown occurrence happened at this exact instant.
+    pub causal_floor: Option<UnixTimestamp>,
     pub work: Vec<WorkAllocation>,
 }
 
@@ -216,6 +223,16 @@ impl MovementCommand {
             return Err(MovementError::InsufficientStock);
         }
         self.occurred.validate(recorded_at)?;
+        if source
+            .causal_floor
+            .is_some_and(|floor| match self.occurred {
+                Occurrence::Known(at) => at < floor,
+                Occurrence::Interval { latest, .. } => latest < floor,
+                Occurrence::Unknown => false,
+            })
+        {
+            return Err(MovementError::Stock(StockError::InvalidOccurrence));
+        }
         let destination = catalog
             .require_kind(self.to, ReferenceKind::Location)?
             .clone();
@@ -253,6 +270,12 @@ impl MovementCommand {
         }
         moved.location = self.to;
         moved.packs = self.packs;
+        let observed_floor = match self.occurred {
+            Occurrence::Known(at) => Some(at),
+            Occurrence::Interval { earliest, .. } => Some(earliest),
+            Occurrence::Unknown => None,
+        };
+        moved.causal_floor = source.causal_floor.max(observed_floor);
         let mut work_updates = Vec::new();
         for (index, allocation) in moved.work.iter_mut().enumerate() {
             if allocation.progress == WorkProgress::Pending

@@ -89,6 +89,9 @@ impl NewWorkCommand {
                     requirement: requirement.clone(),
                     progress: WorkProgress::Pending,
                 });
+                changed
+                    .work
+                    .sort_by(|a, b| a.requirement.id.as_bytes().cmp(b.requirement.id.as_bytes()));
                 changed.revision = next(group.revision)?;
                 changed.validate()?;
                 Ok(changed)

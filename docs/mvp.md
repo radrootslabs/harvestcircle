@@ -151,8 +151,8 @@ handling requirement is explicit and cannot silently replace pending work.
 Discrepancy resolution is follow-up only and has no stock/work/restriction effect.
 The native adapter must enforce complete scope and identity uniqueness within
 16,384 retained groups, 64 requirements per group and 256 groups per requirement.
-This pure component does not yet enable actual movement in the application;
-protected persistence, native interfaces and UI acceptance remain unfinished.
+Native storage, authorization and FFI now implement these handling rules; the
+shared movement/work/discrepancy UI remains unfinished.
 
 ### C06: Commands, concurrency and durable outcomes
 

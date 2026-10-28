@@ -26,6 +26,10 @@ use radroots_runtime_paths::{
 };
 use radroots_service_sqlite::MigrationBuildIdentity;
 
+use crate::hub_handling::{
+    HubDiscrepancyPageDto, HubGroupViewDto, HubHandlingInputDto, HubHandlingQueryDto,
+    HubHandlingReceiptDto, HubWorkPageDto,
+};
 use crate::hub_reference::{
     HubReferenceEditDto, HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto,
 };
@@ -529,6 +533,81 @@ impl HarvestCircleAppCore {
             .await
             .map(Into::into)
             .map_err(HarvestCircleError::from)
+    }
+
+    pub async fn hub_group(&self, group_id: String) -> Result<HubGroupViewDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let id = harvestcircle_domain::hub::reference::HubRecordId::from_hex(&group_id)
+            .map_err(|_| crate::hub_reference::invalid_input())?;
+        self.inner
+            .actor
+            .hub_group(id)
+            .await
+            .map(Into::into)
+            .map_err(HarvestCircleError::from)
+    }
+
+    pub async fn hub_work(
+        &self,
+        query: HubHandlingQueryDto,
+    ) -> Result<HubWorkPageDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        self.inner
+            .actor
+            .hub_work(query.decode()?)
+            .await
+            .map(Into::into)
+            .map_err(HarvestCircleError::from)
+    }
+
+    pub async fn hub_discrepancies(
+        &self,
+        query: HubHandlingQueryDto,
+    ) -> Result<HubDiscrepancyPageDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        self.inner
+            .actor
+            .hub_discrepancies(query.decode()?)
+            .await
+            .map(Into::into)
+            .map_err(HarvestCircleError::from)
+    }
+
+    pub async fn apply_hub_handling(
+        &self,
+        context: RequestContextDto,
+        input: HubHandlingInputDto,
+    ) -> Result<HubHandlingReceiptDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let (request, timeout) = validate_request_context(&context)?;
+        let command = input.command()?;
+        self.inner
+            .actor
+            .apply_hub_handling(
+                request.clone(),
+                command,
+                harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
+                timeout,
+            )
+            .await
+            .map(Into::into)
+            .map_err(|error| HarvestCircleError::correlated(error, &request))
+    }
+
+    /// Reads only the original result; absence does not permit another submission.
+    pub async fn hub_handling_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubHandlingReceiptDto>, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let request = DurableRequestId::parse(operation_id)
+            .map_err(|_| crate::hub_reference::invalid_input())?;
+        self.inner
+            .actor
+            .hub_handling_operation(request.clone())
+            .await
+            .map(|value| value.map(Into::into))
+            .map_err(|error| HarvestCircleError::correlated(error, &request))
     }
 
     pub async fn receive_hub_stock(
@@ -1551,8 +1630,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn hub_receiving_ffi_uses_actual_native_authority_and_preserves_original_physical_result()
-    {
+    async fn hub_receiving_and_handling_ffi_preserve_authority_and_original_physical_results() {
         use crate::HubReferenceEditDto;
         use crate::{
             HubLocationPurposeDto, HubOccurrenceDto, HubOccurrenceKindDto, HubReceiptInputDto,
@@ -1711,9 +1789,150 @@ mod tests {
             core.hub_receipt_operation(original_context.request_id.clone())
                 .await
                 .unwrap(),
-            Some(recorded)
+            Some(recorded.clone())
+        );
+        let work_query = crate::HubHandlingQueryDto {
+            expected_stock_revision: None,
+            expected_catalog_revision: None,
+            offset: 0,
+            limit: 64,
+            trace_id: None,
+            open_only: false,
+            text: String::new(),
+        };
+        let group = core
+            .hub_group(recorded.initial_position.group_id.clone())
+            .await
+            .unwrap();
+        let move_context = context(core.snapshot().revision);
+        let move_input = crate::HubHandlingInputDto::Move {
+            input: crate::HubMovementInputDto {
+                expected_stock_revision: group.stock_revision,
+                expected_catalog_revision: group.catalog_revision,
+                group_id: group.group.id.clone(),
+                expected_group_revision: group.group.revision,
+                to_location_id: ids[3].clone(),
+                whole_packs: 8,
+                separated_portion: Some(crate::HubPhysicalIdentificationDto {
+                    label: "Blue tagged stack".into(),
+                    observation: "Eight separately tagged crates".into(),
+                }),
+                occurrence: crate::HubOccurrenceDto {
+                    kind: crate::HubOccurrenceKindDto::Unknown,
+                    start_unix_s: None,
+                    end_unix_s: None,
+                },
+                observation: "Eight tagged crates arrived at A3".into(),
+            },
+        };
+        let moved = core
+            .apply_hub_handling(move_context.clone(), move_input.clone())
+            .await
+            .unwrap();
+        assert_eq!(moved.actor_public_key, key);
+        let crate::HubHandlingResultDto::Moved { value: movement } = &moved.result else {
+            panic!("expected a physical movement result");
+        };
+        assert_eq!(
+            (movement.whole_packs, movement.remaining_whole_packs),
+            (8, 12)
+        );
+        assert_eq!(
+            core.hub_stock(query.clone())
+                .await
+                .unwrap()
+                .rows
+                .iter()
+                .map(|row| row.position.whole_packs)
+                .sum::<u32>(),
+            20
+        );
+        let work = core.hub_work(work_query.clone()).await.unwrap();
+        assert_eq!(work.total, 1);
+        assert_eq!(work.rows[0].work.quantity.completed, 8);
+        assert_eq!(work.rows[0].work.quantity.remaining, 12);
+        assert_eq!(
+            core.apply_hub_handling(move_context.clone(), move_input.clone())
+                .await
+                .unwrap(),
+            moved
+        );
+        assert_eq!(
+            core.hub_handling_operation(move_context.request_id.clone())
+                .await
+                .unwrap(),
+            Some(moved.clone())
+        );
+        assert!(
+            core.apply_hub_handling(context(core.snapshot().revision), move_input)
+                .await
+                .is_err()
+        );
+        let original_open = core
+            .apply_hub_handling(
+                context(core.snapshot().revision),
+                crate::HubHandlingInputDto::OpenDiscrepancy {
+                    input: crate::HubDiscrepancyOpenInputDto {
+                        expected_stock_revision: moved.stock_revision,
+                        expected_catalog_revision: moved.catalog_revision,
+                        trace_id: moved.trace_id.clone(),
+                        group_id: Some(movement.moved_group_id.clone()),
+                        observation: "Inspect damaged outer packaging".into(),
+                    },
+                },
+            )
+            .await
+            .unwrap();
+        let crate::HubHandlingResultDto::DiscrepancyChanged { value: issue } =
+            &original_open.result
+        else {
+            panic!("expected an original discrepancy");
+        };
+        let closed = core
+            .apply_hub_handling(
+                context(core.snapshot().revision),
+                crate::HubHandlingInputDto::ResolveDiscrepancy {
+                    input: crate::HubDiscrepancyResolveInputDto {
+                        expected_stock_revision: original_open.stock_revision,
+                        expected_catalog_revision: original_open.catalog_revision,
+                        discrepancy_id: issue.id.clone(),
+                        expected_revision: issue.revision,
+                        resolution: "Inspection recorded; original observation retained".into(),
+                    },
+                },
+            )
+            .await
+            .unwrap();
+        assert!(closed.stock_revision > original_open.stock_revision);
+        assert_eq!(
+            core.hub_handling_operation(original_open.operation_id.clone())
+                .await
+                .unwrap(),
+            Some(original_open)
+        );
+        assert_eq!(
+            core.hub_work(work_query.clone()).await.unwrap().rows[0]
+                .work
+                .quantity,
+            work.rows[0].work.quantity
+        );
+        assert_eq!(
+            core.hub_discrepancies(crate::HubHandlingQueryDto {
+                open_only: true,
+                ..work_query
+            })
+            .await
+            .unwrap()
+            .total,
+            0
         );
         core.sign_out().await.unwrap();
+        assert!(core.hub_group(group.group.id).await.is_err());
+        assert!(
+            core.hub_handling_operation(move_context.request_id)
+                .await
+                .is_err()
+        );
         assert!(core.hub_stock(query).await.is_err());
         assert!(
             core.hub_receipt_operation(original_context.request_id)
@@ -2209,7 +2428,7 @@ mod tests {
             .to_path_buf();
         assert!(database.ends_with("data/services/harvestcircle/desktop/state.sqlite"));
         assert!(!database.to_string_lossy().contains("harvestcircle.sqlite3"));
-        assert_eq!(CURRENT_SCHEMA_VERSION, 6);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 7);
     }
 
     #[test]

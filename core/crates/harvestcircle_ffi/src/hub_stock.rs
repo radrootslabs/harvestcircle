@@ -43,7 +43,7 @@ pub struct HubOccurrenceDto {
     pub end_unix_s: Option<i64>,
 }
 impl HubOccurrenceDto {
-    fn decode(self) -> Result<Occurrence, HarvestCircleError> {
+    pub(crate) fn decode(self) -> Result<Occurrence, HarvestCircleError> {
         let at = |n| UnixTimestamp::from_seconds(n).ok_or_else(invalid_input);
         match (self.kind, self.start_unix_s, self.end_unix_s) {
             (HubOccurrenceKindDto::Unknown, None, None) => Ok(Occurrence::Unknown),
@@ -325,7 +325,7 @@ pub struct HubQuantityWorkDto {
     pub target: Option<HubReferenceRecordDto>,
 }
 impl HubQuantityWorkDto {
-    fn from_work(
+    pub(crate) fn from_work(
         work: QuantityWork,
         revision: HubRevision,
         target: Option<&harvestcircle_domain::hub::reference::ReferenceRecord>,

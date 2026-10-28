@@ -107,6 +107,9 @@ impl ReplanCommand {
         {
             return Err(MovementError::IdentityConflict);
         }
+        if work.quantity.remaining().value() == 0 {
+            return Err(MovementError::NoRemainingWork);
+        }
         if pending_groups.is_empty() || pending_groups.len() > HUB_REQUIREMENT_GROUPS {
             return Err(MovementError::InvalidWorkScope);
         }
@@ -156,6 +159,9 @@ impl ReplanCommand {
                 requirement: replacement.clone(),
                 progress: WorkProgress::Pending,
             });
+            changed
+                .work
+                .sort_by(|a, b| a.requirement.id.as_bytes().cmp(b.requirement.id.as_bytes()));
             changed.revision = next(group.revision)?;
             changed.validate()?;
             groups.push(changed);

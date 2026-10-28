@@ -30,6 +30,11 @@ pub use contract::{
     harvestcircle_schema_catalog,
 };
 pub use db::{CURRENT_SCHEMA_VERSION, Database};
+pub use hub::handling::{
+    HubActionGroup, HubDiscrepancyRow, HubGroupView, HubHandlingKind, HubHandlingPage,
+    HubHandlingQuery, HubHandlingReceipt, HubHandlingResult, HubMovementResult,
+    HubWorkActionResult, HubWorkChange, HubWorkOrigin, HubWorkRow,
+};
 pub use hub::reference::HubReferenceReceipt;
 pub use hub::stock::{HubStockPage, HubStockQuery, HubStockReceipt, HubStockRow};
 pub use os_keyring::{CREDENTIAL_SERVICE, OsKeyringSecretStore};

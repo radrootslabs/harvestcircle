@@ -15,9 +15,10 @@ use harvestcircle_application::{
 };
 use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
 use harvestcircle_ffi::{
-    HarvestCircleError, HubContextDto, HubReceiptInputDto, HubReferenceEditDto,
+    HarvestCircleError, HubContextDto, HubDiscrepancyPageDto, HubGroupViewDto, HubHandlingInputDto,
+    HubHandlingQueryDto, HubHandlingReceiptDto, HubReceiptInputDto, HubReferenceEditDto,
     HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto, HubStockPageDto,
-    HubStockQueryDto, HubStockReceiptDto, SafeErrorDto,
+    HubStockQueryDto, HubStockReceiptDto, HubWorkPageDto, SafeErrorDto,
 };
 use harvestcircle_nostr::SdkNostrClient;
 use harvestcircle_runtime::{
@@ -311,6 +312,62 @@ impl HarvestCircleTestBridge {
         let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
         self.runtime
             .block_on(self.actor()?.hub_receipt_operation(operation))
+            .map(|value| value.map(Into::into))
+            .map_err(native_runtime_error)
+    }
+
+    pub fn group(&self, group_id: String) -> Result<HubGroupViewDto, TestBridgeError> {
+        let group = harvestcircle_domain::hub::reference::HubRecordId::from_hex(&group_id)
+            .map_err(|_| TestBridgeError::Failure {
+                safe_message: "The selected stock group is invalid.".to_owned(),
+            })?;
+        self.runtime
+            .block_on(self.actor()?.hub_group(group))
+            .map(Into::into)
+            .map_err(native_runtime_error)
+    }
+    pub fn work(&self, query: HubHandlingQueryDto) -> Result<HubWorkPageDto, TestBridgeError> {
+        let query = query.decode().map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_work(query))
+            .map(Into::into)
+            .map_err(native_runtime_error)
+    }
+    pub fn discrepancies(
+        &self,
+        query: HubHandlingQueryDto,
+    ) -> Result<HubDiscrepancyPageDto, TestBridgeError> {
+        let query = query.decode().map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_discrepancies(query))
+            .map(Into::into)
+            .map_err(native_runtime_error)
+    }
+    pub fn apply_handling(
+        &self,
+        operation_id: String,
+        expected_revision: u64,
+        input: HubHandlingInputDto,
+    ) -> Result<HubHandlingReceiptDto, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let command = input.command().map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.apply_hub_handling(
+                operation,
+                command,
+                SnapshotRevision::from_value(expected_revision),
+                Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            ))
+            .map(Into::into)
+            .map_err(native_runtime_error)
+    }
+    pub fn handling_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubHandlingReceiptDto>, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_handling_operation(operation))
             .map(|value| value.map(Into::into))
             .map_err(native_runtime_error)
     }

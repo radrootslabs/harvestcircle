@@ -72,6 +72,7 @@ fn group(catalog: &ReferenceCatalog) -> PhysicalStockGroup {
         location: id(3),
         packs: packs(20),
         revision: HubRevision::INITIAL,
+        causal_floor: None,
         work: vec![WorkAllocation {
             requirement: WorkRequirement {
                 id: id(12),
@@ -792,4 +793,36 @@ fn selected_scope_has_an_exact_finite_bound_and_checked_pack_sum() {
     );
     assert_eq!(groups[0].packs, packs(600_000));
     assert!(groups[0].work.is_empty());
+}
+
+#[test]
+fn uncertain_movement_never_erases_known_causal_history() {
+    let catalog = catalog();
+    let mut source = group(&catalog);
+    source.causal_floor = Some(at(90));
+    let mut request = command(&catalog, &source, 1, 4, 8);
+    request.occurred = Occurrence::Known(at(89));
+    assert_eq!(
+        request.plan(&catalog, revision(1), &source, id(30), at(100)),
+        Err(MovementError::Stock(StockError::InvalidOccurrence))
+    );
+    request.occurred = Occurrence::Interval {
+        earliest: at(85),
+        latest: at(95),
+    };
+    let uncertain = request
+        .plan(&catalog, revision(1), &source, id(30), at(100))
+        .unwrap();
+    assert_eq!(uncertain.moved.causal_floor, Some(at(90)));
+    request.occurred = Occurrence::Unknown;
+    let unknown = request
+        .plan(&catalog, revision(1), &source, id(30), at(100))
+        .unwrap();
+    assert_eq!(unknown.moved.causal_floor, Some(at(90)));
+    let mut back = command(&catalog, &unknown.moved, 2, 3, 8);
+    back.occurred = Occurrence::Known(at(89));
+    assert!(
+        back.plan(&catalog, revision(2), &unknown.moved, id(31), at(100))
+            .is_err()
+    );
 }

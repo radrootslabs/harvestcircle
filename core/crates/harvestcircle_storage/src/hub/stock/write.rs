@@ -80,12 +80,7 @@ pub(super) async fn apply_on(
         .bind(ids.group.as_bytes().as_slice()).bind(plan.position.location.as_bytes().as_slice())
         .bind(integer(plan.trace.receiving.revision)?).bind(i64::from(plan.position.packs.value()))
         .execute(&mut *transaction).await.map_err(|_| storage_unavailable())?;
-    sqlx::query("INSERT INTO hub_putaway_work (trace_id,required,completed,no_longer_required,remaining,target_location_id,target_location_revision,revision) VALUES (?,?,0,0,?,?,?,1)")
-        .bind(ids.trace.as_bytes().as_slice()).bind(i64::from(plan.put_away.required().value()))
-        .bind(i64::from(plan.put_away.remaining().value()))
-        .bind(plan.trace.planned_location.as_ref().map(|r| r.id.as_bytes().as_slice()))
-        .bind(optional_revision(plan.trace.planned_location.as_ref())?)
-        .execute(&mut *transaction).await.map_err(|_| storage_unavailable())?;
+    crate::hub::handling::seed_receipt_on(transaction, &operation, &plan).await?;
     let (kind, start, end) = occurrence_fields(plan.trace.occurred);
     sqlx::query("INSERT INTO hub_stock_events (sequence,operation_id,kind,trace_id,group_id,packs,from_location_id,from_location_revision,to_location_id,to_location_revision,occurrence_kind,occurrence_start_unix_s,occurrence_end_unix_s) VALUES (?,?,'receipt',?,?,?,NULL,NULL,?,?,?,?,?)")
         .bind(i64::from(state.event_count)+1).bind(operation.as_str()).bind(ids.trace.as_bytes().as_slice())
@@ -138,7 +133,7 @@ async fn persist_source_on(
     Ok(())
 }
 
-async fn insert_receipt_on(
+pub(crate) async fn insert_receipt_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     operation: &DurableRequestId,
     plan: &ReceiptPlan,

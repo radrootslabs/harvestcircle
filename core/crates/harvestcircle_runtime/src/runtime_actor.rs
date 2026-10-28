@@ -39,6 +39,9 @@ use hub_reference::{HubReferenceCommand, HubReferenceValue};
 #[path = "hub_stock.rs"]
 mod hub_stock;
 use hub_stock::{HubStockCommand, HubStockValue};
+#[path = "hub_handling.rs"]
+mod hub_handling;
+use hub_handling::{HubHandlingCommand, HubHandlingValue};
 #[path = "hub_authority.rs"]
 mod hub_authority;
 
@@ -48,6 +51,10 @@ const MAX_OUTSTANDING_PROFILE_TASKS: usize = 64;
 
 enum RuntimeCommand {
     Snapshot,
+    HubHandling {
+        generation: SessionGeneration,
+        command: HubHandlingCommand,
+    },
     HubStock {
         generation: SessionGeneration,
         command: HubStockCommand,
@@ -96,6 +103,7 @@ enum RuntimeCommandValue {
     Hub(Option<HubOwnership>),
     HubReference(HubReferenceValue),
     HubStock(HubStockValue),
+    HubHandling(HubHandlingValue),
     Snapshot(Box<AppSnapshot>),
     Generated(GenerateIdentityReceipt),
     GeneratedKeyStage(GeneratedKeyRecoveryHandle),
@@ -112,6 +120,7 @@ impl RuntimeCommand {
         match self {
             Self::HubReference { command, .. } => command.class(),
             Self::HubStock { command, .. } => command.class(),
+            Self::HubHandling { command, .. } => command.class(),
             Self::Snapshot
             | Self::HubRead { .. }
             | Self::SubscribeChanges(_)
@@ -780,6 +789,9 @@ impl RuntimeActorHandle {
             RuntimeCommand::HubStock {
                 command: HubStockCommand::Receive { .. },
                 ..
+            } | RuntimeCommand::HubHandling {
+                command: HubHandlingCommand::Apply { .. },
+                ..
             }
         );
         let context = CommandContext::new(request_id, expected_revision, deadline);
@@ -1079,6 +1091,13 @@ impl RuntimeActor {
         command: RuntimeCommand,
     ) -> CommandResult<RuntimeCommandValue> {
         let result = match command {
+            RuntimeCommand::HubHandling {
+                generation,
+                command,
+            } => {
+                self.execute_hub_handling(generation, context, command)
+                    .await
+            }
             RuntimeCommand::HubStock {
                 generation,
                 command,
@@ -3845,6 +3864,58 @@ mod tests {
                 .total,
             0
         );
+        use harvestcircle_domain::hub::movement::{
+            HandlingCommand, MovementCommand, PhysicalIdentification,
+        };
+        let group = actor
+            .hub_group(receipt.original.position.group)
+            .await
+            .unwrap();
+        let moving = HandlingCommand::Move(MovementCommand {
+            expected_stock_revision: group.revision,
+            expected_catalog_revision: catalog.revision(),
+            group: group.group.id,
+            expected_group_revision: group.group.revision,
+            to: record(4),
+            packs: WholePacks::from_value(8).unwrap(),
+            separated_portion: Some(PhysicalIdentification {
+                label: HubLabel::new("Blue eight").unwrap(),
+                observation: SourceProvenance::new("Eight separately tagged crates").unwrap(),
+            }),
+            occurred: Occurrence::Unknown,
+            observation: SourceProvenance::new("Manually moved eight counted crates").unwrap(),
+        });
+        let moving_id = DurableRequestId::new_v7();
+        let moved = actor
+            .apply_hub_handling(
+                moving_id.clone(),
+                moving.clone(),
+                actor.snapshot().revision(),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            actor
+                .hub_handling_operation(moving_id.clone())
+                .await
+                .unwrap(),
+            Some(moved.clone())
+        );
+        let work = actor
+            .hub_work(harvestcircle_storage::HubHandlingQuery::default())
+            .await
+            .unwrap();
+        assert_eq!(work.rows[0].work.quantity.completed().value(), 8);
+        assert_eq!(work.rows[0].work.quantity.remaining().value(), 12);
+        assert_eq!(
+            actor
+                .hub_discrepancies(harvestcircle_storage::HubHandlingQuery::default())
+                .await
+                .unwrap()
+                .total,
+            0
+        );
         let old_generation = actor.session_generation();
         let credential = secrets.load(owner).await.unwrap();
         secrets
@@ -3870,6 +3941,26 @@ mod tests {
                 .await
                 .unwrap(),
             Some(receipt.clone())
+        );
+        assert_eq!(
+            actor
+                .apply_hub_handling(
+                    moving_id.clone(),
+                    moving.clone(),
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::CredentialMissing
+        );
+        assert_eq!(
+            actor
+                .hub_handling_operation(moving_id.clone())
+                .await
+                .unwrap(),
+            Some(moved.clone())
         );
         secrets
             .put(&DurableRequestId::new_v7(), owner, credential)
@@ -3928,11 +4019,81 @@ mod tests {
                 .await
                 .is_err()
         );
+        assert_eq!(
+            actor
+                .apply_hub_handling(
+                    moving_id.clone(),
+                    moving.clone(),
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert_eq!(
+            actor
+                .hub_handling_operation(moving_id.clone())
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert_eq!(
+            actor.hub_group(group.group.id).await.unwrap_err().code(),
+            SafeErrorCode::HubPermissionDenied
+        );
         secrets
             .put(&DurableRequestId::new_v7(), second, second_credential)
             .await
             .unwrap();
         actor.activate_identity(owner).await.unwrap();
+        assert!(
+            actor
+                .dispatch(
+                    RuntimeCommand::HubHandling {
+                        generation: old_generation,
+                        command: super::HubHandlingCommand::Group(group.group.id)
+                    },
+                    None
+                )
+                .await
+                .is_err()
+        );
+        let unknown = DurableRequestId::new_v7();
+        assert_eq!(
+            actor
+                .apply_hub_handling(
+                    unknown.clone(),
+                    moving.clone(),
+                    actor.snapshot().revision(),
+                    Duration::ZERO
+                )
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubOutcomeUnknown
+        );
+        assert!(
+            actor
+                .hub_handling_operation(unknown)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            actor
+                .apply_hub_handling(
+                    moving_id,
+                    moving,
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .unwrap(),
+            moved
+        );
         let expired = DurableRequestId::new_v7();
         assert_eq!(
             actor

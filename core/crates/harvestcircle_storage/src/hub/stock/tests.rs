@@ -18,13 +18,13 @@ use radroots_service_sqlite::MigrationBuildIdentity;
 use sqlx::{Connection, Row, SqliteConnection, sqlite::SqliteConnectOptions};
 use tempfile::TempDir;
 
-struct Fixture {
+pub(in crate::hub) struct Fixture {
     _directory: TempDir,
-    context: RuntimeContext,
-    build: MigrationBuildIdentity,
+    pub(in crate::hub) context: RuntimeContext,
+    pub(in crate::hub) build: MigrationBuildIdentity,
 }
 impl Fixture {
-    fn new() -> Self {
+    pub(in crate::hub) fn new() -> Self {
         let directory = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
         let context = RuntimeContext::resolve(
             &RadrootsPathResolver::new(
@@ -63,12 +63,12 @@ impl Fixture {
             build,
         }
     }
-    async fn open(&self) -> Database {
+    pub(in crate::hub) async fn open(&self) -> Database {
         Database::open(&self.context, 99, 100, &self.build)
             .await
             .unwrap()
     }
-    async fn raw(&self) -> SqliteConnection {
+    pub(in crate::hub) async fn raw(&self) -> SqliteConnection {
         SqliteConnection::connect_with(
             &SqliteConnectOptions::new()
                 .filename(self.context.paths().state().join("state.sqlite"))
@@ -79,22 +79,22 @@ impl Fixture {
         .unwrap()
     }
 }
-fn owner() -> PublicKey {
+pub(in crate::hub) fn owner() -> PublicKey {
     PublicKey::from_hex("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798").unwrap()
 }
-fn other() -> PublicKey {
+pub(in crate::hub) fn other() -> PublicKey {
     PublicKey::from_hex("c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5").unwrap()
 }
-fn now() -> UnixTimestamp {
+pub(in crate::hub) fn now() -> UnixTimestamp {
     UnixTimestamp::from_seconds(100).unwrap()
 }
-fn id(n: u8) -> HubRecordId {
+pub(in crate::hub) fn id(n: u8) -> HubRecordId {
     HubRecordId::from_bytes([n; 16]).unwrap()
 }
-fn operation(n: u32) -> DurableRequestId {
+pub(in crate::hub) fn operation(n: u32) -> DurableRequestId {
     DurableRequestId::parse(format!("01900000-0000-7000-8000-{n:012x}")).unwrap()
 }
-fn query() -> HubStockQuery {
+pub(in crate::hub) fn query() -> HubStockQuery {
     HubStockQuery {
         expected_catalog_revision: None,
         expected_revision: None,
@@ -105,7 +105,7 @@ fn query() -> HubStockQuery {
         text: String::new(),
     }
 }
-async fn setup(db: &Database) -> ReferenceCatalog {
+pub(in crate::hub) async fn setup(db: &Database) -> ReferenceCatalog {
     db.initialize_hub(
         HubOwnership::new(HubId::from_bytes([1; 16]).unwrap(), owner()),
         &operation(65535),
@@ -176,7 +176,7 @@ async fn setup(db: &Database) -> ReferenceCatalog {
     }
     db.hub_references(owner()).await.unwrap()
 }
-fn command(catalog: &ReferenceCatalog) -> ReceiptCommand {
+pub(in crate::hub) fn command(catalog: &ReferenceCatalog) -> ReceiptCommand {
     ReceiptCommand {
         expected_stock_revision: HubRevision::INITIAL,
         expected_catalog_revision: catalog.revision(),
@@ -387,7 +387,7 @@ async fn failed_transaction_after_all_production_inserts_rolls_back_every_effect
             .is_none()
     );
     db.host().transaction(|tx|Box::pin(async move {
-        let row=sqlx::query("SELECT (SELECT count(*) FROM hub_stock_operations) AS operations,(SELECT count(*) FROM hub_receipts) AS receipts,(SELECT count(*) FROM hub_stock_groups) AS groups,(SELECT count(*) FROM hub_putaway_work) AS work,(SELECT count(*) FROM hub_stock_events) AS events,(SELECT count(*) FROM hub_source_references) AS sources")
+        let row=sqlx::query("SELECT (SELECT count(*) FROM hub_stock_operations) AS operations,(SELECT count(*) FROM hub_receipts) AS receipts,(SELECT count(*) FROM hub_stock_groups) AS groups,(SELECT count(*) FROM hub_work_requirements) AS work,(SELECT count(*) FROM hub_stock_events) AS events,(SELECT count(*) FROM hub_source_references) AS sources")
             .fetch_one(&mut *tx).await.map_err(|_| storage_unavailable())?;
         for field in ["operations","receipts","groups","work","events","sources"] { assert_eq!(row.get::<i64,_>(field),0); }
         Ok::<(),SafeError>(())
@@ -531,7 +531,7 @@ async fn queries_are_bounded_and_continuations_bind_the_original_inventory_revis
             ..query()
         },
         HubStockQuery {
-            offset: 4097,
+            offset: harvestcircle_domain::hub::movement::HUB_GROUP_CAPACITY as u32 + 1,
             ..query()
         },
     ] {

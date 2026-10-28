@@ -12,13 +12,14 @@ use radroots_service_sqlite::ServiceSqliteTransaction;
 use sqlx::{Row, sqlite::SqliteRow};
 use std::collections::BTreeMap;
 
-pub(super) struct StockState {
+pub(in crate::hub) struct StockState {
     pub revision: HubRevision,
     pub event_count: u32,
 }
 
-pub(super) struct OperationRecord {
+pub(in crate::hub) struct OperationRecord {
     pub id: DurableRequestId,
+    pub kind: String,
     pub actor: PublicKey,
     pub hash: [u8; 32],
     pub catalog_revision: HubRevision,
@@ -77,7 +78,7 @@ impl Database {
     }
 }
 
-pub(super) async fn state_on(
+pub(in crate::hub) async fn state_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
 ) -> Result<StockState, SafeError> {
@@ -95,9 +96,9 @@ pub(super) async fn state_on(
             .map_err(|_| corrupt_storage())?,
     )
     .map_err(|_| corrupt_storage())?;
-    let operations = sqlx::query("SELECT count(*) AS n, COALESCE(max(stock_revision),1) AS latest, count(CASE WHEN kind <> 'receipt' THEN 1 END) AS unknown FROM hub_stock_operations WHERE hub_id=?")
+    let operations = sqlx::query("SELECT count(*) AS n, COALESCE(max(stock_revision),1) AS latest, count(CASE WHEN kind NOT IN ('receipt','move','work_replan','work_new','discrepancy_open','discrepancy_resolve') THEN 1 END) AS unknown FROM hub_stock_operations WHERE hub_id=?")
         .bind(hub.as_bytes().as_slice()).fetch_one(&mut *transaction).await.map_err(|_| storage_unavailable())?;
-    let events = sqlx::query("SELECT count(*) AS n, COALESCE(max(sequence),0) AS latest, count(CASE WHEN kind <> 'receipt' THEN 1 END) AS unknown FROM hub_stock_events")
+    let events = sqlx::query("SELECT count(*) AS n, COALESCE(max(sequence),0) AS latest, count(CASE WHEN kind NOT IN ('receipt','move','work_replan','work_new','discrepancy_open','discrepancy_resolve') THEN 1 END) AS unknown FROM hub_stock_events")
         .fetch_one(&mut *transaction).await.map_err(|_| storage_unavailable())?;
     let op_count: i64 = operations.try_get("n").map_err(|_| corrupt_storage())?;
     let op_latest: i64 = operations
@@ -122,13 +123,46 @@ pub(super) async fn state_on(
     {
         return Err(corrupt_storage());
     }
+    let mismatch: i64 = sqlx::query_scalar("SELECT count(*) FROM hub_stock_events e LEFT JOIN hub_stock_operations o ON o.operation_id=e.operation_id WHERE o.operation_id IS NULL OR e.kind<>o.kind")
+        .fetch_one(&mut *transaction).await.map_err(|_| storage_unavailable())?;
+    if mismatch != 0 {
+        return Err(corrupt_storage());
+    }
+    let cardinality: i64 = sqlx::query_scalar("SELECT count(*) FROM hub_stock_operations o WHERE (SELECT count(*) FROM hub_stock_events e WHERE e.operation_id=o.operation_id)<>1")
+        .fetch_one(&mut *transaction).await.map_err(|_|storage_unavailable())?;
+    if cardinality != 0 {
+        return Err(corrupt_storage());
+    }
+
+    let counts = sqlx::query("SELECT (SELECT count(*) FROM hub_receipts) AS traces,(SELECT count(*) FROM hub_stock_groups) AS groups,(SELECT count(*) FROM hub_work_requirements) AS work,(SELECT count(*) FROM hub_discrepancies) AS discrepancies")
+        .fetch_one(&mut *transaction).await.map_err(|_| storage_unavailable())?;
+    for (field, maximum) in [
+        ("traces", HUB_TRACE_CAPACITY),
+        (
+            "groups",
+            harvestcircle_domain::hub::movement::HUB_GROUP_CAPACITY,
+        ),
+        (
+            "work",
+            harvestcircle_domain::hub::movement::HUB_WORK_CAPACITY,
+        ),
+        (
+            "discrepancies",
+            harvestcircle_domain::hub::movement::HUB_DISCREPANCY_CAPACITY,
+        ),
+    ] {
+        let count: i64 = counts.try_get(field).map_err(|_| corrupt_storage())?;
+        if count < 0 || count > maximum as i64 {
+            return Err(corrupt_storage());
+        }
+    }
     Ok(StockState {
         revision,
         event_count,
     })
 }
 
-pub(super) async fn operation_on(
+pub(in crate::hub) async fn operation_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     operation: &DurableRequestId,
@@ -136,12 +170,9 @@ pub(super) async fn operation_on(
     let row = sqlx::query("SELECT substr(operation_id,1,37) AS operation_id, substr(actor_public_key,1,33) AS actor, substr(kind,1,33) AS kind, substr(intent_hash,1,33) AS hash, catalog_revision, stock_revision, substr(result_id,1,17) AS result, recorded_at_unix_s FROM hub_stock_operations WHERE hub_id=? AND operation_id=? LIMIT 1")
         .bind(hub.as_bytes().as_slice()).bind(operation.as_str()).fetch_optional(&mut *transaction).await.map_err(|_| storage_unavailable())?;
     row.map(|row| {
-        if row
-            .try_get::<String, _>("kind")
-            .map_err(|_| corrupt_storage())?
-            != "receipt"
-        {
-            return Err(conflict());
+        let kind: String = row.try_get("kind").map_err(|_| corrupt_storage())?;
+        if !known_kind(&kind) {
+            return Err(corrupt_storage());
         }
         let actor: Vec<u8> = row.try_get("actor").map_err(|_| corrupt_storage())?;
         let hash: Vec<u8> = row.try_get("hash").map_err(|_| corrupt_storage())?;
@@ -153,6 +184,7 @@ pub(super) async fn operation_on(
             return Err(corrupt_storage());
         }
         Ok(OperationRecord {
+            kind,
             id: DurableRequestId::parse(
                 row.try_get::<String, _>("operation_id")
                     .map_err(|_| corrupt_storage())?,
@@ -176,11 +208,14 @@ pub(super) async fn operation_on(
     .transpose()
 }
 
-pub(super) async fn receipt_on(
+pub(in crate::hub) async fn receipt_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     operation: OperationRecord,
 ) -> Result<HubStockReceipt, SafeError> {
+    if operation.kind != "receipt" {
+        return Err(conflict());
+    }
     let row = sqlx::query(concat!(
         "SELECT substr(r.trace_id,1,17) AS trace_id, substr(r.root_group_id,1,17) AS group_id, ",
         "substr(r.variant_id,1,17) AS variant_id, r.variant_revision, substr(r.product_id,1,17) AS product_id, r.product_revision, ",
@@ -307,7 +342,7 @@ pub(super) async fn receipt_on(
     })
 }
 
-async fn optional_record_on(
+pub(in crate::hub) async fn optional_record_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     row: &SqliteRow,
@@ -325,7 +360,7 @@ async fn optional_record_on(
     }
 }
 
-pub(super) fn source_from_row(row: &SqliteRow) -> Result<SourceAttribution, SafeError> {
+pub(in crate::hub) fn source_from_row(row: &SqliteRow) -> Result<SourceAttribution, SafeError> {
     let id = optional_id(row, "source_id")?;
     let certainty: Option<String> = row
         .try_get("source_certainty")
@@ -362,7 +397,7 @@ pub(super) fn source_from_row(row: &SqliteRow) -> Result<SourceAttribution, Safe
     }
 }
 
-pub(super) fn occurrence(row: &SqliteRow) -> Result<Occurrence, SafeError> {
+pub(in crate::hub) fn occurrence(row: &SqliteRow) -> Result<Occurrence, SafeError> {
     let kind: String = row
         .try_get("occurrence_kind")
         .map_err(|_| corrupt_storage())?;
@@ -385,24 +420,30 @@ pub(super) fn occurrence(row: &SqliteRow) -> Result<Occurrence, SafeError> {
     }
 }
 
-pub(super) fn revision(value: i64) -> Result<HubRevision, SafeError> {
+pub(in crate::hub) fn revision(value: i64) -> Result<HubRevision, SafeError> {
     HubRevision::from_value(u64::try_from(value).map_err(|_| corrupt_storage())?)
         .map_err(|_| corrupt_storage())
 }
-fn revision_field(row: &SqliteRow, field: &str) -> Result<HubRevision, SafeError> {
+pub(in crate::hub) fn revision_field(
+    row: &SqliteRow,
+    field: &str,
+) -> Result<HubRevision, SafeError> {
     revision(row.try_get(field).map_err(|_| corrupt_storage())?)
 }
-pub(super) fn timestamp(value: i64) -> Result<UnixTimestamp, SafeError> {
+pub(in crate::hub) fn timestamp(value: i64) -> Result<UnixTimestamp, SafeError> {
     UnixTimestamp::from_seconds(value).ok_or_else(corrupt_storage)
 }
-pub(super) fn whole_packs(value: i64) -> Result<WholePacks, SafeError> {
+pub(in crate::hub) fn whole_packs(value: i64) -> Result<WholePacks, SafeError> {
     WholePacks::from_value(u32::try_from(value).map_err(|_| corrupt_storage())?)
         .map_err(|_| corrupt_storage())
 }
-pub(super) fn record_id(row: &SqliteRow, field: &str) -> Result<HubRecordId, SafeError> {
+pub(in crate::hub) fn record_id(row: &SqliteRow, field: &str) -> Result<HubRecordId, SafeError> {
     optional_id(row, field)?.ok_or_else(corrupt_storage)
 }
-fn optional_id(row: &SqliteRow, field: &str) -> Result<Option<HubRecordId>, SafeError> {
+pub(in crate::hub) fn optional_id(
+    row: &SqliteRow,
+    field: &str,
+) -> Result<Option<HubRecordId>, SafeError> {
     let bytes: Option<Vec<u8>> = row.try_get(field).map_err(|_| corrupt_storage())?;
     bytes
         .map(|bytes| {
@@ -411,7 +452,7 @@ fn optional_id(row: &SqliteRow, field: &str) -> Result<Option<HubRecordId>, Safe
         })
         .transpose()
 }
-fn text(row: &SqliteRow, field: &str) -> Result<String, SafeError> {
+pub(in crate::hub) fn text(row: &SqliteRow, field: &str) -> Result<String, SafeError> {
     String::from_utf8(row.try_get(field).map_err(|_| corrupt_storage())?)
         .map_err(|_| corrupt_storage())
 }
@@ -468,7 +509,7 @@ async fn page_on(
             .map_err(|_| corrupt_storage())?,
     )
     .map_err(|_| corrupt_storage())?;
-    if total as usize > HUB_TRACE_CAPACITY {
+    if total as usize > harvestcircle_domain::hub::movement::HUB_GROUP_CAPACITY {
         return Err(corrupt_storage());
     }
     if query.offset > total {
@@ -490,6 +531,19 @@ async fn page_on(
             .await?
             .ok_or_else(corrupt_storage)?;
         let original = receipt_on(transaction, hub, operation).await?.original;
+        let current_group = crate::hub::handling::read::group_on(
+            transaction,
+            hub,
+            record_id(&row, "group_id")?,
+            &catalog,
+        )
+        .await?;
+        if current_group.location != record_id(&row, "location_id")?
+            || current_group.packs
+                != whole_packs(row.try_get("packs").map_err(|_| corrupt_storage())?)?
+        {
+            return Err(corrupt_storage());
+        }
         let trace = record_id(&row, "trace_id")?;
         if trace != original.trace.id {
             return Err(corrupt_storage());
@@ -504,26 +558,9 @@ async fn page_on(
         if location.value.kind() != harvestcircle_domain::hub::reference::ReferenceKind::Location {
             return Err(corrupt_storage());
         }
-        let work = sqlx::query("SELECT required,completed,no_longer_required,remaining,substr(target_location_id,1,17) AS target_location_id,target_location_revision,revision FROM hub_putaway_work WHERE trace_id=? LIMIT 1")
-            .bind(trace.as_bytes().as_slice()).fetch_optional(&mut *transaction).await.map_err(|_| storage_unavailable())?.ok_or_else(corrupt_storage)?;
-        let put_away = QuantityWork::restore(
-            whole_packs(work.try_get("required").map_err(|_| corrupt_storage())?)?,
-            whole_packs(work.try_get("completed").map_err(|_| corrupt_storage())?)?,
-            whole_packs(
-                work.try_get("no_longer_required")
-                    .map_err(|_| corrupt_storage())?,
-            )?,
-            whole_packs(work.try_get("remaining").map_err(|_| corrupt_storage())?)?,
-        )
-        .map_err(|_| corrupt_storage())?;
-        let historical_target = optional_record_on(
-            transaction,
-            hub,
-            &work,
-            "target_location_id",
-            "target_location_revision",
-        )
-        .await?;
+        let work = crate::hub::handling::read::work_on(transaction, hub, trace).await?;
+        let put_away = work.quantity;
+        let historical_target = work.target;
         let work_target = historical_target
             .map(|target| {
                 catalog
@@ -562,7 +599,7 @@ async fn page_on(
             location,
             trace: original.trace,
             put_away,
-            work_revision: revision_field(&work, "revision")?,
+            work_revision: work.revision,
             work_target,
         });
     }
@@ -576,4 +613,16 @@ async fn page_on(
         more,
         rows,
     })
+}
+
+pub(in crate::hub) fn known_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "receipt"
+            | "move"
+            | "work_replan"
+            | "work_new"
+            | "discrepancy_open"
+            | "discrepancy_resolve"
+    )
 }
