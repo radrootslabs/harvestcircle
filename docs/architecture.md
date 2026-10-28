@@ -127,6 +127,17 @@ uncertain outcomes permit original-result lookup without another mutation. Loadi
 removes stale queue rows and disables unavailable actions. These in-memory draft
 controls do not replace the unfinished native admission/session/restore gate.
 
+Pure portion policy shares conserved partition and occurrence-bound mechanics
+with movement, while a separate split plan changes neither location nor work.
+Physical lineage uses immutable group creation revisions, including empty
+retained ancestors, to resolve captured population scope. A branch detached
+before capture is excluded unless selected; only later descendants of included
+groups inherit scope. Overlapping selections deduplicate current group IDs.
+The bounds are 256 groups per lineage and 256 scopes per union. The native
+adapter must load complete validated lineage and current authority; these pure
+values never grant permission. Independent split persistence/FFI/UI and actual
+acceptance/hold policy are subsequent implementation work.
+
 ## Secrets, transport and lifecycle
 
 Private keys and signing stay in Rust behind opaque handles. OS custody uses

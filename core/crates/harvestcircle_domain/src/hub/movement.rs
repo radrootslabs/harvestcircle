@@ -14,6 +14,7 @@ use super::stock::{Occurrence, QuantityWork, StockError};
 use super::{HubId, HubRevision};
 use crate::{PublicKey, UnixTimestamp};
 
+mod partition;
 mod work;
 pub use work::{Discrepancy, ReplanCommand, ReplanPlan, WorkRequirement};
 mod requirements;
@@ -164,7 +165,7 @@ impl PhysicalStockGroup {
         Ok(())
     }
 
-    fn validate_catalog(&self, catalog: &ReferenceCatalog) -> Result<(), MovementError> {
+    pub(super) fn validate_catalog(&self, catalog: &ReferenceCatalog) -> Result<(), MovementError> {
         self.validate()?;
         catalog.require_kind(self.variant, ReferenceKind::Pack)?;
         catalog.require_kind(self.location, ReferenceKind::Location)?;
@@ -222,60 +223,22 @@ impl MovementCommand {
         if self.packs.value() == 0 || self.packs.value() > source.packs.value() {
             return Err(MovementError::InsufficientStock);
         }
-        self.occurred.validate(recorded_at)?;
-        if source
-            .causal_floor
-            .is_some_and(|floor| match self.occurred {
-                Occurrence::Known(at) => at < floor,
-                Occurrence::Interval { latest, .. } => latest < floor,
-                Occurrence::Unknown => false,
-            })
-        {
-            return Err(MovementError::Stock(StockError::InvalidOccurrence));
-        }
+        let causal_floor = source.observation_floor(self.occurred, recorded_at)?;
         let destination = catalog
             .require_kind(self.to, ReferenceKind::Location)?
             .clone();
         if self.to == source.location {
             return Err(MovementError::UnchangedLocation);
         }
-        let partial = self.packs != source.packs;
-        let mut moved = source.clone();
-        let mut remaining = if partial { Some(source.clone()) } else { None };
-        if partial {
-            let identification = self
-                .separated_portion
-                .clone()
-                .ok_or(MovementError::PhysicalIdentificationRequired)?;
-            if separated_group_id == source.id
-                || source
-                    .identification
-                    .as_ref()
-                    .is_some_and(|original| original.label == identification.label)
-            {
-                return Err(MovementError::IdentityConflict);
-            }
-            moved.id = separated_group_id;
-            moved.parent = Some(source.id);
-            moved.identification = Some(identification);
-            moved.revision = HubRevision::INITIAL;
-            let parent = remaining.as_mut().expect("partial parent");
-            parent.packs = source.packs.checked_sub(self.packs)?;
-            parent.revision = next(source.revision)?;
-        } else {
-            if self.separated_portion.is_some() {
-                return Err(MovementError::IdentityConflict);
-            }
-            moved.revision = next(source.revision)?;
-        }
+        let partition = source.partition(
+            self.packs,
+            separated_group_id,
+            self.separated_portion.as_ref(),
+        )?;
+        let mut moved = partition.selected;
+        let mut remaining = partition.remainder;
         moved.location = self.to;
-        moved.packs = self.packs;
-        let observed_floor = match self.occurred {
-            Occurrence::Known(at) => Some(at),
-            Occurrence::Interval { earliest, .. } => Some(earliest),
-            Occurrence::Unknown => None,
-        };
-        moved.causal_floor = source.causal_floor.max(observed_floor);
+        moved.causal_floor = causal_floor;
         let mut work_updates = Vec::new();
         for (index, allocation) in moved.work.iter_mut().enumerate() {
             if allocation.progress == WorkProgress::Pending
@@ -336,13 +299,13 @@ impl MovementCommand {
     }
 }
 
-fn next(revision: HubRevision) -> Result<HubRevision, MovementError> {
+pub(super) fn next(revision: HubRevision) -> Result<HubRevision, MovementError> {
     revision
         .next()
         .map_err(|_| MovementError::RevisionExhausted)
 }
 
-fn hash_text(hash: &mut Sha256, text: &str) {
+pub(super) fn hash_text(hash: &mut Sha256, text: &str) {
     hash.update(
         u64::try_from(text.len())
             .expect("bounded hub text")
@@ -351,7 +314,7 @@ fn hash_text(hash: &mut Sha256, text: &str) {
     hash.update(text.as_bytes());
 }
 
-fn hash_occurrence(hash: &mut Sha256, occurrence: Occurrence) {
+pub(super) fn hash_occurrence(hash: &mut Sha256, occurrence: Occurrence) {
     match occurrence {
         Occurrence::Unknown => hash.update([0]),
         Occurrence::Known(at) => {
