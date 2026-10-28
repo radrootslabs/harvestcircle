@@ -5,6 +5,7 @@ mod availability_evidence;
 mod backup;
 mod contract;
 mod db;
+mod hub;
 mod identities;
 mod identity_namespace;
 mod installation;

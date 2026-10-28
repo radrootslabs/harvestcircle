@@ -1,6 +1,31 @@
 //! Host-only preparation of the resolved interactive data anchor.
 use radroots_runtime_paths::{RadrootsPathProfile, RuntimeContext};
 
+pub(crate) fn validate_demo_run(run: &str) -> Result<(), ()> {
+    if run.is_empty()
+        || run.len() > 48
+        || !run.as_bytes()[0].is_ascii_lowercase()
+        || !run
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+    {
+        return Err(());
+    }
+    Ok(())
+}
+
+/// Called only with the resolved interactive anchor; each named demo is a
+/// separate RepoLocal root, with its own required data directory and lock.
+pub(crate) fn prepare_demo_under(
+    anchor: &std::path::Path,
+    run: &str,
+) -> Result<std::path::PathBuf, ()> {
+    validate_demo_run(run)?;
+    let root = anchor.join("demos").join(run);
+    prepare_directory(&root.join("data"))?;
+    Ok(root)
+}
+
 pub(crate) fn prepare(context: &RuntimeContext) -> Result<(), ()> {
     if context.profile() != RadrootsPathProfile::InteractiveUser {
         return Ok(());
@@ -129,6 +154,24 @@ mod tests {
         fs,
         os::unix::fs::{PermissionsExt, symlink},
     };
+
+    #[test]
+    fn demo_profiles_are_private_resumable_and_distinct() {
+        let temp = tempfile::tempdir().unwrap();
+        let anchor = temp.path().canonicalize().unwrap();
+        let first = super::prepare_demo_under(&anchor, "first").unwrap();
+        let second = super::prepare_demo_under(&anchor, "second").unwrap();
+        std::fs::write(first.join("sentinel"), b"retained").unwrap();
+        assert_eq!(first, super::prepare_demo_under(&anchor, "first").unwrap());
+        assert_ne!(first, second);
+        assert_eq!(std::fs::read(first.join("sentinel")).unwrap(), b"retained");
+        assert!(first.join("data").is_dir());
+        for denied in ["", "..", "a/b", "A", "a.b", "-first", "a\\b"] {
+            assert!(super::prepare_demo_under(&anchor, denied).is_err());
+        }
+        symlink(&first, anchor.join("demos/alias")).unwrap();
+        assert!(super::prepare_demo_under(&anchor, "alias").is_err());
+    }
 
     #[test]
     fn fresh_anchor_is_private_and_relaunch_preserves_data() {

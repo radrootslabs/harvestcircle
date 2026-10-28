@@ -30,7 +30,7 @@ class NativeCompatibilityTest {
             descriptor.copy(contractHash = "wrong"),
             descriptor.copy(productCoordinateDigest = "wrong"),
             descriptor.copy(snapshotSchemaVersion = 2U),
-            descriptor.copy(currentSchemaVersion = 4U),
+            descriptor.copy(currentSchemaVersion = Expected.maximumStorageSchema + 1U),
             descriptor.copy(minimumSchemaVersion = 11U),
         ).forEach { incompatible ->
             assertFailsWith<NativeCompatibilityException> {

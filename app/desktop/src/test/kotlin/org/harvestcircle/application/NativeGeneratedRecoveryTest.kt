@@ -34,7 +34,7 @@ class NativeGeneratedRecoveryTest {
             assertTrue(build.sourceDirty in setOf("true", "false"))
             assertEquals("harvestcircle-desktop-ffi-v5", build.ffiContractId)
             assertEquals(1U, build.snapshotSchemaVersion)
-            assertEquals(3U, build.currentStorageSchemaVersion)
+            assertEquals(4U, build.currentStorageSchemaVersion)
             val runtime =
                 NativeHarvestCircleRuntime.open(
                     desktopRuntimeOpenConfiguration(

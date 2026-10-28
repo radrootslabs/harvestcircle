@@ -451,8 +451,8 @@ async fn fill_count(database: &Database, count: usize) -> (AvailabilityVersionVi
 fn historical_v1_v2_catalogs_preserve_exact_sql_and_digests() {
     let migrations = harvestcircle_migration_catalog().expect("current migrations");
     let schema = harvestcircle_schema_catalog().expect("current schemas");
-    assert_eq!(migrations.current_version(), 3);
-    assert_eq!(migrations.descriptors().len(), 2);
+    assert_eq!(migrations.current_version(), 4);
+    assert_eq!(migrations.descriptors().len(), 3);
     let previous = &migrations.descriptors()[0];
     assert_eq!(previous.target_version(), 2);
     assert_eq!(previous.name().as_str(), "bound_durable_operation_receipts");
@@ -467,7 +467,7 @@ fn historical_v1_v2_catalogs_preserve_exact_sql_and_digests() {
         MigrationChecksum::for_sql(MIGRATE_DURABLE_OPERATIONS_V2_SQL),
         previous.checksum()
     );
-    assert_eq!(schema.versions().len(), 3);
+    assert_eq!(schema.versions().len(), 4);
     assert_eq!(schema.versions()[0].version(), 1);
     assert_eq!(
         *schema.versions()[0].digest().as_bytes(),
@@ -531,7 +531,7 @@ fn historical_v1_v2_catalogs_preserve_exact_sql_and_digests() {
 async fn fresh_governed_database_installs_allocated_evidence_schema() {
     let fixture = Fixture::new();
     let database = fixture.open().await;
-    assert_eq!(database.metadata().state_schema_version().get(), 3);
+    assert_eq!(database.metadata().state_schema_version().get(), 4);
     assert_eq!(database.metadata().service().as_str(), "harvestcircle");
     assert_eq!(database.metadata().instance().as_str(), "desktop");
     assert_eq!(database.metadata().created_at_unix_ms(), 99);
@@ -541,7 +541,7 @@ async fn fresh_governed_database_installs_allocated_evidence_schema() {
         "SELECT version, name, checksum FROM schema_migrations ORDER BY version",
     )
     .await;
-    assert_eq!(ledger.len(), 2);
+    assert_eq!(ledger.len(), 3);
     assert_eq!(ledger[0].get::<i64, _>("version"), 2);
     assert_eq!(ledger[1].get::<i64, _>("version"), 3);
     assert_eq!(
@@ -648,7 +648,7 @@ async fn governed_v2_upgrade_preserves_original_state_and_source_identity() {
     assert!(state.iter().all(Option::is_some));
     host.close().await.unwrap();
     let database = fixture.open().await;
-    assert_eq!(database.metadata().state_schema_version().get(), 3);
+    assert_eq!(database.metadata().state_schema_version().get(), 4);
     assert_eq!(
         database.metadata().source_generation(),
         before.source_generation()
@@ -822,7 +822,7 @@ async fn real_migration_succeeds_after_rolled_back_creation() {
     let fixture = Fixture::new();
     let before = rollback_evidence_creation(&fixture).await;
     let database = fixture.open().await;
-    assert_eq!(database.metadata().state_schema_version().get(), 3);
+    assert_eq!(database.metadata().state_schema_version().get(), 4);
     assert_eq!(snapshot(database.host()).await, before);
     assert_usage(&database, 0, 0).await;
     let public = focused("after-real-retry");
@@ -855,7 +855,7 @@ async fn future_schema_and_integrity_failure_preserve_original_state() {
         database.close().await.unwrap();
         let mut connection = fixture.closed_connection().await;
         if future {
-            sqlx::query("UPDATE radroots_service_metadata SET state_schema_version = 4")
+            sqlx::query("UPDATE radroots_service_metadata SET state_schema_version = 5")
                 .execute(&mut connection)
                 .await
                 .unwrap();
@@ -2078,4 +2078,180 @@ async fn governed_backup_restore_preserves_evidence_and_accounting() {
     );
     assert_usage(&reopened, 1, expected_charge(&retained, "focused", None)).await;
     reopened.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn hub_initialization_replays_and_survives_reopen_without_account_rows() {
+    use harvestcircle_domain::hub::{HubId, HubOwnership};
+    let fixture = Fixture::new();
+    let database = fixture.open().await;
+    let owner = harvestcircle_domain::PublicKey::from_hex(
+        "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    )
+    .unwrap();
+    let hub = HubOwnership::new(HubId::from_bytes([1; 16]).unwrap(), owner);
+    let op = harvestcircle_application::DurableRequestId::new_v7();
+    let now = UnixTimestamp::from_seconds(100).unwrap();
+    assert!(database.load_hub().await.unwrap().is_none());
+    assert_eq!(database.initialize_hub(hub, &op, now).await.unwrap(), hub);
+    assert_eq!(database.initialize_hub(hub, &op, now).await.unwrap(), hub);
+    assert!(
+        database
+            .initialize_hub(
+                hub,
+                &harvestcircle_application::DurableRequestId::new_v7(),
+                now
+            )
+            .await
+            .is_err()
+    );
+    let count = rows(database.host(), "SELECT count(*) AS n FROM hub_history").await;
+    assert_eq!(count[0].get::<i64, _>("n"), 1);
+    let accounts = rows(
+        database.host(),
+        "SELECT count(*) AS n FROM account_identities",
+    )
+    .await;
+    assert_eq!(accounts[0].get::<i64, _>("n"), 0);
+    database.close().await.unwrap();
+    let reopened = fixture.open().await;
+    assert_eq!(reopened.load_hub().await.unwrap(), Some(hub));
+    assert_eq!(reopened.initialize_hub(hub, &op, now).await.unwrap(), hub);
+    reopened.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn hub_history_conflict_rolls_back_context_and_preserves_history() {
+    use harvestcircle_domain::hub::{HubId, HubOwnership};
+    let fixture = Fixture::new();
+    let database = fixture.open().await;
+    let owner = harvestcircle_domain::PublicKey::from_hex(
+        "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    )
+    .unwrap();
+    let previous = harvestcircle_application::DurableRequestId::new_v7();
+    let previous_id = previous.as_str().to_owned();
+    // An owned test-only inconsistent precondition forces an actual UNIQUE
+    // failure after context insertion. This is never production seed behavior.
+    database
+        .host()
+        .transaction(|tx| {
+            Box::pin(async move {
+                sqlx::query("INSERT INTO hub_history VALUES (1, ?, ?, 'initialized', 100, ?, ?)")
+                    .bind([2_u8; 16].as_slice())
+                    .bind(owner.as_bytes().as_slice())
+                    .bind(owner.as_bytes().as_slice())
+                    .bind(previous_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|_| crate::db::storage_unavailable())?;
+                Ok::<_, SafeError>(())
+            })
+        })
+        .await
+        .unwrap();
+    let hub = HubOwnership::new(HubId::from_bytes([1; 16]).unwrap(), owner);
+    let op = harvestcircle_application::DurableRequestId::new_v7();
+    assert!(
+        database
+            .initialize_hub(hub, &op, UnixTimestamp::from_seconds(100).unwrap())
+            .await
+            .is_err()
+    );
+    assert!(database.load_hub().await.unwrap().is_none());
+    let history = rows(database.host(), "SELECT operation_id FROM hub_history").await;
+    assert_eq!(history.len(), 1);
+    assert_eq!(
+        history[0].get::<String, _>("operation_id"),
+        previous.as_str()
+    );
+    for sql in [
+        "UPDATE hub_history SET recorded_at_unix_s = 101",
+        "DELETE FROM hub_history",
+    ] {
+        assert!(
+            database
+                .host()
+                .transaction(|tx| Box::pin(async move {
+                    sqlx::query(sql)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|_| crate::db::storage_unavailable())?;
+                    Ok::<_, SafeError>(())
+                }))
+                .await
+                .is_err()
+        );
+    }
+    database.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn actual_schema_three_upgrades_to_hub_schema_without_rewriting_originals() {
+    let fixture = Fixture::new();
+    let contract = HarvestCircleStorageContract::from_runtime_context(&fixture.context).unwrap();
+    let current_migrations = harvestcircle_migration_catalog().unwrap();
+    let old_migrations =
+        MigrationCatalog::new(current_migrations.descriptors().iter().take(2).cloned()).unwrap();
+    let current_schema = harvestcircle_schema_catalog().unwrap();
+    let old_schema = SchemaCatalog::new(
+        &old_migrations,
+        current_schema.versions().iter().take(3).cloned(),
+    )
+    .unwrap();
+    fixture
+        .context
+        .state_directory_plan()
+        .unwrap()
+        .provision()
+        .unwrap();
+    let metadata = ServiceDatabaseMetadata::new(
+        contract.paths(),
+        radroots_storage::event::SourceGeneration::new([71; 32]).unwrap(),
+        NonZeroU32::new(1).unwrap(),
+        17,
+        contract.application_id(),
+    )
+    .unwrap();
+    let (opened, migration) = ServiceSqliteHost::open_or_initialize(
+        contract.paths(),
+        &metadata,
+        &old_migrations,
+        &old_schema,
+        ServiceSqliteConnectionOptions::reviewed(),
+        MigrationAppliedAtUnixSeconds::new(18).unwrap(),
+        &fixture.build,
+        &[],
+        legacy_initializer,
+    )
+    .await
+    .unwrap();
+    assert_eq!(migration.final_version(), 3);
+    let (host, original_metadata) = opened.into_parts();
+    let original = seed_legacy_state(&host).await;
+    let public = focused("retained-schema-three-source");
+    let retained = public.clone();
+    host.transaction(|tx| {
+        Box::pin(async move { retain_availability_version_on(tx, retained).await })
+    })
+    .await
+    .unwrap();
+    host.close().await.unwrap();
+    let database = fixture.open().await;
+    assert_round_trip(
+        &database
+            .load_availability_version(public.version())
+            .await
+            .unwrap()
+            .unwrap(),
+        &public,
+    );
+    assert_eq!(database.metadata().state_schema_version().get(), 4);
+    assert_eq!(
+        database.metadata().source_generation(),
+        original_metadata.source_generation()
+    );
+    assert_eq!(snapshot(database.host()).await, original);
+    assert!(database.load_hub().await.unwrap().is_none());
+    database.close().await.unwrap();
 }

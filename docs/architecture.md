@@ -27,7 +27,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 3, FFI is 5.0 and snapshot schema is 1. Rust and Kotlin compatibility inputs are checked before opening application
+The current storage schema is 4, FFI is 5.1 and snapshot schema is 1. Rust and Kotlin compatibility inputs are checked before opening application
 state. Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
 
@@ -82,3 +82,20 @@ sealed identity/digest/member-bound capabilities, never arbitrary repair paths.
 
 These are existing implementation boundaries, not permission to perform live
 credential, relay, recovery or publication operations during ordinary checks.
+
+## Local demo hub context
+
+The explicit native demo constructor selects a named, private data root under
+`demos/<run>/data` below the resolved interactive anchor. Ordinary startup keeps
+its existing root and cannot initialize demo hubs. Demo opening defaults offline.
+Run names are bounded single path components; provisioning retains the normal
+ownership, no-symlink and no-repair checks. A database profile is separate from
+the OS keyring: use a dedicated demo identity rather than an existing credential.
+
+Storage migration 4 adds the single hub context and immutable actor history with
+no foreign keys to removable account rows. The serialized native actor derives
+current ownership from the active session, verifies custody before initialization,
+and rejects stale generations or other identities. Setup uses an original stable
+operation ID and atomically writes its context/history; retry returns the same
+result. Hub metadata remains after identity removal. UI and stock operations are
+still being implemented; the native policy is not a complete food-hub workflow.

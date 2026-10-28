@@ -43,6 +43,31 @@ use crate::{
 };
 
 pub(crate) const ACTOR_MAILBOX_CAPACITY: usize = 64;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct HubContextDto {
+    pub hub_id: String,
+    pub owner_public_key: String,
+    pub revision: u64,
+    pub sample_data: bool,
+}
+
+impl From<harvestcircle_domain::hub::HubOwnership> for HubContextDto {
+    fn from(hub: harvestcircle_domain::hub::HubOwnership) -> Self {
+        Self {
+            hub_id: hub
+                .id()
+                .as_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect(),
+            owner_public_key: hub.owner().to_hex(),
+            revision: hub.revision().value(),
+            sample_data: true,
+        }
+    }
+}
 const MAX_COMMAND_DEADLINE_MILLIS: u64 = 30_000;
 
 #[derive(Clone, Eq, PartialEq)]
@@ -425,6 +450,71 @@ impl HarvestCircleAppCore {
         Self::open_context(&context, relays)
     }
 
+    /// Opens an explicitly selected isolated sample-data profile, offline.
+    #[cfg_attr(not(coverage_nightly), uniffi::constructor)]
+    pub fn open_demo_compatible(
+        expectation: CompatibilityExpectation,
+        run_name: String,
+    ) -> Result<Arc<Self>, HarvestCircleError> {
+        verify_compatibility(&expectation)?;
+        crate::bootstrap::validate_demo_run(&run_name).map_err(|()| path_unavailable())?;
+        let interactive = application_runtime_context(&RuntimeOpenInputDto {
+            development_mode: false,
+            explicit_data_directory: None,
+            relay_input: RelayBootstrapInputDto {
+                endpoints: Vec::new(),
+            },
+        })?;
+        crate::bootstrap::prepare(&interactive).map_err(|()| path_unavailable())?;
+        let anchor = interactive
+            .paths()
+            .state()
+            .ancestors()
+            .nth(3)
+            .ok_or_else(path_unavailable)?;
+        let root = crate::bootstrap::prepare_demo_under(anchor, &run_name)
+            .map_err(|()| path_unavailable())?;
+        let context = application_runtime_context(&RuntimeOpenInputDto {
+            development_mode: true,
+            explicit_data_directory: Some(root.to_str().ok_or_else(path_unavailable)?.to_owned()),
+            relay_input: RelayBootstrapInputDto {
+                endpoints: Vec::new(),
+            },
+        })?;
+        let relays = relay_configuration_from_endpoints(&[]).map_err(HarvestCircleError::from)?;
+        Self::open_context_with_mode(&context, relays, true)
+    }
+
+    /// Private hub reads require the current native owner session.
+    pub async fn hub_context(&self) -> Result<Option<HubContextDto>, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        self.inner
+            .actor
+            .hub_context()
+            .await
+            .map(|hub| hub.map(HubContextDto::from))
+            .map_err(HarvestCircleError::from)
+    }
+
+    /// The owner is derived from the native session, never supplied by a client.
+    pub async fn initialize_hub(
+        &self,
+        context: RequestContextDto,
+    ) -> Result<HubContextDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let (request, timeout) = validate_request_context(&context)?;
+        self.inner
+            .actor
+            .initialize_hub(
+                request.clone(),
+                harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
+                timeout,
+            )
+            .await
+            .map(HubContextDto::from)
+            .map_err(|error| HarvestCircleError::correlated(error, &request))
+    }
+
     /// Restores durable public application state.
     ///
     /// # Errors
@@ -737,6 +827,15 @@ impl HarvestCircleAppCore {
         context: &RuntimeContext,
         relays: RelayConfiguration,
     ) -> Result<Arc<Self>, HarvestCircleError> {
+        Self::open_context_with_mode(context, relays, false)
+    }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
+    fn open_context_with_mode(
+        context: &RuntimeContext,
+        relays: RelayConfiguration,
+        demo_profile: bool,
+    ) -> Result<Arc<Self>, HarvestCircleError> {
         let build = migration_build_identity()?;
         let actor_capacity = actor_mailbox_capacity()?;
         let runtime = HostRuntime::new().map_err(|()| runtime_unavailable())?;
@@ -756,12 +855,19 @@ impl HarvestCircleAppCore {
                 RuntimeActorHandle::open(
                     &owned_context,
                     relays,
-                    RuntimeDependencies::new(
-                        secrets,
-                        Arc::new(SystemClock),
-                        Arc::new(SdkNostrClient::new(Duration::from_secs(5))),
-                        Arc::new(UuidInstallationIdentitySource),
-                    ),
+                    {
+                        let dependencies = RuntimeDependencies::new(
+                            secrets,
+                            Arc::new(SystemClock),
+                            Arc::new(SdkNostrClient::new(Duration::from_secs(5))),
+                            Arc::new(UuidInstallationIdentitySource),
+                        );
+                        if demo_profile {
+                            dependencies.with_demo_profile()
+                        } else {
+                            dependencies
+                        }
+                    },
                     &build,
                     actor_capacity,
                     &actor_runtime,
@@ -1013,6 +1119,15 @@ pub(crate) async fn test_actor_with_nostr_timeout(
     relays: RelayConfiguration,
     nostr_timeout: Duration,
 ) -> (RuntimeActorHandle, Arc<tempfile::TempDir>) {
+    test_actor_mode(relays, nostr_timeout, false).await
+}
+
+#[cfg(test)]
+async fn test_actor_mode(
+    relays: RelayConfiguration,
+    nostr_timeout: Duration,
+    demo_profile: bool,
+) -> (RuntimeActorHandle, Arc<tempfile::TempDir>) {
     let directory = Arc::new(tempfile::tempdir().expect("temporary runtime root"));
     let context = application_runtime_context(&RuntimeOpenInputDto {
         development_mode: true,
@@ -1034,12 +1149,19 @@ pub(crate) async fn test_actor_with_nostr_timeout(
     let actor = RuntimeActorHandle::open(
         &context,
         relays,
-        RuntimeDependencies::new(
-            Arc::new(harvestcircle_application::InMemorySecretStore::default()),
-            Arc::new(SystemClock),
-            Arc::new(SdkNostrClient::new(nostr_timeout)),
-            Arc::new(UuidInstallationIdentitySource),
-        ),
+        {
+            let deps = RuntimeDependencies::new(
+                Arc::new(harvestcircle_application::InMemorySecretStore::default()),
+                Arc::new(SystemClock),
+                Arc::new(SdkNostrClient::new(nostr_timeout)),
+                Arc::new(UuidInstallationIdentitySource),
+            );
+            if demo_profile {
+                deps.with_demo_profile()
+            } else {
+                deps
+            }
+        },
         &build,
         actor_mailbox_capacity().expect("capacity"),
         &tokio::runtime::Handle::current(),
@@ -1172,12 +1294,20 @@ mod tests {
         RequestContextDto, RuntimeCore, RuntimeOpenInputDto, SNAPSHOT_SCHEMA_VERSION,
         WireErrorCategory, WireErrorCode, WireRecoveryAction, actor_mailbox_capacity,
         application_runtime_context, compatibility_descriptor, confirmation_expired,
-        generated_commit_failed, path_unavailable, runtime_unavailable, test_actor,
-        verify_compatibility,
+        generated_commit_failed, path_unavailable, runtime_unavailable, verify_compatibility,
     };
 
     async fn in_memory_core() -> Arc<HarvestCircleAppCore> {
-        let (actor, directory) = test_actor(RelayConfiguration::default()).await;
+        in_memory_core_with_mode(false).await
+    }
+
+    async fn in_memory_core_with_mode(demo_profile: bool) -> Arc<HarvestCircleAppCore> {
+        let (actor, directory) = super::test_actor_mode(
+            RelayConfiguration::default(),
+            std::time::Duration::from_millis(10),
+            demo_profile,
+        )
+        .await;
         Arc::new(HarvestCircleAppCore {
             inner: Arc::new(RuntimeCore {
                 actor,
@@ -1194,6 +1324,45 @@ mod tests {
                 _test_directory: Some(directory),
             }),
         })
+    }
+
+    #[tokio::test]
+    async fn demo_hub_ffi_derives_owner_and_replays_original_setup() {
+        let core = in_memory_core_with_mode(true).await;
+        let initial = core.bootstrap().await.unwrap();
+        assert!(core.hub_context().await.is_err());
+        let import = core
+            .import_identity(
+                RequestContextDto {
+                    request_id: harvestcircle_application::DurableRequestId::new_v7()
+                        .as_str()
+                        .to_owned(),
+                    expected_revision: initial.revision,
+                    deadline_millis: 5000,
+                },
+                b"7e7e9c42a91bfef19fa7ea99d52d8afdb67d893a8fefba1f5cb9793f2107f6d7".to_vec(),
+            )
+            .await
+            .unwrap();
+        let key = import.snapshot.identities[0].public_key_hex.clone();
+        let active = core.activate_identity(key.clone()).await.unwrap();
+        assert!(core.hub_context().await.unwrap().is_none());
+        let context = RequestContextDto {
+            request_id: harvestcircle_application::DurableRequestId::new_v7()
+                .as_str()
+                .to_owned(),
+            expected_revision: active.revision,
+            deadline_millis: 5000,
+        };
+        let hub = core.initialize_hub(context.clone()).await.unwrap();
+        assert!(hub.sample_data);
+        assert_eq!(hub.owner_public_key, key);
+        assert_eq!(hub.revision, 1);
+        assert_eq!(core.initialize_hub(context).await.unwrap(), hub);
+        assert_eq!(core.hub_context().await.unwrap(), Some(hub));
+        core.sign_out().await.unwrap();
+        assert!(core.hub_context().await.is_err());
+        core.shutdown_v2().await.unwrap();
     }
 
     #[tokio::test]
@@ -1682,7 +1851,7 @@ mod tests {
             .to_path_buf();
         assert!(database.ends_with("data/services/harvestcircle/desktop/state.sqlite"));
         assert!(!database.to_string_lossy().contains("harvestcircle.sqlite3"));
-        assert_eq!(CURRENT_SCHEMA_VERSION, 3);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 4);
     }
 
     #[test]

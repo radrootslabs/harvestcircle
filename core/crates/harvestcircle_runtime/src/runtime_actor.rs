@@ -30,12 +30,21 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::{InstallationIdentity, InstallationIdentitySource, PersistentAppCore};
 
+use harvestcircle_domain::hub::{HubId, HubOwnership};
+
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_TASK_CAPACITY: usize = 64;
 const MAX_OUTSTANDING_PROFILE_TASKS: usize = 64;
 
 enum RuntimeCommand {
     Snapshot,
+    HubRead {
+        generation: SessionGeneration,
+    },
+    InitializeHub {
+        generation: SessionGeneration,
+        operation: DurableRequestId,
+    },
     GenerateIdentity {
         durable_request: DurableRequestId,
         expected_revision: u64,
@@ -66,6 +75,7 @@ enum RuntimeCommand {
 }
 
 enum RuntimeCommandValue {
+    Hub(Option<HubOwnership>),
     Snapshot(Box<AppSnapshot>),
     Generated(GenerateIdentityReceipt),
     GeneratedKeyStage(GeneratedKeyRecoveryHandle),
@@ -80,10 +90,12 @@ enum RuntimeCommandValue {
 impl RuntimeCommand {
     const fn class(&self) -> RuntimeCommandClass {
         match self {
-            Self::Snapshot | Self::SubscribeChanges(_) | Self::UnsubscribeChanges(_) => {
-                RuntimeCommandClass::Observe
-            }
+            Self::Snapshot
+            | Self::HubRead { .. }
+            | Self::SubscribeChanges(_)
+            | Self::UnsubscribeChanges(_) => RuntimeCommandClass::Observe,
             Self::GenerateIdentity { .. }
+            | Self::InitializeHub { .. }
             | Self::BeginGeneratedKeyStage
             | Self::AcknowledgeGeneratedKeyStage { .. }
             | Self::ImportSecretKey { .. }
@@ -107,6 +119,7 @@ impl RuntimeCommand {
 }
 
 struct RuntimeActor {
+    demo_profile: bool,
     adapter: Arc<PersistentAppCore>,
     secrets: Arc<dyn SecretStore>,
     clock: Arc<dyn Clock>,
@@ -152,6 +165,7 @@ pub struct RuntimeActorHandle {
 
 #[derive(Clone)]
 pub struct RuntimeDependencies {
+    demo_profile: bool,
     secrets: Arc<dyn SecretStore>,
     clock: Arc<dyn Clock>,
     nostr: Arc<dyn NostrClient>,
@@ -159,6 +173,12 @@ pub struct RuntimeDependencies {
 }
 
 impl RuntimeDependencies {
+    /// Selected only by the explicit native demo constructor or isolated tests.
+    #[must_use]
+    pub fn with_demo_profile(mut self) -> Self {
+        self.demo_profile = true;
+        self
+    }
     #[must_use]
     pub fn new(
         secrets: Arc<dyn SecretStore>,
@@ -167,6 +187,7 @@ impl RuntimeDependencies {
         installation_source: Arc<dyn InstallationIdentitySource>,
     ) -> Self {
         Self {
+            demo_profile: false,
             secrets,
             clock,
             nostr,
@@ -234,6 +255,7 @@ impl RuntimeActorHandle {
         gate.ownership_acquired()?;
         gate.migration_complete()?;
         let RuntimeDependencies {
+            demo_profile,
             secrets,
             clock,
             nostr,
@@ -252,6 +274,7 @@ impl RuntimeActorHandle {
         let foreground_session = Arc::new(Mutex::new(None));
         let changes = OrderedSnapshotChanges::new(adapter.core().snapshot());
         let actor = RuntimeActor {
+            demo_profile,
             adapter: Arc::clone(&adapter),
             secrets,
             clock,
@@ -347,6 +370,45 @@ impl RuntimeActorHandle {
     /// Returns a typed safe actor error.
     pub async fn bootstrap(&self) -> Result<AppSnapshot, SafeError> {
         Self::expect_snapshot(self.dispatch(RuntimeCommand::Snapshot, None).await?)
+    }
+
+    /// Reads private hub context using the current serialized native session.
+    pub async fn hub_context(&self) -> Result<Option<HubOwnership>, SafeError> {
+        match self
+            .dispatch(
+                RuntimeCommand::HubRead {
+                    generation: self.session_generation(),
+                },
+                None,
+            )
+            .await?
+        {
+            RuntimeCommandValue::Hub(hub) => Ok(hub),
+            _ => Err(invalid_actor_response()),
+        }
+    }
+
+    /// Initializes one explicit demo hub; the caller cannot supply its owner.
+    pub async fn initialize_hub(
+        &self,
+        operation: DurableRequestId,
+        expected: SnapshotRevision,
+        timeout: Duration,
+    ) -> Result<HubOwnership, SafeError> {
+        match self
+            .dispatch_durable(
+                RuntimeCommand::InitializeHub {
+                    generation: self.session_generation(),
+                    operation,
+                },
+                expected,
+                timeout,
+            )
+            .await?
+        {
+            RuntimeCommandValue::Hub(Some(hub)) => Ok(hub),
+            _ => Err(invalid_actor_response()),
+        }
     }
 
     /// Generates one identity through the serialized actor boundary.
@@ -971,6 +1033,53 @@ impl RuntimeActor {
         command: RuntimeCommand,
     ) -> CommandResult<RuntimeCommandValue> {
         let result = match command {
+            RuntimeCommand::HubRead { generation } => match self.hub_actor(generation) {
+                Ok(actor) => {
+                    self.run_async(context.deadline(), move |adapter, _, _| async move {
+                        let hub = adapter.database().load_hub().await?;
+                        if hub.is_some_and(|hub| hub.authorize(Some(actor)).is_err()) {
+                            return Err(command_unavailable());
+                        }
+                        Ok(RuntimeCommandValue::Hub(hub))
+                    })
+                    .await
+                }
+                Err(error) => Err(error),
+            },
+            RuntimeCommand::InitializeHub {
+                generation,
+                operation,
+            } => match self.hub_actor(generation) {
+                Ok(actor) => {
+                    self.run_async(
+                        context.deadline(),
+                        move |adapter, secrets, clock| async move {
+                            let secret = secrets.load(actor).await?;
+                            let material = adapter.key_material().import(secret)?;
+                            let (actual, _, secret) = material.into_parts();
+                            drop(secret);
+                            if actual != actor {
+                                return Err(command_unavailable());
+                            }
+                            let uuid = uuid::Uuid::parse_str(operation.as_str())
+                                .map_err(|_| invalid_runtime_evidence())?;
+                            let id = HubId::from_bytes(*uuid.as_bytes())
+                                .map_err(|_| invalid_runtime_evidence())?;
+                            let hub = adapter
+                                .database()
+                                .initialize_hub(
+                                    HubOwnership::new(id, actor),
+                                    &operation,
+                                    clock.now(),
+                                )
+                                .await?;
+                            Ok(RuntimeCommandValue::Hub(Some(hub)))
+                        },
+                    )
+                    .await
+                }
+                Err(error) => Err(error),
+            },
             RuntimeCommand::Snapshot => Ok(RuntimeCommandValue::Snapshot(Box::new(
                 self.adapter.core().snapshot(),
             ))),
@@ -1123,6 +1232,30 @@ impl RuntimeActor {
             }
         };
         result.map_or_else(CommandResult::Failed, CommandResult::Completed)
+    }
+
+    fn hub_actor(&self, generation: SessionGeneration) -> Result<PublicKey, SafeError> {
+        if !self.demo_profile || generation != self.session_generation {
+            return Err(command_unavailable());
+        }
+        let binding = self
+            .published_foreground_session
+            .lock()
+            .map_err(|_| runtime_state_unavailable())?
+            .clone()
+            .ok_or_else(command_unavailable)?;
+        let key = binding.identity().public_key();
+        if binding.generation() != generation
+            || !self
+                .adapter
+                .core()
+                .snapshot()
+                .active_identity()
+                .is_some_and(|active| active.identity().public_key() == key)
+        {
+            return Err(command_unavailable());
+        }
+        Ok(key)
     }
 
     async fn run_async<F, Fut>(
@@ -1804,6 +1937,7 @@ mod tests {
             .await
             .expect("activate");
         let owner = RuntimeActor {
+            demo_profile: false,
             adapter: Arc::clone(&handle.adapter),
             secrets,
             clock: Arc::new(FixedClock),
@@ -3015,6 +3149,7 @@ mod tests {
         let (probe_id, probe_receiver) = probe.subscribe(NonZeroUsize::MIN).expect("probe id");
         drop(probe_receiver);
         let mut owner = RuntimeActor {
+            demo_profile: false,
             adapter: Arc::clone(&handle.adapter),
             secrets,
             clock: Arc::new(FixedClock),
@@ -3251,5 +3386,129 @@ mod tests {
 
     fn secret(value: &str) -> SecretKeyInput {
         SecretKeyInput::parse(value.to_owned()).expect("valid test secret")
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn hub_owner_is_native_current_session_and_data_survives_account_removal() {
+        let secrets = Arc::new(InMemorySecretStore::default());
+        let actor = RuntimeActorHandle::in_memory(
+            RelayConfiguration::default(),
+            dependencies(secrets.clone(), Arc::new(OfflineNostr)).with_demo_profile(),
+            NonZeroUsize::new(8).unwrap(),
+            &tokio::runtime::Handle::current(),
+        )
+        .await
+        .unwrap();
+        assert!(actor.hub_context().await.is_err());
+        let request = DurableRequestId::new_v7();
+        assert!(
+            actor
+                .initialize_hub(
+                    request.clone(),
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .is_err()
+        );
+        let generated = actor
+            .generate_identity(
+                DurableRequestId::new_v7(),
+                actor.snapshot().revision(),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await
+            .unwrap();
+        let owner = generated.identity().public_key();
+        drop(generated);
+        actor.activate_identity(owner).await.unwrap();
+        assert!(actor.hub_context().await.unwrap().is_none());
+        let hub = actor
+            .initialize_hub(
+                request.clone(),
+                actor.snapshot().revision(),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await
+            .unwrap();
+        assert_eq!(hub.owner(), owner);
+        assert_eq!(
+            actor
+                .initialize_hub(
+                    request,
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .unwrap(),
+            hub
+        );
+        let generation = actor.session_generation();
+        let second = actor
+            .generate_identity(
+                DurableRequestId::new_v7(),
+                actor.snapshot().revision(),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await
+            .unwrap()
+            .identity()
+            .public_key();
+        actor.activate_identity(second).await.unwrap();
+        assert!(
+            actor
+                .dispatch(RuntimeCommand::HubRead { generation }, None)
+                .await
+                .is_err()
+        );
+        assert!(actor.hub_context().await.is_err());
+        assert!(
+            actor
+                .initialize_hub(
+                    DurableRequestId::new_v7(),
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .is_err()
+        );
+        actor.activate_identity(owner).await.unwrap();
+        assert_eq!(actor.hub_context().await.unwrap(), Some(hub));
+        let removal = actor.request_identity_removal(owner).await.unwrap();
+        actor.confirm_identity_removal_test(removal).await.unwrap();
+        assert!(actor.hub_context().await.is_err());
+        assert_eq!(
+            actor.adapter.database().load_hub().await.unwrap(),
+            Some(hub)
+        );
+        actor.close().await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn ordinary_runtime_cannot_initialize_a_demo_hub() {
+        let (actor, _) = actor().await;
+        let identity = actor
+            .generate_identity(
+                DurableRequestId::new_v7(),
+                actor.snapshot().revision(),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await
+            .unwrap()
+            .identity()
+            .public_key();
+        actor.activate_identity(identity).await.unwrap();
+        assert!(actor.hub_context().await.is_err());
+        assert!(
+            actor
+                .initialize_hub(
+                    DurableRequestId::new_v7(),
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .is_err()
+        );
+        assert!(actor.adapter.database().load_hub().await.unwrap().is_none());
+        actor.close().await.unwrap();
     }
 }

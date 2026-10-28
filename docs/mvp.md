@@ -278,8 +278,9 @@ must run from an independent public checkout without external design documents.
 
 ## Repository bindings and implementation status
 
-All hub commands, read models and UI below are planned. The table identifies
-existing extension points, not completed hub implementations.
+Inventory commands and operational UI below are planned. Native demo-context
+initialization and reads now persist through the serialized Rust actor and FFI.
+The table identifies extension points, not completed inventory features.
 
 Pure hub identity, revision and ownership policy is implemented in
 core/crates/harvestcircle_domain/src/hub.rs. This policy does not establish
