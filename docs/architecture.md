@@ -144,8 +144,18 @@ lineage reads. These values never grant permission. The shared separation editor
 and lineage inspector use the same retained-input, explicit scope-review and
 original-result recovery paths as other handling. Lineage continuations pin both
 stock and catalog versions; empty retained ancestors expose history without an
-active-stock action. Recorded and actual occurrence times are distinct. Actual
-acceptance/hold policy remains unfinished.
+active-stock action. Recorded and actual occurrence times are distinct. Sample
+acceptance/hold policy is implemented as pure checked data in
+`core/crates/harvestcircle_domain/src/hub/treatment.rs`; native storage/commands
+and UI are unfinished. Current acceptance follows explicit native recording order
+within the selected population, not a claim about historical occurrence. Hold
+union deduplicates physical groups; releasing one hold preserves others and does
+not supply acceptance. Original stamps retain the reviewed sample basis. Bounded
+primary history leaves each existing hold a separate release slot. Exhausted
+primary history blocks normal departure with a distinct capacity reason because
+new precautionary holds cannot fit; it does not relabel physical treatment totals.
+Native journal
+reservation remains required before these commands become available.
 
 ## Secrets, transport and lifecycle
 

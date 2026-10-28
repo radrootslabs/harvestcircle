@@ -134,6 +134,67 @@ impl PhysicalLineage {
     }
 
     #[must_use]
+    pub const fn hub(&self) -> HubId {
+        self.hub
+    }
+    #[must_use]
+    pub const fn trace(&self) -> HubRecordId {
+        self.trace
+    }
+    #[must_use]
+    pub const fn variant(&self) -> HubRecordId {
+        self.variant
+    }
+
+    /// Rehydrate verified native originals, never a client selection or authority.
+    /// Captured quantities are historical facts; current quantities come from lineage.
+    pub fn restore_scope(
+        &self,
+        captured_revision: HubRevision,
+        mut anchors: Vec<PhysicalScopeAnchor>,
+    ) -> Result<CapturedPhysicalScope, PhysicalScopeError> {
+        if anchors.is_empty() || anchors.len() > HUB_LINEAGE_GROUPS {
+            return Err(PhysicalScopeError::Capacity);
+        }
+        if captured_revision.value() > self.revision.value() {
+            return Err(PhysicalScopeError::HistoricalGap);
+        }
+        anchors.sort_by_key(|anchor| *anchor.group.as_bytes());
+        if anchors
+            .windows(2)
+            .any(|pair| pair[0].group == pair[1].group)
+        {
+            return Err(PhysicalScopeError::InvalidSelection);
+        }
+        let mut total = WholePacks::from_value(0).expect("zero packs");
+        for anchor in &anchors {
+            let node = self
+                .node(anchor.group)
+                .ok_or(PhysicalScopeError::HistoricalGap)?;
+            if node.created_revision != anchor.created_revision
+                || anchor.created_revision.value() > captured_revision.value()
+            {
+                return Err(PhysicalScopeError::HistoricalGap);
+            }
+            if anchor.captured_packs.value() == 0 {
+                return Err(PhysicalScopeError::InvalidSelection);
+            }
+            total = total
+                .checked_add(anchor.captured_packs)
+                .map_err(|_| PhysicalScopeError::QuantityOverflow)?;
+        }
+        let scope = CapturedPhysicalScope {
+            hub: self.hub,
+            trace: self.trace,
+            variant: self.variant,
+            captured_revision,
+            anchors,
+        };
+        self.resolve(&scope)?;
+        Ok(scope)
+    }
+
+    #[must_use]
     pub const fn revision(&self) -> HubRevision {
         self.revision
     }

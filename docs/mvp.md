@@ -128,8 +128,21 @@ separation editor retains observed count/identifier/time input and freezes an
 uncertain submission. The lineage inspector shows original creation/parentage,
 current on-hand positions and retained empty ancestors, with stock/catalog-pinned
 continuations. Kotlin renders these native projections without resolving scope or
-calculating authoritative quantities. Actual acceptance/hold policy remains
-unfinished.
+calculating authoritative quantities.
+
+Pure sample acceptance/hold policy lives in
+`core/crates/harvestcircle_domain/src/hub/treatment.rs`. It defaults to review
+required and computes departure eligibility from accepted groups minus their
+active hold union, retaining original scope, sample basis and separate clocks.
+Acceptance and selected-hold release never clear each other. The existing sample
+basis permits internal relocation, observed separation and explicit disposition
+under native ownership; normal recipient departure requires acceptance and no
+active hold. The bounds are64 selected groups and256 primary decisions/holds per
+trace, with one retained release per hold. At primary history capacity, normal
+departure fails closed because another precautionary hold cannot be recorded;
+physical treatment totals stay distinct from command readiness. These projections
+carry no current authority or future mutation grant. Native treatment persistence,
+commands, release-capacity reservation and acceptance/hold UI remain unfinished.
 
 Receipt planning is implemented as pure Rust in
 `core/crates/harvestcircle_domain/src/hub/stock.rs`. It captures original reference
