@@ -31,9 +31,10 @@ pub use contract::{
 };
 pub use db::{CURRENT_SCHEMA_VERSION, Database};
 pub use hub::handling::{
-    HubActionGroup, HubDiscrepancyRow, HubGroupView, HubHandlingKind, HubHandlingPage,
-    HubHandlingQuery, HubHandlingReceipt, HubHandlingResult, HubMovementResult,
-    HubWorkActionResult, HubWorkChange, HubWorkOrigin, HubWorkRow,
+    HubActionGroup, HubDiscrepancyRow, HubGroupCreationKind, HubGroupView, HubHandlingKind,
+    HubHandlingPage, HubHandlingQuery, HubHandlingReceipt, HubHandlingResult, HubLineagePage,
+    HubLineageQuery, HubLineageRow, HubMovementResult, HubSplitResult, HubWorkActionResult,
+    HubWorkChange, HubWorkOrigin, HubWorkRow,
 };
 pub use hub::reference::HubReferenceReceipt;
 pub use hub::stock::{HubStockPage, HubStockQuery, HubStockReceipt, HubStockRow};

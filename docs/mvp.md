@@ -121,8 +121,11 @@ included; portions subsequently separated from the selected population inherit
 its scope. Later descendants of an excluded branch remain excluded. Overlapping
 selections count current physical groups once. Unknown or older incomplete
 history cannot resolve to an empty success. The pure portion/lineage rules live
-in `core/crates/harvestcircle_domain/src/hub/portions.rs`; independently requested
-portion storage/native UI and actual acceptance/hold policy remain unfinished.
+in `core/crates/harvestcircle_domain/src/hub/portions.rs`. Native storage/runtime
+and FFI5.6 now support explicit same-location separation, immutable original
+results and complete validated lineage with pinned pages. The independent
+separation editor, lineage inspector and actual acceptance/hold policy remain
+unfinished.
 
 Receipt planning is implemented as pure Rust in
 `core/crates/harvestcircle_domain/src/hub/stock.rs`. It captures original reference

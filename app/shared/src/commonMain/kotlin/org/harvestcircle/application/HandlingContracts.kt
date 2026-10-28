@@ -167,6 +167,19 @@ data class HubActionGroup(
 )
 
 sealed interface HubHandlingResult {
+    data class Separated(
+        val selectedGroupId: String,
+        val expectedGroupRevision: ULong,
+        val sourceBeforePacks: UInt,
+        val location: HubReferenceRecord,
+        val wholePacks: UInt,
+        val portionGroupId: String,
+        val remainingPacks: UInt,
+        val identification: HubPhysicalIdentification,
+        val occurrence: HubOccurrence,
+        val observation: String,
+    ) : HubHandlingResult
+
     data class Moved(
         val selectedGroupId: String,
         val expectedGroupRevision: ULong,
@@ -194,7 +207,7 @@ sealed interface HubHandlingResult {
     ) : HubHandlingResult
 }
 
-enum class HubHandlingKind { Move, Replan, NewWork, OpenDiscrepancy, ResolveDiscrepancy }
+enum class HubHandlingKind { Split, Move, Replan, NewWork, OpenDiscrepancy, ResolveDiscrepancy }
 
 data class HubHandlingReceipt(
     val operationId: OperationId,

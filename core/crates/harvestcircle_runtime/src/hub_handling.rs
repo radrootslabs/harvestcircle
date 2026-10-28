@@ -4,11 +4,12 @@ use harvestcircle_domain::hub::movement::HandlingCommand;
 use harvestcircle_domain::hub::reference::HubRecordId;
 use harvestcircle_storage::{
     HubDiscrepancyRow, HubGroupView, HubHandlingPage, HubHandlingQuery, HubHandlingReceipt,
-    HubWorkRow,
+    HubLineagePage, HubLineageQuery, HubWorkRow,
 };
 
 pub(super) enum HubHandlingCommand {
     Group(HubRecordId),
+    Lineage(HubLineageQuery),
     Work(HubHandlingQuery),
     Discrepancies(HubHandlingQuery),
     Apply {
@@ -30,12 +31,23 @@ impl HubHandlingCommand {
 
 pub(super) enum HubHandlingValue {
     Group(Box<HubGroupView>),
+    Lineage(Box<HubLineagePage>),
     Work(Box<HubHandlingPage<HubWorkRow>>),
     Discrepancies(Box<HubHandlingPage<HubDiscrepancyRow>>),
     Receipt(Option<Box<HubHandlingReceipt>>),
 }
 
 impl RuntimeActorHandle {
+    pub async fn hub_lineage(&self, query: HubLineageQuery) -> Result<HubLineagePage, SafeError> {
+        query.validate()?;
+        match self
+            .dispatch_handling(HubHandlingCommand::Lineage(query))
+            .await?
+        {
+            HubHandlingValue::Lineage(page) => Ok(*page),
+            _ => Err(invalid_actor_response()),
+        }
+    }
     pub async fn hub_group(&self, id: HubRecordId) -> Result<HubGroupView, SafeError> {
         match self
             .dispatch_handling(HubHandlingCommand::Group(id))
@@ -155,6 +167,9 @@ impl RuntimeActor {
                         HubHandlingCommand::Group(id) => HubHandlingValue::Group(Box::new(
                             adapter.database().hub_group(actor, id).await?,
                         )),
+                        HubHandlingCommand::Lineage(query) => HubHandlingValue::Lineage(Box::new(
+                            adapter.database().hub_lineage(actor, query).await?,
+                        )),
                         HubHandlingCommand::Work(query) => HubHandlingValue::Work(Box::new(
                             adapter.database().hub_work_page(actor, query).await?,
                         )),
@@ -185,6 +200,12 @@ impl RuntimeActor {
                                     adapter
                                         .database()
                                         .apply_hub_movement(actor, operation, command, clock.now())
+                                        .await?
+                                }
+                                HandlingCommand::Split(command) => {
+                                    adapter
+                                        .database()
+                                        .apply_hub_split(actor, operation, command, clock.now())
                                         .await?
                                 }
                                 HandlingCommand::Replan(command) => {

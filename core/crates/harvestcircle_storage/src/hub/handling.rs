@@ -2,6 +2,9 @@
 
 mod discrepancy;
 mod history;
+mod lineage;
+pub(crate) mod portion_schema;
+mod portions;
 mod query;
 pub(in crate::hub) mod read;
 pub(crate) mod schema;
@@ -44,6 +47,7 @@ use crate::db::storage_unavailable;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HubHandlingKind {
     Move,
+    Split,
     Replan,
     NewWork,
     OpenDiscrepancy,
@@ -54,6 +58,7 @@ impl HubHandlingKind {
     pub(super) fn parse(value: &str) -> Result<Self, SafeError> {
         match value {
             "move" => Ok(Self::Move),
+            "split" => Ok(Self::Split),
             "work_replan" => Ok(Self::Replan),
             "work_new" => Ok(Self::NewWork),
             "discrepancy_open" => Ok(Self::OpenDiscrepancy),
@@ -87,6 +92,20 @@ pub struct HubMovementResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HubSplitResult {
+    pub selected_group: HubRecordId,
+    pub expected_group_revision: HubRevision,
+    pub source_before_packs: WholePacks,
+    pub location: ReferenceRecord,
+    pub packs: WholePacks,
+    pub portion_group: HubRecordId,
+    pub remaining_packs: WholePacks,
+    pub identification: PhysicalIdentification,
+    pub occurred: Occurrence,
+    pub observation: harvestcircle_domain::hub::reference::SourceProvenance,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HubActionGroup {
     pub group: HubRecordId,
     pub before_revision: HubRevision,
@@ -105,6 +124,7 @@ pub struct HubWorkActionResult {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HubHandlingResult {
     Moved(HubMovementResult),
+    Separated(HubSplitResult),
     WorkChanged(HubWorkActionResult),
     DiscrepancyChanged(Discrepancy),
 }
@@ -130,6 +150,69 @@ pub struct HubGroupView {
     pub product: ReferenceRecord,
     pub variant: ReferenceRecord,
     pub trace: ReceiptTrace,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HubGroupCreationKind {
+    Receipt,
+    Movement,
+    Separation,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HubLineageRow {
+    pub id: HubRecordId,
+    pub parent: Option<HubRecordId>,
+    pub identification: Option<PhysicalIdentification>,
+    pub packs: WholePacks,
+    pub revision: HubRevision,
+    pub location: Option<ReferenceRecord>,
+    pub created_revision: HubRevision,
+    pub created_kind: HubGroupCreationKind,
+    pub created_by: PublicKey,
+    pub created_at: UnixTimestamp,
+    pub created_operation: DurableRequestId,
+    pub occurred: Occurrence,
+    pub observation: harvestcircle_domain::hub::reference::SourceProvenance,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HubLineagePage {
+    pub revision: HubRevision,
+    pub catalog_revision: HubRevision,
+    pub offset: u32,
+    pub total: u32,
+    pub more: bool,
+    pub product: ReferenceRecord,
+    pub variant: ReferenceRecord,
+    pub trace: ReceiptTrace,
+    pub rows: Vec<HubLineageRow>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HubLineageQuery {
+    pub trace: HubRecordId,
+    pub expected_revision: Option<HubRevision>,
+    pub expected_catalog_revision: Option<HubRevision>,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+impl HubLineageQuery {
+    pub fn validate(&self) -> Result<(), SafeError> {
+        if self.limit == 0
+            || self.limit as usize > HUB_STOCK_PAGE_ROWS
+            || self.offset as usize > harvestcircle_domain::hub::portions::HUB_LINEAGE_GROUPS
+        {
+            return Err(invalid_input());
+        }
+        if self.offset != 0
+            && (self.expected_revision.is_none() || self.expected_catalog_revision.is_none())
+        {
+            return Err(conflict());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -288,3 +371,9 @@ pub(super) async fn seed_receipt_on(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod portion_tests;
+
+#[cfg(test)]
+pub(crate) use portion_tests::seed_schema7_handling;

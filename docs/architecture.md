@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 7, FFI is 5.5 and snapshot schema is 1. Rust and
+The current storage schema is 8, FFI is 5.6 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -134,9 +134,14 @@ retained ancestors, to resolve captured population scope. A branch detached
 before capture is excluded unless selected; only later descendants of included
 groups inherit scope. Overlapping selections deduplicate current group IDs.
 The bounds are 256 groups per lineage and 256 scopes per union. The native
-adapter must load complete validated lineage and current authority; these pure
-values never grant permission. Independent split persistence/FFI/UI and actual
-acceptance/hold policy are subsequent implementation work.
+adapter loads and validates the complete bounded lineage before paging. Each
+creation is checked against its original receipt, movement or separation result;
+active physical labels remain unique. The forward schema8 guard binds new group
+birth to the same source population and earlier parent creation. Explicit native
+separation conserves quantity and work at the same location and retains original
+results across later handling and restart. FFI5.6 exposes separation and pinned
+lineage reads. These values never grant permission. The independent separation
+editor, lineage inspector and actual acceptance/hold policy remain unfinished.
 
 ## Secrets, transport and lifecycle
 

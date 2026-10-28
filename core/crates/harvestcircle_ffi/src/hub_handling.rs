@@ -1,6 +1,7 @@
 //! Closed identified-handling transport. Native authority supplies actor and time.
 
 use crate::commands::HarvestCircleError;
+use crate::hub_portions::HubSplitResultDto;
 use crate::hub_reference::{HubReferenceRecordDto, invalid_input};
 use crate::hub_stock::{HubOccurrenceDto, HubQuantityWorkDto, HubReceiptTraceDto};
 use harvestcircle_domain::hub::HubRevision;
@@ -9,6 +10,7 @@ use harvestcircle_domain::hub::movement::{
     MovementCommand, NewWorkCommand, PhysicalIdentification, ReplanCommand, WorkProgress,
     WorkRequirement,
 };
+use harvestcircle_domain::hub::portions::SplitCommand;
 use harvestcircle_domain::hub::reference::{HubLabel, HubRecordId, SourceProvenance, WholePacks};
 use harvestcircle_storage::{
     HubActionGroup, HubDiscrepancyRow, HubGroupView, HubHandlingKind, HubHandlingPage,
@@ -55,6 +57,18 @@ pub struct HubMovementInputDto {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct HubSplitInputDto {
+    pub expected_stock_revision: u64,
+    pub expected_catalog_revision: u64,
+    pub group_id: String,
+    pub expected_group_revision: u64,
+    pub whole_packs: u32,
+    pub identification: HubPhysicalIdentificationDto,
+    pub occurrence: HubOccurrenceDto,
+    pub observation: String,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct HubReplanInputDto {
     pub expected_stock_revision: u64,
     pub expected_catalog_revision: u64,
@@ -93,6 +107,9 @@ pub struct HubDiscrepancyResolveInputDto {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
 pub enum HubHandlingInputDto {
+    Split {
+        input: HubSplitInputDto,
+    },
     Move {
         input: HubMovementInputDto,
     },
@@ -130,6 +147,23 @@ impl HubHandlingInputDto {
                         .separated_portion
                         .map(HubPhysicalIdentificationDto::decode)
                         .transpose()?,
+                    occurred: input.occurrence.decode()?,
+                    observation: provenance(input.observation)?,
+                })
+            }
+            Self::Split { input } => {
+                let packs =
+                    WholePacks::from_value(input.whole_packs).map_err(|_| invalid_input())?;
+                if packs.value() == 0 {
+                    return Err(invalid_input());
+                }
+                HandlingCommand::Split(SplitCommand {
+                    expected_stock_revision: revision(input.expected_stock_revision)?,
+                    expected_catalog_revision: revision(input.expected_catalog_revision)?,
+                    group: id(&input.group_id)?,
+                    expected_group_revision: revision(input.expected_group_revision)?,
+                    packs,
+                    identification: input.identification.decode()?,
                     occurred: input.occurrence.decode()?,
                     observation: provenance(input.observation)?,
                 })
@@ -223,6 +257,7 @@ pub enum HubWorkProgressDto {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
 pub enum HubHandlingKindDto {
+    Split,
     Move,
     Replan,
     NewWork,
@@ -437,6 +472,7 @@ impl From<harvestcircle_domain::hub::movement::Discrepancy> for HubDiscrepancyDt
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
 pub enum HubHandlingResultDto {
+    Separated { value: Box<HubSplitResultDto> },
     Moved { value: Box<HubMovementResultDto> },
     WorkChanged { value: Box<HubWorkActionResultDto> },
     DiscrepancyChanged { value: HubDiscrepancyDto },
@@ -458,6 +494,7 @@ impl From<HubHandlingReceipt> for HubHandlingReceiptDto {
         Self {
             operation_id: value.operation.as_str().to_owned(),
             kind: match value.kind {
+                HubHandlingKind::Split => HubHandlingKindDto::Split,
                 HubHandlingKind::Move => HubHandlingKindDto::Move,
                 HubHandlingKind::Replan => HubHandlingKindDto::Replan,
                 HubHandlingKind::NewWork => HubHandlingKindDto::NewWork,
@@ -470,6 +507,9 @@ impl From<HubHandlingReceipt> for HubHandlingReceiptDto {
             actor_public_key: value.actor.to_hex(),
             recorded_at_unix_s: value.recorded_at.as_seconds(),
             result: match value.result {
+                HubHandlingResult::Separated(value) => HubHandlingResultDto::Separated {
+                    value: Box::new(value.into()),
+                },
                 HubHandlingResult::Moved(value) => HubHandlingResultDto::Moved {
                     value: Box::new(value.into()),
                 },

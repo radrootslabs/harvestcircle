@@ -7,6 +7,7 @@ mod contract;
 mod dto;
 mod host_runtime;
 mod hub_handling;
+mod hub_portions;
 mod hub_reference;
 mod hub_stock;
 mod keyring_worker;
@@ -33,8 +34,13 @@ pub use hub_handling::{
     HubDiscrepancyResolveInputDto, HubDiscrepancyRowDto, HubGroupViewDto, HubGroupWorkDto,
     HubHandlingInputDto, HubHandlingKindDto, HubHandlingQueryDto, HubHandlingReceiptDto,
     HubHandlingResultDto, HubMovementInputDto, HubMovementResultDto, HubNewWorkInputDto,
-    HubPhysicalGroupDto, HubPhysicalIdentificationDto, HubReplanInputDto, HubWorkActionResultDto,
-    HubWorkChangeDto, HubWorkOriginDto, HubWorkPageDto, HubWorkRequirementDto, HubWorkRowDto,
+    HubPhysicalGroupDto, HubPhysicalIdentificationDto, HubReplanInputDto, HubSplitInputDto,
+    HubWorkActionResultDto, HubWorkChangeDto, HubWorkOriginDto, HubWorkPageDto,
+    HubWorkRequirementDto, HubWorkRowDto,
+};
+pub use hub_portions::{
+    HubGroupCreationKindDto, HubLineagePageDto, HubLineageQueryDto, HubLineageRowDto,
+    HubSplitResultDto,
 };
 pub use hub_reference::{
     HubHandlingBasisDto, HubLocationPurposeDto, HubReferenceEditDto, HubReferenceInputDto,
@@ -82,7 +88,7 @@ mod tests {
         assert_eq!(env!("CARGO_PKG_VERSION"), "0.1.0-alpha");
         assert_eq!(super::FFI_CONTRACT_ID, "harvestcircle-desktop-ffi-v5");
         assert_eq!(super::FFI_CONTRACT_MAJOR, 5);
-        assert_eq!(super::FFI_CONTRACT_MINOR, 5);
+        assert_eq!(super::FFI_CONTRACT_MINOR, 6);
         assert_eq!(super::SNAPSHOT_SCHEMA_VERSION, 1);
         assert_eq!(
             super::PRODUCT_COORDINATE_DIGEST,

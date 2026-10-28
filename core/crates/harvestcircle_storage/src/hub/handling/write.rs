@@ -4,9 +4,7 @@ use crate::{
     Database,
     db::{corrupt_storage, map_transaction_error},
 };
-use harvestcircle_domain::hub::movement::{
-    HUB_REQUIREMENT_GROUPS, MovementCommand, MovementPlan, WorkProgress,
-};
+use harvestcircle_domain::hub::movement::{HUB_REQUIREMENT_GROUPS, MovementCommand, WorkProgress};
 use harvestcircle_domain::hub::reference::{ReferenceCatalog, ReferenceKind};
 use harvestcircle_domain::hub::stock::HUB_STOCK_EVENT_CAPACITY;
 
@@ -56,34 +54,15 @@ pub(super) async fn apply_movement_on(
         return Err(capacity());
     }
     if plan.remaining.is_some() {
-        let groups: i64 = sqlx::query_scalar("SELECT count(*) FROM hub_stock_groups")
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(|_| storage_unavailable())?;
-        if groups >= HUB_GROUP_CAPACITY as i64 {
-            return Err(capacity());
-        }
-        let identity = plan
-            .moved
-            .identification
-            .as_ref()
-            .ok_or_else(corrupt_storage)?;
-        let in_use:i64=sqlx::query_scalar("SELECT count(*) FROM hub_group_identification i WHERE i.physical_label=? AND EXISTS(SELECT 1 FROM hub_stock_positions p WHERE p.group_id=i.group_id AND p.packs>0)")
-            .bind(identity.label.as_str()).fetch_one(&mut *transaction).await.map_err(|_|storage_unavailable())?;
-        if in_use != 0 {
-            return Err(conflict());
-        }
-        for allocation in &source.work {
-            let count: i64 =
-                sqlx::query_scalar("SELECT count(*) FROM hub_group_work WHERE work_id=?")
-                    .bind(allocation.requirement.id.as_bytes().as_slice())
-                    .fetch_one(&mut *transaction)
-                    .await
-                    .map_err(|_| storage_unavailable())?;
-            if count >= HUB_REQUIREMENT_GROUPS as i64 {
-                return Err(capacity());
-            }
-        }
+        ensure_portion_capacity_on(
+            transaction,
+            &source,
+            plan.moved
+                .identification
+                .as_ref()
+                .ok_or_else(corrupt_storage)?,
+        )
+        .await?;
     }
     let recorded = stock::read::OperationRecord {
         id: operation.clone(),
@@ -96,7 +75,18 @@ pub(super) async fn apply_movement_on(
         recorded_at: now,
     };
     insert_operation_on(transaction, hub.id(), &recorded).await?;
-    move_groups_on(transaction, &catalog, &operation, &source, &plan).await?;
+    write_groups_on(
+        transaction,
+        &catalog,
+        &operation,
+        &source,
+        GroupChange {
+            remaining: plan.remaining.as_ref(),
+            selected: &plan.moved,
+            destination: &plan.destination,
+        },
+    )
+    .await?;
     let mut work_changes = Vec::with_capacity(plan.work_updates.len());
     for after in &plan.work_updates {
         let before = source
@@ -174,14 +164,20 @@ pub(super) async fn apply_movement_on(
     })
 }
 
-async fn move_groups_on(
+pub(super) struct GroupChange<'a> {
+    pub remaining: Option<&'a PhysicalStockGroup>,
+    pub selected: &'a PhysicalStockGroup,
+    pub destination: &'a ReferenceRecord,
+}
+
+pub(super) async fn write_groups_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     catalog: &ReferenceCatalog,
     operation: &DurableRequestId,
     source: &PhysicalStockGroup,
-    plan: &MovementPlan,
+    plan: GroupChange<'_>,
 ) -> Result<(), SafeError> {
-    let after = plan.remaining.as_ref().unwrap_or(&plan.moved);
+    let after = plan.remaining.unwrap_or(plan.selected);
     let changed =
         sqlx::query("UPDATE hub_stock_groups SET revision=? WHERE group_id=? AND revision=?")
             .bind(integer(after.revision)?)
@@ -193,10 +189,7 @@ async fn move_groups_on(
     if changed.rows_affected() != 1 {
         return Err(conflict());
     }
-    let remaining = plan
-        .remaining
-        .as_ref()
-        .map_or(0, |group| group.packs.value());
+    let remaining = plan.remaining.map_or(0, |group| group.packs.value());
     let from = catalog
         .require_kind(source.location, ReferenceKind::Location)
         .map_err(|_| corrupt_storage())?;
@@ -208,20 +201,20 @@ async fn move_groups_on(
     }
     if plan.remaining.is_some() {
         let identity = plan
-            .moved
+            .selected
             .identification
             .as_ref()
             .ok_or_else(corrupt_storage)?;
         sqlx::query("INSERT INTO hub_stock_groups (group_id,trace_id,revision) VALUES (?,?,1)")
-            .bind(plan.moved.id.as_bytes().as_slice())
+            .bind(plan.selected.id.as_bytes().as_slice())
             .bind(source.trace.as_bytes().as_slice())
             .execute(&mut *transaction)
             .await
             .map_err(|_| storage_unavailable())?;
         sqlx::query("INSERT INTO hub_group_identification (group_id,parent_group_id,physical_label,observation,created_operation_id) VALUES (?,?,?,?,?)")
-            .bind(plan.moved.id.as_bytes().as_slice()).bind(source.id.as_bytes().as_slice()).bind(identity.label.as_str()).bind(identity.observation.as_str()).bind(operation.as_str())
+            .bind(plan.selected.id.as_bytes().as_slice()).bind(source.id.as_bytes().as_slice()).bind(identity.label.as_str()).bind(identity.observation.as_str()).bind(operation.as_str())
             .execute(&mut *transaction).await.map_err(|_|storage_unavailable())?;
-        for allocation in &plan.moved.work {
+        for allocation in &plan.selected.work {
             let changed=sqlx::query("UPDATE hub_group_work SET scoped_packs=? WHERE group_id=? AND work_id=? AND scoped_packs=?")
                 .bind(i64::from(remaining)).bind(source.id.as_bytes().as_slice()).bind(allocation.requirement.id.as_bytes().as_slice()).bind(i64::from(source.packs.value()))
                 .execute(&mut *transaction).await.map_err(|_|storage_unavailable())?;
@@ -229,11 +222,11 @@ async fn move_groups_on(
                 return Err(conflict());
             }
             sqlx::query("INSERT INTO hub_group_work (group_id,work_id,progress,scoped_packs) VALUES (?,?,?,?)")
-                .bind(plan.moved.id.as_bytes().as_slice()).bind(allocation.requirement.id.as_bytes().as_slice()).bind(progress(allocation.progress)).bind(i64::from(plan.moved.packs.value()))
+                .bind(plan.selected.id.as_bytes().as_slice()).bind(allocation.requirement.id.as_bytes().as_slice()).bind(progress(allocation.progress)).bind(i64::from(plan.selected.packs.value()))
                 .execute(&mut *transaction).await.map_err(|_|storage_unavailable())?;
         }
     } else {
-        for (before, after) in source.work.iter().zip(&plan.moved.work) {
+        for (before, after) in source.work.iter().zip(&plan.selected.work) {
             if before.progress != after.progress {
                 let changed=sqlx::query("UPDATE hub_group_work SET progress=? WHERE group_id=? AND work_id=? AND progress=? AND scoped_packs=?")
                     .bind(progress(after.progress)).bind(source.id.as_bytes().as_slice()).bind(after.requirement.id.as_bytes().as_slice()).bind(progress(before.progress)).bind(i64::from(source.packs.value()))
@@ -245,7 +238,7 @@ async fn move_groups_on(
         }
     }
     let changed=sqlx::query("INSERT INTO hub_stock_positions (group_id,location_id,location_revision,packs,revision) VALUES (?,?,?,?,1) ON CONFLICT(group_id,location_id) DO UPDATE SET location_revision=excluded.location_revision,packs=excluded.packs,revision=hub_stock_positions.revision+1 WHERE hub_stock_positions.packs=0")
-        .bind(plan.moved.id.as_bytes().as_slice()).bind(plan.destination.id.as_bytes().as_slice()).bind(integer(plan.destination.revision)?).bind(i64::from(plan.moved.packs.value()))
+        .bind(plan.selected.id.as_bytes().as_slice()).bind(plan.destination.id.as_bytes().as_slice()).bind(integer(plan.destination.revision)?).bind(i64::from(plan.selected.packs.value()))
         .execute(&mut *transaction).await.map_err(|_|storage_unavailable())?;
     if changed.rows_affected() != 1 {
         return Err(conflict());
@@ -339,4 +332,34 @@ pub(super) const fn progress(progress: WorkProgress) -> &'static str {
         WorkProgress::Completed => "completed",
         WorkProgress::NoLongerRequired => "no_longer_required",
     }
+}
+
+pub(super) async fn ensure_portion_capacity_on(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    source: &PhysicalStockGroup,
+    identity: &PhysicalIdentification,
+) -> Result<(), SafeError> {
+    let groups: i64 = sqlx::query_scalar("SELECT count(*) FROM hub_stock_groups")
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| storage_unavailable())?;
+    if groups >= HUB_GROUP_CAPACITY as i64 {
+        return Err(capacity());
+    }
+    let in_use:i64=sqlx::query_scalar("SELECT count(*) FROM hub_group_identification i WHERE i.physical_label=? AND EXISTS(SELECT 1 FROM hub_stock_positions p WHERE p.group_id=i.group_id AND p.packs>0)")
+            .bind(identity.label.as_str()).fetch_one(&mut *transaction).await.map_err(|_|storage_unavailable())?;
+    if in_use != 0 {
+        return Err(conflict());
+    }
+    for allocation in &source.work {
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM hub_group_work WHERE work_id=?")
+            .bind(allocation.requirement.id.as_bytes().as_slice())
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(|_| storage_unavailable())?;
+        if count >= HUB_REQUIREMENT_GROUPS as i64 {
+            return Err(capacity());
+        }
+    }
+    Ok(())
 }

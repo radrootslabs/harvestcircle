@@ -451,8 +451,8 @@ async fn fill_count(database: &Database, count: usize) -> (AvailabilityVersionVi
 fn historical_v1_v2_catalogs_preserve_exact_sql_and_digests() {
     let migrations = harvestcircle_migration_catalog().expect("current migrations");
     let schema = harvestcircle_schema_catalog().expect("current schemas");
-    assert_eq!(migrations.current_version(), 7);
-    assert_eq!(migrations.descriptors().len(), 6);
+    assert_eq!(migrations.current_version(), 8);
+    assert_eq!(migrations.descriptors().len(), 7);
     let previous = &migrations.descriptors()[0];
     assert_eq!(previous.target_version(), 2);
     assert_eq!(previous.name().as_str(), "bound_durable_operation_receipts");
@@ -467,7 +467,7 @@ fn historical_v1_v2_catalogs_preserve_exact_sql_and_digests() {
         MigrationChecksum::for_sql(MIGRATE_DURABLE_OPERATIONS_V2_SQL),
         previous.checksum()
     );
-    assert_eq!(schema.versions().len(), 7);
+    assert_eq!(schema.versions().len(), 8);
     assert_eq!(schema.versions()[0].version(), 1);
     assert_eq!(
         *schema.versions()[0].digest().as_bytes(),
@@ -531,7 +531,7 @@ fn historical_v1_v2_catalogs_preserve_exact_sql_and_digests() {
 async fn fresh_governed_database_installs_allocated_evidence_schema() {
     let fixture = Fixture::new();
     let database = fixture.open().await;
-    assert_eq!(database.metadata().state_schema_version().get(), 7);
+    assert_eq!(database.metadata().state_schema_version().get(), 8);
     assert_eq!(database.metadata().service().as_str(), "harvestcircle");
     assert_eq!(database.metadata().instance().as_str(), "desktop");
     assert_eq!(database.metadata().created_at_unix_ms(), 99);
@@ -541,13 +541,22 @@ async fn fresh_governed_database_installs_allocated_evidence_schema() {
         "SELECT version, name, checksum FROM schema_migrations ORDER BY version",
     )
     .await;
-    assert_eq!(ledger.len(), 6);
+    assert_eq!(ledger.len(), 7);
     assert_eq!(ledger[0].get::<i64, _>("version"), 2);
     assert_eq!(ledger[1].get::<i64, _>("version"), 3);
     assert_eq!(ledger[2].get::<i64, _>("version"), 4);
     assert_eq!(ledger[3].get::<i64, _>("version"), 5);
     assert_eq!(ledger[4].get::<i64, _>("version"), 6);
     assert_eq!(ledger[5].get::<i64, _>("version"), 7);
+    assert_eq!(ledger[6].get::<i64, _>("version"), 8);
+    assert_eq!(
+        ledger[6].get::<String, _>("name"),
+        "add_physical_portion_lineage"
+    );
+    assert_eq!(
+        ledger[6].get::<Vec<u8>, _>("checksum"),
+        crate::hub::handling::portion_schema::MIGRATION_CHECKSUM.as_bytes()
+    );
     assert_eq!(
         ledger[5].get::<String, _>("name"),
         "add_identified_stock_handling"
@@ -668,7 +677,7 @@ async fn governed_v2_upgrade_preserves_original_state_and_source_identity() {
     assert!(state.iter().all(Option::is_some));
     host.close().await.unwrap();
     let database = fixture.open().await;
-    assert_eq!(database.metadata().state_schema_version().get(), 7);
+    assert_eq!(database.metadata().state_schema_version().get(), 8);
     assert_eq!(
         database.metadata().source_generation(),
         before.source_generation()
@@ -842,7 +851,7 @@ async fn real_migration_succeeds_after_rolled_back_creation() {
     let fixture = Fixture::new();
     let before = rollback_evidence_creation(&fixture).await;
     let database = fixture.open().await;
-    assert_eq!(database.metadata().state_schema_version().get(), 7);
+    assert_eq!(database.metadata().state_schema_version().get(), 8);
     assert_eq!(snapshot(database.host()).await, before);
     assert_usage(&database, 0, 0).await;
     let public = focused("after-real-retry");
@@ -875,7 +884,7 @@ async fn future_schema_and_integrity_failure_preserve_original_state() {
         database.close().await.unwrap();
         let mut connection = fixture.closed_connection().await;
         if future {
-            sqlx::query("UPDATE radroots_service_metadata SET state_schema_version = 8")
+            sqlx::query("UPDATE radroots_service_metadata SET state_schema_version = 9")
                 .execute(&mut connection)
                 .await
                 .unwrap();
@@ -2208,7 +2217,14 @@ async fn hub_history_conflict_rolls_back_context_and_preserves_history() {
 
 #[tokio::test]
 async fn actual_pre_handling_schemas_upgrade_without_rewriting_originals() {
-    for (version, corrupt) in [(3, false), (4, false), (5, false), (6, false), (6, true)] {
+    for (version, corrupt) in [
+        (3, false),
+        (4, false),
+        (5, false),
+        (6, false),
+        (6, true),
+        (7, false),
+    ] {
         let fixture = Fixture::new();
         let contract =
             HarvestCircleStorageContract::from_runtime_context(&fixture.context).unwrap();
@@ -2303,10 +2319,20 @@ async fn actual_pre_handling_schemas_upgrade_without_rewriting_originals() {
         } else {
             None
         };
-        let historical_receipt = if version == 6 {
-            Some(seed_historical_v6_receipt(&host, historical_hub.unwrap()).await)
+        let historical_receipt = if version >= 6 {
+            Some(seed_historical_stock_receipt(&host, historical_hub.unwrap(), version).await)
         } else {
             None
+        };
+        let historical_handling = if version == 7 {
+            crate::hub::handling::seed_schema7_handling(
+                &host,
+                historical_hub.unwrap(),
+                historical_receipt.as_ref().unwrap(),
+            )
+            .await
+        } else {
+            Vec::new()
         };
         if corrupt {
             host.transaction(|tx| {
@@ -2366,7 +2392,7 @@ async fn actual_pre_handling_schemas_upgrade_without_rewriting_originals() {
                 .unwrap(),
             &public,
         );
-        assert_eq!(database.metadata().state_schema_version().get(), 7);
+        assert_eq!(database.metadata().state_schema_version().get(), 8);
         assert_eq!(
             database.metadata().source_generation(),
             original_metadata.source_generation()
@@ -2381,7 +2407,7 @@ async fn actual_pre_handling_schemas_upgrade_without_rewriting_originals() {
                     .unwrap()
                     .records()
                     .len(),
-                if version == 6 {
+                if version >= 6 {
                     5
                 } else {
                     usize::from(version == 5)
@@ -2422,9 +2448,19 @@ async fn actual_pre_handling_schemas_upgrade_without_rewriting_originals() {
                 .await
                 .unwrap();
             if let Some(original) = &historical_receipt {
-                assert_eq!(stock.total, 1);
-                assert_eq!(stock.rows[0].position.packs.value(), 20);
-                assert_eq!(stock.rows[0].put_away.remaining().value(), 20);
+                assert_eq!(stock.total, if version == 7 { 2 } else { 1 });
+                assert_eq!(
+                    stock
+                        .rows
+                        .iter()
+                        .map(|row| row.position.packs.value())
+                        .sum::<u32>(),
+                    20
+                );
+                assert!(
+                    stock.rows.iter().all(|row| row.put_away.remaining().value()
+                        == if version == 7 { 12 } else { 20 })
+                );
                 assert_eq!(
                     database
                         .hub_receipt_operation(hub.owner(), original.operation.clone())
@@ -2437,10 +2473,42 @@ async fn actual_pre_handling_schemas_upgrade_without_rewriting_originals() {
                     .hub_group(hub.owner(), original.original.position.group)
                     .await
                     .unwrap();
-                assert_eq!(
-                    group.group.work[0].requirement.quantity,
-                    original.original.put_away
-                );
+                if version == 7 {
+                    assert_eq!(group.group.packs.value(), 12);
+                    assert_eq!(
+                        group.group.work[0].requirement.quantity.completed().value(),
+                        8
+                    );
+                    let lineage = database
+                        .hub_lineage(
+                            hub.owner(),
+                            crate::HubLineageQuery {
+                                trace: original.original.trace.id,
+                                expected_revision: None,
+                                expected_catalog_revision: None,
+                                offset: 0,
+                                limit: 64,
+                            },
+                        )
+                        .await
+                        .unwrap();
+                    assert_eq!(lineage.total, 2);
+                } else {
+                    assert_eq!(
+                        group.group.work[0].requirement.quantity,
+                        original.original.put_away
+                    );
+                }
+                for retained in &historical_handling {
+                    assert_eq!(
+                        database
+                            .hub_handling_operation(hub.owner(), retained.operation.clone())
+                            .await
+                            .unwrap()
+                            .as_ref(),
+                        Some(retained)
+                    );
+                }
             } else {
                 assert_eq!(
                     stock.revision,
@@ -2453,11 +2521,12 @@ async fn actual_pre_handling_schemas_upgrade_without_rewriting_originals() {
     }
 }
 
-/// Actual schema-6 SQL and its published receipt writer, without schema-7 tables.
+/// Actual schema-6/7 SQL and compatible receipt writers, without schema-8 objects.
 /// This qualifies stored-data upgrade, not an older packaged application.
-async fn seed_historical_v6_receipt(
+async fn seed_historical_stock_receipt(
     host: &ServiceSqliteHost,
     hub: harvestcircle_domain::hub::HubOwnership,
+    version: usize,
 ) -> crate::HubStockReceipt {
     use harvestcircle_application::DurableRequestId;
     use harvestcircle_domain::hub::HubRevision;
@@ -2558,6 +2627,28 @@ async fn seed_historical_v6_receipt(
         observation: SourceProvenance::new("Historical manual count of twenty original crates")
             .unwrap(),
     };
+    if version == 7 {
+        return host
+            .transaction(|tx| {
+                Box::pin(async move {
+                    sqlx::query("INSERT INTO hub_stock_state VALUES (1,?,1,0)")
+                        .bind(hub.id().as_bytes().as_slice())
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|_| crate::db::storage_unavailable())?;
+                    crate::hub::stock::apply_historical_receipt_on(
+                        tx,
+                        hub.owner(),
+                        operation,
+                        command,
+                        UnixTimestamp::from_seconds(100).unwrap(),
+                    )
+                    .await
+                })
+            })
+            .await
+            .unwrap();
+    }
     let hash = command.fingerprint(hub.id(), hub.owner(), ids.trace, ids.group);
     let plan = command
         .plan(

@@ -16,9 +16,10 @@ use harvestcircle_application::{
 use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
 use harvestcircle_ffi::{
     HarvestCircleError, HubContextDto, HubDiscrepancyPageDto, HubGroupViewDto, HubHandlingInputDto,
-    HubHandlingQueryDto, HubHandlingReceiptDto, HubReceiptInputDto, HubReferenceEditDto,
-    HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto, HubStockPageDto,
-    HubStockQueryDto, HubStockReceiptDto, HubWorkPageDto, SafeErrorDto,
+    HubHandlingQueryDto, HubHandlingReceiptDto, HubLineagePageDto, HubLineageQueryDto,
+    HubReceiptInputDto, HubReferenceEditDto, HubReferencePageDto, HubReferenceQueryDto,
+    HubReferenceReceiptDto, HubStockPageDto, HubStockQueryDto, HubStockReceiptDto, HubWorkPageDto,
+    SafeErrorDto,
 };
 use harvestcircle_nostr::SdkNostrClient;
 use harvestcircle_runtime::{
@@ -313,6 +314,14 @@ impl HarvestCircleTestBridge {
         self.runtime
             .block_on(self.actor()?.hub_receipt_operation(operation))
             .map(|value| value.map(Into::into))
+            .map_err(native_runtime_error)
+    }
+
+    pub fn lineage(&self, query: HubLineageQueryDto) -> Result<HubLineagePageDto, TestBridgeError> {
+        let query = query.decode().map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_lineage(query))
+            .map(Into::into)
             .map_err(native_runtime_error)
     }
 

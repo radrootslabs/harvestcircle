@@ -63,6 +63,13 @@ internal fun HandlingOutcome(
 @Composable
 private fun HandlingResultSummary(result: HubHandlingResult) {
     when (result) {
+        is HubHandlingResult.Separated -> {
+            HarvestCircleShellText("${result.wholePacks} original packs separated at ${result.location.value.label}")
+            HarvestCircleShellText("Physical identifier: ${result.identification.label} · ${result.identification.observation}")
+            HarvestCircleShellText("Remaining in the original group: ${result.remainingPacks}")
+            HarvestCircleShellText("Observation: ${result.observation}")
+            HarvestCircleShellText("Location and handling progress were retained.")
+        }
         is HubHandlingResult.Moved -> {
             HarvestCircleShellText("${result.wholePacks} original packs · ${result.from.value.label} → ${result.to.value.label}")
             HarvestCircleShellText("Left at the prior location from this selection: ${result.remainingWholePacks}")

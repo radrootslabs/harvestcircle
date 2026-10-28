@@ -8,6 +8,7 @@ import org.harvestcircle.ffi.HubHandlingReceiptDto
 import org.harvestcircle.ffi.HubHandlingResultDto
 import org.harvestcircle.ffi.HubMovementResultDto
 import org.harvestcircle.ffi.HubPhysicalIdentificationDto
+import org.harvestcircle.ffi.HubSplitResultDto
 import org.harvestcircle.ffi.HubWorkActionResultDto
 import org.harvestcircle.ffi.HubWorkChangeDto
 import org.harvestcircle.ffi.HubWorkOriginDto
@@ -120,6 +121,20 @@ private fun HubMovementResultDto.toModel() =
         workChanges.map { it.toModel() },
     )
 
+private fun HubSplitResultDto.toModel() =
+    HubHandlingResult.Separated(
+        selectedGroupId,
+        expectedGroupRevision,
+        sourceBeforePacks,
+        location.toModel(),
+        wholePacks,
+        portionGroupId,
+        remainingPacks,
+        identification.toModel(),
+        occurrence.toModel(),
+        observation,
+    )
+
 private fun HubWorkActionResultDto.toModel() =
     HubHandlingResult.WorkChanged(
         replacement.toModel(),
@@ -130,6 +145,7 @@ private fun HubWorkActionResultDto.toModel() =
 
 private fun HubHandlingKindDto.toModel() =
     when (this) {
+        HubHandlingKindDto.SPLIT -> HubHandlingKind.Split
         HubHandlingKindDto.MOVE -> HubHandlingKind.Move
         HubHandlingKindDto.REPLAN -> HubHandlingKind.Replan
         HubHandlingKindDto.NEW_WORK -> HubHandlingKind.NewWork
@@ -147,6 +163,7 @@ internal fun HubHandlingReceiptDto.toModel() =
         IdentityId.fromPublicKeyHex(actorPublicKey),
         UnixSeconds(recordedAtUnixS),
         when (val original = result) {
+            is HubHandlingResultDto.Separated -> original.value.toModel()
             is HubHandlingResultDto.Moved -> original.value.toModel()
             is HubHandlingResultDto.WorkChanged -> original.value.toModel()
             is HubHandlingResultDto.DiscrepancyChanged -> HubHandlingResult.DiscrepancyChanged(original.value.toModel())

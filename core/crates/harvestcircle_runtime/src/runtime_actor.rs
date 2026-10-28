@@ -3916,6 +3916,70 @@ mod tests {
                 .total,
             0
         );
+        let harvestcircle_storage::HubHandlingResult::Moved(moved_scope) = &moved.result else {
+            panic!("movement")
+        };
+        let selected = actor.hub_group(moved_scope.moved_group).await.unwrap();
+        let separating =
+            HandlingCommand::Split(harvestcircle_domain::hub::portions::SplitCommand {
+                expected_stock_revision: selected.revision,
+                expected_catalog_revision: selected.catalog_revision,
+                group: selected.group.id,
+                expected_group_revision: selected.group.revision,
+                packs: WholePacks::from_value(5).unwrap(),
+                identification: PhysicalIdentification {
+                    label: HubLabel::new("Green five").unwrap(),
+                    observation: SourceProvenance::new("Five separately tagged crates").unwrap(),
+                },
+                occurred: Occurrence::Unknown,
+                observation: SourceProvenance::new(
+                    "Identified five crates without relocating them",
+                )
+                .unwrap(),
+            });
+        let split_id = DurableRequestId::new_v7();
+        let separated = actor
+            .apply_hub_handling(
+                split_id.clone(),
+                separating.clone(),
+                actor.snapshot().revision(),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            actor
+                .hub_work(harvestcircle_storage::HubHandlingQuery::default())
+                .await
+                .unwrap()
+                .rows[0]
+                .work,
+            work.rows[0].work
+        );
+        let lineage_query = harvestcircle_storage::HubLineageQuery {
+            trace: receipt.original.trace.id,
+            expected_revision: None,
+            expected_catalog_revision: None,
+            offset: 0,
+            limit: 64,
+        };
+        let lineage = actor.hub_lineage(lineage_query.clone()).await.unwrap();
+        assert_eq!(lineage.total, 3);
+        assert_eq!(
+            lineage
+                .rows
+                .iter()
+                .map(|row| row.packs.value())
+                .sum::<u32>(),
+            20
+        );
+        assert_eq!(
+            actor
+                .hub_handling_operation(split_id.clone())
+                .await
+                .unwrap(),
+            Some(separated)
+        );
         let old_generation = actor.session_generation();
         let credential = secrets.load(owner).await.unwrap();
         secrets
@@ -4042,6 +4106,27 @@ mod tests {
         );
         assert_eq!(
             actor.hub_group(group.group.id).await.unwrap_err().code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert_eq!(
+            actor
+                .hub_lineage(lineage_query.clone())
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert_eq!(
+            actor
+                .apply_hub_handling(
+                    split_id,
+                    separating,
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .unwrap_err()
+                .code(),
             SafeErrorCode::HubPermissionDenied
         );
         secrets

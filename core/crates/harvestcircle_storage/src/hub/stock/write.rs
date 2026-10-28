@@ -30,7 +30,7 @@ impl Database {
     }
 }
 
-pub(super) async fn apply_on(
+pub(crate) async fn apply_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     actor: PublicKey,
     operation: DurableRequestId,

@@ -30,6 +30,9 @@ impl Database {
                     match stock::read::operation_on(transaction, hub.id(), &operation).await? {
                         Some(operation) => Ok(Some(match operation.kind.as_str() {
                             "move" => movement_on(transaction, hub.id(), operation).await?,
+                            "split" => {
+                                portions::original_on(transaction, hub.id(), operation).await?
+                            }
                             "work_replan" | "work_new" => {
                                 work_on(transaction, hub.id(), operation).await?
                             }
@@ -500,7 +503,7 @@ pub(super) async fn validate_nonphysical_event_on(
     Ok(())
 }
 
-async fn single_event_on(
+pub(super) async fn single_event_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     operation: &DurableRequestId,
 ) -> Result<(), SafeError> {

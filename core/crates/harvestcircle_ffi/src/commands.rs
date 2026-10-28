@@ -30,6 +30,7 @@ use crate::hub_handling::{
     HubDiscrepancyPageDto, HubGroupViewDto, HubHandlingInputDto, HubHandlingQueryDto,
     HubHandlingReceiptDto, HubWorkPageDto,
 };
+use crate::hub_portions::{HubLineagePageDto, HubLineageQueryDto};
 use crate::hub_reference::{
     HubReferenceEditDto, HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto,
 };
@@ -542,6 +543,19 @@ impl HarvestCircleAppCore {
         self.inner
             .actor
             .hub_group(id)
+            .await
+            .map(Into::into)
+            .map_err(HarvestCircleError::from)
+    }
+
+    pub async fn hub_lineage(
+        &self,
+        query: HubLineageQueryDto,
+    ) -> Result<HubLineagePageDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        self.inner
+            .actor
+            .hub_lineage(query.decode()?)
             .await
             .map(Into::into)
             .map_err(HarvestCircleError::from)
@@ -1904,6 +1918,60 @@ mod tests {
             .await
             .unwrap();
         assert!(closed.stock_revision > original_open.stock_revision);
+        let selected = core
+            .hub_group(movement.moved_group_id.clone())
+            .await
+            .unwrap();
+        let split_context = context(core.snapshot().revision);
+        let separated = core
+            .apply_hub_handling(
+                split_context.clone(),
+                crate::HubHandlingInputDto::Split {
+                    input: crate::HubSplitInputDto {
+                        expected_stock_revision: selected.stock_revision,
+                        expected_catalog_revision: selected.catalog_revision,
+                        group_id: selected.group.id.clone(),
+                        expected_group_revision: selected.group.revision,
+                        whole_packs: 5,
+                        identification: crate::HubPhysicalIdentificationDto {
+                            label: "Green five".into(),
+                            observation: "Five physically tagged crates".into(),
+                        },
+                        occurrence: crate::HubOccurrenceDto {
+                            kind: crate::HubOccurrenceKindDto::Unknown,
+                            start_unix_s: None,
+                            end_unix_s: None,
+                        },
+                        observation: "Separated without moving or completing work".into(),
+                    },
+                },
+            )
+            .await
+            .unwrap();
+        let crate::HubHandlingResultDto::Separated { value: portion } = &separated.result else {
+            panic!("original separation")
+        };
+        assert_eq!((portion.whole_packs, portion.remaining_packs), (5, 3));
+        let lineage_query = crate::HubLineageQueryDto {
+            trace_id: recorded.trace.id.clone(),
+            expected_stock_revision: None,
+            expected_catalog_revision: None,
+            offset: 0,
+            limit: 64,
+        };
+        let lineage = core.hub_lineage(lineage_query.clone()).await.unwrap();
+        assert_eq!(lineage.total, 3);
+        assert_eq!(
+            lineage.rows.iter().map(|row| row.whole_packs).sum::<u32>(),
+            20
+        );
+        assert_eq!(
+            core.hub_handling_operation(split_context.request_id)
+                .await
+                .unwrap(),
+            Some(separated)
+        );
+
         assert_eq!(
             core.hub_handling_operation(original_open.operation_id.clone())
                 .await
@@ -2428,7 +2496,7 @@ mod tests {
             .to_path_buf();
         assert!(database.ends_with("data/services/harvestcircle/desktop/state.sqlite"));
         assert!(!database.to_string_lossy().contains("harvestcircle.sqlite3"));
-        assert_eq!(CURRENT_SCHEMA_VERSION, 7);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 8);
     }
 
     #[test]
