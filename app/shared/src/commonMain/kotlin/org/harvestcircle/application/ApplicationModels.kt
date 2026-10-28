@@ -152,6 +152,11 @@ enum class ApplicationErrorCode {
     AvailabilityStaleQuery,
     AvailabilityCapacity,
     AvailabilityUnavailable,
+    HubInvalidInput,
+    HubConflict,
+    HubCapacity,
+    HubPermissionDenied,
+    HubOutcomeUnknown,
 }
 
 enum class ApplicationErrorCategory {

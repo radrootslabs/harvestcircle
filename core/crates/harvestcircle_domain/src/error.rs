@@ -30,6 +30,11 @@ pub enum SafeErrorCode {
     AvailabilityStaleQuery,
     AvailabilityCapacity,
     AvailabilityUnavailable,
+    HubInvalidInput,
+    HubConflict,
+    HubCapacity,
+    HubPermissionDenied,
+    HubOutcomeUnknown,
 }
 
 /// Finite availability failures with fixed public diagnostic messages.

@@ -8,7 +8,6 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
-import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -97,7 +96,7 @@ class IdentityBootstrapAcceptanceTest {
 
                 runtime.seedSelectedProfile("Farm Identity")
                 onNodeWithText("Activate identity").performClick()
-                waitForTag("foundation-today")
+                waitForTag("hub-workspace")
                 onNodeWithTag("sidebar-Network").performClick()
                 waitForTag("network-overview")
                 onNodeWithTag("main-tab-identity").performClick()
@@ -110,7 +109,7 @@ class IdentityBootstrapAcceptanceTest {
                 onNodeWithTag("sign-out").performClick()
                 waitForTag("saved-identity-list")
                 onNodeWithText("Activate identity").performClick()
-                waitForTag("foundation-today")
+                waitForTag("hub-workspace")
                 assertFalse(onRoot(useUnmergedTree = true).printToString().contains(copiedSecret))
                 closeRequested = true
                 waitUntil(timeoutMillis = UI_TIMEOUT_MILLIS) { approvedExits == 1 }
@@ -125,8 +124,8 @@ class IdentityBootstrapAcceptanceTest {
 
                 waitForTag("saved-identity-list")
                 onNodeWithText("Activate identity").performClick()
-                waitForTag("foundation-today")
-                onNodeWithText("No active commitments").assertIsDisplayed()
+                waitForTag("hub-workspace")
+                onNodeWithText("Food hub demonstration").assertIsDisplayed()
                 onAllNodesWithText(copiedSecret).assertCountEquals(0)
 
                 assertFalse(runtime.currentSnapshot().toString().contains(copiedSecret))
@@ -190,11 +189,11 @@ class IdentityBootstrapAcceptanceTest {
 
                 waitForTag("bootstrap-welcome")
                 onNodeWithTag("bootstrap-read-only").performClick()
-                waitForTag("foundation-today")
-                onNodeWithTag("today-context").assertTextEquals("Read-only session").assertIsDisplayed()
+                waitForTag("hub-workspace")
+                onNodeWithText("Read-only session").assertIsDisplayed()
                 assertTrue(runtime.currentSnapshot().identities.isEmpty())
 
-                onNodeWithTag("today-open-reference").performClick()
+                onNodeWithTag("top-bar-open-reference").performClick()
                 onNodeWithTag("nostr-reference-input").performTextInput(" \tNoStR:NS" + "EC1partial")
                 onNodeWithText("Private-key references cannot be opened.").assertIsDisplayed()
                 onNodeWithTag("overlay-cancel").performClick()
@@ -202,7 +201,7 @@ class IdentityBootstrapAcceptanceTest {
                     onAllNodesWithTag("foundation-overlay").fetchSemanticsNodes().isEmpty()
                 }
 
-                onNodeWithTag("today-open-reference").performClick()
+                onNodeWithTag("top-bar-open-reference").performClick()
                 onNodeWithTag("nostr-reference-input").performTextInput("é".repeat(1_025))
                 onNodeWithText("This reference is not valid.").assertIsDisplayed()
                 onNodeWithTag("overlay-cancel").performClick()
@@ -220,7 +219,7 @@ class IdentityBootstrapAcceptanceTest {
                 showApplication = true
 
                 waitForTag("bootstrap-welcome")
-                onAllNodesWithTag("foundation-today").assertCountEquals(0)
+                onAllNodesWithTag("hub-workspace").assertCountEquals(0)
                 assertTrue(runtime.currentSnapshot().identities.isEmpty())
                 closeRequested = true
                 waitUntil(timeoutMillis = UI_TIMEOUT_MILLIS) { approvedExits == 2 }
@@ -277,7 +276,7 @@ class IdentityBootstrapAcceptanceTest {
                     }
                 }
 
-                waitForTag("foundation-today")
+                waitForTag("hub-workspace")
                 onNodeWithTag("global-status-banner").assertIsDisplayed()
                 onNodeWithTag("sidebar-Network").performClick()
                 waitForTag("network-overview")

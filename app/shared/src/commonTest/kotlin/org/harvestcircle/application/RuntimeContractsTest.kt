@@ -131,7 +131,7 @@ class RuntimeContractsTest {
                 .size,
         )
         assertEquals(
-            29,
+            34,
             ApplicationErrorCode.entries
                 .map(::errorCodeName)
                 .distinct()

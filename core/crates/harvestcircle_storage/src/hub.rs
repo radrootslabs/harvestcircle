@@ -1,4 +1,5 @@
 //! Local hub state has no foreign key to removable account or credential rows.
+pub(crate) mod reference;
 use harvestcircle_application::DurableRequestId;
 use harvestcircle_domain::hub::{HubId, HubOwnership, HubRevision};
 use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage, UnixTimestamp};
@@ -116,6 +117,7 @@ impl Database {
         self.host().transaction(|transaction| Box::pin(async move {
             if let Some((existing, original)) = load_on(transaction).await? {
                 if original == operation && existing == candidate {
+                    reference::validate_basis_on(transaction, existing.id()).await?;
                     return Ok(existing);
                 }
                 return Err(hub_conflict());
@@ -125,6 +127,8 @@ impl Database {
                 .bind(candidate.owner().as_bytes().as_slice())
                 .bind(&operation).bind(now.as_seconds())
                 .execute(&mut *transaction).await.map_err(|_| storage_unavailable())?;
+            sqlx::query("INSERT INTO hub_handling_context (singleton, hub_id, basis_id, basis_version, site_timezone) VALUES (1, ?, 'whole-pack-demo-v1', 1, 'UTC')")
+                .bind(candidate.id().as_bytes().as_slice()).execute(&mut *transaction).await.map_err(|_| storage_unavailable())?;
             sqlx::query("INSERT INTO hub_history (sequence, hub_id, actor_public_key, event_kind, recorded_at_unix_s, owner_public_key, operation_id) VALUES (1, ?, ?, 'initialized', ?, ?, ?)")
                 .bind(candidate.id().as_bytes().as_slice())
                 .bind(candidate.owner().as_bytes().as_slice())
@@ -135,7 +139,7 @@ impl Database {
     }
 }
 
-async fn load_on(
+pub(crate) async fn load_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
 ) -> Result<Option<(HubOwnership, String)>, SafeError> {
     let rows = sqlx::query("SELECT substr(hub_id, 1, 17) AS hub_id, length(hub_id) AS hub_id_bytes, substr(owner_public_key, 1, 33) AS owner_public_key, length(owner_public_key) AS owner_bytes, revision, substr(initialization_id, 1, 37) AS initialization_id FROM hub_context WHERE singleton = 1 LIMIT 2")

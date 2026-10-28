@@ -32,12 +32,20 @@ use crate::{InstallationIdentity, InstallationIdentitySource, PersistentAppCore}
 
 use harvestcircle_domain::hub::{HubId, HubOwnership};
 
+#[path = "hub_reference.rs"]
+mod hub_reference;
+use hub_reference::{HubReferenceCommand, HubReferenceValue};
+
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_TASK_CAPACITY: usize = 64;
 const MAX_OUTSTANDING_PROFILE_TASKS: usize = 64;
 
 enum RuntimeCommand {
     Snapshot,
+    HubReference {
+        generation: SessionGeneration,
+        command: HubReferenceCommand,
+    },
     HubRead {
         generation: SessionGeneration,
     },
@@ -76,6 +84,7 @@ enum RuntimeCommand {
 
 enum RuntimeCommandValue {
     Hub(Option<HubOwnership>),
+    HubReference(HubReferenceValue),
     Snapshot(Box<AppSnapshot>),
     Generated(GenerateIdentityReceipt),
     GeneratedKeyStage(GeneratedKeyRecoveryHandle),
@@ -90,6 +99,7 @@ enum RuntimeCommandValue {
 impl RuntimeCommand {
     const fn class(&self) -> RuntimeCommandClass {
         match self {
+            Self::HubReference { command, .. } => command.class(),
             Self::Snapshot
             | Self::HubRead { .. }
             | Self::SubscribeChanges(_)
@@ -746,6 +756,13 @@ impl RuntimeActorHandle {
         request_id: RequestId,
         deadline: Instant,
     ) -> Result<RuntimeCommandValue, SafeError> {
+        let reference_mutation = matches!(
+            command,
+            RuntimeCommand::HubReference {
+                command: HubReferenceCommand::Apply { .. },
+                ..
+            }
+        );
         let context = CommandContext::new(request_id, expected_revision, deadline);
         let receipt = match self.mailbox.submit(context, command) {
             CommandSubmission::Accepted(ticket) => {
@@ -759,8 +776,15 @@ impl RuntimeActorHandle {
         };
         match receipt.into_result() {
             CommandResult::Completed(value) => Ok(value),
+            CommandResult::Conflicted { .. } if reference_mutation => Err(SafeError::new(
+                SafeErrorCode::HubConflict,
+                SafeMessage::new(
+                    "The active application context changed. Review before submitting.",
+                ),
+            )),
             CommandResult::Conflicted { .. } => Err(command_conflicted()),
             CommandResult::Rejected(_) => Err(command_rejected()),
+            CommandResult::TimedOut if reference_mutation => Err(hub_reference::outcome_unknown()),
             CommandResult::TimedOut => Err(command_timed_out()),
             CommandResult::Closed => Err(runtime_closed()),
             CommandResult::Failed(error) => Err(error),
@@ -1033,6 +1057,13 @@ impl RuntimeActor {
         command: RuntimeCommand,
     ) -> CommandResult<RuntimeCommandValue> {
         let result = match command {
+            RuntimeCommand::HubReference {
+                generation,
+                command,
+            } => {
+                self.execute_hub_reference(generation, context, command)
+                    .await
+            }
             RuntimeCommand::HubRead { generation } => match self.hub_actor(generation) {
                 Ok(actor) => {
                     self.run_async(context.deadline(), move |adapter, _, _| async move {
@@ -3442,6 +3473,69 @@ mod tests {
                 .unwrap(),
             hub
         );
+        use harvestcircle_domain::hub::HubRevision;
+        use harvestcircle_domain::hub::reference::{
+            HubLabel, HubRecordId, ReferenceCommand, ReferenceMutation, ReferenceValue,
+        };
+        assert_eq!(actor.hub_references().await.unwrap().records().len(), 0);
+        let reference_operation = DurableRequestId::new_v7();
+        let reference_command = ReferenceCommand {
+            expected_catalog_revision: HubRevision::INITIAL,
+            mutation: ReferenceMutation::Create {
+                id: HubRecordId::from_bytes([1; 16]).unwrap(),
+                value: ReferenceValue::Party {
+                    label: HubLabel::new("Fictional orchard").unwrap(),
+                },
+            },
+        };
+        let receipt = actor
+            .apply_hub_reference(
+                reference_operation.clone(),
+                reference_command.clone(),
+                actor.snapshot().revision(),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await
+            .unwrap();
+        assert_eq!(receipt.actor, owner);
+        assert_eq!(actor.hub_references().await.unwrap().records().len(), 1);
+        let expired_operation = DurableRequestId::new_v7();
+        let expired = actor
+            .apply_hub_reference(
+                expired_operation.clone(),
+                reference_command.clone(),
+                actor.snapshot().revision(),
+                Duration::ZERO,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(expired.code(), SafeErrorCode::HubOutcomeUnknown);
+        assert!(
+            actor
+                .hub_reference_operation(expired_operation)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let credential = secrets.load(owner).await.unwrap();
+        secrets
+            .delete(&DurableRequestId::new_v7(), owner)
+            .await
+            .unwrap();
+        let denied = actor
+            .apply_hub_reference(
+                reference_operation.clone(),
+                reference_command.clone(),
+                actor.snapshot().revision(),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(denied.code(), SafeErrorCode::CredentialMissing);
+        secrets
+            .put(&DurableRequestId::new_v7(), owner, credential)
+            .await
+            .unwrap();
         let generation = actor.session_generation();
         let second = actor
             .generate_identity(
@@ -3454,9 +3548,56 @@ mod tests {
             .identity()
             .public_key();
         actor.activate_identity(second).await.unwrap();
+        let second_credential = secrets.load(second).await.unwrap();
+        secrets
+            .delete(&DurableRequestId::new_v7(), second)
+            .await
+            .unwrap();
+        assert_eq!(
+            actor
+                .apply_hub_reference(
+                    reference_operation.clone(),
+                    reference_command.clone(),
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied,
+        );
+        secrets
+            .put(&DurableRequestId::new_v7(), second, second_credential)
+            .await
+            .unwrap();
+
         assert!(
             actor
                 .dispatch(RuntimeCommand::HubRead { generation }, None)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            actor.hub_references().await.unwrap_err().code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert_eq!(
+            actor
+                .hub_reference_operation(reference_operation.clone())
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert!(
+            actor
+                .dispatch(
+                    RuntimeCommand::HubReference {
+                        generation,
+                        command: super::HubReferenceCommand::Read
+                    },
+                    None
+                )
                 .await
                 .is_err()
         );
@@ -3473,12 +3614,41 @@ mod tests {
         );
         actor.activate_identity(owner).await.unwrap();
         assert_eq!(actor.hub_context().await.unwrap(), Some(hub));
+        assert_eq!(
+            actor
+                .apply_hub_reference(
+                    reference_operation.clone(),
+                    reference_command,
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .unwrap(),
+            receipt
+        );
+        assert_eq!(
+            actor
+                .hub_reference_operation(reference_operation.clone())
+                .await
+                .unwrap(),
+            Some(receipt.clone())
+        );
         let removal = actor.request_identity_removal(owner).await.unwrap();
         actor.confirm_identity_removal_test(removal).await.unwrap();
         assert!(actor.hub_context().await.is_err());
         assert_eq!(
             actor.adapter.database().load_hub().await.unwrap(),
             Some(hub)
+        );
+        assert!(actor.hub_references().await.is_err());
+        assert_eq!(
+            actor
+                .adapter
+                .database()
+                .hub_reference_operation(owner, reference_operation)
+                .await
+                .unwrap(),
+            Some(receipt)
         );
         actor.close().await.unwrap();
     }

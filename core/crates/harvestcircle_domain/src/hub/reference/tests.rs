@@ -397,3 +397,127 @@ fn same_source_code_with_another_issuer_or_unknown_identity_does_not_merge() {
         Err(HubReferenceError::WrongReferenceKind)
     );
 }
+
+#[test]
+fn canonical_intent_v1_is_stable_and_binds_original_scope_and_material_inputs() {
+    use crate::PublicKey;
+    use crate::hub::HubId;
+    let hub = HubId::from_bytes([1; 16]).unwrap();
+    let actor =
+        PublicKey::from_hex("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798")
+            .unwrap();
+    let original = ReferenceCommand {
+        expected_catalog_revision: HubRevision::INITIAL,
+        mutation: ReferenceMutation::Create {
+            id: id(1),
+            value: party("Fictional orchard"),
+        },
+    };
+    let hash = original.fingerprint(hub, actor);
+    assert_eq!(
+        hash.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+        "c9a41d6838020efb4b158d6c24df736fc4c2d8609f6902f5b7022374179789b1"
+    );
+    for changed in [
+        ReferenceCommand {
+            expected_catalog_revision: HubRevision::from_value(2).unwrap(),
+            ..original.clone()
+        },
+        ReferenceCommand {
+            mutation: ReferenceMutation::Create {
+                id: id(2),
+                value: party("Fictional orchard"),
+            },
+            ..original.clone()
+        },
+        ReferenceCommand {
+            mutation: ReferenceMutation::Create {
+                id: id(1),
+                value: product("Fictional orchard"),
+            },
+            ..original.clone()
+        },
+        ReferenceCommand {
+            mutation: ReferenceMutation::Create {
+                id: id(1),
+                value: party("Fictional orchard "),
+            },
+            ..original.clone()
+        },
+        ReferenceCommand {
+            mutation: ReferenceMutation::Revise {
+                id: id(1),
+                expected_record_revision: HubRevision::INITIAL,
+                value: party("Fictional orchard"),
+            },
+            ..original.clone()
+        },
+    ] {
+        assert_ne!(hash, changed.fingerprint(hub, actor));
+    }
+    assert_ne!(
+        hash,
+        original.fingerprint(HubId::from_bytes([2; 16]).unwrap(), actor)
+    );
+    let other =
+        PublicKey::from_hex("c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5")
+            .unwrap();
+    assert_ne!(hash, original.fingerprint(hub, other));
+    let pack = |product, grams| ReferenceCommand {
+        expected_catalog_revision: HubRevision::INITIAL,
+        mutation: ReferenceMutation::Create {
+            id: id(3),
+            value: ReferenceValue::Pack {
+                product,
+                label: label("Crate"),
+                nominal_grams: grams,
+            },
+        },
+    };
+    assert_ne!(
+        pack(id(1), None).fingerprint(hub, actor),
+        pack(id(2), None).fingerprint(hub, actor)
+    );
+    assert_ne!(
+        pack(id(1), None).fingerprint(hub, actor),
+        pack(id(1), Some(NominalGrams::from_value(1).unwrap())).fingerprint(hub, actor)
+    );
+    let location = |purpose| ReferenceCommand {
+        expected_catalog_revision: HubRevision::INITIAL,
+        mutation: ReferenceMutation::Create {
+            id: id(4),
+            value: ReferenceValue::Location {
+                label: label("Bay"),
+                purpose,
+            },
+        },
+    };
+    assert_ne!(
+        location(LocationPurpose::Receiving).fingerprint(hub, actor),
+        location(LocationPurpose::Storage).fingerprint(hub, actor)
+    );
+}
+
+#[test]
+fn demo_handling_basis_is_versioned_and_has_an_explicit_site_timezone() {
+    let basis = ReferenceCatalog::default().handling_basis();
+    assert_eq!(basis.id(), "whole-pack-demo-v1");
+    assert_eq!(basis.version(), 1);
+    assert_eq!(basis.site_timezone(), "UTC");
+    assert_eq!(
+        SampleHandlingBasis::from_stored(basis.id(), basis.version(), basis.site_timezone()),
+        Ok(basis)
+    );
+    assert_eq!(
+        SampleHandlingBasis::from_stored(basis.id(), 2, "UTC"),
+        Err(HubReferenceError::InvalidHandlingBasis)
+    );
+    assert_eq!(
+        SampleHandlingBasis::from_stored(basis.id(), 1, "local"),
+        Err(HubReferenceError::InvalidHandlingBasis)
+    );
+    assert_eq!(
+        SampleHandlingBasis::from_stored("unknown", 1, "UTC"),
+        Err(HubReferenceError::InvalidHandlingBasis)
+    );
+}

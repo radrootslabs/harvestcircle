@@ -49,6 +49,33 @@ import org.harvestcircle.application.generated.NativeCompatibilityExpectations a
 
 class NativeRuntimeMappingsTest {
     @Test
+    fun referenceFailuresRemainTypedAndUnknownOutcomeKeepsOriginalOperation() {
+        val pairs =
+            listOf(
+                WireErrorCode.HUB_INVALID_INPUT to ApplicationErrorCode.HubInvalidInput,
+                WireErrorCode.HUB_CONFLICT to ApplicationErrorCode.HubConflict,
+                WireErrorCode.HUB_CAPACITY to ApplicationErrorCode.HubCapacity,
+                WireErrorCode.HUB_PERMISSION_DENIED to ApplicationErrorCode.HubPermissionDenied,
+                WireErrorCode.HUB_OUTCOME_UNKNOWN to ApplicationErrorCode.HubOutcomeUnknown,
+            )
+        pairs.forEach { (wire, application) -> assertEquals(application, wire.toApplicationErrorCode()) }
+        val failure =
+            HarvestCircleException.Failure(
+                code = WireErrorCode.HUB_OUTCOME_UNKNOWN,
+                category = WireErrorCategory.STORAGE,
+                retryable = false,
+                recoveryAction = WireRecoveryAction.NONE,
+                correlationId = TEST_OPERATION_ID,
+                safeMessage = "Check the original operation result.",
+            )
+        val problem = failure.toApplicationProblem(OperationId.from(FALLBACK_OPERATION_ID))
+        assertEquals(ApplicationErrorCode.HubOutcomeUnknown, problem.code)
+        assertEquals(OperationId.from(TEST_OPERATION_ID), problem.operationId)
+        assertFalse(problem.retryable)
+        assertEquals(RecoveryAction.None, problem.recoveryAction)
+    }
+
+    @Test
     fun generatedMappingsPreserveExactUtf8Boundaries() {
         listOf("x", "é", "🥕", "e\u0301").forEach { unit ->
             val label = textAtUtf8Limit(unit, 80)
@@ -253,7 +280,7 @@ class NativeRuntimeMappingsTest {
                 .size,
         )
         assertEquals(
-            29,
+            34,
             WireErrorCode.entries
                 .map(WireErrorCode::toApplicationErrorCode)
                 .distinct()

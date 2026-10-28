@@ -79,7 +79,7 @@ class IdentityLifecycleHostUiTest {
                 waitForTag("bootstrap-welcome")
                 assertCanvasChromeClearance(windowChromeExclusion)
                 onNodeWithTag("bootstrap-read-only").performClick()
-                waitForTag("foundation-today")
+                waitForTag("hub-workspace")
                 assertDashboardChromeClearance(windowChromeExclusion)
                 onNodeWithTag("top-bar-signer").performClick()
                 waitForTag("signer-add-or-activate-identity")
@@ -97,7 +97,7 @@ class IdentityLifecycleHostUiTest {
 
                 onNodeWithTag("activate-identity:${identityId.value}").performClick()
                 try {
-                    waitForTag("foundation-today")
+                    waitForTag("hub-workspace")
                 } catch (error: AssertionError) {
                     throw AssertionError(
                         "Activation state: ${presenter.state.value}",
@@ -158,9 +158,13 @@ class IdentityLifecycleHostUiTest {
     private fun ComposeUiTest.assertDashboardChromeClearance(exclusion: HarvestCircleWindowChromeExclusion) {
         if (exclusion == HarvestCircleWindowChromeExclusion.None) return
         val frame = onNodeWithTag("harvestcircle-frame").fetchSemanticsNode().boundsInRoot
-        val toggle = onNodeWithTag("workspace-sidebar-toggle").fetchSemanticsNode().boundsInRoot
+        val topBar = onNodeWithTag("dashboard-top-bar").fetchSemanticsNode().boundsInRoot
+        val work = onNodeWithTag("sidebar-HubWork").fetchSemanticsNode().boundsInRoot
         val exclusionWidth = with(density) { exclusion.width.toPx() }
-        assertTrue(toggle.left >= frame.left + exclusionWidth)
+        val exclusionHeight = with(density) { exclusion.height.toPx() }
+        assertTrue(topBar.left >= frame.left + exclusionWidth)
+        assertTrue(work.top >= frame.top + exclusionHeight)
+        onAllNodesWithTag("workspace-sidebar-toggle").assertCountEquals(0)
         onAllNodesWithTag("top-bar-sidebar-toggle").assertCountEquals(0)
     }
 }

@@ -85,6 +85,11 @@ pub enum WireErrorCode {
     AvailabilityStaleQuery,
     AvailabilityCapacity,
     AvailabilityUnavailable,
+    HubInvalidInput,
+    HubConflict,
+    HubCapacity,
+    HubPermissionDenied,
+    HubOutcomeUnknown,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -439,6 +444,11 @@ impl From<SafeErrorCode> for WireErrorCode {
             SafeErrorCode::AvailabilityStaleQuery => Self::AvailabilityStaleQuery,
             SafeErrorCode::AvailabilityCapacity => Self::AvailabilityCapacity,
             SafeErrorCode::AvailabilityUnavailable => Self::AvailabilityUnavailable,
+            SafeErrorCode::HubInvalidInput => Self::HubInvalidInput,
+            SafeErrorCode::HubConflict => Self::HubConflict,
+            SafeErrorCode::HubCapacity => Self::HubCapacity,
+            SafeErrorCode::HubPermissionDenied => Self::HubPermissionDenied,
+            SafeErrorCode::HubOutcomeUnknown => Self::HubOutcomeUnknown,
         }
     }
 }
@@ -530,6 +540,25 @@ pub(crate) const fn error_policy(
             true,
             WireRecoveryAction::Retry,
         ),
+        SafeErrorCode::HubInvalidInput => {
+            (WireErrorCategory::Input, false, WireRecoveryAction::None)
+        }
+        SafeErrorCode::HubConflict => {
+            (WireErrorCategory::Conflict, false, WireRecoveryAction::None)
+        }
+        SafeErrorCode::HubCapacity => (
+            WireErrorCategory::Lifecycle,
+            false,
+            WireRecoveryAction::None,
+        ),
+        SafeErrorCode::HubPermissionDenied => (
+            WireErrorCategory::Credential,
+            false,
+            WireRecoveryAction::Authenticate,
+        ),
+        SafeErrorCode::HubOutcomeUnknown => {
+            (WireErrorCategory::Storage, false, WireRecoveryAction::None)
+        }
         SafeErrorCode::AvailabilityUnavailable => {
             (WireErrorCategory::Network, true, WireRecoveryAction::Retry)
         }
@@ -751,6 +780,20 @@ mod tests {
                 SafeErrorCode::AvailabilityUnavailable,
                 WireErrorCode::AvailabilityUnavailable,
             ),
+            (
+                SafeErrorCode::HubInvalidInput,
+                WireErrorCode::HubInvalidInput,
+            ),
+            (SafeErrorCode::HubConflict, WireErrorCode::HubConflict),
+            (SafeErrorCode::HubCapacity, WireErrorCode::HubCapacity),
+            (
+                SafeErrorCode::HubPermissionDenied,
+                WireErrorCode::HubPermissionDenied,
+            ),
+            (
+                SafeErrorCode::HubOutcomeUnknown,
+                WireErrorCode::HubOutcomeUnknown,
+            ),
         ];
         for (code, expected_wire_code) in cases {
             let dto = SafeErrorDto::from(safe_error(code));
@@ -775,6 +818,38 @@ mod tests {
                 false,
                 WireRecoveryAction::RestartApplication,
             )
+        );
+    }
+
+    #[test]
+    fn reference_unknown_outcome_never_suggests_automatic_retry() {
+        assert_eq!(
+            error_policy(SafeErrorCode::HubOutcomeUnknown),
+            (WireErrorCategory::Storage, false, WireRecoveryAction::None)
+        );
+        assert_eq!(
+            error_policy(SafeErrorCode::HubPermissionDenied),
+            (
+                WireErrorCategory::Credential,
+                false,
+                WireRecoveryAction::Authenticate
+            )
+        );
+        assert_eq!(
+            error_policy(SafeErrorCode::HubConflict),
+            (WireErrorCategory::Conflict, false, WireRecoveryAction::None)
+        );
+        assert_eq!(
+            error_policy(SafeErrorCode::HubCapacity),
+            (
+                WireErrorCategory::Lifecycle,
+                false,
+                WireRecoveryAction::None
+            )
+        );
+        assert_eq!(
+            error_policy(SafeErrorCode::HubInvalidInput),
+            (WireErrorCategory::Input, false, WireRecoveryAction::None)
         );
     }
 

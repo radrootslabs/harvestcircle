@@ -253,6 +253,11 @@ internal fun WireErrorCode.toApplicationErrorCode(): ApplicationErrorCode =
         WireErrorCode.AVAILABILITY_STALE_QUERY -> ApplicationErrorCode.AvailabilityStaleQuery
         WireErrorCode.AVAILABILITY_CAPACITY -> ApplicationErrorCode.AvailabilityCapacity
         WireErrorCode.AVAILABILITY_UNAVAILABLE -> ApplicationErrorCode.AvailabilityUnavailable
+        WireErrorCode.HUB_INVALID_INPUT -> ApplicationErrorCode.HubInvalidInput
+        WireErrorCode.HUB_CONFLICT -> ApplicationErrorCode.HubConflict
+        WireErrorCode.HUB_CAPACITY -> ApplicationErrorCode.HubCapacity
+        WireErrorCode.HUB_PERMISSION_DENIED -> ApplicationErrorCode.HubPermissionDenied
+        WireErrorCode.HUB_OUTCOME_UNKNOWN -> ApplicationErrorCode.HubOutcomeUnknown
     }
 
 internal fun WireErrorCategory.toApplicationErrorCategory(): ApplicationErrorCategory =

@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 4, FFI is 5.1 and snapshot schema is 1. Rust and
+The current storage schema is 5, FFI is 5.2 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -53,6 +53,27 @@ and bounded expiry cleanup. These are identity-operation bounds, not a stock
 idempotency policy. Planned inventory operations require separate durable
 uniqueness for the lifetime of their history. Unknown outcomes require
 original-operation recovery.
+
+Reference data uses a separate append-only version table, independent of removable
+accounts and seven-day identity receipts. A protected transaction checks the
+current native owner, exact canonical v1 command intent, catalog/record revisions
+and finite capacity before recording the version and original operation receipt.
+Original receipts retain actor, time and before/after values through later edits
+and reopen. Changed intent under a committed operation ID conflicts. Operation
+lookup reads the original result; absence after restore is unresolved and never
+causes replay. The actor also requires the current credential for writes. The immutable sample context records
+Whole-pack demo v1 with an explicit UTC site timezone; reads validate this stored
+basis before projecting reference data. It does not assert reviewed site compliance.
+
+Reference pages are limited to 64 records and bind continuation to the catalog
+revision. History pages are also limited to 64; damaged values are bounded before
+hydration and revalidated in Rust. Typed input/conflict/capacity/permission errors
+are distinct from an uncertain command outcome. The latter retains the original
+operation ID for explicit result lookup. Reference editing in Compose is the next
+implementation component; these native interfaces do not create physical stock. Durable
+admission and recovery of pre-commit submissions across restart/restore remain
+part of the unfinished recovery surface.
+
 
 ## Secrets, transport and lifecycle
 

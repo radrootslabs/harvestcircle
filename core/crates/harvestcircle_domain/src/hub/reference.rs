@@ -6,7 +6,10 @@
 
 use std::collections::BTreeMap;
 
-use crate::hub::HubRevision;
+use sha2::{Digest, Sha256};
+
+use crate::PublicKey;
+use crate::hub::{HubId, HubRevision};
 
 pub const HUB_REFERENCE_CAPACITY: usize = 512;
 pub const HUB_REFERENCE_HISTORY_CAPACITY: usize = 16_384;
@@ -32,6 +35,40 @@ pub enum HubReferenceError {
     ImmutablePack,
     ImmutableLocationPurpose,
     NoChange,
+    InvalidHandlingBasis,
+}
+
+/// Versioned fictional procedure, not a claim of reviewed site compliance.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SampleHandlingBasis(());
+
+impl SampleHandlingBasis {
+    pub const WHOLE_PACK_V1: Self = Self(());
+
+    pub fn from_stored(id: &str, version: u32, timezone: &str) -> Result<Self, HubReferenceError> {
+        let basis = Self::WHOLE_PACK_V1;
+        if id != basis.id() || version != basis.version() || timezone != basis.site_timezone() {
+            return Err(HubReferenceError::InvalidHandlingBasis);
+        }
+        Ok(basis)
+    }
+
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        "whole-pack-demo-v1"
+    }
+    #[must_use]
+    pub const fn version(self) -> u32 {
+        1
+    }
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        "Whole-pack demo"
+    }
+    #[must_use]
+    pub const fn site_timezone(self) -> &'static str {
+        "UTC"
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -239,6 +276,105 @@ pub struct ReferenceChange {
     pub current: ReferenceRecord,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ReferenceMutation {
+    Create {
+        id: HubRecordId,
+        value: ReferenceValue,
+    },
+    Revise {
+        id: HubRecordId,
+        expected_record_revision: HubRevision,
+        value: ReferenceValue,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReferenceCommand {
+    pub expected_catalog_revision: HubRevision,
+    pub mutation: ReferenceMutation,
+}
+
+impl ReferenceCommand {
+    /// Frozen v1 canonical intent excludes transport deadlines and includes the
+    /// original native hub/actor and every material input/precondition.
+    #[must_use]
+    pub fn fingerprint(&self, hub: HubId, actor: PublicKey) -> [u8; 32] {
+        let mut hash = Sha256::new();
+        hash.update(b"harvestcircle.hub.reference.command.v1\0");
+        hash.update(hub.as_bytes());
+        hash.update(actor.as_bytes());
+        hash.update(self.expected_catalog_revision.value().to_be_bytes());
+        let (id, value) = match &self.mutation {
+            ReferenceMutation::Create { id, value } => {
+                hash.update([1]);
+                (id, value)
+            }
+            ReferenceMutation::Revise {
+                id,
+                expected_record_revision,
+                value,
+            } => {
+                hash.update([2]);
+                hash.update(expected_record_revision.value().to_be_bytes());
+                (id, value)
+            }
+        };
+        hash.update(id.as_bytes());
+        hash.update([match value.kind() {
+            ReferenceKind::Product => 1,
+            ReferenceKind::Pack => 2,
+            ReferenceKind::Party => 3,
+            ReferenceKind::Location => 4,
+        }]);
+        let label = value.label().as_str().as_bytes();
+        hash.update(
+            u64::try_from(label.len())
+                .expect("bounded reference label")
+                .to_be_bytes(),
+        );
+        hash.update(label);
+        match value {
+            ReferenceValue::Pack {
+                product,
+                nominal_grams,
+                ..
+            } => {
+                hash.update(product.as_bytes());
+                hash.update(nominal_grams.map_or(0, NominalGrams::value).to_be_bytes());
+            }
+            ReferenceValue::Location { purpose, .. } => hash.update([match purpose {
+                LocationPurpose::Receiving => 1,
+                LocationPurpose::Storage => 2,
+                LocationPurpose::Other => 3,
+            }]),
+            _ => {}
+        }
+        hash.finalize().into()
+    }
+
+    pub fn apply(
+        &self,
+        catalog: &mut ReferenceCatalog,
+    ) -> Result<ReferenceChange, HubReferenceError> {
+        match &self.mutation {
+            ReferenceMutation::Create { id, value } => {
+                catalog.create(self.expected_catalog_revision, *id, value.clone())
+            }
+            ReferenceMutation::Revise {
+                id,
+                expected_record_revision,
+                value,
+            } => catalog.revise(
+                self.expected_catalog_revision,
+                *id,
+                *expected_record_revision,
+                value.clone(),
+            ),
+        }
+    }
+}
+
 /// Only current references are held here. Immutable historical versions belong
 /// in SQL and in as-issued snapshots, never rewritten by a current label edit.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -257,6 +393,11 @@ impl Default for ReferenceCatalog {
 }
 
 impl ReferenceCatalog {
+    #[must_use]
+    pub const fn handling_basis(&self) -> SampleHandlingBasis {
+        SampleHandlingBasis::WHOLE_PACK_V1
+    }
+
     pub fn restore(
         revision: HubRevision,
         records: Vec<ReferenceRecord>,

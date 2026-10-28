@@ -91,8 +91,11 @@ to 1..1,000,000,000 grams. A counted quantity is 0..1,000,000 original packs wit
 checked arithmetic; quantities from different pack variants cannot be summed.
 Pack definitions and location purposes are immutable; a changed definition creates
 another identity. Label revisions retain the complete before/after versions.
-Reference persistence, historical capacity enforcement and editors are being
-implemented; passing pure policy tests alone does not qualify those features.
+Reference versions and committed original-operation receipts now persist under
+the native owner/session/credential boundary, with atomic replay and finite
+history enforcement. Native pages and original-result/history reads are bounded.
+Reference editors are the next component; native tests alone do not qualify the
+complete reference-data UI.
 
 ### C04: Physical events, portions and eligibility
 

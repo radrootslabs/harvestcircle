@@ -30,4 +30,5 @@ pub use contract::{
     harvestcircle_schema_catalog,
 };
 pub use db::{CURRENT_SCHEMA_VERSION, Database};
+pub use hub::reference::HubReferenceReceipt;
 pub use os_keyring::{CREDENTIAL_SERVICE, OsKeyringSecretStore};

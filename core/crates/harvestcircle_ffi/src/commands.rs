@@ -26,6 +26,9 @@ use radroots_runtime_paths::{
 };
 use radroots_service_sqlite::MigrationBuildIdentity;
 
+use crate::hub_reference::{
+    HubReferenceEditDto, HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto,
+};
 use crate::{
     AppSnapshotDto, IdentityDto, RelayDestinationDto, RelayEndpointDto, WireErrorCategory,
     WireErrorCode, WireRecoveryAction,
@@ -512,6 +515,76 @@ impl HarvestCircleAppCore {
             .await
             .map(HubContextDto::from)
             .map_err(|error| HarvestCircleError::correlated(error, &request))
+    }
+
+    /// Reads one bounded, revision-pinned page under current native authority.
+    pub async fn hub_references(
+        &self,
+        query: HubReferenceQueryDto,
+    ) -> Result<HubReferencePageDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        query.validate()?;
+        let catalog = self
+            .inner
+            .actor
+            .hub_references()
+            .await
+            .map_err(HarvestCircleError::from)?;
+        query.page(&catalog)
+    }
+
+    pub async fn apply_hub_reference(
+        &self,
+        context: RequestContextDto,
+        edit: HubReferenceEditDto,
+    ) -> Result<HubReferenceReceiptDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let (request, timeout) = validate_request_context(&context)?;
+        let command = edit.command(&request)?;
+        self.inner
+            .actor
+            .apply_hub_reference(
+                request.clone(),
+                command,
+                harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
+                timeout,
+            )
+            .await
+            .map(Into::into)
+            .map_err(|error| HarvestCircleError::correlated(error, &request))
+    }
+
+    /// Read the original result; absence never causes implicit replay.
+    pub async fn hub_reference_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubReferenceReceiptDto>, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let request = DurableRequestId::parse(operation_id)
+            .map_err(|_| crate::hub_reference::invalid_input())?;
+        self.inner
+            .actor
+            .hub_reference_operation(request.clone())
+            .await
+            .map(|receipt| receipt.map(Into::into))
+            .map_err(|error| HarvestCircleError::correlated(error, &request))
+    }
+
+    pub async fn hub_reference_history(
+        &self,
+        record_id: String,
+        after_revision: u64,
+        limit: u32,
+    ) -> Result<Vec<HubReferenceReceiptDto>, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let id = harvestcircle_domain::hub::reference::HubRecordId::from_hex(&record_id)
+            .map_err(|_| crate::hub_reference::invalid_input())?;
+        self.inner
+            .actor
+            .hub_reference_history(id, after_revision, limit)
+            .await
+            .map(|history| history.into_iter().map(Into::into).collect())
+            .map_err(HarvestCircleError::from)
     }
 
     /// Restores durable public application state.
@@ -1359,8 +1432,70 @@ mod tests {
         assert_eq!(hub.revision, 1);
         assert_eq!(core.initialize_hub(context).await.unwrap(), hub);
         assert_eq!(core.hub_context().await.unwrap(), Some(hub));
+        use crate::{
+            HubReferenceEditDto, HubReferenceInputDto, HubReferenceKindDto, HubReferenceQueryDto,
+        };
+        let query = HubReferenceQueryDto {
+            expected_catalog_revision: None,
+            offset: 0,
+            limit: 64,
+            kind: None,
+            text: String::new(),
+        };
+        let empty = core.hub_references(query.clone()).await.unwrap();
+        assert_eq!(empty.total, 0);
+        let reference_context = RequestContextDto {
+            request_id: harvestcircle_application::DurableRequestId::new_v7()
+                .as_str()
+                .to_owned(),
+            expected_revision: core.snapshot().revision,
+            deadline_millis: 5000,
+        };
+        let edit = HubReferenceEditDto {
+            expected_catalog_revision: empty.catalog_revision,
+            record_id: None,
+            expected_record_revision: None,
+            value: HubReferenceInputDto {
+                kind: HubReferenceKindDto::Party,
+                label: "Fictional orchard".to_owned(),
+                product_id: None,
+                nominal_grams: None,
+                location_purpose: None,
+            },
+        };
+        let receipt = core
+            .apply_hub_reference(reference_context.clone(), edit.clone())
+            .await
+            .unwrap();
+        assert_eq!(receipt.actor_public_key, key);
+        assert_eq!(receipt.operation_id, reference_context.request_id);
+        assert_eq!(
+            core.apply_hub_reference(reference_context.clone(), edit)
+                .await
+                .unwrap(),
+            receipt
+        );
+        assert_eq!(
+            core.hub_reference_operation(reference_context.request_id.clone())
+                .await
+                .unwrap(),
+            Some(receipt.clone())
+        );
+        assert_eq!(
+            core.hub_reference_history(receipt.current.id.clone(), 0, 64)
+                .await
+                .unwrap(),
+            vec![receipt]
+        );
+        assert_eq!(core.hub_references(query.clone()).await.unwrap().total, 1);
         core.sign_out().await.unwrap();
         assert!(core.hub_context().await.is_err());
+        assert!(core.hub_references(query).await.is_err());
+        assert!(
+            core.hub_reference_operation(reference_context.request_id)
+                .await
+                .is_err()
+        );
         core.shutdown_v2().await.unwrap();
     }
 
@@ -1850,7 +1985,7 @@ mod tests {
             .to_path_buf();
         assert!(database.ends_with("data/services/harvestcircle/desktop/state.sqlite"));
         assert!(!database.to_string_lossy().contains("harvestcircle.sqlite3"));
-        assert_eq!(CURRENT_SCHEMA_VERSION, 4);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 5);
     }
 
     #[test]
