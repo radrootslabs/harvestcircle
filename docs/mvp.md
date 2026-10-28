@@ -115,6 +115,15 @@ release does not grant acceptance or release another hold. Explicit sample polic
 can permit internal relocation/disposition while blocking normal buyer departure.
 Use versioned sample handling basis, not a general rule engine or implicit expiry.
 
+Receipt planning is implemented as pure Rust in
+`core/crates/harvestcircle_domain/src/hub/stock.rs`. It captures original reference
+versions and manual observations, preserves independent supplier/producer/issuer
+attribution and separates occurrence from recording time. Its initial position is
+at Receiving; the planned destination creates no stock or completed work. The
+inventory contract bounds traces to 4,096, operational events to 32,768 and read
+pages to 64. Persistence, native inventory commands and receiving UI remain
+unfinished; a pure plan does not record an intake.
+
 ### C05: Work and time
 
 For quantity work: required = completed + no longer required + remaining. Count

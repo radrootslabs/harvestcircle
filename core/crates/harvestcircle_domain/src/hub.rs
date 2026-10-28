@@ -5,6 +5,7 @@
 //! Persistence and native session checks must protect the complete command.
 
 pub mod reference;
+pub mod stock;
 
 use crate::PublicKey;
 
