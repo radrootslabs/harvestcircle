@@ -30,6 +30,10 @@ pub use contract::{
     harvestcircle_schema_catalog,
 };
 pub use db::{CURRENT_SCHEMA_VERSION, Database};
+pub use hub::handling::dispatch::{
+    HubDispatchFilter, HubDispatchKind, HubDispatchPage, HubDispatchQuery, HubDispatchReceipt,
+    HubDispatchRow, HubDispatchState, HubDispatchView,
+};
 pub use hub::handling::{
     HubActionGroup, HubDiscrepancyRow, HubGroupCreationKind, HubGroupView, HubHandlingKind,
     HubHandlingPage, HubHandlingQuery, HubHandlingReceipt, HubHandlingResult, HubHoldRow,

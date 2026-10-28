@@ -212,7 +212,7 @@ pub(super) async fn load_on(
     Ok(LoadedLineage { graph, rows, trace })
 }
 
-async fn creation_on(
+pub(super) async fn creation_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     trace: &ReceiptTrace,

@@ -572,3 +572,33 @@ fn changed_physical_group_blocks_issue_and_noop_replacement_cannot_mint_a_new_ve
         Err(DispatchError::StaleRevision)
     );
 }
+
+#[test]
+fn original_digest_binds_resolved_labels_sources_clocks_and_closed_history() {
+    let mut f = Fixture::new();
+    let draft = f.prepare(20);
+    let issued = f.issue(&draft, 21);
+    let input = [33; 32];
+    let original = dispatch_result_digest(&input, &issued).unwrap();
+    let mut renamed = issued.clone();
+    renamed.versions[0].material.recipient.value = ReferenceValue::Party {
+        label: HubLabel::new("Changed historical recipient").unwrap(),
+    };
+    assert_ne!(original, dispatch_result_digest(&input, &renamed).unwrap());
+    let mut source = issued.clone();
+    source.versions[0].material.lines[0].trace.observation = note("Changed original observation");
+    assert_ne!(original, dispatch_result_digest(&input, &source).unwrap());
+    let mut clock = issued.clone();
+    clock.created.recorded_at = UnixTimestamp::from_seconds(99).unwrap();
+    assert_ne!(original, dispatch_result_digest(&input, &clock).unwrap());
+    assert_ne!(
+        original,
+        dispatch_result_digest(&[34; 32], &issued).unwrap()
+    );
+    let mut corrupt = issued;
+    corrupt.versions[0].number = 2;
+    assert_eq!(
+        dispatch_result_digest(&input, &corrupt),
+        Err(DispatchError::InvalidHistory)
+    );
+}

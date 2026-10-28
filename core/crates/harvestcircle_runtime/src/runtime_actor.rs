@@ -44,6 +44,8 @@ mod hub_handling;
 use hub_handling::{HubHandlingCommand, HubHandlingValue};
 #[path = "hub_authority.rs"]
 mod hub_authority;
+#[path = "hub_dispatch.rs"]
+mod hub_dispatch;
 
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_TASK_CAPACITY: usize = 64;
@@ -790,7 +792,8 @@ impl RuntimeActorHandle {
                 command: HubStockCommand::Receive { .. },
                 ..
             } | RuntimeCommand::HubHandling {
-                command: HubHandlingCommand::Apply { .. },
+                command: HubHandlingCommand::Apply { .. }
+                    | HubHandlingCommand::ApplyDispatch { .. },
                 ..
             }
         );
@@ -4025,12 +4028,114 @@ mod tests {
                 .value(),
             20
         );
+        use harvestcircle_domain::hub::dispatch::{
+            DispatchAction, DispatchCommand, DispatchLineInput, DispatchSelection,
+        };
+        let catalog = actor.hub_references().await.unwrap();
+        actor
+            .apply_hub_reference(
+                DurableRequestId::new_v7(),
+                ReferenceCommand {
+                    expected_catalog_revision: catalog.revision(),
+                    mutation: ReferenceMutation::Create {
+                        id: record(5),
+                        value: ReferenceValue::Party {
+                            label: HubLabel::new("Fictional recipient").unwrap(),
+                        },
+                    },
+                },
+                actor.snapshot().revision(),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await
+            .unwrap();
+        let selected = actor.hub_group(group.group.id).await.unwrap();
+        let preparation = DispatchCommand {
+            expected_stock_revision: selected.revision,
+            expected_catalog_revision: selected.catalog_revision,
+            action: DispatchAction::Prepare {
+                recipient: record(5),
+                lines: DispatchSelection::new(vec![DispatchLineInput {
+                    group: selected.group.id,
+                    expected_group_revision: selected.group.revision,
+                    packs: selected.group.packs,
+                }])
+                .unwrap(),
+            },
+            observation: SourceProvenance::new("Reviewed fictional identification").unwrap(),
+        };
+        let preparation_id = DurableRequestId::new_v7();
+        let prepared = actor
+            .apply_hub_dispatch(
+                preparation_id.clone(),
+                preparation.clone(),
+                actor.snapshot().revision(),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            actor
+                .hub_dispatch_operation(preparation_id.clone())
+                .await
+                .unwrap(),
+            Some(prepared.clone())
+        );
+        assert_eq!(
+            actor
+                .hub_dispatch_record(prepared.record.id)
+                .await
+                .unwrap()
+                .record,
+            prepared.record
+        );
+        assert_eq!(
+            actor.hub_group(selected.group.id).await.unwrap().group,
+            selected.group
+        );
+        assert_eq!(
+            actor
+                .hub_work(harvestcircle_storage::HubHandlingQuery::default())
+                .await
+                .unwrap()
+                .rows[0]
+                .work,
+            work.rows[0].work
+        );
         let old_generation = actor.session_generation();
         let credential = secrets.load(owner).await.unwrap();
         secrets
             .delete(&DurableRequestId::new_v7(), owner)
             .await
             .unwrap();
+        assert_eq!(
+            actor
+                .apply_hub_dispatch(
+                    preparation_id.clone(),
+                    preparation.clone(),
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::CredentialMissing
+        );
+        assert_eq!(
+            actor
+                .hub_dispatch_operation(preparation_id.clone())
+                .await
+                .unwrap(),
+            Some(prepared.clone())
+        );
+        assert_eq!(
+            actor
+                .hub_dispatch_record(prepared.record.id)
+                .await
+                .unwrap()
+                .record,
+            prepared.record
+        );
         assert_eq!(
             actor
                 .apply_hub_handling(
@@ -4122,6 +4227,35 @@ mod tests {
             .delete(&DurableRequestId::new_v7(), second)
             .await
             .unwrap();
+        assert_eq!(
+            actor
+                .apply_hub_dispatch(
+                    preparation_id.clone(),
+                    preparation,
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert_eq!(
+            actor
+                .hub_dispatch_operation(preparation_id)
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert_eq!(
+            actor
+                .hub_dispatch_record(prepared.record.id)
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
         assert_eq!(
             actor
                 .receive_hub_stock(

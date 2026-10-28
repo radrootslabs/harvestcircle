@@ -26,6 +26,10 @@ use radroots_runtime_paths::{
 };
 use radroots_service_sqlite::MigrationBuildIdentity;
 
+use crate::hub_dispatch::{
+    HubDispatchPageDto, HubDispatchQueryDto, HubDispatchReceiptDto, HubDispatchViewDto,
+};
+use crate::hub_dispatch_input::HubDispatchInputDto;
 use crate::hub_handling::{
     HubDiscrepancyPageDto, HubGroupViewDto, HubHandlingInputDto, HubHandlingQueryDto,
     HubHandlingReceiptDto, HubWorkPageDto,
@@ -306,6 +310,12 @@ impl From<SafeError> for HarvestCircleError {
 }
 
 impl HarvestCircleError {
+    fn with_correlation(mut self, request: &DurableRequestId) -> Self {
+        let Self::Failure { correlation_id, .. } = &mut self;
+        *correlation_id = Some(request.as_str().to_owned());
+        self
+    }
+
     fn correlated(error: SafeError, correlation_id: &DurableRequestId) -> Self {
         let (category, retryable, recovery_action) = error_policy(error.code());
         Self::Failure {
@@ -587,6 +597,74 @@ impl HarvestCircleAppCore {
             .await
             .map(Into::into)
             .map_err(HarvestCircleError::from)
+    }
+
+    pub async fn hub_dispatch_page(
+        &self,
+        query: HubDispatchQueryDto,
+    ) -> Result<HubDispatchPageDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        self.inner
+            .actor
+            .hub_dispatch_page(query.decode()?)
+            .await
+            .map(Into::into)
+            .map_err(HarvestCircleError::from)
+    }
+
+    pub async fn hub_dispatch_record(
+        &self,
+        preparation_id: String,
+    ) -> Result<HubDispatchViewDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        self.inner
+            .actor
+            .hub_dispatch_record(crate::hub_treatment_input::id(&preparation_id)?)
+            .await
+            .map_err(HarvestCircleError::from)?
+            .try_into()
+    }
+
+    pub async fn apply_hub_dispatch(
+        &self,
+        context: RequestContextDto,
+        input: HubDispatchInputDto,
+    ) -> Result<HubDispatchReceiptDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let (request, timeout) = validate_request_context(&context)?;
+        let command = input.command()?;
+        let receipt = self
+            .inner
+            .actor
+            .apply_hub_dispatch(
+                request.clone(),
+                command,
+                harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
+                timeout,
+            )
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        HubDispatchReceiptDto::try_from(receipt).map_err(|error| error.with_correlation(&request))
+    }
+
+    /// Reads only the original result; absence does not permit another submission.
+    pub async fn hub_dispatch_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubDispatchReceiptDto>, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let request = DurableRequestId::parse(operation_id)
+            .map_err(|_| crate::hub_reference::invalid_input())?;
+        let receipt = self
+            .inner
+            .actor
+            .hub_dispatch_operation(request.clone())
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        receipt
+            .map(TryInto::try_into)
+            .transpose()
+            .map_err(|error: HarvestCircleError| error.with_correlation(&request))
     }
 
     pub async fn hub_work(
@@ -2166,12 +2244,105 @@ mod tests {
         assert_eq!(
             core.hub_discrepancies(crate::HubHandlingQueryDto {
                 open_only: true,
-                ..work_query
+                ..work_query.clone()
             })
             .await
             .unwrap()
             .total,
             0
+        );
+        let saved = core
+            .apply_hub_reference(
+                context(core.snapshot().revision),
+                HubReferenceEditDto {
+                    expected_catalog_revision: core
+                        .hub_stock(query.clone())
+                        .await
+                        .unwrap()
+                        .catalog_revision,
+                    record_id: None,
+                    expected_record_revision: None,
+                    value: HubReferenceInputDto {
+                        kind: HubReferenceKindDto::Party,
+                        label: "Fictional recipient A".into(),
+                        product_id: None,
+                        nominal_grams: None,
+                        location_purpose: None,
+                    },
+                },
+            )
+            .await
+            .unwrap();
+        let selected = core.hub_group(five_id).await.unwrap();
+        let before = core.hub_stock(query.clone()).await.unwrap().rows;
+        let work_before = core.hub_work(work_query.clone()).await.unwrap().rows;
+        let document_context = context(core.snapshot().revision);
+        let preparation = crate::HubDispatchInputDto::Prepare {
+            value: crate::HubDispatchMaterialInputDto {
+                expected_stock_revision: selected.stock_revision,
+                expected_catalog_revision: selected.catalog_revision,
+                recipient_id: saved.current.id,
+                lines: vec![crate::HubDispatchLineInputDto {
+                    group_id: selected.group.id,
+                    expected_group_revision: selected.group.revision,
+                    whole_packs: selected.group.whole_packs,
+                }],
+                observation: "Reviewed five fictional crates for identification".into(),
+            },
+        };
+        let prepared = core
+            .apply_hub_dispatch(document_context.clone(), preparation.clone())
+            .await
+            .unwrap();
+        assert_eq!(prepared.record.state, crate::HubDispatchStateDto::Draft);
+        assert_eq!(prepared.record.draft.as_ref().unwrap().whole_packs, 5);
+        assert_eq!(
+            core.apply_hub_dispatch(document_context, preparation)
+                .await
+                .unwrap(),
+            prepared
+        );
+        let current = core
+            .hub_dispatch_record(prepared.record.id.clone())
+            .await
+            .unwrap();
+        let issued = core
+            .apply_hub_dispatch(
+                context(core.snapshot().revision),
+                crate::HubDispatchInputDto::Issue {
+                    value: crate::HubDispatchActionInputDto {
+                        expected_stock_revision: current.stock_revision,
+                        expected_catalog_revision: current.catalog_revision,
+                        preparation_id: current.record.id,
+                        expected_preparation_revision: current.record.revision,
+                        observation: "Explicit sample issuance".into(),
+                    },
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(issued.record.state, crate::HubDispatchStateDto::Issued);
+        assert_eq!(issued.record.versions[0].material.whole_packs, 5);
+        assert_eq!(
+            issued.record.versions[0].issued.operation_id,
+            issued.operation_id
+        );
+        assert_eq!(
+            core.hub_dispatch_operation(prepared.operation_id.clone())
+                .await
+                .unwrap(),
+            Some(prepared)
+        );
+        assert_eq!(
+            core.hub_dispatch_operation(issued.operation_id.clone())
+                .await
+                .unwrap(),
+            Some(issued.clone())
+        );
+        assert_eq!(core.hub_stock(query.clone()).await.unwrap().rows, before);
+        assert_eq!(
+            core.hub_work(work_query.clone()).await.unwrap().rows,
+            work_before
         );
         core.sign_out().await.unwrap();
         assert!(core.hub_group(group.group.id).await.is_err());
@@ -2183,6 +2354,12 @@ mod tests {
         assert!(core.hub_stock(query).await.is_err());
         assert!(
             core.hub_receipt_operation(original_context.request_id)
+                .await
+                .is_err()
+        );
+        assert!(core.hub_dispatch_record(issued.record.id).await.is_err());
+        assert!(
+            core.hub_dispatch_operation(issued.operation_id)
                 .await
                 .is_err()
         );
@@ -2675,7 +2852,7 @@ mod tests {
             .to_path_buf();
         assert!(database.ends_with("data/services/harvestcircle/desktop/state.sqlite"));
         assert!(!database.to_string_lossy().contains("harvestcircle.sqlite3"));
-        assert_eq!(CURRENT_SCHEMA_VERSION, 9);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 10);
     }
 
     #[test]

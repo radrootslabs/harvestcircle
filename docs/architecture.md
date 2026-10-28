@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 9, FFI is 5.7 and snapshot schema is 1. Rust and
+The current storage schema is 10, FFI is 5.8 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -175,7 +175,21 @@ Pure preparation and identification policy lives in
 physical groups and immutable source/recipient/reference snapshots without a
 stock reservation or work effect. Issue verifies the current selected material;
 changed material uses a linked version, while unused status retains originals.
-Native persistence, generated Dispatch transport, shared UI and actual departure
+Schema 10 appends immutable preparation changes, captured material lines and linked
+identification versions. Native current owner/credential checks, paired stock/catalog
+versions, atomic writes and original-operation recovery also cover preparation,
+revision, issuance, replacement and unused closure. Issued material retains exact
+historical references and source provenance; current positions are not substituted
+when reading an original. The result digest detects inconsistent stored snapshots;
+it is not authentication or departure permission. Whole-group selection requires
+observed physical separation before selecting a smaller population. Up to 64 source
+lines and 32 versions are retained per preparation, with 1,024 preparations per hub.
+Native journal budgeting reserves a closure slot for every active issued version
+alongside outstanding hold releases and precautionary hold/release headroom.
+
+FFI 5.8 and the Kotlin transport expose bounded preparation pages, complete selected
+records, original receipts and closed commands. List rows are summaries; version
+history belongs to the selected record. Shared Dispatch editors and actual departure
 remain unfinished. Existing stock and work, including Nostr identity and recovery,
 retain their separate contracts.
 

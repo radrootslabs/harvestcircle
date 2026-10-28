@@ -16,6 +16,11 @@ import org.harvestcircle.ffi.HarvestCircleAppCore
 import org.harvestcircle.ffi.HarvestCircleChangeObserver
 import org.harvestcircle.ffi.HubContextDto
 import org.harvestcircle.ffi.HubDiscrepancyPageDto
+import org.harvestcircle.ffi.HubDispatchInputDto
+import org.harvestcircle.ffi.HubDispatchPageDto
+import org.harvestcircle.ffi.HubDispatchQueryDto
+import org.harvestcircle.ffi.HubDispatchReceiptDto
+import org.harvestcircle.ffi.HubDispatchViewDto
 import org.harvestcircle.ffi.HubGroupViewDto
 import org.harvestcircle.ffi.HubHandlingInputDto
 import org.harvestcircle.ffi.HubHandlingQueryDto
@@ -60,7 +65,26 @@ class NativeHarvestCircleRuntime internal constructor(
     HarvestCircleHubRuntime,
     HarvestCircleReferenceRuntime,
     HarvestCircleStockRuntime,
-    HarvestCircleHandlingRuntime {
+    HarvestCircleHandlingRuntime,
+    HarvestCircleDispatchRuntime {
+    override suspend fun dispatchPage(query: HubDispatchQuery): HubDispatchPage =
+        callNative { hubPort().dispatchPage(query.toNative()).toModel() }
+
+    override suspend fun dispatchRecord(id: String): HubDispatchView = callNative { hubPort().dispatchRecord(id).toModel() }
+
+    override suspend fun applyDispatch(
+        context: RequestContext,
+        input: HubDispatchInput,
+    ): HubDispatchReceipt =
+        callNative(context.operationId) {
+            hubPort().applyDispatch(context.toNative(), input.toNative()).toModel()
+        }
+
+    override suspend fun dispatchOperation(operation: OperationId): HubDispatchReceipt? =
+        callNative(operation) {
+            hubPort().dispatchOperation(operation.value)?.toModel()
+        }
+
     override suspend fun treatment(scope: HubTreatmentScope): HubTreatmentSnapshot =
         callNative { hubPort().treatment(scope.toNative()).toModel() }
 
@@ -564,6 +588,17 @@ internal fun interface NativeSubscriptionHandle {
 }
 
 private interface NativeHubPort {
+    suspend fun dispatchPage(query: HubDispatchQueryDto): HubDispatchPageDto
+
+    suspend fun dispatchRecord(id: String): HubDispatchViewDto
+
+    suspend fun applyDispatch(
+        context: RequestContextDto,
+        input: HubDispatchInputDto,
+    ): HubDispatchReceiptDto
+
+    suspend fun dispatchOperation(operation: String): HubDispatchReceiptDto?
+
     suspend fun treatment(scope: HubTreatmentScopeDto): HubTreatmentSnapshotDto
 
     suspend fun treatmentHistory(query: HubTreatmentQueryDto): HubTreatmentPageDto
@@ -618,6 +653,17 @@ private class UniFfiNativeCorePort(
     private val core: HarvestCircleAppCore,
 ) : NativeCorePort,
     NativeHubPort {
+    override suspend fun dispatchPage(query: HubDispatchQueryDto): HubDispatchPageDto = core.hubDispatchPage(query)
+
+    override suspend fun dispatchRecord(id: String): HubDispatchViewDto = core.hubDispatchRecord(id)
+
+    override suspend fun applyDispatch(
+        context: RequestContextDto,
+        input: HubDispatchInputDto,
+    ): HubDispatchReceiptDto = core.applyHubDispatch(context, input)
+
+    override suspend fun dispatchOperation(operation: String): HubDispatchReceiptDto? = core.hubDispatchOperation(operation)
+
     override suspend fun treatment(scope: HubTreatmentScopeDto): HubTreatmentSnapshotDto = core.hubTreatment(scope)
 
     override suspend fun treatmentHistory(query: HubTreatmentQueryDto): HubTreatmentPageDto = core.hubTreatmentHistory(query)

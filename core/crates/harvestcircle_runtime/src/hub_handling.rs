@@ -1,14 +1,23 @@
 //! Bounded native handling with current-session and credential authority.
 use super::*;
+use harvestcircle_domain::hub::dispatch::DispatchCommand;
 use harvestcircle_domain::hub::movement::HandlingCommand;
 use harvestcircle_domain::hub::reference::HubRecordId;
 use harvestcircle_storage::{
-    HubDiscrepancyRow, HubGroupView, HubHandlingPage, HubHandlingQuery, HubHandlingReceipt,
-    HubLineagePage, HubLineageQuery, HubTreatmentPage, HubTreatmentQuery, HubTreatmentScope,
-    HubTreatmentSnapshot, HubWorkRow,
+    HubDiscrepancyRow, HubDispatchPage, HubDispatchQuery, HubDispatchReceipt, HubDispatchView,
+    HubGroupView, HubHandlingPage, HubHandlingQuery, HubHandlingReceipt, HubLineagePage,
+    HubLineageQuery, HubTreatmentPage, HubTreatmentQuery, HubTreatmentScope, HubTreatmentSnapshot,
+    HubWorkRow,
 };
 
 pub(super) enum HubHandlingCommand {
+    DispatchPage(HubDispatchQuery),
+    DispatchRecord(HubRecordId),
+    DispatchOperation(DurableRequestId),
+    ApplyDispatch {
+        operation: DurableRequestId,
+        command: Box<DispatchCommand>,
+    },
     Group(HubRecordId),
     Lineage(HubLineageQuery),
     Treatment(HubTreatmentScope),
@@ -24,7 +33,7 @@ pub(super) enum HubHandlingCommand {
 
 impl HubHandlingCommand {
     pub(super) const fn class(&self) -> RuntimeCommandClass {
-        if matches!(self, Self::Apply { .. }) {
+        if matches!(self, Self::Apply { .. } | Self::ApplyDispatch { .. }) {
             RuntimeCommandClass::UseCredential
         } else {
             RuntimeCommandClass::Observe
@@ -33,6 +42,9 @@ impl HubHandlingCommand {
 }
 
 pub(super) enum HubHandlingValue {
+    DispatchPage(Box<HubDispatchPage>),
+    DispatchRecord(Box<HubDispatchView>),
+    DispatchReceipt(Option<Box<HubDispatchReceipt>>),
     Group(Box<HubGroupView>),
     Lineage(Box<HubLineagePage>),
     Treatment(Box<HubTreatmentSnapshot>),
@@ -158,7 +170,7 @@ impl RuntimeActorHandle {
             _ => Err(invalid_actor_response()),
         }
     }
-    async fn dispatch_handling(
+    pub(super) async fn dispatch_handling(
         &self,
         command: HubHandlingCommand,
     ) -> Result<HubHandlingValue, SafeError> {
@@ -188,12 +200,44 @@ impl RuntimeActor {
         let actor = self
             .hub_actor(generation)
             .map_err(|_| hub_authority::denied())?;
-        let mutating = matches!(command, HubHandlingCommand::Apply { .. });
+        let mutating = matches!(
+            command,
+            HubHandlingCommand::Apply { .. } | HubHandlingCommand::ApplyDispatch { .. }
+        );
         let result = self
             .run_async(
                 context.deadline(),
                 move |adapter, secrets, clock| async move {
                     let value = match command {
+                        HubHandlingCommand::DispatchPage(query) => HubHandlingValue::DispatchPage(
+                            Box::new(adapter.database().hub_dispatch_page(actor, query).await?),
+                        ),
+                        HubHandlingCommand::DispatchRecord(id) => HubHandlingValue::DispatchRecord(
+                            Box::new(adapter.database().hub_dispatch_record(actor, id).await?),
+                        ),
+                        HubHandlingCommand::DispatchOperation(operation) => {
+                            HubHandlingValue::DispatchReceipt(
+                                adapter
+                                    .database()
+                                    .hub_dispatch_operation(actor, operation)
+                                    .await?
+                                    .map(Box::new),
+                            )
+                        }
+                        HubHandlingCommand::ApplyDispatch { operation, command } => {
+                            hub_authority::require_owner_credential(
+                                adapter.as_ref(),
+                                secrets.as_ref(),
+                                actor,
+                            )
+                            .await?;
+                            HubHandlingValue::DispatchReceipt(Some(Box::new(
+                                adapter
+                                    .database()
+                                    .apply_hub_dispatch(actor, operation, *command, clock.now())
+                                    .await?,
+                            )))
+                        }
                         HubHandlingCommand::Treatment(scope) => HubHandlingValue::Treatment(
                             Box::new(adapter.database().hub_treatment(actor, scope).await?),
                         ),

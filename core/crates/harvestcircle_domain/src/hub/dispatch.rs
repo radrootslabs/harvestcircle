@@ -18,6 +18,8 @@ mod model;
 pub use model::*;
 mod command;
 pub use command::*;
+mod result;
+pub use result::dispatch_result_digest;
 
 pub const HUB_DISPATCH_CAPACITY: usize = 1_024;
 pub const HUB_DISPATCH_LINES: usize = 64;

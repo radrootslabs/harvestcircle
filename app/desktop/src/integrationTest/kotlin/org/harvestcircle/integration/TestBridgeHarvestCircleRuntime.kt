@@ -20,6 +20,7 @@ import org.harvestcircle.application.ApplicationSnapshot
 import org.harvestcircle.application.BuildInfo
 import org.harvestcircle.application.GeneratedIdentityRecovery
 import org.harvestcircle.application.GeneratedKeyBackup
+import org.harvestcircle.application.HarvestCircleDispatchRuntime
 import org.harvestcircle.application.HarvestCircleHandlingRuntime
 import org.harvestcircle.application.HarvestCircleHubRuntime
 import org.harvestcircle.application.HarvestCircleReferenceRuntime
@@ -27,6 +28,11 @@ import org.harvestcircle.application.HarvestCircleRuntime
 import org.harvestcircle.application.HarvestCircleStockRuntime
 import org.harvestcircle.application.HubContext
 import org.harvestcircle.application.HubDiscrepancyPage
+import org.harvestcircle.application.HubDispatchInput
+import org.harvestcircle.application.HubDispatchPage
+import org.harvestcircle.application.HubDispatchQuery
+import org.harvestcircle.application.HubDispatchReceipt
+import org.harvestcircle.application.HubDispatchView
 import org.harvestcircle.application.HubGroupView
 import org.harvestcircle.application.HubHandlingInput
 import org.harvestcircle.application.HubHandlingQuery
@@ -85,6 +91,7 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     HarvestCircleReferenceRuntime,
     HarvestCircleStockRuntime,
     HarvestCircleHandlingRuntime,
+    HarvestCircleDispatchRuntime,
     AutoCloseable {
     override val buildInfo: BuildInfo = BuildInfo.unknown()
 
@@ -141,6 +148,29 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     ): List<HubReferenceReceipt> =
         withContext(Dispatchers.IO) {
             callBridge { bridge.referenceHistory(id, afterRevision, limit).map { it.toModel() } }
+        }
+
+    override suspend fun dispatchPage(query: HubDispatchQuery): HubDispatchPage =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.dispatchPage(query.toNative()).toModel() }
+        }
+
+    override suspend fun dispatchRecord(id: String): HubDispatchView =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.dispatchRecord(id).toModel() }
+        }
+
+    override suspend fun applyDispatch(
+        context: RequestContext,
+        input: HubDispatchInput,
+    ): HubDispatchReceipt =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.applyDispatch(context.operationId.value, context.expectedRevision.value, input.toNative()).toModel() }
+        }
+
+    override suspend fun dispatchOperation(operation: OperationId): HubDispatchReceipt? =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.dispatchOperation(operation.value)?.toModel() }
         }
 
     override suspend fun treatment(scope: HubTreatmentScope): HubTreatmentSnapshot =

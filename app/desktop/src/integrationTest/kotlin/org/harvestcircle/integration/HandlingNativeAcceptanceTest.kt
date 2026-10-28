@@ -4,11 +4,19 @@ import kotlinx.coroutines.runBlocking
 import org.harvestcircle.application.ApplicationCommand
 import org.harvestcircle.application.ApplicationFailure
 import org.harvestcircle.application.HubAcceptanceStatus
+import org.harvestcircle.application.HubDispatchActionInput
+import org.harvestcircle.application.HubDispatchEditInput
+import org.harvestcircle.application.HubDispatchInput
+import org.harvestcircle.application.HubDispatchLineInput
+import org.harvestcircle.application.HubDispatchMaterialInput
+import org.harvestcircle.application.HubDispatchQuery
+import org.harvestcircle.application.HubDispatchState
 import org.harvestcircle.application.HubGroupCreationKind
 import org.harvestcircle.application.HubGroupView
 import org.harvestcircle.application.HubHandlingInput
 import org.harvestcircle.application.HubHandlingQuery
 import org.harvestcircle.application.HubHandlingResult
+import org.harvestcircle.application.HubIdentificationStatus
 import org.harvestcircle.application.HubLineageQuery
 import org.harvestcircle.application.HubLocationPurpose
 import org.harvestcircle.application.HubOccurrence
@@ -38,6 +46,115 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class HandlingNativeAcceptanceTest {
+    @Test
+    fun dispatchIdentificationIsNonreservingAndVersionsSurviveReplacementAndRestart() =
+        withHub { hub ->
+            val runtime = hub.runtime
+
+            suspend fun recipient(label: String): String {
+                val catalog = runtime.references(HubReferenceQuery())
+                return runtime
+                    .editReference(
+                        hub.context(),
+                        HubReferenceEdit(
+                            catalog.catalogRevision,
+                            value = HubReferenceValue(HubReferenceKind.Party, label),
+                        ),
+                    ).current.id
+            }
+            val a = recipient("Fictional recipient A")
+            val b = recipient("Fictional recipient B")
+
+            suspend fun material(recipient: String): HubDispatchMaterialInput {
+                val group = runtime.group(hub.receipt.initialPosition.groupId)
+                return HubDispatchMaterialInput(
+                    group.stockRevision,
+                    group.catalogRevision,
+                    recipient,
+                    listOf(HubDispatchLineInput(group.group.id, group.group.revision, group.group.wholePacks)),
+                    "Reviewed original fictional crates and recipient",
+                )
+            }
+
+            suspend fun action(record: org.harvestcircle.application.HubDispatchRecord): HubDispatchActionInput {
+                val current = runtime.dispatchRecord(record.id)
+                return HubDispatchActionInput(
+                    current.stockRevision,
+                    current.catalogRevision,
+                    record.id,
+                    record.revision,
+                    "Explicitly reviewed sample identification",
+                )
+            }
+            val positions = runtime.stock(HubStockQuery()).rows
+            val work = runtime.work(HubHandlingQuery()).rows
+            val input = HubDispatchInput.Prepare(material(a))
+            val context = hub.context()
+            val prepared = runtime.applyDispatch(context, input)
+            assertEquals(HubDispatchState.Draft, prepared.record.state)
+            assertEquals(20U, prepared.record.draft?.wholePacks)
+            assertEquals(prepared, runtime.applyDispatch(context, input))
+            assertFailsWith<ApplicationFailure> { runtime.applyDispatch(context, HubDispatchInput.Prepare(material(b))) }
+            val second = runtime.applyDispatch(hub.context(), HubDispatchInput.Prepare(material(a)))
+            val issued = runtime.applyDispatch(hub.context(), HubDispatchInput.Issue(action(prepared.record)))
+            val secondIssued = runtime.applyDispatch(hub.context(), HubDispatchInput.Issue(action(second.record)))
+            assertEquals(HubDispatchState.Issued, secondIssued.record.state)
+            val replacement =
+                runtime.applyDispatch(
+                    hub.context(),
+                    HubDispatchInput.Replace(
+                        HubDispatchEditInput(issued.record.id, issued.record.revision, material(b)),
+                    ),
+                )
+            val first = replacement.record.versions.first()
+            assertEquals(HubIdentificationStatus.Superseded, first.status)
+            assertEquals(
+                issued.record.versions
+                    .single()
+                    .material,
+                first.material,
+            )
+            assertEquals(
+                first.id,
+                replacement.record.versions
+                    .last()
+                    .previousId,
+            )
+            val unused = runtime.applyDispatch(hub.context(), HubDispatchInput.MarkUnused(action(replacement.record)))
+            assertEquals(HubDispatchState.Unused, unused.record.state)
+            assertEquals(
+                b,
+                unused.record.versions
+                    .last()
+                    .material.recipient.id,
+            )
+            assertEquals(positions, runtime.stock(HubStockQuery()).rows)
+            assertEquals(work, runtime.work(HubHandlingQuery()).rows)
+            assertEquals(2U, runtime.dispatchPage(HubDispatchQuery()).total)
+            val page = runtime.dispatchPage(HubDispatchQuery(limit = 1U))
+            assertTrue(page.more)
+            assertFailsWith<ApplicationFailure> {
+                runtime.dispatchPage(
+                    HubDispatchQuery(
+                        expectedStockRevision = page.stockRevision,
+                        expectedCatalogRevision = null,
+                        offset = 1U,
+                    ),
+                )
+            }
+            assertEquals(issued, runtime.dispatchOperation(issued.operationId))
+            assertEquals(prepared, runtime.dispatchOperation(prepared.operationId))
+            runtime.restart()
+            runtime.execute(ApplicationCommand.ActivateIdentity(hub.owner))
+            assertEquals(unused.record, runtime.dispatchRecord(unused.record.id).record)
+            assertEquals(issued, runtime.dispatchOperation(issued.operationId))
+            assertEquals(positions, runtime.stock(HubStockQuery()).rows)
+            assertEquals(work, runtime.work(HubHandlingQuery()).rows)
+            runtime.execute(ApplicationCommand.SignOut)
+            assertFailsWith<ApplicationFailure> { runtime.dispatchRecord(unused.record.id) }
+            assertFailsWith<ApplicationFailure> { runtime.dispatchOperation(issued.operationId) }
+        }
+
     @Test
     fun actualMovementAndOriginalResultsSurviveReturnAndRestart() =
         withHub { hub ->

@@ -1,6 +1,7 @@
 //! Current physical scope and work use the existing lifetime stock journal.
 
 mod discrepancy;
+pub(crate) mod dispatch;
 mod history;
 mod lineage;
 pub(crate) mod portion_schema;

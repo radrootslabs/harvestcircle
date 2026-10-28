@@ -15,12 +15,13 @@ use harvestcircle_application::{
 };
 use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
 use harvestcircle_ffi::{
-    HarvestCircleError, HubContextDto, HubDiscrepancyPageDto, HubGroupViewDto, HubHandlingInputDto,
-    HubHandlingQueryDto, HubHandlingReceiptDto, HubLineagePageDto, HubLineageQueryDto,
-    HubReceiptInputDto, HubReferenceEditDto, HubReferencePageDto, HubReferenceQueryDto,
-    HubReferenceReceiptDto, HubStockPageDto, HubStockQueryDto, HubStockReceiptDto,
-    HubTreatmentPageDto, HubTreatmentQueryDto, HubTreatmentScopeDto, HubTreatmentSnapshotDto,
-    HubWorkPageDto, SafeErrorDto,
+    HarvestCircleError, HubContextDto, HubDiscrepancyPageDto, HubDispatchInputDto,
+    HubDispatchPageDto, HubDispatchQueryDto, HubDispatchReceiptDto, HubDispatchViewDto,
+    HubGroupViewDto, HubHandlingInputDto, HubHandlingQueryDto, HubHandlingReceiptDto,
+    HubLineagePageDto, HubLineageQueryDto, HubReceiptInputDto, HubReferenceEditDto,
+    HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto, HubStockPageDto,
+    HubStockQueryDto, HubStockReceiptDto, HubTreatmentPageDto, HubTreatmentQueryDto,
+    HubTreatmentScopeDto, HubTreatmentSnapshotDto, HubWorkPageDto, SafeErrorDto,
 };
 use harvestcircle_nostr::SdkNostrClient;
 use harvestcircle_runtime::{
@@ -316,6 +317,62 @@ impl HarvestCircleTestBridge {
             .block_on(self.actor()?.hub_receipt_operation(operation))
             .map(|value| value.map(Into::into))
             .map_err(native_runtime_error)
+    }
+
+    pub fn dispatch_page(
+        &self,
+        query: HubDispatchQueryDto,
+    ) -> Result<HubDispatchPageDto, TestBridgeError> {
+        let query = query.decode().map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_dispatch_page(query))
+            .map(Into::into)
+            .map_err(native_runtime_error)
+    }
+    pub fn dispatch_record(
+        &self,
+        preparation_id: String,
+    ) -> Result<HubDispatchViewDto, TestBridgeError> {
+        let id = harvestcircle_domain::hub::reference::HubRecordId::from_hex(&preparation_id)
+            .map_err(|_| TestBridgeError::Failure {
+                safe_message: "The selected preparation is invalid.".to_owned(),
+            })?;
+        self.runtime
+            .block_on(self.actor()?.hub_dispatch_record(id))
+            .map_err(native_runtime_error)?
+            .try_into()
+            .map_err(native_codec_error)
+    }
+    pub fn apply_dispatch(
+        &self,
+        operation_id: String,
+        expected_revision: u64,
+        input: HubDispatchInputDto,
+    ) -> Result<HubDispatchReceiptDto, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let command = input.command().map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.apply_hub_dispatch(
+                operation,
+                command,
+                SnapshotRevision::from_value(expected_revision),
+                Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            ))
+            .map_err(native_runtime_error)?
+            .try_into()
+            .map_err(native_codec_error)
+    }
+    pub fn dispatch_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubDispatchReceiptDto>, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_dispatch_operation(operation))
+            .map_err(native_runtime_error)?
+            .map(TryInto::try_into)
+            .transpose()
+            .map_err(native_codec_error)
     }
 
     pub fn treatment(
