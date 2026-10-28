@@ -5,6 +5,11 @@ own presentation and client coordination. The Rust workspace owns domain rules,
 application state, Nostr adapters, persistence, native lifecycle and UniFFI.
 Shared Radroots packages are immutable public Git dependencies, not sibling paths.
 
+The [food-hub MVP contract](mvp.md) defines the intended candidate operational
+surface. Hub commands, permissions and inventory rules will extend this same
+native architecture; those features are not implemented yet. No server, shared
+network database file or cloud evidence service is required for the selected demo.
+
 ## Source map
 
 | Path | Responsibility |
@@ -42,7 +47,10 @@ Migrations are immutable. Public evidence retains original signed wire and first
 provenance, independently of installed identities. Its 4,096-version/120 MiB
 ordinary-growth bounds preserve an 8 MiB reserve within 128 MiB. Durable commands
 preserve terminal receipts for seven days, with 1,024 unfinished/4,096 total rows
-and bounded expiry cleanup. Unknown outcomes require original-operation recovery.
+and bounded expiry cleanup. These are identity-operation bounds, not a stock
+idempotency policy. Planned inventory operations require separate durable
+uniqueness for the lifetime of their history. Unknown outcomes require
+original-operation recovery.
 
 ## Secrets, transport and lifecycle
 

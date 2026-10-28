@@ -1,5 +1,11 @@
 # Development and verification
 
+The [food-hub MVP contract](mvp.md) records intended behavior and current extension
+points. Hub features, isolated demo launch and focused hub acceptance are planned;
+there are no make demo or make hub-check targets yet. Existing commands below
+remain the public lifecycle entry points. Do not use private planning material,
+machine state or a sibling checkout to run the project.
+
 Run commands from the repository root or use `make -C /path/to/harvestcircle`.
 The root Makefile owns command configuration and target dependencies;
 `scripts/commands.sh` implements their leaf actions. Lifecycle shell scripts live

@@ -5,6 +5,11 @@ buying circles. It is in early desktop development and is not ready for real
 commercial use. The current application supports local Nostr identities, OS
 keyring custody, a SQLx-backed state database and configurable relay bootstrap.
 
+The [candidate food-hub MVP](docs/mvp.md) defines the next operational surface:
+whole-pack receiving, stock handling, departure and trace on one desktop with
+sample data. Those hub features are planned; existing Nostr functionality remains
+supported. The candidate retains the native Rust/FFI/SQLite architecture.
+
 ## Get started
 
 Install Git, Make, JDK 21 (selected through `JAVA_HOME`) and Rust 1.99.0 through
