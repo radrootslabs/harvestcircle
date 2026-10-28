@@ -60,7 +60,7 @@ fun HandlingWorkspace(
                     HarvestCircleShellButton("Resume handling draft", presenter::resumeDraft, Modifier.testTag("handling-resume"))
                 }
                 when {
-                    state.group != null -> HandlingGroupRecord(state.group, presenter)
+                    state.group != null -> HandlingGroupRecord(state.group, presenter, state)
                     state.selectedWork != null -> HandlingWorkRecord(state.selectedWork, presenter, openStock)
                     state.selectedDiscrepancy != null -> HandlingDiscrepancyRecord(state.selectedDiscrepancy, presenter)
                     else -> HandlingQueues(state, presenter, receive, openReferences, receiveEnabled, receiveLabel)
@@ -193,8 +193,14 @@ internal fun HandlingQuantitySummary(work: org.harvestcircle.application.HubQuan
 private fun HandlingGroupRecord(
     view: HubGroupView,
     presenter: HandlingPresenter,
+    state: HandlingViewState,
 ) {
-    HarvestCircleShellButton("Back to stock / work", presenter::closeRecord, Modifier.testTag("handling-close-record"))
+    HarvestCircleShellButton(
+        "Back to stock / work",
+        presenter::closeRecord,
+        Modifier.testTag("handling-close-record"),
+        enabled = !state.loading,
+    )
     HarvestCircleShellText(view.product.value.label, role = HarvestCircleShellTextRole.SectionTitle)
     HarvestCircleShellText("${view.group.wholePacks} original packs · ${view.variant.value.label}")
     HarvestCircleShellText("At: ${view.location.value.label}", Modifier.testTag("handling-group-location"))
@@ -206,13 +212,16 @@ private fun HandlingGroupRecord(
     view.group.parentId?.let { HarvestCircleShellText("Separated from: $it") }
     HarvestCircleShellButton("Record actual movement", {
         presenter.begin(HandlingAction.Move)
-    }, Modifier.testTag("handling-begin-move"), primary = true)
+    }, Modifier.testTag("handling-begin-move"), primary = true, enabled = !state.loading)
+    HarvestCircleShellButton("Separate identified portion", {
+        presenter.begin(HandlingAction.Split)
+    }, Modifier.testTag("handling-begin-split"), enabled = !state.loading)
     HarvestCircleShellButton("New handling requirement", {
         presenter.begin(HandlingAction.NewWork)
-    }, Modifier.testTag("handling-begin-new-work"))
+    }, Modifier.testTag("handling-begin-new-work"), enabled = !state.loading)
     HarvestCircleShellButton("Report discrepancy", {
         presenter.begin(HandlingAction.OpenDiscrepancy)
-    }, Modifier.testTag("handling-begin-discrepancy"))
+    }, Modifier.testTag("handling-begin-discrepancy"), enabled = !state.loading)
     view.group.work.forEach { allocation ->
         HarvestCircleShellPanel {
             HarvestCircleShellText("This group's work: ${workProgress(allocation.progress)}", role = HarvestCircleShellTextRole.BodyStrong)
@@ -222,6 +231,7 @@ private fun HandlingGroupRecord(
         }
     }
     ReceiptTraceSummary(view.trace)
+    state.lineage?.let { PortionLineage(it, state.loading, presenter, view.group.id) }
 }
 
 @Composable
@@ -287,7 +297,7 @@ private fun handlingSurface(state: HandlingViewState): String =
         state.submission is org.harvestcircle.application.HandlingSubmission.Rejected -> "rejected"
         state.submission is org.harvestcircle.application.HandlingSubmission.Uncertain -> "uncertain"
         state.formOpen && state.draft != null -> handlingTitle(state.draft)
-        state.group != null -> "group-${state.group.group.id}"
+        state.group != null -> "group-${state.group.group.id}-${state.lineage?.offset}"
         state.selectedWork != null -> "work-${state.selectedWork.work.id}"
         state.selectedDiscrepancy != null -> "discrepancy-${state.selectedDiscrepancy.value.id}"
         else -> "queue-${state.tab}-${state.work?.offset}-${state.discrepancies?.offset}"

@@ -66,7 +66,7 @@ private fun HandlingResultSummary(result: HubHandlingResult) {
         is HubHandlingResult.Separated -> {
             HarvestCircleShellText("${result.wholePacks} original packs separated at ${result.location.value.label}")
             HarvestCircleShellText("Physical identifier: ${result.identification.label} · ${result.identification.observation}")
-            HarvestCircleShellText("Remaining in the original group: ${result.remainingPacks}")
+            HarvestCircleShellText("Remaining in the original group when recorded: ${result.remainingPacks}")
             HarvestCircleShellText("Observation: ${result.observation}")
             HarvestCircleShellText("Location and handling progress were retained.")
         }

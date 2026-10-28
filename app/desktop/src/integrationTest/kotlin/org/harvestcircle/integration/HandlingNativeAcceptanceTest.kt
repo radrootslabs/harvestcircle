@@ -3,10 +3,12 @@ package org.harvestcircle.integration
 import kotlinx.coroutines.runBlocking
 import org.harvestcircle.application.ApplicationCommand
 import org.harvestcircle.application.ApplicationFailure
+import org.harvestcircle.application.HubGroupCreationKind
 import org.harvestcircle.application.HubGroupView
 import org.harvestcircle.application.HubHandlingInput
 import org.harvestcircle.application.HubHandlingQuery
 import org.harvestcircle.application.HubHandlingResult
+import org.harvestcircle.application.HubLineageQuery
 import org.harvestcircle.application.HubLocationPurpose
 import org.harvestcircle.application.HubOccurrence
 import org.harvestcircle.application.HubOccurrenceKind
@@ -200,6 +202,82 @@ class HandlingNativeAcceptanceTest {
             assertEquals(before, runtime.stock(HubStockQuery()).rows)
             assertEquals(work, runtime.work(HubHandlingQuery()).rows)
             assertEquals(hub.receipt, runtime.receiptOperation(hub.receipt.operationId))
+        }
+
+    @Test
+    fun explicitPortionsRetainOriginalLineageAndWorkAcrossNativeRestart() =
+        withHub { hub ->
+            val runtime = hub.runtime
+            val original = runtime.group(hub.receipt.initialPosition.groupId)
+            val before =
+                runtime
+                    .work(HubHandlingQuery())
+                    .rows
+                    .single()
+                    .work
+            val request =
+                HubHandlingInput.Split(
+                    original.stockRevision,
+                    original.catalogRevision,
+                    original.group.id,
+                    original.group.revision,
+                    8U,
+                    HubPhysicalIdentification("Blue eight", "Eight separately tagged crates"),
+                    HubOccurrence(HubOccurrenceKind.Unknown),
+                    "Observed separate stack at Receiving",
+                )
+            assertFailsWith<ApplicationFailure> {
+                runtime.applyHandling(hub.context(), request.copy(identification = HubPhysicalIdentification("", "")))
+            }
+            assertEquals(original, runtime.group(original.group.id))
+            val context = hub.context()
+            val separated = runtime.applyHandling(context, request)
+            val result = assertIs<HubHandlingResult.Separated>(separated.result)
+            assertEquals(hub.receiving, result.location.id)
+            assertEquals(12U, result.remainingPacks)
+            val child = runtime.group(result.portionGroupId)
+            runtime.applyHandling(
+                hub.context(),
+                request.copy(
+                    expectedStockRevision = child.stockRevision,
+                    expectedCatalogRevision = child.catalogRevision,
+                    groupId = child.group.id,
+                    expectedGroupRevision = child.group.revision,
+                    wholePacks = 5U,
+                    identification = HubPhysicalIdentification("Green five", "Five separately tagged crates"),
+                ),
+            )
+            val query = HubLineageQuery(hub.receipt.trace.id)
+            val lineage = runtime.lineage(query)
+            assertEquals(3U, lineage.total)
+            assertEquals(20UL, lineage.rows.sumOf { it.wholePacks.toULong() })
+            assertEquals(listOf(3U, 5U, 12U), lineage.rows.map { it.wholePacks }.sorted())
+            assertEquals(2, lineage.rows.count { it.createdKind == HubGroupCreationKind.Separation })
+            assertEquals(
+                before,
+                runtime
+                    .work(HubHandlingQuery())
+                    .rows
+                    .single()
+                    .work,
+            )
+            assertEquals(separated, runtime.applyHandling(context, request))
+            assertFailsWith<ApplicationFailure> {
+                runtime.applyHandling(
+                    hub.context(),
+                    request.copy(
+                        expectedStockRevision = lineage.stockRevision,
+                        identification = HubPhysicalIdentification("Other eight", "Another tag"),
+                    ),
+                )
+            }
+            runtime.restart()
+            runtime.execute(ApplicationCommand.ActivateIdentity(hub.owner))
+            assertEquals(lineage, runtime.lineage(query))
+            assertEquals(separated, runtime.handlingOperation(separated.operationId))
+            assertEquals(hub.receipt, runtime.receiptOperation(hub.receipt.operationId))
+            runtime.execute(ApplicationCommand.SignOut)
+            assertFailsWith<ApplicationFailure> { runtime.lineage(query) }
         }
 
     private fun withHub(block: suspend (HandlingFixture) -> Unit) =

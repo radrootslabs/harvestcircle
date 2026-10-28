@@ -14,11 +14,13 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.runBlocking
 import org.harvestcircle.application.HandlingFake
 import org.harvestcircle.application.HandlingFixtures
 import org.harvestcircle.application.HandlingPresenter
 import org.harvestcircle.application.HandlingSubmission
 import org.harvestcircle.application.HubHandlingQuery
+import org.harvestcircle.application.HubLineageQuery
 import org.harvestcircle.application.HubWorkPage
 import org.harvestcircle.application.OperationIdSource
 import org.harvestcircle.application.SnapshotRevision
@@ -28,6 +30,23 @@ import kotlin.test.assertEquals
 
 @OptIn(ExperimentalTestApi::class)
 class HandlingWorkspaceTest {
+    @Test
+    fun emptyRetainedAncestorShowsHistoryWithoutAnActiveGroupAction() =
+        runComposeUiTest {
+            val runtime = HandlingFake()
+            val original = runBlocking { runtime.lineage(HubLineageQuery(StockFixtures.trace.id)) }
+            val empty = original.rows.single().copy(wholePacks = 0U, location = null)
+            lateinit var presenter: HandlingPresenter
+            setHarvestCircleContent {
+                val scope = rememberCoroutineScope()
+                presenter = remember { HandlingPresenter(runtime, runtime, scope, OperationIdSource { StockFixtures.operation }) }
+                PortionLineage(original.copy(rows = listOf(empty)), false, presenter, HandlingFixtures.group.group.id)
+            }
+            onNodeWithTag("portion-row-${empty.id}").assertExists()
+            onNodeWithTag("portion-open-${empty.id}").assertDoesNotExist()
+            runOnIdle { presenter.close() }
+        }
+
     @Test
     fun uncertainMovementOffersOriginalLookupWithoutAnotherSubmission() =
         runComposeUiTest {

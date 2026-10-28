@@ -45,6 +45,7 @@ data class HandlingViewState(
     val discrepancies: HubDiscrepancyPage? = null,
     val references: List<HubReferenceRecord> = emptyList(),
     val group: HubGroupView? = null,
+    val lineage: HubLineagePage? = null,
     val selectedWork: HubWorkRow? = null,
     val selectedDiscrepancy: HubDiscrepancyRow? = null,
     val draft: HandlingDraft? = null,

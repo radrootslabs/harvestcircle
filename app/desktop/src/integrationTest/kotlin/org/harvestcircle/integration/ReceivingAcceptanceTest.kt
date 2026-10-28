@@ -21,6 +21,7 @@ import org.harvestcircle.application.HarvestCircleApplicationWithDependencies
 import org.harvestcircle.application.HarvestCirclePresenter
 import org.harvestcircle.application.HubHandlingQuery
 import org.harvestcircle.application.HubHandlingResult
+import org.harvestcircle.application.HubLineageQuery
 import org.harvestcircle.application.HubLocationPurpose
 import org.harvestcircle.application.HubReferenceEdit
 import org.harvestcircle.application.HubReferenceKind
@@ -266,6 +267,40 @@ class ReceivingAcceptanceTest {
                 destination(receiving)
                 record("Manually confirmed the entire identified group arrived at Receiving")
                 done()
+                val workBeforeSeparation = runBlocking { runtime.work(HubHandlingQuery(openOnly = false)) }.rows.map { it.work }
+                openGroup(groupId)
+                onNodeWithTag("handling-begin-split").performScrollTo().performClick()
+                onNodeWithTag("handling-target").assertDoesNotExist()
+                onNodeWithTag("handling-quantity").performScrollTo().performTextInput("5")
+                onNodeWithTag("handling-physical-label").performScrollTo().performTextInput("Purple five")
+                onNodeWithTag(
+                    "handling-physical-observation",
+                ).performScrollTo().performTextInput("Five crates in a separately tagged container")
+                record("Observed five original crates separated at Receiving")
+                done()
+                val lineage =
+                    runBlocking {
+                        runtime.lineage(
+                            HubLineageQuery(
+                                first.rows
+                                    .single()
+                                    .trace.id,
+                            ),
+                        )
+                    }
+                assertEquals(3U, lineage.total)
+                val five = lineage.rows.single { it.identification?.label == "Purple five" }
+                assertEquals(5U, five.wholePacks)
+                assertEquals(receiving, five.location?.id)
+                assertEquals(groupId, five.parentId)
+                assertEquals(workBeforeSeparation, runBlocking { runtime.work(HubHandlingQuery(openOnly = false)) }.rows.map { it.work })
+                openGroup(groupId)
+                onNodeWithTag("portion-lineage").performScrollTo().assertIsDisplayed()
+                onNodeWithTag("portion-open-${five.id}").performScrollTo().performClick()
+                waitUntil(
+                    timeoutMillis = 10_000,
+                ) { onNodeWithText("Physical identifier: Purple five").runCatching { fetchSemanticsNode() }.isSuccess }
+                onNodeWithText("Physical identifier: Purple five").performScrollTo().assertIsDisplayed()
                 val finalStock = runBlocking { runtime.stock(HubStockQuery()) }
                 assertEquals(20UL, finalStock.rows.sumOf { it.position.wholePacks.toULong() })
                 assertTrue(finalStock.rows.all { it.position.locationId == receiving })
@@ -290,6 +325,16 @@ class ReceivingAcceptanceTest {
                     runtime.execute(ApplicationCommand.ActivateIdentity(owner))
                     val reopened = runtime.stock(HubStockQuery())
                     assertEquals(finalStock, reopened)
+                    assertEquals(
+                        lineage,
+                        runtime.lineage(
+                            HubLineageQuery(
+                                first.rows
+                                    .single()
+                                    .trace.id,
+                            ),
+                        ),
+                    )
                     assertEquals(finalWork, runtime.work(HubHandlingQuery(openOnly = false)))
                     assertNotNull(runtime.hubContext())
                 }

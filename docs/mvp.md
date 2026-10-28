@@ -123,8 +123,12 @@ selections count current physical groups once. Unknown or older incomplete
 history cannot resolve to an empty success. The pure portion/lineage rules live
 in `core/crates/harvestcircle_domain/src/hub/portions.rs`. Native storage/runtime
 and FFI5.6 now support explicit same-location separation, immutable original
-results and complete validated lineage with pinned pages. The independent
-separation editor, lineage inspector and actual acceptance/hold policy remain
+results and complete validated lineage with pinned pages. The shared independent
+separation editor retains observed count/identifier/time input and freezes an
+uncertain submission. The lineage inspector shows original creation/parentage,
+current on-hand positions and retained empty ancestors, with stock/catalog-pinned
+continuations. Kotlin renders these native projections without resolving scope or
+calculating authoritative quantities. Actual acceptance/hold policy remains
 unfinished.
 
 Receipt planning is implemented as pure Rust in

@@ -48,42 +48,14 @@ internal fun HandlingEditor(
                     primary = fields.scope == MovementScope.IdentifiedPortion,
                 )
             }
-            if (fields.scope == MovementScope.IdentifiedPortion) {
-                HarvestCircleShellText("The portion must be physically distinguishable, for example by a tag or separate container.")
-                HarvestCircleShellTextField(
-                    fields.quantity,
-                    {
-                        edit { current ->
-                            current.copy(quantity = it)
-                        }
-                    },
-                    "Original whole packs",
-                    "Count",
-                    inputModifier = Modifier.testTag("handling-quantity"),
-                )
-                HarvestCircleShellTextField(
-                    fields.physicalLabel,
-                    {
-                        edit { current ->
-                            current.copy(physicalLabel = it)
-                        }
-                    },
-                    "Physical identifier",
-                    "Tag or separate container",
-                    inputModifier = Modifier.testTag("handling-physical-label"),
-                )
-                HarvestCircleShellTextField(
-                    fields.physicalObservation,
-                    {
-                        edit { current ->
-                            current.copy(physicalObservation = it)
-                        }
-                    },
-                    "How this portion is distinguishable",
-                    "Observed separation",
-                    inputModifier = Modifier.testTag("handling-physical-observation"),
-                )
-            }
+            if (fields.scope == MovementScope.IdentifiedPortion) PhysicalPortionFields(fields, presenter)
+            HandlingOccurrence(fields, presenter)
+        }
+        is HandlingDraft.Split -> {
+            HarvestCircleShellText(
+                "Identify a separately distinguishable portion at this location. Count and handling progress stay unchanged.",
+            )
+            PhysicalPortionFields(fields, presenter)
             HandlingOccurrence(fields, presenter)
         }
         is HandlingDraft.Replan ->
@@ -166,6 +138,10 @@ internal fun HandlingEditor(
 @Composable
 internal fun HandlingDraftScope(draft: HandlingDraft) {
     when (draft) {
+        is HandlingDraft.Split ->
+            HarvestCircleShellText(
+                "Selected: ${draft.selected.group.wholePacks} original packs at ${draft.selected.location.value.label}",
+            )
         is HandlingDraft.Move ->
             HarvestCircleShellText(
                 "Selected: ${draft.selected.group.wholePacks} original packs at ${draft.selected.location.value.label}",
@@ -192,7 +168,7 @@ private fun HandlingOccurrence(
     fields: HandlingFields,
     presenter: HandlingPresenter,
 ) {
-    HarvestCircleShellText("When did the movement actually occur?")
+    HarvestCircleShellText("When did this handling actually occur?")
     Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
         HubOccurrenceKind.entries.forEach { kind ->
             HarvestCircleShellButton(
@@ -225,9 +201,52 @@ private fun HandlingOccurrence(
 
 internal fun handlingTitle(draft: HandlingDraft) =
     when (draft) {
+        is HandlingDraft.Split -> "Separate identified portion"
         is HandlingDraft.Move -> "Record actual movement"
         is HandlingDraft.Replan -> "Replan remaining work"
         is HandlingDraft.NewWork -> "New handling requirement"
         is HandlingDraft.OpenDiscrepancy -> "Report discrepancy"
         is HandlingDraft.ResolveDiscrepancy -> "Resolve discrepancy follow-up"
     }
+
+@Composable
+private fun PhysicalPortionFields(
+    fields: HandlingFields,
+    presenter: HandlingPresenter,
+) {
+    fun edit(change: (HandlingFields) -> HandlingFields) = presenter.edit(change(fields))
+    HarvestCircleShellText("The portion must be physically distinguishable, for example by a tag or separate container.")
+    HarvestCircleShellTextField(
+        fields.quantity,
+        {
+            edit { current ->
+                current.copy(quantity = it)
+            }
+        },
+        "Original whole packs",
+        "Count",
+        inputModifier = Modifier.testTag("handling-quantity"),
+    )
+    HarvestCircleShellTextField(
+        fields.physicalLabel,
+        {
+            edit { current ->
+                current.copy(physicalLabel = it)
+            }
+        },
+        "Physical identifier",
+        "Tag or separate container",
+        inputModifier = Modifier.testTag("handling-physical-label"),
+    )
+    HarvestCircleShellTextField(
+        fields.physicalObservation,
+        {
+            edit { current ->
+                current.copy(physicalObservation = it)
+            }
+        },
+        "How this portion is distinguishable",
+        "Observed separation",
+        inputModifier = Modifier.testTag("handling-physical-observation"),
+    )
+}

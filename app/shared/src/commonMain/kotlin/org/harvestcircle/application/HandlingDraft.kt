@@ -2,7 +2,7 @@ package org.harvestcircle.application
 
 import kotlin.time.Instant
 
-enum class HandlingAction { Move, Replan, NewWork, OpenDiscrepancy, ResolveDiscrepancy }
+enum class HandlingAction { Split, Move, Replan, NewWork, OpenDiscrepancy, ResolveDiscrepancy }
 
 enum class MovementScope { WholeGroup, IdentifiedPortion }
 
@@ -27,6 +27,13 @@ data class HandlingFields(
 sealed interface HandlingDraft {
     val fields: HandlingFields
     val versions: HandlingVersions
+
+    data class Split(
+        val selected: HubGroupView,
+        override val fields: HandlingFields = HandlingFields(),
+    ) : HandlingDraft {
+        override val versions get() = HandlingVersions(selected.stockRevision, selected.catalogRevision)
+    }
 
     data class Move(
         val selected: HubGroupView,
@@ -64,6 +71,7 @@ sealed interface HandlingDraft {
 
 internal fun HandlingDraft.edit(fields: HandlingFields): HandlingDraft =
     when (this) {
+        is HandlingDraft.Split -> copy(fields = fields)
         is HandlingDraft.Move -> copy(fields = fields)
         is HandlingDraft.Replan -> copy(fields = fields)
         is HandlingDraft.NewWork -> copy(fields = fields)
@@ -73,6 +81,17 @@ internal fun HandlingDraft.edit(fields: HandlingFields): HandlingDraft =
 
 internal fun HandlingDraft.input(): HubHandlingInput =
     when (this) {
+        is HandlingDraft.Split ->
+            HubHandlingInput.Split(
+                versions.stock,
+                versions.catalog,
+                selected.group.id,
+                selected.group.revision,
+                requireNotNull(fields.quantity.toUIntOrNull()),
+                HubPhysicalIdentification(fields.physicalLabel, fields.physicalObservation),
+                fields.occurrence(),
+                fields.observation,
+            )
         is HandlingDraft.Move ->
             HubHandlingInput.Move(
                 versions.stock,

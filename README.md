@@ -8,8 +8,8 @@ keyring custody, a SQLx-backed state database and configurable relay bootstrap.
 The [candidate food-hub MVP](docs/mvp.md) defines the next operational surface:
 whole-pack receiving, stock handling, departure and trace on one desktop with
 sample data. The isolated demo profile, native owner setup, operational shell and
-whole-pack receiving, identified movement, quantity work and discrepancy follow-up
-are available. Departure, trace and the remaining stock lifecycle are still being
+whole-pack receiving, identified movement and same-location portions, quantity
+work and discrepancy follow-up are available. Departure, trace and the remaining stock lifecycle are still being
 implemented. Existing Nostr functionality remains supported. The candidate retains
 the native Rust/FFI/SQLite architecture.
 

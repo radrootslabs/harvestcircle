@@ -16,7 +16,7 @@ import org.harvestcircle.ffi.HubWorkPageDto
 import org.harvestcircle.ffi.HubWorkProgressDto
 import org.harvestcircle.ffi.HubWorkRequirementDto
 
-private fun HubPhysicalIdentificationDto.toModel() = HubPhysicalIdentification(label, observation)
+internal fun HubPhysicalIdentificationDto.toModel() = HubPhysicalIdentification(label, observation)
 
 private fun HubWorkRequirementDto.toModel() = HubWorkRequirement(id, traceId, variantId, quantity.toModel())
 

@@ -108,6 +108,17 @@ data class HubDiscrepancyPage(
 )
 
 sealed interface HubHandlingInput {
+    data class Split(
+        val expectedStockRevision: ULong,
+        val expectedCatalogRevision: ULong,
+        val groupId: String,
+        val expectedGroupRevision: ULong,
+        val wholePacks: UInt,
+        val identification: HubPhysicalIdentification,
+        val occurrence: HubOccurrence,
+        val observation: String,
+    ) : HubHandlingInput
+
     data class Move(
         val expectedStockRevision: ULong,
         val expectedCatalogRevision: ULong,
@@ -221,6 +232,8 @@ data class HubHandlingReceipt(
 )
 
 interface HarvestCircleHandlingRuntime {
+    suspend fun lineage(query: HubLineageQuery): HubLineagePage
+
     suspend fun group(id: String): HubGroupView
 
     suspend fun work(query: HubHandlingQuery): HubWorkPage

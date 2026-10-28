@@ -16,6 +16,110 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class HandlingPresenterTest {
     @Test
+    fun splitRetainsObservedInputAcrossNavigationAndFreezesUncertainSubmission() =
+        runTest {
+            val runtime = HandlingFake()
+            var ids = 0
+            val presenter =
+                HandlingPresenter(
+                    runtime,
+                    runtime,
+                    this,
+                    OperationIdSource {
+                        ids++
+                        StockFixtures.operation
+                    },
+                )
+            presenter.attach("hub")
+            runCurrent()
+            presenter.inspectGroup(HandlingFixtures.group.group.id)
+            runCurrent()
+            presenter.begin(HandlingAction.Split)
+            presenter.edit(HandlingFixtures.fields.copy(targetId = null))
+            presenter.parkDraft()
+            presenter.chooseTab(HandlingTab.Discrepancies)
+            runCurrent()
+            presenter.begin(HandlingAction.Move)
+            assertIs<HandlingDraft.Split>(presenter.state.value.draft)
+            presenter.submit(SnapshotRevision(7UL))
+            runCurrent()
+            val frozen = assertIs<HandlingSubmission.Uncertain>(presenter.state.value.submission)
+            val input = assertIs<HubHandlingInput.Split>(frozen.attempt.input)
+            assertEquals(8U, input.wholePacks)
+            assertEquals(HubPhysicalIdentification("Blue stack", "Eight separately tagged crates"), input.identification)
+            assertEquals(HubOccurrence(HubOccurrenceKind.Unknown), input.occurrence)
+            presenter.edit(HandlingFixtures.fields.copy(quantity = "99"))
+            presenter.submit(SnapshotRevision(8UL))
+            runCurrent()
+            assertEquals(1, ids)
+            assertEquals(1, runtime.writes.size)
+            assertEquals(
+                "8",
+                presenter.state.value.draft
+                    ?.fields
+                    ?.quantity,
+            )
+            presenter.close()
+        }
+
+    @Test
+    fun lineageContinuationRetainsTraceAndBothNativeVersions() =
+        runTest {
+            val queries = mutableListOf<HubLineageQuery>()
+            val runtime =
+                object : HandlingFake() {
+                    override suspend fun lineage(query: HubLineageQuery): HubLineagePage {
+                        queries += query
+                        return super.lineage(query).copy(total = 2U, offset = query.offset, more = query.offset == 0U)
+                    }
+                }
+            val presenter = HandlingPresenter(runtime, runtime, this, OperationIdSource { StockFixtures.operation })
+            presenter.attach("hub")
+            runCurrent()
+            presenter.inspectGroup(HandlingFixtures.group.group.id)
+            runCurrent()
+            presenter.nextLineagePage()
+            runCurrent()
+            val query = queries.last()
+            assertEquals(StockFixtures.trace.id, query.traceId)
+            assertEquals(2UL, query.expectedStockRevision)
+            assertEquals(5UL, query.expectedCatalogRevision)
+            assertEquals(1U, query.offset)
+            assertEquals(
+                1U,
+                presenter.state.value.lineage
+                    ?.offset,
+            )
+            presenter.close()
+        }
+
+    @Test
+    fun lateLineageReadCannotRestoreRecordsAfterHubReplacement() =
+        runTest {
+            val gate = CompletableDeferred<Unit>()
+            val runtime =
+                object : HandlingFake() {
+                    override suspend fun lineage(query: HubLineageQuery): HubLineagePage =
+                        withContext(NonCancellable) {
+                            gate.await()
+                            super.lineage(query)
+                        }
+                }
+            val presenter = HandlingPresenter(runtime, runtime, this, OperationIdSource { StockFixtures.operation })
+            presenter.attach("old")
+            runCurrent()
+            presenter.inspectGroup(HandlingFixtures.group.group.id)
+            runCurrent()
+            presenter.attach("new")
+            runCurrent()
+            gate.complete(Unit)
+            runCurrent()
+            assertNull(presenter.state.value.group)
+            assertNull(presenter.state.value.lineage)
+            presenter.close()
+        }
+
+    @Test
     fun uncertainReplyFreezesInputAndOnlyLooksUpTheSameOperation() =
         runTest {
             val runtime = HandlingFake()

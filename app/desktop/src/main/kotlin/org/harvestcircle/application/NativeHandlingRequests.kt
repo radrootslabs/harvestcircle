@@ -8,6 +8,7 @@ import org.harvestcircle.ffi.HubMovementInputDto
 import org.harvestcircle.ffi.HubNewWorkInputDto
 import org.harvestcircle.ffi.HubPhysicalIdentificationDto
 import org.harvestcircle.ffi.HubReplanInputDto
+import org.harvestcircle.ffi.HubSplitInputDto
 
 internal fun HubHandlingQuery.toNative() =
     HubHandlingQueryDto(
@@ -24,6 +25,19 @@ private fun HubPhysicalIdentification.toNative() = HubPhysicalIdentificationDto(
 
 internal fun HubHandlingInput.toNative(): HubHandlingInputDto =
     when (this) {
+        is HubHandlingInput.Split ->
+            HubHandlingInputDto.Split(
+                HubSplitInputDto(
+                    expectedStockRevision,
+                    expectedCatalogRevision,
+                    groupId,
+                    expectedGroupRevision,
+                    wholePacks,
+                    identification.toNative(),
+                    occurrence.toNative(),
+                    observation,
+                ),
+            )
         is HubHandlingInput.Move ->
             HubHandlingInputDto.Move(
                 HubMovementInputDto(

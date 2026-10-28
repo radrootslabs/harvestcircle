@@ -31,6 +31,8 @@ import org.harvestcircle.application.HubGroupView
 import org.harvestcircle.application.HubHandlingInput
 import org.harvestcircle.application.HubHandlingQuery
 import org.harvestcircle.application.HubHandlingReceipt
+import org.harvestcircle.application.HubLineagePage
+import org.harvestcircle.application.HubLineageQuery
 import org.harvestcircle.application.HubReceiptInput
 import org.harvestcircle.application.HubReferenceEdit
 import org.harvestcircle.application.HubReferencePage
@@ -135,6 +137,11 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     ): List<HubReferenceReceipt> =
         withContext(Dispatchers.IO) {
             callBridge { bridge.referenceHistory(id, afterRevision, limit).map { it.toModel() } }
+        }
+
+    override suspend fun lineage(query: HubLineageQuery): HubLineagePage =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.lineage(query.toNative()).toModel() }
         }
 
     override suspend fun group(id: String): HubGroupView = withContext(Dispatchers.IO) { callBridge { bridge.group(id).toModel() } }

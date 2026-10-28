@@ -140,8 +140,12 @@ active physical labels remain unique. The forward schema8 guard binds new group
 birth to the same source population and earlier parent creation. Explicit native
 separation conserves quantity and work at the same location and retains original
 results across later handling and restart. FFI5.6 exposes separation and pinned
-lineage reads. These values never grant permission. The independent separation
-editor, lineage inspector and actual acceptance/hold policy remain unfinished.
+lineage reads. These values never grant permission. The shared separation editor
+and lineage inspector use the same retained-input, explicit scope-review and
+original-result recovery paths as other handling. Lineage continuations pin both
+stock and catalog versions; empty retained ancestors expose history without an
+active-stock action. Recorded and actual occurrence times are distinct. Actual
+acceptance/hold policy remains unfinished.
 
 ## Secrets, transport and lifecycle
 

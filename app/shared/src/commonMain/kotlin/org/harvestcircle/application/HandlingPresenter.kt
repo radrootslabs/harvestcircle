@@ -86,6 +86,7 @@ class HandlingPresenter(
                 work = if (tab == HandlingTab.Work) null else current.work,
                 discrepancies = if (tab == HandlingTab.Discrepancies) null else current.discrepancies,
                 group = null,
+                lineage = null,
                 selectedWork = null,
                 selectedDiscrepancy = null,
             )
@@ -122,10 +123,22 @@ class HandlingPresenter(
         }
         read {
             val selected = requireNotNull(runtime).group(id)
+            val lineage =
+                requireNotNull(
+                    runtime,
+                ).lineage(HubLineageQuery(selected.trace.id, selected.stockRevision, selected.catalogRevision))
+            check(
+                lineage.stockRevision == selected.stockRevision &&
+                    lineage.catalogRevision == selected.catalogRevision &&
+                    lineage.offset == 0U &&
+                    lineage.total <= 256U &&
+                    lineage.rows.size <= 64,
+            )
             val choices = handlingReferenceChoices(requireNotNull(references), selected.catalogRevision)
             val update: (HandlingViewState) -> HandlingViewState = {
                 it.copy(
                     group = selected,
+                    lineage = lineage,
                     selectedWork = null,
                     selectedDiscrepancy = null,
                     references = choices,
@@ -135,21 +148,48 @@ class HandlingPresenter(
         }
     }
 
+    fun nextLineagePage() {
+        val current = mutableState.value
+        val page = current.lineage ?: return
+        if (!page.more || current.loading || current.draft != null || current.submission != null) return
+        read {
+            val next =
+                requireNotNull(runtime).lineage(
+                    HubLineageQuery(
+                        page.trace.id,
+                        page.stockRevision,
+                        page.catalogRevision,
+                        page.offset + page.rows.size.toUInt(),
+                    ),
+                )
+            check(
+                next.stockRevision == page.stockRevision &&
+                    next.catalogRevision == page.catalogRevision &&
+                    next.total == page.total &&
+                    next.offset == page.offset + page.rows.size.toUInt() &&
+                    next.rows.isNotEmpty() &&
+                    next.rows.size <= 64,
+            )
+            val update: (HandlingViewState) -> HandlingViewState = { it.copy(lineage = next) }
+            update
+        }
+    }
+
     fun selectWork(row: HubWorkRow) {
         val current = mutableState.value
         if (current.loading || current.draft != null || current.submission != null) return
-        mutableState.value = current.copy(selectedWork = row, selectedDiscrepancy = null, group = null)
+        mutableState.value = current.copy(selectedWork = row, selectedDiscrepancy = null, group = null, lineage = null)
     }
 
     fun selectDiscrepancy(row: HubDiscrepancyRow) {
         val current = mutableState.value
         if (current.loading || current.draft != null || current.submission != null) return
-        mutableState.value = current.copy(selectedDiscrepancy = row, selectedWork = null, group = null)
+        mutableState.value = current.copy(selectedDiscrepancy = row, selectedWork = null, group = null, lineage = null)
     }
 
     fun closeRecord() {
         if (mutableState.value.loading || mutableState.value.submission != null) return
-        mutableState.value = mutableState.value.copy(group = null, selectedWork = null, selectedDiscrepancy = null)
+        mutableState.value = mutableState.value.copy(group = null, lineage = null, selectedWork = null, selectedDiscrepancy = null)
     }
 
     fun begin(action: HandlingAction) {
@@ -162,6 +202,7 @@ class HandlingPresenter(
         }
         val draft =
             when (action) {
+                HandlingAction.Split -> current.group?.let { HandlingDraft.Split(it) }
                 HandlingAction.Move -> current.group?.let { HandlingDraft.Move(it) }
                 HandlingAction.NewWork -> current.group?.let { HandlingDraft.NewWork(it) }
                 HandlingAction.OpenDiscrepancy -> current.group?.let { HandlingDraft.OpenDiscrepancy(it) }
@@ -309,6 +350,7 @@ class HandlingPresenter(
                 draft = null,
                 formOpen = false,
                 group = null,
+                lineage = null,
                 selectedWork = null,
                 selectedDiscrepancy = null,
                 review = null,

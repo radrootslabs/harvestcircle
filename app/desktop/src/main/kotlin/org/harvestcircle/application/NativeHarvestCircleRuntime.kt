@@ -20,6 +20,8 @@ import org.harvestcircle.ffi.HubGroupViewDto
 import org.harvestcircle.ffi.HubHandlingInputDto
 import org.harvestcircle.ffi.HubHandlingQueryDto
 import org.harvestcircle.ffi.HubHandlingReceiptDto
+import org.harvestcircle.ffi.HubLineagePageDto
+import org.harvestcircle.ffi.HubLineageQueryDto
 import org.harvestcircle.ffi.HubReceiptInputDto
 import org.harvestcircle.ffi.HubReferenceEditDto
 import org.harvestcircle.ffi.HubReferencePageDto
@@ -55,6 +57,8 @@ class NativeHarvestCircleRuntime internal constructor(
     HarvestCircleReferenceRuntime,
     HarvestCircleStockRuntime,
     HarvestCircleHandlingRuntime {
+    override suspend fun lineage(query: HubLineageQuery): HubLineagePage = callNative { hubPort().lineage(query.toNative()).toModel() }
+
     override suspend fun group(id: String): HubGroupView = callNative { hubPort().group(id).toModel() }
 
     override suspend fun work(query: HubHandlingQuery): HubWorkPage = callNative { hubPort().work(query.toNative()).toModel() }
@@ -548,6 +552,8 @@ internal fun interface NativeSubscriptionHandle {
 }
 
 private interface NativeHubPort {
+    suspend fun lineage(query: HubLineageQueryDto): HubLineagePageDto
+
     suspend fun group(id: String): HubGroupViewDto
 
     suspend fun work(query: HubHandlingQueryDto): HubWorkPageDto
@@ -596,6 +602,8 @@ private class UniFfiNativeCorePort(
     private val core: HarvestCircleAppCore,
 ) : NativeCorePort,
     NativeHubPort {
+    override suspend fun lineage(query: HubLineageQueryDto): HubLineagePageDto = core.hubLineage(query)
+
     override suspend fun group(id: String): HubGroupViewDto = core.hubGroup(id)
 
     override suspend fun work(query: HubHandlingQueryDto): HubWorkPageDto = core.hubWork(query)

@@ -85,6 +85,35 @@ internal open class HandlingFake :
     val lookups = mutableListOf<OperationId>()
     val queries = mutableListOf<HubHandlingQuery>()
 
+    override suspend fun lineage(query: HubLineageQuery) =
+        HubLineagePage(
+            groupView.stockRevision,
+            groupView.catalogRevision,
+            0U,
+            1U,
+            false,
+            groupView.product,
+            groupView.variant,
+            groupView.trace,
+            listOf(
+                HubLineageRow(
+                    groupView.group.id,
+                    groupView.group.parentId,
+                    groupView.group.identification,
+                    groupView.group.wholePacks,
+                    groupView.group.revision,
+                    groupView.location,
+                    2UL,
+                    HubGroupCreationKind.Receipt,
+                    groupView.trace.actor,
+                    groupView.trace.recordedAt,
+                    StockFixtures.operation,
+                    groupView.trace.occurrence,
+                    groupView.trace.observation,
+                ),
+            ),
+        )
+
     override suspend fun group(id: String) = groupView
 
     override suspend fun work(query: HubHandlingQuery): HubWorkPage {
