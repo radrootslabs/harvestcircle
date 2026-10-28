@@ -2,6 +2,7 @@
 
 pub mod availability;
 pub mod error;
+pub mod hub;
 pub mod identity;
 pub mod key;
 pub mod profile;

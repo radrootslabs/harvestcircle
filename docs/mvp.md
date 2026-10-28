@@ -281,6 +281,10 @@ must run from an independent public checkout without external design documents.
 All hub commands, read models and UI below are planned. The table identifies
 existing extension points, not completed hub implementations.
 
+Pure hub identity, revision and ownership policy is implemented in
+core/crates/harvestcircle_domain/src/hub.rs. This policy does not establish
+credential possession or replace native session, persistence and FFI checks.
+
 | Responsibility | Existing implementation / intended binding |
 | --- | --- |
 | Pure rules and types | core/crates/harvestcircle_domain/src, new cohesive hub module |
