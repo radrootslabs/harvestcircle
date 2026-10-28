@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -17,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import org.harvestcircle.appearance.TextSizePreference
+import org.harvestcircle.application.DispatchPresenter
+import org.harvestcircle.application.DispatchViewState
 import org.harvestcircle.application.FoundationOverlay
 import org.harvestcircle.application.HandlingPresenter
 import org.harvestcircle.application.HandlingViewState
@@ -67,6 +70,9 @@ fun HarvestCircleShell(
     handlingState: HandlingViewState = HandlingViewState(),
     handlingPresenter: HandlingPresenter? = null,
     submitHandling: () -> Unit = {},
+    dispatchState: DispatchViewState = DispatchViewState(),
+    dispatchPresenter: DispatchPresenter? = null,
+    submitDispatch: () -> Unit = {},
 ) {
     HarvestCircleTheme(state.appearance) {
         val focusRegistry = remember { ShellFocusRegistry() }
@@ -92,6 +98,9 @@ fun HarvestCircleShell(
                     handlingState,
                     handlingPresenter,
                     submitHandling,
+                    dispatchState,
+                    dispatchPresenter,
+                    submitDispatch,
                 )
             }
         }
@@ -116,6 +125,9 @@ private fun HarvestCircleShellContent(
     handlingState: HandlingViewState = HandlingViewState(),
     handlingPresenter: HandlingPresenter? = null,
     submitHandling: () -> Unit = {},
+    dispatchState: DispatchViewState = DispatchViewState(),
+    dispatchPresenter: DispatchPresenter? = null,
+    submitDispatch: () -> Unit = {},
 ) {
     val modalOpen = state.overlays.current != null
     val fallback =
@@ -183,6 +195,9 @@ private fun HarvestCircleShellContent(
                     handlingState,
                     handlingPresenter,
                     submitHandling,
+                    dispatchState,
+                    dispatchPresenter,
+                    submitDispatch,
                 )
         }
     }
@@ -286,6 +301,9 @@ private fun DashboardRoot(
     handlingState: HandlingViewState = HandlingViewState(),
     handlingPresenter: HandlingPresenter? = null,
     submitHandling: () -> Unit = {},
+    dispatchState: DispatchViewState = DispatchViewState(),
+    dispatchPresenter: DispatchPresenter? = null,
+    submitDispatch: () -> Unit = {},
 ) {
     val route = root.navigation.current
     val status = deriveShellStatus(state)
@@ -398,19 +416,22 @@ private fun DashboardRoot(
                                     HubWorkspace(route, hubState, initializeHub, refreshHub)
                                 }
                             }
-                            AppRoute.HubDispatch ->
-                                HubWorkspace(
-                                    route,
-                                    hubState,
-                                    initializeHub,
-                                    refreshHub,
-                                    openReferences =
-                                        if (referenceState.available) {
-                                            { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubReferences)) }
-                                        } else {
-                                            null
-                                        },
-                                )
+                            AppRoute.HubDispatch -> {
+                                if (hubState is HubViewState.Ready && dispatchPresenter != null && dispatchState.available) {
+                                    LaunchedEffect(route) {
+                                        dispatchPresenter.park()
+                                        dispatchPresenter.refresh()
+                                    }
+                                    DispatchWorkspace(
+                                        dispatchState,
+                                        dispatchPresenter,
+                                        submitDispatch,
+                                        references = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubReferences)) },
+                                    )
+                                } else {
+                                    HubWorkspace(route, hubState, initializeHub, refreshHub)
+                                }
+                            }
                             AppRoute.HubReferences -> {
                                 if (hubState is HubViewState.Ready && referencePresenter != null) {
                                     ReferenceWorkspace(

@@ -189,9 +189,16 @@ alongside outstanding hold releases and precautionary hold/release headroom.
 
 FFI 5.8 and the Kotlin transport expose bounded preparation pages, complete selected
 records, original receipts and closed commands. List rows are summaries; version
-history belongs to the selected record. Shared Dispatch editors and actual departure
-remain unfinished. Existing stock and work, including Nostr identity and recovery,
-retain their separate contracts.
+history belongs to the selected record. Shared Dispatch editors select a recipient
+and whole current groups, prepare/revise, issue, replace or mark identification
+unused. Preview retains exact source provenance, receipt clocks, recipient and
+issued-version history. Unsubmitted input survives ordinary navigation; explicit
+context review shows current physical facts without rewriting the saved preparation.
+Unknown submissions freeze their original intent and use read-only original-result
+lookup. Native errors distinguish changed material, stale context and unchanged
+replacement. Actual departure, durable admission/session/restore recovery and full
+MVP qualification remain unfinished. Existing Nostr identity and recovery retain
+their separate contracts.
 
 ## Secrets, transport and lifecycle
 

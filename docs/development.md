@@ -149,6 +149,16 @@ read-only result lookup. Unimplemented stock actions are labelled as such.
 An unresolved setup result retains its original operation ID; use Check local hub
 to read the durable result rather than submitting a new setup.
 
+Dispatch provides preparation and immutable identification. Choose a recipient and
+whole current source groups, then record your reviewed observation. For part of a
+group, first record observed physical separation in Stock. Issue records the saved
+material; changed material must first be revised. Replacement links a new issued
+version and retains the superseded original. Mark unused closes the active issue
+without changing stock, work or holds. Preview exposes original source certainty,
+issuer/provenance, receipt clocks and recipient versions. Unknown outcomes keep the
+original operation for lookup. Paperwork never records an actual departure; actual
+departure and the rest of the candidate lifecycle are still being implemented.
+
 The same explicit selection is accepted by the desktop executable as
 `--demo hub-preview`. The packaged demonstration is qualified separately before
 release; adding this launch path alone does not qualify a complete demo workflow.

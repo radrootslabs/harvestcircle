@@ -19,8 +19,11 @@ import org.harvestcircle.application.ApplicationClock
 import org.harvestcircle.application.ApplicationCommand
 import org.harvestcircle.application.HarvestCircleApplicationWithDependencies
 import org.harvestcircle.application.HarvestCirclePresenter
+import org.harvestcircle.application.HubDispatchQuery
+import org.harvestcircle.application.HubDispatchState
 import org.harvestcircle.application.HubHandlingQuery
 import org.harvestcircle.application.HubHandlingResult
+import org.harvestcircle.application.HubIdentificationStatus
 import org.harvestcircle.application.HubLineageQuery
 import org.harvestcircle.application.HubLocationPurpose
 import org.harvestcircle.application.HubReferenceEdit
@@ -82,6 +85,8 @@ class ReceivingAcceptanceTest {
                     add(HubReferenceValue(HubReferenceKind.Location, "Receiving", locationPurpose = HubLocationPurpose.Receiving))
                 val planned = add(HubReferenceValue(HubReferenceKind.Location, "A3", locationPurpose = HubLocationPurpose.Storage))
                 val alternate = add(HubReferenceValue(HubReferenceKind.Location, "B3", locationPurpose = HubLocationPurpose.Storage))
+                val recipientA = add(HubReferenceValue(HubReferenceKind.Party, "Fictional recipient A"))
+                val recipientB = add(HubReferenceValue(HubReferenceKind.Party, "Fictional recipient B"))
                 setContent {
                     HarvestCircleWindowChromeEnvironment(HarvestCircleWindowChromeExclusion.None) {
                         if (showApplication) {
@@ -342,6 +347,82 @@ class ReceivingAcceptanceTest {
                 }
                 openGroup(five.id)
                 onNodeWithTag("treatment-summary").performScrollTo().assertIsDisplayed()
+                val stockBeforeDocuments = runBlocking { runtime.stock(HubStockQuery()) }.rows
+                val workBeforeDocuments = runBlocking { runtime.work(HubHandlingQuery(openOnly = false)) }.rows
+                onNodeWithTag("sidebar-HubDispatch").performClick()
+                waitUntil(timeoutMillis = 10_000) { runCatching { onNodeWithTag("dispatch-prepare").assertIsEnabled() }.isSuccess }
+                onNodeWithTag("dispatch-prepare").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000) { onNodeWithTag("dispatch-editor").runCatching { fetchSemanticsNode() }.isSuccess }
+                onNodeWithTag("dispatch-recipient").performScrollTo().performClick()
+                onNodeWithTag("dispatch-recipient-$recipientA").performScrollTo().performClick()
+                onNodeWithTag("dispatch-group-${five.id}").performScrollTo().performClick()
+                waitUntil(
+                    timeoutMillis = 10_000,
+                ) { onNodeWithTag("dispatch-remove-${five.id}").runCatching { fetchSemanticsNode() }.isSuccess }
+                onNodeWithTag("dispatch-observation").performScrollTo().performTextInput("Reviewed five purple crates for recipient A")
+                onNodeWithTag("dispatch-keep").performScrollTo().performClick()
+                onNodeWithTag("sidebar-HubWork").performClick()
+                onNodeWithTag("sidebar-HubDispatch").performClick()
+                waitUntil(timeoutMillis = 10_000) { onNodeWithTag("dispatch-resume").runCatching { fetchSemanticsNode() }.isSuccess }
+                onNodeWithTag("dispatch-resume").performScrollTo().performClick()
+                onNodeWithText("Reviewed five purple crates for recipient A").performScrollTo().assertIsDisplayed()
+
+                fun saveIdentification() {
+                    waitUntil(timeoutMillis = 10_000) { runCatching { onNodeWithTag("dispatch-save").assertIsEnabled() }.isSuccess }
+                    onNodeWithTag("dispatch-save").performScrollTo().performClick()
+                    waitUntil(timeoutMillis = 10_000) { onNodeWithTag("dispatch-recorded").runCatching { fetchSemanticsNode() }.isSuccess }
+                    onNodeWithTag("dispatch-done").performScrollTo().performClick()
+                    waitUntil(timeoutMillis = 10_000) { onNodeWithTag("dispatch-record").runCatching { fetchSemanticsNode() }.isSuccess }
+                }
+                saveIdentification()
+                val preparationId = runBlocking { runtime.dispatchPage(HubDispatchQuery()) }.rows.single().id
+                val preparation = runBlocking { runtime.dispatchRecord(preparationId) }.record
+                assertEquals(HubDispatchState.Draft, preparation.state)
+                assertEquals(5U, preparation.draft?.wholePacks)
+                onNodeWithTag("dispatch-issue").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000) { onNodeWithTag("dispatch-editor").runCatching { fetchSemanticsNode() }.isSuccess }
+                onNodeWithTag("dispatch-observation").performScrollTo().performTextInput("Explicit sample identification issuance")
+                saveIdentification()
+                val issued = runBlocking { runtime.dispatchRecord(preparationId) }.record
+                val originalIdentification = runBlocking { runtime.dispatchOperation(issued.updated.operationId) }
+                assertEquals(HubDispatchState.Issued, issued.state)
+                onNodeWithTag("dispatch-issued-preview").performScrollTo().assertIsDisplayed()
+                onNodeWithTag("dispatch-replace").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000) { onNodeWithTag("dispatch-editor").runCatching { fetchSemanticsNode() }.isSuccess }
+                onNodeWithTag("dispatch-recipient").performScrollTo().performClick()
+                onNodeWithTag("dispatch-recipient-$recipientB").performScrollTo().performClick()
+                onNodeWithTag("dispatch-observation").performScrollTo().performTextInput("Reviewed replacement for recipient B")
+                onNodeWithTag("dispatch-review-context").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000) { onNodeWithTag("dispatch-accept-review").runCatching { fetchSemanticsNode() }.isSuccess }
+                onNodeWithTag("dispatch-accept-review").performScrollTo().performClick()
+                saveIdentification()
+                val replaced = runBlocking { runtime.dispatchRecord(preparationId) }.record
+                assertEquals(HubIdentificationStatus.Superseded, replaced.versions.first().status)
+                assertEquals(
+                    recipientA,
+                    replaced.versions
+                        .first()
+                        .material.recipient.id,
+                )
+                assertEquals(
+                    recipientB,
+                    replaced.versions
+                        .last()
+                        .material.recipient.id,
+                )
+                onNodeWithTag("dispatch-version-${issued.versions.single().id}").performScrollTo().performClick()
+                onNodeWithText("Recipient: Fictional recipient A", substring = true).performScrollTo().assertIsDisplayed()
+                onNodeWithTag("dispatch-unused").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000) { onNodeWithTag("dispatch-editor").runCatching { fetchSemanticsNode() }.isSuccess }
+                onNodeWithText("Recipient: Fictional recipient B", substring = true).performScrollTo().assertIsDisplayed()
+                onNodeWithTag("dispatch-observation").performScrollTo().performTextInput("Mark the active replacement unused after review")
+                saveIdentification()
+                val unused = runBlocking { runtime.dispatchRecord(preparationId) }.record
+                assertEquals(HubDispatchState.Unused, unused.state)
+                assertEquals(issued.versions.single().material, unused.versions.first().material)
+                assertEquals(stockBeforeDocuments, runBlocking { runtime.stock(HubStockQuery()) }.rows)
+                assertEquals(workBeforeDocuments, runBlocking { runtime.work(HubHandlingQuery(openOnly = false)) }.rows)
+                assertEquals(originalIdentification, runBlocking { runtime.dispatchOperation(issued.updated.operationId) })
                 val finalTreatment = runBlocking { runtime.treatment(treatmentScope) }
                 val finalLineage =
                     runBlocking {
@@ -390,6 +471,8 @@ class ReceivingAcceptanceTest {
                         ),
                     )
                     assertEquals(finalWork, runtime.work(HubHandlingQuery(openOnly = false)))
+                    assertEquals(unused, runtime.dispatchRecord(preparationId).record)
+                    assertEquals(originalIdentification, runtime.dispatchOperation(issued.updated.operationId))
                     assertNotNull(runtime.hubContext())
                 }
             } finally {

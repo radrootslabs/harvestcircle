@@ -2,7 +2,8 @@
 
 This is the accepted candidate product contract. Isolated demo launch, native
 hub-owner/reference setup, whole-pack receiving, identified movement, quantity work,
-discrepancy follow-up and Work/Stock/Dispatch navigation are implemented alongside
+sample acceptance/independent holds, discrepancy follow-up, immutable identification
+and Work/Stock/Dispatch navigation are implemented alongside
 existing Nostr identity, custody, persistence and startup. Later operational
 workflows remain intended behavior. Existing
 functionality remains supported while those workflows are developed.
@@ -255,15 +256,20 @@ current command versions and reviewed material; changed physical groups or mater
 require review, while unrelated journal activity does not change the document.
 Issued recipient/source/reference snapshots remain immutable. Material replacement
 links a new version and supersedes the prior issue; marking unused is explicit and
-retains the as-issued content. Limits are64 lines and32 identification versions
+retains the as-issued content. Limits are 64 lines and 32 identification versions
 per preparation. These plans do not authorize departure. Native schema 10 and
 FFI 5.8 now persist preparation, revision, issuance, replacement and unused closure.
-Original recovery
-retains exact immutable material/reference/source history through later edits and
+Original recovery retains exact immutable material/reference/source history through later edits and
 restart without substituting current positions. The journal reserves one closure
 slot per active issue alongside outstanding hold releases. Native pages carry
 summaries and paired revision pins; selected records carry complete bounded version
-history. Shared Dispatch editors and actual departure remain unfinished.
+history. The shared Dispatch workspace now prepares/revises whole-group selections,
+issues identification, creates linked replacements and explicitly marks unused
+versions. Preview shows captured recipient/source facts and clocks. Drafts retain
+input through navigation and explicit context review; uncertain submission freezes
+the original operation for read-only recovery. Reviewing current physical facts
+never silently rewrites the saved preparation. Actual departure and the remaining
+stock lifecycle/recovery/release qualification remain unfinished.
 
 Trace includes receipts, remaining stock, recipients, adjustments, returns and
 dispositions with explicit uncertainty and retrieval limits. Preserve every plausible

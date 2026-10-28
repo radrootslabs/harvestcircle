@@ -118,17 +118,42 @@ fn corrupt() -> SafeError {
     crate::db::corrupt_storage()
 }
 fn dispatch_error(error: DispatchError) -> SafeError {
-    match error {
-        DispatchError::StaleRevision
-        | DispatchError::PreviewChanged
-        | DispatchError::InvalidState
-        | DispatchError::NoMaterialChange => conflict(),
-        DispatchError::Capacity | DispatchError::RevisionExhausted => capacity(),
-        DispatchError::InvalidHistory => corrupt(),
-        DispatchError::InvalidSelection | DispatchError::PhysicalSeparationRequired => {
-            invalid_input()
-        }
-    }
+    let (code, message) = match error {
+        DispatchError::StaleRevision => (
+            SafeErrorCode::HubConflict,
+            "Stock, references or this preparation changed. Review the current context before submitting.",
+        ),
+        DispatchError::PreviewChanged => (
+            SafeErrorCode::HubConflict,
+            "The saved preparation differs from current material. Revise the preparation before issuing identification.",
+        ),
+        DispatchError::InvalidState => (
+            SafeErrorCode::HubConflict,
+            "This preparation no longer permits that action. Check its current identification and status.",
+        ),
+        DispatchError::NoMaterialChange => (
+            SafeErrorCode::HubConflict,
+            "Replacement needs changed material. Retain the current identification or explicitly mark it unused.",
+        ),
+        DispatchError::Capacity => (
+            SafeErrorCode::HubCapacity,
+            "The preparation history limit is reached. Existing issued identification can still be marked unused.",
+        ),
+        DispatchError::RevisionExhausted => (
+            SafeErrorCode::HubCapacity,
+            "The revision limit is reached. Keep the original identification for review.",
+        ),
+        DispatchError::InvalidHistory => return corrupt(),
+        DispatchError::InvalidSelection => (
+            SafeErrorCode::HubInvalidInput,
+            "Choose a recipient and valid whole identified stock groups for this preparation.",
+        ),
+        DispatchError::PhysicalSeparationRequired => (
+            SafeErrorCode::HubInvalidInput,
+            "Select the whole identified group. Record observed physical separation first to identify fewer packs.",
+        ),
+    };
+    SafeError::new(code, SafeMessage::new(message))
 }
 
 #[cfg(test)]
