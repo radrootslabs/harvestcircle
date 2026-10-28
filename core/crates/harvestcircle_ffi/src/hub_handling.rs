@@ -4,6 +4,8 @@ use crate::commands::HarvestCircleError;
 use crate::hub_portions::HubSplitResultDto;
 use crate::hub_reference::{HubReferenceRecordDto, invalid_input};
 use crate::hub_stock::{HubOccurrenceDto, HubQuantityWorkDto, HubReceiptTraceDto};
+use crate::hub_treatment::HubTreatmentResultDto;
+use crate::hub_treatment_input::{HubAcceptanceInputDto, HubHoldInputDto, HubHoldReleaseInputDto};
 use harvestcircle_domain::hub::HubRevision;
 use harvestcircle_domain::hub::movement::{
     DiscrepancyAction, DiscrepancyCommand, HUB_REQUIREMENT_GROUPS, HandlingCommand,
@@ -107,6 +109,15 @@ pub struct HubDiscrepancyResolveInputDto {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
 pub enum HubHandlingInputDto {
+    SetAcceptance {
+        input: HubAcceptanceInputDto,
+    },
+    PlaceHold {
+        input: HubHoldInputDto,
+    },
+    ReleaseHold {
+        input: HubHoldReleaseInputDto,
+    },
     Split {
         input: HubSplitInputDto,
     },
@@ -130,6 +141,9 @@ pub enum HubHandlingInputDto {
 impl HubHandlingInputDto {
     pub fn command(self) -> Result<HandlingCommand, HarvestCircleError> {
         Ok(match self {
+            Self::SetAcceptance { input } => HandlingCommand::Treatment(input.command()?),
+            Self::PlaceHold { input } => HandlingCommand::Treatment(input.command()?),
+            Self::ReleaseHold { input } => HandlingCommand::Treatment(input.command()?),
             Self::Move { input } => {
                 let packs =
                     WholePacks::from_value(input.whole_packs).map_err(|_| invalid_input())?;
@@ -257,6 +271,9 @@ pub enum HubWorkProgressDto {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
 pub enum HubHandlingKindDto {
+    Acceptance,
+    PlaceHold,
+    ReleaseHold,
     Split,
     Move,
     Replan,
@@ -472,6 +489,7 @@ impl From<harvestcircle_domain::hub::movement::Discrepancy> for HubDiscrepancyDt
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
 pub enum HubHandlingResultDto {
+    Treatment { value: Box<HubTreatmentResultDto> },
     Separated { value: Box<HubSplitResultDto> },
     Moved { value: Box<HubMovementResultDto> },
     WorkChanged { value: Box<HubWorkActionResultDto> },
@@ -494,6 +512,9 @@ impl From<HubHandlingReceipt> for HubHandlingReceiptDto {
         Self {
             operation_id: value.operation.as_str().to_owned(),
             kind: match value.kind {
+                HubHandlingKind::Acceptance => HubHandlingKindDto::Acceptance,
+                HubHandlingKind::PlaceHold => HubHandlingKindDto::PlaceHold,
+                HubHandlingKind::ReleaseHold => HubHandlingKindDto::ReleaseHold,
                 HubHandlingKind::Split => HubHandlingKindDto::Split,
                 HubHandlingKind::Move => HubHandlingKindDto::Move,
                 HubHandlingKind::Replan => HubHandlingKindDto::Replan,
@@ -507,6 +528,9 @@ impl From<HubHandlingReceipt> for HubHandlingReceiptDto {
             actor_public_key: value.actor.to_hex(),
             recorded_at_unix_s: value.recorded_at.as_seconds(),
             result: match value.result {
+                HubHandlingResult::Treatment(value) => HubHandlingResultDto::Treatment {
+                    value: Box::new((*value).into()),
+                },
                 HubHandlingResult::Separated(value) => HubHandlingResultDto::Separated {
                     value: Box::new(value.into()),
                 },

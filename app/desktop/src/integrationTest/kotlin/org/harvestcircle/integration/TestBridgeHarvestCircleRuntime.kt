@@ -41,6 +41,10 @@ import org.harvestcircle.application.HubReferenceReceipt
 import org.harvestcircle.application.HubStockPage
 import org.harvestcircle.application.HubStockQuery
 import org.harvestcircle.application.HubStockReceipt
+import org.harvestcircle.application.HubTreatmentPage
+import org.harvestcircle.application.HubTreatmentQuery
+import org.harvestcircle.application.HubTreatmentScope
+import org.harvestcircle.application.HubTreatmentSnapshot
 import org.harvestcircle.application.HubWorkPage
 import org.harvestcircle.application.IdentityId
 import org.harvestcircle.application.IdentityRemovalRequest
@@ -137,6 +141,16 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     ): List<HubReferenceReceipt> =
         withContext(Dispatchers.IO) {
             callBridge { bridge.referenceHistory(id, afterRevision, limit).map { it.toModel() } }
+        }
+
+    override suspend fun treatment(scope: HubTreatmentScope): HubTreatmentSnapshot =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.treatment(scope.toNative()).toModel() }
+        }
+
+    override suspend fun treatmentHistory(query: HubTreatmentQuery): HubTreatmentPage =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.treatmentHistory(query.toNative()).toModel() }
         }
 
     override suspend fun lineage(query: HubLineageQuery): HubLineagePage =

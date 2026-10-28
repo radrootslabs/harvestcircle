@@ -30,6 +30,10 @@ import org.harvestcircle.ffi.HubReferenceReceiptDto
 import org.harvestcircle.ffi.HubStockPageDto
 import org.harvestcircle.ffi.HubStockQueryDto
 import org.harvestcircle.ffi.HubStockReceiptDto
+import org.harvestcircle.ffi.HubTreatmentPageDto
+import org.harvestcircle.ffi.HubTreatmentQueryDto
+import org.harvestcircle.ffi.HubTreatmentScopeDto
+import org.harvestcircle.ffi.HubTreatmentSnapshotDto
 import org.harvestcircle.ffi.HubWorkPageDto
 import org.harvestcircle.ffi.IdentityCommandReceiptDto
 import org.harvestcircle.ffi.IdentityDto
@@ -57,6 +61,14 @@ class NativeHarvestCircleRuntime internal constructor(
     HarvestCircleReferenceRuntime,
     HarvestCircleStockRuntime,
     HarvestCircleHandlingRuntime {
+    override suspend fun treatment(scope: HubTreatmentScope): HubTreatmentSnapshot =
+        callNative { hubPort().treatment(scope.toNative()).toModel() }
+
+    override suspend fun treatmentHistory(query: HubTreatmentQuery): HubTreatmentPage =
+        callNative {
+            hubPort().treatmentHistory(query.toNative()).toModel()
+        }
+
     override suspend fun lineage(query: HubLineageQuery): HubLineagePage = callNative { hubPort().lineage(query.toNative()).toModel() }
 
     override suspend fun group(id: String): HubGroupView = callNative { hubPort().group(id).toModel() }
@@ -552,6 +564,10 @@ internal fun interface NativeSubscriptionHandle {
 }
 
 private interface NativeHubPort {
+    suspend fun treatment(scope: HubTreatmentScopeDto): HubTreatmentSnapshotDto
+
+    suspend fun treatmentHistory(query: HubTreatmentQueryDto): HubTreatmentPageDto
+
     suspend fun lineage(query: HubLineageQueryDto): HubLineagePageDto
 
     suspend fun group(id: String): HubGroupViewDto
@@ -602,6 +618,10 @@ private class UniFfiNativeCorePort(
     private val core: HarvestCircleAppCore,
 ) : NativeCorePort,
     NativeHubPort {
+    override suspend fun treatment(scope: HubTreatmentScopeDto): HubTreatmentSnapshotDto = core.hubTreatment(scope)
+
+    override suspend fun treatmentHistory(query: HubTreatmentQueryDto): HubTreatmentPageDto = core.hubTreatmentHistory(query)
+
     override suspend fun lineage(query: HubLineageQueryDto): HubLineagePageDto = core.hubLineage(query)
 
     override suspend fun group(id: String): HubGroupViewDto = core.hubGroup(id)

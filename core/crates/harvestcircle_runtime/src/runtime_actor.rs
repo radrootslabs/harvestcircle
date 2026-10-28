@@ -3980,12 +3980,88 @@ mod tests {
                 .unwrap(),
             Some(separated)
         );
+        let treatment_scope = harvestcircle_storage::HubTreatmentScope {
+            trace: receipt.original.trace.id,
+            expected_revision: None,
+            expected_catalog_revision: None,
+        };
+        let current = actor.hub_treatment(treatment_scope.clone()).await.unwrap();
+        assert_eq!(current.projection.summary.review_required.value(), 20);
+        let treating =
+            HandlingCommand::Treatment(harvestcircle_domain::hub::treatment::TreatmentCommand {
+                expected_stock_revision: current.revision,
+                expected_catalog_revision: current.catalog_revision,
+                action: harvestcircle_domain::hub::treatment::TreatmentAction::SetAcceptance {
+                    selection: harvestcircle_domain::hub::treatment::TreatmentSelection::new(
+                        lineage.rows.iter().map(|row| row.id).collect(),
+                    )
+                    .unwrap(),
+                    status: harvestcircle_domain::hub::treatment::AcceptanceStatus::Accepted,
+                },
+                occurred: Occurrence::Unknown,
+                observation: SourceProvenance::new(
+                    "Explicit sample review of each identified group",
+                )
+                .unwrap(),
+            });
+        let treatment_id = DurableRequestId::new_v7();
+        let treated = actor
+            .apply_hub_handling(
+                treatment_id.clone(),
+                treating.clone(),
+                actor.snapshot().revision(),
+                DEFAULT_COMMAND_TIMEOUT,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            actor
+                .hub_treatment(treatment_scope.clone())
+                .await
+                .unwrap()
+                .projection
+                .summary
+                .departure_eligible
+                .value(),
+            20
+        );
         let old_generation = actor.session_generation();
         let credential = secrets.load(owner).await.unwrap();
         secrets
             .delete(&DurableRequestId::new_v7(), owner)
             .await
             .unwrap();
+        assert_eq!(
+            actor
+                .apply_hub_handling(
+                    treatment_id.clone(),
+                    treating.clone(),
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::CredentialMissing
+        );
+        assert_eq!(
+            actor
+                .hub_handling_operation(treatment_id.clone())
+                .await
+                .unwrap(),
+            Some(treated)
+        );
+        assert_eq!(
+            actor
+                .hub_treatment(treatment_scope.clone())
+                .await
+                .unwrap()
+                .projection
+                .summary
+                .accepted
+                .value(),
+            20
+        );
         assert_eq!(
             actor
                 .receive_hub_stock(
@@ -4121,6 +4197,27 @@ mod tests {
                 .apply_hub_handling(
                     split_id,
                     separating,
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert_eq!(
+            actor
+                .hub_treatment(treatment_scope)
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert_eq!(
+            actor
+                .apply_hub_handling(
+                    treatment_id,
+                    treating,
                     actor.snapshot().revision(),
                     DEFAULT_COMMAND_TIMEOUT
                 )

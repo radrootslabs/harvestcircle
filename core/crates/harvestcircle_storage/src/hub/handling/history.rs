@@ -33,6 +33,9 @@ impl Database {
                             "split" => {
                                 portions::original_on(transaction, hub.id(), operation).await?
                             }
+                            "acceptance" | "hold_place" | "hold_release" => {
+                                treatment::original_on(transaction, hub.id(), operation).await?
+                            }
                             "work_replan" | "work_new" => {
                                 work_on(transaction, hub.id(), operation).await?
                             }

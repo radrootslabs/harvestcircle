@@ -3,7 +3,7 @@ use crate::hub::movement::{hash_occurrence, hash_text};
 use crate::hub::{
     HubId, HubRevision,
     portions::PhysicalLineage,
-    reference::{ReferenceCatalog, ReferenceKind, SourceProvenance},
+    reference::{ReferenceCatalog, ReferenceKind, SourceProvenance, WholePacks},
     stock::Occurrence,
 };
 use crate::{PublicKey, UnixTimestamp};
@@ -48,6 +48,8 @@ pub struct TreatmentPlan {
     pub revision: HubRevision,
     pub change: TreatmentChange,
     pub summary: TreatmentSummary,
+    pub history_capacity_reached: bool,
+    pub affected_packs: WholePacks,
 }
 
 pub fn treatment_record_id(operation: HubRecordId) -> Result<HubRecordId, TreatmentError> {
@@ -152,6 +154,19 @@ impl TreatmentCommand {
                 }
             }
         };
+        let scope = match &change {
+            TreatmentChange::Acceptance(value) => &value.scope,
+            TreatmentChange::HoldPlaced(value) => &value.scope,
+            TreatmentChange::HoldReleased { hold, .. } => {
+                &state
+                    .holds()
+                    .iter()
+                    .find(|item| item.stamp.id == *hold)
+                    .ok_or(TreatmentError::InvalidHistory)?
+                    .scope
+            }
+        };
+        let affected_packs = graph.resolve(scope)?.packs();
         let advanced = PhysicalLineage::new(
             graph.hub(),
             graph.trace(),
@@ -159,11 +174,13 @@ impl TreatmentCommand {
             revision,
             graph.nodes().to_vec(),
         )?;
-        let summary = after.project(&advanced, catalog.handling_basis())?.summary;
+        let projection = after.project(&advanced, catalog.handling_basis())?;
         Ok(TreatmentPlan {
             revision,
             change,
-            summary,
+            summary: projection.summary,
+            history_capacity_reached: projection.history_capacity_reached,
+            affected_packs,
         })
     }
 

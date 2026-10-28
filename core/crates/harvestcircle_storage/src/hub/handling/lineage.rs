@@ -147,58 +147,8 @@ pub(super) async fn load_on(
         let created_by = operation.actor;
         let created_at = operation.recorded_at;
         let created_revision = operation.revision;
-        let (created_kind, identification, occurred, observation) = match operation.kind.as_str() {
-            "receipt" if parent.is_none() => {
-                let original = stock::read::receipt_on(transaction, hub, operation).await?;
-                if original.original.position.group != id || original.original.trace != trace {
-                    return Err(corrupt_storage());
-                }
-                (
-                    HubGroupCreationKind::Receipt,
-                    None,
-                    trace.occurred,
-                    trace.observation.clone(),
-                )
-            }
-            "move" if parent.is_some() => {
-                let original = history::movement_on(transaction, hub, operation).await?;
-                let HubHandlingResult::Moved(result) = original.result else {
-                    return Err(corrupt_storage());
-                };
-                if original.trace != trace_id
-                    || result.moved_group != id
-                    || Some(result.selected_group) != parent
-                {
-                    return Err(corrupt_storage());
-                }
-                let identification = result.separated_portion.ok_or_else(corrupt_storage)?;
-                (
-                    HubGroupCreationKind::Movement,
-                    Some(identification),
-                    result.occurred,
-                    result.observation,
-                )
-            }
-            "split" if parent.is_some() => {
-                let original = portions::original_on(transaction, hub, operation).await?;
-                let HubHandlingResult::Separated(result) = original.result else {
-                    return Err(corrupt_storage());
-                };
-                if original.trace != trace_id
-                    || result.portion_group != id
-                    || Some(result.selected_group) != parent
-                {
-                    return Err(corrupt_storage());
-                }
-                (
-                    HubGroupCreationKind::Separation,
-                    Some(result.identification),
-                    result.occurred,
-                    result.observation,
-                )
-            }
-            _ => return Err(corrupt_storage()),
-        };
+        let (created_kind, identification, occurred, observation) =
+            creation_on(transaction, hub, &trace, id, parent, operation).await?;
         let label: Option<Vec<u8>> = row
             .try_get("physical_label")
             .map_err(|_| corrupt_storage())?;
@@ -260,4 +210,140 @@ pub(super) async fn load_on(
     let graph = PhysicalLineage::new(hub, trace_id, trace.variant.id, revision, nodes)
         .map_err(|_| corrupt_storage())?;
     Ok(LoadedLineage { graph, rows, trace })
+}
+
+async fn creation_on(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    trace: &ReceiptTrace,
+    id: HubRecordId,
+    parent: Option<HubRecordId>,
+    operation: stock::read::OperationRecord,
+) -> Result<
+    (
+        HubGroupCreationKind,
+        Option<PhysicalIdentification>,
+        Occurrence,
+        harvestcircle_domain::hub::reference::SourceProvenance,
+    ),
+    SafeError,
+> {
+    Ok(match operation.kind.as_str() {
+        "receipt" if parent.is_none() => {
+            let original = stock::read::receipt_on(transaction, hub, operation).await?;
+            if original.original.position.group != id || original.original.trace != *trace {
+                return Err(corrupt_storage());
+            }
+            (
+                HubGroupCreationKind::Receipt,
+                None,
+                trace.occurred,
+                trace.observation.clone(),
+            )
+        }
+        "move" if parent.is_some() => {
+            let original = history::movement_on(transaction, hub, operation).await?;
+            let HubHandlingResult::Moved(result) = original.result else {
+                return Err(corrupt_storage());
+            };
+            if original.trace != trace.id
+                || result.moved_group != id
+                || Some(result.selected_group) != parent
+            {
+                return Err(corrupt_storage());
+            }
+            let identification = result.separated_portion.ok_or_else(corrupt_storage)?;
+            (
+                HubGroupCreationKind::Movement,
+                Some(identification),
+                result.occurred,
+                result.observation,
+            )
+        }
+        "split" if parent.is_some() => {
+            let original = portions::original_on(transaction, hub, operation).await?;
+            let HubHandlingResult::Separated(result) = original.result else {
+                return Err(corrupt_storage());
+            };
+            if original.trace != trace.id
+                || result.portion_group != id
+                || Some(result.selected_group) != parent
+            {
+                return Err(corrupt_storage());
+            }
+            (
+                HubGroupCreationKind::Separation,
+                Some(result.identification),
+                result.occurred,
+                result.observation,
+            )
+        }
+        _ => return Err(corrupt_storage()),
+    })
+}
+
+/// Original recovery uses only creation history through its captured cut.
+/// Current stock positions, group revisions and inventory counters are irrelevant.
+pub(super) async fn historical_on(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    trace_id: HubRecordId,
+    cut: HubRevision,
+) -> Result<PhysicalLineage, SafeError> {
+    let trace = read::trace_on(transaction, hub, trace_id).await?;
+    let rows=sqlx::query(concat!(
+        "SELECT substr(g.group_id,1,17) AS group_id,substr(i.parent_group_id,1,17) AS parent_group_id,substr(i.created_operation_id,1,37) AS created_operation_id,",
+        "substr(CAST(i.physical_label AS BLOB),1,121) AS physical_label,substr(CAST(i.observation AS BLOB),1,513) AS physical_observation ",
+        "FROM hub_stock_groups g JOIN hub_group_identification i ON i.group_id=g.group_id JOIN hub_stock_operations o ON o.operation_id=i.created_operation_id ",
+        "WHERE g.trace_id=? AND o.hub_id=? AND o.stock_revision<=? ORDER BY g.group_id LIMIT 257"
+    )).bind(trace_id.as_bytes().as_slice()).bind(hub.as_bytes().as_slice()).bind(integer(cut)?).fetch_all(&mut *transaction).await.map_err(|_|storage_unavailable())?;
+    if rows.is_empty() || rows.len() > HUB_LINEAGE_GROUPS {
+        return Err(corrupt_storage());
+    }
+    let mut nodes = Vec::with_capacity(rows.len());
+    for row in rows {
+        let id = record_id(&row, "group_id")?;
+        let parent = optional_id(&row, "parent_group_id")?;
+        let operation = DurableRequestId::parse(
+            row.try_get::<String, _>("created_operation_id")
+                .map_err(|_| corrupt_storage())?,
+        )
+        .map_err(|_| corrupt_storage())?;
+        let operation = stock::read::operation_on(transaction, hub, &operation)
+            .await?
+            .ok_or_else(corrupt_storage)?;
+        let born = operation.revision;
+        let (_, identification, _, _) =
+            creation_on(transaction, hub, &trace, id, parent, operation).await?;
+        let label: Option<Vec<u8>> = row
+            .try_get("physical_label")
+            .map_err(|_| corrupt_storage())?;
+        let observation: Option<Vec<u8>> = row
+            .try_get("physical_observation")
+            .map_err(|_| corrupt_storage())?;
+        let stored = match (label, observation) {
+            (None, None) => None,
+            (Some(label), Some(observation)) => Some(PhysicalIdentification {
+                label: HubLabel::new(String::from_utf8(label).map_err(|_| corrupt_storage())?)
+                    .map_err(|_| corrupt_storage())?,
+                observation: harvestcircle_domain::hub::reference::SourceProvenance::new(
+                    String::from_utf8(observation).map_err(|_| corrupt_storage())?,
+                )
+                .map_err(|_| corrupt_storage())?,
+            }),
+            _ => return Err(corrupt_storage()),
+        };
+        if stored != identification {
+            return Err(corrupt_storage());
+        }
+        nodes.push(PhysicalLineageNode {
+            id,
+            parent,
+            trace: trace_id,
+            variant: trace.variant.id,
+            created_revision: born,
+            packs: WholePacks::from_value(0).expect("zero packs"),
+        });
+    }
+    PhysicalLineage::new(hub, trace_id, trace.variant.id, cut, nodes).map_err(|_| corrupt_storage())
 }

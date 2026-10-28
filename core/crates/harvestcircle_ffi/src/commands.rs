@@ -35,6 +35,9 @@ use crate::hub_reference::{
     HubReferenceEditDto, HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto,
 };
 use crate::hub_stock::{HubReceiptInputDto, HubStockPageDto, HubStockQueryDto, HubStockReceiptDto};
+use crate::hub_treatment::{
+    HubTreatmentPageDto, HubTreatmentQueryDto, HubTreatmentScopeDto, HubTreatmentSnapshotDto,
+};
 use crate::{
     AppSnapshotDto, IdentityDto, RelayDestinationDto, RelayEndpointDto, WireErrorCategory,
     WireErrorCode, WireRecoveryAction,
@@ -556,6 +559,31 @@ impl HarvestCircleAppCore {
         self.inner
             .actor
             .hub_lineage(query.decode()?)
+            .await
+            .map(Into::into)
+            .map_err(HarvestCircleError::from)
+    }
+
+    pub async fn hub_treatment(
+        &self,
+        scope: HubTreatmentScopeDto,
+    ) -> Result<HubTreatmentSnapshotDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        self.inner
+            .actor
+            .hub_treatment(scope.decode()?)
+            .await
+            .map(Into::into)
+            .map_err(HarvestCircleError::from)
+    }
+    pub async fn hub_treatment_history(
+        &self,
+        query: HubTreatmentQueryDto,
+    ) -> Result<HubTreatmentPageDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        self.inner
+            .actor
+            .hub_treatment_history(query.decode()?)
             .await
             .map(Into::into)
             .map_err(HarvestCircleError::from)
@@ -1972,6 +2000,157 @@ mod tests {
             Some(separated)
         );
 
+        let occurrence = || crate::HubOccurrenceDto {
+            kind: crate::HubOccurrenceKindDto::Unknown,
+            start_unix_s: None,
+            end_unix_s: None,
+        };
+        let treatment_scope = crate::HubTreatmentScopeDto {
+            trace_id: recorded.trace.id.clone(),
+            expected_stock_revision: None,
+            expected_catalog_revision: None,
+        };
+        let initial = core.hub_treatment(treatment_scope.clone()).await.unwrap();
+        assert_eq!(initial.summary.review_required, 20);
+        assert_eq!(initial.summary.departure_eligible, 0);
+        let accepted = core
+            .apply_hub_handling(
+                context(core.snapshot().revision),
+                crate::HubHandlingInputDto::SetAcceptance {
+                    input: crate::HubAcceptanceInputDto {
+                        expected_stock_revision: initial.stock_revision,
+                        expected_catalog_revision: initial.catalog_revision,
+                        group_ids: lineage.rows.iter().map(|row| row.id.clone()).collect(),
+                        status: crate::HubAcceptanceStatusDto::Accepted,
+                        occurrence: occurrence(),
+                        observation: "Explicit manually reviewed sample acceptance".into(),
+                    },
+                },
+            )
+            .await
+            .unwrap();
+        let five_id = lineage
+            .rows
+            .iter()
+            .find(|row| {
+                row.identification
+                    .as_ref()
+                    .is_some_and(|identity| identity.label == "Green five")
+            })
+            .unwrap()
+            .id
+            .clone();
+        let current = core.hub_treatment(treatment_scope.clone()).await.unwrap();
+        assert_eq!(current.summary.departure_eligible, 20);
+        let held_a = core
+            .apply_hub_handling(
+                context(core.snapshot().revision),
+                crate::HubHandlingInputDto::PlaceHold {
+                    input: crate::HubHoldInputDto {
+                        expected_stock_revision: current.stock_revision,
+                        expected_catalog_revision: current.catalog_revision,
+                        group_ids: vec![five_id.clone()],
+                        occurrence: occurrence(),
+                        reason: "Sample damage review on the five tagged crates".into(),
+                    },
+                },
+            )
+            .await
+            .unwrap();
+        let crate::HubHandlingResultDto::Treatment { value: a } = &held_a.result else {
+            panic!("treatment")
+        };
+        let crate::HubTreatmentChangeDto::HoldPlaced { value: a } = &a.change else {
+            panic!("hold A")
+        };
+        let hold_a = a.stamp.id.clone();
+        let current = core.hub_treatment(treatment_scope.clone()).await.unwrap();
+        let held_b = core
+            .apply_hub_handling(
+                context(core.snapshot().revision),
+                crate::HubHandlingInputDto::PlaceHold {
+                    input: crate::HubHoldInputDto {
+                        expected_stock_revision: current.stock_revision,
+                        expected_catalog_revision: current.catalog_revision,
+                        group_ids: vec![five_id.clone(), movement.moved_group_id.clone()],
+                        occurrence: occurrence(),
+                        reason: "Independent source review on all eight tagged crates".into(),
+                    },
+                },
+            )
+            .await
+            .unwrap();
+        let crate::HubHandlingResultDto::Treatment { value: b } = &held_b.result else {
+            panic!("treatment")
+        };
+        let crate::HubTreatmentChangeDto::HoldPlaced { value: b } = &b.change else {
+            panic!("hold B")
+        };
+        let hold_b = b.stamp.id.clone();
+        let current = core.hub_treatment(treatment_scope.clone()).await.unwrap();
+        assert_eq!(
+            (
+                current.summary.restricted,
+                current.summary.departure_eligible
+            ),
+            (8, 12)
+        );
+        let five = current
+            .groups
+            .iter()
+            .find(|group| group.group_id == five_id)
+            .unwrap();
+        assert!(five.actions.internal_relocation);
+        assert!(!five.actions.normal_departure);
+        for (index, hold) in [hold_a, hold_b].into_iter().enumerate() {
+            let current = core.hub_treatment(treatment_scope.clone()).await.unwrap();
+            core.apply_hub_handling(
+                context(core.snapshot().revision),
+                crate::HubHandlingInputDto::ReleaseHold {
+                    input: crate::HubHoldReleaseInputDto {
+                        expected_stock_revision: current.stock_revision,
+                        expected_catalog_revision: current.catalog_revision,
+                        hold_id: hold,
+                        expected_hold_revision: 1,
+                        occurrence: occurrence(),
+                        resolution: "Explicitly reviewed only this selected hold".into(),
+                    },
+                },
+            )
+            .await
+            .unwrap();
+            let current = core.hub_treatment(treatment_scope.clone()).await.unwrap();
+            assert_eq!(
+                current.summary.departure_eligible,
+                if index == 0 { 12 } else { 20 }
+            );
+        }
+        assert_eq!(
+            core.hub_handling_operation(held_a.operation_id.clone())
+                .await
+                .unwrap(),
+            Some(held_a)
+        );
+        assert_eq!(
+            core.hub_handling_operation(accepted.operation_id.clone())
+                .await
+                .unwrap(),
+            Some(accepted)
+        );
+        assert_eq!(
+            core.hub_treatment_history(crate::HubTreatmentQueryDto {
+                trace_id: recorded.trace.id.clone(),
+                expected_stock_revision: None,
+                expected_catalog_revision: None,
+                offset: 0,
+                limit: 64
+            })
+            .await
+            .unwrap()
+            .total,
+            5
+        );
+
         assert_eq!(
             core.hub_handling_operation(original_open.operation_id.clone())
                 .await
@@ -2496,7 +2675,7 @@ mod tests {
             .to_path_buf();
         assert!(database.ends_with("data/services/harvestcircle/desktop/state.sqlite"));
         assert!(!database.to_string_lossy().contains("harvestcircle.sqlite3"));
-        assert_eq!(CURRENT_SCHEMA_VERSION, 8);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 9);
     }
 
     #[test]

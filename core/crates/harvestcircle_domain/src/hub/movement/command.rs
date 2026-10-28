@@ -66,6 +66,7 @@ impl DiscrepancyCommand {
 pub enum HandlingCommand {
     Move(MovementCommand),
     Split(crate::hub::portions::SplitCommand),
+    Treatment(crate::hub::treatment::TreatmentCommand),
     Replan(ReplanCommand),
     NewWork(NewWorkCommand),
     Discrepancy(DiscrepancyCommand),
@@ -77,6 +78,7 @@ impl HandlingCommand {
         match self {
             Self::Move(_) => "move",
             Self::Split(_) => "split",
+            Self::Treatment(command) => command.kind(),
             Self::Replan(_) => "work_replan",
             Self::NewWork(_) => "work_new",
             Self::Discrepancy(command) => match command.action {
@@ -90,6 +92,10 @@ impl HandlingCommand {
     pub fn expected_versions(&self) -> (HubRevision, HubRevision) {
         match self {
             Self::Move(command) => (
+                command.expected_stock_revision,
+                command.expected_catalog_revision,
+            ),
+            Self::Treatment(command) => (
                 command.expected_stock_revision,
                 command.expected_catalog_revision,
             ),
@@ -124,6 +130,7 @@ impl HandlingCommand {
         match self {
             Self::Move(command) => command.fingerprint(hub, actor, ids.group),
             Self::Split(command) => command.fingerprint(hub, actor, ids.group),
+            Self::Treatment(command) => command.fingerprint(hub, actor, ids.treatment),
             Self::Replan(command) => command.fingerprint(hub, actor, ids.requirement),
             Self::NewWork(command) => command.fingerprint(hub, actor, ids.requirement),
             Self::Discrepancy(command) => command.fingerprint(hub, actor, ids.discrepancy),

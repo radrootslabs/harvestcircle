@@ -2,10 +2,12 @@
 //! These checked facts never establish actor credentials or future authority.
 
 mod command;
+mod result;
 mod state;
 pub use command::{
     TreatmentAction, TreatmentChange, TreatmentCommand, TreatmentPlan, treatment_record_id,
 };
+pub use result::treatment_result_digest;
 pub use state::{
     AcceptanceDecision, GroupTreatment, Hold, TreatmentProjection, TreatmentStamp, TreatmentState,
     TreatmentSummary,

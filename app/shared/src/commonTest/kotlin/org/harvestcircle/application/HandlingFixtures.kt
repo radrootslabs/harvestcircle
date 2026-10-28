@@ -85,6 +85,31 @@ internal open class HandlingFake :
     val lookups = mutableListOf<OperationId>()
     val queries = mutableListOf<HubHandlingQuery>()
 
+    override suspend fun treatment(scope: HubTreatmentScope) =
+        HubTreatmentSnapshot(
+            groupView.stockRevision,
+            groupView.catalogRevision,
+            groupView.trace,
+            StockFixtures.basis,
+            HubTreatmentSummary(20U, 0U, 20U, 0U, 0U, 0U),
+            false,
+            true,
+            listOf(
+                HubGroupTreatment(
+                    groupView.group.id,
+                    20U,
+                    HubAcceptanceStatus.ReviewRequired,
+                    null,
+                    emptyList(),
+                    HubActionEligibility(true, true, false, true),
+                ),
+            ),
+            emptyList(),
+        )
+
+    override suspend fun treatmentHistory(query: HubTreatmentQuery) =
+        HubTreatmentPage(groupView.stockRevision, groupView.catalogRevision, 0U, 0U, false, StockFixtures.basis, emptyList())
+
     override suspend fun lineage(query: HubLineageQuery) =
         HubLineagePage(
             groupView.stockRevision,

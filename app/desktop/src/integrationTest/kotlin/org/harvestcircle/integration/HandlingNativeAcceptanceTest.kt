@@ -3,6 +3,7 @@ package org.harvestcircle.integration
 import kotlinx.coroutines.runBlocking
 import org.harvestcircle.application.ApplicationCommand
 import org.harvestcircle.application.ApplicationFailure
+import org.harvestcircle.application.HubAcceptanceStatus
 import org.harvestcircle.application.HubGroupCreationKind
 import org.harvestcircle.application.HubGroupView
 import org.harvestcircle.application.HubHandlingInput
@@ -21,6 +22,9 @@ import org.harvestcircle.application.HubReferenceValue
 import org.harvestcircle.application.HubSourceInput
 import org.harvestcircle.application.HubStockQuery
 import org.harvestcircle.application.HubStockReceipt
+import org.harvestcircle.application.HubTreatmentChange
+import org.harvestcircle.application.HubTreatmentQuery
+import org.harvestcircle.application.HubTreatmentScope
 import org.harvestcircle.application.IdentityId
 import org.harvestcircle.application.OperationId
 import org.harvestcircle.application.RequestContext
@@ -28,8 +32,10 @@ import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class HandlingNativeAcceptanceTest {
     @Test
@@ -280,6 +286,75 @@ class HandlingNativeAcceptanceTest {
             assertFailsWith<ApplicationFailure> { runtime.lineage(query) }
         }
 
+    @Test
+    fun overlappingHoldsRetainIndependentReleaseAndOriginalNativeResults() =
+        withHub { hub ->
+            val runtime = hub.runtime
+            val rootId = hub.receipt.initialPosition.groupId
+            runtime.applyHandling(hub.context(), hub.move(runtime.group(rootId), hub.a3, 20U))
+            val before = runtime.group(rootId)
+            val accepted =
+                runtime.applyHandling(
+                    hub.context(),
+                    HubHandlingInput.SetAcceptance(
+                        before.stockRevision,
+                        before.catalogRevision,
+                        listOf(rootId),
+                        HubAcceptanceStatus.Accepted,
+                        HubOccurrence(HubOccurrenceKind.Unknown),
+                        "Sample inspection accepted twenty crates",
+                    ),
+                )
+            val eight = hub.split(rootId, 8U, "Blue eight")
+            val five = hub.split(eight, 5U, "Green five")
+            val positions = runtime.stock(HubStockQuery()).rows
+            val work = runtime.work(HubHandlingQuery(openOnly = false)).rows
+            val holdA = hub.hold(listOf(five), "Hold A: green five")
+            val holdB = hub.hold(listOf(eight, five), "Hold B: original eight")
+            val scope = HubTreatmentScope(hub.receipt.trace.id)
+            val both = runtime.treatment(scope)
+            assertEquals(20U, both.summary.accepted)
+            assertEquals(8U, both.summary.restricted)
+            assertEquals(12U, both.summary.departureEligible)
+            val green = both.groups.single { it.groupId == five }
+            assertEquals(2, green.activeHoldIds.size)
+            assertTrue(green.actions.internalRelocation)
+            assertFalse(green.actions.normalDeparture)
+            assertEquals(listOf(3U, 5U, 12U), both.groups.map { it.wholePacks }.sorted())
+            assertEquals(listOf(5U, 8U), both.holds.map { it.currentWholePacks }.sorted())
+            assertEquals(
+                listOf(
+                    5U,
+                ),
+                assertIs<HubTreatmentChange.HoldPlaced>(
+                    assertIs<HubHandlingResult.Treatment>(holdA.result).value.change,
+                ).value.scope.anchors.map {
+                    it.capturedWholePacks
+                },
+            )
+            hub.release(holdA.operationId)
+            assertEquals(8U, runtime.treatment(scope).summary.restricted)
+            hub.release(holdB.operationId)
+            val released = runtime.treatment(scope)
+            assertEquals(0U, released.summary.restricted)
+            assertEquals(20U, released.summary.departureEligible)
+            assertTrue(released.groups.all { it.actions.normalDeparture })
+            assertTrue(released.holds.all { it.hold.release != null })
+            assertEquals(positions, runtime.stock(HubStockQuery()).rows)
+            assertEquals(work, runtime.work(HubHandlingQuery(openOnly = false)).rows)
+            assertEquals(accepted, runtime.handlingOperation(accepted.operationId))
+            assertEquals(holdA, runtime.handlingOperation(holdA.operationId))
+            val history = runtime.treatmentHistory(HubTreatmentQuery(hub.receipt.trace.id))
+            assertEquals(5U, history.total)
+            runtime.restart()
+            runtime.execute(ApplicationCommand.ActivateIdentity(hub.owner))
+            assertEquals(released, runtime.treatment(scope))
+            assertEquals(history, runtime.treatmentHistory(HubTreatmentQuery(hub.receipt.trace.id)))
+            assertEquals(holdB, runtime.handlingOperation(holdB.operationId))
+            runtime.execute(ApplicationCommand.SignOut)
+            assertFailsWith<ApplicationFailure> { runtime.treatment(scope) }
+        }
+
     private fun withHub(block: suspend (HandlingFixture) -> Unit) =
         runBlocking {
             val root = Files.createTempDirectory("harvestcircle-handling-")
@@ -319,6 +394,62 @@ private class HandlingFixture(
         HubOccurrence(HubOccurrenceKind.Unknown),
         "Manually confirmed actual arrival",
     )
+
+    suspend fun split(
+        groupId: String,
+        packs: UInt,
+        label: String,
+    ): String {
+        val group = runtime.group(groupId)
+        val receipt =
+            runtime.applyHandling(
+                context(),
+                HubHandlingInput.Split(
+                    group.stockRevision,
+                    group.catalogRevision,
+                    groupId,
+                    group.group.revision,
+                    packs,
+                    HubPhysicalIdentification(label, "Observed separately tagged original crates"),
+                    HubOccurrence(HubOccurrenceKind.Unknown),
+                    "Observed physical separation",
+                ),
+            )
+        return assertIs<HubHandlingResult.Separated>(receipt.result).portionGroupId
+    }
+
+    suspend fun hold(
+        groups: List<String>,
+        reason: String,
+    ): org.harvestcircle.application.HubHandlingReceipt {
+        val current = runtime.group(groups.first())
+        return runtime.applyHandling(
+            context(),
+            HubHandlingInput.PlaceHold(
+                current.stockRevision,
+                current.catalogRevision,
+                groups,
+                HubOccurrence(HubOccurrenceKind.Unknown),
+                reason,
+            ),
+        )
+    }
+
+    suspend fun release(operationId: OperationId) {
+        val current = runtime.treatment(HubTreatmentScope(receipt.trace.id))
+        val row = current.holds.single { it.createdOperationId == operationId }
+        runtime.applyHandling(
+            context(),
+            HubHandlingInput.ReleaseHold(
+                current.stockRevision,
+                current.catalogRevision,
+                row.hold.stamp.id,
+                row.hold.revision,
+                HubOccurrence(HubOccurrenceKind.Unknown),
+                "Selected sample hold reviewed and released",
+            ),
+        )
+    }
 
     companion object {
         suspend fun open(runtime: TestBridgeHarvestCircleRuntime): HandlingFixture {

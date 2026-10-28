@@ -108,6 +108,32 @@ data class HubDiscrepancyPage(
 )
 
 sealed interface HubHandlingInput {
+    data class SetAcceptance(
+        val expectedStockRevision: ULong,
+        val expectedCatalogRevision: ULong,
+        val groupIds: List<String>,
+        val status: HubAcceptanceStatus,
+        val occurrence: HubOccurrence,
+        val observation: String,
+    ) : HubHandlingInput
+
+    data class PlaceHold(
+        val expectedStockRevision: ULong,
+        val expectedCatalogRevision: ULong,
+        val groupIds: List<String>,
+        val occurrence: HubOccurrence,
+        val reason: String,
+    ) : HubHandlingInput
+
+    data class ReleaseHold(
+        val expectedStockRevision: ULong,
+        val expectedCatalogRevision: ULong,
+        val holdId: String,
+        val expectedHoldRevision: ULong,
+        val occurrence: HubOccurrence,
+        val resolution: String,
+    ) : HubHandlingInput
+
     data class Split(
         val expectedStockRevision: ULong,
         val expectedCatalogRevision: ULong,
@@ -178,6 +204,10 @@ data class HubActionGroup(
 )
 
 sealed interface HubHandlingResult {
+    data class Treatment(
+        val value: HubTreatmentOutcome,
+    ) : HubHandlingResult
+
     data class Separated(
         val selectedGroupId: String,
         val expectedGroupRevision: ULong,
@@ -218,7 +248,7 @@ sealed interface HubHandlingResult {
     ) : HubHandlingResult
 }
 
-enum class HubHandlingKind { Split, Move, Replan, NewWork, OpenDiscrepancy, ResolveDiscrepancy }
+enum class HubHandlingKind { Acceptance, PlaceHold, ReleaseHold, Split, Move, Replan, NewWork, OpenDiscrepancy, ResolveDiscrepancy }
 
 data class HubHandlingReceipt(
     val operationId: OperationId,
@@ -232,6 +262,10 @@ data class HubHandlingReceipt(
 )
 
 interface HarvestCircleHandlingRuntime {
+    suspend fun treatment(scope: HubTreatmentScope): HubTreatmentSnapshot
+
+    suspend fun treatmentHistory(query: HubTreatmentQuery): HubTreatmentPage
+
     suspend fun lineage(query: HubLineageQuery): HubLineagePage
 
     suspend fun group(id: String): HubGroupView

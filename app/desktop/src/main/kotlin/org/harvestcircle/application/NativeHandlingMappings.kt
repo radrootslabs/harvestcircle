@@ -145,6 +145,9 @@ private fun HubWorkActionResultDto.toModel() =
 
 private fun HubHandlingKindDto.toModel() =
     when (this) {
+        HubHandlingKindDto.ACCEPTANCE -> HubHandlingKind.Acceptance
+        HubHandlingKindDto.PLACE_HOLD -> HubHandlingKind.PlaceHold
+        HubHandlingKindDto.RELEASE_HOLD -> HubHandlingKind.ReleaseHold
         HubHandlingKindDto.SPLIT -> HubHandlingKind.Split
         HubHandlingKindDto.MOVE -> HubHandlingKind.Move
         HubHandlingKindDto.REPLAN -> HubHandlingKind.Replan
@@ -163,6 +166,7 @@ internal fun HubHandlingReceiptDto.toModel() =
         IdentityId.fromPublicKeyHex(actorPublicKey),
         UnixSeconds(recordedAtUnixS),
         when (val original = result) {
+            is HubHandlingResultDto.Treatment -> HubHandlingResult.Treatment(original.value.toModel())
             is HubHandlingResultDto.Separated -> original.value.toModel()
             is HubHandlingResultDto.Moved -> original.value.toModel()
             is HubHandlingResultDto.WorkChanged -> original.value.toModel()

@@ -23,7 +23,16 @@ impl Database {
     ) -> Result<HubStockReceipt, SafeError> {
         self.host()
             .transaction(|transaction| {
-                Box::pin(async move { apply_on(transaction, actor, operation, command, now).await })
+                Box::pin(async move {
+                    crate::hub::handling::treatment::capacity::ensure_on(
+                        transaction,
+                        actor,
+                        &operation,
+                        crate::hub::handling::treatment::capacity::Reservation::Ordinary(1),
+                    )
+                    .await?;
+                    apply_on(transaction, actor, operation, command, now).await
+                })
             })
             .await
             .map_err(map_transaction_error)

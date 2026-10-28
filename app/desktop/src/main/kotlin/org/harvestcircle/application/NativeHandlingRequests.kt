@@ -1,9 +1,12 @@
 package org.harvestcircle.application
 
+import org.harvestcircle.ffi.HubAcceptanceInputDto
 import org.harvestcircle.ffi.HubDiscrepancyOpenInputDto
 import org.harvestcircle.ffi.HubDiscrepancyResolveInputDto
 import org.harvestcircle.ffi.HubHandlingInputDto
 import org.harvestcircle.ffi.HubHandlingQueryDto
+import org.harvestcircle.ffi.HubHoldInputDto
+import org.harvestcircle.ffi.HubHoldReleaseInputDto
 import org.harvestcircle.ffi.HubMovementInputDto
 import org.harvestcircle.ffi.HubNewWorkInputDto
 import org.harvestcircle.ffi.HubPhysicalIdentificationDto
@@ -25,6 +28,32 @@ private fun HubPhysicalIdentification.toNative() = HubPhysicalIdentificationDto(
 
 internal fun HubHandlingInput.toNative(): HubHandlingInputDto =
     when (this) {
+        is HubHandlingInput.SetAcceptance ->
+            HubHandlingInputDto.SetAcceptance(
+                HubAcceptanceInputDto(
+                    expectedStockRevision,
+                    expectedCatalogRevision,
+                    groupIds,
+                    status.toNative(),
+                    occurrence.toNative(),
+                    observation,
+                ),
+            )
+        is HubHandlingInput.PlaceHold ->
+            HubHandlingInputDto.PlaceHold(
+                HubHoldInputDto(expectedStockRevision, expectedCatalogRevision, groupIds, occurrence.toNative(), reason),
+            )
+        is HubHandlingInput.ReleaseHold ->
+            HubHandlingInputDto.ReleaseHold(
+                HubHoldReleaseInputDto(
+                    expectedStockRevision,
+                    expectedCatalogRevision,
+                    holdId,
+                    expectedHoldRevision,
+                    occurrence.toNative(),
+                    resolution,
+                ),
+            )
         is HubHandlingInput.Split ->
             HubHandlingInputDto.Split(
                 HubSplitInputDto(

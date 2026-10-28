@@ -63,6 +63,13 @@ internal fun HandlingOutcome(
 @Composable
 private fun HandlingResultSummary(result: HubHandlingResult) {
     when (result) {
+        is HubHandlingResult.Treatment -> {
+            val summary = result.value.summary
+            HarvestCircleShellText("Sample treatment recorded for ${result.value.affectedWholePacks} original packs")
+            HarvestCircleShellText("Recorded eligible physical on hand: ${summary.departureEligible}")
+            HarvestCircleShellText("Recorded restricted: ${summary.restricted} · Review required: ${summary.reviewRequired}")
+            HarvestCircleShellText("This original result preserves the recorded decision. Check current records before another action.")
+        }
         is HubHandlingResult.Separated -> {
             HarvestCircleShellText("${result.wholePacks} original packs separated at ${result.location.value.label}")
             HarvestCircleShellText("Physical identifier: ${result.identification.label} · ${result.identification.observation}")

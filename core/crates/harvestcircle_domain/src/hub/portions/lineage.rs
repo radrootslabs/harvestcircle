@@ -52,6 +52,18 @@ pub struct CapturedPhysicalScope {
 
 impl CapturedPhysicalScope {
     #[must_use]
+    pub const fn hub(&self) -> HubId {
+        self.hub
+    }
+    #[must_use]
+    pub const fn trace(&self) -> HubRecordId {
+        self.trace
+    }
+    #[must_use]
+    pub const fn variant(&self) -> HubRecordId {
+        self.variant
+    }
+    #[must_use]
     pub const fn captured_revision(&self) -> HubRevision {
         self.captured_revision
     }

@@ -34,6 +34,7 @@ pub struct HandlingIdentities {
     pub group: HubRecordId,
     pub requirement: HubRecordId,
     pub discrepancy: HubRecordId,
+    pub treatment: HubRecordId,
 }
 
 impl HandlingIdentities {
@@ -52,6 +53,8 @@ impl HandlingIdentities {
             group: derive(b"group\0")?,
             requirement: derive(b"work\0")?,
             discrepancy: derive(b"discrepancy\0")?,
+            treatment: super::treatment::treatment_record_id(operation)
+                .map_err(|_| MovementError::InvalidGroup)?,
         })
     }
 }

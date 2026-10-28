@@ -8,6 +8,7 @@ mod portions;
 mod query;
 pub(in crate::hub) mod read;
 pub(crate) mod schema;
+pub(crate) mod treatment;
 mod work_write;
 mod write;
 
@@ -43,11 +44,18 @@ use radroots_service_sqlite::ServiceSqliteTransaction;
 
 use super::stock::{capacity, conflict, invalid_input};
 use crate::db::storage_unavailable;
+pub use treatment::{
+    HubHoldRow, HubTreatmentPage, HubTreatmentQuery, HubTreatmentResult, HubTreatmentScope,
+    HubTreatmentSnapshot,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HubHandlingKind {
     Move,
     Split,
+    Acceptance,
+    PlaceHold,
+    ReleaseHold,
     Replan,
     NewWork,
     OpenDiscrepancy,
@@ -59,6 +67,9 @@ impl HubHandlingKind {
         match value {
             "move" => Ok(Self::Move),
             "split" => Ok(Self::Split),
+            "acceptance" => Ok(Self::Acceptance),
+            "hold_place" => Ok(Self::PlaceHold),
+            "hold_release" => Ok(Self::ReleaseHold),
             "work_replan" => Ok(Self::Replan),
             "work_new" => Ok(Self::NewWork),
             "discrepancy_open" => Ok(Self::OpenDiscrepancy),
@@ -125,6 +136,7 @@ pub struct HubWorkActionResult {
 pub enum HubHandlingResult {
     Moved(HubMovementResult),
     Separated(HubSplitResult),
+    Treatment(Box<HubTreatmentResult>),
     WorkChanged(HubWorkActionResult),
     DiscrepancyChanged(Discrepancy),
 }

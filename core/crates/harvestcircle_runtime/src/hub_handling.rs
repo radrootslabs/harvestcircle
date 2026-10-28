@@ -4,12 +4,15 @@ use harvestcircle_domain::hub::movement::HandlingCommand;
 use harvestcircle_domain::hub::reference::HubRecordId;
 use harvestcircle_storage::{
     HubDiscrepancyRow, HubGroupView, HubHandlingPage, HubHandlingQuery, HubHandlingReceipt,
-    HubLineagePage, HubLineageQuery, HubWorkRow,
+    HubLineagePage, HubLineageQuery, HubTreatmentPage, HubTreatmentQuery, HubTreatmentScope,
+    HubTreatmentSnapshot, HubWorkRow,
 };
 
 pub(super) enum HubHandlingCommand {
     Group(HubRecordId),
     Lineage(HubLineageQuery),
+    Treatment(HubTreatmentScope),
+    TreatmentHistory(HubTreatmentQuery),
     Work(HubHandlingQuery),
     Discrepancies(HubHandlingQuery),
     Apply {
@@ -32,12 +35,39 @@ impl HubHandlingCommand {
 pub(super) enum HubHandlingValue {
     Group(Box<HubGroupView>),
     Lineage(Box<HubLineagePage>),
+    Treatment(Box<HubTreatmentSnapshot>),
+    TreatmentHistory(Box<HubTreatmentPage>),
     Work(Box<HubHandlingPage<HubWorkRow>>),
     Discrepancies(Box<HubHandlingPage<HubDiscrepancyRow>>),
     Receipt(Option<Box<HubHandlingReceipt>>),
 }
 
 impl RuntimeActorHandle {
+    pub async fn hub_treatment(
+        &self,
+        scope: HubTreatmentScope,
+    ) -> Result<HubTreatmentSnapshot, SafeError> {
+        match self
+            .dispatch_handling(HubHandlingCommand::Treatment(scope))
+            .await?
+        {
+            HubHandlingValue::Treatment(snapshot) => Ok(*snapshot),
+            _ => Err(invalid_actor_response()),
+        }
+    }
+    pub async fn hub_treatment_history(
+        &self,
+        query: HubTreatmentQuery,
+    ) -> Result<HubTreatmentPage, SafeError> {
+        query.validate()?;
+        match self
+            .dispatch_handling(HubHandlingCommand::TreatmentHistory(query))
+            .await?
+        {
+            HubHandlingValue::TreatmentHistory(page) => Ok(*page),
+            _ => Err(invalid_actor_response()),
+        }
+    }
     pub async fn hub_lineage(&self, query: HubLineageQuery) -> Result<HubLineagePage, SafeError> {
         query.validate()?;
         match self
@@ -164,6 +194,17 @@ impl RuntimeActor {
                 context.deadline(),
                 move |adapter, secrets, clock| async move {
                     let value = match command {
+                        HubHandlingCommand::Treatment(scope) => HubHandlingValue::Treatment(
+                            Box::new(adapter.database().hub_treatment(actor, scope).await?),
+                        ),
+                        HubHandlingCommand::TreatmentHistory(query) => {
+                            HubHandlingValue::TreatmentHistory(Box::new(
+                                adapter
+                                    .database()
+                                    .hub_treatment_history(actor, query)
+                                    .await?,
+                            ))
+                        }
                         HubHandlingCommand::Group(id) => HubHandlingValue::Group(Box::new(
                             adapter.database().hub_group(actor, id).await?,
                         )),
@@ -196,6 +237,12 @@ impl RuntimeActor {
                             )
                             .await?;
                             let receipt = match *command {
+                                HandlingCommand::Treatment(command) => {
+                                    adapter
+                                        .database()
+                                        .apply_hub_treatment(actor, operation, command, clock.now())
+                                        .await?
+                                }
                                 HandlingCommand::Move(command) => {
                                     adapter
                                         .database()

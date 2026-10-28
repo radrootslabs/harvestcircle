@@ -141,8 +141,13 @@ active hold. The bounds are64 selected groups and256 primary decisions/holds per
 trace, with one retained release per hold. At primary history capacity, normal
 departure fails closed because another precautionary hold cannot be recorded;
 physical treatment totals stay distinct from command readiness. These projections
-carry no current authority or future mutation grant. Native treatment persistence,
-commands, release-capacity reservation and acceptance/hold UI remain unfinished.
+carry no current authority or future mutation grant. Native schema9/FFI5.7 now
+persist and recover acceptance, independent holds and selected whole-hold release.
+Current owner/credential checks precede mutations; release-capacity reservations
+share the mutation transaction. Original results retain captured whole-pack scope,
+actors, basis and separate clocks through later handling and restart. Bounded
+current snapshots and pinned history expose native counts and action readiness.
+Shared acceptance/hold/release forms and full MVP qualification remain unfinished.
 
 Receipt planning is implemented as pure Rust in
 `core/crates/harvestcircle_domain/src/hub/stock.rs`. It captures original reference

@@ -18,8 +18,9 @@ use harvestcircle_ffi::{
     HarvestCircleError, HubContextDto, HubDiscrepancyPageDto, HubGroupViewDto, HubHandlingInputDto,
     HubHandlingQueryDto, HubHandlingReceiptDto, HubLineagePageDto, HubLineageQueryDto,
     HubReceiptInputDto, HubReferenceEditDto, HubReferencePageDto, HubReferenceQueryDto,
-    HubReferenceReceiptDto, HubStockPageDto, HubStockQueryDto, HubStockReceiptDto, HubWorkPageDto,
-    SafeErrorDto,
+    HubReferenceReceiptDto, HubStockPageDto, HubStockQueryDto, HubStockReceiptDto,
+    HubTreatmentPageDto, HubTreatmentQueryDto, HubTreatmentScopeDto, HubTreatmentSnapshotDto,
+    HubWorkPageDto, SafeErrorDto,
 };
 use harvestcircle_nostr::SdkNostrClient;
 use harvestcircle_runtime::{
@@ -314,6 +315,27 @@ impl HarvestCircleTestBridge {
         self.runtime
             .block_on(self.actor()?.hub_receipt_operation(operation))
             .map(|value| value.map(Into::into))
+            .map_err(native_runtime_error)
+    }
+
+    pub fn treatment(
+        &self,
+        scope: HubTreatmentScopeDto,
+    ) -> Result<HubTreatmentSnapshotDto, TestBridgeError> {
+        let scope = scope.decode().map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_treatment(scope))
+            .map(Into::into)
+            .map_err(native_runtime_error)
+    }
+    pub fn treatment_history(
+        &self,
+        query: HubTreatmentQueryDto,
+    ) -> Result<HubTreatmentPageDto, TestBridgeError> {
+        let query = query.decode().map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_treatment_history(query))
+            .map(Into::into)
             .map_err(native_runtime_error)
     }
 

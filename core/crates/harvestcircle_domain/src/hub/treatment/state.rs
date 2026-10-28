@@ -117,6 +117,22 @@ pub struct TreatmentProjection {
 }
 
 impl TreatmentProjection {
+    /// Readiness at this captured revision; never a future mutation grant.
+    #[must_use]
+    pub fn action_ready(
+        &self,
+        group: HubRecordId,
+        action: PhysicalAction,
+        normal_operation_capacity: bool,
+    ) -> bool {
+        normal_operation_capacity
+            && !(action == PhysicalAction::NormalDeparture && self.history_capacity_reached)
+            && self
+                .groups
+                .iter()
+                .find(|candidate| candidate.group == group)
+                .is_some_and(|group| group.allows(self.basis, action))
+    }
     pub fn require(
         &self,
         selection: &TreatmentSelection,

@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 8, FFI is 5.6 and snapshot schema is 1. Rust and
+The current storage schema is 9, FFI is 5.7 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -146,16 +146,25 @@ original-result recovery paths as other handling. Lineage continuations pin both
 stock and catalog versions; empty retained ancestors expose history without an
 active-stock action. Recorded and actual occurrence times are distinct. Sample
 acceptance/hold policy is implemented as pure checked data in
-`core/crates/harvestcircle_domain/src/hub/treatment.rs`; native storage/commands
-and UI are unfinished. Current acceptance follows explicit native recording order
-within the selected population, not a claim about historical occurrence. Hold
+`core/crates/harvestcircle_domain/src/hub/treatment.rs`. Forward schema9, native
+commands and FFI5.7 retain original decisions, scopes and releases. Current reads
+validate complete lineage and treatment history before projecting bounded group
+readiness. Shared acceptance/hold/release forms remain unfinished. Current acceptance
+follows explicit native recording order within the selected population, not a claim
+about historical occurrence. Hold
 union deduplicates physical groups; releasing one hold preserves others and does
 not supply acceptance. Original stamps retain the reviewed sample basis. Bounded
 primary history leaves each existing hold a separate release slot. Exhausted
 primary history blocks normal departure with a distinct capacity reason because
 new precautionary holds cannot fit; it does not relabel physical treatment totals.
-Native journal
-reservation remains required before these commands become available.
+Native journal reservation runs with current-owner checks in the same transaction
+as each stock/handling mutation. It reserves every outstanding release plus a
+precautionary hold/release before ordinary work; release and original-result replay
+remain available at primary capacity. Original-result recovery uses immutable
+captured effects and ancestry, independently of current positions or counters.
+The result digest checks stored consistency; it is not authentication or a future
+permission grant. Kotlin copies native counts and action readiness without
+calculating treatment policy.
 
 ## Secrets, transport and lifecycle
 

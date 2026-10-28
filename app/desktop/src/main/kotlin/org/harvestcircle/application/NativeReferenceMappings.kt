@@ -54,7 +54,7 @@ internal fun HubReferenceEdit.toNative(): HubReferenceEditDto =
 
 internal fun HubReferenceRecordDto.toModel(): HubReferenceRecord = HubReferenceRecord(id, revision, value.toModel())
 
-private fun HubHandlingBasisDto.toModel(): HubHandlingBasis = HubHandlingBasis(id, version, label, siteTimezone)
+internal fun HubHandlingBasisDto.toModel(): HubHandlingBasis = HubHandlingBasis(id, version, label, siteTimezone)
 
 internal fun HubReferencePageDto.toModel(): HubReferencePage =
     HubReferencePage(handlingBasis.toModel(), catalogRevision, offset, total, more, records.map { it.toModel() })
