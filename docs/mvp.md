@@ -141,6 +141,19 @@ times remain explicit. Record order is not proof of historical occurrence; a lat
 hold does not establish an earlier breach. Sample requirement versions preserve
 their basis and original clocks without asserting legal applicability.
 
+The pure movement and work policy lives in
+`core/crates/harvestcircle_domain/src/hub/movement.rs`. A partial move requires an
+observed physical identifier and basis for the separated portion. Whole-group
+moves preserve identity; credited work follows the identified portion through
+return and repeated moves. Replanning retires the original remaining quantity
+without completing it and creates a distinct pending requirement. A later new
+handling requirement is explicit and cannot silently replace pending work.
+Discrepancy resolution is follow-up only and has no stock/work/restriction effect.
+The native adapter must enforce complete scope and identity uniqueness within
+16,384 retained groups, 64 requirements per group and 256 groups per requirement.
+This pure component does not yet enable actual movement in the application;
+protected persistence, native interfaces and UI acceptance remain unfinished.
+
 ### C06: Commands, concurrency and durable outcomes
 
 Inventory has its own durable operation model, separate from identity kinds and
