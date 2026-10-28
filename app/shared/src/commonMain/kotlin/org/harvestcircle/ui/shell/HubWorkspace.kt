@@ -23,6 +23,7 @@ fun HubWorkspace(
     state: HubViewState,
     initialize: () -> Unit,
     refresh: () -> Unit,
+    openReferences: (() -> Unit)? = null,
 ) {
     Column(
         Modifier
@@ -53,6 +54,10 @@ fun HubWorkspace(
                 }
                 is HubViewState.Ready -> {
                     HarvestCircleShellText("Local hub ready", role = HarvestCircleShellTextRole.BodyStrong)
+                    openReferences?.let { open ->
+                        HarvestCircleShellButton("Reference data", open, Modifier.testTag("hub-references"), primary = true)
+                    }
+
                     HarvestCircleShellText("Hub: ${state.context.id}")
                     HarvestCircleShellText("Owner: ${state.context.owner.value}")
                     HarvestCircleShellText(

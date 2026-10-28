@@ -133,7 +133,11 @@ The demo defaults offline and never imports ordinary profile credentials. Create
 a new local Nostr identity and complete the existing recovery-key acknowledgement
 before initializing the hub. Work, Stock and Dispatch are the primary surfaces;
 Network, Settings and the Nostr reference utility remain available. Native Rust
-authorizes hub setup and reads. Unimplemented stock actions are labelled as such.
+authorizes hub setup and reference reads/writes. After setup, open Reference data
+to add fictional products, original packs, parties and locations. Pack definitions
+and location purposes are immutable; label changes retain history. Unknown command
+outcomes offer original-result lookup, while stale edits retain their input for
+explicit review. Unimplemented stock actions are labelled as such.
 An unresolved setup result retains its original operation ID; use Check local hub
 to read the durable result rather than submitting a new setup.
 

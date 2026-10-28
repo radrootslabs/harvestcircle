@@ -78,6 +78,7 @@ class NavigationTest {
                 ScreenKey.HubWork,
                 ScreenKey.HubStock,
                 ScreenKey.HubDispatch,
+                ScreenKey.HubReferences,
                 ScreenKey.Network,
                 ScreenKey.Settings,
             ),

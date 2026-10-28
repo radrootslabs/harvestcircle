@@ -15,6 +15,10 @@ import org.harvestcircle.ffi.GeneratedRecoveryRequest
 import org.harvestcircle.ffi.HarvestCircleAppCore
 import org.harvestcircle.ffi.HarvestCircleChangeObserver
 import org.harvestcircle.ffi.HubContextDto
+import org.harvestcircle.ffi.HubReferenceEditDto
+import org.harvestcircle.ffi.HubReferencePageDto
+import org.harvestcircle.ffi.HubReferenceQueryDto
+import org.harvestcircle.ffi.HubReferenceReceiptDto
 import org.harvestcircle.ffi.IdentityCommandReceiptDto
 import org.harvestcircle.ffi.IdentityDto
 import org.harvestcircle.ffi.ObserverSubscription
@@ -37,11 +41,31 @@ class NativeHarvestCircleRuntime internal constructor(
     override val buildInfo: BuildInfo = nativeBuildInfo().toBuildInfo(compatibilityDescriptor()),
     override val demoProfile: Boolean = false,
 ) : HarvestCircleRuntime,
-    HarvestCircleHubRuntime {
+    HarvestCircleHubRuntime,
+    HarvestCircleReferenceRuntime {
     override suspend fun hubContext(): HubContext? = callNative { hubPort().hubContext()?.toHubContext() }
 
     override suspend fun initializeHub(context: RequestContext): HubContext =
         callNative(context.operationId) { hubPort().initializeHub(context.toNative()).toHubContext() }
+
+    override suspend fun references(query: HubReferenceQuery): HubReferencePage =
+        callNative {
+            hubPort().references(query.toNative()).toModel()
+        }
+
+    override suspend fun editReference(
+        context: RequestContext,
+        edit: HubReferenceEdit,
+    ): HubReferenceReceipt = callNative(context.operationId) { hubPort().editReference(context.toNative(), edit.toNative()).toModel() }
+
+    override suspend fun referenceOperation(operation: OperationId): HubReferenceReceipt? =
+        callNative(operation) { hubPort().referenceOperation(operation.value)?.toModel() }
+
+    override suspend fun referenceHistory(
+        id: String,
+        afterRevision: ULong,
+        limit: UInt,
+    ): List<HubReferenceReceipt> = callNative { hubPort().referenceHistory(id, afterRevision, limit).map { it.toModel() } }
 
     private fun hubPort(): NativeHubPort = checkNotNull(native as? NativeHubPort) { "Hub runtime is unavailable" }
 
@@ -485,6 +509,21 @@ internal fun interface NativeSubscriptionHandle {
 }
 
 private interface NativeHubPort {
+    suspend fun references(query: HubReferenceQueryDto): HubReferencePageDto
+
+    suspend fun editReference(
+        context: RequestContextDto,
+        edit: HubReferenceEditDto,
+    ): HubReferenceReceiptDto
+
+    suspend fun referenceOperation(operation: String): HubReferenceReceiptDto?
+
+    suspend fun referenceHistory(
+        id: String,
+        after: ULong,
+        limit: UInt,
+    ): List<HubReferenceReceiptDto>
+
     suspend fun hubContext(): HubContextDto?
 
     suspend fun initializeHub(context: RequestContextDto): HubContextDto
@@ -499,6 +538,21 @@ private class UniFfiNativeCorePort(
     override suspend fun hubContext(): HubContextDto? = core.hubContext()
 
     override suspend fun initializeHub(context: RequestContextDto): HubContextDto = core.initializeHub(context)
+
+    override suspend fun references(query: HubReferenceQueryDto): HubReferencePageDto = core.hubReferences(query)
+
+    override suspend fun editReference(
+        context: RequestContextDto,
+        edit: HubReferenceEditDto,
+    ): HubReferenceReceiptDto = core.applyHubReference(context, edit)
+
+    override suspend fun referenceOperation(operation: String): HubReferenceReceiptDto? = core.hubReferenceOperation(operation)
+
+    override suspend fun referenceHistory(
+        id: String,
+        after: ULong,
+        limit: UInt,
+    ): List<HubReferenceReceiptDto> = core.hubReferenceHistory(id, after, limit)
 
     override fun snapshot(): AppSnapshotDto = core.snapshot()
 

@@ -23,6 +23,8 @@ import org.harvestcircle.application.HarvestCircleShellIntent
 import org.harvestcircle.application.HarvestCircleShellState
 import org.harvestcircle.application.HubViewState
 import org.harvestcircle.application.OverlayIntent
+import org.harvestcircle.application.ReferencePresenter
+import org.harvestcircle.application.ReferenceViewState
 import org.harvestcircle.application.ShellFocusTarget
 import org.harvestcircle.application.ShellRoot
 import org.harvestcircle.application.StatusOverlayKey
@@ -52,6 +54,9 @@ fun HarvestCircleShell(
     hubState: HubViewState = HubViewState.Unavailable,
     initializeHub: () -> Unit = {},
     refreshHub: () -> Unit = {},
+    referenceState: ReferenceViewState = ReferenceViewState(),
+    referencePresenter: ReferencePresenter? = null,
+    submitReference: () -> Unit = {},
 ) {
     HarvestCircleTheme(state.appearance) {
         val focusRegistry = remember { ShellFocusRegistry() }
@@ -60,7 +65,18 @@ fun HarvestCircleShell(
                 modal = state.overlays.current,
                 onShortcut = { dispatchShortcut(it, state.overlays.current, dispatch) },
             ) {
-                HarvestCircleShellContent(state, identityActions, platformActions, dispatch, hubState, initializeHub, refreshHub)
+                HarvestCircleShellContent(
+                    state,
+                    identityActions,
+                    platformActions,
+                    dispatch,
+                    hubState,
+                    initializeHub,
+                    refreshHub,
+                    referenceState,
+                    referencePresenter,
+                    submitReference,
+                )
             }
         }
     }
@@ -75,6 +91,9 @@ private fun HarvestCircleShellContent(
     hubState: HubViewState = HubViewState.Unavailable,
     initializeHub: () -> Unit = {},
     refreshHub: () -> Unit = {},
+    referenceState: ReferenceViewState = ReferenceViewState(),
+    referencePresenter: ReferencePresenter? = null,
+    submitReference: () -> Unit = {},
 ) {
     val modalOpen = state.overlays.current != null
     val fallback =
@@ -133,6 +152,9 @@ private fun HarvestCircleShellContent(
                     hubState,
                     initializeHub,
                     refreshHub,
+                    referenceState,
+                    referencePresenter,
+                    submitReference,
                 )
         }
     }
@@ -227,6 +249,9 @@ private fun DashboardRoot(
     hubState: HubViewState = HubViewState.Unavailable,
     initializeHub: () -> Unit = {},
     refreshHub: () -> Unit = {},
+    referenceState: ReferenceViewState = ReferenceViewState(),
+    referencePresenter: ReferencePresenter? = null,
+    submitReference: () -> Unit = {},
 ) {
     val route = root.navigation.current
     val status = deriveShellStatus(state)
@@ -242,7 +267,7 @@ private fun DashboardRoot(
                         canGoForward = root.navigation.forwardStack.isNotEmpty(),
                         syncStatus = status.sync,
                         signerStatus = status.signer,
-                        selectedScreen = route.screenKey,
+                        selectedScreen = if (route == AppRoute.HubReferences) ScreenKey.HubWork else route.screenKey,
                     ),
                 onIntent = { intent -> dispatchTopBar(intent, platformActions, dispatch) },
                 compact = geometry.layoutClass != HarvestCircleFrameLayoutClass.Expanded,
@@ -253,7 +278,7 @@ private fun DashboardRoot(
         },
         sidebar = { geometry ->
             WorkspaceSidebar(
-                selected = route.screenKey,
+                selected = if (route == AppRoute.HubReferences) ScreenKey.HubWork else route.screenKey,
                 onScreen = { dispatch(HarvestCircleShellIntent.Navigate(it)) },
                 compact = geometry.sidebarWidth == HarvestCircleDesignTokens.shell.frame.collapsedSidebarWidth,
                 onToggleCollapsed = {},
@@ -313,7 +338,30 @@ private fun DashboardRoot(
                     ) {
                         when (route) {
                             AppRoute.HubWork, AppRoute.HubStock, AppRoute.HubDispatch ->
-                                HubWorkspace(route, hubState, initializeHub, refreshHub)
+                                HubWorkspace(
+                                    route,
+                                    hubState,
+                                    initializeHub,
+                                    refreshHub,
+                                    openReferences =
+                                        if (referenceState.available) {
+                                            { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubReferences)) }
+                                        } else {
+                                            null
+                                        },
+                                )
+                            AppRoute.HubReferences -> {
+                                if (hubState is HubViewState.Ready && referencePresenter != null) {
+                                    ReferenceWorkspace(
+                                        referenceState,
+                                        referencePresenter,
+                                        submitReference,
+                                        returnToWork = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubWork)) },
+                                    )
+                                } else {
+                                    HubWorkspace(route, hubState, initializeHub, refreshHub)
+                                }
+                            }
                             AppRoute.PersonalToday ->
                                 FoundationTodayScreen(
                                     model = FoundationTodayModel(todayContext(state)),
@@ -441,6 +489,7 @@ private fun openSettingsSection(
 
 private fun AppRoute.title(): String =
     when (this) {
+        AppRoute.HubReferences -> "Reference data"
         AppRoute.HubWork -> "Work"
         AppRoute.HubStock -> "Stock"
         AppRoute.HubDispatch -> "Dispatch"

@@ -114,6 +114,15 @@ enum class ScreenKey(
     HubDispatch(
         screen("hub_dispatch_screen", LayoutKind.Dashboard, WorkspaceKind.Shared, NavigationKind.Permanent, FeatureAvailability.Foundation),
     ),
+    HubReferences(
+        screen(
+            "hub_references_screen",
+            LayoutKind.Dashboard,
+            WorkspaceKind.Shared,
+            NavigationKind.Contextual,
+            FeatureAvailability.Foundation,
+        ),
+    ),
     PersonalToday(
         screen(
             "personal_today_screen",

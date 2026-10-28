@@ -69,8 +69,11 @@ Reference pages are limited to 64 records and bind continuation to the catalog
 revision. History pages are also limited to 64; damaged values are bounded before
 hydration and revalidated in Rust. Typed input/conflict/capacity/permission errors
 are distinct from an uncertain command outcome. The latter retains the original
-operation ID for explicit result lookup. Reference editing in Compose is the next
-implementation component; these native interfaces do not create physical stock. Durable
+operation ID for explicit result lookup. The shared Compose reference workspace uses these native queries and commands.
+Its UI-scope presenter retains drafts across navigation, freezes submitted input,
+and rejects late responses after an identity change. A stale form requires
+explicit current-version review; uncertain outcomes expose only original-result
+lookup. These reference interfaces do not create physical stock. Durable
 admission and recovery of pre-commit submissions across restart/restore remain
 part of the unfinished recovery surface.
 

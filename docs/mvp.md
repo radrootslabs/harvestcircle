@@ -94,8 +94,11 @@ another identity. Label revisions retain the complete before/after versions.
 Reference versions and committed original-operation receipts now persist under
 the native owner/session/credential boundary, with atomic replay and finite
 history enforcement. Native pages and original-result/history reads are bounded.
-Reference editors are the next component; native tests alone do not qualify the
-complete reference-data UI.
+The shared reference workspace provides bounded search, original-pack product
+selection, versioned label editing and history. A submission freezes its original
+intent; uncertain results offer read-only lookup. A stale edit retains input and
+requires explicit review of current versions before a new submission. Native
+Rust remains the authority for validation, permission and persistence.
 
 ### C04: Physical events, portions and eligibility
 
@@ -355,10 +358,10 @@ Preview/consequence calculation belongs in Rust; Kotlin formats its read models.
 ## Verification and availability
 
 Use the owning commands in [development](development.md). Existing commands are
-make doctor, check, bindings, dev-check, integration-check, host-package-check,
-host-ui-lifecycle-check and governed linux-check. make demo and make hub-check
-are planned and unavailable until implemented with real behavior. Do not add
-passing stubs. Existing checks and generated/native compatibility remain active.
+make doctor, check, bindings, dev-check, ui-check, integration-check,
+host-package-check, host-ui-lifecycle-check, demo and governed linux-check.
+make hub-check is planned and unavailable until its receiving implementation
+provides real behavior. Do not add passing stubs. Existing checks and generated/native compatibility remain active.
 
 Behavioral acceptance requires real SQLite transactions and FFI/UI integration,
 including failed/stale/replayed requests and lost responses. Rendered/macOS

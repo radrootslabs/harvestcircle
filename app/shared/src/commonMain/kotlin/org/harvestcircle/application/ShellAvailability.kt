@@ -151,6 +151,9 @@ fun activateShellScreen(
     state: NavigationState,
     screenKey: ScreenKey,
 ): NavigationState {
+    if (screenKey == ScreenKey.HubReferences) {
+        return NavigationReducer.reduce(state, NavigationIntent.Navigate(AppRoute.HubReferences))
+    }
     val item = (shellNavigationItems + shellSettingsItem).singleOrNull { it.screenKey == screenKey } ?: return state
     return item.route?.let { NavigationReducer.reduce(state, NavigationIntent.Navigate(it)) } ?: state
 }
