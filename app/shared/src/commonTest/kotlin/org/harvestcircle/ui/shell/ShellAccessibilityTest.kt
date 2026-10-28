@@ -14,7 +14,7 @@ class ShellAccessibilityTest {
         assertEquals(ShellShortcut.Back, resolveShellShortcut(ShellShortcutKey.Left, alt = true))
         assertEquals(ShellShortcut.Forward, resolveShellShortcut(ShellShortcutKey.Right, alt = true))
         assertEquals(ShellShortcut.OpenNostrReference, resolveShellShortcut(ShellShortcutKey.K, controlOrMeta = true))
-        assertEquals(ShellShortcut.Today, resolveShellShortcut(ShellShortcutKey.One, controlOrMeta = true))
+        assertEquals(ShellShortcut.Work, resolveShellShortcut(ShellShortcutKey.One, controlOrMeta = true))
         assertEquals(ShellShortcut.Settings, resolveShellShortcut(ShellShortcutKey.Comma, controlOrMeta = true))
         assertEquals(ShellShortcut.CloseOverlay, resolveShellShortcut(ShellShortcutKey.Escape))
         assertNull(resolveShellShortcut(ShellShortcutKey.K))

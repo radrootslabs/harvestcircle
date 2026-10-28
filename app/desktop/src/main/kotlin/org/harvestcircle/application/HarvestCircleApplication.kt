@@ -7,6 +7,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -102,6 +103,15 @@ internal fun HarvestCircleApplicationWithDependencies(
         }
     DisposableEffect(shellPresenter) { onDispose { shellPresenter.close() } }
     val shellState by shellPresenter.state.collectAsState()
+    val hubScope = rememberCoroutineScope()
+    val hubIdentity =
+        shellState.identity.snapshot.activeIdentity
+            ?.identity
+            ?.id
+    val hubPresenter = remember(presenter, hubIdentity) { HubPresenter(presenter.hubRuntime, hubScope, DesktopOperationIdSource) }
+    LaunchedEffect(hubPresenter, hubIdentity) { hubPresenter.bindIdentity(hubIdentity) }
+    DisposableEffect(hubPresenter) { onDispose { hubPresenter.close() } }
+    val hubState by hubPresenter.state.collectAsState()
 
     val identityActions =
         HarvestCircleUiActions(
@@ -135,14 +145,32 @@ internal fun HarvestCircleApplicationWithDependencies(
                 openLicence = { openProjectLink(ProjectLink.Licence) },
             ),
         dispatch = shellPresenter::dispatch,
+        hubState = hubState,
+        initializeHub = { hubPresenter.initialize(shellState.identity.snapshot.revision) },
+        refreshHub = hubPresenter::refresh,
     )
 }
 
 internal const val DEFAULT_SHUTDOWN_TIMEOUT_MILLIS = 5_000L
 
-internal fun createHarvestCirclePresenter(scope: CoroutineScope): HarvestCirclePresenter {
+internal fun createHarvestCirclePresenter(scope: CoroutineScope): HarvestCirclePresenter = createPresenter(scope, null)
+
+internal fun createDemoHarvestCirclePresenter(
+    scope: CoroutineScope,
+    runName: String,
+): HarvestCirclePresenter = createPresenter(scope, runName)
+
+private fun createPresenter(
+    scope: CoroutineScope,
+    demoRun: String?,
+): HarvestCirclePresenter {
     val developmentMode = java.lang.Boolean.getBoolean("harvestcircle.development")
-    val runtime = NativeHarvestCircleRuntime.open(desktopRuntimeOpenConfiguration(developmentMode))
+    val runtime =
+        if (demoRun == null) {
+            NativeHarvestCircleRuntime.open(desktopRuntimeOpenConfiguration(developmentMode))
+        } else {
+            NativeHarvestCircleRuntime.openDemo(demoRun)
+        }
     try {
         return HarvestCirclePresenter(
             runtime = runtime,

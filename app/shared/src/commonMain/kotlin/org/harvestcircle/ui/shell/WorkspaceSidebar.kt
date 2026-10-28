@@ -20,13 +20,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import org.harvestcircle.application.ShellNavigationItem
-import org.harvestcircle.application.addFarmWorkspaceAction
 import org.harvestcircle.application.shellNavigationItems
 import org.harvestcircle.application.shellSettingsItem
 import org.harvestcircle.designsystem.icon.HarvestCircleIcons
 import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeClearance
 import org.harvestcircle.designsystem.primitive.HarvestCircleIcon
-import org.harvestcircle.designsystem.shell.HarvestCircleShellButton
 import org.harvestcircle.designsystem.shell.HarvestCircleShellIconButton
 import org.harvestcircle.designsystem.shell.HarvestCircleShellMetrics
 import org.harvestcircle.designsystem.shell.HarvestCircleShellNavigationItem
@@ -42,6 +40,7 @@ fun WorkspaceSidebar(
     onScreen: (ScreenKey) -> Unit,
     compact: Boolean = false,
     onToggleCollapsed: () -> Unit = {},
+    showCollapseControl: Boolean = true,
     sessionLabel: String = "Read-only",
     chromeClearance: HarvestCircleWindowChromeClearance =
         HarvestCircleWindowChromeClearance(
@@ -77,7 +76,7 @@ fun WorkspaceSidebar(
             } else {
                 Spacer(Modifier.weight(1f))
             }
-            if (!topBandFullyExcluded) {
+            if (showCollapseControl && !topBandFullyExcluded) {
                 HarvestCircleShellIconButton(
                     onClick = onToggleCollapsed,
                     icon = HarvestCircleIcons.ChevronLeft,
@@ -89,27 +88,10 @@ fun WorkspaceSidebar(
             }
         }
 
-        Box(Modifier.fillMaxWidth().padding(horizontal = HarvestCircleShellMetrics.sidebarHorizontalInset)) {
-            HarvestCircleShellButton(
-                text = if (compact) "+" else addFarmWorkspaceAction.label,
-                onClick = {},
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .testTag("sidebar-add-farm")
-                        .semantics {
-                            contentDescription =
-                                "${addFarmWorkspaceAction.label}. ${addFarmWorkspaceAction.unavailableExplanation}"
-                        },
-                enabled = false,
-            )
-        }
-        Spacer(Modifier.height(HarvestCircleShellMetrics.sidebarQuickActionBottomGap))
-
         Column(
             Modifier.weight(1f).fillMaxWidth().padding(horizontal = HarvestCircleShellMetrics.sidebarHorizontalInset),
         ) {
-            if (!compact) SidebarSection("Personal")
+            if (!compact) SidebarSection("Food hub")
             shellNavigationItems.forEach { item ->
                 SidebarItem(item, selected == item.screenKey, compact, onScreen)
                 Spacer(Modifier.height(HarvestCircleShellMetrics.sidebarNavigationGap))

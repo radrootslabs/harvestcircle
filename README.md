@@ -7,8 +7,9 @@ keyring custody, a SQLx-backed state database and configurable relay bootstrap.
 
 The [candidate food-hub MVP](docs/mvp.md) defines the next operational surface:
 whole-pack receiving, stock handling, departure and trace on one desktop with
-sample data. Those hub features are planned; existing Nostr functionality remains
-supported. The candidate retains the native Rust/FFI/SQLite architecture.
+sample data. The isolated demo profile, native owner setup and operational shell
+are available; stock workflows are being implemented. Existing Nostr functionality
+remains supported. The candidate retains the native Rust/FFI/SQLite architecture.
 
 ## Get started
 
@@ -31,6 +32,8 @@ cd harvestcircle
 make doctor
 make dev       # Compose hot reload
 # Or: make run
+# Isolated, offline demonstration profile (resumes the same named run):
+make demo DEMO_RUN=hub-preview
 ```
 
 The checked-in Gradle wrapper downloads its pinned distribution. Make builds

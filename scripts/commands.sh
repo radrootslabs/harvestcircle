@@ -11,9 +11,9 @@ cd "$repository_root"
 case "$command_name" in
     help)
         printf '%s\n' \
-            'Start: doctor dev run dev-check' \
+            'Start: doctor dev run demo DEMO_RUN=run-name dev-check' \
             'Build: build check clean' \
-            'Focused checks: repo-check format format-fix lint test build-logic-check mode-check bindings licenses source-check integration-check' \
+            'Focused checks: repo-check format format-fix lint test ui-check build-logic-check mode-check bindings licenses source-check integration-check' \
             'Design: design-source-check design-goldens-update' \
             'Maintenance: metadata lock' \
             'Complete development: development-check' \
@@ -29,7 +29,7 @@ case "$command_name" in
         ;;
     doctor|repo-check|lock|metadata|build-logic-check|mode-check|design-source-check|\
     design-goldens-update|format|format-fix|lint|test|check|build|\
-    bindings|dev-check|dev|run|audit|licenses|package|\
+    bindings|dev-check|ui-check|dev|demo|run|audit|licenses|package|\
     host-package-check|source-check|integration-check|host-ui-lifecycle-check|clean|linux-check) ;;
     *) fail "unknown command: $command_name; use make help" ;;
 esac
@@ -104,8 +104,18 @@ case "$command_name" in
             --tests org.harvestcircle.application.NativeGeneratedRecoveryTest \
             --tests org.harvestcircle.application.DefaultProfileStartupTest
         ;;
+    ui-check)
+        exec "$GRADLE" --no-daemon :app:shared:check :app:desktop:check designCheck
+        ;;
     dev)
         exec "$GRADLE" :app:desktop:hotRun
+        ;;
+    demo)
+        case "${DEMO_RUN:-}" in
+            ""|[!a-z]*|*[!a-z0-9-]*) fail 'DEMO_RUN must begin with a lowercase letter and contain only lowercase letters, digits and hyphens' ;;
+        esac
+        [ "${#DEMO_RUN}" -le 48 ] || fail 'DEMO_RUN must contain at most 48 characters'
+        exec "$GRADLE" :app:desktop:run "--args=--demo $DEMO_RUN"
         ;;
     run)
         exec "$GRADLE" :app:desktop:run

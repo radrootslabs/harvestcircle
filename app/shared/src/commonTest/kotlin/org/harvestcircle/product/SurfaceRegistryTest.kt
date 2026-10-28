@@ -23,7 +23,18 @@ class SurfaceRegistryTest {
     @Test
     fun foundationClassificationIsCapabilityBounded() {
         val executable = ScreenKey.entries.filter { it.descriptor.availability == FeatureAvailability.Foundation }
-        assertEquals(setOf(ScreenKey.Bootstrap, ScreenKey.PersonalToday, ScreenKey.Network, ScreenKey.Settings), executable.toSet())
+        assertEquals(
+            setOf(
+                ScreenKey.Bootstrap,
+                ScreenKey.PersonalToday,
+                ScreenKey.HubWork,
+                ScreenKey.HubStock,
+                ScreenKey.HubDispatch,
+                ScreenKey.Network,
+                ScreenKey.Settings,
+            ),
+            executable.toSet(),
+        )
         assertEquals(LayoutKind.Canvas, ScreenKey.Bootstrap.descriptor.layout)
         assertTrue(executable.filterNot { it == ScreenKey.Bootstrap }.all { it.descriptor.layout == LayoutKind.Dashboard })
         assertEquals(FeatureAvailability.FoundationSyntaxOnly, OverlayKey.OpenNostrReference.descriptor.availability)
@@ -40,6 +51,9 @@ private val expectedScreenKeys =
         "signing_review_screen",
         "proof_chain_screen",
         "fulfillment_issue_screen",
+        "hub_work_screen",
+        "hub_stock_screen",
+        "hub_dispatch_screen",
         "personal_today_screen",
         "explore_screen",
         "farm_profile_screen",

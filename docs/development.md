@@ -117,3 +117,26 @@ scanning is deferred until a suitable distribution workflow is established.
 Internal implementation refactors are checked through compilation and behavioral
 tests rather than exact source fragments. Structural audits retain private storage
 modules, create-only custody and read-only verification boundaries.
+
+## Isolated demonstration
+
+`make ui-check` runs Kotlin/Compose checks and tests with the native build inputs.
+It is a focused frontend lane; `make check` also runs the Rust/repository checks.
+
+Run `make demo DEMO_RUN=hub-preview` to deliberately open a persistent, named
+demo profile. Run names contain 1–48 lowercase ASCII letters, digits or hyphens,
+beginning with a letter. Reusing a name resumes its state; another name creates
+a separate profile. This is runtime data under the ordinary application anchor,
+not a build cache. There is no automatic reset or keyring deletion.
+
+The demo defaults offline and never imports ordinary profile credentials. Create
+a new local Nostr identity and complete the existing recovery-key acknowledgement
+before initializing the hub. Work, Stock and Dispatch are the primary surfaces;
+Network, Settings and the Nostr reference utility remain available. Native Rust
+authorizes hub setup and reads. Unimplemented stock actions are labelled as such.
+An unresolved setup result retains its original operation ID; use Check local hub
+to read the durable result rather than submitting a new setup.
+
+The same explicit selection is accepted by the desktop executable as
+`--demo hub-preview`. The packaged demonstration is qualified separately before
+release; adding this launch path alone does not qualify a complete demo workflow.

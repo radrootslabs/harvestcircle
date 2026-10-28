@@ -12,6 +12,8 @@ CARGO_MANIFEST := core/Cargo.toml
 XTASK_MANIFEST := tools/xtask/Cargo.toml
 export GRADLE CARGO_MANIFEST XTASK_MANIFEST
 BUILD_MODE ?= standalone
+DEMO_RUN ?= default
+export DEMO_RUN
 # Portable fixture Make processes select their own mode explicitly.
 unexport BUILD_MODE
 VALID_BUILD_MODES := standalone governed
@@ -44,7 +46,7 @@ export HARVESTCIRCLE_BUILD_RUST_TOOLCHAIN HARVESTCIRCLE_BUILD_MODE SOURCE_DATE_E
 COMMANDS := \
     doctor repo-check lock metadata build-logic-check mode-check design-source-check \
     design-goldens-update format format-fix lint test check build \
-    bindings dev-check dev run audit licenses \
+    bindings dev-check ui-check dev demo run audit licenses \
     package host-package-check source-check integration-check host-ui-lifecycle-check clean linux-check
 .PHONY: help _extbuild-doctor _require-governed development-check acceptance-check $(COMMANDS)
 
@@ -78,7 +80,9 @@ check: repo-check format lint test mode-check
 build: doctor
 bindings: doctor
 dev-check: doctor
+ui-check: doctor
 dev: doctor
+demo: doctor
 run: doctor
 audit: doctor
 licenses: doctor

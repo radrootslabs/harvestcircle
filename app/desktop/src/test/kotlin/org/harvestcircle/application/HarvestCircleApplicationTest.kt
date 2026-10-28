@@ -12,7 +12,6 @@ import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -80,12 +79,12 @@ class HarvestCircleApplicationTest {
     fun welcomeEntersOneReadOnlyDashboardSession() =
         runComposeUiTest {
             setApplicationContent { HarvestCircleApplication(presenterFactory = ::testPresenter) }
-            onNodeWithText("Coordinate local food with clear, signed terms.").assertIsDisplayed()
+            onNodeWithText("See what arrived, where it is, and where it went.").assertIsDisplayed()
             onAllNodesWithText("Connect a remote signer").assertCountEquals(0)
             onNodeWithTag("bootstrap-read-only").performClick()
-            waitUntil { onAllNodesWithTag("foundation-today").fetchSemanticsNodes().isNotEmpty() }
-            onNodeWithTag("foundation-today").assertIsDisplayed()
-            onNodeWithTag("today-context").assertTextEquals("Read-only session").assertIsDisplayed()
+            waitUntil { onAllNodesWithTag("hub-workspace").fetchSemanticsNodes().isNotEmpty() }
+            onNodeWithTag("hub-workspace").assertIsDisplayed()
+            onNodeWithText("Read-only session").assertIsDisplayed()
         }
 
     @OptIn(ExperimentalTestApi::class)

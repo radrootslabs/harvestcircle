@@ -32,7 +32,7 @@ val LocalShellAppearance = compositionLocalOf { AppearanceState() }
 
 enum class ShellShortcutKey { Left, Right, K, One, Comma, Escape }
 
-enum class ShellShortcut { Back, Forward, OpenNostrReference, Today, Settings, CloseOverlay }
+enum class ShellShortcut { Back, Forward, OpenNostrReference, Work, Settings, CloseOverlay }
 
 fun resolveShellShortcut(
     key: ShellShortcutKey,
@@ -43,7 +43,7 @@ fun resolveShellShortcut(
         alt && key == ShellShortcutKey.Left -> ShellShortcut.Back
         alt && key == ShellShortcutKey.Right -> ShellShortcut.Forward
         controlOrMeta && key == ShellShortcutKey.K -> ShellShortcut.OpenNostrReference
-        controlOrMeta && key == ShellShortcutKey.One -> ShellShortcut.Today
+        controlOrMeta && key == ShellShortcutKey.One -> ShellShortcut.Work
         controlOrMeta && key == ShellShortcutKey.Comma -> ShellShortcut.Settings
         !alt && !controlOrMeta && key == ShellShortcutKey.Escape -> ShellShortcut.CloseOverlay
         else -> null

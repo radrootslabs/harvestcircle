@@ -32,7 +32,7 @@ enum class ShellRegion {
 
 enum class ScrollOwnership { None, InternalPane, CanvasBodyAccessibility }
 
-enum class InspectorPlacement { Hidden, Beside, Overlay }
+enum class InspectorPlacement { Hidden, Beside, FullRecord }
 
 data class ShellLayoutRegion(
     val region: ShellRegion,
@@ -75,8 +75,8 @@ fun inspectorPlacement(
     val besideThreshold =
         ShellDimensions.SIDEBAR_WIDTH_DP +
             ShellDimensions.MINIMUM_CENTER_WIDTH_DP +
-            ShellDimensions.MINIMUM_INSPECTOR_WIDTH_DP
-    return if (windowWidthDp >= besideThreshold) InspectorPlacement.Beside else InspectorPlacement.Overlay
+            ShellDimensions.INSPECTOR_WIDTH_DP + 2 * ShellDimensions.DIVIDER_WIDTH_DP
+    return if (windowWidthDp >= besideThreshold) InspectorPlacement.Beside else InspectorPlacement.FullRecord
 }
 
 fun canvasBodyScroll(textSize: TextSizePreference): ScrollOwnership =

@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 
 class HarvestCircleAppFrameTest {
     @Test
-    fun compactFrameCollapsesSidebarAndHidesOptionalPanes() {
+    fun compactFrameKeepsRequestedLabelsAndHidesOptionalPanes() {
         val geometry =
             resolveHarvestCircleFrameGeometry(
                 width = 900.dp,
@@ -20,7 +20,7 @@ class HarvestCircleAppFrameTest {
             )
 
         assertEquals(HarvestCircleFrameLayoutClass.Compact, geometry.layoutClass)
-        assertEquals(HarvestCircleDefaultFrameMetrics.collapsedSidebarWidth, geometry.sidebarWidth)
+        assertEquals(HarvestCircleDefaultFrameMetrics.sidebarWidth, geometry.sidebarWidth)
         assertFalse(geometry.showSecondaryPane)
         assertFalse(geometry.showUtilityPane)
     }

@@ -6,10 +6,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
-import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -24,25 +22,20 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class WorkspaceSidebarTest {
     @Test
-    fun sidebarSelectsFoundationRoutesAndDisablesDeferredEntries() =
+    fun sidebarExposesOperationalRoutesAndExistingUtilities() =
         runComposeUiTest {
             val selected = mutableListOf<ScreenKey>()
-            setHarvestCircleContent { WorkspaceSidebar(ScreenKey.PersonalToday, selected::add) }
-            onNodeWithTag("sidebar-PersonalToday").assertIsSelected().assertIsEnabled().performClick()
-            onNodeWithTag("sidebar-Explore").assertIsNotEnabled()
-            onNodeWithTag("sidebar-Activity").assertIsNotEnabled()
-            onNodeWithTag("sidebar-add-farm").assertIsNotEnabled()
-            onNodeWithContentDescription("Explore. Not available in this build.").assertExists()
-            onNodeWithContentDescription("Activity. Not available in this build.").assertExists()
-            onNodeWithContentDescription("Add a farm workspace. Not available in this build.").assertExists()
-            onNodeWithTag("sidebar-Explore").performClick()
+            setHarvestCircleContent { WorkspaceSidebar(ScreenKey.HubWork, selected::add) }
+            onNodeWithTag("sidebar-HubWork").assertIsSelected().assertIsEnabled().performClick()
+            onNodeWithTag("sidebar-HubStock").assertIsEnabled().performClick()
+            onNodeWithTag("sidebar-HubDispatch").assertIsEnabled().performClick()
             onNodeWithText("Network").performClick()
             onNodeWithText("Settings").performClick()
             assertTrue(
                 onNodeWithTag("sidebar-Settings").fetchSemanticsNode().boundsInRoot.top >
-                    onNodeWithTag("sidebar-add-farm").fetchSemanticsNode().boundsInRoot.bottom,
+                    onNodeWithTag("sidebar-HubWork").fetchSemanticsNode().boundsInRoot.bottom,
             )
-            assertEquals(listOf(ScreenKey.Network, ScreenKey.Settings), selected)
+            assertEquals(listOf(ScreenKey.HubStock, ScreenKey.HubDispatch, ScreenKey.Network, ScreenKey.Settings), selected)
         }
 
     @Test
@@ -51,7 +44,7 @@ class WorkspaceSidebarTest {
             setHarvestCircleContent {
                 Box(Modifier.requiredSize(232.dp, 720.dp)) {
                     WorkspaceSidebar(
-                        selected = ScreenKey.PersonalToday,
+                        selected = ScreenKey.HubWork,
                         onScreen = {},
                         chromeClearance =
                             HarvestCircleWindowChromeClearance(

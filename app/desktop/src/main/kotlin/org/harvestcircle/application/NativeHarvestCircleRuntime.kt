@@ -14,6 +14,7 @@ import org.harvestcircle.ffi.AppSnapshotDto
 import org.harvestcircle.ffi.GeneratedRecoveryRequest
 import org.harvestcircle.ffi.HarvestCircleAppCore
 import org.harvestcircle.ffi.HarvestCircleChangeObserver
+import org.harvestcircle.ffi.HubContextDto
 import org.harvestcircle.ffi.IdentityCommandReceiptDto
 import org.harvestcircle.ffi.IdentityDto
 import org.harvestcircle.ffi.ObserverSubscription
@@ -34,7 +35,16 @@ class NativeHarvestCircleRuntime internal constructor(
     private val native: NativeCorePort,
     private val handleIds: NativeHandleIdSource = GeneratedNativeHandleIdSource,
     override val buildInfo: BuildInfo = nativeBuildInfo().toBuildInfo(compatibilityDescriptor()),
-) : HarvestCircleRuntime {
+    override val demoProfile: Boolean = false,
+) : HarvestCircleRuntime,
+    HarvestCircleHubRuntime {
+    override suspend fun hubContext(): HubContext? = callNative { hubPort().hubContext()?.toHubContext() }
+
+    override suspend fun initializeHub(context: RequestContext): HubContext =
+        callNative(context.operationId) { hubPort().initializeHub(context.toNative()).toHubContext() }
+
+    private fun hubPort(): NativeHubPort = checkNotNull(native as? NativeHubPort) { "Hub runtime is unavailable" }
+
     private val recoveryMutex = Mutex()
     private val recoveryHandles = mutableMapOf<RecoveryRequestId, NativeGeneratedRecoveryHandle>()
     private val removalMutex = Mutex()
@@ -301,6 +311,15 @@ class NativeHarvestCircleRuntime internal constructor(
         }
 
     companion object {
+        internal fun openDemo(runName: String): NativeHarvestCircleRuntime {
+            val expectation = verifyNativeCompatibility(compatibilityDescriptor())
+            return NativeHarvestCircleRuntime(
+                UniFfiNativeCorePort(HarvestCircleAppCore.openDemoCompatible(expectation, runName)),
+                buildInfo = nativeBuildInfo().toBuildInfo(compatibilityDescriptor()),
+                demoProfile = true,
+            )
+        }
+
         internal fun open(configuration: DesktopRuntimeOpenConfiguration): NativeHarvestCircleRuntime {
             val expectation = verifyNativeCompatibility(compatibilityDescriptor())
             val build = nativeBuildInfo().toBuildInfo(compatibilityDescriptor())
@@ -465,9 +484,22 @@ internal fun interface NativeSubscriptionHandle {
     suspend fun unsubscribe()
 }
 
+private interface NativeHubPort {
+    suspend fun hubContext(): HubContextDto?
+
+    suspend fun initializeHub(context: RequestContextDto): HubContextDto
+}
+
+private fun HubContextDto.toHubContext(): HubContext = HubContext(hubId, IdentityId.fromPublicKeyHex(ownerPublicKey), revision, sampleData)
+
 private class UniFfiNativeCorePort(
     private val core: HarvestCircleAppCore,
-) : NativeCorePort {
+) : NativeCorePort,
+    NativeHubPort {
+    override suspend fun hubContext(): HubContextDto? = core.hubContext()
+
+    override suspend fun initializeHub(context: RequestContextDto): HubContextDto = core.initializeHub(context)
+
     override fun snapshot(): AppSnapshotDto = core.snapshot()
 
     override suspend fun bootstrap(): AppSnapshotDto = core.bootstrap()

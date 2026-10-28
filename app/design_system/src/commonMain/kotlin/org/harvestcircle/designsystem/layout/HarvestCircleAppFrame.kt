@@ -80,7 +80,7 @@ public fun resolveHarvestCircleFrameGeometry(
             else -> HarvestCircleFrameLayoutClass.Expanded
         }
     val sidebarWidth =
-        if (sidebarCollapsed || layoutClass == HarvestCircleFrameLayoutClass.Compact) {
+        if (sidebarCollapsed) {
             metrics.collapsedSidebarWidth
         } else {
             metrics.sidebarWidth

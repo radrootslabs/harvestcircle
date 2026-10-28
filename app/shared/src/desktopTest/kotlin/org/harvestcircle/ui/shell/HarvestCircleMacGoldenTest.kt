@@ -8,11 +8,13 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.v2.runComposeUiTest
+import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import androidx.compose.ui.unit.dp
 import org.harvestcircle.appearance.AppearanceState
+import org.harvestcircle.appearance.TextSizePreference
 import org.harvestcircle.appearance.ThemePreference
 import org.harvestcircle.application.ApplicationLifecycle
 import org.harvestcircle.application.ApplicationSnapshot
@@ -34,11 +36,42 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class HarvestCircleMacGoldenTest {
     @Test
-    fun macosAarch64LiveTodayShellMatches() {
+    fun minimumWindowKeepsNavigationLabelledWithEnlargedText() {
+        listOf(ThemePreference.Light, ThemePreference.Dark).forEach { theme ->
+            runDesktopComposeUiTest(width = 1100, height = 720) {
+                setContent {
+                    HarvestCircleWindowChromeEnvironment(macOsWindowChromeExclusion()) {
+                        HarvestCircleShell(
+                            state =
+                                liveWorkState(theme).copy(
+                                    appearance = AppearanceState(theme, TextSizePreference.VeryLarge),
+                                ),
+                            identityActions = HarvestCircleUiActions(),
+                            platformActions = HarvestCirclePlatformActions(),
+                            dispatch = {},
+                        )
+                    }
+                }
+                onNodeWithTag("sidebar-HubWork").assertIsDisplayed()
+                onNodeWithTag("sidebar-HubStock").assertIsDisplayed()
+                onNodeWithTag("sidebar-HubDispatch").assertIsDisplayed()
+                onNodeWithTag("sidebar-Settings").assertIsDisplayed()
+                val sidebar = onNodeWithTag("dashboard-sidebar").fetchSemanticsNode().boundsInRoot
+                val body = onNodeWithTag("dashboard-main-body").fetchSemanticsNode().boundsInRoot
+                assertEquals(232f, sidebar.width)
+                assertTrue(body.left >= sidebar.right)
+                assertTrue(body.right <= 1100f)
+            }
+        }
+    }
+
+    @Test
+    fun macosAarch64LiveWorkShellMatches() {
         val updating = System.getProperty("harvestcircle.updateMacosGoldens") == "true"
         if (!isMacosAarch64()) {
             check(!updating) { "HarvestCircle design goldens may only be updated on macos-aarch64" }
@@ -46,7 +79,7 @@ class HarvestCircleMacGoldenTest {
         }
 
         listOf(ThemePreference.Light, ThemePreference.Dark).forEach { theme ->
-            val actual = captureLiveTodayShell(theme)
+            val actual = captureLiveWorkShell(theme)
             val resourceName = "goldens/macos-aarch64/design-surface-${theme.name.lowercase()}.png"
             if (updating) {
                 val projectDir = assertNotNull(System.getProperty("harvestcircle.projectDir"))
@@ -69,14 +102,14 @@ class HarvestCircleMacGoldenTest {
 }
 
 @OptIn(ExperimentalTestApi::class)
-private fun captureLiveTodayShell(theme: ThemePreference): BufferedImage {
+private fun captureLiveWorkShell(theme: ThemePreference): BufferedImage {
     lateinit var captured: ImageBitmap
-    runComposeUiTest {
+    runDesktopComposeUiTest(width = 1280, height = 800) {
         setContent {
             HarvestCircleWindowChromeEnvironment(macOsWindowChromeExclusion()) {
                 Box(Modifier.size(width = 1280.dp, height = 800.dp).testTag("golden-surface")) {
                     HarvestCircleShell(
-                        state = liveTodayState(theme),
+                        state = liveWorkState(theme),
                         identityActions = HarvestCircleUiActions(),
                         platformActions = HarvestCirclePlatformActions(),
                         dispatch = {},
@@ -86,11 +119,13 @@ private fun captureLiveTodayShell(theme: ThemePreference): BufferedImage {
         }
         waitForIdle()
         captured = onNodeWithTag("golden-surface").captureToImage()
+        assertEquals(1280, captured.width)
+        assertEquals(800, captured.height)
     }
     return captured.toBufferedImage()
 }
 
-private fun liveTodayState(theme: ThemePreference): HarvestCircleShellState =
+private fun liveWorkState(theme: ThemePreference): HarvestCircleShellState =
     HarvestCircleShellState(
         identity =
             HarvestCirclePresenterState(

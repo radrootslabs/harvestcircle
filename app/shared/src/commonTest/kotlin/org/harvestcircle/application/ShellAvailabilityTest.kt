@@ -16,7 +16,7 @@ class ShellAvailabilityTest {
         val signedOut = presenterState(HarvestCircleRoute.IDENTITIES)
         assertEquals(ShellRoot.BootstrapCanvas(BootstrapStep.Welcome), deriveShellRoot(signedOut, ShellSessionState()))
         val readOnly = deriveShellRoot(signedOut, ShellSessionState().enterReadOnly()) as ShellRoot.Dashboard
-        assertEquals(AppRoute.PersonalToday, readOnly.navigation.current)
+        assertEquals(AppRoute.HubWork, readOnly.navigation.current)
         val active = deriveShellRoot(presenterState(readyActiveSnapshot()), ShellSessionState())
         assertTrue(active is ShellRoot.Dashboard)
         assertTrue(deriveShellRoot(presenterState(HarvestCircleRoute.FATAL), ShellSessionState()) is ShellRoot.LifecycleCanvas)
@@ -111,7 +111,6 @@ class ShellAvailabilityTest {
         assertSame(state, activateShellScreen(state, ScreenKey.FarmOverview))
         assertEquals(AppRoute.Network, activateShellScreen(state, ScreenKey.Network).current)
         assertTrue(shellNavigationItems.filterNot(ShellNavigationItem::enabled).all { it.route == null })
-        assertFalse(addFarmWorkspaceAction.enabled)
     }
 }
 

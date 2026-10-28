@@ -73,7 +73,14 @@ class NavigationTest {
         assertEquals(ScreenKey.Network, AppRoute.Network.screenKey)
         assertEquals(ScreenKey.Settings, AppRoute.Settings.screenKey)
         assertEquals(
-            setOf(ScreenKey.PersonalToday, ScreenKey.Network, ScreenKey.Settings),
+            setOf(
+                ScreenKey.PersonalToday,
+                ScreenKey.HubWork,
+                ScreenKey.HubStock,
+                ScreenKey.HubDispatch,
+                ScreenKey.Network,
+                ScreenKey.Settings,
+            ),
             ScreenKey.entries.filter { it.toExecutableRoute() != null }.toSet(),
         )
     }

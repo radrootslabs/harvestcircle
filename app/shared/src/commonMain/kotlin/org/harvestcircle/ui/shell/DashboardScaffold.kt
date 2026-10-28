@@ -2,22 +2,16 @@ package org.harvestcircle.ui.shell
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import org.harvestcircle.designsystem.layout.HarvestCircleAppFrame
 import org.harvestcircle.designsystem.layout.HarvestCircleFrameGeometry
 import org.harvestcircle.designsystem.layout.HarvestCirclePaneSlot
 import org.harvestcircle.designsystem.layout.HarvestCirclePaneWidth
-import org.harvestcircle.designsystem.primitive.HarvestCircleSurface
-import org.harvestcircle.designsystem.primitive.HarvestCircleSurfaceRole
 import kotlin.math.roundToInt
 
 @Composable
@@ -62,22 +56,15 @@ fun DashboardScaffold(
             },
             utilityPane = inspectorPane,
             mainContent = {
-                DashboardRegion("dashboard-main-body", "Main panel body", Modifier.fillMaxSize(), mainBody)
+                DashboardRegion("dashboard-main-body", "Main panel body", Modifier.fillMaxSize()) {
+                    if (placement == InspectorPlacement.FullRecord) {
+                        DashboardRegion("dashboard-inspector-record", "Full record", Modifier.fillMaxSize(), inspector)
+                    } else {
+                        mainBody()
+                    }
+                }
             },
         )
-
-        if (placement == InspectorPlacement.Overlay) {
-            HarvestCircleSurface(
-                modifier =
-                    Modifier
-                        .width(ShellDimensions.MINIMUM_INSPECTOR_WIDTH_DP.dp)
-                        .fillMaxHeight()
-                        .align(Alignment.CenterEnd),
-                role = HarvestCircleSurfaceRole.Overlay,
-            ) {
-                DashboardRegion("dashboard-inspector-overlay", "Inspector", Modifier.fillMaxSize(), inspector)
-            }
-        }
     }
 }
 

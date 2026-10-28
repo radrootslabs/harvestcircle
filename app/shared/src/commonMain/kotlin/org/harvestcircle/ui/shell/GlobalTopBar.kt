@@ -30,7 +30,7 @@ data class GlobalTopBarModel(
     val canGoForward: Boolean,
     val syncStatus: SyncStatusLabel,
     val signerStatus: SignerStatusLabel,
-    val selectedScreen: ScreenKey = ScreenKey.PersonalToday,
+    val selectedScreen: ScreenKey = ScreenKey.HubWork,
 )
 
 enum class ApplicationMenuAction(
@@ -47,7 +47,7 @@ sealed interface GlobalTopBarIntent {
 
     data object Forward : GlobalTopBarIntent
 
-    data object OpenToday : GlobalTopBarIntent
+    data object OpenWork : GlobalTopBarIntent
 
     data object OpenNetwork : GlobalTopBarIntent
 
@@ -91,9 +91,9 @@ fun GlobalTopBar(
             )
         }
         HarvestCircleShellTab(
-            "Today",
-            model.selectedScreen == ScreenKey.PersonalToday,
-            { onIntent(GlobalTopBarIntent.OpenToday) },
+            "Work",
+            model.selectedScreen == ScreenKey.HubWork,
+            { onIntent(GlobalTopBarIntent.OpenWork) },
             icon = HarvestCircleIcons.Today,
         )
         HarvestCircleShellTab(

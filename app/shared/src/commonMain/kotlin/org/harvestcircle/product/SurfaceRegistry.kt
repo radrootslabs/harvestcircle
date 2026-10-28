@@ -105,6 +105,15 @@ enum class ScreenKey(
             FeatureAvailability.DeferredProtocol,
         ),
     ),
+    HubWork(
+        screen("hub_work_screen", LayoutKind.Dashboard, WorkspaceKind.Shared, NavigationKind.Permanent, FeatureAvailability.Foundation),
+    ),
+    HubStock(
+        screen("hub_stock_screen", LayoutKind.Dashboard, WorkspaceKind.Shared, NavigationKind.Permanent, FeatureAvailability.Foundation),
+    ),
+    HubDispatch(
+        screen("hub_dispatch_screen", LayoutKind.Dashboard, WorkspaceKind.Shared, NavigationKind.Permanent, FeatureAvailability.Foundation),
+    ),
     PersonalToday(
         screen(
             "personal_today_screen",

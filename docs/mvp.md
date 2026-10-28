@@ -278,8 +278,10 @@ must run from an independent public checkout without external design documents.
 
 ## Repository bindings and implementation status
 
-Inventory commands and operational UI below are planned. Native demo-context
-initialization and reads now persist through the serialized Rust actor and FFI.
+Inventory commands below are planned. Native demo-context initialization and
+reads persist through the serialized Rust actor and FFI. Explicit `make demo
+DEMO_RUN=hub-preview` opens a named offline profile. The Work/Stock/Dispatch shell
+uses native hub setup and owner checks; inventory mutations remain unavailable.
 The table identifies extension points, not completed inventory features.
 
 Pure hub identity, revision and ownership policy is implemented in
@@ -301,9 +303,9 @@ credential possession or replace native session, persistence and FFI checks.
 | Controls, typography and semantics | app/design_system/src/commonMain/kotlin/org/harvestcircle/designsystem |
 | Entry and window sizes | app/desktop/src/main/kotlin/org/harvestcircle/desktop/Main.kt |
 
-The existing frame collapses at compact widths; selected hub behavior requires
-labelled navigation and full-record fallback instead. Reuse its metrics and
-chrome exclusion rather than inventing another shell. Existing identity tests
+The frame keeps labelled navigation at compact widths and uses a full-record
+inspector fallback when it cannot fit beside the list. It retains the existing
+metrics and native chrome exclusion. Existing identity tests
 include IdentityBootstrapAcceptanceTest, NativeRuntimeIntegrationTest,
 IdentityLifecycleHostUiTest, NativeGeneratedRecoveryTest and
 DefaultProfileStartupTest. Extend actual native/SQLite tests alongside features.

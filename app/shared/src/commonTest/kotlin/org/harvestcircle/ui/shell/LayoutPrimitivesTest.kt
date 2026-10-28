@@ -24,9 +24,9 @@ class LayoutPrimitivesTest {
     }
 
     @Test
-    fun inspectorMovesBesideOrOverlaysAtTheUsefulCenterBreakpoint() {
+    fun inspectorUsesBesideOrFullRecordAtTheUsefulCenterBreakpoint() {
         assertEquals(InspectorPlacement.Beside, inspectorPlacement(1280, inspectorRequested = true))
-        assertEquals(InspectorPlacement.Overlay, inspectorPlacement(1100, inspectorRequested = true))
+        assertEquals(InspectorPlacement.FullRecord, inspectorPlacement(1100, inspectorRequested = true))
         assertEquals(InspectorPlacement.Hidden, inspectorPlacement(1280, inspectorRequested = false))
     }
 }

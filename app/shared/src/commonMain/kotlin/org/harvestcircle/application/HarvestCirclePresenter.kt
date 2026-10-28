@@ -42,6 +42,7 @@ class HarvestCirclePresenter(
     override val state: StateFlow<HarvestCirclePresenterState> = mutableState.asStateFlow()
     val effects: SharedFlow<HarvestCircleEffect> = mutableEffects.asSharedFlow()
     val buildInfo: BuildInfo = runtime.buildInfo
+    val hubRuntime: HarvestCircleHubRuntime? = runtime as? HarvestCircleHubRuntime
 
     init {
         subscriptionJob =

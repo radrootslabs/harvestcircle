@@ -481,8 +481,7 @@ impl HarvestCircleAppCore {
                 endpoints: Vec::new(),
             },
         })?;
-        let relays = relay_configuration_from_endpoints(&[]).map_err(HarvestCircleError::from)?;
-        Self::open_context_with_mode(&context, relays, true)
+        Self::open_context_with_mode(&context, RelayConfiguration::default(), true)
     }
 
     /// Private hub reads require the current native owner session.

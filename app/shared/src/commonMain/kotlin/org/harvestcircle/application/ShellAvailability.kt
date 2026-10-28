@@ -49,9 +49,9 @@ data class ShellNavigationItem(
 
 private val PERMANENT_SHELL_SCREEN_ORDER =
     listOf(
-        ScreenKey.PersonalToday,
-        ScreenKey.Explore,
-        ScreenKey.Activity,
+        ScreenKey.HubWork,
+        ScreenKey.HubStock,
+        ScreenKey.HubDispatch,
         ScreenKey.Network,
     ).also { keys -> require(keys.all { it.descriptor.navigation == NavigationKind.Permanent }) }
 
@@ -59,19 +59,6 @@ val shellNavigationItems: List<ShellNavigationItem> =
     PERMANENT_SHELL_SCREEN_ORDER.map(::navigationItem)
 
 val shellSettingsItem: ShellNavigationItem = navigationItem(ScreenKey.Settings)
-
-data class ShellWorkspaceAction(
-    val label: String,
-    val enabled: Boolean,
-    val unavailableExplanation: String,
-)
-
-val addFarmWorkspaceAction =
-    ShellWorkspaceAction(
-        label = "Add a farm workspace",
-        enabled = false,
-        unavailableExplanation = "Not available in this build.",
-    )
 
 sealed interface ShellRoot {
     data class LifecycleCanvas(
@@ -111,7 +98,7 @@ fun deriveShellRoot(
         return ShellRoot.BootstrapCanvas(BootstrapStep.ActivationProgress)
     }
     if (presenterState.snapshot.activeIdentity != null || session.readOnly) {
-        return ShellRoot.Dashboard(NavigationState(AppRoute.PersonalToday))
+        return ShellRoot.Dashboard(NavigationState(AppRoute.HubWork))
     }
     val step =
         when (presenterState.identityEntryMode) {
@@ -182,6 +169,9 @@ private fun navigationItem(screenKey: ScreenKey): ShellNavigationItem {
 
 private fun ScreenKey.label(): String =
     when (this) {
+        ScreenKey.HubWork -> "Work"
+        ScreenKey.HubStock -> "Stock"
+        ScreenKey.HubDispatch -> "Dispatch"
         ScreenKey.PersonalToday -> "Today"
         ScreenKey.Explore -> "Explore"
         ScreenKey.Activity -> "Activity"

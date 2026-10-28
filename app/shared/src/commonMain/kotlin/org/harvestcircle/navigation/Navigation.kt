@@ -23,6 +23,18 @@ sealed interface AppRoute {
         override val screenKey: ScreenKey = ScreenKey.Bootstrap
     }
 
+    data object HubWork : AppRoute {
+        override val screenKey: ScreenKey = ScreenKey.HubWork
+    }
+
+    data object HubStock : AppRoute {
+        override val screenKey: ScreenKey = ScreenKey.HubStock
+    }
+
+    data object HubDispatch : AppRoute {
+        override val screenKey: ScreenKey = ScreenKey.HubDispatch
+    }
+
     data object PersonalToday : AppRoute {
         override val screenKey: ScreenKey = ScreenKey.PersonalToday
     }
@@ -178,6 +190,9 @@ object NavigationReducer {
 
 fun ScreenKey.toExecutableRoute(): AppRoute? =
     when (this) {
+        ScreenKey.HubWork -> AppRoute.HubWork
+        ScreenKey.HubStock -> AppRoute.HubStock
+        ScreenKey.HubDispatch -> AppRoute.HubDispatch
         ScreenKey.PersonalToday -> AppRoute.PersonalToday
         ScreenKey.Network -> AppRoute.Network
         ScreenKey.Settings -> AppRoute.Settings

@@ -15,12 +15,13 @@ import java.net.URLClassLoader
 import java.nio.file.Files
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class DefaultProfileStartupTest {
     @Test
-    fun realApplicationOpensAndClosesTwiceInAFreshDefaultProfile() {
+    fun realApplicationAndNamedDemoReopenWithoutChangingOrdinaryState() {
         val home = Files.createTempDirectory("harvestcircle-default-profile-").toRealPath()
         try {
             val inherited = System.getProperty("java.class.path").split(File.pathSeparator)
@@ -32,7 +33,8 @@ class DefaultProfileStartupTest {
                     .toList()
             val classpath = (inherited + urls).distinct().joinToString(File.pathSeparator)
             assertTrue(classpath.isNotEmpty())
-            repeat(3) { iteration ->
+            var ordinaryState: Map<java.nio.file.Path, ByteArray> = emptyMap()
+            repeat(5) { iteration ->
                 val profile = if (iteration == 2) Files.createDirectory(home.resolve("missing-profile")) else home
                 val library = if (iteration == 2) profile.resolve("unavailable/harvestcircle_ffi").toString() else "harvestcircle_ffi"
                 val output = home.resolve("probe-$iteration.log").toFile()
@@ -46,7 +48,11 @@ class DefaultProfileStartupTest {
                         "-cp",
                         classpath,
                         "org.harvestcircle.application.DefaultProfileStartupProbe",
-                        if (iteration == 2) "missing" else "normal",
+                        when (iteration) {
+                            2 -> "missing"
+                            3, 4 -> "demo"
+                            else -> "normal"
+                        },
                     ).redirectErrorStream(true).redirectOutput(output)
                 builder.environment().apply {
                     put("HOME", profile.toString())
@@ -68,6 +74,25 @@ class DefaultProfileStartupTest {
                     assertTrue(process.waitFor(120, TimeUnit.SECONDS), "Default profile probe timed out")
                     assertEquals(0, process.exitValue(), output.readText())
                     assertTrue(output.readText().contains("HARVESTCIRCLE_DEFAULT_PROFILE_CLOSED"))
+                    if (iteration == 1) {
+                        ordinaryState =
+                            Files.walk(home).use { paths ->
+                                paths
+                                    .filter { it.fileName.toString() == "state.sqlite" }
+                                    .toList()
+                                    .associateWith(Files::readAllBytes)
+                            }
+                        assertEquals(1, ordinaryState.size)
+                    }
+                    if (iteration >= 3) {
+                        ordinaryState.forEach { (path, bytes) -> assertContentEquals(bytes, Files.readAllBytes(path)) }
+                        val states =
+                            Files.walk(home).use { paths ->
+                                paths.filter { it.fileName.toString() == "state.sqlite" }.toList()
+                            }
+                        assertEquals(2, states.size, "Demo should persist separately without making another profile on resume")
+                        assertEquals(1, states.count { it.toString().contains("demos/preview/") })
+                    }
                     if (iteration == 2) {
                         assertTrue(output.readText().contains("code=NativeLibraryLoadFailed"))
                         assertTrue(Files.notExists(profile.resolve("Library/Application Support/Radroots/data")))
@@ -92,7 +117,17 @@ internal object DefaultProfileStartupProbe {
             var closed = false
             setContent {
                 HarvestCircleWindowChromeEnvironment(HarvestCircleWindowChromeExclusion.None) {
-                    HarvestCircleApplication(closeRequested = closeRequested, onExitApproved = { closed = true })
+                    HarvestCircleApplication(
+                        closeRequested = closeRequested,
+                        onExitApproved = { closed = true },
+                        presenterFactory = { scope ->
+                            if (args.single() == "demo") {
+                                createDemoHarvestCirclePresenter(scope, "preview")
+                            } else {
+                                createHarvestCirclePresenter(scope)
+                            }
+                        },
+                    )
                 }
             }
             val expectedTag = if (args.single() == "missing") "startup-failure" else "bootstrap-read-only"

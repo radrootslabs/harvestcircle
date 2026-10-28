@@ -6,9 +6,10 @@ application state, Nostr adapters, persistence, native lifecycle and UniFFI.
 Shared Radroots packages are immutable public Git dependencies, not sibling paths.
 
 The [food-hub MVP contract](mvp.md) defines the intended candidate operational
-surface. Hub commands, permissions and inventory rules will extend this same
-native architecture; those features are not implemented yet. No server, shared
-network database file or cloud evidence service is required for the selected demo.
+surface. Demo-context setup and reads use native owner/session authorization.
+Inventory commands and rules will extend this same architecture; those workflows
+are not implemented yet. No server, shared network database file or cloud
+evidence service is required for the selected demo.
 
 ## Source map
 
@@ -27,8 +28,9 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 4, FFI is 5.1 and snapshot schema is 1. Rust and Kotlin compatibility inputs are checked before opening application
-state. Generated bindings and native libraries must come from the same producer.
+The current storage schema is 4, FFI is 5.1 and snapshot schema is 1. Rust and
+Kotlin compatibility inputs are checked before opening application state.
+Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
 
 The runtime context uses service `harvestcircle`, instance `desktop`, and exact

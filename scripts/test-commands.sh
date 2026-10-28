@@ -124,7 +124,7 @@ for mode in standalone governed; do
     default_output=$("$make_command" --no-print-directory -C "$dispatch_root" BUILD_MODE="$mode")
     help_output=$("$make_command" --no-print-directory -C "$dispatch_root" BUILD_MODE="$mode" help)
     [ "$default_output" = "$help_output" ] || exit 1
-    for target in doctor dev run dev-check build check source-check integration-check package; do
+    for target in doctor dev demo run dev-check ui-check build check source-check integration-check package; do
         run_dispatch "$mode" "$target" "$fixture/dispatch.log" > "$fixture/output.log" 2>&1 || { cat "$fixture/output.log"; exit 1; }
         if grep -Eq '^(node|npm|pnpm|npx|corepack)[[:space:]]' "$fixture/dispatch.log"; then
             printf '%s\n' "$target invoked an unrelated tool" >&2; exit 1
@@ -168,6 +168,17 @@ for mode in standalone governed; do
         fi
     done
     [ "$(printf '%s\n' "$development_output" | grep -c -- '--configuration-cache --configuration-cache-problems=fail :app:desktop:hotRunArgfile')" -eq 1 ]
+done
+
+# Invalid demo names must fail before the application launch task is selected.
+for invalid_demo in '../normal' 'Demo' 'two words' '1demo' ''; do
+    if (cd "$dispatch_root" && HCR_TEST_LOG="$fixture/invalid-demo.log" HCR_TEST_GRADLE_LOG="$fixture/invalid-demo-gradle.log" PATH="$dispatch_bin:$PATH" \
+        "$make_command" --no-print-directory BUILD_MODE=standalone DEMO_RUN="$invalid_demo" demo) \
+        > "$fixture/invalid-demo-output.log" 2>&1; then
+        printf '%s\n' 'Invalid DEMO_RUN was accepted' >&2; exit 1
+    fi
+    grep -q 'DEMO_RUN must' "$fixture/invalid-demo-output.log"
+    if grep -q ':app:desktop:run' "$fixture/invalid-demo.log"; then exit 1; fi
 done
 
 # Reject invalid internal commands and arguments before touching build state.

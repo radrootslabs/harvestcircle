@@ -14,6 +14,8 @@ import kotlinx.coroutines.withTimeout
 import org.harvestcircle.application.ApplicationLifecycle
 import org.harvestcircle.application.HarvestCircleApplication
 import org.harvestcircle.application.NativeHarvestCircleRuntime
+import org.harvestcircle.application.createDemoHarvestCirclePresenter
+import org.harvestcircle.application.createHarvestCirclePresenter
 import org.harvestcircle.application.desktopRuntimeOpenConfiguration
 import org.harvestcircle.application.verifyNativeCompatibility
 import org.harvestcircle.designsystem.layout.HarvestCircleWindowChromeEdge
@@ -65,6 +67,7 @@ private val isMacOs: Boolean =
 
 fun main(args: Array<String>) {
     if (isHealthCheck(args)) exitProcess(runHealthCheck())
+    val demoRun = parseDemoRun(args)
 
     val nativeStartupProblem = if (isMacOs) configureMacOsApplication() else null
 
@@ -95,6 +98,9 @@ fun main(args: Array<String>) {
                 if (nativeStartupProblem == null) {
                     HarvestCircleApplication(
                         closeRequested = closeRequested,
+                        presenterFactory = { scope ->
+                            if (demoRun == null) createHarvestCirclePresenter(scope) else createDemoHarvestCirclePresenter(scope, demoRun)
+                        },
                         onExitApproved = ::exitApplication,
                     )
                 } else {
@@ -103,6 +109,14 @@ fun main(args: Array<String>) {
             }
         }
     }
+}
+
+internal fun parseDemoRun(args: Array<String>): String? {
+    if (args.isEmpty()) return null
+    require(args.size == 2 && args[0] == "--demo") { "Usage: HarvestCircle [--demo <run-name>]" }
+    // Native validation also runs before preparing any profile paths.
+    require(Regex("[a-z][a-z0-9-]{0,47}").matches(args[1])) { "Invalid demo run name" }
+    return args[1]
 }
 
 internal fun desktopWindowTitle(macOs: Boolean): String = if (macOs) "" else APPLICATION_NAME

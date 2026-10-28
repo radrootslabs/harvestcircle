@@ -12,7 +12,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -22,6 +21,7 @@ import org.harvestcircle.application.FoundationOverlay
 import org.harvestcircle.application.HarvestCircleIntent
 import org.harvestcircle.application.HarvestCircleShellIntent
 import org.harvestcircle.application.HarvestCircleShellState
+import org.harvestcircle.application.HubViewState
 import org.harvestcircle.application.OverlayIntent
 import org.harvestcircle.application.ShellFocusTarget
 import org.harvestcircle.application.ShellRoot
@@ -49,6 +49,9 @@ fun HarvestCircleShell(
     identityActions: HarvestCircleUiActions,
     platformActions: HarvestCirclePlatformActions,
     dispatch: (HarvestCircleShellIntent) -> Unit,
+    hubState: HubViewState = HubViewState.Unavailable,
+    initializeHub: () -> Unit = {},
+    refreshHub: () -> Unit = {},
 ) {
     HarvestCircleTheme(state.appearance) {
         val focusRegistry = remember { ShellFocusRegistry() }
@@ -57,7 +60,7 @@ fun HarvestCircleShell(
                 modal = state.overlays.current,
                 onShortcut = { dispatchShortcut(it, state.overlays.current, dispatch) },
             ) {
-                HarvestCircleShellContent(state, identityActions, platformActions, dispatch)
+                HarvestCircleShellContent(state, identityActions, platformActions, dispatch, hubState, initializeHub, refreshHub)
             }
         }
     }
@@ -69,6 +72,9 @@ private fun HarvestCircleShellContent(
     identityActions: HarvestCircleUiActions,
     platformActions: HarvestCirclePlatformActions,
     dispatch: (HarvestCircleShellIntent) -> Unit,
+    hubState: HubViewState = HubViewState.Unavailable,
+    initializeHub: () -> Unit = {},
+    refreshHub: () -> Unit = {},
 ) {
     val modalOpen = state.overlays.current != null
     val fallback =
@@ -117,7 +123,17 @@ private fun HarvestCircleShellContent(
                             activatingPublicKeyHex = checkNotNull(state.identity.activatingIdentityId).value,
                         )
                 }
-            is ShellRoot.Dashboard -> DashboardRoot(state, root, identityActions, platformActions, dispatch)
+            is ShellRoot.Dashboard ->
+                DashboardRoot(
+                    state,
+                    root,
+                    identityActions,
+                    platformActions,
+                    dispatch,
+                    hubState,
+                    initializeHub,
+                    refreshHub,
+                )
         }
     }
     ShellFocusRestorer(state.overlays.restoreFocus, fallback)
@@ -143,19 +159,19 @@ private fun BootstrapWelcome(dispatch: (HarvestCircleShellIntent) -> Unit) {
             ) {
                 HarvestCircleShellPanel {
                     HarvestCircleShellText(
-                        "Coordinate local food with clear, signed terms.",
+                        "See what arrived, where it is, and where it went.",
                         role = HarvestCircleShellTextRole.SectionTitle,
                     )
-                    HarvestCircleShellText("HarvestCircle helps farms and nearby buyers form one shared order.")
+                    HarvestCircleShellText("HarvestCircle is preparing a local food-hub demonstration using fictional stock.")
                     HarvestCircleShellText("You do not need a HarvestCircle account.")
                 }
                 HarvestCircleShellPanel {
-                    HarvestCircleShellText("A farm opens a round", role = HarvestCircleShellTextRole.BodyStrong)
-                    HarvestCircleShellText("The farm publishes the available boxes, pickup terms, and price levels.")
-                    HarvestCircleShellText("Buyers make private commitments", role = HarvestCircleShellTextRole.BodyStrong)
-                    HarvestCircleShellText("Each buyer signs a maximum amount without publishing their identity.")
-                    HarvestCircleShellText("The authority clears the round", role = HarvestCircleShellTextRole.BodyStrong)
-                    HarvestCircleShellText("The selected authority applies the farm’s signed terms and issues allocations.")
+                    HarvestCircleShellText("Receive original whole packs", role = HarvestCircleShellTextRole.BodyStrong)
+                    HarvestCircleShellText("Keep source references and physical locations visible.")
+                    HarvestCircleShellText("Handle stock deliberately", role = HarvestCircleShellTextRole.BodyStrong)
+                    HarvestCircleShellText("Track acceptance, restrictions and handling work separately.")
+                    HarvestCircleShellText("Record actual departures", role = HarvestCircleShellTextRole.BodyStrong)
+                    HarvestCircleShellText("Preserve recipients and history without treating drafts as physical events.")
                 }
                 HarvestCircleShellText(
                     "Open source · Nostr-based · No managed service required",
@@ -208,14 +224,16 @@ private fun DashboardRoot(
     identityActions: HarvestCircleUiActions,
     platformActions: HarvestCirclePlatformActions,
     dispatch: (HarvestCircleShellIntent) -> Unit,
+    hubState: HubViewState = HubViewState.Unavailable,
+    initializeHub: () -> Unit = {},
+    refreshHub: () -> Unit = {},
 ) {
     val route = root.navigation.current
     val status = deriveShellStatus(state)
-    var sidebarCollapsed by rememberSaveable { mutableStateOf(false) }
     var networkSection by remember { mutableStateOf(NetworkSection.Overview) }
     DashboardScaffold(
         inspectorVisible = false,
-        sidebarCollapsed = sidebarCollapsed,
+        sidebarCollapsed = false,
         topBar = { geometry ->
             GlobalTopBar(
                 model =
@@ -228,9 +246,9 @@ private fun DashboardRoot(
                     ),
                 onIntent = { intent -> dispatchTopBar(intent, platformActions, dispatch) },
                 compact = geometry.layoutClass != HarvestCircleFrameLayoutClass.Expanded,
-                showSidebarToggle = geometry.sidebarTopBandFullyExcluded,
+                showSidebarToggle = false,
                 sidebarCollapsed = geometry.sidebarWidth == HarvestCircleDesignTokens.shell.frame.collapsedSidebarWidth,
-                onToggleSidebar = { sidebarCollapsed = !sidebarCollapsed },
+                onToggleSidebar = {},
             )
         },
         sidebar = { geometry ->
@@ -238,7 +256,8 @@ private fun DashboardRoot(
                 selected = route.screenKey,
                 onScreen = { dispatch(HarvestCircleShellIntent.Navigate(it)) },
                 compact = geometry.sidebarWidth == HarvestCircleDesignTokens.shell.frame.collapsedSidebarWidth,
-                onToggleCollapsed = { sidebarCollapsed = !sidebarCollapsed },
+                onToggleCollapsed = {},
+                showCollapseControl = false,
                 sessionLabel = todayContext(state),
                 chromeClearance = geometry.sidebarChromeClearance,
                 topBandFullyExcluded = geometry.sidebarTopBandFullyExcluded,
@@ -293,6 +312,8 @@ private fun DashboardRoot(
                         "${route.title()} main content",
                     ) {
                         when (route) {
+                            AppRoute.HubWork, AppRoute.HubStock, AppRoute.HubDispatch ->
+                                HubWorkspace(route, hubState, initializeHub, refreshHub)
                             AppRoute.PersonalToday ->
                                 FoundationTodayScreen(
                                     model = FoundationTodayModel(todayContext(state)),
@@ -354,7 +375,7 @@ private fun dispatchShortcut(
             ShellShortcut.Forward -> HarvestCircleShellIntent.Navigation(NavigationIntent.Forward)
             ShellShortcut.OpenNostrReference ->
                 HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference())
-            ShellShortcut.Today -> HarvestCircleShellIntent.Navigate(ScreenKey.PersonalToday)
+            ShellShortcut.Work -> HarvestCircleShellIntent.Navigate(ScreenKey.HubWork)
             ShellShortcut.Settings -> HarvestCircleShellIntent.Navigate(ScreenKey.Settings)
             ShellShortcut.CloseOverlay ->
                 HarvestCircleShellIntent.Overlay(
@@ -380,7 +401,7 @@ private fun dispatchTopBar(
     when (intent) {
         GlobalTopBarIntent.Back -> dispatch(HarvestCircleShellIntent.Navigation(NavigationIntent.Back))
         GlobalTopBarIntent.Forward -> dispatch(HarvestCircleShellIntent.Navigation(NavigationIntent.Forward))
-        GlobalTopBarIntent.OpenToday -> dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.PersonalToday))
+        GlobalTopBarIntent.OpenWork -> dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubWork))
         GlobalTopBarIntent.OpenNetwork -> dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.Network))
         GlobalTopBarIntent.OpenNostrReference ->
             dispatch(HarvestCircleShellIntent.Overlay(OverlayIntent.OpenReference(ShellFocusTarget.TopBarReference)))
@@ -420,6 +441,9 @@ private fun openSettingsSection(
 
 private fun AppRoute.title(): String =
     when (this) {
+        AppRoute.HubWork -> "Work"
+        AppRoute.HubStock -> "Stock"
+        AppRoute.HubDispatch -> "Dispatch"
         AppRoute.PersonalToday -> "Today"
         AppRoute.Network -> "Network"
         AppRoute.Settings -> "Settings"

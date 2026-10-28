@@ -37,10 +37,10 @@ class DashboardScaffoldTest {
         }
 
     @Test
-    fun minimumWindowMovesInspectorToOverlay() =
+    fun minimumWindowOpensInspectorAsFullRecord() =
         runComposeUiTest {
             setHarvestCircleContent { dashboard(width = 1100) }
-            onNodeWithTag("dashboard-inspector-overlay").assertIsDisplayed()
+            onNodeWithTag("dashboard-inspector-record").assertIsDisplayed()
             onNodeWithTag("dashboard-main-body").assertIsDisplayed()
         }
 
@@ -54,7 +54,7 @@ class DashboardScaffoldTest {
             width = 1100
             waitForIdle()
             onAllNodesWithTag("dashboard-inspector-beside").assertCountEquals(0)
-            onAllNodesWithTag("dashboard-inspector-overlay").assertCountEquals(1)
+            onAllNodesWithTag("dashboard-inspector-record").assertCountEquals(1)
         }
 
     @Test
