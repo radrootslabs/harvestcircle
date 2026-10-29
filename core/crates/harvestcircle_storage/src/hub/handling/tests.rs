@@ -46,7 +46,10 @@ async fn current_group_and_work_read_real_receiving_allocations() {
         .await
         .unwrap();
     assert_eq!(group.group.packs.value(), 20);
-    assert_eq!(group.group.location, receipt.original.trace.receiving.id);
+    assert_eq!(
+        group.group.location,
+        receipt.original.trace.initial_location.id
+    );
     assert_eq!(group.group.work.len(), 1);
     assert_eq!(
         group.group.work[0].requirement.quantity.remaining().value(),

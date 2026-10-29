@@ -40,7 +40,7 @@ use harvestcircle_domain::hub::reference::{
     HUB_LABEL_UTF8_BYTES, HubLabel, HubRecordId, ReferenceRecord, WholePacks,
 };
 use harvestcircle_domain::hub::stock::ReceiptPlan;
-use harvestcircle_domain::hub::stock::{HUB_STOCK_PAGE_ROWS, Occurrence, ReceiptTrace};
+use harvestcircle_domain::hub::stock::{HUB_STOCK_PAGE_ROWS, Occurrence, StockPopulation};
 use harvestcircle_domain::hub::{HubId, HubRevision};
 use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage, UnixTimestamp};
 use radroots_service_sqlite::ServiceSqliteTransaction;
@@ -164,7 +164,7 @@ pub struct HubGroupView {
     pub location: ReferenceRecord,
     pub product: ReferenceRecord,
     pub variant: ReferenceRecord,
-    pub trace: ReceiptTrace,
+    pub trace: StockPopulation,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -200,7 +200,7 @@ pub struct HubLineagePage {
     pub more: bool,
     pub product: ReferenceRecord,
     pub variant: ReferenceRecord,
-    pub trace: ReceiptTrace,
+    pub trace: StockPopulation,
     pub rows: Vec<HubLineageRow>,
 }
 

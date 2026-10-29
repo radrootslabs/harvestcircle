@@ -9,7 +9,7 @@ use super::reference::{
     HubRecordId, ReferenceCatalog, ReferenceKind, ReferenceRecord, ReferenceValue,
     SampleHandlingBasis, SourceProvenance, WholePacks,
 };
-use super::stock::ReceiptTrace;
+use super::stock::StockPopulation;
 use super::{HubId, HubRevision};
 use crate::{PublicKey, UnixTimestamp};
 use sha2::{Digest, Sha256};

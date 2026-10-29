@@ -250,6 +250,16 @@ This policy foundation is not yet persisted or exposed through native commands
 or count/opening forms. Native persistence, opening stock and complete lifecycle
 qualification remain unfinished.
 
+The Rust stock model now distinguishes received populations from counted opening
+and counted-surplus origins. Opening plans capture a presently identified count
+at its actual location, require a known count time, retain unknown or explicitly
+reported earlier history, and default to review-required acceptance. They create
+no fictional supplier/receipt or completed handling. Source-label knowledge is
+independent of earlier intake history. Origin/history participates in immutable
+document consistency and escaped local output; existing receipt digest encoding
+and document content are preserved. Persistence/FFI/forms for opening stock remain
+unfinished; the existing native receipt surface and schema are unchanged.
+
 ### C08: Preparation, departure, documents and trace
 
 Draft preparation reserves nothing. One actual departure has one recipient and

@@ -36,7 +36,7 @@ impl DispatchSelection {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DispatchSource {
     pub group: PhysicalStockGroup,
-    pub trace: ReceiptTrace,
+    pub trace: StockPopulation,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -48,7 +48,7 @@ pub struct DispatchLineSnapshot {
     pub location: ReferenceRecord,
     pub product: ReferenceRecord,
     pub variant: ReferenceRecord,
-    pub trace: ReceiptTrace,
+    pub trace: StockPopulation,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

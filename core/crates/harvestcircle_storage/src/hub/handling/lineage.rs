@@ -14,7 +14,7 @@ use stock::read::{optional_id, record_id, revision_field, whole_packs};
 pub(super) struct LoadedLineage {
     pub graph: PhysicalLineage,
     pub rows: Vec<HubLineageRow>,
-    pub trace: ReceiptTrace,
+    pub trace: StockPopulation,
 }
 
 impl Database {
@@ -219,7 +219,7 @@ pub(super) async fn load_on(
 pub(super) async fn creation_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
-    trace: &ReceiptTrace,
+    trace: &StockPopulation,
     id: HubRecordId,
     parent: Option<HubRecordId>,
     operation: stock::read::OperationRecord,

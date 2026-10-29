@@ -160,9 +160,31 @@ pub struct ReceiptCommand {
     pub observation: SourceProvenance,
 }
 
+mod opening;
+pub use opening::{OpeningCommand, OpeningError, OpeningIdentities, OpeningPlan};
+
+/// A counted opening is a present observation, never a fabricated historical receipt.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OpeningHistory {
+    Unknown,
+    ExternalReference(SourceProvenance),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PopulationOrigin {
+    Receipt,
+    CountedOpening {
+        history: OpeningHistory,
+    },
+    CountedSurplus {
+        count: HubRecordId,
+        related_population: HubRecordId,
+    },
+}
+
 /// Original reference versions survive later label changes and corrections.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ReceiptTrace {
+pub struct StockPopulation {
     pub id: HubRecordId,
     pub variant: ReferenceRecord,
     pub product: ReferenceRecord,
@@ -171,7 +193,8 @@ pub struct ReceiptTrace {
     pub source: SourceAttribution,
     pub source_issuer: Option<ReferenceRecord>,
     pub original_packs: WholePacks,
-    pub receiving: ReferenceRecord,
+    pub initial_location: ReferenceRecord,
+    pub origin: PopulationOrigin,
     pub planned_location: Option<ReferenceRecord>,
     pub occurred: Occurrence,
     pub recorded_at: UnixTimestamp,
@@ -179,7 +202,7 @@ pub struct ReceiptTrace {
     pub observation: SourceProvenance,
 }
 
-impl ReceiptTrace {
+impl StockPopulation {
     /// Missing/possible provenance stays visible; this is not acceptance.
     #[must_use]
     pub fn source_needs_review(&self) -> bool {
@@ -205,7 +228,7 @@ pub struct StockPosition {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReceiptPlan {
     pub stock_revision: HubRevision,
-    pub trace: ReceiptTrace,
+    pub trace: StockPopulation,
     pub position: StockPosition,
     pub put_away: QuantityWork,
 }
@@ -271,7 +294,7 @@ impl ReceiptCommand {
             .map_err(|_| StockError::RevisionExhausted)?;
         Ok(ReceiptPlan {
             stock_revision,
-            trace: ReceiptTrace {
+            trace: StockPopulation {
                 id: trace,
                 variant,
                 product,
@@ -280,7 +303,8 @@ impl ReceiptCommand {
                 source: self.source.clone(),
                 source_issuer,
                 original_packs: self.packs,
-                receiving,
+                initial_location: receiving,
+                origin: PopulationOrigin::Receipt,
                 planned_location,
                 occurred: self.occurred,
                 recorded_at,
@@ -322,25 +346,7 @@ impl ReceiptCommand {
         hash.update(self.packs.value().to_be_bytes());
         hash.update(self.receiving.as_bytes());
         hash_optional_id(&mut hash, self.planned_location);
-        match &self.source {
-            SourceAttribution::Unknown => hash.update([0]),
-            SourceAttribution::Referenced { source, certainty } => {
-                hash.update([1]);
-                hash.update(source.id.as_bytes());
-                hash_optional_id(&mut hash, source.issuer);
-                hash.update([match source.kind {
-                    SourceReferenceKind::ProducerBatch => 1,
-                    SourceReferenceKind::SupplierReference => 2,
-                    SourceReferenceKind::Other => 3,
-                }]);
-                hash_text(&mut hash, source.code.as_str());
-                hash_text(&mut hash, source.provenance.as_str());
-                hash.update([match certainty {
-                    SourceCertainty::ReportedPossible => 1,
-                    SourceCertainty::Established => 2,
-                }]);
-            }
-        }
+        hash_source(&mut hash, &self.source);
         match self.occurred {
             Occurrence::Unknown => hash.update([0]),
             Occurrence::Known(at) => {
@@ -392,6 +398,28 @@ fn hash_text(hash: &mut Sha256, value: &str) {
             .to_be_bytes(),
     );
     hash.update(value.as_bytes());
+}
+
+fn hash_source(hash: &mut Sha256, source: &SourceAttribution) {
+    match source {
+        SourceAttribution::Unknown => hash.update([0]),
+        SourceAttribution::Referenced { source, certainty } => {
+            hash.update([1]);
+            hash.update(source.id.as_bytes());
+            hash_optional_id(hash, source.issuer);
+            hash.update([match source.kind {
+                SourceReferenceKind::ProducerBatch => 1,
+                SourceReferenceKind::SupplierReference => 2,
+                SourceReferenceKind::Other => 3,
+            }]);
+            hash_text(hash, source.code.as_str());
+            hash_text(hash, source.provenance.as_str());
+            hash.update([match certainty {
+                SourceCertainty::ReportedPossible => 1,
+                SourceCertainty::Established => 2,
+            }]);
+        }
+    }
 }
 
 #[cfg(test)]

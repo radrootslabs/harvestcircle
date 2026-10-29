@@ -6,7 +6,8 @@ use harvestcircle_domain::hub::reference::{
     HUB_LABEL_UTF8_BYTES, HubLabel, HubRecordId, ReferenceRecord, SampleHandlingBasis,
 };
 use harvestcircle_domain::hub::stock::{
-    HUB_STOCK_PAGE_ROWS, HUB_TRACE_CAPACITY, QuantityWork, ReceiptPlan, ReceiptTrace, StockPosition,
+    HUB_STOCK_PAGE_ROWS, HUB_TRACE_CAPACITY, QuantityWork, ReceiptPlan, StockPopulation,
+    StockPosition,
 };
 use harvestcircle_domain::{SafeError, SafeErrorCode, SafeMessage};
 
@@ -36,7 +37,7 @@ pub struct HubStockRow {
     pub product: ReferenceRecord,
     pub position: StockPosition,
     pub location: ReferenceRecord,
-    pub trace: ReceiptTrace,
+    pub trace: StockPopulation,
     pub put_away: QuantityWork,
     pub work_revision: HubRevision,
     pub work_target: Option<ReferenceRecord>,

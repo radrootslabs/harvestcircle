@@ -179,7 +179,7 @@ pub(super) async fn load_on(
 async fn original_identity_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
-    trace: &ReceiptTrace,
+    trace: &StockPopulation,
     group: HubRecordId,
     cut: HubRevision,
 ) -> Result<Option<PhysicalIdentification>, SafeError> {

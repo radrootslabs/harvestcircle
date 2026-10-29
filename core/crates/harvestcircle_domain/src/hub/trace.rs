@@ -5,7 +5,7 @@ use super::reference::{
     HubRecordId, ReferenceKind, ReferenceRecord, SourceAttribution, SourceCertainty,
     SourceProvenance, WholePacks,
 };
-use super::stock::{Occurrence, ReceiptTrace};
+use super::stock::{Occurrence, StockPopulation};
 use super::treatment::GroupTreatment;
 use super::{HubId, HubRevision};
 use crate::{PublicKey, UnixTimestamp};
@@ -69,7 +69,7 @@ impl TraceSourceEvidence {
 }
 impl TraceScope {
     #[must_use]
-    pub fn includes(self, trace: &ReceiptTrace) -> bool {
+    pub fn includes(self, trace: &StockPopulation) -> bool {
         self.includes_evidence(trace.id, (&trace.source).into())
     }
     #[must_use]
@@ -106,7 +106,7 @@ impl TraceSelection {
         Ok(())
     }
     /// Literal search is only a field filter, never proof that origin is excluded.
-    pub fn includes(&self, trace: &ReceiptTrace) -> Result<bool, TraceError> {
+    pub fn includes(&self, trace: &StockPopulation) -> Result<bool, TraceError> {
         let source = match &trace.source {
             SourceAttribution::Unknown => None,
             SourceAttribution::Referenced { source, .. } => Some(source),
@@ -194,7 +194,7 @@ pub struct TraceSnapshot {
     pub hub: HubId,
     pub stock_revision: HubRevision,
     pub catalog_revision: HubRevision,
-    pub trace: ReceiptTrace,
+    pub trace: StockPopulation,
     pub on_hand: Vec<TracePosition>,
     pub exits: Vec<TraceExit>,
 }

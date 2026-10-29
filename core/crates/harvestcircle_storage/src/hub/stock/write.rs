@@ -87,14 +87,14 @@ pub(crate) async fn apply_on(
         .map_err(|_| storage_unavailable())?;
     sqlx::query("INSERT INTO hub_stock_positions (group_id,location_id,location_revision,packs,revision) VALUES (?,?,?,?,1)")
         .bind(ids.group.as_bytes().as_slice()).bind(plan.position.location.as_bytes().as_slice())
-        .bind(integer(plan.trace.receiving.revision)?).bind(i64::from(plan.position.packs.value()))
+        .bind(integer(plan.trace.initial_location.revision)?).bind(i64::from(plan.position.packs.value()))
         .execute(&mut *transaction).await.map_err(|_| storage_unavailable())?;
     crate::hub::handling::seed_receipt_on(transaction, &operation, &plan).await?;
     let (kind, start, end) = occurrence_fields(plan.trace.occurred);
     sqlx::query("INSERT INTO hub_stock_events (sequence,operation_id,kind,trace_id,group_id,packs,from_location_id,from_location_revision,to_location_id,to_location_revision,occurrence_kind,occurrence_start_unix_s,occurrence_end_unix_s) VALUES (?,?,'receipt',?,?,?,NULL,NULL,?,?,?,?,?)")
         .bind(i64::from(state.event_count)+1).bind(operation.as_str()).bind(ids.trace.as_bytes().as_slice())
         .bind(ids.group.as_bytes().as_slice()).bind(i64::from(plan.trace.original_packs.value()))
-        .bind(plan.trace.receiving.id.as_bytes().as_slice()).bind(integer(plan.trace.receiving.revision)?)
+        .bind(plan.trace.initial_location.id.as_bytes().as_slice()).bind(integer(plan.trace.initial_location.revision)?)
         .bind(kind).bind(start).bind(end).execute(&mut *transaction).await.map_err(|_| storage_unavailable())?;
     let changed = sqlx::query("UPDATE hub_stock_state SET revision=?,event_count=? WHERE singleton=1 AND hub_id=? AND revision=? AND event_count=?")
         .bind(integer(plan.stock_revision)?).bind(i64::from(state.event_count)+1).bind(hub.id().as_bytes().as_slice())
@@ -166,7 +166,7 @@ pub(crate) async fn insert_receipt_on(
         .bind(trace.supplier.as_ref().map(|r| r.id.as_bytes().as_slice())).bind(optional_revision(trace.supplier.as_ref())?)
         .bind(trace.producer.as_ref().map(|r| r.id.as_bytes().as_slice())).bind(optional_revision(trace.producer.as_ref())?)
         .bind(source).bind(certainty).bind(optional_revision(trace.source_issuer.as_ref())?)
-        .bind(i64::from(trace.original_packs.value())).bind(trace.receiving.id.as_bytes().as_slice()).bind(integer(trace.receiving.revision)?)
+        .bind(i64::from(trace.original_packs.value())).bind(trace.initial_location.id.as_bytes().as_slice()).bind(integer(trace.initial_location.revision)?)
         .bind(trace.planned_location.as_ref().map(|r| r.id.as_bytes().as_slice())).bind(optional_revision(trace.planned_location.as_ref())?)
         .bind(kind).bind(start).bind(end).bind(trace.observation.as_str())
         .execute(&mut *transaction).await.map_err(|_| storage_unavailable())?;

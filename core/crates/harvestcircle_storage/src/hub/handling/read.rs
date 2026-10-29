@@ -327,7 +327,7 @@ pub(super) async fn trace_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     trace: HubRecordId,
-) -> Result<ReceiptTrace, SafeError> {
+) -> Result<StockPopulation, SafeError> {
     let operation: String = sqlx::query_scalar(
         "SELECT substr(operation_id,1,37) FROM hub_receipts WHERE trace_id=? LIMIT 1",
     )

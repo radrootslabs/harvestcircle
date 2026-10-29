@@ -53,7 +53,7 @@ fn fixture() -> TraceSnapshot {
             purpose: LocationPurpose::Receiving,
         },
     );
-    let trace = ReceiptTrace {
+    let trace = StockPopulation {
         id: id(4),
         variant,
         product,
@@ -62,7 +62,8 @@ fn fixture() -> TraceSnapshot {
         source: SourceAttribution::Unknown,
         source_issuer: None,
         original_packs: packs(20),
-        receiving: receiving.clone(),
+        origin: crate::hub::stock::PopulationOrigin::Receipt,
+        initial_location: receiving.clone(),
         planned_location: None,
         occurred: Occurrence::Unknown,
         recorded_at: at(100),
@@ -111,7 +112,7 @@ fn fixture() -> TraceSnapshot {
         }],
     }
 }
-fn source(trace: &mut ReceiptTrace, n: u8, issuer: u8, certainty: SourceCertainty) {
+fn source(trace: &mut StockPopulation, n: u8, issuer: u8, certainty: SourceCertainty) {
     trace.source = SourceAttribution::Referenced {
         source: SourceReference {
             id: id(n),

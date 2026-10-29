@@ -1,7 +1,9 @@
 //! Pure local documents. Rendering, saving and printing never submit a physical command.
 use harvestcircle_domain::hub::dispatch::{DispatchRecord, IdentificationVersion};
 use harvestcircle_domain::hub::reference::{HubRecordId, ReferenceRecord, SourceAttribution};
-use harvestcircle_domain::hub::stock::{Occurrence, ReceiptTrace};
+use harvestcircle_domain::hub::stock::{
+    Occurrence, OpeningHistory, PopulationOrigin, StockPopulation,
+};
 use harvestcircle_domain::hub::trace::{TraceSnapshot, source_certainty_label};
 use harvestcircle_domain::{PublicKey, UnixTimestamp};
 use sha2::{Digest, Sha256};
@@ -212,8 +214,34 @@ pub fn trace_output(snapshot: &TraceSnapshot) -> Result<LocalOutput, LocalOutput
     )
 }
 
-fn trace_source(out: &mut Html, trace: &ReceiptTrace) -> Result<(), LocalOutputError> {
+fn trace_source(out: &mut Html, trace: &StockPopulation) -> Result<(), LocalOutputError> {
     out.field("Original population", &trace.id.to_hex())?;
+    match &trace.origin {
+        PopulationOrigin::Receipt => (),
+        PopulationOrigin::CountedOpening { history } => {
+            out.field("Population entry", "Counted opening")?;
+            reference(out, "Counted location", &trace.initial_location)?;
+            out.paragraph("This is stock counted at the stated location, not a historical receipt or evidence of earlier arrival or completed handling.")?;
+            match history {
+                OpeningHistory::Unknown => out.field("Earlier intake history", "Unknown")?,
+                OpeningHistory::ExternalReference(value) => {
+                    out.field("Earlier-history reference as reported", value.as_str())?
+                }
+            }
+        }
+        PopulationOrigin::CountedSurplus {
+            count,
+            related_population,
+        } => {
+            out.field(
+                "Population entry",
+                "Separately counted surplus of unknown origin",
+            )?;
+            out.field("Count reference", &count.to_hex())?;
+            out.field("Related counted population", &related_population.to_hex())?;
+            out.paragraph("The related population does not establish the surplus source. Earlier receipt or acceptance is not inherited.")?;
+        }
+    }
     reference(out, "Original product", &trace.product)?;
     reference(out, "Original pack", &trace.variant)?;
     out.field(

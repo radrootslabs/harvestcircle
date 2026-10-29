@@ -8,7 +8,7 @@ use harvestcircle_domain::hub::reference::{
     SourceReferenceKind, WholePacks,
 };
 use harvestcircle_domain::hub::stock::{
-    Occurrence, QuantityWork, ReceiptCommand, ReceiptIdentities, ReceiptTrace, StockPosition,
+    Occurrence, QuantityWork, ReceiptCommand, ReceiptIdentities, StockPopulation, StockPosition,
 };
 use harvestcircle_domain::{SafeError, SafeErrorCode, SafeMessage, UnixTimestamp};
 use harvestcircle_storage::{HubStockPage, HubStockQuery, HubStockReceipt, HubStockRow};
@@ -150,7 +150,7 @@ pub struct HubSourceDto {
     pub certainty: HubSourceCertaintyDto,
 }
 impl HubSourceDto {
-    fn from_trace(trace: &ReceiptTrace) -> Self {
+    fn from_trace(trace: &StockPopulation) -> Self {
         match &trace.source {
             SourceAttribution::Unknown => Self {
                 id: None,
@@ -271,8 +271,8 @@ pub struct HubReceiptTraceDto {
     pub actor_public_key: String,
     pub observation: String,
 }
-impl From<&ReceiptTrace> for HubReceiptTraceDto {
-    fn from(trace: &ReceiptTrace) -> Self {
+impl From<&StockPopulation> for HubReceiptTraceDto {
+    fn from(trace: &StockPopulation) -> Self {
         Self {
             id: trace.id.to_hex(),
             variant: (&trace.variant).into(),
@@ -282,7 +282,7 @@ impl From<&ReceiptTrace> for HubReceiptTraceDto {
             source: HubSourceDto::from_trace(trace),
             source_needs_review: trace.source_needs_review(),
             original_whole_packs: trace.original_packs.value(),
-            receiving: (&trace.receiving).into(),
+            receiving: (&trace.initial_location).into(),
             planned_location: trace.planned_location.as_ref().map(Into::into),
             occurrence: trace.occurred.into(),
             recorded_at_unix_s: trace.recorded_at.as_seconds(),

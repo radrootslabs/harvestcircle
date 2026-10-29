@@ -767,7 +767,10 @@ async fn current_stock_uses_current_names_while_original_receipt_versions_remain
         "Current A3 name"
     );
     assert_eq!(row.trace.product.value.label().as_str(), "Fictional apples");
-    assert_eq!(row.trace.receiving.value.label().as_str(), "Receiving");
+    assert_eq!(
+        row.trace.initial_location.value.label().as_str(),
+        "Receiving"
+    );
     assert_eq!(
         row.trace
             .planned_location

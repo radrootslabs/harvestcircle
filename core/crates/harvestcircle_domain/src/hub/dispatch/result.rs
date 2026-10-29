@@ -4,6 +4,7 @@ use crate::hub::movement::{hash_occurrence, hash_text};
 use crate::hub::reference::{
     ReferenceCommand, ReferenceMutation, SourceAttribution, SourceCertainty, SourceReferenceKind,
 };
+use crate::hub::stock::{OpeningHistory, PopulationOrigin};
 
 pub fn dispatch_result_digest(
     input: &[u8; 32],
@@ -121,7 +122,7 @@ fn optional_id(hash: &mut Sha256, value: Option<HubRecordId>) {
     }
 }
 
-fn trace(hash: &mut Sha256, owner: &DispatchRecord, catalog: HubRevision, value: &ReceiptTrace) {
+fn trace(hash: &mut Sha256, owner: &DispatchRecord, catalog: HubRevision, value: &StockPopulation) {
     hash.update(value.id.as_bytes());
     reference(hash, owner, catalog, &value.variant);
     reference(hash, owner, catalog, &value.product);
@@ -152,10 +153,32 @@ fn trace(hash: &mut Sha256, owner: &DispatchRecord, catalog: HubRevision, value:
         }
     }
     hash.update(value.original_packs.value().to_be_bytes());
-    reference(hash, owner, catalog, &value.receiving);
+    reference(hash, owner, catalog, &value.initial_location);
     optional_reference(hash, owner, catalog, value.planned_location.as_ref());
     hash_occurrence(hash, value.occurred);
     hash.update(value.recorded_at.as_seconds().to_be_bytes());
     hash.update(value.actor.as_bytes());
     hash_text(hash, value.observation.as_str());
+    // Receipt v1 bytes remain frozen for already issued documents.
+    match &value.origin {
+        PopulationOrigin::Receipt => (),
+        PopulationOrigin::CountedOpening { history } => {
+            hash.update(b"harvestcircle.hub.population.counted-opening.v1\0");
+            match history {
+                OpeningHistory::Unknown => hash.update([0]),
+                OpeningHistory::ExternalReference(reference) => {
+                    hash.update([1]);
+                    hash_text(hash, reference.as_str());
+                }
+            }
+        }
+        PopulationOrigin::CountedSurplus {
+            count,
+            related_population,
+        } => {
+            hash.update(b"harvestcircle.hub.population.counted-surplus.v1\0");
+            hash.update(count.as_bytes());
+            hash.update(related_population.as_bytes());
+        }
+    }
 }

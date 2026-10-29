@@ -73,7 +73,7 @@ pub struct HubHoldRow {
 pub struct HubTreatmentSnapshot {
     pub revision: HubRevision,
     pub catalog_revision: HubRevision,
-    pub trace: ReceiptTrace,
+    pub trace: StockPopulation,
     pub projection: TreatmentProjection,
     pub normal_operations_available: bool,
     pub holds: Vec<HubHoldRow>,

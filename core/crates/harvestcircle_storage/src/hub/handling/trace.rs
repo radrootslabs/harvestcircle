@@ -45,7 +45,7 @@ impl HubTraceQuery {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HubTraceRow {
-    pub trace: ReceiptTrace,
+    pub trace: StockPopulation,
     pub balance: TraceBalance,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -602,3 +602,30 @@ fn original_digest_binds_resolved_labels_sources_clocks_and_closed_history() {
         Err(DispatchError::InvalidHistory)
     );
 }
+
+#[test]
+fn original_result_digest_binds_counted_origin_and_earlier_history_without_changing_receipt_encoding()
+ {
+    use crate::hub::stock::{OpeningHistory, PopulationOrigin};
+    let mut fixture = Fixture::new();
+    let draft = fixture.prepare(20);
+    let issued = fixture.issue(&draft, 21);
+    let input = [33; 32];
+    let receipt = dispatch_result_digest(&input, &issued).unwrap();
+    let mut counted = issued.clone();
+    counted.versions[0].material.lines[0].trace.origin = PopulationOrigin::CountedOpening {
+        history: OpeningHistory::Unknown,
+    };
+    let unknown = dispatch_result_digest(&input, &counted).unwrap();
+    assert_ne!(receipt, unknown);
+    counted.versions[0].material.lines[0].trace.origin = PopulationOrigin::CountedOpening {
+        history: OpeningHistory::ExternalReference(note("External register entry")),
+    };
+    assert_ne!(unknown, dispatch_result_digest(&input, &counted).unwrap());
+    counted.versions[0].material.lines[0].trace.origin = PopulationOrigin::CountedSurplus {
+        count: id(90),
+        related_population: id(91),
+    };
+    assert_ne!(receipt, dispatch_result_digest(&input, &counted).unwrap());
+    assert_eq!(receipt, dispatch_result_digest(&input, &issued).unwrap());
+}

@@ -61,7 +61,7 @@ fn fixture() -> DispatchRecord {
             label: label("Recipient 'A' <script>alert(1)</script>"),
         },
     );
-    let trace = ReceiptTrace {
+    let trace = StockPopulation {
         id: id(5),
         product: product.clone(),
         variant: variant.clone(),
@@ -70,7 +70,8 @@ fn fixture() -> DispatchRecord {
         source: SourceAttribution::Unknown,
         source_issuer: None,
         original_packs: WholePacks::from_value(20).unwrap(),
-        receiving: receiving.clone(),
+        origin: harvestcircle_domain::hub::stock::PopulationOrigin::Receipt,
+        initial_location: receiving.clone(),
         planned_location: None,
         occurred: Occurrence::Unknown,
         recorded_at: at(100),
@@ -235,5 +236,37 @@ fn output_bounds_apply_after_escaping_and_unsupported_times_never_panic() {
     assert_eq!(
         operation_text(id(1)),
         "01010101-0101-0101-0101-010101010101"
+    );
+}
+
+#[test]
+fn counted_opening_output_labels_current_count_and_escapes_unverified_earlier_history() {
+    use harvestcircle_domain::hub::stock::{OpeningHistory, PopulationOrigin};
+    let mut snapshot = snapshot();
+    let receipt = trace_output(&snapshot).unwrap();
+    snapshot.trace.origin = PopulationOrigin::CountedOpening {
+        history: OpeningHistory::ExternalReference(note(
+            "Unverified register <entry> & unknown earlier arrival",
+        )),
+    };
+    let counted = trace_output(&snapshot).unwrap();
+    assert_ne!(receipt.identity, counted.identity);
+    assert!(counted.html.contains("Counted opening"));
+    assert!(counted.html.contains("not a historical receipt"));
+    assert!(
+        counted
+            .html
+            .contains("Unverified register &lt;entry&gt; &amp; unknown earlier arrival")
+    );
+    snapshot.trace.origin = PopulationOrigin::CountedSurplus {
+        count: id(40),
+        related_population: id(41),
+    };
+    let surplus = trace_output(&snapshot).unwrap();
+    assert!(surplus.html.contains("surplus of unknown origin"));
+    assert!(
+        surplus
+            .html
+            .contains("does not establish the surplus source")
     );
 }
