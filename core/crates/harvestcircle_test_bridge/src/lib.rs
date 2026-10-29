@@ -15,11 +15,13 @@ use harvestcircle_application::{
 };
 use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
 use harvestcircle_ffi::{
-    HarvestCircleError, HubContextDto, HubDepartureInputDto, HubDepartureReceiptDto,
-    HubDepartureReviewDto, HubDepartureReviewInputDto, HubDiscrepancyPageDto, HubDispatchInputDto,
-    HubDispatchPageDto, HubDispatchQueryDto, HubDispatchReceiptDto, HubDispatchViewDto,
-    HubGroupViewDto, HubHandlingInputDto, HubHandlingQueryDto, HubHandlingReceiptDto,
-    HubLineagePageDto, HubLineageQueryDto, HubReceiptInputDto, HubReferenceEditDto,
+    HarvestCircleError, HubContextDto, HubCountObservationDto, HubCountObserveInputDto,
+    HubCountPostInputDto, HubCountPostReceiptDto, HubCountReviewDto, HubDepartureInputDto,
+    HubDepartureReceiptDto, HubDepartureReviewDto, HubDepartureReviewInputDto,
+    HubDiscrepancyPageDto, HubDispatchInputDto, HubDispatchPageDto, HubDispatchQueryDto,
+    HubDispatchReceiptDto, HubDispatchViewDto, HubGroupViewDto, HubHandlingInputDto,
+    HubHandlingQueryDto, HubHandlingReceiptDto, HubLineagePageDto, HubLineageQueryDto,
+    HubOpeningInputDto, HubOpeningReceiptDto, HubReceiptInputDto, HubReferenceEditDto,
     HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto, HubStockPageDto,
     HubStockQueryDto, HubStockReceiptDto, HubTreatmentPageDto, HubTreatmentQueryDto,
     HubTreatmentScopeDto, HubTreatmentSnapshotDto, HubWorkPageDto, SafeErrorDto,
@@ -288,6 +290,110 @@ impl HarvestCircleTestBridge {
             .map(|rows| rows.into_iter().map(Into::into).collect())
             .map_err(native_runtime_error)
     }
+    pub fn record_opening(
+        &self,
+        operation_id: String,
+        expected_revision: u64,
+        input: HubOpeningInputDto,
+    ) -> Result<HubOpeningReceiptDto, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let command = input.command(&operation).map_err(native_codec_error)?;
+        let value = self
+            .runtime
+            .block_on(self.actor()?.record_hub_opening(
+                operation,
+                command,
+                SnapshotRevision::from_value(expected_revision),
+                Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            ))
+            .map_err(native_runtime_error)?;
+        Ok(value.into())
+    }
+    pub fn observe_count(
+        &self,
+        operation_id: String,
+        expected_revision: u64,
+        input: HubCountObserveInputDto,
+    ) -> Result<HubCountObservationDto, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let command = input.command().map_err(native_codec_error)?;
+        let value = self
+            .runtime
+            .block_on(self.actor()?.observe_hub_count(
+                operation,
+                command,
+                SnapshotRevision::from_value(expected_revision),
+                Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            ))
+            .map_err(native_runtime_error)?;
+        Ok(value.into())
+    }
+    pub fn post_count(
+        &self,
+        operation_id: String,
+        expected_revision: u64,
+        input: HubCountPostInputDto,
+    ) -> Result<HubCountPostReceiptDto, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let command = input.command().map_err(native_codec_error)?;
+        let value = self
+            .runtime
+            .block_on(self.actor()?.post_hub_count(
+                operation,
+                command,
+                SnapshotRevision::from_value(expected_revision),
+                Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            ))
+            .map_err(native_runtime_error)?;
+        value.try_into().map_err(native_codec_error)
+    }
+    pub fn opening_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubOpeningReceiptDto>, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let value = self
+            .runtime
+            .block_on(self.actor()?.hub_opening_operation(operation))
+            .map_err(native_runtime_error)?;
+        Ok(value.map(Into::into))
+    }
+    pub fn count_observation_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubCountObservationDto>, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let value = self
+            .runtime
+            .block_on(self.actor()?.hub_count_observation_operation(operation))
+            .map_err(native_runtime_error)?;
+        Ok(value.map(Into::into))
+    }
+    pub fn count_post_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubCountPostReceiptDto>, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let value = self
+            .runtime
+            .block_on(self.actor()?.hub_count_post_operation(operation))
+            .map_err(native_runtime_error)?;
+        value
+            .map(TryInto::try_into)
+            .transpose()
+            .map_err(native_codec_error)
+    }
+    pub fn count_review(&self, count_id: String) -> Result<HubCountReviewDto, TestBridgeError> {
+        let count = harvestcircle_domain::hub::reference::HubRecordId::from_hex(&count_id)
+            .map_err(|_| TestBridgeError::Failure {
+                safe_message: "Invalid test count identity.".into(),
+            })?;
+        self.runtime
+            .block_on(self.actor()?.hub_count_review(count))
+            .map(Into::into)
+            .map_err(native_runtime_error)
+    }
+
     pub fn stock(&self, query: HubStockQueryDto) -> Result<HubStockPageDto, TestBridgeError> {
         let query = query.decode().map_err(native_codec_error)?;
         self.runtime

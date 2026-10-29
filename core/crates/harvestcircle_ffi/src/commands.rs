@@ -26,6 +26,10 @@ use radroots_runtime_paths::{
 };
 use radroots_service_sqlite::MigrationBuildIdentity;
 
+use crate::hub_counts::{
+    HubCountObservationDto, HubCountObserveInputDto, HubCountPostInputDto, HubCountPostReceiptDto,
+    HubCountReviewDto,
+};
 use crate::hub_departure::{
     HubDepartureInputDto, HubDepartureReceiptDto, HubDepartureReviewDto, HubDepartureReviewInputDto,
 };
@@ -37,6 +41,7 @@ use crate::hub_handling::{
     HubDiscrepancyPageDto, HubGroupViewDto, HubHandlingInputDto, HubHandlingQueryDto,
     HubHandlingReceiptDto, HubWorkPageDto,
 };
+use crate::hub_opening::{HubOpeningInputDto, HubOpeningReceiptDto};
 use crate::hub_portions::{HubLineagePageDto, HubLineageQueryDto};
 use crate::hub_reference::{
     HubReferenceEditDto, HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto,
@@ -838,6 +843,130 @@ impl HarvestCircleAppCore {
             .map_err(|error| HarvestCircleError::correlated(error, &request))
     }
 
+    pub async fn record_hub_opening(
+        &self,
+        context: RequestContextDto,
+        input: HubOpeningInputDto,
+    ) -> Result<HubOpeningReceiptDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let (request, timeout) = validate_request_context(&context)?;
+        let command = input.command(&request)?;
+        let value = self
+            .inner
+            .actor
+            .record_hub_opening(
+                request.clone(),
+                command,
+                harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
+                timeout,
+            )
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        Ok(value.into())
+    }
+    pub async fn observe_hub_count(
+        &self,
+        context: RequestContextDto,
+        input: HubCountObserveInputDto,
+    ) -> Result<HubCountObservationDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let (request, timeout) = validate_request_context(&context)?;
+        let command = input.command()?;
+        let value = self
+            .inner
+            .actor
+            .observe_hub_count(
+                request.clone(),
+                command,
+                harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
+                timeout,
+            )
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        Ok(value.into())
+    }
+    pub async fn post_hub_count(
+        &self,
+        context: RequestContextDto,
+        input: HubCountPostInputDto,
+    ) -> Result<HubCountPostReceiptDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let (request, timeout) = validate_request_context(&context)?;
+        let command = input.command()?;
+        let value = self
+            .inner
+            .actor
+            .post_hub_count(
+                request.clone(),
+                command,
+                harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
+                timeout,
+            )
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        value.try_into()
+    }
+    /// Read-only original recovery. Absence never authorizes a new submission.
+    pub async fn hub_opening_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubOpeningReceiptDto>, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let request = DurableRequestId::parse(operation_id)
+            .map_err(|_| crate::hub_reference::invalid_input())?;
+        let value = self
+            .inner
+            .actor
+            .hub_opening_operation(request.clone())
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        Ok(value.map(Into::into))
+    }
+    /// Read-only original recovery. Absence never authorizes a new submission.
+    pub async fn hub_count_observation_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubCountObservationDto>, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let request = DurableRequestId::parse(operation_id)
+            .map_err(|_| crate::hub_reference::invalid_input())?;
+        let value = self
+            .inner
+            .actor
+            .hub_count_observation_operation(request.clone())
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        Ok(value.map(Into::into))
+    }
+    /// Read-only original recovery. Absence never authorizes a new submission.
+    pub async fn hub_count_post_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubCountPostReceiptDto>, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let request = DurableRequestId::parse(operation_id)
+            .map_err(|_| crate::hub_reference::invalid_input())?;
+        let value = self
+            .inner
+            .actor
+            .hub_count_post_operation(request.clone())
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        value.map(TryInto::try_into).transpose()
+    }
+    pub async fn hub_count_review(
+        &self,
+        count_id: String,
+    ) -> Result<HubCountReviewDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        self.inner
+            .actor
+            .hub_count_review(crate::hub_treatment_input::id(&count_id)?)
+            .await
+            .map(Into::into)
+            .map_err(HarvestCircleError::from)
+    }
+
     pub async fn receive_hub_stock(
         &self,
         context: RequestContextDto,
@@ -1601,6 +1730,32 @@ async fn test_actor_mode(
     (actor, directory)
 }
 
+#[cfg(test)]
+pub(crate) async fn test_core(demo_profile: bool) -> Arc<HarvestCircleAppCore> {
+    let (actor, directory) = test_actor_mode(
+        RelayConfiguration::default(),
+        std::time::Duration::from_millis(10),
+        demo_profile,
+    )
+    .await;
+    Arc::new(HarvestCircleAppCore {
+        inner: Arc::new(RuntimeCore {
+            actor,
+            runtime: tokio::runtime::Handle::current(),
+            host_runtime: None,
+            keyring: None,
+            observers: std::sync::Mutex::new(std::collections::BTreeMap::new()),
+            retired_observers: std::sync::Mutex::new(std::collections::BTreeMap::new()),
+            observer_admission: Arc::new(tokio::sync::Semaphore::new(
+                crate::observer::MAX_OBSERVERS,
+            )),
+            close_state: std::sync::atomic::AtomicU8::new(0),
+            close_gate: tokio::sync::Mutex::new(()),
+            _test_directory: Some(directory),
+        }),
+    })
+}
+
 fn actor_mailbox_capacity() -> Result<NonZeroUsize, HarvestCircleError> {
     NonZeroUsize::new(ACTOR_MAILBOX_CAPACITY).ok_or_else(runtime_unavailable)
 }
@@ -1710,7 +1865,7 @@ mod tests {
     use std::sync::Arc;
 
     use harvestcircle_application::{
-        RelayConfiguration, RelayEndpointInput, RelayUrlPolicy, relay_configuration_from_endpoints,
+        RelayEndpointInput, RelayUrlPolicy, relay_configuration_from_endpoints,
     };
     use harvestcircle_domain::SafeError;
     use harvestcircle_storage::{
@@ -1721,10 +1876,10 @@ mod tests {
         CompatibilityExpectation, FFI_CONTRACT_HASH, FFI_CONTRACT_ID, FFI_CONTRACT_MAJOR,
         FFI_CONTRACT_MINOR, HarvestCircleAppCore, HarvestCircleError, MAX_CONFIGURED_RELAYS,
         PRODUCT_COORDINATE_DIGEST, RelayBootstrapInputDto, RelayDestinationDto, RelayEndpointDto,
-        RequestContextDto, RuntimeCore, RuntimeOpenInputDto, SNAPSHOT_SCHEMA_VERSION,
-        WireErrorCategory, WireErrorCode, WireRecoveryAction, actor_mailbox_capacity,
-        application_runtime_context, compatibility_descriptor, confirmation_expired,
-        generated_commit_failed, path_unavailable, runtime_unavailable, verify_compatibility,
+        RequestContextDto, RuntimeOpenInputDto, SNAPSHOT_SCHEMA_VERSION, WireErrorCategory,
+        WireErrorCode, WireRecoveryAction, actor_mailbox_capacity, application_runtime_context,
+        compatibility_descriptor, confirmation_expired, generated_commit_failed, path_unavailable,
+        runtime_unavailable, verify_compatibility,
     };
 
     async fn in_memory_core() -> Arc<HarvestCircleAppCore> {
@@ -1732,28 +1887,7 @@ mod tests {
     }
 
     async fn in_memory_core_with_mode(demo_profile: bool) -> Arc<HarvestCircleAppCore> {
-        let (actor, directory) = super::test_actor_mode(
-            RelayConfiguration::default(),
-            std::time::Duration::from_millis(10),
-            demo_profile,
-        )
-        .await;
-        Arc::new(HarvestCircleAppCore {
-            inner: Arc::new(RuntimeCore {
-                actor,
-                runtime: tokio::runtime::Handle::current(),
-                host_runtime: None,
-                keyring: None,
-                observers: std::sync::Mutex::new(std::collections::BTreeMap::new()),
-                retired_observers: std::sync::Mutex::new(std::collections::BTreeMap::new()),
-                observer_admission: Arc::new(tokio::sync::Semaphore::new(
-                    crate::observer::MAX_OBSERVERS,
-                )),
-                close_state: std::sync::atomic::AtomicU8::new(0),
-                close_gate: tokio::sync::Mutex::new(()),
-                _test_directory: Some(directory),
-            }),
-        })
+        super::test_core(demo_profile).await
     }
 
     #[tokio::test]

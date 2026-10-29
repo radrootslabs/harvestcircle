@@ -9,8 +9,8 @@ use crate::hub_treatment_input::{HubAcceptanceInputDto, HubHoldInputDto, HubHold
 use harvestcircle_domain::hub::HubRevision;
 use harvestcircle_domain::hub::movement::{
     DiscrepancyAction, DiscrepancyCommand, HUB_REQUIREMENT_GROUPS, HandlingCommand,
-    MovementCommand, NewWorkCommand, PhysicalIdentification, ReplanCommand, WorkProgress,
-    WorkRequirement,
+    MovementCommand, NewWorkCommand, PhysicalIdentification, PhysicalStockGroup, ReplanCommand,
+    WorkProgress, WorkRequirement,
 };
 use harvestcircle_domain::hub::portions::SplitCommand;
 use harvestcircle_domain::hub::reference::{HubLabel, HubRecordId, SourceProvenance, WholePacks};
@@ -28,7 +28,7 @@ pub struct HubPhysicalIdentificationDto {
 }
 
 impl HubPhysicalIdentificationDto {
-    fn decode(self) -> Result<PhysicalIdentification, HarvestCircleError> {
+    pub(crate) fn decode(self) -> Result<PhysicalIdentification, HarvestCircleError> {
         Ok(PhysicalIdentification {
             label: HubLabel::new(self.label).map_err(|_| invalid_input())?,
             observation: provenance(self.observation)?,
@@ -268,6 +268,15 @@ pub enum HubWorkProgressDto {
     Completed,
     NoLongerRequired,
 }
+impl From<WorkProgress> for HubWorkProgressDto {
+    fn from(value: WorkProgress) -> Self {
+        match value {
+            WorkProgress::Pending => Self::Pending,
+            WorkProgress::Completed => Self::Completed,
+            WorkProgress::NoLongerRequired => Self::NoLongerRequired,
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
 pub enum HubHandlingKindDto {
@@ -343,6 +352,29 @@ pub struct HubGroupViewDto {
     pub variant: HubReferenceRecordDto,
     pub trace: HubStockPopulationDto,
 }
+impl From<&PhysicalStockGroup> for HubPhysicalGroupDto {
+    fn from(group: &PhysicalStockGroup) -> Self {
+        Self {
+            id: group.id.to_hex(),
+            trace_id: group.trace.to_hex(),
+            variant_id: group.variant.to_hex(),
+            parent_id: group.parent.map(|id| id.to_hex()),
+            identification: group.identification.as_ref().map(Into::into),
+            location_id: group.location.to_hex(),
+            whole_packs: group.packs.value(),
+            revision: group.revision.value(),
+            causal_floor_unix_s: group.causal_floor.map(|at| at.as_seconds()),
+            work: group
+                .work
+                .iter()
+                .map(|allocation| HubGroupWorkDto {
+                    requirement: (&allocation.requirement).into(),
+                    progress: allocation.progress.into(),
+                })
+                .collect(),
+        }
+    }
+}
 impl From<HubGroupView> for HubGroupViewDto {
     fn from(view: HubGroupView) -> Self {
         let group = &view.group;
@@ -353,29 +385,7 @@ impl From<HubGroupView> for HubGroupViewDto {
             product: (&view.product).into(),
             variant: (&view.variant).into(),
             trace: (&view.trace).into(),
-            group: HubPhysicalGroupDto {
-                id: group.id.to_hex(),
-                trace_id: group.trace.to_hex(),
-                variant_id: group.variant.to_hex(),
-                parent_id: group.parent.map(|id| id.to_hex()),
-                identification: group.identification.as_ref().map(Into::into),
-                location_id: group.location.to_hex(),
-                whole_packs: group.packs.value(),
-                revision: group.revision.value(),
-                causal_floor_unix_s: group.causal_floor.map(|at| at.as_seconds()),
-                work: group
-                    .work
-                    .iter()
-                    .map(|allocation| HubGroupWorkDto {
-                        requirement: (&allocation.requirement).into(),
-                        progress: match allocation.progress {
-                            WorkProgress::Pending => HubWorkProgressDto::Pending,
-                            WorkProgress::Completed => HubWorkProgressDto::Completed,
-                            WorkProgress::NoLongerRequired => HubWorkProgressDto::NoLongerRequired,
-                        },
-                    })
-                    .collect(),
-            },
+            group: group.into(),
         }
     }
 }

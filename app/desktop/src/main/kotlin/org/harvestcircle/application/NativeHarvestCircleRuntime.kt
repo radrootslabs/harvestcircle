@@ -15,6 +15,11 @@ import org.harvestcircle.ffi.GeneratedRecoveryRequest
 import org.harvestcircle.ffi.HarvestCircleAppCore
 import org.harvestcircle.ffi.HarvestCircleChangeObserver
 import org.harvestcircle.ffi.HubContextDto
+import org.harvestcircle.ffi.HubCountObservationDto
+import org.harvestcircle.ffi.HubCountObserveInputDto
+import org.harvestcircle.ffi.HubCountPostInputDto
+import org.harvestcircle.ffi.HubCountPostReceiptDto
+import org.harvestcircle.ffi.HubCountReviewDto
 import org.harvestcircle.ffi.HubDepartureInputDto
 import org.harvestcircle.ffi.HubDepartureReceiptDto
 import org.harvestcircle.ffi.HubDepartureReviewDto
@@ -33,6 +38,8 @@ import org.harvestcircle.ffi.HubLineagePageDto
 import org.harvestcircle.ffi.HubLineageQueryDto
 import org.harvestcircle.ffi.HubLocalOutputDto
 import org.harvestcircle.ffi.HubLocalOutputRequestDto
+import org.harvestcircle.ffi.HubOpeningInputDto
+import org.harvestcircle.ffi.HubOpeningReceiptDto
 import org.harvestcircle.ffi.HubReceiptInputDto
 import org.harvestcircle.ffi.HubReferenceEditDto
 import org.harvestcircle.ffi.HubReferencePageDto
@@ -77,6 +84,7 @@ class NativeHarvestCircleRuntime internal constructor(
     HarvestCircleHubRuntime,
     HarvestCircleReferenceRuntime,
     HarvestCircleStockRuntime,
+    HarvestCircleCountRuntime,
     HarvestCircleHandlingRuntime,
     HarvestCircleDispatchRuntime,
     HarvestCircleDepartureRuntime,
@@ -187,6 +195,32 @@ class NativeHarvestCircleRuntime internal constructor(
         afterRevision: ULong,
         limit: UInt,
     ): List<HubReferenceReceipt> = callNative { hubPort().referenceHistory(id, afterRevision, limit).map { it.toModel() } }
+
+    override suspend fun recordOpening(
+        context: RequestContext,
+        input: HubOpeningInput,
+    ): HubOpeningReceipt = callNative(context.operationId) { hubPort().recordOpening(context.toNative(), input.toNative()).toModel() }
+
+    override suspend fun observeCount(
+        context: RequestContext,
+        input: HubCountObserveInput,
+    ): HubCountObservation = callNative(context.operationId) { hubPort().observeCount(context.toNative(), input.toNative()).toModel() }
+
+    override suspend fun postCount(
+        context: RequestContext,
+        input: HubCountPostInput,
+    ): HubCountPostReceipt = callNative(context.operationId) { hubPort().postCount(context.toNative(), input.toNative()).toModel() }
+
+    override suspend fun openingOperation(operation: OperationId): HubOpeningReceipt? =
+        callNative(operation) { hubPort().openingOperation(operation.value)?.toModel() }
+
+    override suspend fun countObservationOperation(operation: OperationId): HubCountObservation? =
+        callNative(operation) { hubPort().countObservationOperation(operation.value)?.toModel() }
+
+    override suspend fun countPostOperation(operation: OperationId): HubCountPostReceipt? =
+        callNative(operation) { hubPort().countPostOperation(operation.value)?.toModel() }
+
+    override suspend fun countReview(countId: String): HubCountReview = callNative { hubPort().countReview(countId).toModel() }
 
     private fun hubPort(): NativeHubPort = checkNotNull(native as? NativeHubPort) { "Hub runtime is unavailable" }
 
@@ -630,6 +664,29 @@ internal fun interface NativeSubscriptionHandle {
 }
 
 private interface NativeHubPort {
+    suspend fun recordOpening(
+        context: RequestContextDto,
+        input: HubOpeningInputDto,
+    ): HubOpeningReceiptDto
+
+    suspend fun observeCount(
+        context: RequestContextDto,
+        input: HubCountObserveInputDto,
+    ): HubCountObservationDto
+
+    suspend fun postCount(
+        context: RequestContextDto,
+        input: HubCountPostInputDto,
+    ): HubCountPostReceiptDto
+
+    suspend fun openingOperation(operation: String): HubOpeningReceiptDto?
+
+    suspend fun countObservationOperation(operation: String): HubCountObservationDto?
+
+    suspend fun countPostOperation(operation: String): HubCountPostReceiptDto?
+
+    suspend fun countReview(countId: String): HubCountReviewDto
+
     suspend fun tracePage(query: HubTraceQueryDto): HubTracePageDto
 
     suspend fun traceSnapshot(query: HubTraceSnapshotQueryDto): HubTraceSnapshotDto
@@ -712,6 +769,30 @@ private class UniFfiNativeCorePort(
     private val core: HarvestCircleAppCore,
 ) : NativeCorePort,
     NativeHubPort {
+    override suspend fun recordOpening(
+        context: RequestContextDto,
+        input: HubOpeningInputDto,
+    ): HubOpeningReceiptDto = core.recordHubOpening(context, input)
+
+    override suspend fun observeCount(
+        context: RequestContextDto,
+        input: HubCountObserveInputDto,
+    ): HubCountObservationDto = core.observeHubCount(context, input)
+
+    override suspend fun postCount(
+        context: RequestContextDto,
+        input: HubCountPostInputDto,
+    ): HubCountPostReceiptDto = core.postHubCount(context, input)
+
+    override suspend fun openingOperation(operation: String): HubOpeningReceiptDto? = core.hubOpeningOperation(operation)
+
+    override suspend fun countObservationOperation(operation: String): HubCountObservationDto? =
+        core.hubCountObservationOperation(operation)
+
+    override suspend fun countPostOperation(operation: String): HubCountPostReceiptDto? = core.hubCountPostOperation(operation)
+
+    override suspend fun countReview(countId: String): HubCountReviewDto = core.hubCountReview(countId)
+
     override suspend fun tracePage(query: HubTraceQueryDto): HubTracePageDto = core.hubTracePage(query)
 
     override suspend fun traceSnapshot(query: HubTraceSnapshotQueryDto): HubTraceSnapshotDto = core.hubTraceSnapshot(query)

@@ -24,7 +24,7 @@ internal fun HubHandlingQuery.toNative() =
         text,
     )
 
-private fun HubPhysicalIdentification.toNative() = HubPhysicalIdentificationDto(label, observation)
+internal fun HubPhysicalIdentification.toNative() = HubPhysicalIdentificationDto(label, observation)
 
 internal fun HubHandlingInput.toNative(): HubHandlingInputDto =
     when (this) {

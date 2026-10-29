@@ -92,7 +92,10 @@ pub struct HubSourceInputDto {
     pub certainty: HubSourceCertaintyDto,
 }
 impl HubSourceInputDto {
-    fn decode(self, ids: ReceiptIdentities) -> Result<SourceAttribution, HarvestCircleError> {
+    pub(crate) fn decode(
+        self,
+        new_source: HubRecordId,
+    ) -> Result<SourceAttribution, HarvestCircleError> {
         if self.certainty == HubSourceCertaintyDto::Unknown {
             return if self.existing_source_id.is_none()
                 && self.issuer_id.is_none()
@@ -109,12 +112,12 @@ impl HubSourceInputDto {
             Some(value) => {
                 let id = record_id(&value)?;
                 // Reuse cannot nominate this operation's not-yet-created source identity.
-                if id == ids.source {
+                if id == new_source {
                     return Err(invalid_input());
                 }
                 id
             }
-            None => ids.source,
+            None => new_source,
         };
         Ok(SourceAttribution::Referenced {
             source: SourceReference {
@@ -212,7 +215,7 @@ impl HubReceiptInputDto {
             variant: record_id(&self.variant_id)?,
             supplier: self.supplier_id.as_deref().map(record_id).transpose()?,
             producer: self.producer_id.as_deref().map(record_id).transpose()?,
-            source: self.source.decode(ids)?,
+            source: self.source.decode(ids.source)?,
             packs,
             receiving: record_id(&self.receiving_id)?,
             planned_location: self
@@ -458,7 +461,7 @@ fn revision(value: u64) -> Result<HubRevision, HarvestCircleError> {
 fn invalid_input() -> HarvestCircleError {
     SafeError::new(
         SafeErrorCode::HubInvalidInput,
-        SafeMessage::new("Review the bounded receipt fields, original packs and source certainty."),
+        SafeMessage::new("Review the bounded stock fields, original packs and source certainty."),
     )
     .into()
 }

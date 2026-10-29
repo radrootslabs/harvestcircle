@@ -7,6 +7,7 @@ import org.harvestcircle.ffi.HubHandlingKindDto
 import org.harvestcircle.ffi.HubHandlingReceiptDto
 import org.harvestcircle.ffi.HubHandlingResultDto
 import org.harvestcircle.ffi.HubMovementResultDto
+import org.harvestcircle.ffi.HubPhysicalGroupDto
 import org.harvestcircle.ffi.HubPhysicalIdentificationDto
 import org.harvestcircle.ffi.HubSplitResultDto
 import org.harvestcircle.ffi.HubWorkActionResultDto
@@ -20,29 +21,32 @@ internal fun HubPhysicalIdentificationDto.toModel() = HubPhysicalIdentification(
 
 internal fun HubWorkRequirementDto.toModel() = HubWorkRequirement(id, traceId, variantId, quantity.toModel())
 
-private fun HubWorkProgressDto.toModel() =
+internal fun HubWorkProgressDto.toModel() =
     when (this) {
         HubWorkProgressDto.PENDING -> HubWorkProgress.Pending
         HubWorkProgressDto.COMPLETED -> HubWorkProgress.Completed
         HubWorkProgressDto.NO_LONGER_REQUIRED -> HubWorkProgress.NoLongerRequired
     }
 
+internal fun HubPhysicalGroupDto.toModel() =
+    HubPhysicalGroup(
+        id,
+        traceId,
+        variantId,
+        parentId,
+        identification?.toModel(),
+        locationId,
+        wholePacks,
+        revision,
+        causalFloorUnixS?.let(::UnixSeconds),
+        work.map { HubGroupWork(it.requirement.toModel(), it.progress.toModel()) },
+    )
+
 internal fun HubGroupViewDto.toModel() =
     HubGroupView(
         stockRevision,
         catalogRevision,
-        HubPhysicalGroup(
-            group.id,
-            group.traceId,
-            group.variantId,
-            group.parentId,
-            group.identification?.toModel(),
-            group.locationId,
-            group.wholePacks,
-            group.revision,
-            group.causalFloorUnixS?.let(::UnixSeconds),
-            group.work.map { HubGroupWork(it.requirement.toModel(), it.progress.toModel()) },
-        ),
+        group.toModel(),
         location.toModel(),
         product.toModel(),
         variant.toModel(),

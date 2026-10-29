@@ -20,6 +20,7 @@ import org.harvestcircle.application.ApplicationSnapshot
 import org.harvestcircle.application.BuildInfo
 import org.harvestcircle.application.GeneratedIdentityRecovery
 import org.harvestcircle.application.GeneratedKeyBackup
+import org.harvestcircle.application.HarvestCircleCountRuntime
 import org.harvestcircle.application.HarvestCircleDepartureRuntime
 import org.harvestcircle.application.HarvestCircleDispatchRuntime
 import org.harvestcircle.application.HarvestCircleHandlingRuntime
@@ -29,6 +30,11 @@ import org.harvestcircle.application.HarvestCircleRuntime
 import org.harvestcircle.application.HarvestCircleStockRuntime
 import org.harvestcircle.application.HarvestCircleTraceRuntime
 import org.harvestcircle.application.HubContext
+import org.harvestcircle.application.HubCountObservation
+import org.harvestcircle.application.HubCountObserveInput
+import org.harvestcircle.application.HubCountPostInput
+import org.harvestcircle.application.HubCountPostReceipt
+import org.harvestcircle.application.HubCountReview
 import org.harvestcircle.application.HubDepartureInput
 import org.harvestcircle.application.HubDepartureReceipt
 import org.harvestcircle.application.HubDepartureReview
@@ -47,6 +53,8 @@ import org.harvestcircle.application.HubLineagePage
 import org.harvestcircle.application.HubLineageQuery
 import org.harvestcircle.application.HubLocalOutput
 import org.harvestcircle.application.HubLocalOutputRequest
+import org.harvestcircle.application.HubOpeningInput
+import org.harvestcircle.application.HubOpeningReceipt
 import org.harvestcircle.application.HubReceiptInput
 import org.harvestcircle.application.HubReferenceEdit
 import org.harvestcircle.application.HubReferencePage
@@ -104,6 +112,7 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     HarvestCircleHubRuntime,
     HarvestCircleReferenceRuntime,
     HarvestCircleStockRuntime,
+    HarvestCircleCountRuntime,
     HarvestCircleHandlingRuntime,
     HarvestCircleDispatchRuntime,
     HarvestCircleDepartureRuntime,
@@ -260,6 +269,44 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
 
     override suspend fun handlingOperation(operation: OperationId): HubHandlingReceipt? =
         withContext(Dispatchers.IO) { callBridge { bridge.handlingOperation(operation.value)?.toModel() } }
+
+    override suspend fun recordOpening(
+        context: RequestContext,
+        input: HubOpeningInput,
+    ): HubOpeningReceipt =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.recordOpening(context.operationId.value, context.expectedRevision.value, input.toNative()).toModel() }
+        }
+
+    override suspend fun observeCount(
+        context: RequestContext,
+        input: HubCountObserveInput,
+    ): HubCountObservation =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.observeCount(context.operationId.value, context.expectedRevision.value, input.toNative()).toModel() }
+        }
+
+    override suspend fun postCount(
+        context: RequestContext,
+        input: HubCountPostInput,
+    ): HubCountPostReceipt =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.postCount(context.operationId.value, context.expectedRevision.value, input.toNative()).toModel() }
+        }
+
+    override suspend fun openingOperation(operation: OperationId): HubOpeningReceipt? =
+        withContext(Dispatchers.IO) { callBridge { bridge.openingOperation(operation.value)?.toModel() } }
+
+    override suspend fun countObservationOperation(operation: OperationId): HubCountObservation? =
+        withContext(Dispatchers.IO) { callBridge { bridge.countObservationOperation(operation.value)?.toModel() } }
+
+    override suspend fun countPostOperation(operation: OperationId): HubCountPostReceipt? =
+        withContext(Dispatchers.IO) { callBridge { bridge.countPostOperation(operation.value)?.toModel() } }
+
+    override suspend fun countReview(countId: String): HubCountReview =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.countReview(countId).toModel() }
+        }
 
     override suspend fun stock(query: HubStockQuery): HubStockPage =
         withContext(Dispatchers.IO) {

@@ -65,7 +65,7 @@ internal fun HubOccurrenceDto.toModel() =
         endUnixS,
     )
 
-private fun HubSourceInput.toNative() =
+internal fun HubSourceInput.toNative() =
     HubSourceInputDto(existingSourceId, issuerId, kind?.toNative(), code, provenance, certainty.toNative())
 
 internal fun HubReceiptInput.toNative() =
