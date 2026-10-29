@@ -17,11 +17,13 @@ use sha2::{Digest, Sha256};
 
 mod reconcile;
 mod result;
+mod surplus;
 pub use reconcile::{
     CountEffect, CountPostCommand, CountPostPlan, CountPostReferences, CountWorkChange,
     CountWorkScopeChange, count_reconciliation_id,
 };
 pub use result::{count_observation_result_digest, count_post_result_digest};
+pub use surplus::{CountSurplusIdentities, CountSurplusPlan};
 
 pub const HUB_COUNT_CAPACITY: usize = 4_096;
 

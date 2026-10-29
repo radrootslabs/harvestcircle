@@ -9,6 +9,9 @@ mod result_tests;
 #[path = "scope_tests.rs"]
 mod scope_tests;
 
+#[path = "surplus_tests.rs"]
+mod surplus_tests;
+
 fn id(n: u8) -> HubRecordId {
     HubRecordId::from_bytes([n; 16]).unwrap()
 }
