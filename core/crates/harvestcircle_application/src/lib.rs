@@ -8,6 +8,7 @@ pub mod availability_query;
 mod change_stream;
 pub mod config;
 pub mod custody;
+pub mod hub_output;
 pub mod identities;
 pub mod ports;
 mod profile_refresh;

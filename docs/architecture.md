@@ -251,6 +251,25 @@ ordinary-action availability as the departure decision. Corrupt originals propag
 storage errors. Preview carries no proposed receipt/operation identifier and
 reserves nothing; recording rechecks authority, clocks and every selected line.
 
+Pure trace selection lives in `harvestcircle_domain::hub::trace`. Exact-population
+retrieval and broad source-impact retrieval are distinct. Broad impact includes
+all unresolved populations, even those tentatively attributed to a different
+source; literal search cannot narrow that scope. A source code never merges
+identities. A bounded population snapshot reconciles its original counted packs
+against current groups and retained actual departure, keeps pack variants separate,
+and preserves current acceptance and hold references without granting an action.
+
+`harvestcircle_application::hub_output` renders bounded local HTML from these
+snapshots or an exact immutable identification version. It escapes every data
+field, disables active and remote content and uses a content-derived output identity.
+Identification output excludes mutable current usage/closure state, so reprinting
+an older version does not replace its as-issued facts. Trace output discloses its
+one-population, recorded-local snapshot scope and incomplete action-history scope.
+UTC rendering uses the pinned `time` formatter rather than a custom calendar.
+These pure components do not perform file, printer, network or database I/O.
+Native trace/history assembly, FFI and desktop output adapters remain to be wired;
+these helpers alone do not qualify a complete trace/output operator workflow.
+
 ## Secrets, transport and lifecycle
 
 Private keys and signing stay in Rust behind opaque handles. OS custody uses

@@ -10,6 +10,7 @@ pub mod movement;
 pub mod portions;
 pub mod reference;
 pub mod stock;
+pub mod trace;
 pub mod treatment;
 
 use crate::PublicKey;

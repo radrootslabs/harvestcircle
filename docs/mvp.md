@@ -300,6 +300,15 @@ dispositions with explicit uncertainty and retrieval limits. Preserve every plau
 source/recipient in supported unresolved-origin retrieval. Bound and safely render
 untrusted text in local save/print/export. Defer external integration lifecycle.
 
+The first trace components define pure selection, counted-population conservation
+and bounded escaped local HTML. Source-impact selection includes every unresolved
+candidate and cannot be silently narrowed by a text filter. Identification rendering
+keeps the chosen as-issued facts independent of current labels and document closure.
+Trace rendering discloses local snapshot and history limits; output identity binds
+the rendered content. Native queries, shared inspection and local save/print still
+require their separate integration and interaction qualification. Later lifecycle
+events extend the same accounting rather than editing original intake history.
+
 ### C09: UI, drafts and native recovery
 
 Work/Stock/Dispatch use the existing design system and labelled full-height sidebar,
