@@ -126,6 +126,7 @@ fn snapshot() -> TraceSnapshot {
     let record = fixture();
     let line = &record.versions[0].material.lines[0];
     TraceSnapshot {
+        count_losses: vec![],
         hub: record.hub,
         stock_revision: rev(3),
         catalog_revision: rev(5),
@@ -269,4 +270,38 @@ fn counted_opening_output_labels_current_count_and_escapes_unverified_earlier_hi
             .html
             .contains("does not establish the surplus source")
     );
+}
+
+#[test]
+fn trace_output_preserves_count_shortages_without_inventing_departure_and_escapes_review_text() {
+    use harvestcircle_domain::hub::trace::TraceCountLoss;
+    let mut value = snapshot();
+    value.on_hand[0].packs = WholePacks::from_value(18).unwrap();
+    value.on_hand[0].treatment.packs = value.on_hand[0].packs;
+    let operation = id(12);
+    value.count_losses.push(TraceCountLoss {
+        reconciliation: harvestcircle_domain::hub::counts::count_reconciliation_id(operation)
+            .unwrap(),
+        operation,
+        count: id(13),
+        population: value.trace.id,
+        group: value.on_hand[0].group,
+        stock_revision: value.stock_revision,
+        packs: WholePacks::from_value(2).unwrap(),
+        confirmed_on_hand_at: at(150),
+        recorded_at: at(200),
+        actor: value.trace.actor,
+        reason: note("Reviewed <script>unsafe()</script> & counted"),
+    });
+    let output = trace_output(&value).unwrap();
+    assert!(output.html.contains("Unexplained count shortage"));
+    assert!(output.html.contains("loss time and cause unknown"));
+    assert!(output.html.contains("No recorded actual departure"));
+    assert!(
+        output
+            .html
+            .contains("Reviewed &lt;script&gt;unsafe()&lt;/script&gt; &amp; counted")
+    );
+    assert!(!output.html.contains("<script>"));
+    assert_eq!(output, trace_output(&value).unwrap());
 }

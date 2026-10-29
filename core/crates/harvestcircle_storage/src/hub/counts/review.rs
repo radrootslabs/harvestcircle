@@ -4,6 +4,7 @@ use crate::hub::submission;
 use harvestcircle_domain::hub::{
     counts::{CountContext, CountReview},
     movement::PhysicalStockGroup,
+    reference::ReferenceCatalog,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -13,6 +14,34 @@ pub struct HubCountReview {
     pub catalog_revision: HubRevision,
     pub current: PhysicalStockGroup,
     pub assessment: CountReview,
+}
+
+/// Owned current facts keep review and effect planning on the same native path.
+pub(super) struct CurrentCountFacts {
+    pub observation: CountObservation,
+    pub state: stock::read::StockState,
+    pub catalog: ReferenceCatalog,
+    pub group: PhysicalStockGroup,
+    latest_physical_recorded_at: UnixTimestamp,
+    previous_reconciliation: Option<HubRecordId>,
+    latest_observation: Option<HubRecordId>,
+    uncertainty: submission::HubUncertainty,
+}
+
+impl CurrentCountFacts {
+    pub fn context(&self) -> CountContext<'_> {
+        CountContext {
+            hub: self.observation.scope.hub,
+            stock_revision: self.state.revision,
+            catalog: &self.catalog,
+            group: &self.group,
+            latest_physical_recorded_at: self.latest_physical_recorded_at,
+            previous_reconciliation: self.previous_reconciliation,
+            latest_observation: self.latest_observation,
+            unresolved_actual: self.uncertainty.unresolved_actual,
+            uncertain_intent: self.uncertainty.uncertain_intent,
+        }
+    }
 }
 
 impl Database {
@@ -39,34 +68,43 @@ async fn review_on(
     hub: HubId,
     count: HubRecordId,
 ) -> Result<HubCountReview, SafeError> {
+    let facts = load_on(tx, hub, count, None).await?;
+    // Both sides came from validated native history/current reads. An invalid
+    // comparison is damaged state, rather than a new client input error.
+    let assessment = facts
+        .observation
+        .review(&facts.context())
+        .map_err(|_| corrupt_storage())?;
+    Ok(HubCountReview {
+        observation: facts.observation,
+        stock_revision: facts.state.revision,
+        catalog_revision: facts.catalog.revision(),
+        current: facts.group,
+        assessment,
+    })
+}
+
+pub(super) async fn load_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    count: HubRecordId,
+    executing: Option<&DurableRequestId>,
+) -> Result<CurrentCountFacts, SafeError> {
     let receipt = read::by_id_on(tx, hub, count).await?;
     let state = stock::read::state_on(tx, hub).await?;
     let catalog = reference::load_catalog_on(tx, hub).await?;
-    let current = handling::read::group_on(tx, hub, receipt.original.scope.group, &catalog).await?;
-    let uncertainty = submission::uncertainty_on(tx, &receipt.operation).await?;
-    let context = CountContext {
-        hub,
-        stock_revision: state.revision,
-        catalog: &catalog,
-        group: &current,
-        latest_physical_recorded_at: read::latest_physical_on(tx, current.id).await?,
-        previous_reconciliation: read::previous_reconciliation_on(tx, current.id).await?,
-        latest_observation: latest_observation_on(tx, hub, current.id).await?,
-        unresolved_actual: uncertainty.unresolved_actual,
-        uncertain_intent: uncertainty.uncertain_intent,
-    };
-    // Both sides came from validated native history/current reads. An invalid
-    // comparison is damaged state, rather than a new client input error.
-    let assessment = receipt
-        .original
-        .review(&context)
-        .map_err(|_| corrupt_storage())?;
-    Ok(HubCountReview {
+    let group = handling::read::group_on(tx, hub, receipt.original.scope.group, &catalog).await?;
+    let uncertainty =
+        submission::uncertainty_on(tx, executing.unwrap_or(&receipt.operation)).await?;
+    Ok(CurrentCountFacts {
+        latest_physical_recorded_at: read::latest_physical_on(tx, group.id).await?,
+        previous_reconciliation: read::previous_reconciliation_on(tx, group.id).await?,
+        latest_observation: latest_observation_on(tx, hub, group.id).await?,
         observation: receipt.original,
-        stock_revision: state.revision,
-        catalog_revision: catalog.revision(),
-        current,
-        assessment,
+        state,
+        catalog,
+        group,
+        uncertainty,
     })
 }
 

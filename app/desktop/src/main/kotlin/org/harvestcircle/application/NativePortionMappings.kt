@@ -19,6 +19,7 @@ private fun HubLineageRowDto.toModel() =
         when (createdKind) {
             HubGroupCreationKindDto.RECEIPT -> HubGroupCreationKind.Receipt
             HubGroupCreationKindDto.COUNTED_OPENING -> HubGroupCreationKind.CountedOpening
+            HubGroupCreationKindDto.COUNTED_SURPLUS -> HubGroupCreationKind.CountedSurplus
             HubGroupCreationKindDto.MOVEMENT -> HubGroupCreationKind.Movement
             HubGroupCreationKindDto.SEPARATION -> HubGroupCreationKind.Separation
         },

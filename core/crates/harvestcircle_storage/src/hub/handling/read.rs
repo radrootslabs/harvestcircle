@@ -9,7 +9,7 @@ use harvestcircle_domain::hub::stock::QuantityWork;
 use sqlx::Row;
 use stock::read::{optional_id, optional_record_on, record_id, revision_field, whole_packs};
 
-pub(super) struct WorkDefinition {
+pub(in crate::hub) struct WorkDefinition {
     pub id: HubRecordId,
     pub trace: HubRecordId,
     pub variant: HubRecordId,
@@ -40,7 +40,7 @@ impl WorkDefinition {
     }
 }
 
-pub(super) async fn definition_on(
+pub(in crate::hub) async fn definition_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     id: HubRecordId,
@@ -139,18 +139,25 @@ pub(in crate::hub) async fn work_on(
     )).bind(definition.trace.as_bytes().as_slice()).bind(definition.variant.as_bytes().as_slice()).bind(id.as_bytes().as_slice())
         .fetch_one(&mut *transaction).await.map_err(|_| storage_unavailable())?;
     let count: i64 = scope.try_get("n").map_err(|_| corrupt_storage())?;
+    let removed = crate::hub::counts::posting::removed_work_on(transaction, hub, id).await?;
     if !(1..=HUB_REQUIREMENT_GROUPS as i64).contains(&count)
         || scope
             .try_get::<i64, _>("invalid")
             .map_err(|_| corrupt_storage())?
             != 0
         || whole_packs(scope.try_get("total").map_err(|_| corrupt_storage())?)?
+            .checked_add(removed.total)
+            .map_err(|_| corrupt_storage())?
             != quantity.required()
         || whole_packs(scope.try_get("pending").map_err(|_| corrupt_storage())?)?
             != quantity.remaining()
         || whole_packs(scope.try_get("completed").map_err(|_| corrupt_storage())?)?
+            .checked_add(removed.completed)
+            .map_err(|_| corrupt_storage())?
             != quantity.completed()
         || whole_packs(scope.try_get("retired").map_err(|_| corrupt_storage())?)?
+            .checked_add(removed.retired)
+            .map_err(|_| corrupt_storage())?
             != quantity.no_longer_required()
     {
         return Err(corrupt_storage());
@@ -180,11 +187,14 @@ pub(in crate::hub) async fn group_on(
     let trace = record_id(&row, "trace_id")?;
     let mass = sqlx::query("SELECT r.original_packs,COALESCE((SELECT sum(p.packs) FROM hub_stock_groups g JOIN hub_stock_positions p ON p.group_id=g.group_id WHERE g.trace_id=r.trace_id),0) AS on_hand FROM hub_receipts r WHERE r.trace_id=? LIMIT 1")
         .bind(trace.as_bytes().as_slice()).fetch_one(&mut *transaction).await.map_err(|_| storage_unavailable())?;
+    let counted_loss =
+        crate::hub::counts::posting::loss_quantity_on(transaction, hub, trace).await?;
     if whole_packs(
         mass.try_get("original_packs")
             .map_err(|_| corrupt_storage())?,
     )? != whole_packs(mass.try_get("on_hand").map_err(|_| corrupt_storage())?)?
         .checked_add(super::departure::conservation::trace_on(transaction, hub, trace).await?)
+        .and_then(|packs| packs.checked_add(counted_loss))
         .map_err(|_| corrupt_storage())?
     {
         return Err(corrupt_storage());
@@ -211,6 +221,27 @@ pub(in crate::hub) async fn group_on(
         .map_err(|_| corrupt_storage())?;
     let created_kind: String = row.try_get("created_kind").map_err(|_| corrupt_storage())?;
     match parent {
+        None if created_kind == "count_post" => {
+            let op = DurableRequestId::parse(
+                row.try_get::<String, _>("created_operation_id")
+                    .map_err(|_| corrupt_storage())?,
+            )
+            .map_err(|_| corrupt_storage())?;
+            let op = stock::read::operation_on(transaction, hub, &op)
+                .await?
+                .ok_or_else(corrupt_storage)?;
+            let new = crate::hub::counts::posting::original_on(transaction, hub, op)
+                .await?
+                .surplus
+                .ok_or_else(corrupt_storage)?;
+            if new.population.id != trace
+                || new.group.id != id
+                || new.group.identification != identification
+                || record_id(&row, "root_group_id")? != id
+            {
+                return Err(corrupt_storage());
+            }
+        }
         None if record_id(&row, "root_group_id")? == id
             && ((created_kind == "receipt" && identification.is_none())
                 || (created_kind == "opening" && identification.is_some()))
@@ -307,7 +338,7 @@ async fn causal_floor_on(
         "JOIN hub_stock_operations o ON o.operation_id=i.created_operation_id WHERE i.parent_group_id IS NOT NULL AND l.depth<256) ",
         "SELECT max(CASE WHEN e.occurrence_kind IN ('known','interval') THEN e.occurrence_start_unix_s END) AS floor,",
         "(SELECT count(*) FROM lineage l JOIN hub_group_identification i ON i.group_id=l.group_id WHERE l.depth=256 AND i.parent_group_id IS NOT NULL) AS truncated ",
-        "FROM lineage l LEFT JOIN hub_stock_events e ON e.group_id=l.group_id AND e.kind IN ('receipt','opening','move','split') ",
+        "FROM lineage l LEFT JOIN hub_stock_events e ON e.group_id=l.group_id AND e.kind IN ('receipt','opening','move','split','count_post') ",
         "LEFT JOIN hub_stock_operations o ON o.operation_id=e.operation_id WHERE o.stock_revision<=l.ceiling OR o.stock_revision IS NULL"
     )).bind(group.as_bytes().as_slice()).fetch_one(&mut *transaction).await.map_err(|_|storage_unavailable())?;
     if row
@@ -340,5 +371,5 @@ pub(in crate::hub) async fn trace_on(
     let operation = stock::read::operation_on(transaction, hub, &operation)
         .await?
         .ok_or_else(corrupt_storage)?;
-    stock::read::population_on(transaction, hub, operation).await
+    stock::read::population_on(transaction, hub, operation, trace).await
 }

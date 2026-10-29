@@ -171,6 +171,7 @@ pub struct HubGroupView {
 pub enum HubGroupCreationKind {
     Receipt,
     CountedOpening,
+    CountedSurplus,
     Movement,
     Separation,
 }

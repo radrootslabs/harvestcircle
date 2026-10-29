@@ -71,6 +71,7 @@ fn fixture() -> TraceSnapshot {
         observation: text("Counted twenty original crates"),
     };
     TraceSnapshot {
+        count_losses: vec![],
         hub: HubId::from_bytes([1; 16]).unwrap(),
         stock_revision: rev(5),
         catalog_revision: rev(5),
@@ -209,7 +210,8 @@ fn physical_accounting_keeps_originals_depleted_populations_and_distinct_pack_un
             variant: id(2),
             original: packs(20),
             on_hand: packs(15),
-            departed: packs(5)
+            departed: packs(5),
+            counted_loss: packs(0)
         }
     );
     snapshot.on_hand.clear();
@@ -223,6 +225,64 @@ fn physical_accounting_keeps_originals_depleted_populations_and_distinct_pack_un
         other.balance().unwrap().variant
     );
     assert!(TraceScope::All.includes(&snapshot.trace));
+}
+
+fn counted_loss(snapshot: &TraceSnapshot) -> TraceCountLoss {
+    let operation = id(30);
+    TraceCountLoss {
+        reconciliation: crate::hub::counts::count_reconciliation_id(operation).unwrap(),
+        operation,
+        count: id(31),
+        population: snapshot.trace.id,
+        group: snapshot.on_hand[0].group,
+        stock_revision: snapshot.stock_revision,
+        packs: packs(2),
+        confirmed_on_hand_at: at(120),
+        recorded_at: at(130),
+        actor: actor(),
+        reason: text("Two missing packs; their time and cause are unknown"),
+    }
+}
+
+#[test]
+fn count_shortage_is_separate_from_actual_departure_and_can_share_a_remaining_group() {
+    let mut snapshot = fixture();
+    snapshot.on_hand[0].packs = packs(13);
+    snapshot.on_hand[0].treatment.packs = packs(13);
+    let loss = counted_loss(&snapshot);
+    snapshot.count_losses.push(loss.clone());
+    let balance = snapshot.balance().unwrap();
+    assert_eq!(balance.original, packs(20));
+    assert_eq!(balance.on_hand, packs(13));
+    assert_eq!(balance.departed, packs(5));
+    assert_eq!(balance.counted_loss, packs(2));
+    assert_eq!(snapshot.exits.len(), 1);
+    assert_eq!(snapshot.count_losses[0], loss);
+    snapshot.count_losses[0].packs = packs(3);
+    assert_eq!(snapshot.balance(), Err(TraceError::Accounting));
+}
+
+#[test]
+fn count_loss_rejects_duplicate_foreign_zero_and_departure_operation_reuse() {
+    let mut snapshot = fixture();
+    snapshot.on_hand[0].packs = packs(13);
+    snapshot.on_hand[0].treatment.packs = packs(13);
+    snapshot.count_losses.push(counted_loss(&snapshot));
+    let original = snapshot.clone();
+    snapshot.count_losses.push(snapshot.count_losses[0].clone());
+    assert_eq!(snapshot.balance(), Err(TraceError::InvalidSnapshot));
+    snapshot = original.clone();
+    snapshot.count_losses[0].population = id(99);
+    assert_eq!(snapshot.balance(), Err(TraceError::InvalidSnapshot));
+    snapshot = original.clone();
+    snapshot.count_losses[0].packs = packs(0);
+    assert_eq!(snapshot.balance(), Err(TraceError::InvalidSnapshot));
+    snapshot = original;
+    let operation = snapshot.exits[0].departure.operation;
+    snapshot.count_losses[0].operation = operation;
+    snapshot.count_losses[0].reconciliation =
+        crate::hub::counts::count_reconciliation_id(operation).unwrap();
+    assert_eq!(snapshot.balance(), Err(TraceError::InvalidSnapshot));
 }
 #[test]
 fn impossible_totals_duplicate_groups_and_inconsistent_departure_history_fail_closed() {

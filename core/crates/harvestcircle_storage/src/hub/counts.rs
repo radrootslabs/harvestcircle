@@ -15,8 +15,9 @@ use sqlx::Row;
 use stock::read::{record_id, revision_field, whole_packs};
 
 pub(in crate::hub) mod read;
-mod review;
+pub(super) mod review;
 pub use review::HubCountReview;
+pub(in crate::hub) mod posting;
 pub(crate) mod reconciliation_schema;
 #[cfg(test)]
 mod review_tests;
@@ -26,6 +27,7 @@ mod schema_tests;
 #[cfg(test)]
 mod tests;
 mod write;
+pub use posting::HubCountPostReceipt;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HubCountObservationReceipt {

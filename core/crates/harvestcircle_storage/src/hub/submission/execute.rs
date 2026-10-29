@@ -1,8 +1,8 @@
 //! Only a newly committed admission reaches a new effect; saved pending data cannot.
 use super::*;
 use crate::{
-    HubCountObservationReceipt, HubDepartureReceipt, HubDispatchReceipt, HubHandlingReceipt,
-    HubOpeningReceipt, HubReferenceReceipt, HubStockReceipt,
+    HubCountObservationReceipt, HubCountPostReceipt, HubDepartureReceipt, HubDispatchReceipt,
+    HubHandlingReceipt, HubOpeningReceipt, HubReferenceReceipt, HubStockReceipt,
 };
 use harvestcircle_domain::{SafeErrorCode, UnixTimestamp, hub::HubOwnership};
 
@@ -15,6 +15,7 @@ pub enum HubMutationResult {
     Dispatch(Box<HubDispatchReceipt>),
     Departure(Box<HubDepartureReceipt>),
     CountObserved(Box<HubCountObservationReceipt>),
+    CountPosted(Box<HubCountPostReceipt>),
 }
 
 impl std::fmt::Debug for HubMutationResult {
@@ -28,6 +29,7 @@ impl std::fmt::Debug for HubMutationResult {
             Self::Dispatch(_) => "Dispatch",
             Self::Departure(_) => "Departure",
             Self::CountObserved(_) => "CountObserved",
+            Self::CountPosted(_) => "CountPosted",
         };
         f.debug_tuple("HubMutationResult").field(&kind).finish()
     }
@@ -157,7 +159,9 @@ async fn execute(
             };
             HubMutationResult::Handling(Box::new(receipt))
         }
-        // prepare_on refuses this unsupported handler before any admission.
-        HubMutation::CountPosting(_) => return Err(stock::invalid_input()),
+        HubMutation::CountPosting(command) => HubMutationResult::CountPosted(Box::new(
+            db.apply_hub_count_post(actor, operation, *command, now)
+                .await?,
+        )),
     })
 }

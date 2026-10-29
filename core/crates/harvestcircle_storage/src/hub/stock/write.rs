@@ -149,7 +149,7 @@ pub(crate) async fn insert_receipt_on(
     insert_population_on(transaction, operation, &plan.trace, plan.position.group).await
 }
 
-pub(super) async fn insert_population_on(
+pub(in crate::hub) async fn insert_population_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     operation: &DurableRequestId,
     trace: &StockPopulation,
@@ -174,7 +174,9 @@ pub(super) async fn insert_population_on(
         harvestcircle_domain::hub::stock::PopulationOrigin::CountedOpening { .. } => {
             "INSERT INTO hub_receipts (trace_id,root_group_id,operation_id,variant_id,variant_revision,product_id,product_revision,supplier_id,supplier_revision,producer_id,producer_revision,source_id,source_certainty,source_issuer_revision,original_packs,receiving_id,receiving_revision,planned_location_id,planned_location_revision,occurrence_kind,occurrence_start_unix_s,occurrence_end_unix_s,observation,origin_kind) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'opening')"
         }
-        _ => return Err(invalid_input()),
+        harvestcircle_domain::hub::stock::PopulationOrigin::CountedSurplus { .. } => {
+            "INSERT INTO hub_receipts (trace_id,root_group_id,operation_id,variant_id,variant_revision,product_id,product_revision,supplier_id,supplier_revision,producer_id,producer_revision,source_id,source_certainty,source_issuer_revision,original_packs,receiving_id,receiving_revision,planned_location_id,planned_location_revision,occurrence_kind,occurrence_start_unix_s,occurrence_end_unix_s,observation,origin_kind) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'surplus')"
+        }
     };
     sqlx::query(sql)
         .bind(trace.id.as_bytes().as_slice())

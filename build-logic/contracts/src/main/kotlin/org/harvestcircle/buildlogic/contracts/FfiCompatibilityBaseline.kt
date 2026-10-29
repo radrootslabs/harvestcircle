@@ -45,7 +45,7 @@ public class FfiCompatibilityBaseline private constructor(
             require(values.getValue("schema") == "harvestcircle.ffi.v5")
             require(values.getValue("contract.id") == "harvestcircle-desktop-ffi-v5")
             require(values.getValue("contract.major") == "5")
-            require(values.getValue("contract.minor") == "16")
+            require(values.getValue("contract.minor") == "17")
             require(values.getValue("snapshot.schema") == "1")
             require(values.getValue("storage.schema.minimum") == "1")
             require(values.getValue("storage.schema.current") == "16")

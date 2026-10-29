@@ -22,6 +22,7 @@ data class HubTraceRow(
     val trace: HubStockPopulation,
     val onHandWholePacks: UInt,
     val departedWholePacks: UInt,
+    val countedLossWholePacks: UInt = 0U,
 )
 
 data class HubTracePage(
@@ -66,6 +67,20 @@ data class HubTraceExit(
     val observation: String,
 )
 
+data class HubTraceCountLoss(
+    val reconciliationId: String,
+    val operationId: OperationId,
+    val countId: String,
+    val populationId: String,
+    val groupId: String,
+    val stockRevision: ULong,
+    val wholePacks: UInt,
+    val confirmedOnHandAt: UnixSeconds,
+    val recordedAt: UnixSeconds,
+    val actor: IdentityId,
+    val reason: String,
+)
+
 data class HubTraceSnapshot(
     val hubId: String,
     val stockRevision: ULong,
@@ -75,6 +90,8 @@ data class HubTraceSnapshot(
     val departedWholePacks: UInt,
     val onHand: List<HubTracePosition>,
     val exits: List<HubTraceExit>,
+    val countedLossWholePacks: UInt = 0U,
+    val countLosses: List<HubTraceCountLoss> = emptyList(),
 )
 
 data class HubTraceHistoryQuery(
@@ -89,6 +106,7 @@ enum class HubTraceHistoryKind {
     Receipt,
     CountedOpening,
     CountObserved,
+    CountReconciled,
     Move,
     Split,
     Acceptance,

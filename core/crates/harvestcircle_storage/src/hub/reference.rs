@@ -253,6 +253,21 @@ pub(super) async fn record_at_on(
     decode_record(&row)
 }
 
+pub(in crate::hub) async fn record_at_catalog_on(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    id: HubRecordId,
+    catalog: HubRevision,
+) -> Result<ReferenceRecord, SafeError> {
+    let revision: Option<i64> = sqlx::query_scalar(
+        "SELECT record_revision FROM hub_reference_versions WHERE hub_id=? AND record_id=? AND catalog_revision<=? ORDER BY record_revision DESC LIMIT 1",
+    ).bind(hub.as_bytes().as_slice()).bind(id.as_bytes().as_slice())
+        .bind(i64::try_from(catalog.value()).map_err(|_|corrupt_storage())?)
+        .fetch_optional(&mut *transaction).await.map_err(|_|storage_unavailable())?;
+    let revision = revision_from_sql(revision.ok_or_else(corrupt_storage)?)?;
+    record_at_on(transaction, hub, id, revision).await
+}
+
 pub(super) async fn authorize_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     actor: PublicKey,

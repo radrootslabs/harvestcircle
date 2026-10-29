@@ -89,6 +89,41 @@ async fn native_count_review_reads_pending_admission_and_confirmed_resolution_wi
         vec![CountBlockReason::UncertainPriorOutcome]
     );
     assert_eq!(blocked.observation, count.original);
+    let posting = harvestcircle_domain::hub::counts::CountPostCommand {
+        expected_stock_revision: before.revision,
+        expected_catalog_revision: catalog.revision(),
+        count: count.original.id,
+        reviewed_activity: true,
+        surplus_identification: None,
+        reason: SourceProvenance::new("Review cannot override a pending native submission")
+            .unwrap(),
+    };
+    assert_eq!(
+        db.apply_hub_count_post(owner(), operation(4), posting.clone(), now())
+            .await
+            .unwrap_err()
+            .code(),
+        SafeErrorCode::HubConflict
+    );
+    assert_eq!(
+        db.submit_hub_mutation(
+            scope,
+            operation(4),
+            HubMutation::CountPosting(Box::new(posting.clone())),
+            now()
+        )
+        .await
+        .unwrap_err()
+        .code(),
+        SafeErrorCode::HubConflict
+    );
+    assert!(
+        db.hub_submission(owner(), operation(4))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(db.hub_stock_page(owner(), query()).await.unwrap(), before);
     // The test deliberately discarded the fresh grant before any effect, then
     // records that confirmed no-effect rejection through the production writer.
     db.host()
@@ -107,6 +142,23 @@ async fn native_count_review_reads_pending_admission_and_confirmed_resolution_wi
             .ready()
     );
     assert_eq!(db.hub_stock_page(owner(), query()).await.unwrap(), before);
+    let result = db
+        .submit_hub_mutation(
+            scope,
+            operation(4),
+            HubMutation::CountPosting(Box::new(posting)),
+            now(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(result, HubMutationResult::CountPosted(_)));
+    assert_eq!(
+        db.hub_stock_page(owner(), query()).await.unwrap().rows[0]
+            .position
+            .packs
+            .value(),
+        18
+    );
     db.close().await.unwrap();
 }
 

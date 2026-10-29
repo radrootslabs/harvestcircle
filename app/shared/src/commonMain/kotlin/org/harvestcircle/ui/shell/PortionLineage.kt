@@ -39,6 +39,7 @@ internal fun PortionLineage(
                 when (row.createdKind) {
                     HubGroupCreationKind.Receipt -> "Received"
                     HubGroupCreationKind.CountedOpening -> "Counted opening"
+                    HubGroupCreationKind.CountedSurplus -> "Separately counted surplus; origin unknown"
                     HubGroupCreationKind.Movement -> "Separated during movement"
                     HubGroupCreationKind.Separation -> "Separated at the same location"
                 }

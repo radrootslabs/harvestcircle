@@ -120,6 +120,7 @@ pub(super) async fn load_on(
     }
     exits.sort_by_key(|exit| (exit.departure.stock_revision.value(), exit.group));
     let snapshot = TraceSnapshot {
+        count_losses: crate::hub::counts::posting::losses_on(tx, hub, trace).await?,
         hub,
         stock_revision: state.revision,
         catalog_revision: catalog.revision(),

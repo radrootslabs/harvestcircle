@@ -182,12 +182,29 @@ pub struct TraceExit {
     pub packs: WholePacks,
     pub departure: TraceDeparture,
 }
+
+/// A count establishes missing quantity, not the time/cause of an actual outflow.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TraceCountLoss {
+    pub reconciliation: HubRecordId,
+    pub operation: HubRecordId,
+    pub count: HubRecordId,
+    pub population: HubRecordId,
+    pub group: HubRecordId,
+    pub stock_revision: HubRevision,
+    pub packs: WholePacks,
+    pub confirmed_on_hand_at: UnixTimestamp,
+    pub recorded_at: UnixTimestamp,
+    pub actor: PublicKey,
+    pub reason: SourceProvenance,
+}
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TraceBalance {
     pub variant: HubRecordId,
     pub original: WholePacks,
     pub on_hand: WholePacks,
     pub departed: WholePacks,
+    pub counted_loss: WholePacks,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TraceSnapshot {
@@ -197,6 +214,7 @@ pub struct TraceSnapshot {
     pub trace: StockPopulation,
     pub on_hand: Vec<TracePosition>,
     pub exits: Vec<TraceExit>,
+    pub count_losses: Vec<TraceCountLoss>,
 }
 impl TraceSnapshot {
     /// Reconciles one original population; never sums different pack variants.
@@ -213,11 +231,15 @@ impl TraceSnapshot {
         if self.trace.original_packs.value() == 0 {
             return Err(TraceError::InvalidSnapshot);
         }
+        if self.count_losses.len() > super::counts::HUB_COUNT_CAPACITY {
+            return Err(TraceError::Capacity);
+        }
         let mut groups = BTreeSet::new();
         let mut departures = BTreeMap::new();
         let mut operations = BTreeMap::new();
         let mut on_hand = WholePacks::from_value(0).map_err(|_| TraceError::Accounting)?;
         let mut departed = on_hand;
+        let mut counted_loss = on_hand;
         for position in &self.on_hand {
             if position.packs.value() == 0
                 || position.location.value.kind() != ReferenceKind::Location
@@ -267,8 +289,31 @@ impl TraceSnapshot {
                 .checked_add(exit.packs)
                 .map_err(|_| TraceError::Accounting)?;
         }
+        let mut reconciliations = BTreeSet::new();
+        let mut counts = BTreeSet::new();
+        for loss in &self.count_losses {
+            if loss.population != self.trace.id
+                || loss.packs.value() == 0
+                || loss.stock_revision.value() > self.stock_revision.value()
+                || loss.confirmed_on_hand_at > loss.recorded_at
+                || super::counts::count_reconciliation_id(loss.operation)
+                    .map_err(|_| TraceError::InvalidSnapshot)?
+                    != loss.reconciliation
+                || !reconciliations.insert(loss.reconciliation)
+                || !counts.insert(loss.count)
+                || operations
+                    .insert(loss.operation, loss.reconciliation)
+                    .is_some()
+            {
+                return Err(TraceError::InvalidSnapshot);
+            }
+            counted_loss = counted_loss
+                .checked_add(loss.packs)
+                .map_err(|_| TraceError::Accounting)?;
+        }
         if on_hand
             .checked_add(departed)
+            .and_then(|total| total.checked_add(counted_loss))
             .map_err(|_| TraceError::Accounting)?
             != self.trace.original_packs
         {
@@ -279,6 +324,7 @@ impl TraceSnapshot {
             original: self.trace.original_packs,
             on_hand,
             departed,
+            counted_loss,
         })
     }
 }

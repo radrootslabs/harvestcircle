@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 16, FFI is 5.16 and snapshot schema is 1. Rust and
+The current storage schema is 16, FFI is 5.17 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -61,15 +61,26 @@ protected current cut for the group, latest physical activity/count/reconciliati
 and live pending-submission/actual-review sources. The returned comparison neither
 admits a command nor changes stock/work. Posting must repeat those checks inside
 its effect transaction. Actual-report command handling remains unfinished.
-Opening/count forms and count
-posting remain unfinished.
+Opening/count forms and their runtime command surfaces remain unfinished.
 
 Schema15 prepares immutable reconciliation headers, complete original work
 snapshots and removed-work scopes. Completed scope remains completed history;
 only removed pending scope becomes no-longer-required. Count-linked surplus has
 its own population origin and birth guard, with unknown source and explicit count
-time. These storage constraints grant no mutation authority. Native posting,
-current activity/uncertainty checks and its command surfaces remain unfinished.
+time. Native posting rechecks current scope/activity/uncertainty inside the effect
+transaction. It commits the immutable original, physical/work changes and journal
+entries together. Recovery reconstructs captured before/after counters and posting
+reference versions, even after later edits or reconciliations. A shortage retires
+only pending lost work; completed and previously retired scope remains in immutable
+work history. Zero leaves an empty historical group. Surplus creates a separately
+identified population with unknown source, review-required acceptance and no inherited
+work or holds. Replay cannot add stock or apply the shortage twice.
+
+Trace conservation includes unexplained count shortages separately from actual
+departure. Their entries state the on-hand count time while leaving loss time and
+cause unknown; no departure or fictional missing-stock group is created. Rust
+computes these balances for the trace browser and bounded local HTML output.
+The shared trace inspector pages retained shortage details separately from departure.
 
 Schema16 persists hub submissions before their effects. Admission recaptures the
 complete bounded input and selected native material inside a protected transaction.
@@ -91,7 +102,7 @@ unused-document closure have a separate per-capture 1 MiB bound and do not spend
 that ordinary allocation. Other captures are bounded to 16 MiB, with an independent
 64 KiB raw input bound. Pending submissions and unresolved actual-report reviews
 block unsafe planned stock changes at admission and effect insertion. Actual-report
-handling, count posting, recovery UI and restore carry-forward remain unfinished.
+handling, opening/count runtime command surfaces, recovery UI and restore carry-forward remain unfinished.
 
 The runtime context uses service `harvestcircle`, instance `desktop`, and exact
 `state.sqlite`/`state.lock` names. SQLx is the high-level SQLite authority. The

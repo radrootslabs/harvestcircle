@@ -28,11 +28,6 @@ pub(super) async fn prepare_on(
 ) -> Result<Decision, SafeError> {
     session::require_on(tx, scope).await?;
     let request = mutation.submitted_request();
-    // Posting is not exposed by this admission component; its protected handler
-    // and original result/projection must land before this branch is admitted.
-    if matches!(request, HubSubmittedRequest::CountPosting(_)) {
-        return Err(stock::invalid_input());
-    }
     let raw = request.archive().map_err(archive_error)?;
     let hub = match &request {
         HubSubmittedRequest::Initialize(candidate) => {

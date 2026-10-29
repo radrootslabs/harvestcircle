@@ -10,7 +10,7 @@ public class AvailabilityEvidenceCompatibilityTest {
         val baseline = FfiCompatibilityBaseline.parse(fixture)
 
         assertEquals("5", baseline["contract.major"])
-        assertEquals("16", baseline["contract.minor"])
+        assertEquals("17", baseline["contract.minor"])
         assertEquals("1", baseline["snapshot.schema"])
         assertEquals("1", baseline["storage.schema.minimum"])
         assertEquals("16", baseline["storage.schema.current"])
@@ -20,23 +20,24 @@ public class AvailabilityEvidenceCompatibilityTest {
     @Test
     public fun previousCurrentSchemaOrMinorAreRejected() {
         listOf(
-            fixture.replace("contract.minor=16", "contract.minor=0"),
-            fixture.replace("contract.minor=16", "contract.minor=1"),
-            fixture.replace("contract.minor=16", "contract.minor=2"),
-            fixture.replace("contract.minor=16", "contract.minor=3"),
-            fixture.replace("contract.minor=16", "contract.minor=4"),
-            fixture.replace("contract.minor=16", "contract.minor=5"),
-            fixture.replace("contract.minor=16", "contract.minor=6"),
-            fixture.replace("contract.minor=16", "contract.minor=7"),
-            fixture.replace("contract.minor=16", "contract.minor=8"),
-            fixture.replace("contract.minor=16", "contract.minor=9"),
-            fixture.replace("contract.minor=16", "contract.minor=10"),
-            fixture.replace("contract.minor=16", "contract.minor=11"),
-            fixture.replace("contract.minor=16", "contract.minor=12"),
-            fixture.replace("contract.minor=16", "contract.minor=13"),
-            fixture.replace("contract.minor=16", "contract.minor=14"),
-            fixture.replace("contract.minor=16", "contract.minor=17"),
-            fixture.replace("contract.minor=16", "contract.minor=15"),
+            fixture.replace("contract.minor=17", "contract.minor=0"),
+            fixture.replace("contract.minor=17", "contract.minor=1"),
+            fixture.replace("contract.minor=17", "contract.minor=2"),
+            fixture.replace("contract.minor=17", "contract.minor=3"),
+            fixture.replace("contract.minor=17", "contract.minor=4"),
+            fixture.replace("contract.minor=17", "contract.minor=5"),
+            fixture.replace("contract.minor=17", "contract.minor=6"),
+            fixture.replace("contract.minor=17", "contract.minor=7"),
+            fixture.replace("contract.minor=17", "contract.minor=8"),
+            fixture.replace("contract.minor=17", "contract.minor=9"),
+            fixture.replace("contract.minor=17", "contract.minor=10"),
+            fixture.replace("contract.minor=17", "contract.minor=11"),
+            fixture.replace("contract.minor=17", "contract.minor=12"),
+            fixture.replace("contract.minor=17", "contract.minor=13"),
+            fixture.replace("contract.minor=17", "contract.minor=14"),
+            fixture.replace("contract.minor=17", "contract.minor=18"),
+            fixture.replace("contract.minor=17", "contract.minor=15"),
+            fixture.replace("contract.minor=17", "contract.minor=16"),
             fixture.replace("storage.schema.current=16", "storage.schema.current=10"),
             fixture.replace("storage.schema.current=16", "storage.schema.current=9"),
             fixture.replace("storage.schema.current=16", "storage.schema.current=8"),
@@ -66,7 +67,7 @@ public class AvailabilityEvidenceCompatibilityTest {
         schema=harvestcircle.ffi.v5
         contract.id=harvestcircle-desktop-ffi-v5
         contract.major=5
-        contract.minor=16
+        contract.minor=17
         contract.hash=${"a".repeat(64)}
         product.coordinate_digest=${"b".repeat(64)}
         snapshot.schema=1

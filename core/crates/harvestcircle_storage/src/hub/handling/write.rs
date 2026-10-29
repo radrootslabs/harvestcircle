@@ -264,7 +264,7 @@ pub(in crate::hub) async fn insert_operation_on(
     Ok(())
 }
 
-pub(super) async fn update_work_on(
+pub(in crate::hub) async fn update_work_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     before: &WorkRequirement,
     after: &WorkRequirement,

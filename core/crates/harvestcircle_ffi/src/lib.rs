@@ -74,10 +74,11 @@ pub use hub_stock::{
     HubStockReceiptDto, HubStockRowDto,
 };
 pub use hub_trace::{
-    HubLocalOutputDto, HubLocalOutputRequestDto, HubTraceExitDto, HubTraceHistoryEntryDto,
-    HubTraceHistoryKindDto, HubTraceHistoryPageDto, HubTraceHistoryQueryDto, HubTracePageDto,
-    HubTracePositionDto, HubTraceQueryDto, HubTraceRowDto, HubTraceScopeDto, HubTraceSelectionDto,
-    HubTraceSnapshotDto, HubTraceSnapshotQueryDto,
+    HubLocalOutputDto, HubLocalOutputRequestDto, HubTraceCountLossDto, HubTraceExitDto,
+    HubTraceHistoryEntryDto, HubTraceHistoryKindDto, HubTraceHistoryPageDto,
+    HubTraceHistoryQueryDto, HubTracePageDto, HubTracePositionDto, HubTraceQueryDto,
+    HubTraceRowDto, HubTraceScopeDto, HubTraceSelectionDto, HubTraceSnapshotDto,
+    HubTraceSnapshotQueryDto,
 };
 pub use hub_treatment::{
     HubAcceptanceDecisionDto, HubAcceptanceStatusDto, HubActionEligibilityDto,
@@ -123,7 +124,7 @@ mod tests {
         assert_eq!(env!("CARGO_PKG_VERSION"), "0.1.0-alpha");
         assert_eq!(super::FFI_CONTRACT_ID, "harvestcircle-desktop-ffi-v5");
         assert_eq!(super::FFI_CONTRACT_MAJOR, 5);
-        assert_eq!(super::FFI_CONTRACT_MINOR, 16);
+        assert_eq!(super::FFI_CONTRACT_MINOR, 17);
         assert_eq!(super::SNAPSHOT_SCHEMA_VERSION, 1);
         assert_eq!(
             super::PRODUCT_COORDINATE_DIGEST,

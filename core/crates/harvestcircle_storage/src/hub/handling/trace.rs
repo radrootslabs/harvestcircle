@@ -99,6 +99,7 @@ pub enum HubTraceHistoryKind {
     Receipt,
     CountedOpening,
     CountObserved,
+    CountReconciled,
     Handling(HubHandlingKind),
     Dispatch(dispatch::HubDispatchKind),
     Departure,

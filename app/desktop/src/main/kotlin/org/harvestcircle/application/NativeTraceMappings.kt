@@ -54,7 +54,7 @@ internal fun HubTracePageDto.toModel() =
         offset,
         total,
         more,
-        rows.map { HubTraceRow(it.trace.toModel(), it.onHandWholePacks, it.departedWholePacks) },
+        rows.map { HubTraceRow(it.trace.toModel(), it.onHandWholePacks, it.departedWholePacks, it.countedLossWholePacks) },
     )
 
 internal fun HubTraceSnapshotDto.toModel() =
@@ -93,6 +93,22 @@ internal fun HubTraceSnapshotDto.toModel() =
                 it.observation,
             )
         },
+        countedLossWholePacks,
+        countLosses.map {
+            HubTraceCountLoss(
+                it.reconciliationId,
+                OperationId.from(it.operationId),
+                it.countId,
+                it.populationId,
+                it.groupId,
+                it.stockRevision,
+                it.wholePacks,
+                UnixSeconds(it.confirmedOnHandAtUnixS),
+                UnixSeconds(it.recordedAtUnixS),
+                IdentityId.fromPublicKeyHex(it.actorPublicKey),
+                it.reason,
+            )
+        },
     )
 
 private fun HubTraceHistoryKindDto.toModel() =
@@ -100,6 +116,7 @@ private fun HubTraceHistoryKindDto.toModel() =
         HubTraceHistoryKindDto.RECEIPT -> HubTraceHistoryKind.Receipt
         HubTraceHistoryKindDto.COUNTED_OPENING -> HubTraceHistoryKind.CountedOpening
         HubTraceHistoryKindDto.COUNT_OBSERVED -> HubTraceHistoryKind.CountObserved
+        HubTraceHistoryKindDto.COUNT_RECONCILED -> HubTraceHistoryKind.CountReconciled
         HubTraceHistoryKindDto.MOVE -> HubTraceHistoryKind.Move
         HubTraceHistoryKindDto.SPLIT -> HubTraceHistoryKind.Split
         HubTraceHistoryKindDto.ACCEPTANCE -> HubTraceHistoryKind.Acceptance

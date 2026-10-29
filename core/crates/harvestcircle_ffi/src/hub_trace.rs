@@ -93,6 +93,7 @@ pub struct HubTraceRowDto {
     pub trace: HubStockPopulationDto,
     pub on_hand_whole_packs: u32,
     pub departed_whole_packs: u32,
+    pub counted_loss_whole_packs: u32,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
@@ -121,6 +122,7 @@ impl From<HubTracePage> for HubTracePageDto {
                     trace: (&row.trace).into(),
                     on_hand_whole_packs: row.balance.on_hand.value(),
                     departed_whole_packs: row.balance.departed.value(),
+                    counted_loss_whole_packs: row.balance.counted_loss.value(),
                 })
                 .collect(),
         }
@@ -174,6 +176,21 @@ pub struct HubTraceExitDto {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct HubTraceCountLossDto {
+    pub reconciliation_id: String,
+    pub operation_id: String,
+    pub count_id: String,
+    pub population_id: String,
+    pub group_id: String,
+    pub stock_revision: u64,
+    pub whole_packs: u32,
+    pub confirmed_on_hand_at_unix_s: i64,
+    pub recorded_at_unix_s: i64,
+    pub actor_public_key: String,
+    pub reason: String,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct HubTraceSnapshotDto {
     pub hub_id: String,
     pub stock_revision: u64,
@@ -181,8 +198,10 @@ pub struct HubTraceSnapshotDto {
     pub trace: HubStockPopulationDto,
     pub on_hand_whole_packs: u32,
     pub departed_whole_packs: u32,
+    pub counted_loss_whole_packs: u32,
     pub on_hand: Vec<HubTracePositionDto>,
     pub exits: Vec<HubTraceExitDto>,
+    pub count_losses: Vec<HubTraceCountLossDto>,
 }
 impl TryFrom<TraceSnapshot> for HubTraceSnapshotDto {
     type Error = HarvestCircleError;
@@ -200,6 +219,7 @@ impl TryFrom<TraceSnapshot> for HubTraceSnapshotDto {
             trace: (&value.trace).into(),
             on_hand_whole_packs: balance.on_hand.value(),
             departed_whole_packs: balance.departed.value(),
+            counted_loss_whole_packs: balance.counted_loss.value(),
             on_hand: value
                 .on_hand
                 .into_iter()
@@ -217,6 +237,23 @@ impl TryFrom<TraceSnapshot> for HubTraceSnapshotDto {
                         .into_iter()
                         .map(|id| id.to_hex())
                         .collect(),
+                })
+                .collect(),
+            count_losses: value
+                .count_losses
+                .into_iter()
+                .map(|v| HubTraceCountLossDto {
+                    reconciliation_id: v.reconciliation.to_hex(),
+                    operation_id: operation_text(v.operation),
+                    count_id: v.count.to_hex(),
+                    population_id: v.population.to_hex(),
+                    group_id: v.group.to_hex(),
+                    stock_revision: v.stock_revision.value(),
+                    whole_packs: v.packs.value(),
+                    confirmed_on_hand_at_unix_s: v.confirmed_on_hand_at.as_seconds(),
+                    recorded_at_unix_s: v.recorded_at.as_seconds(),
+                    actor_public_key: v.actor.to_hex(),
+                    reason: v.reason.as_str().to_owned(),
                 })
                 .collect(),
             exits: value
@@ -282,6 +319,7 @@ pub enum HubTraceHistoryKindDto {
     Receipt,
     CountedOpening,
     CountObserved,
+    CountReconciled,
     Move,
     Split,
     Acceptance,
@@ -304,6 +342,7 @@ impl From<HubTraceHistoryKind> for HubTraceHistoryKindDto {
             HubTraceHistoryKind::Receipt => Self::Receipt,
             HubTraceHistoryKind::CountedOpening => Self::CountedOpening,
             HubTraceHistoryKind::CountObserved => Self::CountObserved,
+            HubTraceHistoryKind::CountReconciled => Self::CountReconciled,
             HubTraceHistoryKind::Departure => Self::Departure,
             HubTraceHistoryKind::Handling(kind) => match kind {
                 HubHandlingKind::Move => Self::Move,

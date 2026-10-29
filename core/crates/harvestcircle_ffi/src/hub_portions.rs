@@ -75,6 +75,7 @@ impl HubLineageQueryDto {
 pub enum HubGroupCreationKindDto {
     Receipt,
     CountedOpening,
+    CountedSurplus,
     Movement,
     Separation,
 }
@@ -109,6 +110,7 @@ impl From<HubLineageRow> for HubLineageRowDto {
             created_kind: match value.created_kind {
                 HubGroupCreationKind::Receipt => HubGroupCreationKindDto::Receipt,
                 HubGroupCreationKind::CountedOpening => HubGroupCreationKindDto::CountedOpening,
+                HubGroupCreationKind::CountedSurplus => HubGroupCreationKindDto::CountedSurplus,
                 HubGroupCreationKind::Movement => HubGroupCreationKindDto::Movement,
                 HubGroupCreationKind::Separation => HubGroupCreationKindDto::Separation,
             },

@@ -154,10 +154,23 @@ pub fn trace_output(snapshot: &TraceSnapshot) -> Result<LocalOutput, LocalOutput
     trace_source(&mut out, &snapshot.trace)?;
     out.heading("Physical accounting in this pack unit")?;
     reference(&mut out, "Pack", &snapshot.trace.variant)?;
-    out.field("Original intake", &balance.original.value().to_string())?;
+    let original_label = if matches!(snapshot.trace.origin, PopulationOrigin::Receipt) {
+        "Original intake"
+    } else {
+        "Original counted packs"
+    };
+    out.field(original_label, &balance.original.value().to_string())?;
     out.field("On hand", &balance.on_hand.value().to_string())?;
     out.field("Actual departed", &balance.departed.value().to_string())?;
-    out.paragraph("Original intake equals current on-hand packs plus retained actual departure. This is counted stock, not inferred measured mass.")?;
+    if balance.counted_loss.value() == 0 {
+        out.paragraph("Original intake equals current on-hand packs plus retained actual departure. This is counted stock, not inferred measured mass.")?;
+    } else {
+        out.field(
+            "Unexplained count shortage",
+            &balance.counted_loss.value().to_string(),
+        )?;
+        out.paragraph("Original recorded packs equal current on-hand packs, retained actual departure and count shortages. The time and cause of a count shortage are unknown; the count only establishes on-hand stock.")?;
+    }
     out.heading("All current identified groups in this population")?;
     if snapshot.on_hand.is_empty() {
         out.paragraph("No packs remain on hand in this population.")?;
@@ -203,6 +216,22 @@ pub fn trace_output(snapshot: &TraceSnapshot) -> Result<LocalOutput, LocalOutput
         actor_time(&mut out, event.actor, event.recorded_at)?;
         occurrence(&mut out, event.occurred)?;
         out.field("Departure observation", event.observation.as_str())?;
+    }
+    if !snapshot.count_losses.is_empty() {
+        out.heading("Retained count shortages; loss time and cause unknown")?;
+        for loss in &snapshot.count_losses {
+            out.field("Reconciliation", &loss.reconciliation.to_hex())?;
+            out.field("Original operation", &operation_text(loss.operation))?;
+            out.field("Count observation", &loss.count.to_hex())?;
+            out.field("Identified group", &loss.group.to_hex())?;
+            out.field("Missing whole packs", &loss.packs.value().to_string())?;
+            out.field(
+                "On-hand count confirmed at (UTC)",
+                &utc(loss.confirmed_on_hand_at)?,
+            )?;
+            actor_time(&mut out, loss.actor, loss.recorded_at)?;
+            out.field("Review basis", loss.reason.as_str())?;
+        }
     }
     LocalOutput::finish(
         out,

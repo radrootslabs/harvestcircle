@@ -160,7 +160,7 @@ private fun TraceBrowser(
                     role = HarvestCircleShellTextRole.BodyStrong,
                 )
                 HarvestCircleShellText(
-                    "Original ${row.trace.originalWholePacks} · On hand ${row.onHandWholePacks} · Actual departed ${row.departedWholePacks}",
+                    "Original ${row.trace.originalWholePacks} · On hand ${row.onHandWholePacks} · Actual departed ${row.departedWholePacks} · Count shortage ${row.countedLossWholePacks}",
                 )
                 HarvestCircleShellText(
                     "Source: ${row.trace.source.certainty} · ${row.trace.source.code ?: "Unknown"} · Issuer ${row.trace.source.issuer
@@ -199,6 +199,9 @@ private fun TraceOverview(
             presenter.browse(HubTraceScope.SourceImpact, source)
         }, Modifier.testTag("trace-source-impact"), enabled = !state.loading)
     }
+    HarvestCircleShellText(
+        "Original ${snapshot.trace.originalWholePacks} · On hand ${snapshot.onHandWholePacks} · Actual departed ${snapshot.departedWholePacks} · Count shortage ${snapshot.countedLossWholePacks}",
+    )
     HarvestCircleShellText("Current on-hand groups", role = HarvestCircleShellTextRole.SectionTitle)
     if (snapshot.onHand.isEmpty()) HarvestCircleShellText("No packs remain on hand in this population.")
     snapshot.onHand.drop(state.positionsOffset).take(64).forEach { position ->
@@ -245,6 +248,32 @@ private fun TraceOverview(
             HarvestCircleShellButton("Next departures", { presenter.exitsPage(1) }, enabled = state.exitsOffset + 64 < snapshot.exits.size)
         }
     }
+    if (snapshot.countLosses.isNotEmpty()) {
+        HarvestCircleShellText("Unexplained count shortages", role = HarvestCircleShellTextRole.SectionTitle)
+        HarvestCircleShellText("The count establishes stock on hand. The loss time and cause remain unknown.")
+        snapshot.countLosses.drop(state.countLossesOffset).take(64).forEach { loss ->
+            HarvestCircleShellPanel {
+                HarvestCircleShellText("${loss.wholePacks} missing whole packs", role = HarvestCircleShellTextRole.BodyStrong)
+                HarvestCircleShellText("On-hand count confirmed ${stockUtc(loss.confirmedOnHandAt.value)}")
+                HarvestCircleShellText("Recorded ${stockUtc(loss.recordedAt.value)} · ${loss.actor.value}")
+                HarvestCircleShellText(loss.reason)
+                HarvestCircleShellText("Group ${loss.groupId} · Count ${loss.countId}")
+                HarvestCircleShellText("Reconciliation ${loss.reconciliationId}")
+                SelectionContainer { HarvestCircleShellText("Original operation ${loss.operationId.value}") }
+            }
+        }
+        if (snapshot.countLosses.size > 64) {
+            Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
+                HarvestCircleShellButton("Previous shortages", { presenter.countLossesPage(-1) }, enabled = state.countLossesOffset > 0)
+                HarvestCircleShellButton(
+                    "Next shortages",
+                    { presenter.countLossesPage(1) },
+                    enabled =
+                        state.countLossesOffset + 64 < snapshot.countLosses.size,
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -268,7 +297,15 @@ private fun TraceHistory(
                 if (occurrence == null) {
                     HarvestCircleShellText("This action records no physical occurrence.")
                 } else {
-                    HarvestCircleShellText("Actual occurrence: ${occurrence.kind}")
+                    val timingLabel =
+                        when (entry.kind) {
+                            HubTraceHistoryKind.CountObserved,
+                            HubTraceHistoryKind.CountReconciled,
+                            HubTraceHistoryKind.CountedOpening,
+                            -> "Count cutoff"
+                            else -> "Actual occurrence"
+                        }
+                    HarvestCircleShellText("$timingLabel: ${occurrence.kind}")
                     occurrence.startUnixSeconds?.let { HarvestCircleShellText("Start: ${stockUtc(it)}") }
                     occurrence.endUnixSeconds?.let { HarvestCircleShellText("End: ${stockUtc(it)}") }
                 }
@@ -301,6 +338,7 @@ private fun traceActionLabel(kind: HubTraceHistoryKind): String =
         HubTraceHistoryKind.Receipt -> "Original receipt"
         HubTraceHistoryKind.CountedOpening -> "Counted opening stock"
         HubTraceHistoryKind.CountObserved -> "Stock count observed"
+        HubTraceHistoryKind.CountReconciled -> "Stock count reconciled"
         HubTraceHistoryKind.Move -> "Actual movement"
         HubTraceHistoryKind.Split -> "Observed physical separation"
         HubTraceHistoryKind.Acceptance -> "Sample acceptance decision"
