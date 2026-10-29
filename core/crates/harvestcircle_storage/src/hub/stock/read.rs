@@ -226,11 +226,19 @@ pub(in crate::hub) async fn receipt_on(
         "substr(r.source_id,1,17) AS source_id, substr(r.source_certainty,1,12) AS source_certainty, r.source_issuer_revision, ",
         "substr(s.issuer_id,1,17) AS issuer_id, substr(s.kind,1,20) AS source_kind, substr(CAST(s.source_code AS BLOB),1,129) AS source_code, ",
         "substr(CAST(s.provenance AS BLOB),1,513) AS provenance, r.original_packs, substr(r.occurrence_kind,1,9) AS occurrence_kind, ",
-        "r.occurrence_start_unix_s, r.occurrence_end_unix_s, substr(CAST(r.observation AS BLOB),1,513) AS observation ",
+        "r.occurrence_start_unix_s, r.occurrence_end_unix_s, substr(CAST(r.observation AS BLOB),1,513) AS observation, substr(r.origin_kind,1,33) AS origin_kind ",
         "FROM hub_receipts r LEFT JOIN hub_source_references s ON s.source_id=r.source_id ",
         "WHERE r.trace_id=? AND r.operation_id=? LIMIT 1"
     )).bind(operation.result.as_bytes().as_slice()).bind(operation.id.as_str())
         .fetch_optional(&mut *transaction).await.map_err(|_| storage_unavailable())?.ok_or_else(corrupt_storage)?;
+    // Other entry kinds activate only with their original-backed native readers.
+    if row
+        .try_get::<String, _>("origin_kind")
+        .map_err(|_| corrupt_storage())?
+        != "receipt"
+    {
+        return Err(corrupt_storage());
+    }
     let mut records = BTreeMap::new();
     let mut remember = |record: ReferenceRecord| -> Result<HubRecordId, SafeError> {
         let id = record.id;

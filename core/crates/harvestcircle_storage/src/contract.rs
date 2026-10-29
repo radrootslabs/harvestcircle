@@ -14,7 +14,7 @@ pub const HARVESTCIRCLE_SERVICE_ID: &str = "harvestcircle";
 pub const HARVESTCIRCLE_INSTANCE_ID: &str = "desktop";
 pub const HARVESTCIRCLE_APPLICATION_ID: u32 = 0x4843_5231;
 pub(crate) const HARVESTCIRCLE_INITIAL_STATE_SCHEMA_VERSION: u32 = 1;
-pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 11;
+pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 12;
 pub const HARVESTCIRCLE_IDENTITY_CAPACITY: usize = 256;
 pub const HARVESTCIRCLE_UNFINISHED_DURABLE_OPERATION_CAPACITY: usize = 1_024;
 pub const HARVESTCIRCLE_DURABLE_OPERATION_CAPACITY: usize = 4_096;
@@ -610,9 +610,25 @@ pub fn harvestcircle_migration_catalog()
         crate::hub::handling::departure::schema::MIGRATION_CHECKSUM,
     )
     .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)?;
+    let populations = MigrationDescriptor::sql(
+        12,
+        "generalize_stock_populations",
+        crate::hub::stock::population_schema::MIGRATION_SQL,
+        crate::hub::stock::population_schema::MIGRATION_CHECKSUM,
+    )
+    .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)?;
     MigrationCatalog::new([
-        migration, evidence, hub, references, stock, handling, portions, treatment, dispatch,
+        migration,
+        evidence,
+        hub,
+        references,
+        stock,
+        handling,
+        portions,
+        treatment,
+        dispatch,
         departure,
+        populations,
     ])
     .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)
 }
@@ -689,6 +705,12 @@ fn schema_catalog_for(
         SchemaDigest::from_bytes(crate::hub::handling::departure::schema::SCHEMA_DIGEST),
     )
     .map_err(schema_error)?;
+    let version_twelve = SchemaVersionCatalog::new(
+        12,
+        schema_objects_v12()?,
+        SchemaDigest::from_bytes(crate::hub::stock::population_schema::SCHEMA_DIGEST),
+    )
+    .map_err(schema_error)?;
     SchemaCatalog::new(
         migrations,
         [
@@ -703,6 +725,7 @@ fn schema_catalog_for(
             version_nine,
             version_ten,
             version_eleven,
+            version_twelve,
         ],
     )
     .map_err(schema_error)
@@ -720,6 +743,15 @@ fn schema_objects_v4() -> Result<Vec<SchemaObject>, HarvestCircleStorageContract
 fn schema_objects_v6() -> Result<Vec<SchemaObject>, HarvestCircleStorageContractError> {
     let mut objects = schema_objects_v5()?;
     objects.extend(crate::hub::stock::schema::schema_objects().map_err(schema_error)?);
+    Ok(objects)
+}
+
+fn schema_objects_v12() -> Result<Vec<SchemaObject>, HarvestCircleStorageContractError> {
+    let mut objects = schema_objects_v11()?;
+    objects.retain(|object| {
+        !crate::hub::stock::population_schema::REPLACED_OBJECTS.contains(&object.name())
+    });
+    objects.extend(crate::hub::stock::population_schema::schema_objects().map_err(schema_error)?);
     Ok(objects)
 }
 
@@ -890,6 +922,82 @@ mod availability_evidence_tests;
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn population_schema12_native_definitions_match_catalog() {
+        use super::*;
+        let mut connection = sqlx::SqliteConnection::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        for statement in harvestcircle_initial_schema_sql() {
+            sqlx::raw_sql(*statement)
+                .execute(&mut connection)
+                .await
+                .unwrap();
+        }
+        for migration in [
+            MIGRATE_DURABLE_OPERATIONS_V2_SQL,
+            MIGRATE_AVAILABILITY_EVIDENCE_V3_SQL,
+            crate::hub::MIGRATE_HUB_V4_SQL,
+            crate::hub::reference::MIGRATION_SQL,
+            crate::hub::stock::schema::MIGRATION_SQL,
+            crate::hub::handling::schema::MIGRATION_SQL,
+            crate::hub::handling::portion_schema::MIGRATION_SQL,
+            crate::hub::handling::treatment::schema::MIGRATION_SQL,
+            crate::hub::handling::dispatch::schema::MIGRATION_SQL,
+            crate::hub::handling::departure::schema::MIGRATION_SQL,
+            crate::hub::stock::population_schema::MIGRATION_SQL,
+        ] {
+            sqlx::raw_sql(migration)
+                .execute(&mut connection)
+                .await
+                .unwrap();
+            let databases = sqlx::query_scalar::<_, String>(
+                "SELECT name FROM pragma_database_list ORDER BY seq",
+            )
+            .fetch_all(&mut connection)
+            .await
+            .unwrap();
+            assert_eq!(
+                databases,
+                ["main"],
+                "migrations must retain the protected host's database scope"
+            );
+        }
+        for object in schema_objects_v12().unwrap() {
+            let row = sqlx::query("SELECT tbl_name,sql FROM sqlite_schema WHERE name=?")
+                .bind(object.name())
+                .fetch_one(&mut connection)
+                .await
+                .unwrap();
+            let table: String = row.get("tbl_name");
+            let sql: String = row.get("sql");
+            let actual =
+                SchemaObject::computed_digest(object.kind(), object.name(), &table, &sql).unwrap();
+            assert_eq!(
+                actual,
+                object.digest(),
+                "native schema object {}: {}",
+                object.name(),
+                sql
+            );
+        }
+    }
+    #[test]
+    fn population_schema12_pins_match_reviewed_definitions() {
+        use super::*;
+        let checksum =
+            MigrationChecksum::for_sql(crate::hub::stock::population_schema::MIGRATION_SQL);
+        let digest =
+            SchemaVersionCatalog::computed_digest(12, schema_objects_v12().unwrap()).unwrap();
+        assert_eq!(
+            checksum,
+            crate::hub::stock::population_schema::MIGRATION_CHECKSUM
+        );
+        assert_eq!(
+            digest.as_bytes(),
+            &crate::hub::stock::population_schema::SCHEMA_DIGEST
+        );
+    }
     use super::*;
     use radroots_runtime_paths::{
         InstanceId, RadrootsHostEnvironment, RadrootsPathProfile, RadrootsPathResolver,
@@ -1038,10 +1146,10 @@ mod tests {
             contract.application_id().get(),
             HARVESTCIRCLE_APPLICATION_ID
         );
-        assert_eq!(contract.state_schema_version().get(), 11);
-        assert_eq!(contract.migrations().current_version(), 11);
-        assert_eq!(contract.migrations().descriptors().len(), 10);
-        assert_eq!(contract.schema().versions().len(), 11);
+        assert_eq!(contract.state_schema_version().get(), 12);
+        assert_eq!(contract.migrations().current_version(), 12);
+        assert_eq!(contract.migrations().descriptors().len(), 11);
+        assert_eq!(contract.schema().versions().len(), 12);
         assert_eq!(harvestcircle_initial_schema_sql().len(), 9);
     }
 

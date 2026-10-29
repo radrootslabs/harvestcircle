@@ -20,6 +20,7 @@ fn receipt_ids(
         .map_err(|_| invalid_input())
 }
 
+pub(crate) mod population_schema;
 pub(super) mod read;
 pub(crate) mod schema;
 mod write;
@@ -112,3 +113,5 @@ pub(super) const fn capacity() -> SafeError {
 
 #[cfg(test)]
 pub(in crate::hub) mod tests;
+#[cfg(test)]
+mod upgrade_tests;

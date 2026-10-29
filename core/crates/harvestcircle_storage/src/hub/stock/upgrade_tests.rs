@@ -1,0 +1,200 @@
+//! Explicit consumption of an actual, closed pre-migration fictional world.
+use super::tests::{command, now, operation, owner, query};
+use crate::Database;
+use harvestcircle_domain::hub::stock::PopulationOrigin;
+use radroots_runtime_paths::{
+    InstanceId, RadrootsHostEnvironment, RadrootsPathProfile, RadrootsPathResolver,
+    RadrootsPlatform, RuntimeContext, RuntimeContextBootstrap, RuntimeContextSource, ServiceId,
+};
+use radroots_service_sqlite::MigrationBuildIdentity;
+use sha2::{Digest, Sha256};
+use sqlx::{
+    Column, Connection, Row, SqliteConnection, TypeInfo, ValueRef, sqlite::SqliteConnectOptions,
+};
+use std::path::PathBuf;
+
+const ORIGINAL_SHA256: &str = "acf88350ab7bf2db5bcbd1aea28562a9de99ba8a82a218775e70203456b01731";
+
+// Every nonempty original table is covered, excluding only the advancing schema
+// version column and newly appended migration row. No original is reconstructed.
+async fn original_rows(connection: &mut SqliteConnection) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    for query in [
+        "SELECT * FROM hub_context ORDER BY rowid",
+        "SELECT * FROM hub_group_identification ORDER BY rowid",
+        "SELECT * FROM hub_group_work ORDER BY rowid",
+        "SELECT * FROM hub_handling_context ORDER BY rowid",
+        "SELECT * FROM hub_history ORDER BY rowid",
+        "SELECT * FROM hub_receipts ORDER BY rowid",
+        "SELECT * FROM hub_reference_versions ORDER BY rowid",
+        "SELECT * FROM hub_stock_events ORDER BY rowid",
+        "SELECT * FROM hub_stock_groups ORDER BY rowid",
+        "SELECT * FROM hub_stock_operations ORDER BY rowid",
+        "SELECT * FROM hub_stock_positions ORDER BY rowid",
+        "SELECT * FROM hub_stock_state ORDER BY rowid",
+        "SELECT * FROM hub_work_requirements ORDER BY rowid",
+        "SELECT * FROM public_payload_usage ORDER BY rowid",
+        "SELECT * FROM radroots_service_metadata ORDER BY rowid",
+        "SELECT * FROM runtime_state ORDER BY rowid",
+        "SELECT * FROM schema_migrations WHERE version <= 11 ORDER BY version",
+    ] {
+        hash.update(query.as_bytes());
+        for row in sqlx::query(query)
+            .fetch_all(&mut *connection)
+            .await
+            .unwrap()
+        {
+            hash.update(b"row\0");
+            for column in row.columns() {
+                if matches!(column.name(), "origin_kind" | "state_schema_version") {
+                    continue;
+                }
+                hash.update(column.name().as_bytes());
+                let value = row.try_get_raw(column.ordinal()).unwrap();
+                let bytes = if value.is_null() {
+                    hash.update(b"null\0");
+                    Vec::new()
+                } else {
+                    let kind = value.type_info();
+                    hash.update(kind.name().as_bytes());
+                    match kind.name() {
+                        "INTEGER" => row.get::<i64, _>(column.ordinal()).to_be_bytes().to_vec(),
+                        "TEXT" => row.get::<String, _>(column.ordinal()).into_bytes(),
+                        "BLOB" => row.get::<Vec<u8>, _>(column.ordinal()),
+                        kind => panic!("unexpected original fixture storage type: {kind}"),
+                    }
+                };
+                hash.update(u64::try_from(bytes.len()).unwrap().to_be_bytes());
+                hash.update(bytes);
+            }
+        }
+    }
+    hash.finalize().into()
+}
+
+#[tokio::test]
+#[ignore = "Consumes the owned actual schema11 witness; never creates or resets an old world"]
+async fn retained_schema11_population_upgrade_preserves_every_original_and_replay() {
+    assert_eq!(crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION, 12);
+    let project = PathBuf::from(std::env::var_os("EXT_BUILD_PROJECT_DIR").unwrap())
+        .canonicalize()
+        .unwrap();
+    let output = project
+        .join("retained_evidence/harvestcircle-schema11-before-counts-v1")
+        .canonicalize()
+        .unwrap();
+    assert_eq!(output.parent().unwrap().parent(), Some(project.as_path()));
+    let witness: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("witness.json")).unwrap()).unwrap();
+    assert_eq!(witness["schema"], 11);
+    let archive = PathBuf::from(witness["original_archive"].as_str().unwrap())
+        .canonicalize()
+        .unwrap();
+    let profile = PathBuf::from(witness["profile_source_root"].as_str().unwrap())
+        .canonicalize()
+        .unwrap();
+    let state = PathBuf::from(witness["state_file"].as_str().unwrap())
+        .canonicalize()
+        .unwrap();
+    assert!(
+        archive.starts_with(&output) && profile.starts_with(&output) && state.starts_with(&profile)
+    );
+    assert_eq!(
+        format!("{:x}", Sha256::digest(std::fs::read(&archive).unwrap())),
+        ORIGINAL_SHA256
+    );
+    assert_eq!(
+        format!("{:x}", Sha256::digest(std::fs::read(&state).unwrap())),
+        ORIGINAL_SHA256,
+        "the original owned profile must still be the closed schema11 world"
+    );
+    let options = SqliteConnectOptions::new()
+        .filename(&state)
+        .create_if_missing(false)
+        .read_only(true);
+    let mut raw = SqliteConnection::connect_with(&options).await.unwrap();
+    let before = original_rows(&mut raw).await;
+    raw.close().await.unwrap();
+    let context = RuntimeContext::resolve(
+        &RadrootsPathResolver::new(
+            RadrootsPlatform::current(),
+            RadrootsHostEnvironment::default(),
+        ),
+        RuntimeContextBootstrap::new(
+            RadrootsPathProfile::RepoLocal,
+            Some(profile),
+            RuntimeContextSource::BootstrapCli,
+            RuntimeContextSource::SafeDefault,
+        )
+        .unwrap(),
+        ServiceId::new("harvestcircle").unwrap(),
+        InstanceId::new("desktop").unwrap(),
+    )
+    .unwrap();
+    let build = MigrationBuildIdentity::new(
+        "0.1.0-alpha",
+        "2222222222222222222222222222222222222222",
+        "189c49b74b4bafc142b00b76b296477931139e72",
+        "1.99.0",
+        "test",
+        "test",
+        1,
+        12,
+        1,
+        1,
+        1,
+    )
+    .unwrap();
+    let db = Database::open(&context, 99, 100, &build).await.unwrap();
+    assert_eq!(db.metadata().state_schema_version().get(), 12);
+    let original = db
+        .hub_receipt_operation(owner(), operation(1))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(original.original.trace.origin, PopulationOrigin::Receipt);
+    assert_eq!(original.original.trace.original_packs.value(), 20);
+    assert_eq!(original.original.put_away.remaining().value(), 20);
+    let page = db.hub_stock_page(owner(), query()).await.unwrap();
+    assert_eq!(page.rows.len(), 1);
+    assert_eq!(page.rows[0].position.packs.value(), 20);
+    let catalog = db.hub_references(owner()).await.unwrap();
+    assert_eq!(
+        db.apply_hub_receipt(owner(), operation(1), command(&catalog), now())
+            .await
+            .unwrap(),
+        original
+    );
+    db.close().await.unwrap();
+    let db = Database::open(&context, 99, 101, &build).await.unwrap();
+    assert_eq!(
+        db.hub_receipt_operation(owner(), operation(1))
+            .await
+            .unwrap()
+            .unwrap(),
+        original
+    );
+    assert_eq!(db.hub_stock_page(owner(), query()).await.unwrap(), page);
+    db.close().await.unwrap();
+    let mut raw = SqliteConnection::connect_with(&options).await.unwrap();
+    assert_eq!(original_rows(&mut raw).await, before);
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("PRAGMA integrity_check")
+            .fetch_one(&mut raw)
+            .await
+            .unwrap(),
+        "ok"
+    );
+    assert!(
+        sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&mut raw)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    raw.close().await.unwrap();
+    assert_eq!(
+        format!("{:x}", Sha256::digest(std::fs::read(&archive).unwrap())),
+        ORIGINAL_SHA256
+    );
+}

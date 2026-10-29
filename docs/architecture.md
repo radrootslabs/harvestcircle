@@ -28,10 +28,19 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 11, FFI is 5.10 and snapshot schema is 1. Rust and
+The current storage schema is 12, FFI is 5.12 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
+
+Schema12 prepares storage for typed stock populations. Existing receipts retain
+their original data and default `receipt` origin. The physical `hub_receipts`
+table and `receiving_*` column names remain stable to preserve foreign keys and
+the protected host's main-only migration contract; Rust uses `StockPopulation`
+and `initial_location`. An explicit origin and immutable opening-history sidecar
+distinguish counted stock from a historical delivery. The receipt reader rejects
+other origins until their original-backed readers are implemented. This storage
+preparation does not yet expose counted opening or reconciliation commands.
 
 The runtime context uses service `harvestcircle`, instance `desktop`, and exact
 `state.sqlite`/`state.lock` names. SQLx is the high-level SQLite authority. The
