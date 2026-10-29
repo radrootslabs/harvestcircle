@@ -128,4 +128,4 @@ pub(super) const fn capacity() -> SafeError {
 #[cfg(test)]
 pub(in crate::hub) mod tests;
 #[cfg(test)]
-mod upgrade_tests;
+pub(in crate::hub) mod upgrade_tests;

@@ -215,9 +215,10 @@ impl RuntimeActor {
         context: CommandContext,
         command: HubHandlingCommand,
     ) -> Result<RuntimeCommandValue, SafeError> {
-        let actor = self
-            .hub_actor(generation)
+        let scope = self
+            .hub_submission_scope(generation)
             .map_err(|_| hub_authority::denied())?;
+        let actor = scope.actor;
         let mutating = command.is_mutating();
         let result = self
             .run_async(
@@ -251,18 +252,19 @@ impl RuntimeActor {
                             )
                         }
                         HubHandlingCommand::ApplyDeparture { operation, command } => {
-                            hub_authority::require_owner_credential(
+                            let result = hub_authority::submit(
                                 adapter.as_ref(),
                                 secrets.as_ref(),
-                                actor,
+                                clock.as_ref(),
+                                scope,
+                                operation,
+                                HubMutation::Departure(command),
                             )
                             .await?;
-                            HubHandlingValue::DepartureReceipt(Some(Box::new(
-                                adapter
-                                    .database()
-                                    .apply_hub_departure(actor, operation, *command, clock.now())
-                                    .await?,
-                            )))
+                            let HubMutationResult::Departure(receipt) = result else {
+                                return Err(invalid_actor_response());
+                            };
+                            HubHandlingValue::DepartureReceipt(Some(receipt))
                         }
 
                         HubHandlingCommand::DispatchPage(query) => HubHandlingValue::DispatchPage(
@@ -281,18 +283,19 @@ impl RuntimeActor {
                             )
                         }
                         HubHandlingCommand::ApplyDispatch { operation, command } => {
-                            hub_authority::require_owner_credential(
+                            let result = hub_authority::submit(
                                 adapter.as_ref(),
                                 secrets.as_ref(),
-                                actor,
+                                clock.as_ref(),
+                                scope,
+                                operation,
+                                HubMutation::Dispatch(command),
                             )
                             .await?;
-                            HubHandlingValue::DispatchReceipt(Some(Box::new(
-                                adapter
-                                    .database()
-                                    .apply_hub_dispatch(actor, operation, *command, clock.now())
-                                    .await?,
-                            )))
+                            let HubMutationResult::Dispatch(receipt) = result else {
+                                return Err(invalid_actor_response());
+                            };
+                            HubHandlingValue::DispatchReceipt(Some(receipt))
                         }
                         HubHandlingCommand::Treatment(scope) => HubHandlingValue::Treatment(
                             Box::new(adapter.database().hub_treatment(actor, scope).await?),
@@ -330,56 +333,19 @@ impl RuntimeActor {
                                 .map(Box::new),
                         ),
                         HubHandlingCommand::Apply { operation, command } => {
-                            hub_authority::require_owner_credential(
+                            let result = hub_authority::submit(
                                 adapter.as_ref(),
                                 secrets.as_ref(),
-                                actor,
+                                clock.as_ref(),
+                                scope,
+                                operation,
+                                HubMutation::Handling(command),
                             )
                             .await?;
-                            let receipt = match *command {
-                                HandlingCommand::Treatment(command) => {
-                                    adapter
-                                        .database()
-                                        .apply_hub_treatment(actor, operation, command, clock.now())
-                                        .await?
-                                }
-                                HandlingCommand::Move(command) => {
-                                    adapter
-                                        .database()
-                                        .apply_hub_movement(actor, operation, command, clock.now())
-                                        .await?
-                                }
-                                HandlingCommand::Split(command) => {
-                                    adapter
-                                        .database()
-                                        .apply_hub_split(actor, operation, command, clock.now())
-                                        .await?
-                                }
-                                HandlingCommand::Replan(command) => {
-                                    adapter
-                                        .database()
-                                        .apply_hub_replan(actor, operation, command, clock.now())
-                                        .await?
-                                }
-                                HandlingCommand::NewWork(command) => {
-                                    adapter
-                                        .database()
-                                        .apply_hub_new_work(actor, operation, command, clock.now())
-                                        .await?
-                                }
-                                HandlingCommand::Discrepancy(command) => {
-                                    adapter
-                                        .database()
-                                        .apply_hub_discrepancy(
-                                            actor,
-                                            operation,
-                                            command,
-                                            clock.now(),
-                                        )
-                                        .await?
-                                }
+                            let HubMutationResult::Handling(receipt) = result else {
+                                return Err(invalid_actor_response());
                             };
-                            HubHandlingValue::Receipt(Some(Box::new(receipt)))
+                            HubHandlingValue::Receipt(Some(receipt))
                         }
                     };
                     Ok(RuntimeCommandValue::HubHandling(value))

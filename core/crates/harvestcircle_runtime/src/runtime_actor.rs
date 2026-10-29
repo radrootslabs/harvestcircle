@@ -1,3 +1,7 @@
+use harvestcircle_application::hub_submission::{
+    HubMutation, HubRuntimeIncarnation, HubSubmissionScope,
+};
+use harvestcircle_storage::HubMutationResult;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::num::{NonZeroU64, NonZeroUsize};
@@ -173,6 +177,7 @@ struct RuntimeActor {
     lifecycle: Arc<Mutex<LifecycleGate>>,
     runtime: Handle,
     session_generation: SessionGeneration,
+    hub_runtime_incarnation: HubRuntimeIncarnation,
     published_session_generation: Arc<AtomicU64>,
     profile_tasks: BTreeMap<RequestId, PendingProfileTask>,
     changes: OrderedSnapshotChanges,
@@ -200,6 +205,7 @@ pub struct RuntimeActorHandle {
     lifecycle: Arc<Mutex<LifecycleGate>>,
     next_request: Arc<AtomicU64>,
     session_generation: Arc<AtomicU64>,
+    hub_runtime_incarnation: HubRuntimeIncarnation,
     foreground_session: Arc<Mutex<Option<ActiveSessionBinding>>>,
     installation_identity: InstallationIdentity,
     runtime: Handle,
@@ -312,6 +318,7 @@ impl RuntimeActorHandle {
         let installation_identity = adapter
             .initialize_installation_identity(installation_source.as_ref())
             .await?;
+        let hub_runtime_incarnation = adapter.database().begin_hub_runtime(clock.now()).await?;
         gate.recovery_complete()?;
 
         let lifecycle = Arc::new(Mutex::new(gate));
@@ -328,6 +335,7 @@ impl RuntimeActorHandle {
             lifecycle: Arc::clone(&lifecycle),
             runtime: runtime.clone(),
             session_generation: SessionGeneration::initial(),
+            hub_runtime_incarnation,
             published_session_generation: Arc::clone(&session_generation),
             profile_tasks: BTreeMap::new(),
             changes,
@@ -345,6 +353,7 @@ impl RuntimeActorHandle {
             lifecycle,
             next_request: Arc::new(AtomicU64::new(1)),
             session_generation,
+            hub_runtime_incarnation,
             foreground_session,
             installation_identity,
             runtime: runtime.clone(),
@@ -384,6 +393,11 @@ impl RuntimeActorHandle {
             |_| RuntimeLifecycle::Fatal(runtime_state_unavailable()),
             |lifecycle| lifecycle.lifecycle(),
         )
+    }
+
+    #[must_use]
+    pub const fn session_incarnation(&self) -> HubRuntimeIncarnation {
+        self.hub_runtime_incarnation
     }
 
     #[must_use]
@@ -1022,10 +1036,25 @@ impl RuntimeActor {
             self.cancel_profile_tasks(Some(&snapshot)).await;
             self.changes.publish(snapshot);
         }
-        let result = self.execute_command(context, command).await;
+        let mut result = self.execute_command(context, command).await;
         if changes_session && matches!(result, CommandResult::Completed(_)) {
-            self.advance_session_generation().await;
-            self.synchronize_foreground_session();
+            match self.advance_session_generation().await {
+                Ok(()) => self.synchronize_foreground_session(),
+                Err(error) => {
+                    self.fail_lifecycle(error);
+                    // Activation may already have exposed a different identity.
+                    // Clear it even when the failed transition was not sign-out.
+                    if let Err(clear_error) = self.adapter.sign_out() {
+                        self.fail_lifecycle(clear_error);
+                    }
+                    if let Ok(mut foreground) = self.published_foreground_session.lock() {
+                        *foreground = None;
+                    }
+                    self.cancel_profile_tasks(None).await;
+                    self.changes.publish(self.adapter.core().snapshot());
+                    result = CommandResult::Failed(error);
+                }
+            }
         }
         if matches!(result, CommandResult::Completed(_)) {
             self.changes.publish(self.adapter.core().snapshot());
@@ -1121,30 +1150,30 @@ impl RuntimeActor {
             RuntimeCommand::InitializeHub {
                 generation,
                 operation,
-            } => match self.hub_actor(generation) {
-                Ok(actor) => self
+            } => match self.hub_submission_scope(generation) {
+                Ok(scope) => self
                     .run_async(
                         context.deadline(),
                         move |adapter, secrets, clock| async move {
-                            let secret = secrets.load(actor).await?;
-                            let material = adapter.key_material().import(secret)?;
-                            let (actual, _, secret) = material.into_parts();
-                            drop(secret);
-                            if actual != actor {
-                                return Err(command_unavailable());
-                            }
                             let uuid = uuid::Uuid::parse_str(operation.as_str())
                                 .map_err(|_| invalid_runtime_evidence())?;
                             let id = HubId::from_bytes(*uuid.as_bytes())
                                 .map_err(|_| invalid_runtime_evidence())?;
-                            let hub = adapter
-                                .database()
-                                .initialize_hub(
-                                    HubOwnership::new(id, actor),
-                                    &operation,
-                                    clock.now(),
-                                )
-                                .await?;
+                            let result = hub_authority::submit(
+                                adapter.as_ref(),
+                                secrets.as_ref(),
+                                clock.as_ref(),
+                                scope,
+                                operation,
+                                HubMutation::Initialize(Box::new(HubOwnership::new(
+                                    id,
+                                    scope.actor,
+                                ))),
+                            )
+                            .await?;
+                            let HubMutationResult::Initialized(hub) = result else {
+                                return Err(invalid_actor_response());
+                            };
                             Ok(RuntimeCommandValue::Hub(Some(hub)))
                         },
                     )
@@ -1586,17 +1615,48 @@ impl RuntimeActor {
             .send(CommandReceipt::new(task.correlation.request_id(), result));
     }
 
-    async fn advance_session_generation(&mut self) {
+    async fn advance_session_generation(&mut self) -> Result<(), SafeError> {
         let Some(next) = self.session_generation.next() else {
             self.fail_lifecycle(request_space_exhausted());
             self.cancel_profile_tasks(None).await;
-            return;
+            return Err(request_space_exhausted());
         };
+        let actor = self
+            .adapter
+            .core()
+            .snapshot()
+            .active_identity()
+            .map(|active| active.identity().public_key());
+        let confirmed = self
+            .adapter
+            .database()
+            .advance_hub_session(
+                self.hub_runtime_incarnation,
+                self.session_generation,
+                actor,
+                self.clock.now(),
+            )
+            .await?;
+        if confirmed != next {
+            return Err(runtime_state_unavailable());
+        }
         self.session_generation = next;
         self.published_session_generation
             .store(next.value(), Ordering::Release);
         let snapshot = self.adapter.core().snapshot();
         self.cancel_profile_tasks(Some(&snapshot)).await;
+        Ok(())
+    }
+
+    fn hub_submission_scope(
+        &self,
+        generation: SessionGeneration,
+    ) -> Result<HubSubmissionScope, SafeError> {
+        Ok(HubSubmissionScope {
+            runtime: self.hub_runtime_incarnation,
+            generation,
+            actor: self.hub_actor(generation)?,
+        })
     }
 
     fn synchronize_foreground_session(&mut self) {
@@ -2067,6 +2127,7 @@ mod tests {
             lifecycle: Arc::clone(&handle.lifecycle),
             runtime: tokio::runtime::Handle::current(),
             session_generation: handle.session_generation(),
+            hub_runtime_incarnation: handle.hub_runtime_incarnation,
             published_session_generation: Arc::clone(&handle.session_generation),
             profile_tasks: std::collections::BTreeMap::new(),
             changes: OrderedSnapshotChanges::new(handle.snapshot()),
@@ -2366,22 +2427,112 @@ mod tests {
             .expect("active")
             .identity()
             .public_key();
-        owner.adapter.core().sign_out().expect("logout");
-        owner.advance_session_generation().await;
+        // The expiry assertion above uses simulated time. Session replacement
+        // performs real SQLite I/O and belongs to the actual actor, not this
+        // test-owned profile-task coordinator sharing its adapter.
+        tokio::time::resume();
+        handle.sign_out().await.expect("durable signout");
+        owner.session_generation = handle.session_generation();
+        let signed_out = owner.adapter.core().snapshot();
+        owner.cancel_profile_tasks(Some(&signed_out)).await;
         assert!(matches!(
             receipt.await.expect("cancelled receipt").result(),
             harvestcircle_application::CommandResult::Completed(_)
         ));
-        tokio::time::resume();
         handle
             .activate_identity(public_key)
             .await
             .expect("switch back to same identity");
+        owner.session_generation = handle.session_generation();
         let before = owner.adapter.core().snapshot();
         owner.complete_profile_task(old_completion).await;
         assert_eq!(owner.adapter.core().snapshot(), before);
         assert!(owner.profile_tasks.is_empty());
         handle.close().await.expect("close");
+    }
+
+    #[tokio::test]
+    async fn failed_session_fence_never_acknowledges_success_and_publishes_cleared_private_session()
+    {
+        let (handle, _) = actor().await;
+        let imported = handle
+            .import_secret_key_test(secret(
+                "0000000000000000000000000000000000000000000000000000000000000001",
+            ))
+            .await
+            .unwrap();
+        let key = imported.identity().public_key();
+        handle.activate_identity(key).await.unwrap();
+        let generation = handle.session_generation();
+        let mut changes = handle
+            .subscribe_changes(NonZeroUsize::new(4).unwrap())
+            .await
+            .unwrap();
+        changes.receive().await.unwrap();
+        handle.adapter.database().close().await.unwrap();
+        assert!(handle.sign_out().await.is_err());
+        assert!(matches!(handle.lifecycle(), RuntimeLifecycle::Fatal(_)));
+        assert_eq!(handle.session_generation(), generation);
+        let cleared = tokio::time::timeout(Duration::from_secs(1), changes.receive())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(cleared.snapshot().session(), SessionState::SignedOut);
+        assert!(cleared.snapshot().active_identity().is_none());
+        assert!(handle.foreground_session().is_none());
+        assert!(handle.activate_identity(key).await.is_err());
+        handle.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn failed_activation_fence_clears_the_new_identity_and_old_foreground_binding() {
+        let (handle, _) = actor().await;
+        let mut keys = Vec::new();
+        for value in [
+            "0000000000000000000000000000000000000000000000000000000000000001",
+            "0000000000000000000000000000000000000000000000000000000000000002",
+        ] {
+            keys.push(
+                handle
+                    .import_secret_key_test(secret(value))
+                    .await
+                    .unwrap()
+                    .identity()
+                    .public_key(),
+            );
+        }
+        handle.activate_identity(keys[0]).await.unwrap();
+        let generation = handle.session_generation();
+        let mut changes = handle
+            .subscribe_changes(NonZeroUsize::new(4).unwrap())
+            .await
+            .unwrap();
+        changes.receive().await.unwrap();
+        // A native durable fence replacement makes the actor's current fence
+        // stale while leaving activation's real identity persistence available.
+        handle
+            .adapter
+            .database()
+            .advance_hub_session(
+                handle.session_incarnation(),
+                generation,
+                Some(keys[0]),
+                FixedClock.now(),
+            )
+            .await
+            .unwrap();
+        assert!(handle.activate_identity(keys[1]).await.is_err());
+        assert!(matches!(handle.lifecycle(), RuntimeLifecycle::Fatal(_)));
+        assert_eq!(handle.session_generation(), generation);
+        let cleared = tokio::time::timeout(Duration::from_secs(1), changes.receive())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(cleared.snapshot().session(), SessionState::SignedOut);
+        assert!(cleared.snapshot().active_identity().is_none());
+        assert!(handle.snapshot().active_identity().is_none());
+        assert!(handle.foreground_session().is_none());
+        handle.close().await.unwrap();
     }
 
     #[tokio::test]
@@ -2805,6 +2956,10 @@ mod tests {
             "The command is unavailable in the current runtime state."
         );
         assert!(matches!(actor.lifecycle(), RuntimeLifecycle::Fatal(_)));
+        actor
+            .close()
+            .await
+            .expect("fatal runtime can release its owned resources");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -3279,6 +3434,7 @@ mod tests {
             lifecycle: Arc::clone(&handle.lifecycle),
             runtime: tokio::runtime::Handle::current(),
             session_generation: handle.session_generation(),
+            hub_runtime_incarnation: handle.hub_runtime_incarnation,
             published_session_generation: Arc::clone(&handle.session_generation),
             profile_tasks: std::collections::BTreeMap::new(),
             changes: OrderedSnapshotChanges::new(snapshot),

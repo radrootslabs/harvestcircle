@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 15, FFI is 5.15 and snapshot schema is 1. Rust and
+The current storage schema is 16, FFI is 5.16 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -65,6 +65,28 @@ only removed pending scope becomes no-longer-required. Count-linked surplus has
 its own population origin and birth guard, with unknown source and explicit count
 time. These storage constraints grant no mutation authority. Native posting,
 current activity/uncertainty checks and its command surfaces remain unfinished.
+
+Schema16 persists hub submissions before their effects. Admission recaptures the
+complete bounded input and selected native material inside a protected transaction.
+Only that newly committed admission returns an in-memory execution grant. A saved
+pending submission cannot create another grant, including after restart. The
+existing immutable operation root commits with physical/work/history effects;
+recorded status is derived from that root rather than a second outcome write.
+Confirmed no-effect failures append an immutable rejection; unconfirmed commit or
+rollback retains a pending outcome. A read-only archive inspector validates
+metadata and digests without reconstructing executable commands.
+
+The native runtime starts signed out with a fresh random incarnation and persists
+each full-u64 session generation before acknowledging a switch or sign-out.
+Effect insertion checks that same fence under the SQLite write lock. An old
+admission cannot commit after a successful session replacement. A failed fence
+advance makes the runtime fatal and clears its exposed session; shutdown remains
+available. Ordinary admission is bounded to 65,536 records, while hold release and
+unused-document closure have a separate per-capture 1 MiB bound and do not spend
+that ordinary allocation. Other captures are bounded to 16 MiB, with an independent
+64 KiB raw input bound. Pending submissions and unresolved actual-report reviews
+block unsafe planned stock changes at admission and effect insertion. Actual-report
+handling, count posting, recovery UI and restore carry-forward remain unfinished.
 
 The runtime context uses service `harvestcircle`, instance `desktop`, and exact
 `state.sqlite`/`state.lock` names. SQLx is the high-level SQLite authority. The
@@ -107,7 +129,8 @@ Its UI-scope presenter retains drafts across navigation, freezes submitted input
 and rejects late responses after an identity change. A stale form requires
 explicit current-version review; uncertain outcomes expose only original-result
 lookup. These reference interfaces do not create physical stock. Durable
-admission and recovery of pre-commit submissions across restart/restore remain
+pre-commit admission and native session fencing are implemented. Recovery UI,
+consumer incarnation binding and same-profile restore carry-forward remain
 part of the unfinished recovery surface.
 
 Whole-pack receipts commit original trace/reference versions, a Receiving position,
@@ -124,8 +147,8 @@ Pages are bounded to 64 rows and pin both stock and reference revisions. Origina
 rows are bounded before decoding.
 The decoder reuses pure receipt planning and validates the stored intent hash.
 The bounds are 4,096 traces and 32,768 events; stock history has no identity-receipt expiry.
-Native submitted-operation admission across restart/restore is still the unfinished
-cross-feature recovery gate. The shared receiving workspace freezes original
+Native submission admission retains pending intents across restart. Restore
+carry-forward and cross-feature recovery remain unfinished. The shared receiving workspace freezes original
 submission intent, retains unsubmitted input during navigation and uses read-only
 original-result lookup for uncertain outcomes. Current stock and catalog versions
 are reviewed explicitly before resubmitting known rejected input. Kotlin renders

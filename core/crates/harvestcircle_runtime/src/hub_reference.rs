@@ -126,9 +126,10 @@ impl RuntimeActor {
         context: CommandContext,
         command: HubReferenceCommand,
     ) -> Result<RuntimeCommandValue, SafeError> {
-        let actor = self
-            .hub_actor(generation)
+        let scope = self
+            .hub_submission_scope(generation)
             .map_err(|_| permission_denied())?;
+        let actor = scope.actor;
         let mutating = command.is_mutating();
         let result = self
             .run_async(
@@ -153,18 +154,19 @@ impl RuntimeActor {
                             )
                         }
                         HubReferenceCommand::Apply { operation, command } => {
-                            hub_authority::require_owner_credential(
+                            let result = hub_authority::submit(
                                 adapter.as_ref(),
                                 secrets.as_ref(),
-                                actor,
+                                clock.as_ref(),
+                                scope,
+                                operation,
+                                HubMutation::Reference(Box::new(command)),
                             )
                             .await?;
-                            HubReferenceValue::Receipt(Some(
-                                adapter
-                                    .database()
-                                    .apply_hub_reference(actor, operation, command, clock.now())
-                                    .await?,
-                            ))
+                            let HubMutationResult::Reference(receipt) = result else {
+                                return Err(invalid_actor_response());
+                            };
+                            HubReferenceValue::Receipt(Some(*receipt))
                         }
                     };
                     Ok(RuntimeCommandValue::HubReference(value))

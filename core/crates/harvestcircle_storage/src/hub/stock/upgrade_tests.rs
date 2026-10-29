@@ -17,7 +17,10 @@ const ORIGINAL_SHA256: &str = "acf88350ab7bf2db5bcbd1aea28562a9de99ba8a82a218775
 
 // Every nonempty original table is covered, excluding only the advancing schema
 // version column and newly appended migration row. No original is reconstructed.
-async fn original_rows(connection: &mut SqliteConnection, through_version: u32) -> [u8; 32] {
+pub(in crate::hub) async fn original_rows(
+    connection: &mut SqliteConnection,
+    through_version: u32,
+) -> [u8; 32] {
     let mut hash = Sha256::new();
     for query in [
         "SELECT * FROM hub_context ORDER BY rowid",
@@ -41,6 +44,14 @@ async fn original_rows(connection: &mut SqliteConnection, through_version: u32) 
     .into_iter()
     .chain((through_version >= 13).then_some("SELECT * FROM hub_counted_openings ORDER BY rowid"))
     .chain((through_version >= 14).then_some("SELECT * FROM hub_count_observations ORDER BY rowid"))
+    .chain(
+        (through_version >= 15).then_some("SELECT * FROM hub_count_reconciliations ORDER BY rowid"),
+    )
+    .chain(
+        (through_version >= 15)
+            .then_some("SELECT * FROM hub_count_reconciliation_work ORDER BY rowid"),
+    )
+    .chain((through_version >= 15).then_some("SELECT * FROM hub_counted_surplus ORDER BY rowid"))
     {
         hash.update(query.as_bytes());
         let statement = sqlx::query(query);

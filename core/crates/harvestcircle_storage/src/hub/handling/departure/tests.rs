@@ -183,7 +183,7 @@ async fn departing(db: &Database, paper: &HubDispatchReceipt) -> DepartureComman
 async fn actual_current_host_installs_departure_objects_without_changing_reference_setup() {
     let fixture = Fixture::new();
     let db = fixture.open().await;
-    assert_eq!(db.metadata().state_schema_version().get(), 15);
+    assert_eq!(db.metadata().state_schema_version().get(), 16);
     let intake = open(&db).await;
     let before = db.hub_stock_page(owner(), query()).await.unwrap();
     assert_eq!(before.rows[0].position.packs.value(), 20);

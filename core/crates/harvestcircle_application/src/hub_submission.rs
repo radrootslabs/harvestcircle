@@ -17,7 +17,9 @@ use sha2::{Digest, Sha256};
 use std::{fmt, io};
 
 mod context;
+mod inspection;
 pub use context::*;
+pub use inspection::*;
 
 pub const HUB_SUBMITTED_REQUEST_SCHEMA: u8 = 1;
 pub const HUB_SUBMITTED_REQUEST_MAX_BYTES: usize = 64 * 1024;

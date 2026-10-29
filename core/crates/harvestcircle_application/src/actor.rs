@@ -220,7 +220,8 @@ impl LifecycleGate {
                     | RuntimeCommandClass::Shutdown
             ),
             RuntimeLifecycle::ShuttingDown => matches!(command, RuntimeCommandClass::Observe),
-            RuntimeLifecycle::Closed | RuntimeLifecycle::Fatal(_) => false,
+            RuntimeLifecycle::Fatal(_) => matches!(command, RuntimeCommandClass::Shutdown),
+            RuntimeLifecycle::Closed => false,
         }
     }
 
@@ -773,6 +774,7 @@ mod tests {
         let mut fatal = LifecycleGate::opening();
         fatal.fail(problem);
         assert!(!fatal.allows(RuntimeCommandClass::Observe));
+        assert!(fatal.allows(RuntimeCommandClass::Shutdown));
         fatal.begin_shutdown().expect("fatal can close");
         fatal.finish_shutdown().expect("closed");
         assert_eq!(fatal.lifecycle(), RuntimeLifecycle::Closed);

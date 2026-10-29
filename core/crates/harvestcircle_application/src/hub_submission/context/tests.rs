@@ -226,3 +226,42 @@ fn maximum_native_work_and_reference_shapes_fit_without_truncating_history() {
         1_000_000
     );
 }
+
+#[test]
+fn inspection_checks_read_only_metadata_and_preserves_raw_input_digest() {
+    let ownership = hub();
+    let request = HubSubmittedRequest::Initialize(&ownership);
+    let material = [reference(2, "Fictional original")];
+    let saved = request
+        .capture(&operation(), scope(u64::MAX), &context(&material))
+        .unwrap();
+    let inspected = inspect_hub_submission(saved.as_bytes()).unwrap();
+    assert_eq!(inspected.operation, operation());
+    assert_eq!(inspected.scope, scope(u64::MAX));
+    assert_eq!(inspected.hub, ownership);
+    assert_eq!(inspected.kind, saved.kind());
+    assert_eq!(&inspected.input_digest, saved.input_digest());
+    assert_eq!(&inspected.capture_digest, saved.digest());
+    // Parsing the input is deliberately absent: an object that is not a domain
+    // command is still only archival data, with a different consistency digest.
+    let text = std::str::from_utf8(saved.as_bytes()).unwrap();
+    let changed = text.replacen("Fictional original", "Changed original", 1);
+    assert_ne!(
+        &inspect_hub_submission(changed.as_bytes())
+            .unwrap()
+            .capture_digest,
+        saved.digest()
+    );
+    for altered in [
+        text.replacen("\"schema\":1", "\"schema\":99", 1),
+        text.replacen("\"kind\":\"initialize\"", "\"kind\":\"unknown_action\"", 1),
+        text.replacen(
+            "\"generation\":18446744073709551615",
+            "\"generation\":-1",
+            1,
+        ),
+        text.replacen("\"schema\":1", "\"schema\":1,\"schema\":1", 1),
+    ] {
+        assert!(inspect_hub_submission(altered.as_bytes()).is_err());
+    }
+}

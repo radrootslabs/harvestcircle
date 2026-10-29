@@ -1,6 +1,21 @@
-//! Native capture of current submitted semantics. No admission or effect is implied.
+//! Native submitted semantics, durable admission, current-session fencing and recovery reads.
+mod admission;
 mod capture;
+mod execute;
+mod intent;
+pub use execute::HubMutationResult;
+#[cfg(test)]
+mod admission_tests;
+mod read;
+mod session;
 mod targets;
+#[cfg(test)]
+mod upgrade_tests;
+pub use read::{HubSubmissionRecord, HubSubmissionStatus};
+#[cfg(test)]
+mod session_tests;
+pub use session::HubRuntimeSession;
+pub(crate) mod schema;
 #[cfg(test)]
 mod tests;
 

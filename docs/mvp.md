@@ -229,9 +229,24 @@ Native protected reads capture referenced labels/versions, original populations,
 identified groups/work scope, count observations and selected issued paper without
 writing stock or archiving unrelated catalog entries. Debug output omits archive
 contents. Encoding has no decoder into mutation commands and grants no permission.
-This prepares durable admission; pre-commit persistence, live native session
-fencing and recovery remain required. A separately captured archive cannot be
-reused as an execution permit: admission must recapture inside its transaction.
+Native pre-commit admission now recaptures and persists these semantics inside its
+protected transaction. Only a newly committed admission returns a private execution
+grant. A saved pending row never produces another grant or automatically replays
+after restart. Recorded status comes from the immutable original operation root
+committed with effects; confirmed rejection is append-only. The native session
+fence uses a fresh runtime incarnation and a full-u64 generation, persisted before
+acknowledging session replacement and checked when effects are inserted. An old
+grant cannot commit after an acknowledged session switch. A failed fence advance
+exposes a fatal, signed-out state with shutdown available.
+
+Ordinary admission retains at most 65,536 submissions; hold release and unused
+document closure do not consume this allocation and have a 1 MiB per-capture bound.
+Other captures are at most 16 MiB. Neither allocation implies pruning or unlimited
+closure storage. Other unresolved submissions and actual-report reviews block
+unsafe planned stock changes both at admission and before effect insertion.
+Recovery UI, consumer incarnation binding, actual process-crash qualification and
+restore carry-forward remain required. A separately captured archive grants no
+execution permission; there is no archive-to-command decoder.
 
 A callback rejection is a known storage rejection only after confirmed rollback.
 Unconfirmed rollback or commit retains a recovery requirement even when the

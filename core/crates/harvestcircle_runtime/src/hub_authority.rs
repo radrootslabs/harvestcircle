@@ -1,5 +1,7 @@
 //! Current owner and credential proof shared by native hub mutations.
 use super::*;
+use harvestcircle_application::hub_submission::{HubMutation, HubSubmissionScope};
+use harvestcircle_storage::HubMutationResult;
 
 pub(super) async fn require_owner_credential(
     adapter: &PersistentAppCore,
@@ -22,6 +24,37 @@ pub(super) async fn require_owner_credential(
         return Err(denied());
     }
     Ok(())
+}
+
+/// This is the only native hub mutation entry: credential proof is never restored
+/// from submission bytes, and SQL still verifies live scope and current ownership.
+pub(super) async fn submit(
+    adapter: &PersistentAppCore,
+    secrets: &dyn SecretStore,
+    clock: &dyn Clock,
+    scope: HubSubmissionScope,
+    operation: DurableRequestId,
+    mutation: HubMutation,
+) -> Result<HubMutationResult, SafeError> {
+    if matches!(&mutation, HubMutation::Initialize(_)) {
+        if let Some(hub) = adapter.database().load_hub().await? {
+            hub.authorize(Some(scope.actor)).map_err(|_| denied())?;
+        }
+        let material = adapter
+            .key_material()
+            .import(secrets.load(scope.actor).await?)?;
+        let (actual, _, secret) = material.into_parts();
+        drop(secret);
+        if actual != scope.actor {
+            return Err(denied());
+        }
+    } else {
+        require_owner_credential(adapter, secrets, scope.actor).await?;
+    }
+    adapter
+        .database()
+        .submit_hub_mutation(scope, operation, mutation, clock.now())
+        .await
 }
 
 pub(super) const fn denied() -> SafeError {

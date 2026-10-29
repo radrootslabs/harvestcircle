@@ -53,4 +53,7 @@ pub use hub::reference::HubReferenceReceipt;
 pub use hub::stock::{
     HubOpeningReceipt, HubStockPage, HubStockQuery, HubStockReceipt, HubStockRow, HubStockWork,
 };
+pub use hub::submission::{
+    HubMutationResult, HubRuntimeSession, HubSubmissionRecord, HubSubmissionStatus,
+};
 pub use os_keyring::{CREDENTIAL_SERVICE, OsKeyringSecretStore};
