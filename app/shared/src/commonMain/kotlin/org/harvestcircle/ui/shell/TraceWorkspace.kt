@@ -300,6 +300,7 @@ private fun traceActionLabel(kind: HubTraceHistoryKind): String =
     when (kind) {
         HubTraceHistoryKind.Receipt -> "Original receipt"
         HubTraceHistoryKind.CountedOpening -> "Counted opening stock"
+        HubTraceHistoryKind.CountObserved -> "Stock count observed"
         HubTraceHistoryKind.Move -> "Actual movement"
         HubTraceHistoryKind.Split -> "Observed physical separation"
         HubTraceHistoryKind.Acceptance -> "Sample acceptance decision"

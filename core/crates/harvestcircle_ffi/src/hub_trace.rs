@@ -281,6 +281,7 @@ impl HubTraceHistoryQueryDto {
 pub enum HubTraceHistoryKindDto {
     Receipt,
     CountedOpening,
+    CountObserved,
     Move,
     Split,
     Acceptance,
@@ -302,6 +303,7 @@ impl From<HubTraceHistoryKind> for HubTraceHistoryKindDto {
         match value {
             HubTraceHistoryKind::Receipt => Self::Receipt,
             HubTraceHistoryKind::CountedOpening => Self::CountedOpening,
+            HubTraceHistoryKind::CountObserved => Self::CountObserved,
             HubTraceHistoryKind::Departure => Self::Departure,
             HubTraceHistoryKind::Handling(kind) => match kind {
                 HubHandlingKind::Move => Self::Move,

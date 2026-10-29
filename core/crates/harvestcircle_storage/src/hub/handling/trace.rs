@@ -98,6 +98,7 @@ impl HubTraceHistoryQuery {
 pub enum HubTraceHistoryKind {
     Receipt,
     CountedOpening,
+    CountObserved,
     Handling(HubHandlingKind),
     Dispatch(dispatch::HubDispatchKind),
     Departure,

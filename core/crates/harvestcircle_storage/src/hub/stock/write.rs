@@ -211,7 +211,9 @@ pub(super) async fn insert_population_on(
     Ok(())
 }
 
-pub(super) fn occurrence_fields(value: Occurrence) -> (&'static str, Option<i64>, Option<i64>) {
+pub(in crate::hub) fn occurrence_fields(
+    value: Occurrence,
+) -> (&'static str, Option<i64>, Option<i64>) {
     match value {
         Occurrence::Unknown => ("unknown", None, None),
         Occurrence::Known(at) => ("known", Some(at.as_seconds()), Some(at.as_seconds())),

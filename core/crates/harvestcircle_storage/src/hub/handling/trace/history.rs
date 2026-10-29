@@ -87,6 +87,14 @@ async fn entry_on(
     let recorded_at = operation.recorded_at;
     let result = operation.result;
     let (kind, occurred, observation) = match operation.kind.as_str() {
+        "count_observe" => {
+            let original = crate::hub::counts::read::original_on(tx, hub, operation).await?;
+            (
+                HubTraceHistoryKind::CountObserved,
+                Some(original.original.cutoff),
+                original.original.observation,
+            )
+        }
         "opening" => {
             let original = stock::opening::original_on(tx, hub, operation).await?;
             (

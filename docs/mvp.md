@@ -246,8 +246,14 @@ unresolved actual reports and uncertain prior outcomes. Reviewed shortages retir
 only pending work; completed work and original intake remain. A surplus requires
 separate physical identification and plans new counted stock with unknown source
 and review-required acceptance, preserving the earlier population's treatment.
-This policy foundation is not yet persisted or exposed through native commands
-or count/opening forms. Native persistence, opening stock and complete lifecycle
+Native count recording now persists immutable observations and original-result
+consistency digests under current ownership and exact stock/catalog/group versions.
+Saving18 against recorded20 leaves stock20 and pending work20; concurrent stale
+submissions cannot overwrite a count. Read-only original recovery retains captured
+reference versions through later moves and reference edits. Zero/uncertain-cutoff
+observations remain evidence and cannot themselves authorize a stock change.
+Native opening admission is implemented without a fabricated receipt or intake
+requirement. Count posting, opening/count forms and complete lifecycle/recovery
 qualification remain unfinished.
 
 The Rust stock model now distinguishes received populations from counted opening
@@ -257,8 +263,10 @@ reported earlier history, and default to review-required acceptance. They create
 no fictional supplier/receipt or completed handling. Source-label knowledge is
 independent of earlier intake history. Origin/history participates in immutable
 document consistency and escaped local output; existing receipt digest encoding
-and document content are preserved. Persistence/FFI/forms for opening stock remain
-unfinished; the existing native receipt surface and schema are unchanged.
+and document content are preserved. Protected opening persistence and typed
+population-origin/optional-intake-work transport are implemented through forward
+migrations. Opening command bindings and forms remain unfinished; original
+receipt data, command fingerprints and document encoding are preserved.
 
 ### C08: Preparation, departure, documents and trace
 

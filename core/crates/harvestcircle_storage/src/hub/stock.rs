@@ -25,7 +25,7 @@ pub(crate) mod opening_schema;
 pub(crate) mod population_schema;
 pub(super) mod read;
 pub(crate) mod schema;
-mod write;
+pub(in crate::hub) mod write;
 #[cfg(test)]
 pub(crate) use write::insert_receipt_on as insert_historical_receipt_on;
 

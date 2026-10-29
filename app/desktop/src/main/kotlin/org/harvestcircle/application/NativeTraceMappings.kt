@@ -99,6 +99,7 @@ private fun HubTraceHistoryKindDto.toModel() =
     when (this) {
         HubTraceHistoryKindDto.RECEIPT -> HubTraceHistoryKind.Receipt
         HubTraceHistoryKindDto.COUNTED_OPENING -> HubTraceHistoryKind.CountedOpening
+        HubTraceHistoryKindDto.COUNT_OBSERVED -> HubTraceHistoryKind.CountObserved
         HubTraceHistoryKindDto.MOVE -> HubTraceHistoryKind.Move
         HubTraceHistoryKindDto.SPLIT -> HubTraceHistoryKind.Split
         HubTraceHistoryKindDto.ACCEPTANCE -> HubTraceHistoryKind.Acceptance

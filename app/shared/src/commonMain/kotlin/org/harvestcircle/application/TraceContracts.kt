@@ -88,6 +88,7 @@ data class HubTraceHistoryQuery(
 enum class HubTraceHistoryKind {
     Receipt,
     CountedOpening,
+    CountObserved,
     Move,
     Split,
     Acceptance,

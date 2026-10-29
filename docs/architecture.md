@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 13, FFI is 5.13 and snapshot schema is 1. Rust and
+The current storage schema is 14, FFI is 5.14 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -47,8 +47,17 @@ reference edits and actual departure. Repeating an original cannot add stock.
 Opening creates no intake requirement, completed work, supplier or delivery.
 Acceptance starts review-required. `HubStockPopulation` transport distinguishes
 origin and initial location; absent intake work is explicit rather than a zero
-completion record. Kotlin presents these native facts. Opening forms and count
-reconciliation remain unfinished.
+completion record. Kotlin presents these native facts.
+
+Schema14 adds immutable count observations with original reference versions,
+group/stock scope, physical-recording cutoff, counted quantity and a result
+consistency digest. Native recording requires current ownership and exact
+stock/catalog/group versions. Saving an observation advances the journal and
+retains its history without changing stock or work; zero and uncertain-cutoff
+observations are retained evidence. Recovery verifies original command and
+result facts rather than hydrating them from current balances. Observation
+recording grants no reconciliation permission. Opening/count forms and count
+posting remain unfinished.
 
 The runtime context uses service `harvestcircle`, instance `desktop`, and exact
 `state.sqlite`/`state.lock` names. SQLx is the high-level SQLite authority. The

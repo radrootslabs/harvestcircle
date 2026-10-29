@@ -1,4 +1,5 @@
 //! Local hub state has no foreign key to removable account or credential rows.
+pub(crate) mod counts;
 pub(crate) mod handling;
 pub(crate) mod reference;
 pub(crate) mod stock;
