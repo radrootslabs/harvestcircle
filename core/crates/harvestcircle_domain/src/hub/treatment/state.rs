@@ -8,7 +8,7 @@ use crate::hub::{
 use crate::{PublicKey, UnixTimestamp};
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct TreatmentStamp {
     pub id: HubRecordId,
     pub stock_revision: HubRevision,
@@ -26,7 +26,7 @@ pub struct AcceptanceDecision {
     pub status: AcceptanceStatus,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct Hold {
     pub stamp: TreatmentStamp,
     pub scope: CapturedPhysicalScope,

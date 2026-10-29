@@ -95,7 +95,8 @@ pub struct PhysicalIdentification {
     pub observation: SourceProvenance,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WorkProgress {
     Pending,
     Completed,

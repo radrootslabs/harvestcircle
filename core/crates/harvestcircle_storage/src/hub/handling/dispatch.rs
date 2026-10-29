@@ -1,6 +1,6 @@
 //! Non-reserving native preparation with immutable issued identification.
 mod material;
-pub(super) mod read;
+pub(in crate::hub) mod read;
 pub(crate) mod schema;
 mod write;
 

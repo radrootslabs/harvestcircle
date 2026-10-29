@@ -323,7 +323,7 @@ async fn causal_floor_on(
         .transpose()
 }
 
-pub(super) async fn trace_on(
+pub(in crate::hub) async fn trace_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     trace: HubRecordId,

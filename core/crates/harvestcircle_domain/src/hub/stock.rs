@@ -88,7 +88,7 @@ impl Occurrence {
 }
 
 /// One quantity requirement. A closure or planned location is not completion.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct QuantityWork {
     required: WholePacks,
     completed: WholePacks,
@@ -172,7 +172,8 @@ pub enum OpeningHistory {
     ExternalReference(SourceProvenance),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PopulationOrigin {
     Receipt,
     CountedOpening {
@@ -185,7 +186,7 @@ pub enum PopulationOrigin {
 }
 
 /// Original reference versions survive later label changes and corrections.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct StockPopulation {
     pub id: HubRecordId,
     pub variant: ReferenceRecord,

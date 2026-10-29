@@ -34,14 +34,14 @@ pub struct PhysicalLineage {
     nodes: Vec<PhysicalLineageNode>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct PhysicalScopeAnchor {
     pub group: HubRecordId,
     pub created_revision: HubRevision,
     pub captured_packs: WholePacks,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct CapturedPhysicalScope {
     hub: HubId,
     trace: HubRecordId,

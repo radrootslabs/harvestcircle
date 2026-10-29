@@ -29,3 +29,20 @@ impl Serialize for UnixTimestamp {
         serializer.serialize_i64(self.as_seconds())
     }
 }
+
+impl Serialize for super::reference::SampleHandlingBasis {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        struct Basis {
+            id: &'static str,
+            version: u32,
+            site_timezone: &'static str,
+        }
+        Basis {
+            id: self.id(),
+            version: self.version(),
+            site_timezone: self.site_timezone(),
+        }
+        .serialize(serializer)
+    }
+}

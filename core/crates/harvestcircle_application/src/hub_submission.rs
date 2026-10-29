@@ -16,6 +16,9 @@ use serde::{Serialize, Serializer};
 use sha2::{Digest, Sha256};
 use std::{fmt, io};
 
+mod context;
+pub use context::*;
+
 pub const HUB_SUBMITTED_REQUEST_SCHEMA: u8 = 1;
 pub const HUB_SUBMITTED_REQUEST_MAX_BYTES: usize = 64 * 1024;
 
@@ -30,6 +33,37 @@ pub enum HubSubmittedRequest<'a> {
     Departure(&'a DepartureCommand),
     CountObservation(&'a CountObserveCommand),
     CountPosting(&'a CountPostCommand),
+}
+
+/// An owned native request can move through admission without decoding an archive.
+/// It carries intent only; ownership, session and effect checks remain native.
+pub enum HubMutation {
+    Initialize(Box<HubOwnership>),
+    Reference(Box<ReferenceCommand>),
+    Receive(Box<ReceiptCommand>),
+    Opening(Box<OpeningCommand>),
+    Handling(Box<HandlingCommand>),
+    Dispatch(Box<DispatchCommand>),
+    Departure(Box<DepartureCommand>),
+    CountObservation(Box<CountObserveCommand>),
+    CountPosting(Box<CountPostCommand>),
+}
+
+impl HubMutation {
+    #[must_use]
+    pub fn submitted_request(&self) -> HubSubmittedRequest<'_> {
+        match self {
+            Self::Initialize(value) => HubSubmittedRequest::Initialize(value),
+            Self::Reference(value) => HubSubmittedRequest::Reference(value),
+            Self::Receive(value) => HubSubmittedRequest::Receive(value),
+            Self::Opening(value) => HubSubmittedRequest::Opening(value),
+            Self::Handling(value) => HubSubmittedRequest::Handling(value),
+            Self::Dispatch(value) => HubSubmittedRequest::Dispatch(value),
+            Self::Departure(value) => HubSubmittedRequest::Departure(value),
+            Self::CountObservation(value) => HubSubmittedRequest::CountObservation(value),
+            Self::CountPosting(value) => HubSubmittedRequest::CountPosting(value),
+        }
+    }
 }
 
 impl HubSubmittedRequest<'_> {
@@ -96,6 +130,7 @@ impl Serialize for HubSubmittedRequest<'_> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HubRequestArchiveError {
     Capacity,
+    InvalidContext,
 }
 
 /// Exact bounded request bytes, not a replay command, signature or permission.

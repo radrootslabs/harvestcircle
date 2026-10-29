@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct WorkRequirement {
     pub id: HubRecordId,
     pub trace: HubRecordId,
@@ -200,7 +200,7 @@ impl ReplanCommand {
 }
 
 /// Bounded follow-up only. Resolving it cannot change balances, work or holds.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct Discrepancy {
     pub id: HubRecordId,
     pub trace: HubRecordId,

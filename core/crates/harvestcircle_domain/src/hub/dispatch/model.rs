@@ -39,7 +39,7 @@ pub struct DispatchSource {
     pub trace: StockPopulation,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct DispatchLineSnapshot {
     pub group: HubRecordId,
     pub group_revision: HubRevision,
@@ -51,7 +51,7 @@ pub struct DispatchLineSnapshot {
     pub trace: StockPopulation,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct DispatchMaterial {
     pub stock_revision: HubRevision,
     pub catalog_revision: HubRevision,
@@ -202,7 +202,7 @@ impl DispatchMaterial {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct DispatchStamp {
     pub operation: HubRecordId,
     pub stock_revision: HubRevision,
@@ -211,14 +211,15 @@ pub struct DispatchStamp {
     pub observation: SourceProvenance,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum IdentificationStatus {
     Issued,
     Superseded,
     Unused,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct IdentificationVersion {
     pub id: HubRecordId,
     pub number: u32,

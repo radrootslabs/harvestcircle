@@ -264,7 +264,7 @@ impl ReferenceValue {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct ReferenceRecord {
     pub id: HubRecordId,
     pub revision: HubRevision,

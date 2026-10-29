@@ -222,11 +222,16 @@ restored history lacks its receipt. Unknown prior outcomes require explicit revi
 Do not create a new operation identity merely to escape uncertainty.
 
 The Rust application layer can encode complete hub request inputs as bounded,
-versioned read-only archives. Public identifiers, quantities, cutoff certainty,
-notes and action-specific fields are retained exactly; debug output omits their
-contents. The archive has no decoder into mutation commands and establishes no
-permission. This prepares durable admission; resolved reference/material capture,
-pre-commit persistence, native session fencing and recovery remain required.
+versioned read-only archives. The raw command keeps its independent 64 KiB bound;
+a captured submission also binds its original operation, runtime incarnation,
+full session generation, current catalog/stock cut and selected resolved material.
+Native protected reads capture referenced labels/versions, original populations,
+identified groups/work scope, count observations and selected issued paper without
+writing stock or archiving unrelated catalog entries. Debug output omits archive
+contents. Encoding has no decoder into mutation commands and grants no permission.
+This prepares durable admission; pre-commit persistence, live native session
+fencing and recovery remain required. A separately captured archive cannot be
+reused as an execution permit: admission must recapture inside its transaction.
 
 A callback rejection is a known storage rejection only after confirmed rollback.
 Unconfirmed rollback or commit retains a recovery requirement even when the

@@ -12,7 +12,7 @@ use harvestcircle_domain::hub::stock::HUB_STOCK_EVENT_CAPACITY;
 use sqlx::Row;
 use stock::read::{OperationRecord, optional_id, record_id, revision_field, text};
 
-pub(super) struct DiscrepancyState {
+pub(in crate::hub) struct DiscrepancyState {
     pub value: Discrepancy,
     pub created: OperationRecord,
     pub resolved: Option<OperationRecord>,
@@ -221,7 +221,7 @@ async fn creation_on(
     })
 }
 
-pub(super) async fn value_on(
+pub(in crate::hub) async fn value_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     id: HubRecordId,

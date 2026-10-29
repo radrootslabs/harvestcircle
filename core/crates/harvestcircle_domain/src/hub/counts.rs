@@ -107,7 +107,7 @@ impl CountObservationContext<'_> {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct CountScope {
     pub hub: HubId,
     pub stock_revision: HubRevision,
@@ -123,7 +123,7 @@ pub struct CountScope {
     pub previous_reconciliation: Option<HubRecordId>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct CountObservation {
     pub id: HubRecordId,
     pub operation: HubRecordId,

@@ -475,7 +475,7 @@ const fn reference_error(error: HubReferenceError) -> SafeError {
     SafeError::new(code, SafeMessage::new(message))
 }
 
-const fn hub_permission_denied() -> SafeError {
+pub(in crate::hub) const fn hub_permission_denied() -> SafeError {
     SafeError::new(
         SafeErrorCode::HubPermissionDenied,
         SafeMessage::new("Activate the current hub owner's local identity to access hub records."),

@@ -3,6 +3,7 @@ pub(crate) mod counts;
 pub(crate) mod handling;
 pub(crate) mod reference;
 pub(crate) mod stock;
+pub(crate) mod submission;
 use harvestcircle_application::DurableRequestId;
 use harvestcircle_domain::hub::{HubId, HubOwnership, HubRevision};
 use harvestcircle_domain::{PublicKey, SafeError, SafeErrorCode, SafeMessage, UnixTimestamp};

@@ -11,7 +11,7 @@ use harvestcircle_domain::hub::reference::{ReferenceCatalog, ReferenceKind};
 use sqlx::Row;
 use stock::read::{optional_id, record_id, revision_field, whole_packs};
 
-pub(super) struct LoadedLineage {
+pub(in crate::hub) struct LoadedLineage {
     pub graph: PhysicalLineage,
     pub rows: Vec<HubLineageRow>,
     pub trace: StockPopulation,
@@ -80,7 +80,7 @@ impl Database {
     }
 }
 
-pub(super) async fn load_on(
+pub(in crate::hub) async fn load_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     trace_id: HubRecordId,

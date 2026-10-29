@@ -1,10 +1,10 @@
 //! Current physical scope and work use the existing lifetime stock journal.
 
 pub(crate) mod departure;
-mod discrepancy;
+pub(in crate::hub) mod discrepancy;
 pub(crate) mod dispatch;
 mod history;
-mod lineage;
+pub(in crate::hub) mod lineage;
 pub(crate) mod portion_schema;
 mod portions;
 mod query;
