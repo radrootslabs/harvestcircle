@@ -35,7 +35,10 @@ class WorkspaceSidebarTest {
                 onNodeWithTag("sidebar-Settings").fetchSemanticsNode().boundsInRoot.top >
                     onNodeWithTag("sidebar-HubWork").fetchSemanticsNode().boundsInRoot.bottom,
             )
-            assertEquals(listOf(ScreenKey.HubStock, ScreenKey.HubDispatch, ScreenKey.Network, ScreenKey.Settings), selected)
+            assertEquals(
+                listOf(ScreenKey.HubWork, ScreenKey.HubStock, ScreenKey.HubDispatch, ScreenKey.Network, ScreenKey.Settings),
+                selected,
+            )
         }
 
     @Test

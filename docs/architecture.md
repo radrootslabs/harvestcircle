@@ -282,8 +282,28 @@ out session cannot inspect or render it. Current trace output pins both revision
 exact issued output binds the requested immutable version. Rendering happens after
 the storage read transaction and performs no save, print or stock mutation. Generated
 Kotlin transport carries the native facts and rendered content without deciding
-scope, balance or eligibility. Shared inspection and desktop save/print adapters
-remain unfinished, as does complete candidate recovery/release qualification.
+scope, balance or eligibility. A shared trace/history workspace is reachable from
+Work, Stock and Dispatch records and a bounded recorded-population browser. It
+pairs the native snapshot and history at the same two revisions, preserves the
+selected population on refresh errors, and rejects late replies after selection
+or hub changes. Source-impact retrieval cannot be narrowed by client filtering;
+uncertainty and page/snapshot limits remain visible. Route-entry effects live
+outside the replaceable inspector so returning preserves an unfinished receipt
+or identification draft. Escape closes the read-only inspector. Local-output
+controls prepare one native rendering and retain its exact content and identity
+through save/print cancellation, failure and retry. The desktop adapter owns its
+file dialog and common print dialog/job. HTML saving writes a bounded UTF-8
+temporary in the chosen directory and atomically replaces only the selected file;
+unsupported atomic replacement fails rather than degrading to a partial write.
+Printing reports print-system submission, not physical printing or external
+acknowledgement. An uncertain print requires checking the queue before retrying;
+saving cannot clear that review requirement. Pending output retains its pane until
+the owned operation settles; owner disposal cancels only its own resources.
+Native UI qualification exercises cancellation, real atomic file output/failure,
+frozen-content print retries, unchanged stock, restart and selected superseded
+version output after a reference rename. Printer submission is injected; real
+host dialogs/hardware and complete candidate recovery/release qualification remain
+separate gates.
 
 ## Secrets, transport and lifecycle
 

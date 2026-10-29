@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,6 +26,7 @@ import org.harvestcircle.application.HandlingViewState
 import org.harvestcircle.application.HarvestCircleIntent
 import org.harvestcircle.application.HarvestCircleShellIntent
 import org.harvestcircle.application.HarvestCircleShellState
+import org.harvestcircle.application.HubLocalOutputRequest
 import org.harvestcircle.application.HubViewState
 import org.harvestcircle.application.OverlayIntent
 import org.harvestcircle.application.ReferencePresenter
@@ -35,6 +36,7 @@ import org.harvestcircle.application.ShellRoot
 import org.harvestcircle.application.StatusOverlayKey
 import org.harvestcircle.application.StockPresenter
 import org.harvestcircle.application.StockViewState
+import org.harvestcircle.application.TracePresenter
 import org.harvestcircle.application.deriveShellStatus
 import org.harvestcircle.designsystem.layout.HarvestCircleFrameLayoutClass
 import org.harvestcircle.designsystem.shell.HarvestCircleShellButton
@@ -73,19 +75,23 @@ fun HarvestCircleShell(
     dispatchState: DispatchViewState = DispatchViewState(),
     dispatchPresenter: DispatchPresenter? = null,
     submitDispatch: () -> Unit = {},
+    tracePresenter: TracePresenter? = null,
 ) {
+    val routeDispatch: (HarvestCircleShellIntent) -> Unit = { intent ->
+        if (tracePresenter?.intercept(intent, state.overlays.current) != true) dispatch(intent)
+    }
     HarvestCircleTheme(state.appearance) {
         val focusRegistry = remember { ShellFocusRegistry() }
         CompositionLocalProvider(LocalShellFocusRegistry provides focusRegistry) {
             ShellKeyboardHost(
                 modal = state.overlays.current,
-                onShortcut = { dispatchShortcut(it, state.overlays.current, dispatch) },
+                onShortcut = { dispatchShortcut(it, state.overlays.current, routeDispatch) },
             ) {
                 HarvestCircleShellContent(
                     state,
                     identityActions,
                     platformActions,
-                    dispatch,
+                    routeDispatch,
                     hubState,
                     initializeHub,
                     refreshHub,
@@ -101,6 +107,7 @@ fun HarvestCircleShell(
                     dispatchState,
                     dispatchPresenter,
                     submitDispatch,
+                    tracePresenter,
                 )
             }
         }
@@ -128,6 +135,7 @@ private fun HarvestCircleShellContent(
     dispatchState: DispatchViewState = DispatchViewState(),
     dispatchPresenter: DispatchPresenter? = null,
     submitDispatch: () -> Unit = {},
+    tracePresenter: TracePresenter? = null,
 ) {
     val modalOpen = state.overlays.current != null
     val fallback =
@@ -198,6 +206,7 @@ private fun HarvestCircleShellContent(
                     dispatchState,
                     dispatchPresenter,
                     submitDispatch,
+                    tracePresenter,
                 )
         }
     }
@@ -304,8 +313,34 @@ private fun DashboardRoot(
     dispatchState: DispatchViewState = DispatchViewState(),
     dispatchPresenter: DispatchPresenter? = null,
     submitDispatch: () -> Unit = {},
+    tracePresenter: TracePresenter? = null,
 ) {
     val route = root.navigation.current
+    val traceState = tracePresenter?.state?.collectAsState()?.value
+    val outputState =
+        tracePresenter
+            ?.output
+            ?.state
+            ?.collectAsState()
+            ?.value
+    val prepareOutput: ((HubLocalOutputRequest) -> Unit)? =
+        tracePresenter?.output?.takeIf { outputState?.available == true }?.let { target -> { request -> target.prepare(request) } }
+    val openTrace: (
+        (
+            String,
+        ) -> Unit
+    )? = tracePresenter?.takeIf { traceState?.available == true }?.let { target -> { id -> target.openReceipt(id) } }
+    val browseTrace: (() -> Unit)? = tracePresenter?.takeIf { traceState?.available == true }?.let { target -> { target.browse() } }
+    OperationalRouteEffects(
+        route,
+        stockPresenter,
+        handlingPresenter,
+        dispatchPresenter,
+        tracePresenter,
+        stockState.available,
+        handlingState.available,
+        dispatchState.available,
+    )
     val status = deriveShellStatus(state)
     var networkSection by remember { mutableStateOf(NetworkSection.Overview) }
     DashboardScaffold(
@@ -315,7 +350,7 @@ private fun DashboardRoot(
             GlobalTopBar(
                 model =
                     GlobalTopBarModel(
-                        canGoBack = root.navigation.backStack.isNotEmpty(),
+                        canGoBack = outputState?.open == true || traceState?.open == true || root.navigation.backStack.isNotEmpty(),
                         canGoForward = root.navigation.forwardStack.isNotEmpty(),
                         syncStatus = status.sync,
                         signerStatus = status.signer,
@@ -341,43 +376,49 @@ private fun DashboardRoot(
             )
         },
         mainHeader = {
-            when (route) {
-                AppRoute.Network ->
-                    MainPanelHeader(
-                        MainPanelHeaderModel(
-                            title = route.title(),
-                            tabs = NetworkSection.entries.map { TemplateTab(TemplateSelectionKey(it.key), it.label) },
-                            selectedTab = TemplateSelectionKey(networkSection.key),
-                        ),
-                        onTabSelected = { selected ->
-                            networkSection = NetworkSection.entries.single { it.key == selected.value }
-                        },
-                    )
-                AppRoute.Settings ->
-                    MainPanelHeader(
-                        MainPanelHeaderModel(
-                            title = route.title(),
-                            tabs =
-                                SettingsSection.entries.map {
-                                    TemplateTab(TemplateSelectionKey(it.name.lowercase()), it.name)
-                                },
-                            selectedTab =
-                                TemplateSelectionKey(
-                                    root.navigation.settings.section.name
-                                        .lowercase(),
-                                ),
-                        ),
-                        onTabSelected = { selected ->
-                            dispatch(
-                                HarvestCircleShellIntent.Navigation(
-                                    NavigationIntent.SelectSettingsSection(
-                                        SettingsSection.entries.single { it.name.equals(selected.value, ignoreCase = true) },
+            if (outputState?.open == true) {
+                MainPanelHeader(MainPanelHeaderModel(title = "Local output"))
+            } else if (traceState?.open == true) {
+                MainPanelHeader(MainPanelHeaderModel(title = "Trace and history"))
+            } else {
+                when (route) {
+                    AppRoute.Network ->
+                        MainPanelHeader(
+                            MainPanelHeaderModel(
+                                title = route.title(),
+                                tabs = NetworkSection.entries.map { TemplateTab(TemplateSelectionKey(it.key), it.label) },
+                                selectedTab = TemplateSelectionKey(networkSection.key),
+                            ),
+                            onTabSelected = { selected ->
+                                networkSection = NetworkSection.entries.single { it.key == selected.value }
+                            },
+                        )
+                    AppRoute.Settings ->
+                        MainPanelHeader(
+                            MainPanelHeaderModel(
+                                title = route.title(),
+                                tabs =
+                                    SettingsSection.entries.map {
+                                        TemplateTab(TemplateSelectionKey(it.name.lowercase()), it.name)
+                                    },
+                                selectedTab =
+                                    TemplateSelectionKey(
+                                        root.navigation.settings.section.name
+                                            .lowercase(),
                                     ),
-                                ),
-                            )
-                        },
-                    )
-                else -> MainPanelHeader(MainPanelHeaderModel(title = route.title()))
+                            ),
+                            onTabSelected = { selected ->
+                                dispatch(
+                                    HarvestCircleShellIntent.Navigation(
+                                        NavigationIntent.SelectSettingsSection(
+                                            SettingsSection.entries.single { it.name.equals(selected.value, ignoreCase = true) },
+                                        ),
+                                    ),
+                                )
+                            },
+                        )
+                    else -> MainPanelHeader(MainPanelHeaderModel(title = route.title()))
+                }
             }
         },
         mainBody = {
@@ -388,104 +429,114 @@ private fun DashboardRoot(
                         route.toString(),
                         "${route.title()} main content",
                     ) {
-                        when (route) {
-                            AppRoute.HubWork, AppRoute.HubStock -> {
-                                if (hubState is HubViewState.Ready && stockPresenter != null && stockState.available) {
-                                    if (handlingPresenter != null && handlingState.available) {
-                                        OperationalWorkspace(
-                                            route,
-                                            stockState,
-                                            stockPresenter,
-                                            submitReceipt,
-                                            handlingState,
-                                            handlingPresenter,
-                                            submitHandling,
-                                            openStock = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubStock)) },
-                                            openReferences = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubReferences)) },
+                        if (outputState?.open == true) {
+                            LocalOutputWorkspace(outputState, tracePresenter.output)
+                        } else if (traceState?.open == true) {
+                            TraceWorkspace(traceState, tracePresenter, outputState?.available == true)
+                        } else {
+                            when (route) {
+                                AppRoute.HubWork, AppRoute.HubStock -> {
+                                    if (hubState is HubViewState.Ready && stockPresenter != null && stockState.available) {
+                                        if (handlingPresenter != null && handlingState.available) {
+                                            OperationalWorkspace(
+                                                route,
+                                                stockState,
+                                                stockPresenter,
+                                                submitReceipt,
+                                                handlingState,
+                                                handlingPresenter,
+                                                submitHandling,
+                                                openStock = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubStock)) },
+                                                openReferences = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubReferences)) },
+                                                openTrace = openTrace,
+                                                browseTrace = browseTrace,
+                                            )
+                                        } else {
+                                            StockWorkspace(
+                                                route,
+                                                stockState,
+                                                stockPresenter,
+                                                submitReceipt,
+                                                manageRoute = false,
+                                                openReferences = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubReferences)) },
+                                                openTrace = openTrace,
+                                                browseTrace = browseTrace,
+                                            )
+                                        }
+                                    } else {
+                                        HubWorkspace(route, hubState, initializeHub, refreshHub)
+                                    }
+                                }
+                                AppRoute.HubDispatch -> {
+                                    if (hubState is HubViewState.Ready && dispatchPresenter != null && dispatchState.available) {
+                                        DispatchWorkspace(
+                                            dispatchState,
+                                            dispatchPresenter,
+                                            submitDispatch,
+                                            references = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubReferences)) },
+                                            openTrace = openTrace,
+                                            browseTrace = browseTrace,
+                                            prepareOutput = prepareOutput,
                                         )
                                     } else {
-                                        StockWorkspace(
-                                            route,
-                                            stockState,
-                                            stockPresenter,
-                                            submitReceipt,
-                                            openReferences = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubReferences)) },
+                                        HubWorkspace(route, hubState, initializeHub, refreshHub)
+                                    }
+                                }
+                                AppRoute.HubReferences -> {
+                                    if (hubState is HubViewState.Ready && referencePresenter != null) {
+                                        ReferenceWorkspace(
+                                            referenceState,
+                                            referencePresenter,
+                                            submitReference,
+                                            returnToWork = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubWork)) },
                                         )
+                                    } else {
+                                        HubWorkspace(route, hubState, initializeHub, refreshHub)
                                     }
-                                } else {
-                                    HubWorkspace(route, hubState, initializeHub, refreshHub)
                                 }
-                            }
-                            AppRoute.HubDispatch -> {
-                                if (hubState is HubViewState.Ready && dispatchPresenter != null && dispatchState.available) {
-                                    LaunchedEffect(route) {
-                                        dispatchPresenter.park()
-                                        dispatchPresenter.refresh()
-                                    }
-                                    DispatchWorkspace(
-                                        dispatchState,
-                                        dispatchPresenter,
-                                        submitDispatch,
-                                        references = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubReferences)) },
+                                AppRoute.PersonalToday ->
+                                    FoundationTodayScreen(
+                                        model = FoundationTodayModel(todayContext(state)),
+                                        openNostrReference = {
+                                            dispatch(
+                                                HarvestCircleShellIntent.Overlay(
+                                                    OverlayIntent.OpenReference(ShellFocusTarget.TodayReference),
+                                                ),
+                                            )
+                                        },
                                     )
-                                } else {
-                                    HubWorkspace(route, hubState, initializeHub, refreshHub)
-                                }
-                            }
-                            AppRoute.HubReferences -> {
-                                if (hubState is HubViewState.Ready && referencePresenter != null) {
-                                    ReferenceWorkspace(
-                                        referenceState,
-                                        referencePresenter,
-                                        submitReference,
-                                        returnToWork = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubWork)) },
+                                AppRoute.Network ->
+                                    FoundationNetworkScreen(
+                                        foundationNetworkModel(state),
+                                        refreshProfile = identityActions.refreshActiveProfile,
+                                        signOut = identityActions.signOut,
+                                        section = networkSection,
+                                        onSectionSelected = { networkSection = it },
+                                        showSectionTabs = false,
                                     )
-                                } else {
-                                    HubWorkspace(route, hubState, initializeHub, refreshHub)
-                                }
-                            }
-                            AppRoute.PersonalToday ->
-                                FoundationTodayScreen(
-                                    model = FoundationTodayModel(todayContext(state)),
-                                    openNostrReference = {
-                                        dispatch(
-                                            HarvestCircleShellIntent.Overlay(
-                                                OverlayIntent.OpenReference(ShellFocusTarget.TodayReference),
+                                AppRoute.Settings ->
+                                    FoundationSettingsScreen(
+                                        section = root.navigation.settings.section,
+                                        appearance = state.appearance,
+                                        buildInfo = state.buildInfo,
+                                        actions =
+                                            FoundationSettingsActions(
+                                                selectSection = {
+                                                    dispatch(
+                                                        HarvestCircleShellIntent.Navigation(
+                                                            NavigationIntent.SelectSettingsSection(it),
+                                                        ),
+                                                    )
+                                                },
+                                                setTheme = { dispatch(HarvestCircleShellIntent.SetTheme(it)) },
+                                                setTextSize = { dispatch(HarvestCircleShellIntent.SetTextSize(it)) },
+                                                setMotion = { dispatch(HarvestCircleShellIntent.SetMotion(it)) },
                                             ),
-                                        )
-                                    },
-                                )
-                            AppRoute.Network ->
-                                FoundationNetworkScreen(
-                                    foundationNetworkModel(state),
-                                    refreshProfile = identityActions.refreshActiveProfile,
-                                    signOut = identityActions.signOut,
-                                    section = networkSection,
-                                    onSectionSelected = { networkSection = it },
-                                    showSectionTabs = false,
-                                )
-                            AppRoute.Settings ->
-                                FoundationSettingsScreen(
-                                    section = root.navigation.settings.section,
-                                    appearance = state.appearance,
-                                    buildInfo = state.buildInfo,
-                                    actions =
-                                        FoundationSettingsActions(
-                                            selectSection = {
-                                                dispatch(
-                                                    HarvestCircleShellIntent.Navigation(
-                                                        NavigationIntent.SelectSettingsSection(it),
-                                                    ),
-                                                )
-                                            },
-                                            setTheme = { dispatch(HarvestCircleShellIntent.SetTheme(it)) },
-                                            setTextSize = { dispatch(HarvestCircleShellIntent.SetTextSize(it)) },
-                                            setMotion = { dispatch(HarvestCircleShellIntent.SetMotion(it)) },
-                                        ),
-                                    platformActions = platformActions,
-                                    showSectionTabs = false,
-                                )
-                            else -> HarvestCircleShellText(route.title(), Modifier.testTag("foundation-route-body"))
+                                        platformActions = platformActions,
+                                        showSectionTabs = false,
+                                    )
+                                else -> HarvestCircleShellText(route.title(), Modifier.testTag("foundation-route-body"))
+                            }
                         }
                     }
                 }

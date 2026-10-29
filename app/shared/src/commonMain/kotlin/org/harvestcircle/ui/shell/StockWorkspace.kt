@@ -35,6 +35,8 @@ fun StockWorkspace(
     openHandling: ((String) -> Unit)? = null,
     manageRoute: Boolean = true,
     handlingEnabled: Boolean = true,
+    openTrace: ((String) -> Unit)? = null,
+    browseTrace: (() -> Unit)? = null,
 ) {
     LaunchedEffect(route) {
         if (manageRoute) {
@@ -51,6 +53,27 @@ fun StockWorkspace(
         verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap),
     ) {
         HarvestCircleShellText("Sample data only · Whole original packs · One desktop")
+        browseTrace?.let {
+            HarvestCircleShellButton(
+                "Browse trace and history",
+                it,
+                Modifier.testTag("trace-browse"),
+                enabled = !state.loading,
+            )
+        }
+        val traceId =
+            state.inspecting?.trace?.id
+                ?: (state.submission as? org.harvestcircle.application.ReceiptSubmission.Recorded)?.receipt?.trace?.id
+        if (traceId != null &&
+            openTrace != null
+        ) {
+            HarvestCircleShellButton(
+                "Trace and history",
+                { openTrace(traceId) },
+                Modifier.testTag("stock-trace"),
+                enabled = !state.loading,
+            )
+        }
         state.page?.let {
             HarvestCircleShellText(
                 "${it.handlingBasis.label} v${it.handlingBasis.version} · ${it.handlingBasis.siteTimezone}",

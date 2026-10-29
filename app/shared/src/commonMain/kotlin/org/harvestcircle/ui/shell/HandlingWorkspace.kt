@@ -38,6 +38,8 @@ fun HandlingWorkspace(
     openReferences: () -> Unit,
     receiveEnabled: Boolean = true,
     receiveLabel: String = "Receive original packs",
+    openTrace: ((String) -> Unit)? = null,
+    browseTrace: (() -> Unit)? = null,
 ) {
     val scroll = rememberScrollState()
     LaunchedEffect(handlingSurface(state)) { scroll.scrollTo(0) }
@@ -50,6 +52,25 @@ fun HandlingWorkspace(
         verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap),
     ) {
         HarvestCircleShellText("Sample data only · Whole original packs · One desktop")
+        browseTrace?.let {
+            HarvestCircleShellButton(
+                "Browse trace and history",
+                it,
+                Modifier.testTag("trace-browse"),
+                enabled = !state.loading,
+            )
+        }
+        val traceId = state.group?.trace?.id ?: state.selectedWork?.work?.traceId ?: state.selectedDiscrepancy?.value?.traceId
+        if (traceId != null &&
+            openTrace != null
+        ) {
+            HarvestCircleShellButton(
+                "Trace and history",
+                { openTrace(traceId) },
+                Modifier.testTag("handling-trace"),
+                enabled = !state.loading,
+            )
+        }
         state.message?.let { HarvestCircleShellText(it, Modifier.testTag("handling-message")) }
         if (state.loading) HarvestCircleShellText("Reading local handling records…", Modifier.testTag("handling-loading"))
         when {

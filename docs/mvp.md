@@ -268,8 +268,8 @@ issues identification, creates linked replacements and explicitly marks unused
 versions. Preview shows captured recipient/source facts and clocks. Drafts retain
 input through navigation and explicit context review; uncertain submission freezes
 the original operation for read-only recovery. Reviewing current physical facts
-never silently rewrites the saved preparation. The actual-departure confirmation
-UI and remaining stock lifecycle/recovery/release qualification remain unfinished.
+never silently rewrites the saved preparation. Native durable recovery, remaining
+stock lifecycle and full candidate qualification remain unfinished.
 
 The pure normal-departure planner now checks the current issued version, exact
 material, current acceptance/hold projection and separate occurrence/recording
@@ -311,9 +311,18 @@ history. Read continuations bind stock and catalog revisions. Native FFI5.11 and
 generated Kotlin transport expose these original-backed reads and local rendering
 under current-owner/session authority; schema11 is unchanged. Current trace output
 requires both reviewed revision pins, and exact identification output selects its
-immutable version. Rendering submits no physical operation. Shared inspection and
-local save/print still require their separate integration and interaction
-qualification. Later lifecycle
+immutable version. Rendering submits no physical operation. Shared inspection is
+reachable within Work/Stock/Dispatch: it shows native per-population counts,
+current acceptance/holds, retained recipient departures and paged linked history.
+Broad source candidates, original-field filters and recorded-local completeness
+limits remain explicit. Opening and closing the inspector preserves the underlying
+draft and route. Local save/print controls now retain one native rendering across
+cancellation/failure/retry. Saving uses bounded atomic UTF-8 replacement; print
+results distinguish submission from uncertain output and require queue review
+before an uncertain reprint. Neither adapter submits physical commands. Native UI
+checks exercise real saving/cancellation/failure, unchanged stock and restart, plus
+exact old-version output after reference changes; printer submission is injected.
+Real host dialogs/hardware and full candidate qualification remain separate. Later lifecycle
 events extend the same accounting rather than editing original intake history.
 
 ### C09: UI, drafts and native recovery

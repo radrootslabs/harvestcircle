@@ -43,6 +43,7 @@ internal fun HarvestCircleApplicationWithDependencies(
     onExitApproved: () -> Unit = {},
     shutdownTimeoutMillis: Long = DEFAULT_SHUTDOWN_TIMEOUT_MILLIS,
     clipboardFactory: SecretClipboardFactory,
+    outputPortFactory: () -> LocalOutputPort = { DesktopLocalOutputPort() },
     presenterFactory: HarvestCirclePresenterFactory,
 ) {
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
@@ -154,6 +155,11 @@ internal fun HarvestCircleApplicationWithDependencies(
         (hubState as? HubViewState.Ready)?.context?.let { dispatchPresenter.attach(it.id) }
     }
     val dispatchState by dispatchPresenter.state.collectAsState()
+    val tracePresenter = remember(presenter, hubIdentity) { TracePresenter(presenter.traceRuntime, hubScope, outputPortFactory()) }
+    DisposableEffect(tracePresenter) { onDispose { tracePresenter.close() } }
+    LaunchedEffect(tracePresenter, hubState) {
+        (hubState as? HubViewState.Ready)?.context?.let { tracePresenter.attach(it.id) }
+    }
 
     val identityActions =
         HarvestCircleUiActions(
@@ -202,6 +208,7 @@ internal fun HarvestCircleApplicationWithDependencies(
         dispatchState = dispatchState,
         dispatchPresenter = dispatchPresenter,
         submitDispatch = { dispatchPresenter.submit(shellState.identity.snapshot.revision) },
+        tracePresenter = tracePresenter,
     )
 }
 

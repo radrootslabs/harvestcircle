@@ -153,7 +153,7 @@ private fun SidebarItem(
         label = item.label,
         icon = item.screenKey.icon(),
         selected = selected,
-        onClick = { if (item.enabled && !selected) onScreen(item.screenKey) },
+        onClick = { if (item.enabled) onScreen(item.screenKey) },
         modifier =
             Modifier
                 .semantics {

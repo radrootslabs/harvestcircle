@@ -17,7 +17,9 @@ import org.harvestcircle.application.DispatchSubmission
 import org.harvestcircle.application.DispatchViewState
 import org.harvestcircle.application.HubDispatchFilter
 import org.harvestcircle.application.HubDispatchKind
+import org.harvestcircle.application.HubDispatchLine
 import org.harvestcircle.application.HubDispatchState
+import org.harvestcircle.application.HubLocalOutputRequest
 import org.harvestcircle.designsystem.shell.HarvestCircleShellButton
 import org.harvestcircle.designsystem.shell.HarvestCircleShellPanel
 import org.harvestcircle.designsystem.shell.HarvestCircleShellText
@@ -31,6 +33,9 @@ fun DispatchWorkspace(
     presenter: DispatchPresenter,
     submit: () -> Unit,
     references: () -> Unit,
+    openTrace: ((String) -> Unit)? = null,
+    browseTrace: (() -> Unit)? = null,
+    prepareOutput: ((HubLocalOutputRequest) -> Unit)? = null,
 ) {
     val departure by presenter.departure.state.collectAsState()
     if (departure.formOpen || departure.submission != null) {
@@ -48,6 +53,14 @@ fun DispatchWorkspace(
         verticalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.contentGap),
     ) {
         HarvestCircleShellText("Sample data only · Identification reserves no stock")
+        browseTrace?.let {
+            HarvestCircleShellButton(
+                "Browse trace and history",
+                it,
+                Modifier.testTag("trace-browse"),
+                enabled = !state.loading,
+            )
+        }
         state.message?.let { HarvestCircleShellText(it, Modifier.testTag("dispatch-message")) }
         if (state.loading) HarvestCircleShellText("Reading local identification…")
         if (departure.draft != null) {
@@ -56,7 +69,7 @@ fun DispatchWorkspace(
         when {
             state.submission != null -> DispatchOutcome(state, presenter)
             state.formOpen && state.draft != null -> DispatchEditor(state, presenter, submit)
-            state.selected != null -> DispatchRecord(state, presenter)
+            state.selected != null -> DispatchRecord(state, presenter, openTrace, prepareOutput)
             else -> {
                 state.draft?.let {
                     HarvestCircleShellButton(
@@ -128,6 +141,8 @@ fun DispatchWorkspace(
 private fun DispatchRecord(
     state: DispatchViewState,
     presenter: DispatchPresenter,
+    openTrace: ((String) -> Unit)?,
+    prepareOutput: ((HubLocalOutputRequest) -> Unit)?,
 ) {
     val view = requireNotNull(state.selected)
     val record = view.record
@@ -137,7 +152,10 @@ private fun DispatchRecord(
         HarvestCircleShellText("${view.state} · Record revision ${record.revision}")
         DispatchStamp(record.created, "Prepared")
         DispatchStamp(record.updated, "Last recorded change")
-        record.draft?.let { DispatchMaterial(it) }
+        record.draft?.let {
+            DispatchMaterial(it)
+            TraceMaterialLinks(it.lines, openTrace)
+        }
         when (view.state) {
             HubDispatchState.Draft -> {
                 HarvestCircleShellButton("Revise preparation", {
@@ -201,7 +219,32 @@ private fun DispatchRecord(
             DispatchStamp(it.issued, "Issued")
             it.closed?.let { closure -> DispatchStamp(closure, "Closed") }
             DispatchMaterial(it.material)
+            TraceMaterialLinks(it.material.lines, openTrace)
             HarvestCircleShellText("These are the captured as-issued facts. Current labels or stock can differ.")
+            if (prepareOutput != null) {
+                HarvestCircleShellButton(
+                    "Save or print this issued version",
+                    { prepareOutput(HubLocalOutputRequest.Identification(record.id, it.id)) },
+                    Modifier.testTag("dispatch-output"),
+                    enabled = !state.loading,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TraceMaterialLinks(
+    lines: List<HubDispatchLine>,
+    openTrace: ((String) -> Unit)?,
+) {
+    if (openTrace != null) {
+        lines.distinctBy { it.trace.id }.forEach { line ->
+            HarvestCircleShellButton(
+                "Trace this source population",
+                { openTrace(line.trace.id) },
+                Modifier.testTag("dispatch-trace-${line.trace.id}"),
+            )
         }
     }
 }

@@ -3,6 +3,7 @@ package org.harvestcircle.integration
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
@@ -11,6 +12,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
@@ -156,6 +158,18 @@ class ReceivingAcceptanceTest {
                         .trace.sourceNeedsReview,
                 )
                 assertEquals(0U, runBlocking { runtime.stock(HubStockQuery(locationId = planned)) }.total)
+                onNodeWithTag("stock-trace").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000) { onNodeWithTag("trace-balance").runCatching { fetchSemanticsNode() }.isSuccess }
+                onNodeWithText("Original 20 · On hand 20 · Actual departed 0").assertIsDisplayed()
+                onNodeWithTag("trace-section-History").performScrollTo().performClick()
+                onNodeWithText("Original receipt").performScrollTo().assertIsDisplayed()
+                onNodeWithTag("trace-close").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000) { onNodeWithTag("receipt-recorded").runCatching { fetchSemanticsNode() }.isSuccess }
+                assertEquals(first, runBlocking { runtime.stock(HubStockQuery()) })
+                onNodeWithTag("stock-trace").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000) { onNodeWithTag("trace-balance").runCatching { fetchSemanticsNode() }.isSuccess }
+                onNodeWithTag("sidebar-HubStock").performClick()
+                waitUntil(timeoutMillis = 10_000) { onNodeWithTag("receipt-recorded").runCatching { fetchSemanticsNode() }.isSuccess }
                 onNodeWithTag("receipt-done").performScrollTo().performClick()
                 waitUntil(timeoutMillis = 10_000) { onNodeWithText("At: Receiving").runCatching { fetchSemanticsNode() }.isSuccess }
                 val groupId =
@@ -360,6 +374,19 @@ class ReceivingAcceptanceTest {
                     timeoutMillis = 10_000,
                 ) { onNodeWithTag("dispatch-remove-${five.id}").runCatching { fetchSemanticsNode() }.isSuccess }
                 onNodeWithTag("dispatch-observation").performScrollTo().performTextInput("Reviewed five purple crates for recipient A")
+                onNodeWithTag("trace-browse").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000) {
+                    onNodeWithTag("trace-open-${first.rows.single().trace.id}").runCatching { fetchSemanticsNode() }.isSuccess
+                }
+                onNodeWithTag("trace-open-${first.rows.single().trace.id}").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000) { onNodeWithTag("trace-balance").runCatching { fetchSemanticsNode() }.isSuccess }
+                onNodeWithTag("trace-workspace").performKeyInput {
+                    keyDown(Key.Escape)
+                    keyUp(Key.Escape)
+                }
+                waitUntil(timeoutMillis = 10_000) { onNodeWithTag("dispatch-editor").runCatching { fetchSemanticsNode() }.isSuccess }
+                onNodeWithText("Reviewed five purple crates for recipient A").performScrollTo().assertIsDisplayed()
+                assertEquals(stockBeforeDocuments, runBlocking { runtime.stock(HubStockQuery()) }.rows)
                 onNodeWithTag("dispatch-keep").performScrollTo().performClick()
                 onNodeWithTag("sidebar-HubWork").performClick()
                 onNodeWithTag("sidebar-HubDispatch").performClick()
