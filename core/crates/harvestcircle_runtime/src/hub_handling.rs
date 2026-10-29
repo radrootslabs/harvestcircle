@@ -1,16 +1,22 @@
 //! Bounded native handling with current-session and credential authority.
 use super::*;
+use harvestcircle_domain::hub::departure::DepartureCommand;
 use harvestcircle_domain::hub::dispatch::DispatchCommand;
 use harvestcircle_domain::hub::movement::HandlingCommand;
 use harvestcircle_domain::hub::reference::HubRecordId;
 use harvestcircle_storage::{
-    HubDiscrepancyRow, HubDispatchPage, HubDispatchQuery, HubDispatchReceipt, HubDispatchView,
-    HubGroupView, HubHandlingPage, HubHandlingQuery, HubHandlingReceipt, HubLineagePage,
-    HubLineageQuery, HubTreatmentPage, HubTreatmentQuery, HubTreatmentScope, HubTreatmentSnapshot,
-    HubWorkRow,
+    HubDepartureReceipt, HubDiscrepancyRow, HubDispatchPage, HubDispatchQuery, HubDispatchReceipt,
+    HubDispatchView, HubGroupView, HubHandlingPage, HubHandlingQuery, HubHandlingReceipt,
+    HubLineagePage, HubLineageQuery, HubTreatmentPage, HubTreatmentQuery, HubTreatmentScope,
+    HubTreatmentSnapshot, HubWorkRow,
 };
 
 pub(super) enum HubHandlingCommand {
+    DepartureOperation(DurableRequestId),
+    ApplyDeparture {
+        operation: DurableRequestId,
+        command: Box<DepartureCommand>,
+    },
     DispatchPage(HubDispatchQuery),
     DispatchRecord(HubRecordId),
     DispatchOperation(DurableRequestId),
@@ -33,7 +39,10 @@ pub(super) enum HubHandlingCommand {
 
 impl HubHandlingCommand {
     pub(super) const fn class(&self) -> RuntimeCommandClass {
-        if matches!(self, Self::Apply { .. } | Self::ApplyDispatch { .. }) {
+        if matches!(
+            self,
+            Self::Apply { .. } | Self::ApplyDispatch { .. } | Self::ApplyDeparture { .. }
+        ) {
             RuntimeCommandClass::UseCredential
         } else {
             RuntimeCommandClass::Observe
@@ -42,6 +51,7 @@ impl HubHandlingCommand {
 }
 
 pub(super) enum HubHandlingValue {
+    DepartureReceipt(Option<Box<HubDepartureReceipt>>),
     DispatchPage(Box<HubDispatchPage>),
     DispatchRecord(Box<HubDispatchView>),
     DispatchReceipt(Option<Box<HubDispatchReceipt>>),
@@ -202,13 +212,39 @@ impl RuntimeActor {
             .map_err(|_| hub_authority::denied())?;
         let mutating = matches!(
             command,
-            HubHandlingCommand::Apply { .. } | HubHandlingCommand::ApplyDispatch { .. }
+            HubHandlingCommand::Apply { .. }
+                | HubHandlingCommand::ApplyDispatch { .. }
+                | HubHandlingCommand::ApplyDeparture { .. }
         );
         let result = self
             .run_async(
                 context.deadline(),
                 move |adapter, secrets, clock| async move {
                     let value = match command {
+                        HubHandlingCommand::DepartureOperation(operation) => {
+                            HubHandlingValue::DepartureReceipt(
+                                adapter
+                                    .database()
+                                    .hub_departure_operation(actor, operation)
+                                    .await?
+                                    .map(Box::new),
+                            )
+                        }
+                        HubHandlingCommand::ApplyDeparture { operation, command } => {
+                            hub_authority::require_owner_credential(
+                                adapter.as_ref(),
+                                secrets.as_ref(),
+                                actor,
+                            )
+                            .await?;
+                            HubHandlingValue::DepartureReceipt(Some(Box::new(
+                                adapter
+                                    .database()
+                                    .apply_hub_departure(actor, operation, *command, clock.now())
+                                    .await?,
+                            )))
+                        }
+
                         HubHandlingCommand::DispatchPage(query) => HubHandlingValue::DispatchPage(
                             Box::new(adapter.database().hub_dispatch_page(actor, query).await?),
                         ),

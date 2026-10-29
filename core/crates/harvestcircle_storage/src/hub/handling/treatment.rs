@@ -3,7 +3,7 @@ mod history;
 pub(crate) mod schema;
 pub(super) use history::original_on;
 pub(in crate::hub) mod capacity;
-mod read;
+pub(super) mod read;
 mod write;
 
 use super::*;

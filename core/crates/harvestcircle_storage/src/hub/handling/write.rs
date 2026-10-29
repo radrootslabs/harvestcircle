@@ -324,8 +324,28 @@ pub(super) async fn advance_on(
     state: &stock::read::StockState,
     revision: HubRevision,
 ) -> Result<(), SafeError> {
+    advance_many_on(transaction, hub, state, revision, 1).await
+}
+
+pub(in crate::hub) async fn advance_many_on(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    state: &stock::read::StockState,
+    revision: HubRevision,
+    events: u32,
+) -> Result<(), SafeError> {
+    if events == 0
+        || events as usize > harvestcircle_domain::hub::dispatch::HUB_DISPATCH_LINES
+        || state.revision.value().checked_add(1) != Some(revision.value())
+    {
+        return Err(corrupt_storage());
+    }
+    let count = state.event_count.checked_add(events).ok_or_else(capacity)?;
+    if count as usize > HUB_STOCK_EVENT_CAPACITY {
+        return Err(capacity());
+    }
     let changed=sqlx::query("UPDATE hub_stock_state SET revision=?,event_count=? WHERE singleton=1 AND hub_id=? AND revision=? AND event_count=?")
-        .bind(integer(revision)?).bind(i64::from(state.event_count)+1).bind(hub.as_bytes().as_slice()).bind(integer(state.revision)?).bind(i64::from(state.event_count))
+        .bind(integer(revision)?).bind(i64::from(count)).bind(hub.as_bytes().as_slice()).bind(integer(state.revision)?).bind(i64::from(state.event_count))
         .execute(&mut *transaction).await.map_err(|_|storage_unavailable())?;
     if changed.rows_affected() != 1 {
         return Err(conflict());

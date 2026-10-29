@@ -40,6 +40,13 @@ pub(super) async fn apply_on(
         }
         return read::original_on(tx, hub.id(), original).await;
     }
+    if let Some((preparation, _)) = command.action.target()
+        && super::super::departure::read::usage_on(tx, hub.id(), preparation)
+            .await?
+            .is_some()
+    {
+        return Err(conflict());
+    }
     let state = stock::read::state_on(tx, hub.id()).await?;
     let catalog = reference::load_catalog_on(tx, hub.id()).await?;
     let current = match command.action.target() {

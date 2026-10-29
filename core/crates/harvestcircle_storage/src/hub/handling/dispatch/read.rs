@@ -123,7 +123,29 @@ async fn change_on(
     })
 }
 
-pub(super) async fn record_on(
+pub(in crate::hub) async fn record_revision_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    id: HubRecordId,
+    expected: HubRevision,
+) -> Result<DispatchRecord, SafeError> {
+    let operation: Option<String> = sqlx::query_scalar(
+        "SELECT substr(operation_id,1,37) FROM hub_dispatch_changes WHERE preparation_id=? AND record_revision=? LIMIT 1",
+    ).bind(id.as_bytes().as_slice()).bind(integer(expected)?).fetch_optional(&mut *tx)
+        .await.map_err(|_|storage_unavailable())?;
+    let operation =
+        DurableRequestId::parse(operation.ok_or_else(corrupt)?).map_err(|_| corrupt())?;
+    let original = stock::read::operation_on(tx, hub, &operation)
+        .await?
+        .ok_or_else(corrupt)?;
+    let record = original_on(tx, hub, original).await?.record;
+    if record.id != id || record.revision != expected {
+        return Err(corrupt());
+    }
+    Ok(record)
+}
+
+pub(in crate::hub) async fn record_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     id: HubRecordId,
@@ -413,10 +435,15 @@ impl Database {
                     let hub = reference::authorize_on(tx, actor).await?;
                     let catalog = reference::load_catalog_on(tx, hub.id()).await?;
                     let state = stock::read::state_on(tx, hub.id()).await?;
+                    let record = record_on(tx, hub.id(), id).await?;
+                    let departure =
+                        super::super::departure::read::usage_on(tx, hub.id(), id).await?;
                     Ok(HubDispatchView {
+                        state: current_state(&record, departure.is_some())?,
+                        departure,
                         revision: state.revision,
                         catalog_revision: catalog.revision(),
-                        record: record_on(tx, hub.id(), id).await?,
+                        record,
                     })
                 })
             })
@@ -429,14 +456,15 @@ macro_rules! dispatch_rows {
     ($prefix:literal,$suffix:literal)=>{concat!($prefix,
         " FROM hub_dispatch_changes c JOIN hub_stock_operations o ON o.operation_id=c.operation_id ",
         "JOIN hub_dispatch_materials m ON m.operation_id=c.material_operation_id JOIN hub_reference_versions r ON r.record_id=m.recipient_id AND r.record_revision=m.recipient_revision ",
-        "WHERE o.hub_id=? AND NOT EXISTS (SELECT 1 FROM hub_dispatch_changes newer WHERE newer.preparation_id=c.preparation_id AND newer.record_revision>c.record_revision) ",
-        "AND (?=0 OR (?=1 AND c.kind IN ('dispatch_prepare','dispatch_revise')) OR (?=2 AND c.kind IN ('dispatch_issue','dispatch_replace')) OR (?=3 AND c.kind='dispatch_unused')) ",
+        "LEFT JOIN hub_departures d ON d.preparation_id=c.preparation_id WHERE o.hub_id=? AND NOT EXISTS (SELECT 1 FROM hub_dispatch_changes newer WHERE newer.preparation_id=c.preparation_id AND newer.record_revision>c.record_revision) ",
+        "AND (?=0 OR (?=1 AND c.kind IN ('dispatch_prepare','dispatch_revise')) OR (?=2 AND c.kind IN ('dispatch_issue','dispatch_replace') AND d.operation_id IS NULL) OR (?=3 AND c.kind='dispatch_unused') OR (?=4 AND d.operation_id IS NOT NULL)) ",
         "AND (?='' OR instr(lower(r.label),lower(?))>0 OR instr(lower(m.observation),lower(?))>0)",$suffix)};
 }
 macro_rules! dispatch_filter {
     ($sql:expr,$hub:expr,$filter:expr,$query:expr) => {
         sqlx::query($sql)
             .bind($hub.as_bytes().as_slice())
+            .bind($filter)
             .bind($filter)
             .bind($filter)
             .bind($filter)
@@ -475,6 +503,7 @@ impl Database {
                         HubDispatchFilter::Draft => 1,
                         HubDispatchFilter::Issued => 2,
                         HubDispatchFilter::Unused => 3,
+                        HubDispatchFilter::Departed => 4,
                     };
                     let count = dispatch_filter!(
                         dispatch_rows!("SELECT count(*) AS n", ""),
@@ -516,15 +545,10 @@ impl Database {
                             .as_ref()
                             .or_else(|| record.versions.last().map(|version| &version.material))
                             .ok_or_else(corrupt)?;
-                        let status = if record.draft.is_some() {
-                            HubDispatchState::Draft
-                        } else {
-                            match record.versions.last().ok_or_else(corrupt)?.status {
-                                IdentificationStatus::Issued => HubDispatchState::Issued,
-                                IdentificationStatus::Unused => HubDispatchState::Unused,
-                                IdentificationStatus::Superseded => return Err(corrupt()),
-                            }
-                        };
+                        let used = super::super::departure::read::usage_on(tx, hub.id(), record.id)
+                            .await?
+                            .is_some();
+                        let status = current_state(&record, used)?;
                         rows.push(HubDispatchRow {
                             id: record.id,
                             revision: record.revision,

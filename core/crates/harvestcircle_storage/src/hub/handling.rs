@@ -1,5 +1,6 @@
 //! Current physical scope and work use the existing lifetime stock journal.
 
+pub(crate) mod departure;
 mod discrepancy;
 pub(crate) mod dispatch;
 mod history;
@@ -389,4 +390,6 @@ mod tests;
 mod portion_tests;
 
 #[cfg(test)]
-pub(crate) use portion_tests::seed_schema7_handling;
+mod historical_fixture;
+#[cfg(test)]
+pub(crate) use historical_fixture::{seed_schema7_handling, seed_schema7_receipt};

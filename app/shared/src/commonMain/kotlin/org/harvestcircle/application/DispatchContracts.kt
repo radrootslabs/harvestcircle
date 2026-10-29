@@ -1,9 +1,9 @@
 package org.harvestcircle.application
 
 // Native projections and transport; Rust owns preparation and identification rules.
-enum class HubDispatchState { Draft, Issued, Unused }
+enum class HubDispatchState { Draft, Issued, Unused, Departed }
 
-enum class HubDispatchFilter { All, Draft, Issued, Unused }
+enum class HubDispatchFilter { All, Draft, Issued, Unused, Departed }
 
 enum class HubDispatchKind { Prepare, Revise, Issue, Replace, MarkUnused }
 
@@ -143,6 +143,8 @@ data class HubDispatchView(
     val stockRevision: ULong,
     val catalogRevision: ULong,
     val record: HubDispatchRecord,
+    val state: HubDispatchState,
+    val departure: HubDepartureUse?,
 )
 
 data class HubDispatchReceipt(

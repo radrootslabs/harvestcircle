@@ -793,7 +793,8 @@ impl RuntimeActorHandle {
                 ..
             } | RuntimeCommand::HubHandling {
                 command: HubHandlingCommand::Apply { .. }
-                    | HubHandlingCommand::ApplyDispatch { .. },
+                    | HubHandlingCommand::ApplyDispatch { .. }
+                    | HubHandlingCommand::ApplyDeparture { .. },
                 ..
             }
         );
@@ -4102,6 +4103,21 @@ mod tests {
                 .work,
             work.rows[0].work
         );
+        // Even a well-shaped request with unavailable paper must pass current
+        // session/owner/credential guards before storage may inspect its material.
+        let departure_id = DurableRequestId::new_v7();
+        let departure = harvestcircle_domain::hub::departure::DepartureCommand {
+            expected_stock_revision: prepared.record.updated.stock_revision,
+            expected_catalog_revision: prepared.catalog_revision,
+            preparation: prepared.record.id,
+            expected_preparation_revision: prepared.record.revision,
+            identification: record(99),
+            occurred: Occurrence::Unknown,
+            observation: SourceProvenance::new(
+                "Authority guard witness, never a claimed physical effect",
+            )
+            .unwrap(),
+        };
         let old_generation = actor.session_generation();
         let credential = secrets.load(owner).await.unwrap();
         secrets
@@ -4206,6 +4222,26 @@ mod tests {
                 .await
                 .unwrap(),
             Some(moved.clone())
+        );
+        assert_eq!(
+            actor
+                .apply_hub_departure(
+                    departure_id.clone(),
+                    departure.clone(),
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::CredentialMissing
+        );
+        assert!(
+            actor
+                .hub_departure_operation(departure_id.clone())
+                .await
+                .unwrap()
+                .is_none()
         );
         secrets
             .put(&DurableRequestId::new_v7(), owner, credential)
@@ -4360,11 +4396,68 @@ mod tests {
                 .code(),
             SafeErrorCode::HubPermissionDenied
         );
+        assert_eq!(
+            actor
+                .apply_hub_departure(
+                    departure_id.clone(),
+                    departure.clone(),
+                    actor.snapshot().revision(),
+                    DEFAULT_COMMAND_TIMEOUT
+                )
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert_eq!(
+            actor
+                .hub_departure_operation(departure_id.clone())
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
         secrets
             .put(&DurableRequestId::new_v7(), second, second_credential)
             .await
             .unwrap();
         actor.activate_identity(owner).await.unwrap();
+        assert!(
+            actor
+                .dispatch(
+                    RuntimeCommand::HubHandling {
+                        generation: old_generation,
+                        command: super::HubHandlingCommand::ApplyDeparture {
+                            operation: departure_id.clone(),
+                            command: Box::new(departure.clone())
+                        }
+                    },
+                    None
+                )
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            actor
+                .apply_hub_departure(
+                    departure_id.clone(),
+                    departure,
+                    actor.snapshot().revision(),
+                    Duration::ZERO
+                )
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubOutcomeUnknown
+        );
+        assert!(
+            actor
+                .hub_departure_operation(departure_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+
         assert!(
             actor
                 .dispatch(

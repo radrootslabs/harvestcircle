@@ -164,6 +164,7 @@ pub(in crate::hub) async fn group_on(
     id: HubRecordId,
     catalog: &ReferenceCatalog,
 ) -> Result<PhysicalStockGroup, SafeError> {
+    super::departure::read::require_on_hand_on(transaction, hub, id, catalog).await?;
     let row = sqlx::query(concat!(
         "SELECT substr(g.group_id,1,17) AS group_id,substr(g.trace_id,1,17) AS trace_id,substr(r.variant_id,1,17) AS variant_id,g.revision,",
         "substr(r.root_group_id,1,17) AS root_group_id,substr(i.parent_group_id,1,17) AS parent_group_id,",
@@ -183,6 +184,8 @@ pub(in crate::hub) async fn group_on(
         mass.try_get("original_packs")
             .map_err(|_| corrupt_storage())?,
     )? != whole_packs(mass.try_get("on_hand").map_err(|_| corrupt_storage())?)?
+        .checked_add(super::departure::conservation::trace_on(transaction, hub, trace).await?)
+        .map_err(|_| corrupt_storage())?
     {
         return Err(corrupt_storage());
     }

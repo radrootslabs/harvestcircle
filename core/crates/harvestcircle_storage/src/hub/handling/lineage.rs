@@ -204,7 +204,11 @@ pub(super) async fn load_on(
             observation,
         });
     }
-    if total != trace.original_packs {
+    if total
+        .checked_add(super::departure::conservation::trace_on(transaction, hub, trace_id).await?)
+        .map_err(|_| corrupt_storage())?
+        != trace.original_packs
+    {
         return Err(corrupt_storage());
     }
     let graph = PhysicalLineage::new(hub, trace_id, trace.variant.id, revision, nodes)

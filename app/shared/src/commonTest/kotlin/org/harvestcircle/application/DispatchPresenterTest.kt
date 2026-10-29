@@ -299,7 +299,8 @@ internal open class DispatchFake :
 
     override suspend fun dispatchPage(query: HubDispatchQuery) = page
 
-    override suspend fun dispatchRecord(id: String) = HubDispatchView(page.stockRevision, page.catalogRevision, receipt.record)
+    override suspend fun dispatchRecord(id: String) =
+        HubDispatchView(page.stockRevision, page.catalogRevision, receipt.record, receipt.record.state, null)
 
     override suspend fun dispatchOperation(operation: OperationId) = original
 

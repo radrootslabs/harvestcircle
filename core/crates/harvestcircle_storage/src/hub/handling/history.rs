@@ -237,9 +237,22 @@ pub(super) async fn work_changes_on(
     hub: HubId,
     operation: &DurableRequestId,
 ) -> Result<Vec<HubWorkChange>, SafeError> {
-    let selected=sqlx::query("SELECT substr(work_id,1,17) AS work_id,before_completed,before_no_longer_required,before_remaining,before_revision,after_completed,after_no_longer_required,after_remaining,after_revision FROM hub_work_changes WHERE operation_id=? ORDER BY work_id LIMIT 65")
-        .bind(operation.as_str()).fetch_all(&mut *transaction).await.map_err(|_|storage_unavailable())?;
-    if selected.len() > HUB_GROUP_REQUIREMENTS {
+    work_changes_bounded_on(transaction, hub, operation, HUB_GROUP_REQUIREMENTS).await
+}
+
+pub(in crate::hub) async fn work_changes_bounded_on(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    operation: &DurableRequestId,
+    maximum: usize,
+) -> Result<Vec<HubWorkChange>, SafeError> {
+    if maximum == 0 || maximum > harvestcircle_domain::hub::departure::HUB_DEPARTURE_WORK_CHANGES {
+        return Err(corrupt_storage());
+    }
+    let selected=sqlx::query("SELECT substr(work_id,1,17) AS work_id,before_completed,before_no_longer_required,before_remaining,before_revision,after_completed,after_no_longer_required,after_remaining,after_revision FROM hub_work_changes WHERE operation_id=? ORDER BY work_id LIMIT ?")
+        .bind(operation.as_str()).bind(i64::try_from(maximum+1).map_err(|_|corrupt_storage())?)
+        .fetch_all(&mut *transaction).await.map_err(|_|storage_unavailable())?;
+    if selected.len() > maximum {
         return Err(corrupt_storage());
     }
     let mut changes = Vec::with_capacity(selected.len());

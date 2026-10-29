@@ -16,8 +16,10 @@ use std::collections::BTreeMap;
 
 mod command;
 mod model;
+mod result;
 pub use command::{DepartureCommand, DepartureContext, DepartureTreatment};
 pub use model::{ConsumedStockGroup, DepartureRecord, DepartureWorkChange};
+pub use result::departure_result_digest;
 
 pub const HUB_DEPARTURE_WORK_CHANGES: usize =
     super::dispatch::HUB_DISPATCH_LINES * super::movement::HUB_GROUP_REQUIREMENTS;

@@ -124,11 +124,11 @@ private fun DispatchRecord(
     HarvestCircleShellButton("Back to preparations", presenter::closeRecord, Modifier.testTag("dispatch-back"), enabled = !state.loading)
     HarvestCircleShellPanel(Modifier.testTag("dispatch-record")) {
         HarvestCircleShellText("Preparation ${record.id}", role = HarvestCircleShellTextRole.SectionTitle)
-        HarvestCircleShellText("${record.state} · Record revision ${record.revision}")
+        HarvestCircleShellText("${view.state} · Record revision ${record.revision}")
         DispatchStamp(record.created, "Prepared")
         DispatchStamp(record.updated, "Last recorded change")
         record.draft?.let { DispatchMaterial(it) }
-        when (record.state) {
+        when (view.state) {
             HubDispatchState.Draft -> {
                 HarvestCircleShellButton("Revise preparation", {
                     presenter.begin(HubDispatchKind.Revise)
@@ -145,6 +145,10 @@ private fun DispatchRecord(
                     presenter.begin(HubDispatchKind.MarkUnused)
                 }, Modifier.testTag("dispatch-unused"), enabled = !state.loading)
             }
+            HubDispatchState.Departed ->
+                HarvestCircleShellText(
+                    "Actual departure is recorded. Original issued material remains in history.",
+                )
             HubDispatchState.Unused -> HarvestCircleShellText("This identification is unused. Original issued material remains in history.")
         }
         HarvestCircleShellText(

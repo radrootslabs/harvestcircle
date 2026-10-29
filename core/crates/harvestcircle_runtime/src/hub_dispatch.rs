@@ -69,3 +69,45 @@ impl RuntimeActorHandle {
         }
     }
 }
+
+impl RuntimeActorHandle {
+    pub async fn hub_departure_operation(
+        &self,
+        operation: DurableRequestId,
+    ) -> Result<Option<harvestcircle_storage::HubDepartureReceipt>, SafeError> {
+        match self
+            .dispatch_handling(HubHandlingCommand::DepartureOperation(operation))
+            .await?
+        {
+            HubHandlingValue::DepartureReceipt(receipt) => Ok(receipt.map(|receipt| *receipt)),
+            _ => Err(invalid_actor_response()),
+        }
+    }
+    pub async fn apply_hub_departure(
+        &self,
+        operation: DurableRequestId,
+        command: harvestcircle_domain::hub::departure::DepartureCommand,
+        expected: SnapshotRevision,
+        timeout: Duration,
+    ) -> Result<harvestcircle_storage::HubDepartureReceipt, SafeError> {
+        match self
+            .dispatch_durable(
+                RuntimeCommand::HubHandling {
+                    generation: self.session_generation(),
+                    command: HubHandlingCommand::ApplyDeparture {
+                        operation,
+                        command: Box::new(command),
+                    },
+                },
+                expected,
+                timeout,
+            )
+            .await?
+        {
+            RuntimeCommandValue::HubHandling(HubHandlingValue::DepartureReceipt(Some(receipt))) => {
+                Ok(*receipt)
+            }
+            _ => Err(invalid_actor_response()),
+        }
+    }
+}

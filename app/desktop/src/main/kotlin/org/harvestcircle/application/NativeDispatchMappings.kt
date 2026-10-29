@@ -29,6 +29,7 @@ internal fun HubDispatchQuery.toNative() =
             HubDispatchFilter.Draft -> HubDispatchFilterDto.DRAFT
             HubDispatchFilter.Issued -> HubDispatchFilterDto.ISSUED
             HubDispatchFilter.Unused -> HubDispatchFilterDto.UNUSED
+            HubDispatchFilter.Departed -> HubDispatchFilterDto.DEPARTED
         },
         text,
     )
@@ -58,11 +59,12 @@ internal fun HubDispatchInput.toNative(): HubDispatchInputDto =
         is HubDispatchInput.MarkUnused -> HubDispatchInputDto.MarkUnused(value.toNative())
     }
 
-private fun HubDispatchStateDto.toModel() =
+internal fun HubDispatchStateDto.toModel() =
     when (this) {
         HubDispatchStateDto.DRAFT -> HubDispatchState.Draft
         HubDispatchStateDto.ISSUED -> HubDispatchState.Issued
         HubDispatchStateDto.UNUSED -> HubDispatchState.Unused
+        HubDispatchStateDto.DEPARTED -> HubDispatchState.Departed
     }
 
 private fun HubDispatchStampDto.toModel() =
@@ -111,7 +113,7 @@ private fun HubIdentificationVersionDto.toModel() =
         closed?.toModel(),
     )
 
-private fun HubDispatchRecordDto.toModel() =
+internal fun HubDispatchRecordDto.toModel() =
     HubDispatchRecord(
         id,
         hubId,
@@ -147,7 +149,8 @@ internal fun HubDispatchPageDto.toModel() =
         },
     )
 
-internal fun HubDispatchViewDto.toModel() = HubDispatchView(stockRevision, catalogRevision, record.toModel())
+internal fun HubDispatchViewDto.toModel() =
+    HubDispatchView(stockRevision, catalogRevision, record.toModel(), state.toModel(), departure?.toModel())
 
 internal fun HubDispatchReceiptDto.toModel() =
     HubDispatchReceipt(

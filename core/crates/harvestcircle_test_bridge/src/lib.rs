@@ -15,13 +15,14 @@ use harvestcircle_application::{
 };
 use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
 use harvestcircle_ffi::{
-    HarvestCircleError, HubContextDto, HubDiscrepancyPageDto, HubDispatchInputDto,
-    HubDispatchPageDto, HubDispatchQueryDto, HubDispatchReceiptDto, HubDispatchViewDto,
-    HubGroupViewDto, HubHandlingInputDto, HubHandlingQueryDto, HubHandlingReceiptDto,
-    HubLineagePageDto, HubLineageQueryDto, HubReceiptInputDto, HubReferenceEditDto,
-    HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto, HubStockPageDto,
-    HubStockQueryDto, HubStockReceiptDto, HubTreatmentPageDto, HubTreatmentQueryDto,
-    HubTreatmentScopeDto, HubTreatmentSnapshotDto, HubWorkPageDto, SafeErrorDto,
+    HarvestCircleError, HubContextDto, HubDepartureInputDto, HubDepartureReceiptDto,
+    HubDiscrepancyPageDto, HubDispatchInputDto, HubDispatchPageDto, HubDispatchQueryDto,
+    HubDispatchReceiptDto, HubDispatchViewDto, HubGroupViewDto, HubHandlingInputDto,
+    HubHandlingQueryDto, HubHandlingReceiptDto, HubLineagePageDto, HubLineageQueryDto,
+    HubReceiptInputDto, HubReferenceEditDto, HubReferencePageDto, HubReferenceQueryDto,
+    HubReferenceReceiptDto, HubStockPageDto, HubStockQueryDto, HubStockReceiptDto,
+    HubTreatmentPageDto, HubTreatmentQueryDto, HubTreatmentScopeDto, HubTreatmentSnapshotDto,
+    HubWorkPageDto, SafeErrorDto,
 };
 use harvestcircle_nostr::SdkNostrClient;
 use harvestcircle_runtime::{
@@ -317,6 +318,38 @@ impl HarvestCircleTestBridge {
             .block_on(self.actor()?.hub_receipt_operation(operation))
             .map(|value| value.map(Into::into))
             .map_err(native_runtime_error)
+    }
+
+    pub fn apply_departure(
+        &self,
+        operation_id: String,
+        expected_revision: u64,
+        input: HubDepartureInputDto,
+    ) -> Result<HubDepartureReceiptDto, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let command = input.command().map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.apply_hub_departure(
+                operation,
+                command,
+                SnapshotRevision::from_value(expected_revision),
+                Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            ))
+            .map_err(native_runtime_error)?
+            .try_into()
+            .map_err(native_codec_error)
+    }
+    pub fn departure_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubDepartureReceiptDto>, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_departure_operation(operation))
+            .map_err(native_runtime_error)?
+            .map(TryInto::try_into)
+            .transpose()
+            .map_err(native_codec_error)
     }
 
     pub fn dispatch_page(

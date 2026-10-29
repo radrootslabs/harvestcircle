@@ -257,8 +257,8 @@ require review, while unrelated journal activity does not change the document.
 Issued recipient/source/reference snapshots remain immutable. Material replacement
 links a new version and supersedes the prior issue; marking unused is explicit and
 retains the as-issued content. Limits are 64 lines and 32 identification versions
-per preparation. These plans do not authorize departure. Native schema 10 and
-FFI 5.8 now persist preparation, revision, issuance, replacement and unused closure.
+per preparation. These plans do not authorize departure. Native schema 11 and
+FFI 5.9 persist preparation, revision, issuance, replacement and unused closure.
 Original recovery retains exact immutable material/reference/source history through later edits and
 restart without substituting current positions. The journal reserves one closure
 slot per active issue alongside outstanding hold releases. Native pages carry
@@ -268,16 +268,22 @@ issues identification, creates linked replacements and explicitly marks unused
 versions. Preview shows captured recipient/source facts and clocks. Drafts retain
 input through navigation and explicit context review; uncertain submission freezes
 the original operation for read-only recovery. Reviewing current physical facts
-never silently rewrites the saved preparation. Actual departure and the remaining
-stock lifecycle/recovery/release qualification remain unfinished.
+never silently rewrites the saved preparation. The actual-departure confirmation
+UI and remaining stock lifecycle/recovery/release qualification remain unfinished.
 
 The pure normal-departure planner now checks the current issued version, exact
 material, current acceptance/hold projection and separate occurrence/recording
 clocks for every line. It plans one atomic departure, preserves original paper
 history and retires only pending work. The 20/8/5 branch retains eight completed,
-retires five and leaves seven remaining. Native outflow/usage persistence,
-conservation readers, generated departure transport and actual UI recording remain
-unfinished. No current control records a physical departure yet.
+retires five and leaves seven remaining. Native schema 11 retains immutable actual
+outflow/usage and original work scope in one transaction, with one journal revision
+and a physical event for each selected line. On-hand plus retained outflow conserves
+each original trace independently; unlike products keep their own accounting.
+Current views distinguish Departed from unchanged as-issued identification history.
+Used identification cannot be replaced or marked unused. FFI 5.9 exposes bounded
+actual-departure submission and read-only original recovery under current native
+owner/session/credential checks. No shared UI control records physical departure
+yet; that confirmation surface and full recovery/release qualification remain.
 
 Trace includes receipts, remaining stock, recipients, adjustments, returns and
 dispositions with explicit uncertainty and retrieval limits. Preserve every plausible

@@ -15,6 +15,8 @@ import org.harvestcircle.ffi.GeneratedRecoveryRequest
 import org.harvestcircle.ffi.HarvestCircleAppCore
 import org.harvestcircle.ffi.HarvestCircleChangeObserver
 import org.harvestcircle.ffi.HubContextDto
+import org.harvestcircle.ffi.HubDepartureInputDto
+import org.harvestcircle.ffi.HubDepartureReceiptDto
 import org.harvestcircle.ffi.HubDiscrepancyPageDto
 import org.harvestcircle.ffi.HubDispatchInputDto
 import org.harvestcircle.ffi.HubDispatchPageDto
@@ -66,7 +68,16 @@ class NativeHarvestCircleRuntime internal constructor(
     HarvestCircleReferenceRuntime,
     HarvestCircleStockRuntime,
     HarvestCircleHandlingRuntime,
-    HarvestCircleDispatchRuntime {
+    HarvestCircleDispatchRuntime,
+    HarvestCircleDepartureRuntime {
+    override suspend fun applyDeparture(
+        context: RequestContext,
+        input: HubDepartureInput,
+    ): HubDepartureReceipt = callNative(context.operationId) { hubPort().applyDeparture(context.toNative(), input.toNative()).toModel() }
+
+    override suspend fun departureOperation(operation: OperationId): HubDepartureReceipt? =
+        callNative(operation) { hubPort().departureOperation(operation.value)?.toModel() }
+
     override suspend fun dispatchPage(query: HubDispatchQuery): HubDispatchPage =
         callNative { hubPort().dispatchPage(query.toNative()).toModel() }
 
@@ -588,6 +599,13 @@ internal fun interface NativeSubscriptionHandle {
 }
 
 private interface NativeHubPort {
+    suspend fun applyDeparture(
+        context: RequestContextDto,
+        input: HubDepartureInputDto,
+    ): HubDepartureReceiptDto
+
+    suspend fun departureOperation(operation: String): HubDepartureReceiptDto?
+
     suspend fun dispatchPage(query: HubDispatchQueryDto): HubDispatchPageDto
 
     suspend fun dispatchRecord(id: String): HubDispatchViewDto
@@ -653,6 +671,13 @@ private class UniFfiNativeCorePort(
     private val core: HarvestCircleAppCore,
 ) : NativeCorePort,
     NativeHubPort {
+    override suspend fun applyDeparture(
+        context: RequestContextDto,
+        input: HubDepartureInputDto,
+    ): HubDepartureReceiptDto = core.applyHubDeparture(context, input)
+
+    override suspend fun departureOperation(operation: String): HubDepartureReceiptDto? = core.hubDepartureOperation(operation)
+
     override suspend fun dispatchPage(query: HubDispatchQueryDto): HubDispatchPageDto = core.hubDispatchPage(query)
 
     override suspend fun dispatchRecord(id: String): HubDispatchViewDto = core.hubDispatchRecord(id)

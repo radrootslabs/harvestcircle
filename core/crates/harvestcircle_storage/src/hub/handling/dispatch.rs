@@ -1,6 +1,6 @@
 //! Non-reserving native preparation with immutable issued identification.
 mod material;
-mod read;
+pub(super) mod read;
 pub(crate) mod schema;
 mod write;
 
@@ -44,6 +44,7 @@ pub enum HubDispatchFilter {
     Draft,
     Issued,
     Unused,
+    Departed,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -51,6 +52,7 @@ pub enum HubDispatchState {
     Draft,
     Issued,
     Unused,
+    Departed,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -104,6 +106,8 @@ pub struct HubDispatchPage {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HubDispatchView {
+    pub state: HubDispatchState,
+    pub departure: Option<super::departure::HubDepartureUse>,
     pub revision: HubRevision,
     pub catalog_revision: HubRevision,
     pub record: DispatchRecord,
@@ -158,3 +162,21 @@ fn dispatch_error(error: DispatchError) -> SafeError {
 
 #[cfg(test)]
 mod tests;
+
+fn current_state(record: &DispatchRecord, used: bool) -> Result<HubDispatchState, SafeError> {
+    if used {
+        return Ok(HubDispatchState::Departed);
+    }
+    if record.draft.is_some() {
+        return Ok(HubDispatchState::Draft);
+    }
+    match record.versions.last().ok_or_else(corrupt)?.status {
+        harvestcircle_domain::hub::dispatch::IdentificationStatus::Issued => {
+            Ok(HubDispatchState::Issued)
+        }
+        harvestcircle_domain::hub::dispatch::IdentificationStatus::Unused => {
+            Ok(HubDispatchState::Unused)
+        }
+        harvestcircle_domain::hub::dispatch::IdentificationStatus::Superseded => Err(corrupt()),
+    }
+}

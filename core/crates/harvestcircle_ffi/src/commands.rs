@@ -26,6 +26,7 @@ use radroots_runtime_paths::{
 };
 use radroots_service_sqlite::MigrationBuildIdentity;
 
+use crate::hub_departure::{HubDepartureInputDto, HubDepartureReceiptDto};
 use crate::hub_dispatch::{
     HubDispatchPageDto, HubDispatchQueryDto, HubDispatchReceiptDto, HubDispatchViewDto,
 };
@@ -597,6 +598,45 @@ impl HarvestCircleAppCore {
             .await
             .map(Into::into)
             .map_err(HarvestCircleError::from)
+    }
+
+    pub async fn apply_hub_departure(
+        &self,
+        context: RequestContextDto,
+        input: HubDepartureInputDto,
+    ) -> Result<HubDepartureReceiptDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let (request, timeout) = validate_request_context(&context)?;
+        let command = input.command()?;
+        let receipt = self
+            .inner
+            .actor
+            .apply_hub_departure(
+                request.clone(),
+                command,
+                harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
+                timeout,
+            )
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        HubDepartureReceiptDto::try_from(receipt).map_err(|error| error.with_correlation(&request))
+    }
+    /// Reads the original result without submitting another physical effect.
+    pub async fn hub_departure_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubDepartureReceiptDto>, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let request = DurableRequestId::parse(operation_id)
+            .map_err(|_| crate::hub_reference::invalid_input())?;
+        self.inner
+            .actor
+            .hub_departure_operation(request.clone())
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?
+            .map(TryInto::try_into)
+            .transpose()
+            .map_err(|error: HarvestCircleError| error.with_correlation(&request))
     }
 
     pub async fn hub_dispatch_page(
@@ -2344,7 +2384,93 @@ mod tests {
             core.hub_work(work_query.clone()).await.unwrap().rows,
             work_before
         );
+        let current = core
+            .hub_dispatch_record(issued.record.id.clone())
+            .await
+            .unwrap();
+        let departure_context = context(core.snapshot().revision);
+        let departure_input = crate::HubDepartureInputDto {
+            expected_stock_revision: current.stock_revision,
+            expected_catalog_revision: current.catalog_revision,
+            preparation_id: issued.record.id.clone(),
+            expected_preparation_revision: issued.record.revision,
+            identification_id: issued.record.versions[0].id.clone(),
+            occurrence: crate::HubOccurrenceDto {
+                kind: crate::HubOccurrenceKindDto::Unknown,
+                start_unix_s: None,
+                end_unix_s: None,
+            },
+            observation: "Explicitly confirmed five original crates actually left for recipient A"
+                .into(),
+        };
+        let departed = core
+            .apply_hub_departure(departure_context.clone(), departure_input.clone())
+            .await
+            .unwrap();
+        assert_eq!(departed.paper, issued.record);
+        assert_eq!(departed.lines.len(), 1);
+        assert_eq!(departed.lines[0].whole_packs, 5);
+        assert_eq!(
+            core.apply_hub_departure(departure_context, departure_input.clone())
+                .await
+                .unwrap(),
+            departed
+        );
+        assert_eq!(
+            core.hub_departure_operation(departed.operation_id.clone())
+                .await
+                .unwrap(),
+            Some(departed.clone())
+        );
+        assert_eq!(
+            core.hub_stock(query.clone())
+                .await
+                .unwrap()
+                .rows
+                .iter()
+                .map(|row| row.position.whole_packs)
+                .sum::<u32>(),
+            15
+        );
+        let quantities = core.hub_work(work_query.clone()).await.unwrap().rows[0]
+            .work
+            .quantity
+            .clone();
+        assert_eq!(
+            (
+                quantities.required,
+                quantities.completed,
+                quantities.no_longer_required,
+                quantities.remaining
+            ),
+            // This fixture separates five from the eight already completed at
+            // A3. Exit preserves all completion and cannot retire pending scope.
+            (20, 8, 0, 12)
+        );
+        assert!(departed.work_changes.is_empty());
+        let used = core
+            .hub_dispatch_record(issued.record.id.clone())
+            .await
+            .unwrap();
+        assert_eq!(used.state, crate::HubDispatchStateDto::Departed);
+        assert_eq!(used.record, issued.record);
+        assert_eq!(used.departure.unwrap().id, departed.id);
+        assert!(
+            core.apply_hub_departure(context(core.snapshot().revision), departure_input.clone())
+                .await
+                .is_err()
+        );
         core.sign_out().await.unwrap();
+        assert!(
+            core.apply_hub_departure(context(core.snapshot().revision), departure_input)
+                .await
+                .is_err()
+        );
+        assert!(
+            core.hub_departure_operation(departed.operation_id)
+                .await
+                .is_err()
+        );
         assert!(core.hub_group(group.group.id).await.is_err());
         assert!(
             core.hub_handling_operation(move_context.request_id)
@@ -2852,7 +2978,7 @@ mod tests {
             .to_path_buf();
         assert!(database.ends_with("data/services/harvestcircle/desktop/state.sqlite"));
         assert!(!database.to_string_lossy().contains("harvestcircle.sqlite3"));
-        assert_eq!(CURRENT_SCHEMA_VERSION, 10);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 11);
     }
 
     #[test]

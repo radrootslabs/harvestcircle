@@ -20,6 +20,7 @@ import org.harvestcircle.application.ApplicationSnapshot
 import org.harvestcircle.application.BuildInfo
 import org.harvestcircle.application.GeneratedIdentityRecovery
 import org.harvestcircle.application.GeneratedKeyBackup
+import org.harvestcircle.application.HarvestCircleDepartureRuntime
 import org.harvestcircle.application.HarvestCircleDispatchRuntime
 import org.harvestcircle.application.HarvestCircleHandlingRuntime
 import org.harvestcircle.application.HarvestCircleHubRuntime
@@ -27,6 +28,8 @@ import org.harvestcircle.application.HarvestCircleReferenceRuntime
 import org.harvestcircle.application.HarvestCircleRuntime
 import org.harvestcircle.application.HarvestCircleStockRuntime
 import org.harvestcircle.application.HubContext
+import org.harvestcircle.application.HubDepartureInput
+import org.harvestcircle.application.HubDepartureReceipt
 import org.harvestcircle.application.HubDiscrepancyPage
 import org.harvestcircle.application.HubDispatchInput
 import org.harvestcircle.application.HubDispatchPage
@@ -92,6 +95,7 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     HarvestCircleStockRuntime,
     HarvestCircleHandlingRuntime,
     HarvestCircleDispatchRuntime,
+    HarvestCircleDepartureRuntime,
     AutoCloseable {
     override val buildInfo: BuildInfo = BuildInfo.unknown()
 
@@ -149,6 +153,17 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
         withContext(Dispatchers.IO) {
             callBridge { bridge.referenceHistory(id, afterRevision, limit).map { it.toModel() } }
         }
+
+    override suspend fun applyDeparture(
+        context: RequestContext,
+        input: HubDepartureInput,
+    ): HubDepartureReceipt =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.applyDeparture(context.operationId.value, context.expectedRevision.value, input.toNative()).toModel() }
+        }
+
+    override suspend fun departureOperation(operation: OperationId): HubDepartureReceipt? =
+        withContext(Dispatchers.IO) { callBridge { bridge.departureOperation(operation.value)?.toModel() } }
 
     override suspend fun dispatchPage(query: HubDispatchQuery): HubDispatchPage =
         withContext(Dispatchers.IO) {

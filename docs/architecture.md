@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 10, FFI is 5.8 and snapshot schema is 1. Rust and
+The current storage schema is 11, FFI is 5.9 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -187,7 +187,7 @@ lines and 32 versions are retained per preparation, with 1,024 preparations per 
 Native journal budgeting reserves a closure slot for every active issued version
 alongside outstanding hold releases and precautionary hold/release headroom.
 
-FFI 5.8 and the Kotlin transport expose bounded preparation pages, complete selected
+FFI 5.9 and the Kotlin transport expose bounded preparation pages, complete selected
 records, original receipts and closed commands. List rows are summaries; version
 history belongs to the selected record. Shared Dispatch editors select a recipient
 and whole current groups, prepare/revise, issue, replace or mark identification
@@ -196,7 +196,7 @@ issued-version history. Unsubmitted input survives ordinary navigation; explicit
 context review shows current physical facts without rewriting the saved preparation.
 Unknown submissions freeze their original intent and use read-only original-result
 lookup. Native errors distinguish changed material, stale context and unchanged
-replacement. Actual departure, durable admission/session/restore recovery and full
+replacement. Actual-departure UI, durable admission/session/restore recovery and full
 MVP qualification remain unfinished. Existing Nostr identity and recovery retain
 their separate contracts.
 
@@ -207,9 +207,33 @@ at the same revision. All selected lines succeed as one plan. Pending exit retir
 quantity work once per shared requirement; completed work remains completion.
 Consumed groups retain their positive originals and ancestry rather than becoming
 invalid zero-pack domain objects. Original plan validation checks every effect,
-work transition, identity and causal clock. Native atomic outflow/usage storage,
-conservation readers, generated departure transport and the actual-departure UI
-remain unfinished; these pure plans confer no mutation or departure authority.
+work transition, identity and causal clock.
+
+Schema 11 adds immutable actual-departure headers, consumed lines and original work
+scope. One protected transaction checks every line and current acceptance/holds,
+retains the exact issued paper, removes whole current groups and retires pending
+work once per shared requirement. One operation revision can own up to 64 physical
+events; event sequence and operation revision remain distinct. Current stock conserves
+original intake against on-hand plus retained actual outflow. Depleted groups retain
+ancestry and historical completed work without a fabricated positive position.
+Original reads rebuild and verify frozen command/result data independently of current
+positions and work counters. Replay returns that original; changed intent, another
+owner or a fresh attempt to reuse issued material cannot remove stock again.
+Current-group reads and stale handling commands distinguish verified departed stock
+from missing or damaged data. A departed group reports changed context only after
+checking its original and conserved lineage; a damaged original remains a storage
+error. Reusing an inactive physical tag keeps distinct stock identities and never
+transfers acceptance or work completion to another population.
+
+Physical usage is a separate current projection: the preparation page and selected
+view report Departed and its original operation, while as-issued material/status
+remain unchanged. Used identification cannot be revised or marked unused. Issued
+closure budgeting consumes that preparation's reserved closure while preserving
+other documents, hold releases and precautionary headroom. FFI 5.9 exposes a bounded
+actual-departure command and original-result lookup through the existing current
+session/owner/credential boundary. The shared confirmation UI and full candidate
+recovery/packaging qualification remain unfinished; API availability alone is not
+a demo-release qualification.
 
 ## Secrets, transport and lifecycle
 

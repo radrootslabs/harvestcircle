@@ -111,6 +111,3 @@ pub(super) const fn capacity() -> SafeError {
 
 #[cfg(test)]
 pub(in crate::hub) mod tests;
-
-#[cfg(test)]
-pub(crate) use write::apply_on as apply_historical_receipt_on;

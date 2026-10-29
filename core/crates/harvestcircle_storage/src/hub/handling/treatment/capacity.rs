@@ -13,6 +13,7 @@ pub(in crate::hub) enum Reservation {
     ReleaseHold,
     OpenIssued,
     CloseIssued,
+    Depart(u32),
 }
 
 pub(in crate::hub) async fn ensure_on(
@@ -63,6 +64,20 @@ fn check_budget(counters: &Counters, reservation: Reservation) -> Result<(), Saf
                 return Err(capacity());
             }
             (1, 0, 1, 2)
+        }
+        Reservation::Depart(events) => {
+            if events == 0
+                || events as usize > harvestcircle_domain::hub::dispatch::HUB_DISPATCH_LINES
+            {
+                return Err(invalid_input());
+            }
+            if counters.issued == 0 {
+                return Err(corrupt_storage());
+            }
+            if counters.primary >= HUB_TREATMENT_CAPACITY as u32 {
+                return Err(capacity());
+            }
+            (events, 0, -1, 2)
         }
         Reservation::CloseIssued => {
             if counters.issued == 0 {
@@ -157,11 +172,13 @@ async fn issued_on(tx: &mut ServiceSqliteTransaction<'_>, hub: HubId) -> Result<
     .await
     .map_err(|_| storage_unavailable())?;
     let row=sqlx::query(concat!(
-        "SELECT count(*) AS heads,count(CASE WHEN c.kind IN ('dispatch_issue','dispatch_replace') THEN 1 END) AS issued,",
+        "SELECT count(*) AS heads,count(CASE WHEN c.kind IN ('dispatch_issue','dispatch_replace') AND used.operation_id IS NULL THEN 1 END) AS issued,",
         "count(CASE WHEN o.hub_id<>? OR o.result_id<>c.preparation_id OR o.kind<>c.kind OR m.operation_id IS NULL OR m.preparation_id<>c.preparation_id OR recipient.record_id IS NULL OR ",
+        "(used.operation_id IS NOT NULL AND (c.kind NOT IN ('dispatch_issue','dispatch_replace') OR c.identification_id IS NULL OR used.identification_id<>c.identification_id OR used.preparation_revision<>c.record_revision OR actual.operation_id IS NULL OR actual.hub_id<>o.hub_id OR actual.kind<>'departure' OR actual.stock_revision<=o.stock_revision)) OR ",
         "(c.kind IN ('dispatch_issue','dispatch_replace') AND (i.identification_id IS NULL OR i.preparation_id<>c.preparation_id OR i.issued_operation_id<>c.operation_id OR i.material_operation_id<>c.material_operation_id)) THEN 1 END) AS invalid ",
         "FROM hub_dispatch_changes c JOIN hub_stock_operations o ON o.operation_id=c.operation_id LEFT JOIN hub_dispatch_identifications i ON i.identification_id=c.identification_id ",
         "LEFT JOIN hub_dispatch_materials m ON m.operation_id=c.material_operation_id LEFT JOIN hub_reference_versions recipient ON recipient.record_id=m.recipient_id AND recipient.record_revision=m.recipient_revision ",
+        "LEFT JOIN hub_departures used ON used.preparation_id=c.preparation_id LEFT JOIN hub_stock_operations actual ON actual.operation_id=used.operation_id ",
         "WHERE NOT EXISTS (SELECT 1 FROM hub_dispatch_changes newer WHERE newer.preparation_id=c.preparation_id AND newer.record_revision>c.record_revision)"
     )).bind(hub.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
     let heads: i64 = row.try_get("heads").map_err(|_| corrupt_storage())?;

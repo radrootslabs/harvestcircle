@@ -19,6 +19,7 @@ pub enum HubDispatchStateDto {
     Draft,
     Issued,
     Unused,
+    Departed,
 }
 impl From<HubDispatchState> for HubDispatchStateDto {
     fn from(value: HubDispatchState) -> Self {
@@ -26,6 +27,7 @@ impl From<HubDispatchState> for HubDispatchStateDto {
             HubDispatchState::Draft => Self::Draft,
             HubDispatchState::Issued => Self::Issued,
             HubDispatchState::Unused => Self::Unused,
+            HubDispatchState::Departed => Self::Departed,
         }
     }
 }
@@ -36,6 +38,7 @@ pub enum HubDispatchFilterDto {
     Draft,
     Issued,
     Unused,
+    Departed,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
@@ -60,6 +63,7 @@ impl HubDispatchQueryDto {
                 HubDispatchFilterDto::Draft => HubDispatchFilter::Draft,
                 HubDispatchFilterDto::Issued => HubDispatchFilter::Issued,
                 HubDispatchFilterDto::Unused => HubDispatchFilter::Unused,
+                HubDispatchFilterDto::Departed => HubDispatchFilter::Departed,
             },
         };
         query.validate().map_err(HarvestCircleError::from)?;
@@ -279,6 +283,8 @@ impl From<HubDispatchPage> for HubDispatchPageDto {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct HubDispatchViewDto {
+    pub state: HubDispatchStateDto,
+    pub departure: Option<crate::hub_departure::HubDepartureUseDto>,
     pub stock_revision: u64,
     pub catalog_revision: u64,
     pub record: HubDispatchRecordDto,
@@ -287,6 +293,8 @@ impl TryFrom<HubDispatchView> for HubDispatchViewDto {
     type Error = HarvestCircleError;
     fn try_from(value: HubDispatchView) -> Result<Self, Self::Error> {
         Ok(Self {
+            state: value.state.into(),
+            departure: value.departure.map(Into::into),
             stock_revision: value.revision.value(),
             catalog_revision: value.catalog_revision.value(),
             record: (&value.record).try_into()?,

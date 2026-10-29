@@ -666,3 +666,30 @@ fn unbounded_or_duplicate_original_line_effects_never_validate() {
     record.consumed = vec![record.consumed[0].clone(); 65];
     assert!(record.validate().is_err());
 }
+
+#[test]
+fn original_digest_binds_paper_material_recording_and_causal_originals() {
+    let f = Fixture::new(&[5], 8);
+    let record = f.depart();
+    let input = [34; 32];
+    let original = departure_result_digest(&input, &record).unwrap();
+    let mut renamed = record.clone();
+    renamed.paper.versions[0].material.recipient.value = ReferenceValue::Party {
+        label: HubLabel::new("Changed historical recipient").unwrap(),
+    };
+    assert_ne!(original, departure_result_digest(&input, &renamed).unwrap());
+    let mut clock = record.clone();
+    clock.recorded_at = UnixTimestamp::from_seconds(99).unwrap();
+    assert_ne!(original, departure_result_digest(&input, &clock).unwrap());
+    let mut causal = record.clone();
+    causal.consumed[0].before.causal_floor = Some(UnixTimestamp::from_seconds(90).unwrap());
+    causal.consumed[0].causal_floor = causal.consumed[0].before.causal_floor;
+    assert_ne!(original, departure_result_digest(&input, &causal).unwrap());
+    assert_ne!(
+        original,
+        departure_result_digest(&[35; 32], &record).unwrap()
+    );
+    let mut corrupt = record;
+    corrupt.work_changes.clear();
+    assert!(departure_result_digest(&input, &corrupt).is_err());
+}

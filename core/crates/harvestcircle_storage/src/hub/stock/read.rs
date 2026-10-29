@@ -96,9 +96,9 @@ pub(in crate::hub) async fn state_on(
             .map_err(|_| corrupt_storage())?,
     )
     .map_err(|_| corrupt_storage())?;
-    let operations = sqlx::query("SELECT count(*) AS n, COALESCE(max(stock_revision),1) AS latest, count(CASE WHEN kind NOT IN ('receipt','move','split','dispatch_prepare','dispatch_revise','dispatch_issue','dispatch_replace','dispatch_unused','acceptance','hold_place','hold_release','work_replan','work_new','discrepancy_open','discrepancy_resolve') THEN 1 END) AS unknown FROM hub_stock_operations WHERE hub_id=?")
+    let operations = sqlx::query("SELECT count(*) AS n, COALESCE(max(stock_revision),1) AS latest, count(CASE WHEN kind NOT IN ('receipt','move','split','departure','dispatch_prepare','dispatch_revise','dispatch_issue','dispatch_replace','dispatch_unused','acceptance','hold_place','hold_release','work_replan','work_new','discrepancy_open','discrepancy_resolve') THEN 1 END) AS unknown FROM hub_stock_operations WHERE hub_id=?")
         .bind(hub.as_bytes().as_slice()).fetch_one(&mut *transaction).await.map_err(|_| storage_unavailable())?;
-    let events = sqlx::query("SELECT count(*) AS n, COALESCE(max(sequence),0) AS latest, count(CASE WHEN kind NOT IN ('receipt','move','split','dispatch_prepare','dispatch_revise','dispatch_issue','dispatch_replace','dispatch_unused','acceptance','hold_place','hold_release','work_replan','work_new','discrepancy_open','discrepancy_resolve') THEN 1 END) AS unknown FROM hub_stock_events")
+    let events = sqlx::query("SELECT count(*) AS n, COALESCE(max(sequence),0) AS latest, count(CASE WHEN kind NOT IN ('receipt','move','split','departure','dispatch_prepare','dispatch_revise','dispatch_issue','dispatch_replace','dispatch_unused','acceptance','hold_place','hold_release','work_replan','work_new','discrepancy_open','discrepancy_resolve') THEN 1 END) AS unknown FROM hub_stock_events")
         .fetch_one(&mut *transaction).await.map_err(|_| storage_unavailable())?;
     let op_count: i64 = operations.try_get("n").map_err(|_| corrupt_storage())?;
     let op_latest: i64 = operations
@@ -128,11 +128,13 @@ pub(in crate::hub) async fn state_on(
     if mismatch != 0 {
         return Err(corrupt_storage());
     }
-    let cardinality: i64 = sqlx::query_scalar("SELECT count(*) FROM hub_stock_operations o WHERE (SELECT count(*) FROM hub_stock_events e WHERE e.operation_id=o.operation_id)<>1")
+    let cardinality: i64 = sqlx::query_scalar("SELECT count(*) FROM hub_stock_operations o WHERE (SELECT count(*) FROM hub_stock_events e WHERE e.operation_id=o.operation_id)<>CASE WHEN o.kind='departure' THEN COALESCE((SELECT d.line_count FROM hub_departures d WHERE d.operation_id=o.operation_id),0) ELSE 1 END")
         .fetch_one(&mut *transaction).await.map_err(|_|storage_unavailable())?;
     if cardinality != 0 {
         return Err(corrupt_storage());
     }
+
+    crate::hub::handling::departure::conservation::validate_headers_on(transaction, hub).await?;
 
     let counts = sqlx::query("SELECT (SELECT count(*) FROM hub_receipts) AS traces,(SELECT count(*) FROM hub_stock_groups) AS groups,(SELECT count(*) FROM hub_work_requirements) AS work,(SELECT count(*) FROM hub_discrepancies) AS discrepancies")
         .fetch_one(&mut *transaction).await.map_err(|_| storage_unavailable())?;
@@ -619,6 +621,7 @@ pub(in crate::hub) fn known_kind(kind: &str) -> bool {
     matches!(
         kind,
         "receipt"
+            | "departure"
             | "dispatch_prepare"
             | "dispatch_revise"
             | "dispatch_issue"
