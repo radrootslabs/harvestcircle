@@ -305,8 +305,11 @@ and bounded escaped local HTML. Source-impact selection includes every unresolve
 candidate and cannot be silently narrowed by a text filter. Identification rendering
 keeps the chosen as-issued facts independent of current labels and document closure.
 Trace rendering discloses local snapshot and history limits; output identity binds
-the rendered content. Native queries, shared inspection and local save/print still
-require their separate integration and interaction qualification. Later lifecycle
+the rendered content. Storage queries now retain fully departed populations,
+original-backed physical/source/recipient facts and paged before/after document
+history. Read continuations bind stock and catalog revisions. Native actor/FFI,
+shared inspection and local save/print still require their separate integration
+and interaction qualification. Later lifecycle
 events extend the same accounting rather than editing original intake history.
 
 ### C09: UI, drafts and native recovery

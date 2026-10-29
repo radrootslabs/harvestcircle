@@ -10,6 +10,7 @@ mod portions;
 mod query;
 pub(in crate::hub) mod read;
 pub(crate) mod schema;
+pub(crate) mod trace;
 pub(crate) mod treatment;
 mod work_write;
 mod write;

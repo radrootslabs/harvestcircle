@@ -37,6 +37,10 @@ pub use hub::handling::dispatch::{
     HubDispatchFilter, HubDispatchKind, HubDispatchPage, HubDispatchQuery, HubDispatchReceipt,
     HubDispatchRow, HubDispatchState, HubDispatchView,
 };
+pub use hub::handling::trace::{
+    HubTraceHistoryEntry, HubTraceHistoryKind, HubTraceHistoryPage, HubTraceHistoryQuery,
+    HubTracePage, HubTraceQuery, HubTraceRow, HubTraceSnapshotQuery,
+};
 pub use hub::handling::{
     HubActionGroup, HubDiscrepancyRow, HubGroupCreationKind, HubGroupView, HubHandlingKind,
     HubHandlingPage, HubHandlingQuery, HubHandlingReceipt, HubHandlingResult, HubHoldRow,

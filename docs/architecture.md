@@ -267,8 +267,16 @@ an older version does not replace its as-issued facts. Trace output discloses it
 one-population, recorded-local snapshot scope and incomplete action-history scope.
 UTC rendering uses the pinned `time` formatter rather than a custom calendar.
 These pure components do not perform file, printer, network or database I/O.
-Native trace/history assembly, FFI and desktop output adapters remain to be wired;
-these helpers alone do not qualify a complete trace/output operator workflow.
+Storage now assembles original-backed trace indexes, complete bounded population
+snapshots and paged action history in protected read transactions. Index selection
+uses one bounded original-field scan before deeply reading selected populations.
+Snapshots reuse original receipt, conserved lineage, current treatment and original
+departure readers. Fully departed populations remain retrievable. History binds
+both before and after material for every document source line, including a removed
+line's replacement action. Continuations pin both stock and catalog revisions;
+recording order is distinct from actual occurrence. These queries write no stock,
+document or intent rows. Native actor/FFI and desktop output adapters remain to be
+wired; storage helpers alone do not qualify a complete operator workflow.
 
 ## Secrets, transport and lifecycle
 

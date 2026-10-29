@@ -28,28 +28,34 @@ impl Database {
                     let hub = reference::authorize_on(transaction, actor).await?;
                     reference::validate_basis_on(transaction, hub.id()).await?;
                     match stock::read::operation_on(transaction, hub.id(), &operation).await? {
-                        Some(operation) => Ok(Some(match operation.kind.as_str() {
-                            "move" => movement_on(transaction, hub.id(), operation).await?,
-                            "split" => {
-                                portions::original_on(transaction, hub.id(), operation).await?
-                            }
-                            "acceptance" | "hold_place" | "hold_release" => {
-                                treatment::original_on(transaction, hub.id(), operation).await?
-                            }
-                            "work_replan" | "work_new" => {
-                                work_on(transaction, hub.id(), operation).await?
-                            }
-                            "discrepancy_open" | "discrepancy_resolve" => {
-                                discrepancy::original_on(transaction, hub.id(), operation).await?
-                            }
-                            _ => return Err(conflict()),
-                        })),
+                        Some(operation) => {
+                            Ok(Some(original_on(transaction, hub.id(), operation).await?))
+                        }
                         None => Ok(None),
                     }
                 })
             })
             .await
             .map_err(map_transaction_error)
+    }
+}
+
+pub(super) async fn original_on(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    operation: OperationRecord,
+) -> Result<HubHandlingReceipt, SafeError> {
+    match operation.kind.as_str() {
+        "move" => movement_on(transaction, hub, operation).await,
+        "split" => portions::original_on(transaction, hub, operation).await,
+        "acceptance" | "hold_place" | "hold_release" => {
+            treatment::original_on(transaction, hub, operation).await
+        }
+        "work_replan" | "work_new" => work_on(transaction, hub, operation).await,
+        "discrepancy_open" | "discrepancy_resolve" => {
+            discrepancy::original_on(transaction, hub, operation).await
+        }
+        _ => Err(conflict()),
     }
 }
 

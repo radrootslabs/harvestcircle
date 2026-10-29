@@ -32,16 +32,55 @@ pub enum TraceScope {
     Receipt(HubRecordId),
     SourceImpact(HubRecordId),
 }
+/// Validated original source facts for a bounded index scan; not a source grant.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TraceSourceEvidence {
+    Unknown,
+    Referenced {
+        source: HubRecordId,
+        certainty: SourceCertainty,
+        issuer: Option<HubRecordId>,
+    },
+}
+impl From<&SourceAttribution> for TraceSourceEvidence {
+    fn from(value: &SourceAttribution) -> Self {
+        match value {
+            SourceAttribution::Unknown => Self::Unknown,
+            SourceAttribution::Referenced { source, certainty } => Self::Referenced {
+                source: source.id,
+                certainty: *certainty,
+                issuer: source.issuer,
+            },
+        }
+    }
+}
+impl TraceSourceEvidence {
+    #[must_use]
+    pub const fn unresolved(self) -> bool {
+        !matches!(
+            self,
+            Self::Referenced {
+                certainty: SourceCertainty::Established,
+                issuer: Some(_),
+                ..
+            }
+        )
+    }
+}
 impl TraceScope {
     #[must_use]
     pub fn includes(self, trace: &ReceiptTrace) -> bool {
+        self.includes_evidence(trace.id, (&trace.source).into())
+    }
+    #[must_use]
+    pub fn includes_evidence(self, trace: HubRecordId, source: TraceSourceEvidence) -> bool {
         match self {
             Self::All => true,
-            Self::Unresolved => trace.source_needs_review(),
-            Self::Receipt(id) => trace.id == id,
+            Self::Unresolved => source.unresolved(),
+            Self::Receipt(id) => trace == id,
             Self::SourceImpact(id) => {
-                trace.source_needs_review()
-                    || matches!(&trace.source, SourceAttribution::Referenced { source, .. } if source.id == id)
+                source.unresolved()
+                    || matches!(source, TraceSourceEvidence::Referenced { source, .. } if source == id)
             }
         }
     }
@@ -68,40 +107,49 @@ impl TraceSelection {
     }
     /// Literal search is only a field filter, never proof that origin is excluded.
     pub fn includes(&self, trace: &ReceiptTrace) -> Result<bool, TraceError> {
-        self.validate()?;
-        if !self.scope.includes(trace) {
-            return Ok(false);
-        }
-        let needle = self.text.trim().to_lowercase();
-        if needle.is_empty() {
-            return Ok(true);
-        }
         let source = match &trace.source {
             SourceAttribution::Unknown => None,
             SourceAttribution::Referenced { source, .. } => Some(source),
         };
-        Ok([
-            Some(trace.id.to_hex()),
-            Some(trace.product.value.label().as_str().to_owned()),
-            Some(trace.variant.value.label().as_str().to_owned()),
-            trace
-                .supplier
-                .as_ref()
-                .map(|r| r.value.label().as_str().to_owned()),
-            trace
-                .producer
-                .as_ref()
-                .map(|r| r.value.label().as_str().to_owned()),
+        let trace_id = trace.id.to_hex();
+        let source_id = source.map(|s| s.id.to_hex());
+        let fields = [
+            Some(trace_id.as_str()),
+            Some(trace.product.value.label().as_str()),
+            Some(trace.variant.value.label().as_str()),
+            trace.supplier.as_ref().map(|r| r.value.label().as_str()),
+            trace.producer.as_ref().map(|r| r.value.label().as_str()),
             trace
                 .source_issuer
                 .as_ref()
-                .map(|r| r.value.label().as_str().to_owned()),
-            source.map(|s| s.code.as_str().to_owned()),
-            source.map(|s| s.id.to_hex()),
+                .map(|r| r.value.label().as_str()),
+            source.map(|s| s.code.as_str()),
+            source_id.as_deref(),
         ]
         .into_iter()
         .flatten()
-        .any(|s| s.to_lowercase().contains(&needle)))
+        .collect::<Vec<_>>();
+        self.includes_fields(trace.id, (&trace.source).into(), &fields)
+    }
+    /// Original, bounded text fields from the native index, before deep selected-row reads.
+    pub fn includes_fields(
+        &self,
+        trace: HubRecordId,
+        source: TraceSourceEvidence,
+        fields: &[&str],
+    ) -> Result<bool, TraceError> {
+        self.validate()?;
+        if fields.len() > 8 || fields.iter().any(|field| field.len() > 128) {
+            return Err(TraceError::InvalidQuery);
+        }
+        if !self.scope.includes_evidence(trace, source) {
+            return Ok(false);
+        }
+        let needle = self.text.trim().to_lowercase();
+        Ok(needle.is_empty()
+            || fields
+                .iter()
+                .any(|field| field.to_lowercase().contains(&needle)))
     }
 }
 

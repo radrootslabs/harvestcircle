@@ -154,7 +154,7 @@ pub(in crate::hub) async fn record_on(
     Ok(original_change_on(tx, hub, head).await?.record)
 }
 
-pub(super) async fn original_on(
+pub(in crate::hub::handling) async fn original_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     operation: OperationRecord,
