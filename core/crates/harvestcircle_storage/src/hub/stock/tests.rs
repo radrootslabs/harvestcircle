@@ -26,6 +26,9 @@ pub(in crate::hub) struct Fixture {
 impl Fixture {
     pub(in crate::hub) fn new() -> Self {
         let directory = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+        Self::from_directory(directory)
+    }
+    fn from_directory(directory: TempDir) -> Self {
         let context = RuntimeContext::resolve(
             &RadrootsPathResolver::new(
                 RadrootsPlatform::current(),
@@ -886,4 +889,77 @@ async fn current_reference_edits_invalidate_continuations_without_changing_physi
         vec![20, 20]
     );
     db.close().await.unwrap();
+}
+
+/// Run only from the recorded pre-count schema11 revision. Never targets user data.
+#[tokio::test]
+#[ignore = "Historical schema11 fixture producer; requires governed owned evidence output"]
+async fn retain_schema11_pre_count_world() {
+    use sha2::{Digest, Sha256};
+    assert_eq!(crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION, 11);
+    let project = std::path::PathBuf::from(
+        std::env::var_os("EXT_BUILD_PROJECT_DIR").expect("governed fixture output"),
+    )
+    .canonicalize()
+    .unwrap();
+    let retained = project.join("retained_evidence");
+    std::fs::create_dir_all(&retained).unwrap();
+    assert_eq!(
+        retained.canonicalize().unwrap().parent(),
+        Some(project.as_path())
+    );
+    let output = retained.join("harvestcircle-schema11-before-counts-v1");
+    std::fs::create_dir(&output).expect("Preserve any earlier schema11 witness");
+    let fixture = Fixture::from_directory(tempfile::tempdir_in(&output).unwrap());
+    let db = fixture.open().await;
+    let catalog = setup(&db).await;
+    let receipt = db
+        .apply_hub_receipt(owner(), operation(1), command(&catalog), now())
+        .await
+        .unwrap();
+    let before = db.hub_stock_page(owner(), query()).await.unwrap();
+    assert_eq!(before.rows.len(), 1);
+    assert_eq!(before.rows[0].position.packs.value(), 20);
+    assert_eq!(
+        receipt.original.put_away,
+        QuantityWork::pending(WholePacks::from_value(20).unwrap())
+    );
+    assert_eq!(
+        db.hub_receipt_operation(owner(), operation(1))
+            .await
+            .unwrap()
+            .unwrap(),
+        receipt
+    );
+    db.close().await.unwrap();
+    let state = fixture.context.paths().state().join("state.sqlite");
+    let archive = output.join("original-schema11.sqlite");
+    std::fs::copy(&state, &archive).unwrap();
+    let digest = format!("{:x}", Sha256::digest(std::fs::read(&archive).unwrap()));
+    let mut permissions = std::fs::metadata(&archive).unwrap().permissions();
+    permissions.set_readonly(true);
+    std::fs::set_permissions(&archive, permissions).unwrap();
+    let metadata = serde_json::json!({
+        "purpose": "Actual pre-count schema11 product-storage migration witness; fictional data only",
+        "schema": 11, "product_revision": "912461ac1226b2c3f1d45b0b790696a38191d9bd",
+        "fixture_source_sha256": format!("{:x}", Sha256::digest(include_bytes!("tests.rs"))),
+        "profile_source_root": fixture._directory.path(), "state_file": state,
+        "original_archive": archive, "original_sha256": digest,
+        "actor": owner().to_hex(), "receipt_operation": operation(1).as_str(),
+        "population": receipt.original.trace.id.to_hex(),
+        "group": receipt.original.position.group.to_hex(),
+        "recorded_packs": 20, "pending_putaway_packs": 20,
+        "personal_identity_or_keyring_data": false,
+        "fixture_build_identity": "test-only; not a packaged production-runtime qualification"
+    });
+    let index = output.join("witness.json");
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&index)
+        .unwrap();
+    serde_json::to_writer_pretty(file, &metadata).unwrap();
+    let profile = fixture._directory.keep();
+    assert!(profile.starts_with(&output));
+    println!("harvestcircle.schema11.witness={}", index.display());
 }

@@ -1095,6 +1095,8 @@ dependencies = [
  "secret-service",
  "security-framework",
  "security-framework-sys",
+ "serde_json",
+ "sha2",
  "sqlx",
  "tempfile",
  "tokio",
