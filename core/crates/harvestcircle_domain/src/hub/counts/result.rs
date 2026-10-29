@@ -65,6 +65,19 @@ pub fn count_post_result_digest(
     hash.update(count_observation_result_digest(&observe, &record.count)?);
     hash.update(record.stock_revision.value().to_be_bytes());
     hash.update(record.catalog_revision.value().to_be_bytes());
+    for value in [
+        &record.references.product,
+        &record.references.variant,
+        &record.references.location,
+    ] {
+        reference(
+            &mut hash,
+            value,
+            scope.hub,
+            record.actor,
+            record.catalog_revision,
+        );
+    }
     hash.update(record.actor.as_bytes());
     hash.update(record.recorded_at.as_seconds().to_be_bytes());
     hash.update(record.confirmed_on_hand_at.as_seconds().to_be_bytes());

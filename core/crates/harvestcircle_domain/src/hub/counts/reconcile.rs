@@ -51,6 +51,13 @@ pub enum CountEffect {
     },
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CountPostReferences {
+    pub product: ReferenceRecord,
+    pub variant: ReferenceRecord,
+    pub location: ReferenceRecord,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CountPostPlan {
     pub id: HubRecordId,
     pub operation: HubRecordId,
@@ -58,6 +65,8 @@ pub struct CountPostPlan {
     pub before: PhysicalStockGroup,
     pub stock_revision: HubRevision,
     pub catalog_revision: HubRevision,
+    /// Original reference values at posting, independent of observation labels.
+    pub references: CountPostReferences,
     pub actor: PublicKey,
     pub recorded_at: UnixTimestamp,
     /// A count establishes this on-hand observation, not the time/cause of any loss.
@@ -139,6 +148,23 @@ impl CountPostCommand {
             },
             _ => return Err(CountError::InvalidInput),
         };
+        let variant = current
+            .catalog
+            .require_kind(current.group.variant, ReferenceKind::Pack)?;
+        let ReferenceValue::Pack { product, .. } = &variant.value else {
+            return Err(CountError::InvalidHistory);
+        };
+        let references = CountPostReferences {
+            product: current
+                .catalog
+                .require_kind(*product, ReferenceKind::Product)?
+                .clone(),
+            variant: variant.clone(),
+            location: current
+                .catalog
+                .require_kind(current.group.location, ReferenceKind::Location)?
+                .clone(),
+        };
         let plan = CountPostPlan {
             id: count_reconciliation_id(operation)?,
             operation,
@@ -146,6 +172,7 @@ impl CountPostCommand {
             before: current.group.clone(),
             stock_revision: super::next(current.stock_revision)?,
             catalog_revision: current.catalog.revision(),
+            references,
             actor,
             recorded_at,
             confirmed_on_hand_at,
@@ -223,6 +250,7 @@ impl CountPostPlan {
             .validate()
             .map_err(|_| CountError::InvalidHistory)?;
         let scope = &self.count.scope;
+        self.references.validate(scope, self.catalog_revision)?;
         if self.id != count_reconciliation_id(self.operation)?
             || self.stock_revision.value() <= self.count.recorded_revision.value()
             || self.catalog_revision.value() < scope.catalog_revision.value()
@@ -304,6 +332,36 @@ impl CountPostPlan {
                 }
                 Ok(())
             }
+            _ => Err(CountError::InvalidHistory),
+        }
+    }
+}
+
+impl CountPostReferences {
+    fn validate(&self, observed: &CountScope, catalog: HubRevision) -> Result<(), CountError> {
+        for (posted, original, kind) in [
+            (&self.product, &observed.product, ReferenceKind::Product),
+            (&self.variant, &observed.variant, ReferenceKind::Pack),
+            (&self.location, &observed.location, ReferenceKind::Location),
+        ] {
+            if posted.id != original.id
+                || posted.value.kind() != kind
+                || posted.revision.value() < original.revision.value()
+                || posted.revision.value() > catalog.value()
+            {
+                return Err(CountError::InvalidHistory);
+            }
+        }
+        if self.variant != observed.variant {
+            return Err(CountError::InvalidHistory);
+        }
+        match (&self.location.value, &observed.location.value) {
+            (
+                ReferenceValue::Location { purpose, .. },
+                ReferenceValue::Location {
+                    purpose: original, ..
+                },
+            ) if purpose == original => Ok(()),
             _ => Err(CountError::InvalidHistory),
         }
     }

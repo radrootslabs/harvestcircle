@@ -173,3 +173,123 @@ fn surplus_seal_requires_unknown_source_and_new_acceptance_review() {
         Err(CountError::InvalidHistory)
     );
 }
+
+#[test]
+fn posting_retains_its_own_reference_cut_without_rewriting_observation_labels() {
+    let (mut catalog, group, command) = fixture();
+    let count = observation(&catalog, &group, &command);
+    for (record, value) in [
+        (
+            id(1),
+            ReferenceValue::Product {
+                label: HubLabel::new("Posting apples").unwrap(),
+            },
+        ),
+        (
+            id(3),
+            ReferenceValue::Location {
+                label: HubLabel::new("Posting Receiving").unwrap(),
+                purpose: LocationPurpose::Receiving,
+            },
+        ),
+    ] {
+        let revision = catalog.get(record).unwrap().revision;
+        catalog
+            .revise(catalog.revision(), record, revision, value)
+            .unwrap();
+    }
+    let mut current = context(&catalog, &group);
+    current.stock_revision = rev(3);
+    current.latest_observation = Some(count.id);
+    let result = post(&count, &current)
+        .plan(&count, &current, id(21), actor(), at(110))
+        .unwrap();
+    assert_eq!(
+        result.references.product.value.label().as_str(),
+        "Posting apples"
+    );
+    assert_eq!(
+        result.references.location.value.label().as_str(),
+        "Posting Receiving"
+    );
+    assert_eq!(result.references.product.revision, rev(2));
+    assert_eq!(result.references.location.revision, rev(2));
+    assert_eq!(result.references.variant, count.scope.variant);
+    assert_eq!(
+        result.count.scope.product.value.label().as_str(),
+        "Fictional apples"
+    );
+    assert_eq!(
+        result.count.scope.location.value.label().as_str(),
+        "Receiving"
+    );
+    let original = result.clone();
+    catalog
+        .revise(
+            catalog.revision(),
+            id(1),
+            rev(2),
+            ReferenceValue::Product {
+                label: HubLabel::new("Later apples").unwrap(),
+            },
+        )
+        .unwrap();
+    assert_eq!(result, original);
+    assert_ne!(result.references.product, *catalog.get(id(1)).unwrap());
+}
+
+#[test]
+fn posting_digest_binds_reference_values_and_versions_at_the_posting_cut() {
+    let (command, result) = shortage();
+    let input = command.fingerprint(hub(), actor(), id(21));
+    let digest = count_post_result_digest(&input, &result).unwrap();
+    for kind in [ReferenceKind::Product, ReferenceKind::Location] {
+        let mut changed = result.clone();
+        let reference = match kind {
+            ReferenceKind::Product => &mut changed.references.product,
+            ReferenceKind::Location => &mut changed.references.location,
+            _ => unreachable!(),
+        };
+        match &mut reference.value {
+            ReferenceValue::Product { label } | ReferenceValue::Location { label, .. } => {
+                *label = HubLabel::new("Different original posting label").unwrap()
+            }
+            _ => unreachable!(),
+        }
+        assert_ne!(digest, count_post_result_digest(&input, &changed).unwrap());
+        changed = result.clone();
+        match kind {
+            ReferenceKind::Product => changed.references.product.revision = rev(2),
+            ReferenceKind::Location => changed.references.location.revision = rev(2),
+            _ => unreachable!(),
+        }
+        assert_ne!(digest, count_post_result_digest(&input, &changed).unwrap());
+    }
+}
+
+#[test]
+fn posting_original_rejects_wrong_reference_scope_future_versions_and_changed_pack_or_purpose() {
+    let (_, original) = shortage();
+    let mut changed = original.clone();
+    changed.references.product.id = id(99);
+    assert_eq!(changed.validate(), Err(CountError::InvalidHistory));
+    changed = original.clone();
+    changed.references.location.revision = rev(changed.catalog_revision.value() + 1);
+    assert_eq!(changed.validate(), Err(CountError::InvalidHistory));
+    changed = original.clone();
+    changed.references.variant.revision = rev(2);
+    assert_eq!(changed.validate(), Err(CountError::InvalidHistory));
+    changed = original.clone();
+    changed.references.variant.value = ReferenceValue::Pack {
+        product: id(1),
+        label: HubLabel::new("Changed immutable pack").unwrap(),
+        nominal_grams: None,
+    };
+    assert_eq!(changed.validate(), Err(CountError::InvalidHistory));
+    changed = original;
+    changed.references.location.value = ReferenceValue::Location {
+        label: HubLabel::new("Receiving").unwrap(),
+        purpose: LocationPurpose::Storage,
+    };
+    assert_eq!(changed.validate(), Err(CountError::InvalidHistory));
+}

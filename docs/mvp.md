@@ -282,6 +282,10 @@ or previously retired scope keeps its historical progress. This is work history,
 not a new physical group for missing packs. A surplus requires
 separate physical identification and plans new counted stock with unknown source
 and review-required acceptance, preserving the earlier population's treatment.
+Posting plans retain their own product, immutable pack and location references at
+the posting catalog cut. These values and versions participate in the original
+result digest independently of the observation's older captured labels. Product
+and location renames cannot rewrite either original.
 Native count recording now persists immutable observations and original-result
 consistency digests under current ownership and exact stock/catalog/group versions.
 Saving18 against recorded20 leaves stock20 and pending work20; concurrent stale

@@ -18,8 +18,8 @@ use sha2::{Digest, Sha256};
 mod reconcile;
 mod result;
 pub use reconcile::{
-    CountEffect, CountPostCommand, CountPostPlan, CountWorkChange, CountWorkScopeChange,
-    count_reconciliation_id,
+    CountEffect, CountPostCommand, CountPostPlan, CountPostReferences, CountWorkChange,
+    CountWorkScopeChange, count_reconciliation_id,
 };
 pub use result::{count_observation_result_digest, count_post_result_digest};
 
