@@ -67,7 +67,10 @@ lookup remain read-only under current hub ownership, including when a credential
 is missing. Read results never authorize another effect. Typed FFI methods expose
 bounded input, original observations, native review blockers and complete posting
 results. Separately counted entries retain population origin and acceptance rather
-than fabricating receipt work. Shared forms remain unfinished.
+than fabricating receipt work. The shared count coordinator retains unsubmitted
+input, clears confirmation after edits/context refresh, and resolves uncertain
+submissions through read-only original lookup. Absence does not permit resubmission.
+Visible shared forms remain unfinished.
 
 Schema15 prepares immutable reconciliation headers, complete original work
 snapshots and removed-work scopes. Completed scope remains completed history;
