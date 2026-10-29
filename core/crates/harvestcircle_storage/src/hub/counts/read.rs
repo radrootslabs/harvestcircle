@@ -168,22 +168,6 @@ pub(super) async fn latest_physical_on(
     )
 }
 
-pub(super) async fn latest_observation_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
-    group: HubRecordId,
-) -> Result<Option<HubRecordId>, SafeError> {
-    let bytes: Option<Vec<u8>> = sqlx::query_scalar(concat!(
-        "SELECT substr(c.count_id,1,17) FROM hub_count_observations c JOIN hub_stock_operations o ON o.operation_id=c.operation_id ",
-        "WHERE c.group_id=? ORDER BY o.stock_revision DESC LIMIT 1"
-    )).bind(group.as_bytes().as_slice()).fetch_optional(&mut *tx).await.map_err(|_| storage_unavailable())?;
-    bytes
-        .map(|bytes| {
-            HubRecordId::from_bytes(bytes.try_into().map_err(|_| corrupt_storage())?)
-                .map_err(|_| corrupt_storage())
-        })
-        .transpose()
-}
-
 pub(super) async fn previous_reconciliation_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     group: HubRecordId,

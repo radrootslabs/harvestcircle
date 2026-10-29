@@ -63,18 +63,13 @@ pub(super) async fn observe_on(
         return Err(stock::capacity());
     }
     let latest_physical_recorded_at = read::latest_physical_on(tx, group.id).await?;
-    let context = CountContext {
+    let context = CountObservationContext {
         hub,
         stock_revision: state.revision,
         catalog: &catalog,
         group: &group,
         latest_physical_recorded_at,
         previous_reconciliation: read::previous_reconciliation_on(tx, group.id).await?,
-        latest_observation: read::latest_observation_on(tx, group.id).await?,
-        // Observation recording never tests these flags or authorizes reconciliation.
-        // The posting adapter must load current actual/intent facts independently.
-        unresolved_actual: false,
-        uncertain_intent: false,
     };
     let original = command
         .plan(&context, operation_id(&operation)?, actor, now)

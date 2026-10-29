@@ -243,7 +243,10 @@ capture the original population, pack/location versions, recorded count, cutoff
 and observer without changing stock or work. A fresh comparison rejects changed
 scope, newer reconciliation/observation, uncertain or pre-activity cutoffs,
 unresolved actual reports and uncertain prior outcomes. Reviewed shortages retire
-only pending work; completed work and original intake remain. A surplus requires
+only pending work; completed work and original intake remain. The removal plan
+retains a separate work scope for every affected requirement: missing completed
+or previously retired scope keeps its historical progress. This is work history,
+not a new physical group for missing packs. A surplus requires
 separate physical identification and plans new counted stock with unknown source
 and review-required acceptance, preserving the earlier population's treatment.
 Native count recording now persists immutable observations and original-result

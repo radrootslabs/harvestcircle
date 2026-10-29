@@ -6,6 +6,9 @@ use crate::hub::stock::QuantityWork;
 #[path = "result_tests.rs"]
 mod result_tests;
 
+#[path = "scope_tests.rs"]
+mod scope_tests;
+
 fn id(n: u8) -> HubRecordId {
     HubRecordId::from_bytes([n; 16]).unwrap()
 }
@@ -118,7 +121,12 @@ fn observation(
     command: &CountObserveCommand,
 ) -> CountObservation {
     command
-        .plan(&context(catalog, group), id(20), actor(), at(100))
+        .plan(
+            &context(catalog, group).observation_context(),
+            id(20),
+            actor(),
+            at(100),
+        )
         .unwrap()
 }
 fn post(count: &CountObservation, current: &CountContext<'_>) -> CountPostCommand {
@@ -408,14 +416,24 @@ fn stale_forms_unreviewed_activity_bad_clocks_and_malformed_originals_are_reject
     let (catalog, group, mut command) = fixture();
     command.expected_stock_revision = rev(1);
     assert_eq!(
-        command.plan(&context(&catalog, &group), id(20), actor(), at(100)),
+        command.plan(
+            &context(&catalog, &group).observation_context(),
+            id(20),
+            actor(),
+            at(100)
+        ),
         Err(CountError::StaleRevision)
     );
     command.expected_stock_revision = rev(2);
     command.cutoff = Occurrence::Known(at(101));
     assert!(
         command
-            .plan(&context(&catalog, &group), id(20), actor(), at(100))
+            .plan(
+                &context(&catalog, &group).observation_context(),
+                id(20),
+                actor(),
+                at(100)
+            )
             .is_err()
     );
     command.cutoff = Occurrence::Known(at(80));

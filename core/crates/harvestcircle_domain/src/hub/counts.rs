@@ -18,7 +18,8 @@ use sha2::{Digest, Sha256};
 mod reconcile;
 mod result;
 pub use reconcile::{
-    CountEffect, CountPostCommand, CountPostPlan, CountWorkChange, count_reconciliation_id,
+    CountEffect, CountPostCommand, CountPostPlan, CountWorkChange, CountWorkScopeChange,
+    count_reconciliation_id,
 };
 pub use result::{count_observation_result_digest, count_post_result_digest};
 
@@ -51,7 +52,17 @@ impl From<StockError> for CountError {
     }
 }
 
-/// Trusted native facts, loaded afresh; no corresponding client safety flags exist.
+/// Facts needed to record an observation. Recording cannot establish review safety.
+pub struct CountObservationContext<'a> {
+    pub hub: HubId,
+    pub stock_revision: HubRevision,
+    pub catalog: &'a ReferenceCatalog,
+    pub group: &'a PhysicalStockGroup,
+    pub latest_physical_recorded_at: UnixTimestamp,
+    pub previous_reconciliation: Option<HubRecordId>,
+}
+
+/// Trusted native review facts, loaded afresh; no client safety flags exist.
 pub struct CountContext<'a> {
     pub hub: HubId,
     pub stock_revision: HubRevision,
@@ -65,6 +76,24 @@ pub struct CountContext<'a> {
 }
 
 impl CountContext<'_> {
+    #[must_use]
+    pub fn observation_context(&self) -> CountObservationContext<'_> {
+        CountObservationContext {
+            hub: self.hub,
+            stock_revision: self.stock_revision,
+            catalog: self.catalog,
+            group: self.group,
+            latest_physical_recorded_at: self.latest_physical_recorded_at,
+            previous_reconciliation: self.previous_reconciliation,
+        }
+    }
+
+    fn validate(&self) -> Result<(), CountError> {
+        self.observation_context().validate()
+    }
+}
+
+impl CountObservationContext<'_> {
     fn validate(&self) -> Result<(), CountError> {
         self.group.validate_catalog(self.catalog)?;
         if self
@@ -151,7 +180,7 @@ impl CountReview {
 impl CountObserveCommand {
     pub fn plan(
         &self,
-        context: &CountContext<'_>,
+        context: &CountObservationContext<'_>,
         operation: HubRecordId,
         actor: PublicKey,
         recorded_at: UnixTimestamp,

@@ -4,7 +4,7 @@ use crate::db::{corrupt_storage, map_transaction_error, storage_unavailable};
 use crate::hub::{handling, reference, stock};
 use harvestcircle_application::DurableRequestId;
 use harvestcircle_domain::hub::counts::{
-    CountContext, CountError, CountObservation, CountObserveCommand, CountScope,
+    CountError, CountObservation, CountObservationContext, CountObserveCommand, CountScope,
     HUB_COUNT_CAPACITY, count_observation_result_digest,
 };
 use harvestcircle_domain::hub::reference::{HubRecordId, SourceProvenance};

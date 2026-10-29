@@ -22,6 +22,17 @@ pub struct CountWorkChange {
     pub after: WorkRequirement,
     pub retired: WholePacks,
 }
+
+/// A removed count scope remains historical work accounting, never a fake group.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CountWorkScopeChange {
+    pub work: HubRecordId,
+    pub before_progress: WorkProgress,
+    pub before_scoped: WholePacks,
+    pub on_hand_after: WholePacks,
+    pub removed: WholePacks,
+    pub removed_progress: WorkProgress,
+}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CountEffect {
     NoVariance,
@@ -176,6 +187,35 @@ pub fn count_reconciliation_id(operation: HubRecordId) -> Result<HubRecordId, Co
 }
 
 impl CountPostPlan {
+    /// Retain every removed scope, including work completed before the count.
+    /// Only pending lost scope becomes no-longer-required; this derives no event
+    /// time/cause or physical identity for the missing packs.
+    pub fn work_scope_changes(&self) -> Result<Vec<CountWorkScopeChange>, CountError> {
+        self.validate()?;
+        let CountEffect::Shortage {
+            packs, after_packs, ..
+        } = &self.effect
+        else {
+            return Ok(Vec::new());
+        };
+        Ok(self
+            .before
+            .work
+            .iter()
+            .map(|allocation| CountWorkScopeChange {
+                work: allocation.requirement.id,
+                before_progress: allocation.progress,
+                before_scoped: self.before.packs,
+                on_hand_after: *after_packs,
+                removed: *packs,
+                removed_progress: match allocation.progress {
+                    WorkProgress::Pending => WorkProgress::NoLongerRequired,
+                    progress => progress,
+                },
+            })
+            .collect())
+    }
+
     /// Consistency of retained original facts, never current posting permission.
     pub fn validate(&self) -> Result<(), CountError> {
         self.count.validate()?;
