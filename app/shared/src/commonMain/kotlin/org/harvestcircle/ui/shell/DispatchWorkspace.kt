@@ -8,6 +8,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import org.harvestcircle.application.DispatchPresenter
@@ -30,6 +32,11 @@ fun DispatchWorkspace(
     submit: () -> Unit,
     references: () -> Unit,
 ) {
+    val departure by presenter.departure.state.collectAsState()
+    if (departure.formOpen || departure.submission != null) {
+        DepartureWorkspace(departure, presenter.departure, submit, presenter::finishDeparture, presenter::discardDeparture)
+        return
+    }
     val scroll = rememberScrollState()
     LaunchedEffect(state.formOpen, state.submission, state.selected?.record?.id) { scroll.scrollTo(0) }
     Column(
@@ -43,6 +50,9 @@ fun DispatchWorkspace(
         HarvestCircleShellText("Sample data only · Identification reserves no stock")
         state.message?.let { HarvestCircleShellText(it, Modifier.testTag("dispatch-message")) }
         if (state.loading) HarvestCircleShellText("Reading local identification…")
+        if (departure.draft != null) {
+            HarvestCircleShellButton("Resume actual departure", presenter.departure::resume, Modifier.testTag("departure-resume"))
+        }
         when {
             state.submission != null -> DispatchOutcome(state, presenter)
             state.formOpen && state.draft != null -> DispatchEditor(state, presenter, submit)
@@ -138,6 +148,15 @@ private fun DispatchRecord(
                 }, Modifier.testTag("dispatch-issue"), primary = true, enabled = !state.loading)
             }
             HubDispatchState.Issued -> {
+                if (presenter.departure.state.value.available) {
+                    HarvestCircleShellButton(
+                        "Record actual departure · Current version ${record.versions.lastOrNull()?.number}",
+                        presenter::beginDeparture,
+                        Modifier.testTag("dispatch-depart"),
+                        primary = true,
+                        enabled = !state.loading,
+                    )
+                }
                 HarvestCircleShellButton("Replace identification", {
                     presenter.begin(HubDispatchKind.Replace)
                 }, Modifier.testTag("dispatch-replace"), enabled = !state.loading)
@@ -145,14 +164,19 @@ private fun DispatchRecord(
                     presenter.begin(HubDispatchKind.MarkUnused)
                 }, Modifier.testTag("dispatch-unused"), enabled = !state.loading)
             }
-            HubDispatchState.Departed ->
+            HubDispatchState.Departed -> {
                 HarvestCircleShellText(
                     "Actual departure is recorded. Original issued material remains in history.",
                 )
+                view.departure?.let {
+                    HarvestCircleShellText("Departure recorded: ${stockUtc(it.recordedAt.value)} · ${it.actor.value}")
+                    HarvestCircleShellText("Original departure operation: ${it.operationId.value}")
+                }
+            }
             HubDispatchState.Unused -> HarvestCircleShellText("This identification is unused. Original issued material remains in history.")
         }
         HarvestCircleShellText(
-            "Identification paperwork does not record actual departure. Departure recording is not available in this build.",
+            "Identification paperwork and the separately confirmed actual departure remain distinct facts.",
         )
     }
     record.versions.forEach { version ->

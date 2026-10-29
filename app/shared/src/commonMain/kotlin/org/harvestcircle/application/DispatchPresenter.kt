@@ -18,6 +18,7 @@ class DispatchPresenter(
 ) {
     private val mutableState = MutableStateFlow(DispatchViewState())
     val state = mutableState.asStateFlow()
+    val departure = DeparturePresenter(runtime as? HarvestCircleDepartureRuntime, scope, operationIds)
     private var hub: String? = null
     private var closed = false
     private var generation = 0L
@@ -30,6 +31,7 @@ class DispatchPresenter(
         generation += 1
         job?.cancel()
         hub = id
+        departure.attach(id)
         mutableState.value = DispatchViewState(available = true)
         refresh()
     }
@@ -79,6 +81,11 @@ class DispatchPresenter(
     }
 
     fun inspect(id: String) {
+        if (departure.state.value.draft != null || departure.state.value.submission != null) {
+            mutableState.value =
+                mutableState.value.copy(message = "Finish or discard your retained departure before selecting another record.")
+            return
+        }
         if (mutableState.value.draft != null || mutableState.value.submission != null) {
             mutableState.value =
                 mutableState.value.copy(message = "Finish or discard your retained identification draft before selecting another record.")
@@ -115,6 +122,10 @@ class DispatchPresenter(
 
     fun begin(kind: HubDispatchKind) {
         val current = mutableState.value
+        if (departure.state.value.draft != null || departure.state.value.submission != null) {
+            departure.resume()
+            return
+        }
         if (current.loading || current.submission != null) return
         if (current.draft != null) {
             resume()
@@ -205,7 +216,29 @@ class DispatchPresenter(
     }
 
     fun park() {
+        departure.park()
         if (mutableState.value.submission == null) mutableState.value = mutableState.value.copy(formOpen = false)
+    }
+
+    fun beginDeparture() {
+        val current = mutableState.value
+        if (current.loading || current.draft != null || current.submission != null) return
+        current.selected?.let(departure::begin)
+    }
+
+    fun finishDeparture() {
+        val id = departure.finishRecorded() ?: return
+        inspect(id)
+    }
+
+    fun discardDeparture() {
+        departure.discard()
+        if (departure.state.value.draft == null) {
+            mutableState.value.selected
+                ?.record
+                ?.id
+                ?.let(::inspect)
+        }
     }
 
     fun resume() {
@@ -290,6 +323,10 @@ class DispatchPresenter(
     }
 
     fun submit(snapshot: SnapshotRevision) {
+        if (departure.state.value.formOpen || departure.state.value.submission != null) {
+            departure.submit(snapshot)
+            return
+        }
         val current = mutableState.value
         val draft = current.draft ?: return
         if (!canRead() || current.loading || current.needsReview || current.submission != null) return
@@ -410,6 +447,7 @@ class DispatchPresenter(
     private fun isCurrent(token: Long) = !closed && generation == token
 
     fun close() {
+        departure.close()
         closed = true
         generation += 1
         job?.cancel()

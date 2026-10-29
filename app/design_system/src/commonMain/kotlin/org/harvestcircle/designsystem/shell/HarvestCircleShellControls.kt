@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -165,6 +166,40 @@ public fun HarvestCircleShellButton(
     ) {
         leadingContent?.invoke(this)
         HarvestCircleShellText(text, role = HarvestCircleShellTextRole.Label, color = foreground, maxLines = 1)
+    }
+}
+
+@Composable
+public fun HarvestCircleShellCheckbox(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val colors = HarvestCircleShellPalette
+    val sources = rememberHarvestCircleShellInteractionSources("checkbox:$label")
+    val shape =
+        androidx.compose.foundation.shape
+            .RoundedCornerShape(HarvestCircleShellMetrics.controlRadius)
+    Row(
+        modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 40.dp)
+            .clip(shape)
+            .harvestCircleShellHoverable(sources, enabled)
+            .toggleable(checked, sources.activation, null, enabled, Role.Checkbox, onCheckedChange)
+            .padding(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(20.dp).border(1.dp, if (enabled) colors.border else colors.contentDisabled, shape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (checked) HarvestCircleShellText("✓", color = if (enabled) colors.accent else colors.contentDisabled)
+        }
+        HarvestCircleShellText(label, color = if (enabled) colors.contentPrimary else colors.contentDisabled)
     }
 }
 

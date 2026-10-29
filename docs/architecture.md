@@ -196,8 +196,8 @@ issued-version history. Unsubmitted input survives ordinary navigation; explicit
 context review shows current physical facts without rewriting the saved preparation.
 Unknown submissions freeze their original intent and use read-only original-result
 lookup. Native errors distinguish changed material, stale context and unchanged
-replacement. Actual-departure UI, durable admission/session/restore recovery and full
-MVP qualification remain unfinished. Existing Nostr identity and recovery retain
+replacement. Durable admission/session/restore recovery and full MVP qualification
+remain unfinished. Existing Nostr identity and recovery retain
 their separate contracts.
 
 Pure normal-departure policy lives in
@@ -231,9 +231,14 @@ remain unchanged. Used identification cannot be revised or marked unused. Issued
 closure budgeting consumes that preparation's reserved closure while preserving
 other documents, hold releases and precautionary headroom. FFI 5.10 exposes a bounded
 actual-departure command and original-result lookup through the existing current
-session/owner/credential boundary. The shared confirmation UI and full candidate
-recovery/packaging qualification remain unfinished; API availability alone is not
-a demo-release qualification.
+session/owner/credential boundary. The shared confirmation workspace renders native
+readiness and work proposals for a frozen issued version. The operator records an
+observation, explicit known/interval/unknown actual time and confirms that all listed
+packs actually left. Parked drafts retain input but require current context review
+and renewed confirmation. Recording, native rejection and unknown outcomes remain
+distinct; unknown outcomes retain the operation and expose only original-result
+lookup, with receipt-to-intent correlation. In-memory retained drafts do not qualify
+native durable admission, session/restore recovery or candidate packaging.
 
 Read-only departure review reuses the same native read/plan path as recording.
 It binds the requested preparation revision and identification, reports current

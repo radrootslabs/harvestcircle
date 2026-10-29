@@ -282,14 +282,18 @@ each original trace independently; unlike products keep their own accounting.
 Current views distinguish Departed from unchanged as-issued identification history.
 Used identification cannot be replaced or marked unused. FFI 5.10 exposes bounded
 actual-departure submission and read-only original recovery under current native
-owner/session/credential checks. No shared UI control records physical departure
-yet; that confirmation surface and full recovery/release qualification remain.
+owner/session/credential checks. Dispatch exposes a separate actual-departure
+confirmation workspace for the current issued version. It retains observations
+across navigation, requires explicit review and renewed confirmation after return,
+and freezes the exact operation on uncertain results. Read-only original recovery
+does not submit again. Native durable recovery and full release qualification remain.
 Read-only native review now reports readiness for the exact issued version and
 proposed work effects from the recording planner, including its reserved-capacity
 rules. It changes no business rows and grants no future action. The current owner
 and credential are checked in Rust; actual occurrence and all fresh conditions are
 checked again on recording. Native block reasons remain distinct from storage
-corruption. Shared confirmation UI is the next part of this surface.
+corruption. Actual occurrence remains known, interval or explicitly unknown;
+native recording time and operator are shown separately.
 
 Trace includes receipts, remaining stock, recipients, adjustments, returns and
 dispositions with explicit uncertainty and retrieval limits. Preserve every plausible

@@ -485,7 +485,7 @@ class HandlingNativeAcceptanceTest {
         }
 }
 
-private class HandlingFixture(
+internal class HandlingFixture(
     val runtime: TestBridgeHarvestCircleRuntime,
     val owner: IdentityId,
     val receiving: String,
