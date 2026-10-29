@@ -258,7 +258,7 @@ Issued recipient/source/reference snapshots remain immutable. Material replaceme
 links a new version and supersedes the prior issue; marking unused is explicit and
 retains the as-issued content. Limits are 64 lines and 32 identification versions
 per preparation. These plans do not authorize departure. Native schema 11 and
-FFI 5.10 persist preparation, revision, issuance, replacement and unused closure.
+FFI 5.11 persist preparation, revision, issuance, replacement and unused closure.
 Original recovery retains exact immutable material/reference/source history through later edits and
 restart without substituting current positions. The journal reserves one closure
 slot per active issue alongside outstanding hold releases. Native pages carry
@@ -280,7 +280,7 @@ outflow/usage and original work scope in one transaction, with one journal revis
 and a physical event for each selected line. On-hand plus retained outflow conserves
 each original trace independently; unlike products keep their own accounting.
 Current views distinguish Departed from unchanged as-issued identification history.
-Used identification cannot be replaced or marked unused. FFI 5.10 exposes bounded
+Used identification cannot be replaced or marked unused. FFI 5.11 exposes bounded
 actual-departure submission and read-only original recovery under current native
 owner/session/credential checks. Dispatch exposes a separate actual-departure
 confirmation workspace for the current issued version. It retains observations
@@ -307,9 +307,13 @@ keeps the chosen as-issued facts independent of current labels and document clos
 Trace rendering discloses local snapshot and history limits; output identity binds
 the rendered content. Storage queries now retain fully departed populations,
 original-backed physical/source/recipient facts and paged before/after document
-history. Read continuations bind stock and catalog revisions. Native actor/FFI,
-shared inspection and local save/print still require their separate integration
-and interaction qualification. Later lifecycle
+history. Read continuations bind stock and catalog revisions. Native FFI5.11 and
+generated Kotlin transport expose these original-backed reads and local rendering
+under current-owner/session authority; schema11 is unchanged. Current trace output
+requires both reviewed revision pins, and exact identification output selects its
+immutable version. Rendering submits no physical operation. Shared inspection and
+local save/print still require their separate integration and interaction
+qualification. Later lifecycle
 events extend the same accounting rather than editing original intake history.
 
 ### C09: UI, drafts and native recovery

@@ -19,7 +19,7 @@ internal fun HubAcceptanceStatus.toNative() =
         HubAcceptanceStatus.Rejected -> HubAcceptanceStatusDto.REJECTED
     }
 
-private fun HubAcceptanceStatusDto.toModel() =
+internal fun HubAcceptanceStatusDto.toModel() =
     when (this) {
         HubAcceptanceStatusDto.REVIEW_REQUIRED -> HubAcceptanceStatus.ReviewRequired
         HubAcceptanceStatusDto.ACCEPTED -> HubAcceptanceStatus.Accepted

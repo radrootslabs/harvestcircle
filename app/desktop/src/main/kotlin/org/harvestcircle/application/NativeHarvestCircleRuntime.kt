@@ -31,6 +31,8 @@ import org.harvestcircle.ffi.HubHandlingQueryDto
 import org.harvestcircle.ffi.HubHandlingReceiptDto
 import org.harvestcircle.ffi.HubLineagePageDto
 import org.harvestcircle.ffi.HubLineageQueryDto
+import org.harvestcircle.ffi.HubLocalOutputDto
+import org.harvestcircle.ffi.HubLocalOutputRequestDto
 import org.harvestcircle.ffi.HubReceiptInputDto
 import org.harvestcircle.ffi.HubReferenceEditDto
 import org.harvestcircle.ffi.HubReferencePageDto
@@ -39,6 +41,12 @@ import org.harvestcircle.ffi.HubReferenceReceiptDto
 import org.harvestcircle.ffi.HubStockPageDto
 import org.harvestcircle.ffi.HubStockQueryDto
 import org.harvestcircle.ffi.HubStockReceiptDto
+import org.harvestcircle.ffi.HubTraceHistoryPageDto
+import org.harvestcircle.ffi.HubTraceHistoryQueryDto
+import org.harvestcircle.ffi.HubTracePageDto
+import org.harvestcircle.ffi.HubTraceQueryDto
+import org.harvestcircle.ffi.HubTraceSnapshotDto
+import org.harvestcircle.ffi.HubTraceSnapshotQueryDto
 import org.harvestcircle.ffi.HubTreatmentPageDto
 import org.harvestcircle.ffi.HubTreatmentQueryDto
 import org.harvestcircle.ffi.HubTreatmentScopeDto
@@ -71,7 +79,25 @@ class NativeHarvestCircleRuntime internal constructor(
     HarvestCircleStockRuntime,
     HarvestCircleHandlingRuntime,
     HarvestCircleDispatchRuntime,
-    HarvestCircleDepartureRuntime {
+    HarvestCircleDepartureRuntime,
+    HarvestCircleTraceRuntime {
+    override suspend fun tracePage(query: HubTraceQuery): HubTracePage = callNative { hubPort().tracePage(query.toNative()).toModel() }
+
+    override suspend fun traceSnapshot(query: HubTraceSnapshotQuery): HubTraceSnapshot =
+        callNative {
+            hubPort().traceSnapshot(query.toNative()).toModel()
+        }
+
+    override suspend fun traceHistory(query: HubTraceHistoryQuery): HubTraceHistoryPage =
+        callNative {
+            hubPort().traceHistory(query.toNative()).toModel()
+        }
+
+    override suspend fun localOutput(request: HubLocalOutputRequest): HubLocalOutput =
+        callNative {
+            hubPort().localOutput(request.toNative()).toModel()
+        }
+
     override suspend fun departureReview(input: HubDepartureReviewInput): HubDepartureReview =
         callNative { hubPort().departureReview(input.toNative()).toModel() }
 
@@ -604,6 +630,14 @@ internal fun interface NativeSubscriptionHandle {
 }
 
 private interface NativeHubPort {
+    suspend fun tracePage(query: HubTraceQueryDto): HubTracePageDto
+
+    suspend fun traceSnapshot(query: HubTraceSnapshotQueryDto): HubTraceSnapshotDto
+
+    suspend fun traceHistory(query: HubTraceHistoryQueryDto): HubTraceHistoryPageDto
+
+    suspend fun localOutput(request: HubLocalOutputRequestDto): HubLocalOutputDto
+
     suspend fun departureReview(input: HubDepartureReviewInputDto): HubDepartureReviewDto
 
     suspend fun applyDeparture(
@@ -678,6 +712,14 @@ private class UniFfiNativeCorePort(
     private val core: HarvestCircleAppCore,
 ) : NativeCorePort,
     NativeHubPort {
+    override suspend fun tracePage(query: HubTraceQueryDto): HubTracePageDto = core.hubTracePage(query)
+
+    override suspend fun traceSnapshot(query: HubTraceSnapshotQueryDto): HubTraceSnapshotDto = core.hubTraceSnapshot(query)
+
+    override suspend fun traceHistory(query: HubTraceHistoryQueryDto): HubTraceHistoryPageDto = core.hubTraceHistory(query)
+
+    override suspend fun localOutput(request: HubLocalOutputRequestDto): HubLocalOutputDto = core.hubLocalOutput(request)
+
     override suspend fun departureReview(input: HubDepartureReviewInputDto): HubDepartureReviewDto = core.hubDepartureReview(input)
 
     override suspend fun applyDeparture(

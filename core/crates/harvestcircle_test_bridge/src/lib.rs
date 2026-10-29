@@ -24,6 +24,10 @@ use harvestcircle_ffi::{
     HubStockQueryDto, HubStockReceiptDto, HubTreatmentPageDto, HubTreatmentQueryDto,
     HubTreatmentScopeDto, HubTreatmentSnapshotDto, HubWorkPageDto, SafeErrorDto,
 };
+use harvestcircle_ffi::{
+    HubLocalOutputDto, HubLocalOutputRequestDto, HubTraceHistoryPageDto, HubTraceHistoryQueryDto,
+    HubTracePageDto, HubTraceQueryDto, HubTraceSnapshotDto, HubTraceSnapshotQueryDto,
+};
 use harvestcircle_nostr::SdkNostrClient;
 use harvestcircle_runtime::{
     InstallationIdentity, InstallationIdentitySource, RuntimeActorHandle,
@@ -320,6 +324,44 @@ impl HarvestCircleTestBridge {
             .map_err(native_runtime_error)
     }
 
+    pub fn trace_page(&self, query: HubTraceQueryDto) -> Result<HubTracePageDto, TestBridgeError> {
+        let query = query.decode().map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_trace_page(query))
+            .map(Into::into)
+            .map_err(native_runtime_error)
+    }
+    pub fn trace_snapshot(
+        &self,
+        query: HubTraceSnapshotQueryDto,
+    ) -> Result<HubTraceSnapshotDto, TestBridgeError> {
+        let query = query.decode().map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_trace_snapshot(query))
+            .map_err(native_runtime_error)?
+            .try_into()
+            .map_err(native_codec_error)
+    }
+    pub fn trace_history(
+        &self,
+        query: HubTraceHistoryQueryDto,
+    ) -> Result<HubTraceHistoryPageDto, TestBridgeError> {
+        let query = query.decode().map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_trace_history(query))
+            .map(Into::into)
+            .map_err(native_runtime_error)
+    }
+    pub fn local_output(
+        &self,
+        request: HubLocalOutputRequestDto,
+    ) -> Result<HubLocalOutputDto, TestBridgeError> {
+        let request = request.decode().map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_local_output(request))
+            .map(Into::into)
+            .map_err(native_runtime_error)
+    }
     pub fn departure_review(
         &self,
         input: HubDepartureReviewInputDto,

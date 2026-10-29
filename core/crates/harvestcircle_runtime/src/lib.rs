@@ -10,4 +10,6 @@ pub use installation::{
     InstallationIdentity, InstallationIdentitySource, UuidInstallationIdentitySource,
 };
 pub use persistence::PersistentAppCore;
-pub use runtime_actor::{RuntimeActorHandle, RuntimeChangeSubscription, RuntimeDependencies};
+pub use runtime_actor::{
+    HubLocalOutputRequest, RuntimeActorHandle, RuntimeChangeSubscription, RuntimeDependencies,
+};

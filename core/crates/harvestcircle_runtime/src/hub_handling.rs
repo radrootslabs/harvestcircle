@@ -12,6 +12,7 @@ use harvestcircle_storage::{
 };
 
 pub(super) enum HubHandlingCommand {
+    Trace(Box<super::hub_trace::HubTraceCommand>),
     DepartureReview(HubDepartureReviewInput),
     DepartureOperation(DurableRequestId),
     ApplyDeparture {
@@ -55,6 +56,7 @@ impl HubHandlingCommand {
 }
 
 pub(super) enum HubHandlingValue {
+    Trace(super::hub_trace::HubTraceValue),
     DepartureReview(Box<HubDepartureReview>),
     DepartureReceipt(Option<Box<HubDepartureReceipt>>),
     DispatchPage(Box<HubDispatchPage>),
@@ -226,6 +228,9 @@ impl RuntimeActor {
                 context.deadline(),
                 move |adapter, secrets, clock| async move {
                     let value = match command {
+                        HubHandlingCommand::Trace(command) => HubHandlingValue::Trace(
+                            super::hub_trace::execute(adapter.database(), actor, *command).await?,
+                        ),
                         HubHandlingCommand::DepartureReview(request) => {
                             hub_authority::require_owner_credential(
                                 adapter.as_ref(),

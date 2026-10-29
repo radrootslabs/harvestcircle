@@ -27,6 +27,7 @@ import org.harvestcircle.application.HarvestCircleHubRuntime
 import org.harvestcircle.application.HarvestCircleReferenceRuntime
 import org.harvestcircle.application.HarvestCircleRuntime
 import org.harvestcircle.application.HarvestCircleStockRuntime
+import org.harvestcircle.application.HarvestCircleTraceRuntime
 import org.harvestcircle.application.HubContext
 import org.harvestcircle.application.HubDepartureInput
 import org.harvestcircle.application.HubDepartureReceipt
@@ -44,6 +45,8 @@ import org.harvestcircle.application.HubHandlingQuery
 import org.harvestcircle.application.HubHandlingReceipt
 import org.harvestcircle.application.HubLineagePage
 import org.harvestcircle.application.HubLineageQuery
+import org.harvestcircle.application.HubLocalOutput
+import org.harvestcircle.application.HubLocalOutputRequest
 import org.harvestcircle.application.HubReceiptInput
 import org.harvestcircle.application.HubReferenceEdit
 import org.harvestcircle.application.HubReferencePage
@@ -52,6 +55,12 @@ import org.harvestcircle.application.HubReferenceReceipt
 import org.harvestcircle.application.HubStockPage
 import org.harvestcircle.application.HubStockQuery
 import org.harvestcircle.application.HubStockReceipt
+import org.harvestcircle.application.HubTraceHistoryPage
+import org.harvestcircle.application.HubTraceHistoryQuery
+import org.harvestcircle.application.HubTracePage
+import org.harvestcircle.application.HubTraceQuery
+import org.harvestcircle.application.HubTraceSnapshot
+import org.harvestcircle.application.HubTraceSnapshotQuery
 import org.harvestcircle.application.HubTreatmentPage
 import org.harvestcircle.application.HubTreatmentQuery
 import org.harvestcircle.application.HubTreatmentScope
@@ -98,6 +107,7 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     HarvestCircleHandlingRuntime,
     HarvestCircleDispatchRuntime,
     HarvestCircleDepartureRuntime,
+    HarvestCircleTraceRuntime,
     AutoCloseable {
     override val buildInfo: BuildInfo = BuildInfo.unknown()
 
@@ -154,6 +164,26 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     ): List<HubReferenceReceipt> =
         withContext(Dispatchers.IO) {
             callBridge { bridge.referenceHistory(id, afterRevision, limit).map { it.toModel() } }
+        }
+
+    override suspend fun tracePage(query: HubTraceQuery): HubTracePage =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.tracePage(query.toNative()).toModel() }
+        }
+
+    override suspend fun traceSnapshot(query: HubTraceSnapshotQuery): HubTraceSnapshot =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.traceSnapshot(query.toNative()).toModel() }
+        }
+
+    override suspend fun traceHistory(query: HubTraceHistoryQuery): HubTraceHistoryPage =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.traceHistory(query.toNative()).toModel() }
+        }
+
+    override suspend fun localOutput(request: HubLocalOutputRequest): HubLocalOutput =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.localOutput(request.toNative()).toModel() }
         }
 
     override suspend fun departureReview(input: HubDepartureReviewInput): HubDepartureReview =

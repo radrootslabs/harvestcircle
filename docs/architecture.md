@@ -187,7 +187,7 @@ lines and 32 versions are retained per preparation, with 1,024 preparations per 
 Native journal budgeting reserves a closure slot for every active issued version
 alongside outstanding hold releases and precautionary hold/release headroom.
 
-FFI 5.10 and the Kotlin transport expose bounded preparation pages, complete selected
+FFI 5.11 and the Kotlin transport expose bounded preparation pages, complete selected
 records, original receipts and closed commands. List rows are summaries; version
 history belongs to the selected record. Shared Dispatch editors select a recipient
 and whole current groups, prepare/revise, issue, replace or mark identification
@@ -229,7 +229,7 @@ Physical usage is a separate current projection: the preparation page and select
 view report Departed and its original operation, while as-issued material/status
 remain unchanged. Used identification cannot be revised or marked unused. Issued
 closure budgeting consumes that preparation's reserved closure while preserving
-other documents, hold releases and precautionary headroom. FFI 5.10 exposes a bounded
+other documents, hold releases and precautionary headroom. FFI 5.11 exposes a bounded
 actual-departure command and original-result lookup through the existing current
 session/owner/credential boundary. The shared confirmation workspace renders native
 readiness and work proposals for a frozen issued version. The operator records an
@@ -275,8 +275,15 @@ departure readers. Fully departed populations remain retrievable. History binds
 both before and after material for every document source line, including a removed
 line's replacement action. Continuations pin both stock and catalog revisions;
 recording order is distinct from actual occurrence. These queries write no stock,
-document or intent rows. Native actor/FFI and desktop output adapters remain to be
-wired; storage helpers alone do not qualify a complete operator workflow.
+document or intent rows. Native FFI5.11 exposes these reads and bounded local
+rendering through the current-owner/session observation boundary. A missing signer
+credential does not prevent an already authorized read; another owner or a signed-
+out session cannot inspect or render it. Current trace output pins both revisions;
+exact issued output binds the requested immutable version. Rendering happens after
+the storage read transaction and performs no save, print or stock mutation. Generated
+Kotlin transport carries the native facts and rendered content without deciding
+scope, balance or eligibility. Shared inspection and desktop save/print adapters
+remain unfinished, as does complete candidate recovery/release qualification.
 
 ## Secrets, transport and lifecycle
 

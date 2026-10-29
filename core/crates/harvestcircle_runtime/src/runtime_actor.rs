@@ -46,6 +46,9 @@ use hub_handling::{HubHandlingCommand, HubHandlingValue};
 mod hub_authority;
 #[path = "hub_dispatch.rs"]
 mod hub_dispatch;
+#[path = "hub_trace.rs"]
+mod hub_trace;
+pub use hub_trace::HubLocalOutputRequest;
 
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_TASK_CAPACITY: usize = 64;
@@ -4132,12 +4135,70 @@ mod tests {
             SafeErrorCode::HubConflict
         );
         assert_eq!(blocked_preview.view.record, prepared.record);
+        let trace_query = harvestcircle_storage::HubTraceSnapshotQuery {
+            trace: receipt.original.trace.id,
+            expected_revision: None,
+            expected_catalog_revision: None,
+        };
+        let trace_before = actor.hub_trace_snapshot(trace_query.clone()).await.unwrap();
+        let trace_history = harvestcircle_storage::HubTraceHistoryQuery {
+            trace: trace_query.trace,
+            expected_revision: None,
+            expected_catalog_revision: None,
+            offset: 0,
+            limit: 64,
+        };
+        let trace_history_before = actor
+            .hub_trace_history(trace_history.clone())
+            .await
+            .unwrap();
+        let output_request =
+            crate::HubLocalOutputRequest::Trace(harvestcircle_storage::HubTraceSnapshotQuery {
+                expected_revision: Some(trace_before.stock_revision),
+                expected_catalog_revision: Some(trace_before.catalog_revision),
+                ..trace_query.clone()
+            });
+        let output_before = actor
+            .hub_local_output(output_request.clone())
+            .await
+            .unwrap();
+        assert!(
+            output_before
+                .html
+                .contains("Sample population trace snapshot")
+        );
         let old_generation = actor.session_generation();
         let credential = secrets.load(owner).await.unwrap();
         secrets
             .delete(&DurableRequestId::new_v7(), owner)
             .await
             .unwrap();
+        assert_eq!(
+            trace_before,
+            actor.hub_trace_snapshot(trace_query.clone()).await.unwrap()
+        );
+        assert_eq!(
+            trace_history_before,
+            actor
+                .hub_trace_history(trace_history.clone())
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            output_before,
+            actor
+                .hub_local_output(output_request.clone())
+                .await
+                .unwrap()
+        );
+        assert!(
+            actor
+                .hub_trace_page(harvestcircle_storage::HubTraceQuery::default())
+                .await
+                .unwrap()
+                .total
+                > 0
+        );
         assert_eq!(
             actor
                 .apply_hub_dispatch(
@@ -4442,6 +4503,38 @@ mod tests {
         assert_eq!(
             actor
                 .hub_departure_review(departure_review)
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert_eq!(
+            actor
+                .hub_trace_page(harvestcircle_storage::HubTraceQuery::default())
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert_eq!(
+            actor
+                .hub_trace_snapshot(trace_query)
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert_eq!(
+            actor
+                .hub_trace_history(trace_history)
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert_eq!(
+            actor
+                .hub_local_output(output_request)
                 .await
                 .unwrap_err()
                 .code(),

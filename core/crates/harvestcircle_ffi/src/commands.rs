@@ -42,6 +42,10 @@ use crate::hub_reference::{
     HubReferenceEditDto, HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto,
 };
 use crate::hub_stock::{HubReceiptInputDto, HubStockPageDto, HubStockQueryDto, HubStockReceiptDto};
+use crate::hub_trace::{
+    HubLocalOutputDto, HubLocalOutputRequestDto, HubTraceHistoryPageDto, HubTraceHistoryQueryDto,
+    HubTracePageDto, HubTraceQueryDto, HubTraceSnapshotDto, HubTraceSnapshotQueryDto,
+};
 use crate::hub_treatment::{
     HubTreatmentPageDto, HubTreatmentQueryDto, HubTreatmentScopeDto, HubTreatmentSnapshotDto,
 };
@@ -597,6 +601,55 @@ impl HarvestCircleAppCore {
         self.inner
             .actor
             .hub_treatment_history(query.decode()?)
+            .await
+            .map(Into::into)
+            .map_err(HarvestCircleError::from)
+    }
+
+    pub async fn hub_trace_page(
+        &self,
+        query: HubTraceQueryDto,
+    ) -> Result<HubTracePageDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        self.inner
+            .actor
+            .hub_trace_page(query.decode()?)
+            .await
+            .map(Into::into)
+            .map_err(HarvestCircleError::from)
+    }
+    pub async fn hub_trace_snapshot(
+        &self,
+        query: HubTraceSnapshotQueryDto,
+    ) -> Result<HubTraceSnapshotDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        self.inner
+            .actor
+            .hub_trace_snapshot(query.decode()?)
+            .await
+            .map_err(HarvestCircleError::from)?
+            .try_into()
+    }
+    pub async fn hub_trace_history(
+        &self,
+        query: HubTraceHistoryQueryDto,
+    ) -> Result<HubTraceHistoryPageDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        self.inner
+            .actor
+            .hub_trace_history(query.decode()?)
+            .await
+            .map(Into::into)
+            .map_err(HarvestCircleError::from)
+    }
+    pub async fn hub_local_output(
+        &self,
+        request: HubLocalOutputRequestDto,
+    ) -> Result<HubLocalOutputDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        self.inner
+            .actor
+            .hub_local_output(request.decode()?)
             .await
             .map(Into::into)
             .map_err(HarvestCircleError::from)
@@ -2378,6 +2431,14 @@ mod tests {
             .unwrap();
         assert_eq!(issued.record.state, crate::HubDispatchStateDto::Issued);
         assert_eq!(issued.record.versions[0].material.whole_packs, 5);
+        let issued_output_request = crate::HubLocalOutputRequestDto::Identification {
+            preparation_id: issued.record.id.clone(),
+            identification_id: issued.record.versions[0].id.clone(),
+        };
+        let issued_output = core
+            .hub_local_output(issued_output_request.clone())
+            .await
+            .unwrap();
         assert_eq!(
             issued.record.versions[0].issued.operation_id,
             issued.operation_id
@@ -2497,6 +2558,77 @@ mod tests {
         assert!(!review.ready);
         assert_eq!(review.view.state, crate::HubDispatchStateDto::Departed);
         assert_eq!(review.view.departure.unwrap().id, departed.id);
+        let trace_query = crate::HubTraceQueryDto {
+            selection: crate::HubTraceSelectionDto {
+                scope: crate::HubTraceScopeDto::All,
+                receipt_id: None,
+                source_id: None,
+                text: String::new(),
+            },
+            expected_stock_revision: None,
+            expected_catalog_revision: None,
+            offset: 0,
+            limit: 64,
+        };
+        let trace_page = core.hub_trace_page(trace_query.clone()).await.unwrap();
+        assert_eq!(trace_page.total, 1);
+        assert_eq!(trace_page.rows[0].on_hand_whole_packs, 15);
+        assert_eq!(trace_page.rows[0].departed_whole_packs, 5);
+        let trace_snapshot_query = crate::HubTraceSnapshotQueryDto {
+            trace_id: recorded.trace.id.clone(),
+            expected_stock_revision: Some(trace_page.stock_revision),
+            expected_catalog_revision: Some(trace_page.catalog_revision),
+        };
+        let trace_snapshot = core
+            .hub_trace_snapshot(trace_snapshot_query.clone())
+            .await
+            .unwrap();
+        assert_eq!(trace_snapshot.trace.original_whole_packs, 20);
+        assert_eq!(trace_snapshot.exits.len(), 1);
+        assert_eq!(trace_snapshot.exits[0].operation_id, departed.operation_id);
+        let history_query = crate::HubTraceHistoryQueryDto {
+            trace_id: recorded.trace.id.clone(),
+            expected_stock_revision: Some(trace_page.stock_revision),
+            expected_catalog_revision: Some(trace_page.catalog_revision),
+            offset: 0,
+            limit: 64,
+        };
+        let history = core.hub_trace_history(history_query.clone()).await.unwrap();
+        assert!(
+            history
+                .rows
+                .iter()
+                .any(|r| r.operation_id == departed.operation_id
+                    && r.kind == crate::HubTraceHistoryKindDto::Departure)
+        );
+        assert_eq!(
+            issued_output,
+            core.hub_local_output(issued_output_request.clone())
+                .await
+                .unwrap()
+        );
+        let output_request = crate::HubLocalOutputRequestDto::Trace {
+            trace_id: recorded.trace.id.clone(),
+            expected_stock_revision: trace_page.stock_revision,
+            expected_catalog_revision: trace_page.catalog_revision,
+        };
+        let output = core.hub_local_output(output_request.clone()).await.unwrap();
+        assert!(output.html.contains("On hand:</strong> 15"));
+        assert!(output.html.contains("Actual departed:</strong> 5"));
+        assert_eq!(
+            output,
+            core.hub_local_output(output_request.clone()).await.unwrap()
+        );
+        assert_eq!(
+            history,
+            core.hub_trace_history(history_query.clone()).await.unwrap()
+        );
+        assert_eq!(
+            trace_snapshot,
+            core.hub_trace_snapshot(trace_snapshot_query.clone())
+                .await
+                .unwrap()
+        );
 
         assert!(
             core.apply_hub_departure(context(core.snapshot().revision), departure_input.clone())
@@ -2504,6 +2636,11 @@ mod tests {
                 .is_err()
         );
         core.sign_out().await.unwrap();
+        assert!(core.hub_trace_page(trace_query).await.is_err());
+        assert!(core.hub_trace_snapshot(trace_snapshot_query).await.is_err());
+        assert!(core.hub_trace_history(history_query).await.is_err());
+        assert!(core.hub_local_output(output_request).await.is_err());
+        assert!(core.hub_local_output(issued_output_request).await.is_err());
         assert!(
             core.apply_hub_departure(context(core.snapshot().revision), departure_input)
                 .await
