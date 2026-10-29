@@ -15,7 +15,10 @@ use sqlx::Row;
 use stock::read::{record_id, revision_field, whole_packs};
 
 pub(in crate::hub) mod read;
+pub(crate) mod reconciliation_schema;
 pub(crate) mod schema;
+#[cfg(test)]
+mod schema_tests;
 #[cfg(test)]
 mod tests;
 mod write;

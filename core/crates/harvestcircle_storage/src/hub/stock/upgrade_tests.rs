@@ -40,6 +40,7 @@ async fn original_rows(connection: &mut SqliteConnection, through_version: u32) 
     ]
     .into_iter()
     .chain((through_version >= 13).then_some("SELECT * FROM hub_counted_openings ORDER BY rowid"))
+    .chain((through_version >= 14).then_some("SELECT * FROM hub_count_observations ORDER BY rowid"))
     {
         hash.update(query.as_bytes());
         let statement = sqlx::query(query);
@@ -521,6 +522,194 @@ async fn retained_schema13_count_upgrade_preserves_originals_and_records_without
         Some(opening)
     );
     assert_eq!(db.hub_stock_page(owner(), query()).await.unwrap(), after);
+    db.close().await.unwrap();
+    let mut raw = SqliteConnection::connect_with(&options).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("PRAGMA integrity_check")
+            .fetch_one(&mut raw)
+            .await
+            .unwrap(),
+        "ok"
+    );
+    assert!(
+        sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&mut raw)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    raw.close().await.unwrap();
+    assert_eq!(
+        format!("{:x}", Sha256::digest(std::fs::read(&archive).unwrap())),
+        SHA256
+    );
+}
+
+#[tokio::test]
+#[ignore = "Consumes the owned actual schema14 witness without recreating or resetting old data"]
+async fn retained_schema14_reconciliation_upgrade_preserves_every_original_and_saved_count() {
+    assert_eq!(crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION, 15);
+    let project = PathBuf::from(std::env::var_os("EXT_BUILD_PROJECT_DIR").unwrap())
+        .canonicalize()
+        .unwrap();
+    let output = project
+        .join("retained_evidence/harvestcircle-schema14-before-count-post-v1")
+        .canonicalize()
+        .unwrap();
+    assert_eq!(output.parent().unwrap().parent(), Some(project.as_path()));
+    let witness: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output.join("witness.json")).unwrap()).unwrap();
+    assert_eq!(witness["schema"], 14);
+    const SHA256: &str = "ee2df44622c6cf1bcd12f844ab8c964a07f75dc6adfd6b735c8e9ab21278a3ce";
+    let archive = PathBuf::from(witness["original_archive"].as_str().unwrap())
+        .canonicalize()
+        .unwrap();
+    let profile = PathBuf::from(witness["profile_source_root"].as_str().unwrap())
+        .canonicalize()
+        .unwrap();
+    let state = PathBuf::from(witness["state_file"].as_str().unwrap())
+        .canonicalize()
+        .unwrap();
+    assert!(
+        archive.starts_with(&output)
+            && profile.starts_with(project.join("retained_evidence"))
+            && state.starts_with(&profile)
+    );
+    assert_eq!(
+        format!("{:x}", Sha256::digest(std::fs::read(&archive).unwrap())),
+        SHA256
+    );
+    assert_eq!(
+        format!("{:x}", Sha256::digest(std::fs::read(&state).unwrap())),
+        SHA256,
+        "consume only the original closed native schema14 world"
+    );
+    let options = SqliteConnectOptions::new()
+        .filename(&state)
+        .create_if_missing(false)
+        .read_only(true);
+    let mut raw = SqliteConnection::connect_with(&options).await.unwrap();
+    let before = original_rows(&mut raw, 14).await;
+    raw.close().await.unwrap();
+    let context = RuntimeContext::resolve(
+        &RadrootsPathResolver::new(
+            RadrootsPlatform::current(),
+            RadrootsHostEnvironment::default(),
+        ),
+        RuntimeContextBootstrap::new(
+            RadrootsPathProfile::RepoLocal,
+            Some(profile),
+            RuntimeContextSource::BootstrapCli,
+            RuntimeContextSource::SafeDefault,
+        )
+        .unwrap(),
+        ServiceId::new("harvestcircle").unwrap(),
+        InstanceId::new("desktop").unwrap(),
+    )
+    .unwrap();
+    let build = MigrationBuildIdentity::new(
+        "0.1.0-alpha",
+        "3333333333333333333333333333333333333333",
+        "189c49b74b4bafc142b00b76b296477931139e72",
+        "1.99.0",
+        "test",
+        "test",
+        1,
+        15,
+        1,
+        1,
+        1,
+    )
+    .unwrap();
+    let db = Database::open(&context, 99, 100, &build).await.unwrap();
+    assert_eq!(db.metadata().state_schema_version().get(), 15);
+    let original = db
+        .hub_receipt_operation(owner(), operation(1))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(original.original.trace.original_packs.value(), 20);
+    assert_eq!(original.original.put_away.remaining().value(), 20);
+    let opening = db
+        .hub_opening_operation(owner(), operation(2))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(opening.original.population.original_packs.value(), 8);
+    let count = db
+        .hub_count_observation_operation(owner(), operation(3))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(count.original.scope.recorded_packs.value(), 20);
+    assert_eq!(count.original.counted_packs.value(), 18);
+    db.close().await.unwrap();
+    let mut raw = SqliteConnection::connect_with(&options).await.unwrap();
+    assert_eq!(original_rows(&mut raw, 14).await, before);
+    raw.close().await.unwrap();
+    let db = Database::open(&context, 99, 101, &build).await.unwrap();
+    let page = db.hub_stock_page(owner(), query()).await.unwrap();
+    let scope = &count.original.scope;
+    let input = harvestcircle_domain::hub::counts::CountObserveCommand {
+        expected_stock_revision: scope.stock_revision,
+        expected_catalog_revision: scope.catalog_revision,
+        group: scope.group,
+        expected_group_revision: scope.group_revision,
+        counted_packs: count.original.counted_packs,
+        cutoff: count.original.cutoff,
+        observation: count.original.observation.clone(),
+    };
+    assert_eq!(
+        db.observe_hub_count(owner(), operation(3), input, now())
+            .await
+            .unwrap(),
+        count
+    );
+    assert_eq!(db.hub_stock_page(owner(), query()).await.unwrap(), page);
+    assert_eq!(page.revision.value(), 4);
+    assert_eq!(
+        page.rows
+            .iter()
+            .map(|r| r.position.packs.value())
+            .sum::<u32>(),
+        28
+    );
+    let mut raw = SqliteConnection::connect_with(&options).await.unwrap();
+    for sql in [
+        "SELECT count(*) FROM hub_count_reconciliations",
+        "SELECT count(*) FROM hub_count_reconciliation_work",
+        "SELECT count(*) FROM hub_counted_surplus",
+    ] {
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(sql)
+                .fetch_one(&mut raw)
+                .await
+                .unwrap(),
+            0
+        );
+    }
+    raw.close().await.unwrap();
+    db.close().await.unwrap();
+    let db = Database::open(&context, 99, 102, &build).await.unwrap();
+    assert_eq!(
+        db.hub_count_observation_operation(owner(), operation(3))
+            .await
+            .unwrap(),
+        Some(count)
+    );
+    assert_eq!(
+        db.hub_receipt_operation(owner(), operation(1))
+            .await
+            .unwrap(),
+        Some(original)
+    );
+    assert_eq!(
+        db.hub_opening_operation(owner(), operation(2))
+            .await
+            .unwrap(),
+        Some(opening)
+    );
+    assert_eq!(db.hub_stock_page(owner(), query()).await.unwrap(), page);
     db.close().await.unwrap();
     let mut raw = SqliteConnection::connect_with(&options).await.unwrap();
     assert_eq!(

@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 14, FFI is 5.14 and snapshot schema is 1. Rust and
+The current storage schema is 15, FFI is 5.15 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -58,6 +58,13 @@ observations are retained evidence. Recovery verifies original command and
 result facts rather than hydrating them from current balances. Observation
 recording grants no reconciliation permission. Opening/count forms and count
 posting remain unfinished.
+
+Schema15 prepares immutable reconciliation headers, complete original work
+snapshots and removed-work scopes. Completed scope remains completed history;
+only removed pending scope becomes no-longer-required. Count-linked surplus has
+its own population origin and birth guard, with unknown source and explicit count
+time. These storage constraints grant no mutation authority. Native posting,
+current activity/uncertainty checks and its command surfaces remain unfinished.
 
 The runtime context uses service `harvestcircle`, instance `desktop`, and exact
 `state.sqlite`/`state.lock` names. SQLx is the high-level SQLite authority. The

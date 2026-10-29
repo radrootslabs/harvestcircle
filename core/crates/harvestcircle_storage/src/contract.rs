@@ -14,7 +14,7 @@ pub const HARVESTCIRCLE_SERVICE_ID: &str = "harvestcircle";
 pub const HARVESTCIRCLE_INSTANCE_ID: &str = "desktop";
 pub const HARVESTCIRCLE_APPLICATION_ID: u32 = 0x4843_5231;
 pub(crate) const HARVESTCIRCLE_INITIAL_STATE_SCHEMA_VERSION: u32 = 1;
-pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 14;
+pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 15;
 pub const HARVESTCIRCLE_IDENTITY_CAPACITY: usize = 256;
 pub const HARVESTCIRCLE_UNFINISHED_DURABLE_OPERATION_CAPACITY: usize = 1_024;
 pub const HARVESTCIRCLE_DURABLE_OPERATION_CAPACITY: usize = 4_096;
@@ -631,6 +631,13 @@ pub fn harvestcircle_migration_catalog()
         crate::hub::counts::schema::MIGRATION_CHECKSUM,
     )
     .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)?;
+    let reconciliation = MigrationDescriptor::sql(
+        15,
+        "prepare_count_reconciliation",
+        crate::hub::counts::reconciliation_schema::MIGRATION_SQL,
+        crate::hub::counts::reconciliation_schema::MIGRATION_CHECKSUM,
+    )
+    .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)?;
     MigrationCatalog::new([
         migration,
         evidence,
@@ -645,6 +652,7 @@ pub fn harvestcircle_migration_catalog()
         populations,
         opening,
         counts,
+        reconciliation,
     ])
     .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)
 }
@@ -739,6 +747,12 @@ fn schema_catalog_for(
         SchemaDigest::from_bytes(crate::hub::counts::schema::SCHEMA_DIGEST),
     )
     .map_err(schema_error)?;
+    let version_fifteen = SchemaVersionCatalog::new(
+        15,
+        schema_objects_v15()?,
+        SchemaDigest::from_bytes(crate::hub::counts::reconciliation_schema::SCHEMA_DIGEST),
+    )
+    .map_err(schema_error)?;
     SchemaCatalog::new(
         migrations,
         [
@@ -756,6 +770,7 @@ fn schema_catalog_for(
             version_twelve,
             version_thirteen,
             version_fourteen,
+            version_fifteen,
         ],
     )
     .map_err(schema_error)
@@ -773,6 +788,14 @@ fn schema_objects_v4() -> Result<Vec<SchemaObject>, HarvestCircleStorageContract
 fn schema_objects_v6() -> Result<Vec<SchemaObject>, HarvestCircleStorageContractError> {
     let mut objects = schema_objects_v5()?;
     objects.extend(crate::hub::stock::schema::schema_objects().map_err(schema_error)?);
+    Ok(objects)
+}
+
+fn schema_objects_v15() -> Result<Vec<SchemaObject>, HarvestCircleStorageContractError> {
+    let mut objects = schema_objects_v14()?;
+    objects.retain(|object| object.name() != "hub_group_birth_guard");
+    objects
+        .extend(crate::hub::counts::reconciliation_schema::schema_objects().map_err(schema_error)?);
     Ok(objects)
 }
 
@@ -991,6 +1014,7 @@ mod tests {
             crate::hub::stock::population_schema::MIGRATION_SQL,
             crate::hub::stock::opening_schema::MIGRATION_SQL,
             crate::hub::counts::schema::MIGRATION_SQL,
+            crate::hub::counts::reconciliation_schema::MIGRATION_SQL,
         ] {
             sqlx::raw_sql(migration)
                 .execute(&mut connection)
@@ -1008,7 +1032,7 @@ mod tests {
                 "migrations must retain the protected host's database scope"
             );
         }
-        for object in schema_objects_v14().unwrap() {
+        for object in schema_objects_v15().unwrap() {
             let row = sqlx::query("SELECT tbl_name,sql FROM sqlite_schema WHERE name=?")
                 .bind(object.name())
                 .fetch_one(&mut connection)
@@ -1027,6 +1051,22 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn count_schema15_pins_match_reviewed_definitions() {
+        let checksum =
+            MigrationChecksum::for_sql(crate::hub::counts::reconciliation_schema::MIGRATION_SQL);
+        let digest =
+            SchemaVersionCatalog::computed_digest(15, schema_objects_v15().unwrap()).unwrap();
+        assert_eq!(
+            checksum,
+            crate::hub::counts::reconciliation_schema::MIGRATION_CHECKSUM
+        );
+        assert_eq!(
+            digest.as_bytes(),
+            &crate::hub::counts::reconciliation_schema::SCHEMA_DIGEST
+        );
+    }
+
     #[test]
     fn count_schema14_pins_match_reviewed_definitions() {
         let checksum = MigrationChecksum::for_sql(crate::hub::counts::schema::MIGRATION_SQL);
@@ -1218,10 +1258,10 @@ mod tests {
             contract.application_id().get(),
             HARVESTCIRCLE_APPLICATION_ID
         );
-        assert_eq!(contract.state_schema_version().get(), 14);
-        assert_eq!(contract.migrations().current_version(), 14);
-        assert_eq!(contract.migrations().descriptors().len(), 13);
-        assert_eq!(contract.schema().versions().len(), 14);
+        assert_eq!(contract.state_schema_version().get(), 15);
+        assert_eq!(contract.migrations().current_version(), 15);
+        assert_eq!(contract.migrations().descriptors().len(), 14);
+        assert_eq!(contract.schema().versions().len(), 15);
         assert_eq!(harvestcircle_initial_schema_sql().len(), 9);
     }
 
