@@ -43,6 +43,9 @@ use hub_reference::{HubReferenceCommand, HubReferenceValue};
 #[path = "hub_stock.rs"]
 mod hub_stock;
 use hub_stock::{HubStockCommand, HubStockValue};
+#[path = "hub_counts.rs"]
+mod hub_counts;
+use hub_counts::{HubCountCommand, HubCountValue};
 #[path = "hub_handling.rs"]
 mod hub_handling;
 use hub_handling::{HubHandlingCommand, HubHandlingValue};
@@ -67,6 +70,10 @@ enum RuntimeCommand {
     HubStock {
         generation: SessionGeneration,
         command: HubStockCommand,
+    },
+    HubCount {
+        generation: SessionGeneration,
+        command: HubCountCommand,
     },
     HubReference {
         generation: SessionGeneration,
@@ -112,6 +119,7 @@ enum RuntimeCommandValue {
     Hub(Option<HubOwnership>),
     HubReference(HubReferenceValue),
     HubStock(HubStockValue),
+    HubCount(HubCountValue),
     HubHandling(HubHandlingValue),
     Snapshot(Box<AppSnapshot>),
     Generated(GenerateIdentityReceipt),
@@ -129,6 +137,7 @@ impl RuntimeCommand {
         match self {
             Self::HubReference { command, .. } => command.class(),
             Self::HubStock { command, .. } => command.class(),
+            Self::HubCount { command, .. } => command.class(),
             Self::HubHandling { command, .. } => command.class(),
             Self::Snapshot
             | Self::HubRead { .. }
@@ -155,6 +164,7 @@ impl RuntimeCommand {
             Self::InitializeHub { .. } => true,
             Self::HubReference { command, .. } => command.is_mutating(),
             Self::HubStock { command, .. } => command.is_mutating(),
+            Self::HubCount { command, .. } => command.is_mutating(),
             Self::HubHandling { command, .. } => command.is_mutating(),
             _ => false,
         }
@@ -1127,6 +1137,10 @@ impl RuntimeActor {
                 generation,
                 command,
             } => self.execute_hub_stock(generation, context, command).await,
+            RuntimeCommand::HubCount {
+                generation,
+                command,
+            } => self.execute_hub_count(generation, context, command).await,
             RuntimeCommand::HubReference {
                 generation,
                 command,
@@ -1959,7 +1973,7 @@ mod tests {
         }
     }
 
-    fn dependencies(
+    pub(super) fn dependencies(
         secrets: Arc<dyn SecretStore>,
         nostr: Arc<dyn NostrClient>,
     ) -> RuntimeDependencies {
@@ -1979,7 +1993,7 @@ mod tests {
         }
     }
 
-    struct OfflineNostr;
+    pub(super) struct OfflineNostr;
 
     impl NostrClient for OfflineNostr {
         fn fetch_profile<'a>(

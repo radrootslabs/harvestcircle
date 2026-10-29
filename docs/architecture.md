@@ -61,7 +61,11 @@ protected current cut for the group, latest physical activity/count/reconciliati
 and live pending-submission/actual-review sources. The returned comparison neither
 admits a command nor changes stock/work. Posting must repeat those checks inside
 its effect transaction. Actual-report command handling remains unfinished.
-Opening/count forms and their runtime command surfaces remain unfinished.
+Opening/count mutations use the serialized native actor with current session and
+credential checks before durable admission. Observation review and original-result
+lookup remain read-only under current hub ownership, including when a credential
+is missing. Read results never authorize another effect. Their generated FFI command
+surfaces and shared forms remain unfinished.
 
 Schema15 prepares immutable reconciliation headers, complete original work
 snapshots and removed-work scopes. Completed scope remains completed history;
@@ -102,7 +106,7 @@ unused-document closure have a separate per-capture 1 MiB bound and do not spend
 that ordinary allocation. Other captures are bounded to 16 MiB, with an independent
 64 KiB raw input bound. Pending submissions and unresolved actual-report reviews
 block unsafe planned stock changes at admission and effect insertion. Actual-report
-handling, opening/count runtime command surfaces, recovery UI and restore carry-forward remain unfinished.
+handling, opening/count generated command surfaces, recovery UI and restore carry-forward remain unfinished.
 
 The runtime context uses service `harvestcircle`, instance `desktop`, and exact
 `state.sqlite`/`state.lock` names. SQLx is the high-level SQLite authority. The

@@ -1,7 +1,7 @@
 //! Serialized current-session inventory commands. Domain and SQL own consequences.
 use super::*;
-use harvestcircle_domain::hub::stock::ReceiptCommand;
-use harvestcircle_storage::{HubStockPage, HubStockQuery, HubStockReceipt};
+use harvestcircle_domain::hub::stock::{OpeningCommand, ReceiptCommand};
+use harvestcircle_storage::{HubOpeningReceipt, HubStockPage, HubStockQuery, HubStockReceipt};
 
 pub(super) enum HubStockCommand {
     Read(HubStockQuery),
@@ -10,10 +10,15 @@ pub(super) enum HubStockCommand {
         command: Box<ReceiptCommand>,
     },
     ReceiptOperation(DurableRequestId),
+    Opening {
+        operation: DurableRequestId,
+        command: Box<OpeningCommand>,
+    },
+    OpeningOperation(DurableRequestId),
 }
 impl HubStockCommand {
     pub(super) const fn is_mutating(&self) -> bool {
-        matches!(self, Self::Receive { .. })
+        matches!(self, Self::Receive { .. } | Self::Opening { .. })
     }
 
     pub(super) const fn class(&self) -> RuntimeCommandClass {
@@ -27,6 +32,7 @@ impl HubStockCommand {
 pub(super) enum HubStockValue {
     Page(Box<HubStockPage>),
     Receipt(Option<Box<HubStockReceipt>>),
+    Opening(Option<Box<HubOpeningReceipt>>),
 }
 
 impl RuntimeActorHandle {
@@ -74,6 +80,43 @@ impl RuntimeActorHandle {
             _ => Err(invalid_actor_response()),
         }
     }
+    pub async fn record_hub_opening(
+        &self,
+        operation: DurableRequestId,
+        command: OpeningCommand,
+        expected: SnapshotRevision,
+        timeout: Duration,
+    ) -> Result<HubOpeningReceipt, SafeError> {
+        match self
+            .dispatch_durable(
+                RuntimeCommand::HubStock {
+                    generation: self.session_generation(),
+                    command: HubStockCommand::Opening {
+                        operation,
+                        command: Box::new(command),
+                    },
+                },
+                expected,
+                timeout,
+            )
+            .await?
+        {
+            RuntimeCommandValue::HubStock(HubStockValue::Opening(Some(receipt))) => Ok(*receipt),
+            _ => Err(invalid_actor_response()),
+        }
+    }
+    pub async fn hub_opening_operation(
+        &self,
+        operation: DurableRequestId,
+    ) -> Result<Option<HubOpeningReceipt>, SafeError> {
+        match self
+            .dispatch_stock(HubStockCommand::OpeningOperation(operation))
+            .await?
+        {
+            HubStockValue::Opening(receipt) => Ok(receipt.map(|r| *r)),
+            _ => Err(invalid_actor_response()),
+        }
+    }
     async fn dispatch_stock(&self, command: HubStockCommand) -> Result<HubStockValue, SafeError> {
         match self
             .dispatch(
@@ -118,6 +161,28 @@ impl RuntimeActor {
                                 .await?
                                 .map(Box::new),
                         ),
+                        HubStockCommand::OpeningOperation(operation) => HubStockValue::Opening(
+                            adapter
+                                .database()
+                                .hub_opening_operation(actor, operation)
+                                .await?
+                                .map(Box::new),
+                        ),
+                        HubStockCommand::Opening { operation, command } => {
+                            let result = hub_authority::submit(
+                                adapter.as_ref(),
+                                secrets.as_ref(),
+                                clock.as_ref(),
+                                scope,
+                                operation,
+                                HubMutation::Opening(command),
+                            )
+                            .await?;
+                            let HubMutationResult::Opened(receipt) = result else {
+                                return Err(invalid_actor_response());
+                            };
+                            HubStockValue::Opening(Some(receipt))
+                        }
                         HubStockCommand::Receive { operation, command } => {
                             let result = hub_authority::submit(
                                 adapter.as_ref(),
