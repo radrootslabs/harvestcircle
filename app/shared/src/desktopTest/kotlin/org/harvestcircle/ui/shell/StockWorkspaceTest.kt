@@ -40,6 +40,40 @@ import kotlin.test.assertEquals
 @OptIn(ExperimentalTestApi::class)
 class StockWorkspaceTest {
     @Test
+    fun countedStockDisplaysUnknownEarlierHistoryWithoutAnInventedReceiptOrWork() =
+        runComposeUiTest {
+            val population =
+                StockFixtures.trace.copy(
+                    initialLocation = StockFixtures.planned,
+                    plannedLocation = null,
+                    occurrence = org.harvestcircle.application.HubOccurrence(org.harvestcircle.application.HubOccurrenceKind.Known, 100L),
+                    origin =
+                        org.harvestcircle.application.HubPopulationOrigin
+                            .CountedOpening(null),
+                )
+            val row = StockFixtures.row.copy(trace = population, putAway = null)
+            setHarvestCircleContent {
+                StockWorkspace(
+                    AppRoute.HubStock,
+                    StockViewState(available = true, inspecting = row),
+                    StockPresenter(null, null, rememberCoroutineScope(), OperationIdSource { StockFixtures.operation }),
+                    {},
+                    {},
+                    manageRoute = false,
+                )
+            }
+            onNodeWithText("Counted stock entry").performScrollTo().assertIsDisplayed()
+            onNodeWithText("Counted at: A3").performScrollTo().assertIsDisplayed()
+            onNodeWithText("Earlier intake history: Unknown").performScrollTo().assertIsDisplayed()
+            onNodeWithText("Count time: Known", substring = true).performScrollTo().assertIsDisplayed()
+            onNodeWithText(
+                "No intake handling requested. Review the handling record for any later requirements.",
+            ).performScrollTo().assertIsDisplayed()
+            onNodeWithText("Original receipt").assertDoesNotExist()
+            onNodeWithTag("stock-work-remaining").assertDoesNotExist()
+        }
+
+    @Test
     fun receiptFormSendsActualReceivingAndPlannedLocationAsDistinctNativeFields() =
         runComposeUiTest {
             val runtime = StockUiRuntime()

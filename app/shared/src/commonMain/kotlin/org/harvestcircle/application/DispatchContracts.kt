@@ -84,7 +84,7 @@ data class HubDispatchLine(
     val location: HubReferenceRecord,
     val product: HubReferenceRecord,
     val variant: HubReferenceRecord,
-    val trace: HubReceiptTrace,
+    val trace: HubStockPopulation,
 )
 
 data class HubDispatchMaterial(

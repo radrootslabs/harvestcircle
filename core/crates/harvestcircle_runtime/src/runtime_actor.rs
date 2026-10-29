@@ -3859,7 +3859,16 @@ mod tests {
         let page = actor.hub_stock(query()).await.unwrap();
         assert_eq!(page.rows[0].position.packs.value(), 20);
         assert_eq!(page.rows[0].position.location, record(3));
-        assert_eq!(page.rows[0].put_away.remaining().value(), 20);
+        assert_eq!(
+            page.rows[0]
+                .put_away
+                .as_ref()
+                .unwrap()
+                .quantity
+                .remaining()
+                .value(),
+            20
+        );
         assert_eq!(
             actor
                 .hub_stock(HubStockQuery {

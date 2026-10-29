@@ -96,7 +96,7 @@ class BuildContractsTest {
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("package.version=1.0.0", "package.version=invalid")) }
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("schema=harvestcircle.ffi.v5", "schema=harvestcircle.ffi.v3")) }
         assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.major=5", "contract.major=3")) }
-        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=12", "contract.minor=6")) }
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=13", "contract.minor=6")) }
     }
 
     @Test
@@ -104,12 +104,17 @@ class BuildContractsTest {
         val baseline = FfiCompatibilityBaseline.parse(ffiBaseline)
 
         assertEquals("5", baseline["contract.major"])
-        assertEquals("12", baseline["contract.minor"])
+        assertEquals("13", baseline["contract.minor"])
         assertEquals("1", baseline["snapshot.schema"])
         assertEquals("1", baseline["storage.schema.minimum"])
-        assertEquals("12", baseline["storage.schema.current"])
-        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=12", "contract.minor=6")) }
-        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=12", "contract.minor=13")) }
+        assertEquals("13", baseline["storage.schema.current"])
+        assertFails { FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=13", "contract.minor=6")) }
+        val currentMinor = baseline["contract.minor"].toInt()
+        listOf(currentMinor - 1, currentMinor + 1).forEach { unsupported ->
+            assertFails {
+                FfiCompatibilityBaseline.parse(ffiBaseline.replace("contract.minor=$currentMinor", "contract.minor=$unsupported"))
+            }
+        }
     }
 
     @Test
@@ -217,12 +222,12 @@ class BuildContractsTest {
         schema=harvestcircle.ffi.v5
         contract.id=harvestcircle-desktop-ffi-v5
         contract.major=5
-        contract.minor=12
+        contract.minor=13
         contract.hash=${"a".repeat(64)}
         product.coordinate_digest=${"b".repeat(64)}
         snapshot.schema=1
         storage.schema.minimum=1
-        storage.schema.current=12
+        storage.schema.current=13
         product.version=0.1.0-alpha
         package.version=1.0.0
         """.trimIndent() + "\n"

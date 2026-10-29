@@ -193,7 +193,7 @@ private fun TraceOverview(
     presenter: TracePresenter,
 ) {
     val snapshot = requireNotNull(state.snapshot)
-    ReceiptTraceSummary(snapshot.trace)
+    StockPopulationSummary(snapshot.trace)
     snapshot.trace.source.id?.let { source ->
         HarvestCircleShellButton("Find this source and all unresolved candidates", {
             presenter.browse(HubTraceScope.SourceImpact, source)
@@ -299,6 +299,7 @@ private fun TraceHistory(
 private fun traceActionLabel(kind: HubTraceHistoryKind): String =
     when (kind) {
         HubTraceHistoryKind.Receipt -> "Original receipt"
+        HubTraceHistoryKind.CountedOpening -> "Counted opening stock"
         HubTraceHistoryKind.Move -> "Actual movement"
         HubTraceHistoryKind.Split -> "Observed physical separation"
         HubTraceHistoryKind.Acceptance -> "Sample acceptance decision"

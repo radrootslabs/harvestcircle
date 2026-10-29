@@ -2,7 +2,7 @@
 use crate::commands::HarvestCircleError;
 use crate::hub_handling::HubPhysicalIdentificationDto;
 use crate::hub_reference::{HubReferenceRecordDto, invalid_input};
-use crate::hub_stock::{HubOccurrenceDto, HubReceiptTraceDto};
+use crate::hub_stock::{HubOccurrenceDto, HubStockPopulationDto};
 use crate::hub_treatment::HubAcceptanceStatusDto;
 use crate::hub_treatment_input::{id, revision};
 use harvestcircle_domain::hub::trace::{TraceScope, TraceSelection, TraceSnapshot};
@@ -90,7 +90,7 @@ impl HubTraceQueryDto {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct HubTraceRowDto {
-    pub trace: HubReceiptTraceDto,
+    pub trace: HubStockPopulationDto,
     pub on_hand_whole_packs: u32,
     pub departed_whole_packs: u32,
 }
@@ -178,7 +178,7 @@ pub struct HubTraceSnapshotDto {
     pub hub_id: String,
     pub stock_revision: u64,
     pub catalog_revision: u64,
-    pub trace: HubReceiptTraceDto,
+    pub trace: HubStockPopulationDto,
     pub on_hand_whole_packs: u32,
     pub departed_whole_packs: u32,
     pub on_hand: Vec<HubTracePositionDto>,
@@ -280,6 +280,7 @@ impl HubTraceHistoryQueryDto {
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
 pub enum HubTraceHistoryKindDto {
     Receipt,
+    CountedOpening,
     Move,
     Split,
     Acceptance,
@@ -300,6 +301,7 @@ impl From<HubTraceHistoryKind> for HubTraceHistoryKindDto {
     fn from(value: HubTraceHistoryKind) -> Self {
         match value {
             HubTraceHistoryKind::Receipt => Self::Receipt,
+            HubTraceHistoryKind::CountedOpening => Self::CountedOpening,
             HubTraceHistoryKind::Departure => Self::Departure,
             HubTraceHistoryKind::Handling(kind) => match kind {
                 HubHandlingKind::Move => Self::Move,

@@ -7,8 +7,7 @@ use harvestcircle_domain::hub::reference::{
     SourceAttribution, SourceCertainty, SourceReferenceKind,
 };
 use harvestcircle_domain::hub::stock::{
-    HUB_STOCK_EVENT_CAPACITY, Occurrence, ReceiptCommand, ReceiptIdentities, StockError,
-    validate_source_reuse,
+    HUB_STOCK_EVENT_CAPACITY, Occurrence, ReceiptCommand, StockError, validate_source_reuse,
 };
 use harvestcircle_domain::{PublicKey, UnixTimestamp};
 use radroots_service_sqlite::ServiceSqliteTransaction;
@@ -77,7 +76,7 @@ pub(crate) async fn apply_on(
         .bind(hash.as_slice()).bind(integer(command.expected_catalog_revision)?).bind(integer(plan.stock_revision)?)
         .bind(ids.trace.as_bytes().as_slice()).bind(now.as_seconds())
         .execute(&mut *transaction).await.map_err(|_| storage_unavailable())?;
-    persist_source_on(transaction, hub, &operation, &plan, ids).await?;
+    persist_source_on(transaction, hub, &operation, &plan.trace, ids.source).await?;
     insert_receipt_on(transaction, &operation, &plan).await?;
     sqlx::query("INSERT INTO hub_stock_groups (group_id,trace_id,revision) VALUES (?,?,1)")
         .bind(ids.group.as_bytes().as_slice())
@@ -109,14 +108,14 @@ pub(crate) async fn apply_on(
     })
 }
 
-async fn persist_source_on(
+pub(super) async fn persist_source_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubOwnership,
     operation: &DurableRequestId,
-    plan: &ReceiptPlan,
-    ids: ReceiptIdentities,
+    population: &StockPopulation,
+    source_id: HubRecordId,
 ) -> Result<(), SafeError> {
-    let SourceAttribution::Referenced { source, .. } = &plan.trace.source else {
+    let SourceAttribution::Referenced { source, .. } = &population.source else {
         return Ok(());
     };
     let row = sqlx::query("SELECT substr(source_id,1,17) AS source_id, substr(issuer_id,1,17) AS issuer_id, substr(kind,1,20) AS source_kind, substr(CAST(source_code AS BLOB),1,129) AS source_code, substr(CAST(provenance AS BLOB),1,513) AS provenance, 'established' AS source_certainty FROM hub_source_references WHERE hub_id=? AND source_id=? LIMIT 1")
@@ -124,9 +123,9 @@ async fn persist_source_on(
         .fetch_optional(&mut *transaction).await.map_err(|_| storage_unavailable())?;
     if let Some(row) = row {
         let existing = super::read::source_from_row(&row)?;
-        return validate_source_reuse(&plan.trace.source, [existing]).map_err(stock_error);
+        return validate_source_reuse(&population.source, [existing]).map_err(stock_error);
     }
-    if source.id != ids.source {
+    if source.id != source_id {
         return Err(invalid_input());
     }
     let kind = match source.kind {
@@ -136,7 +135,7 @@ async fn persist_source_on(
     };
     sqlx::query("INSERT INTO hub_source_references (source_id,hub_id,issuer_id,issuer_revision,kind,source_code,provenance,created_operation_id) VALUES (?,?,?,?,?,?,?,?)")
         .bind(source.id.as_bytes().as_slice()).bind(hub.id().as_bytes().as_slice())
-        .bind(source.issuer.as_ref().map(|id| id.as_bytes().as_slice())).bind(optional_revision(plan.trace.source_issuer.as_ref())?)
+        .bind(source.issuer.as_ref().map(|id| id.as_bytes().as_slice())).bind(optional_revision(population.source_issuer.as_ref())?)
         .bind(kind).bind(source.code.as_str()).bind(source.provenance.as_str()).bind(operation.as_str())
         .execute(&mut *transaction).await.map_err(|_| storage_unavailable())?;
     Ok(())
@@ -147,7 +146,15 @@ pub(crate) async fn insert_receipt_on(
     operation: &DurableRequestId,
     plan: &ReceiptPlan,
 ) -> Result<(), SafeError> {
-    let trace = &plan.trace;
+    insert_population_on(transaction, operation, &plan.trace, plan.position.group).await
+}
+
+pub(super) async fn insert_population_on(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    operation: &DurableRequestId,
+    trace: &StockPopulation,
+    root_group: HubRecordId,
+) -> Result<(), SafeError> {
     let (source, certainty) = match &trace.source {
         SourceAttribution::Unknown => (None, None),
         SourceAttribution::Referenced { source, certainty } => (
@@ -159,17 +166,48 @@ pub(crate) async fn insert_receipt_on(
         ),
     };
     let (kind, start, end) = occurrence_fields(trace.occurred);
-    sqlx::query("INSERT INTO hub_receipts (trace_id,root_group_id,operation_id,variant_id,variant_revision,product_id,product_revision,supplier_id,supplier_revision,producer_id,producer_revision,source_id,source_certainty,source_issuer_revision,original_packs,receiving_id,receiving_revision,planned_location_id,planned_location_revision,occurrence_kind,occurrence_start_unix_s,occurrence_end_unix_s,observation) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-        .bind(trace.id.as_bytes().as_slice()).bind(plan.position.group.as_bytes().as_slice()).bind(operation.as_str())
-        .bind(trace.variant.id.as_bytes().as_slice()).bind(integer(trace.variant.revision)?)
-        .bind(trace.product.id.as_bytes().as_slice()).bind(integer(trace.product.revision)?)
-        .bind(trace.supplier.as_ref().map(|r| r.id.as_bytes().as_slice())).bind(optional_revision(trace.supplier.as_ref())?)
-        .bind(trace.producer.as_ref().map(|r| r.id.as_bytes().as_slice())).bind(optional_revision(trace.producer.as_ref())?)
-        .bind(source).bind(certainty).bind(optional_revision(trace.source_issuer.as_ref())?)
-        .bind(i64::from(trace.original_packs.value())).bind(trace.initial_location.id.as_bytes().as_slice()).bind(integer(trace.initial_location.revision)?)
-        .bind(trace.planned_location.as_ref().map(|r| r.id.as_bytes().as_slice())).bind(optional_revision(trace.planned_location.as_ref())?)
-        .bind(kind).bind(start).bind(end).bind(trace.observation.as_str())
-        .execute(&mut *transaction).await.map_err(|_| storage_unavailable())?;
+    // The receipt statement remains valid for actual pre-schema12 fixtures.
+    let sql = match &trace.origin {
+        harvestcircle_domain::hub::stock::PopulationOrigin::Receipt => {
+            "INSERT INTO hub_receipts (trace_id,root_group_id,operation_id,variant_id,variant_revision,product_id,product_revision,supplier_id,supplier_revision,producer_id,producer_revision,source_id,source_certainty,source_issuer_revision,original_packs,receiving_id,receiving_revision,planned_location_id,planned_location_revision,occurrence_kind,occurrence_start_unix_s,occurrence_end_unix_s,observation) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        }
+        harvestcircle_domain::hub::stock::PopulationOrigin::CountedOpening { .. } => {
+            "INSERT INTO hub_receipts (trace_id,root_group_id,operation_id,variant_id,variant_revision,product_id,product_revision,supplier_id,supplier_revision,producer_id,producer_revision,source_id,source_certainty,source_issuer_revision,original_packs,receiving_id,receiving_revision,planned_location_id,planned_location_revision,occurrence_kind,occurrence_start_unix_s,occurrence_end_unix_s,observation,origin_kind) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'opening')"
+        }
+        _ => return Err(invalid_input()),
+    };
+    sqlx::query(sql)
+        .bind(trace.id.as_bytes().as_slice())
+        .bind(root_group.as_bytes().as_slice())
+        .bind(operation.as_str())
+        .bind(trace.variant.id.as_bytes().as_slice())
+        .bind(integer(trace.variant.revision)?)
+        .bind(trace.product.id.as_bytes().as_slice())
+        .bind(integer(trace.product.revision)?)
+        .bind(trace.supplier.as_ref().map(|r| r.id.as_bytes().as_slice()))
+        .bind(optional_revision(trace.supplier.as_ref())?)
+        .bind(trace.producer.as_ref().map(|r| r.id.as_bytes().as_slice()))
+        .bind(optional_revision(trace.producer.as_ref())?)
+        .bind(source)
+        .bind(certainty)
+        .bind(optional_revision(trace.source_issuer.as_ref())?)
+        .bind(i64::from(trace.original_packs.value()))
+        .bind(trace.initial_location.id.as_bytes().as_slice())
+        .bind(integer(trace.initial_location.revision)?)
+        .bind(
+            trace
+                .planned_location
+                .as_ref()
+                .map(|r| r.id.as_bytes().as_slice()),
+        )
+        .bind(optional_revision(trace.planned_location.as_ref())?)
+        .bind(kind)
+        .bind(start)
+        .bind(end)
+        .bind(trace.observation.as_str())
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| storage_unavailable())?;
     Ok(())
 }
 

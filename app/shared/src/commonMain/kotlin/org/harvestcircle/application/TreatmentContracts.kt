@@ -111,7 +111,7 @@ data class HubHoldRow(
 data class HubTreatmentSnapshot(
     val stockRevision: ULong,
     val catalogRevision: ULong,
-    val trace: HubReceiptTrace,
+    val trace: HubStockPopulation,
     val basis: HubHandlingBasis,
     val summary: HubTreatmentSummary,
     val historyCapacityReached: Boolean,

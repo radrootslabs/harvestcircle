@@ -2,7 +2,7 @@
 use crate::commands::HarvestCircleError;
 use crate::hub_handling::HubPhysicalIdentificationDto;
 use crate::hub_reference::{HubReferenceRecordDto, invalid_input};
-use crate::hub_stock::{HubOccurrenceDto, HubReceiptTraceDto};
+use crate::hub_stock::{HubOccurrenceDto, HubStockPopulationDto};
 use harvestcircle_domain::hub::{HubRevision, reference::HubRecordId};
 use harvestcircle_storage::{
     HubGroupCreationKind, HubLineagePage, HubLineageQuery, HubLineageRow, HubSplitResult,
@@ -74,6 +74,7 @@ impl HubLineageQueryDto {
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
 pub enum HubGroupCreationKindDto {
     Receipt,
+    CountedOpening,
     Movement,
     Separation,
 }
@@ -107,6 +108,7 @@ impl From<HubLineageRow> for HubLineageRowDto {
             created_stock_revision: value.created_revision.value(),
             created_kind: match value.created_kind {
                 HubGroupCreationKind::Receipt => HubGroupCreationKindDto::Receipt,
+                HubGroupCreationKind::CountedOpening => HubGroupCreationKindDto::CountedOpening,
                 HubGroupCreationKind::Movement => HubGroupCreationKindDto::Movement,
                 HubGroupCreationKind::Separation => HubGroupCreationKindDto::Separation,
             },
@@ -129,7 +131,7 @@ pub struct HubLineagePageDto {
     pub more: bool,
     pub product: HubReferenceRecordDto,
     pub variant: HubReferenceRecordDto,
-    pub trace: HubReceiptTraceDto,
+    pub trace: HubStockPopulationDto,
     pub rows: Vec<HubLineageRowDto>,
 }
 impl From<HubLineagePage> for HubLineagePageDto {

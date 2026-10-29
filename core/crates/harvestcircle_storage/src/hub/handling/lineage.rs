@@ -233,6 +233,18 @@ pub(super) async fn creation_on(
     SafeError,
 > {
     Ok(match operation.kind.as_str() {
+        "opening" if parent.is_none() => {
+            let original = stock::opening::original_on(transaction, hub, operation).await?;
+            if original.original.group.id != id || original.original.population != *trace {
+                return Err(corrupt_storage());
+            }
+            (
+                HubGroupCreationKind::CountedOpening,
+                original.original.group.identification,
+                trace.occurred,
+                trace.observation.clone(),
+            )
+        }
         "receipt" if parent.is_none() => {
             let original = stock::read::receipt_on(transaction, hub, operation).await?;
             if original.original.position.group != id || original.original.trace != *trace {

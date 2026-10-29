@@ -87,6 +87,14 @@ async fn entry_on(
     let recorded_at = operation.recorded_at;
     let result = operation.result;
     let (kind, occurred, observation) = match operation.kind.as_str() {
+        "opening" => {
+            let original = stock::opening::original_on(tx, hub, operation).await?;
+            (
+                HubTraceHistoryKind::CountedOpening,
+                Some(original.original.population.occurred),
+                original.original.population.observation,
+            )
+        }
         "receipt" => {
             let original = stock::read::receipt_on(tx, hub, operation).await?;
             (

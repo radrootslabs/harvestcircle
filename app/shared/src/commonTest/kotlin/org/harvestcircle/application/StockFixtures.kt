@@ -21,7 +21,7 @@ internal object StockFixtures {
     val basis = HubHandlingBasis("whole-pack-demo-v1", 1U, "Whole-pack demo", "UTC")
     val empty = HubStockPage(basis, 1UL, 5UL, 0U, 0U, false, emptyList())
     val trace =
-        HubReceiptTrace(
+        HubStockPopulation(
             "05".repeat(16),
             pack,
             product,

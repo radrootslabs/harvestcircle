@@ -13,7 +13,7 @@ pub(crate) mod schema;
 pub(crate) mod trace;
 pub(crate) mod treatment;
 mod work_write;
-mod write;
+pub(in crate::hub) mod write;
 
 fn integer(revision: HubRevision) -> Result<i64, SafeError> {
     i64::try_from(revision.value()).map_err(|_| crate::db::corrupt_storage())
@@ -77,7 +77,7 @@ impl HubHandlingKind {
             "work_new" => Ok(Self::NewWork),
             "discrepancy_open" => Ok(Self::OpenDiscrepancy),
             "discrepancy_resolve" => Ok(Self::ResolveDiscrepancy),
-            "receipt" => Err(conflict()),
+            "receipt" | "opening" => Err(conflict()),
             _ => Err(crate::db::corrupt_storage()),
         }
     }
@@ -170,6 +170,7 @@ pub struct HubGroupView {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HubGroupCreationKind {
     Receipt,
+    CountedOpening,
     Movement,
     Separation,
 }

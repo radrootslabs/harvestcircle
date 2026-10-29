@@ -226,11 +226,31 @@ async fn actual_receipt_positions_work_and_originals_survive_reopen() {
     let row = &page.rows[0];
     assert_eq!(row.position.packs.value(), 20);
     assert_eq!(row.position.location, id(6));
-    assert_eq!(row.work_target.as_ref().unwrap().id, id(7));
-    assert_eq!(row.put_away.required().value(), 20);
-    assert_eq!(row.put_away.completed().value(), 0);
-    assert_eq!(row.put_away.no_longer_required().value(), 0);
-    assert_eq!(row.put_away.remaining().value(), 20);
+    assert_eq!(
+        row.put_away.as_ref().unwrap().target.as_ref().unwrap().id,
+        id(7)
+    );
+    assert_eq!(
+        row.put_away.as_ref().unwrap().quantity.required().value(),
+        20
+    );
+    assert_eq!(
+        row.put_away.as_ref().unwrap().quantity.completed().value(),
+        0
+    );
+    assert_eq!(
+        row.put_away
+            .as_ref()
+            .unwrap()
+            .quantity
+            .no_longer_required()
+            .value(),
+        0
+    );
+    assert_eq!(
+        row.put_away.as_ref().unwrap().quantity.remaining().value(),
+        20
+    );
     assert!(row.trace.source_needs_review());
     assert_eq!(row.trace.occurred, Occurrence::Unknown);
     assert_eq!(
@@ -766,7 +786,15 @@ async fn current_stock_uses_current_names_while_original_receipt_versions_remain
         "Current Receiving name"
     );
     assert_eq!(
-        row.work_target.as_ref().unwrap().value.label().as_str(),
+        row.put_away
+            .as_ref()
+            .unwrap()
+            .target
+            .as_ref()
+            .unwrap()
+            .value
+            .label()
+            .as_str(),
         "Current A3 name"
     );
     assert_eq!(row.trace.product.value.label().as_str(), "Fictional apples");

@@ -55,7 +55,20 @@ data class HubStockQuery(
     val text: String = "",
 )
 
-data class HubReceiptTrace(
+sealed interface HubPopulationOrigin {
+    data object Receipt : HubPopulationOrigin
+
+    data class CountedOpening(
+        val historyReference: String?,
+    ) : HubPopulationOrigin
+
+    data class CountedSurplus(
+        val countId: String,
+        val relatedPopulationId: String,
+    ) : HubPopulationOrigin
+}
+
+data class HubStockPopulation(
     val id: String,
     val variant: HubReferenceRecord,
     val product: HubReferenceRecord,
@@ -64,12 +77,13 @@ data class HubReceiptTrace(
     val source: HubSource,
     val sourceNeedsReview: Boolean,
     val originalWholePacks: UInt,
-    val receiving: HubReferenceRecord,
+    val initialLocation: HubReferenceRecord,
     val plannedLocation: HubReferenceRecord?,
     val occurrence: HubOccurrence,
     val recordedAt: UnixSeconds,
     val actor: IdentityId,
     val observation: String,
+    val origin: HubPopulationOrigin = HubPopulationOrigin.Receipt,
 )
 
 data class HubStockPosition(
@@ -94,8 +108,8 @@ data class HubStockRow(
     val product: HubReferenceRecord,
     val position: HubStockPosition,
     val location: HubReferenceRecord,
-    val trace: HubReceiptTrace,
-    val putAway: HubQuantityWork,
+    val trace: HubStockPopulation,
+    val putAway: HubQuantityWork?,
 )
 
 data class HubStockPage(
@@ -111,7 +125,7 @@ data class HubStockPage(
 data class HubStockReceipt(
     val operationId: OperationId,
     val stockRevision: ULong,
-    val trace: HubReceiptTrace,
+    val trace: HubStockPopulation,
     val initialPosition: HubStockPosition,
     val initialPutAway: HubQuantityWork,
 )

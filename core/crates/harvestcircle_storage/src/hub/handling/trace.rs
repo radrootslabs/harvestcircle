@@ -97,6 +97,7 @@ impl HubTraceHistoryQuery {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HubTraceHistoryKind {
     Receipt,
+    CountedOpening,
     Handling(HubHandlingKind),
     Dispatch(dispatch::HubDispatchKind),
     Departure,

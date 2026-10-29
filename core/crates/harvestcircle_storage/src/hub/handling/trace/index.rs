@@ -94,7 +94,7 @@ async fn candidates_on(
         "SELECT substr(r.trace_id,1,17) AS trace_id,substr(r.source_id,1,17) AS source_id,substr(r.source_certainty,1,17) AS certainty,substr(s.issuer_id,1,17) AS issuer_id,",
         "substr(CAST(p.label AS BLOB),1,121) AS product_label,substr(CAST(v.label AS BLOB),1,121) AS variant_label,substr(CAST(su.label AS BLOB),1,121) AS supplier_label,",
         "substr(CAST(pr.label AS BLOB),1,121) AS producer_label,substr(CAST(si.label AS BLOB),1,121) AS issuer_label,substr(CAST(s.source_code AS BLOB),1,129) AS source_code,",
-        "CASE WHEN o.operation_id IS NULL OR o.hub_id<>? OR o.kind<>'receipt' OR p.record_id IS NULL OR p.kind<>'product' OR p.hub_id<>o.hub_id OR v.record_id IS NULL OR v.kind<>'pack' OR v.hub_id<>o.hub_id OR ",
+        "CASE WHEN o.operation_id IS NULL OR o.hub_id<>? OR NOT ((o.kind='receipt' AND r.origin_kind='receipt') OR (o.kind='opening' AND r.origin_kind='opening')) OR p.record_id IS NULL OR p.kind<>'product' OR p.hub_id<>o.hub_id OR v.record_id IS NULL OR v.kind<>'pack' OR v.hub_id<>o.hub_id OR ",
         "(r.supplier_id IS NOT NULL AND (su.record_id IS NULL OR su.kind<>'party' OR su.hub_id<>o.hub_id)) OR (r.producer_id IS NOT NULL AND (pr.record_id IS NULL OR pr.kind<>'party' OR pr.hub_id<>o.hub_id)) OR ",
         "(r.source_id IS NOT NULL AND (s.source_id IS NULL OR s.hub_id<>o.hub_id OR (s.issuer_id IS NOT NULL AND (si.record_id IS NULL OR si.kind<>'party' OR si.hub_id<>o.hub_id)))) THEN 1 ELSE 0 END AS invalid ",
         "FROM hub_receipts r LEFT JOIN hub_stock_operations o ON o.operation_id=r.operation_id LEFT JOIN hub_source_references s ON s.source_id=r.source_id ",

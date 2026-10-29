@@ -49,5 +49,7 @@ pub use hub::handling::{
     HubTreatmentSnapshot, HubWorkActionResult, HubWorkChange, HubWorkOrigin, HubWorkRow,
 };
 pub use hub::reference::HubReferenceReceipt;
-pub use hub::stock::{HubStockPage, HubStockQuery, HubStockReceipt, HubStockRow};
+pub use hub::stock::{
+    HubOpeningReceipt, HubStockPage, HubStockQuery, HubStockReceipt, HubStockRow, HubStockWork,
+};
 pub use os_keyring::{CREDENTIAL_SERVICE, OsKeyringSecretStore};

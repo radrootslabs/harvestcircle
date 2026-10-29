@@ -18,6 +18,7 @@ private fun HubLineageRowDto.toModel() =
         createdStockRevision,
         when (createdKind) {
             HubGroupCreationKindDto.RECEIPT -> HubGroupCreationKind.Receipt
+            HubGroupCreationKindDto.COUNTED_OPENING -> HubGroupCreationKind.CountedOpening
             HubGroupCreationKindDto.MOVEMENT -> HubGroupCreationKind.Movement
             HubGroupCreationKindDto.SEPARATION -> HubGroupCreationKind.Separation
         },

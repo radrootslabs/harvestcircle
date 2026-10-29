@@ -5,7 +5,6 @@ import org.harvestcircle.ffi.HubLocationPurposeDto
 import org.harvestcircle.ffi.HubOccurrenceDto
 import org.harvestcircle.ffi.HubOccurrenceKindDto
 import org.harvestcircle.ffi.HubQuantityWorkDto
-import org.harvestcircle.ffi.HubReceiptTraceDto
 import org.harvestcircle.ffi.HubReferenceInputDto
 import org.harvestcircle.ffi.HubReferenceKindDto
 import org.harvestcircle.ffi.HubReferenceRecordDto
@@ -13,6 +12,7 @@ import org.harvestcircle.ffi.HubSourceCertaintyDto
 import org.harvestcircle.ffi.HubSourceDto
 import org.harvestcircle.ffi.HubSourceKindDto
 import org.harvestcircle.ffi.HubStockPageDto
+import org.harvestcircle.ffi.HubStockPopulationDto
 import org.harvestcircle.ffi.HubStockPositionDto
 import org.harvestcircle.ffi.HubStockReceiptDto
 import org.harvestcircle.ffi.HubStockRowDto
@@ -86,7 +86,7 @@ class NativeStockMappingsTest {
             )
         val source = HubSourceDto(null, null, null, null, null, HubSourceCertaintyDto.UNKNOWN)
         val trace =
-            HubReceiptTraceDto(
+            HubStockPopulationDto(
                 "04".repeat(16),
                 pack,
                 original,
@@ -101,10 +101,11 @@ class NativeStockMappingsTest {
                 100L,
                 "01".repeat(32),
                 "Original observation",
+                org.harvestcircle.ffi.HubPopulationOriginDto.Receipt,
             )
         val position = HubStockPositionDto("05".repeat(16), trace.id, pack.id, receiving.id, 12U, 3UL)
         val work = HubQuantityWorkDto(20U, 8U, 5U, 7U, 4UL, null)
-        val page =
+        val nativePage =
             HubStockPageDto(
                 HubHandlingBasisDto("whole-pack-demo-v1", 1U, "Whole-pack demo", "UTC"),
                 9UL,
@@ -113,15 +114,16 @@ class NativeStockMappingsTest {
                 1U,
                 false,
                 listOf(HubStockRowDto(current, position, receiving, trace, work)),
-            ).toModel()
+            )
+        val page = nativePage.toModel()
         val row = page.rows.single()
         assertEquals("Current apples", row.product.value.label)
         assertEquals("Original apples", row.trace.product.value.label)
         assertEquals(20U, row.trace.originalWholePacks)
         assertEquals(12U, row.position.wholePacks)
-        assertEquals(8U, row.putAway.completed)
-        assertEquals(5U, row.putAway.noLongerRequired)
-        assertEquals(7U, row.putAway.remaining)
+        assertEquals(8U, requireNotNull(row.putAway).completed)
+        assertEquals(5U, requireNotNull(row.putAway).noLongerRequired)
+        assertEquals(7U, requireNotNull(row.putAway).remaining)
         assertEquals(HubSourceCertainty.Unknown, row.trace.source.certainty)
         assertNull(row.trace.source.id)
         assertNull(row.trace.occurrence.startUnixSeconds)
@@ -138,5 +140,30 @@ class NativeStockMappingsTest {
         assertEquals(OperationId.from(op), receipt.operationId)
         assertEquals(20U, receipt.initialPosition.wholePacks)
         assertEquals(0U, receipt.initialPutAway.completed)
+        listOf(null, "Earlier paper reference <OLD&8>").forEach { history ->
+            val counted =
+                nativePage
+                    .copy(
+                        rows =
+                            listOf(
+                                HubStockRowDto(
+                                    current,
+                                    position,
+                                    receiving,
+                                    trace.copy(
+                                        origin =
+                                            org.harvestcircle.ffi.HubPopulationOriginDto
+                                                .CountedOpening(history),
+                                    ),
+                                    null,
+                                ),
+                            ),
+                    ).toModel()
+                    .rows
+                    .single()
+            assertEquals(HubPopulationOrigin.CountedOpening(history), counted.trace.origin)
+            assertNull(counted.putAway)
+            assertEquals(HubSourceCertainty.Unknown, counted.trace.source.certainty)
+        }
     }
 }

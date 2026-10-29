@@ -212,8 +212,8 @@ pub(in crate::hub) async fn group_on(
     let created_kind: String = row.try_get("created_kind").map_err(|_| corrupt_storage())?;
     match parent {
         None if record_id(&row, "root_group_id")? == id
-            && created_kind == "receipt"
-            && identification.is_none()
+            && ((created_kind == "receipt" && identification.is_none())
+                || (created_kind == "opening" && identification.is_some()))
             && row
                 .try_get::<String, _>("created_operation_id")
                 .map_err(|_| corrupt_storage())?
@@ -307,7 +307,7 @@ async fn causal_floor_on(
         "JOIN hub_stock_operations o ON o.operation_id=i.created_operation_id WHERE i.parent_group_id IS NOT NULL AND l.depth<256) ",
         "SELECT max(CASE WHEN e.occurrence_kind IN ('known','interval') THEN e.occurrence_start_unix_s END) AS floor,",
         "(SELECT count(*) FROM lineage l JOIN hub_group_identification i ON i.group_id=l.group_id WHERE l.depth=256 AND i.parent_group_id IS NOT NULL) AS truncated ",
-        "FROM lineage l LEFT JOIN hub_stock_events e ON e.group_id=l.group_id AND e.kind IN ('receipt','move','split') ",
+        "FROM lineage l LEFT JOIN hub_stock_events e ON e.group_id=l.group_id AND e.kind IN ('receipt','opening','move','split') ",
         "LEFT JOIN hub_stock_operations o ON o.operation_id=e.operation_id WHERE o.stock_revision<=l.ceiling OR o.stock_revision IS NULL"
     )).bind(group.as_bytes().as_slice()).fetch_one(&mut *transaction).await.map_err(|_|storage_unavailable())?;
     if row
@@ -340,8 +340,5 @@ pub(super) async fn trace_on(
     let operation = stock::read::operation_on(transaction, hub, &operation)
         .await?
         .ok_or_else(corrupt_storage)?;
-    Ok(stock::read::receipt_on(transaction, hub, operation)
-        .await?
-        .original
-        .trace)
+    stock::read::population_on(transaction, hub, operation).await
 }

@@ -2,7 +2,7 @@
 use crate::commands::HarvestCircleError;
 use crate::hub_handling::HubPhysicalIdentificationDto;
 use crate::hub_reference::{HubHandlingBasisDto, HubReferenceRecordDto};
-use crate::hub_stock::HubReceiptTraceDto;
+use crate::hub_stock::HubStockPopulationDto;
 use crate::hub_treatment_input::revision;
 use harvestcircle_domain::hub::dispatch::{
     DispatchMaterial, DispatchRecord, DispatchStamp, IdentificationStatus, IdentificationVersion,
@@ -108,7 +108,7 @@ pub struct HubDispatchLineDto {
     pub location: HubReferenceRecordDto,
     pub product: HubReferenceRecordDto,
     pub variant: HubReferenceRecordDto,
-    pub trace: HubReceiptTraceDto,
+    pub trace: HubStockPopulationDto,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]

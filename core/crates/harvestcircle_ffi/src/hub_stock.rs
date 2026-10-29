@@ -255,7 +255,7 @@ impl HubStockQueryDto {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
-pub struct HubReceiptTraceDto {
+pub struct HubStockPopulationDto {
     pub id: String,
     pub variant: HubReferenceRecordDto,
     pub product: HubReferenceRecordDto,
@@ -264,14 +264,52 @@ pub struct HubReceiptTraceDto {
     pub source: HubSourceDto,
     pub source_needs_review: bool,
     pub original_whole_packs: u32,
-    pub receiving: HubReferenceRecordDto,
+    pub initial_location: HubReferenceRecordDto,
     pub planned_location: Option<HubReferenceRecordDto>,
     pub occurrence: HubOccurrenceDto,
     pub recorded_at_unix_s: i64,
     pub actor_public_key: String,
     pub observation: String,
+    pub origin: HubPopulationOriginDto,
 }
-impl From<&StockPopulation> for HubReceiptTraceDto {
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
+pub enum HubPopulationOriginDto {
+    Receipt,
+    CountedOpening {
+        history_reference: Option<String>,
+    },
+    CountedSurplus {
+        count_id: String,
+        related_population_id: String,
+    },
+}
+
+impl From<&harvestcircle_domain::hub::stock::PopulationOrigin> for HubPopulationOriginDto {
+    fn from(origin: &harvestcircle_domain::hub::stock::PopulationOrigin) -> Self {
+        use harvestcircle_domain::hub::stock::{OpeningHistory, PopulationOrigin};
+        match origin {
+            PopulationOrigin::Receipt => Self::Receipt,
+            PopulationOrigin::CountedOpening { history } => Self::CountedOpening {
+                history_reference: match history {
+                    OpeningHistory::Unknown => None,
+                    OpeningHistory::ExternalReference(reference) => {
+                        Some(reference.as_str().to_owned())
+                    }
+                },
+            },
+            PopulationOrigin::CountedSurplus {
+                count,
+                related_population,
+            } => Self::CountedSurplus {
+                count_id: count.to_hex(),
+                related_population_id: related_population.to_hex(),
+            },
+        }
+    }
+}
+impl From<&StockPopulation> for HubStockPopulationDto {
     fn from(trace: &StockPopulation) -> Self {
         Self {
             id: trace.id.to_hex(),
@@ -282,12 +320,13 @@ impl From<&StockPopulation> for HubReceiptTraceDto {
             source: HubSourceDto::from_trace(trace),
             source_needs_review: trace.source_needs_review(),
             original_whole_packs: trace.original_packs.value(),
-            receiving: (&trace.initial_location).into(),
+            initial_location: (&trace.initial_location).into(),
             planned_location: trace.planned_location.as_ref().map(Into::into),
             occurrence: trace.occurred.into(),
             recorded_at_unix_s: trace.recorded_at.as_seconds(),
             actor_public_key: trace.actor.to_hex(),
             observation: trace.observation.as_str().to_owned(),
+            origin: (&trace.origin).into(),
         }
     }
 }
@@ -346,8 +385,8 @@ pub struct HubStockRowDto {
     pub product: HubReferenceRecordDto,
     pub position: HubStockPositionDto,
     pub location: HubReferenceRecordDto,
-    pub trace: HubReceiptTraceDto,
-    pub put_away: HubQuantityWorkDto,
+    pub trace: HubStockPopulationDto,
+    pub put_away: Option<HubQuantityWorkDto>,
 }
 impl From<&HubStockRow> for HubStockRowDto {
     fn from(row: &HubStockRow) -> Self {
@@ -356,11 +395,9 @@ impl From<&HubStockRow> for HubStockRowDto {
             position: (&row.position).into(),
             location: (&row.location).into(),
             trace: (&row.trace).into(),
-            put_away: HubQuantityWorkDto::from_work(
-                row.put_away,
-                row.work_revision,
-                row.work_target.as_ref(),
-            ),
+            put_away: row.put_away.as_ref().map(|work| {
+                HubQuantityWorkDto::from_work(work.quantity, work.revision, work.target.as_ref())
+            }),
         }
     }
 }
@@ -393,7 +430,7 @@ impl From<HubStockPage> for HubStockPageDto {
 pub struct HubStockReceiptDto {
     pub operation_id: String,
     pub stock_revision: u64,
-    pub trace: HubReceiptTraceDto,
+    pub trace: HubStockPopulationDto,
     pub initial_position: HubStockPositionDto,
     pub initial_put_away: HubQuantityWorkDto,
 }

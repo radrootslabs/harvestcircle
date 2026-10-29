@@ -96,9 +96,9 @@ pub(in crate::hub) async fn state_on(
             .map_err(|_| corrupt_storage())?,
     )
     .map_err(|_| corrupt_storage())?;
-    let operations = sqlx::query("SELECT count(*) AS n, COALESCE(max(stock_revision),1) AS latest, count(CASE WHEN kind NOT IN ('receipt','move','split','departure','dispatch_prepare','dispatch_revise','dispatch_issue','dispatch_replace','dispatch_unused','acceptance','hold_place','hold_release','work_replan','work_new','discrepancy_open','discrepancy_resolve') THEN 1 END) AS unknown FROM hub_stock_operations WHERE hub_id=?")
+    let operations = sqlx::query("SELECT count(*) AS n, COALESCE(max(stock_revision),1) AS latest, count(CASE WHEN kind NOT IN ('receipt','opening','move','split','departure','dispatch_prepare','dispatch_revise','dispatch_issue','dispatch_replace','dispatch_unused','acceptance','hold_place','hold_release','work_replan','work_new','discrepancy_open','discrepancy_resolve') THEN 1 END) AS unknown FROM hub_stock_operations WHERE hub_id=?")
         .bind(hub.as_bytes().as_slice()).fetch_one(&mut *transaction).await.map_err(|_| storage_unavailable())?;
-    let events = sqlx::query("SELECT count(*) AS n, COALESCE(max(sequence),0) AS latest, count(CASE WHEN kind NOT IN ('receipt','move','split','departure','dispatch_prepare','dispatch_revise','dispatch_issue','dispatch_replace','dispatch_unused','acceptance','hold_place','hold_release','work_replan','work_new','discrepancy_open','discrepancy_resolve') THEN 1 END) AS unknown FROM hub_stock_events")
+    let events = sqlx::query("SELECT count(*) AS n, COALESCE(max(sequence),0) AS latest, count(CASE WHEN kind NOT IN ('receipt','opening','move','split','departure','dispatch_prepare','dispatch_revise','dispatch_issue','dispatch_replace','dispatch_unused','acceptance','hold_place','hold_release','work_replan','work_new','discrepancy_open','discrepancy_resolve') THEN 1 END) AS unknown FROM hub_stock_events")
         .fetch_one(&mut *transaction).await.map_err(|_| storage_unavailable())?;
     let op_count: i64 = operations.try_get("n").map_err(|_| corrupt_storage())?;
     let op_latest: i64 = operations
@@ -210,14 +210,27 @@ pub(in crate::hub) async fn operation_on(
     .transpose()
 }
 
-pub(in crate::hub) async fn receipt_on(
+pub(super) struct PopulationFields {
+    pub catalog: ReferenceCatalog,
+    pub trace: HubRecordId,
+    pub group: HubRecordId,
+    pub origin_kind: String,
+    pub variant: HubRecordId,
+    pub supplier: Option<HubRecordId>,
+    pub producer: Option<HubRecordId>,
+    pub source: SourceAttribution,
+    pub packs: WholePacks,
+    pub initial_location: HubRecordId,
+    pub planned_location: Option<HubRecordId>,
+    pub occurred: Occurrence,
+    pub observation: SourceProvenance,
+}
+
+pub(super) async fn population_fields_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
-    operation: OperationRecord,
-) -> Result<HubStockReceipt, SafeError> {
-    if operation.kind != "receipt" {
-        return Err(conflict());
-    }
+    operation: &OperationRecord,
+) -> Result<PopulationFields, SafeError> {
     let row = sqlx::query(concat!(
         "SELECT substr(r.trace_id,1,17) AS trace_id, substr(r.root_group_id,1,17) AS group_id, ",
         "substr(r.variant_id,1,17) AS variant_id, r.variant_revision, substr(r.product_id,1,17) AS product_id, r.product_revision, ",
@@ -231,14 +244,9 @@ pub(in crate::hub) async fn receipt_on(
         "WHERE r.trace_id=? AND r.operation_id=? LIMIT 1"
     )).bind(operation.result.as_bytes().as_slice()).bind(operation.id.as_str())
         .fetch_optional(&mut *transaction).await.map_err(|_| storage_unavailable())?.ok_or_else(corrupt_storage)?;
-    // Other entry kinds activate only with their original-backed native readers.
-    if row
+    let origin_kind = row
         .try_get::<String, _>("origin_kind")
-        .map_err(|_| corrupt_storage())?
-        != "receipt"
-    {
-        return Err(corrupt_storage());
-    }
+        .map_err(|_| corrupt_storage())?;
     let mut records = BTreeMap::new();
     let mut remember = |record: ReferenceRecord| -> Result<HubRecordId, SafeError> {
         let id = record.id;
@@ -307,10 +315,11 @@ pub(in crate::hub) async fn receipt_on(
     let catalog =
         ReferenceCatalog::restore(operation.catalog_revision, records.into_values().collect())
             .map_err(|_| corrupt_storage())?;
-    let command = ReceiptCommand {
-        expected_stock_revision: HubRevision::from_value(operation.revision.value() - 1)
-            .map_err(|_| corrupt_storage())?,
-        expected_catalog_revision: operation.catalog_revision,
+    Ok(PopulationFields {
+        catalog,
+        trace: record_id(&row, "trace_id")?,
+        group: record_id(&row, "group_id")?,
+        origin_kind,
         variant,
         supplier,
         producer,
@@ -319,21 +328,67 @@ pub(in crate::hub) async fn receipt_on(
             row.try_get("original_packs")
                 .map_err(|_| corrupt_storage())?,
         )?,
-        receiving,
+        initial_location: receiving,
         planned_location,
         occurred: occurrence(&row)?,
         observation: SourceProvenance::new(text(&row, "observation")?)
             .map_err(|_| corrupt_storage())?,
+    })
+}
+
+pub(in crate::hub) async fn population_on(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    operation: OperationRecord,
+) -> Result<StockPopulation, SafeError> {
+    match operation.kind.as_str() {
+        "receipt" => Ok(receipt_on(transaction, hub, operation)
+            .await?
+            .original
+            .trace),
+        "opening" => Ok(super::opening::original_on(transaction, hub, operation)
+            .await?
+            .original
+            .population),
+        _ => Err(corrupt_storage()),
+    }
+}
+
+pub(in crate::hub) async fn receipt_on(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    operation: OperationRecord,
+) -> Result<HubStockReceipt, SafeError> {
+    if operation.kind != "receipt" {
+        return Err(conflict());
+    }
+    let fields = population_fields_on(transaction, hub, &operation).await?;
+    if fields.origin_kind != "receipt" {
+        return Err(corrupt_storage());
+    }
+    let command = ReceiptCommand {
+        expected_stock_revision: HubRevision::from_value(operation.revision.value() - 1)
+            .map_err(|_| corrupt_storage())?,
+        expected_catalog_revision: operation.catalog_revision,
+        variant: fields.variant,
+        supplier: fields.supplier,
+        producer: fields.producer,
+        source: fields.source,
+        packs: fields.packs,
+        receiving: fields.initial_location,
+        planned_location: fields.planned_location,
+        occurred: fields.occurred,
+        observation: fields.observation,
     };
-    let trace = record_id(&row, "trace_id")?;
-    let group = record_id(&row, "group_id")?;
+    let trace = fields.trace;
+    let group = fields.group;
     let ids = receipt_ids(&operation.id).map_err(|_| corrupt_storage())?;
     if ids.trace != trace || ids.group != group {
         return Err(corrupt_storage());
     }
     let original = command
         .plan(
-            &catalog,
+            &fields.catalog,
             command.expected_stock_revision,
             trace,
             group,
@@ -540,7 +595,7 @@ async fn page_on(
         let operation = operation_on(transaction, hub, &operation)
             .await?
             .ok_or_else(corrupt_storage)?;
-        let original = receipt_on(transaction, hub, operation).await?.original;
+        let population = population_on(transaction, hub, operation).await?;
         let current_group = crate::hub::handling::read::group_on(
             transaction,
             hub,
@@ -555,7 +610,7 @@ async fn page_on(
             return Err(corrupt_storage());
         }
         let trace = record_id(&row, "trace_id")?;
-        if trace != original.trace.id {
+        if trace != population.id {
             return Err(corrupt_storage());
         }
         let location = reference::record_at_on(
@@ -568,20 +623,40 @@ async fn page_on(
         if location.value.kind() != harvestcircle_domain::hub::reference::ReferenceKind::Location {
             return Err(corrupt_storage());
         }
-        let work = crate::hub::handling::read::work_on(transaction, hub, trace).await?;
-        let put_away = work.quantity;
-        let historical_target = work.target;
-        let work_target = historical_target
-            .map(|target| {
-                catalog
-                    .require_kind(
-                        target.id,
-                        harvestcircle_domain::hub::reference::ReferenceKind::Location,
-                    )
-                    .cloned()
-                    .map_err(|_| corrupt_storage())
+        let put_away = if matches!(
+            population.origin,
+            harvestcircle_domain::hub::stock::PopulationOrigin::Receipt
+        ) {
+            let work = crate::hub::handling::read::work_on(transaction, hub, trace).await?;
+            let historical_target = work.target;
+            let target = historical_target
+                .map(|target| {
+                    catalog
+                        .require_kind(
+                            target.id,
+                            harvestcircle_domain::hub::reference::ReferenceKind::Location,
+                        )
+                        .cloned()
+                        .map_err(|_| corrupt_storage())
+                })
+                .transpose()?;
+            Some(HubStockWork {
+                quantity: work.quantity,
+                revision: work.revision,
+                target,
             })
-            .transpose()?;
+        } else {
+            let bogus: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM hub_work_requirements WHERE work_id=?")
+                    .bind(trace.as_bytes().as_slice())
+                    .fetch_one(&mut *transaction)
+                    .await
+                    .map_err(|_| storage_unavailable())?;
+            if bogus != 0 {
+                return Err(corrupt_storage());
+            }
+            None
+        };
         let location = catalog
             .require_kind(
                 location.id,
@@ -591,7 +666,7 @@ async fn page_on(
             .map_err(|_| corrupt_storage())?;
         let product = catalog
             .require_kind(
-                original.trace.product.id,
+                population.product.id,
                 harvestcircle_domain::hub::reference::ReferenceKind::Product,
             )
             .cloned()
@@ -601,16 +676,14 @@ async fn page_on(
             position: StockPosition {
                 group: record_id(&row, "group_id")?,
                 trace,
-                variant: original.trace.variant.id,
+                variant: population.variant.id,
                 location: location.id,
                 packs: whole_packs(row.try_get("packs").map_err(|_| corrupt_storage())?)?,
                 revision: revision_field(&row, "revision")?,
             },
             location,
-            trace: original.trace,
+            trace: population,
             put_away,
-            work_revision: work.revision,
-            work_target,
         });
     }
     let more = query.offset + u32::try_from(rows.len()).map_err(|_| corrupt_storage())? < total;
@@ -629,6 +702,7 @@ pub(in crate::hub) fn known_kind(kind: &str) -> bool {
     matches!(
         kind,
         "receipt"
+            | "opening"
             | "departure"
             | "dispatch_prepare"
             | "dispatch_revise"

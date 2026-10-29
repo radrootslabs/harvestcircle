@@ -2,14 +2,15 @@ package org.harvestcircle.application
 
 import org.harvestcircle.ffi.HubOccurrenceDto
 import org.harvestcircle.ffi.HubOccurrenceKindDto
+import org.harvestcircle.ffi.HubPopulationOriginDto
 import org.harvestcircle.ffi.HubQuantityWorkDto
 import org.harvestcircle.ffi.HubReceiptInputDto
-import org.harvestcircle.ffi.HubReceiptTraceDto
 import org.harvestcircle.ffi.HubSourceCertaintyDto
 import org.harvestcircle.ffi.HubSourceDto
 import org.harvestcircle.ffi.HubSourceInputDto
 import org.harvestcircle.ffi.HubSourceKindDto
 import org.harvestcircle.ffi.HubStockPageDto
+import org.harvestcircle.ffi.HubStockPopulationDto
 import org.harvestcircle.ffi.HubStockPositionDto
 import org.harvestcircle.ffi.HubStockQueryDto
 import org.harvestcircle.ffi.HubStockReceiptDto
@@ -91,8 +92,8 @@ internal fun HubQuantityWorkDto.toModel() = HubQuantityWork(required, completed,
 
 private fun HubStockPositionDto.toModel() = HubStockPosition(groupId, traceId, variantId, locationId, wholePacks, revision)
 
-internal fun HubReceiptTraceDto.toModel() =
-    HubReceiptTrace(
+internal fun HubStockPopulationDto.toModel() =
+    HubStockPopulation(
         id,
         variant.toModel(),
         product.toModel(),
@@ -101,12 +102,21 @@ internal fun HubReceiptTraceDto.toModel() =
         source.toModel(),
         sourceNeedsReview,
         originalWholePacks,
-        receiving.toModel(),
+        initialLocation.toModel(),
         plannedLocation?.toModel(),
         occurrence.toModel(),
         UnixSeconds(recordedAtUnixS),
         IdentityId.fromPublicKeyHex(actorPublicKey),
         observation,
+        when (val value = origin) {
+            is HubPopulationOriginDto.Receipt -> HubPopulationOrigin.Receipt
+            is HubPopulationOriginDto.CountedOpening -> HubPopulationOrigin.CountedOpening(value.historyReference)
+            is HubPopulationOriginDto.CountedSurplus ->
+                HubPopulationOrigin.CountedSurplus(
+                    value.countId,
+                    value.relatedPopulationId,
+                )
+        },
     )
 
 internal fun HubStockPageDto.toModel() =
@@ -123,7 +133,7 @@ internal fun HubStockPageDto.toModel() =
                 it.position.toModel(),
                 it.location.toModel(),
                 it.trace.toModel(),
-                it.putAway.toModel(),
+                it.putAway?.toModel(),
             )
         },
     )

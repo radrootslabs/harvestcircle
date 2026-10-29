@@ -253,7 +253,7 @@ pub(super) async fn write_groups_on(
     Ok(())
 }
 
-pub(super) async fn insert_operation_on(
+pub(in crate::hub) async fn insert_operation_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     operation: &stock::read::OperationRecord,
@@ -293,7 +293,7 @@ pub(super) async fn work_change_on(
     Ok(())
 }
 
-pub(super) struct EventEffect<'a> {
+pub(in crate::hub) struct EventEffect<'a> {
     pub kind: &'static str,
     pub prior_events: u32,
     pub trace: HubRecordId,
@@ -304,7 +304,7 @@ pub(super) struct EventEffect<'a> {
     pub occurred: Occurrence,
 }
 
-pub(super) async fn event_on(
+pub(in crate::hub) async fn event_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     operation: &DurableRequestId,
     effect: EventEffect<'_>,

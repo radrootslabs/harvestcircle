@@ -11,7 +11,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import org.harvestcircle.application.HubPopulationOrigin
 import org.harvestcircle.application.HubReferenceKind
+import org.harvestcircle.application.HubStockPopulation
 import org.harvestcircle.application.HubStockRow
 import org.harvestcircle.application.ReceiptSubmission
 import org.harvestcircle.application.StockPresenter
@@ -156,6 +158,10 @@ private fun StockRows(
 @Composable
 private fun WorkSummary(row: HubStockRow) {
     val work = row.putAway
+    if (work == null) {
+        HarvestCircleShellText("No intake handling requested. Review the handling record for any later requirements.")
+        return
+    }
     HarvestCircleShellText(
         "Put-away · ${work.target?.value?.label ?: "Destination not planned"}",
         role = HarvestCircleShellTextRole.BodyStrong,
@@ -184,7 +190,7 @@ private fun StockRecord(
             open(row.position.groupId)
         }, Modifier.testTag("stock-handling-${row.position.groupId}"), primary = true, enabled = handlingEnabled)
     }
-    ReceiptTraceSummary(row.trace)
+    StockPopulationSummary(row.trace)
     HarvestCircleShellButton(
         if (row.trace.source.id == null) "Receive another intake" else "Receive more with this source",
         { presenter.beginReceipt(row) },
@@ -193,13 +199,25 @@ private fun StockRecord(
 }
 
 @Composable
-internal fun ReceiptTraceSummary(trace: org.harvestcircle.application.HubReceiptTrace) {
-    HarvestCircleShellPanel(Modifier.testTag("receipt-trace")) {
-        HarvestCircleShellText("Original receipt", role = HarvestCircleShellTextRole.SectionTitle)
+internal fun StockPopulationSummary(trace: HubStockPopulation) {
+    val receipt = trace.origin == HubPopulationOrigin.Receipt
+    HarvestCircleShellPanel(Modifier.testTag("stock-population")) {
+        HarvestCircleShellText(if (receipt) "Original receipt" else "Counted stock entry", role = HarvestCircleShellTextRole.SectionTitle)
         HarvestCircleShellText("${trace.originalWholePacks} original packs · ${trace.variant.value.label}")
-        HarvestCircleShellText("Product when received: ${trace.product.value.label}")
-        HarvestCircleShellText("Received at: ${trace.receiving.value.label}")
-        HarvestCircleShellText("Planned destination: ${trace.plannedLocation?.value?.label ?: "Not planned"}")
+        HarvestCircleShellText("${if (receipt) "Product when received" else "Product when counted"}: ${trace.product.value.label}")
+        HarvestCircleShellText("${if (receipt) "Received at" else "Counted at"}: ${trace.initialLocation.value.label}")
+        if (receipt) HarvestCircleShellText("Planned destination: ${trace.plannedLocation?.value?.label ?: "Not planned"}")
+        when (val origin = trace.origin) {
+            HubPopulationOrigin.Receipt -> Unit
+            is HubPopulationOrigin.CountedOpening ->
+                HarvestCircleShellText(
+                    origin.historyReference?.let { "Earlier intake reference: $it" } ?: "Earlier intake history: Unknown",
+                )
+            is HubPopulationOrigin.CountedSurplus ->
+                HarvestCircleShellText(
+                    "Separate surplus linked to count ${origin.countId}",
+                )
+        }
         HarvestCircleShellText("Supplier: ${trace.supplier?.value?.label ?: "Unknown"}")
         HarvestCircleShellText("Producer: ${trace.producer?.value?.label ?: "Unknown"}")
         HarvestCircleShellText("Source: ${trace.source.certainty} · ${trace.source.code ?: "Unknown"}")
@@ -211,14 +229,18 @@ internal fun ReceiptTraceSummary(trace: org.harvestcircle.application.HubReceipt
         trace.source.provenance?.let { HarvestCircleShellText("Source observation: $it") }
         HarvestCircleShellText("Manual confirmation: ${trace.observation}")
         HarvestCircleShellText("Recorded: ${stockUtc(trace.recordedAt.value)}")
-        HarvestCircleShellText(
-            "Occurrence: ${trace.occurrence.kind}${trace.occurrence.startUnixSeconds?.let { " · ${stockUtc(it)}" }.orEmpty()}" +
-                trace.occurrence.endUnixSeconds
-                    ?.let { " to ${stockUtc(it)}" }
-                    .orEmpty(),
-        )
+        val clockLabel = if (receipt) "Occurrence" else "Count time"
+        val startTime =
+            trace.occurrence.startUnixSeconds
+                ?.let { " · ${stockUtc(it)}" }
+                .orEmpty()
+        val endTime =
+            trace.occurrence.endUnixSeconds
+                ?.let { " to ${stockUtc(it)}" }
+                .orEmpty()
+        HarvestCircleShellText("$clockLabel: ${trace.occurrence.kind}$startTime$endTime")
         HarvestCircleShellText("Recorded by: ${trace.actor.value}")
-        HarvestCircleShellText("Receipt: ${trace.id}")
+        HarvestCircleShellText("${if (receipt) "Receipt" else "Stock entry"}: ${trace.id}")
     }
 }
 
@@ -236,10 +258,10 @@ private fun ReceiptOutcomePanel(
             is ReceiptSubmission.Recorded -> {
                 HarvestCircleShellText("Receipt recorded", Modifier.testTag("receipt-recorded"), HarvestCircleShellTextRole.SectionTitle)
                 HarvestCircleShellText(
-                    "${submitted.receipt.initialPosition.wholePacks} original packs at ${submitted.receipt.trace.receiving.value.label}",
+                    "${submitted.receipt.initialPosition.wholePacks} original packs at ${submitted.receipt.trace.initialLocation.value.label}",
                 )
                 HarvestCircleShellText("Put-away remaining: ${submitted.receipt.initialPutAway.remaining}")
-                ReceiptTraceSummary(submitted.receipt.trace)
+                StockPopulationSummary(submitted.receipt.trace)
                 HarvestCircleShellButton("View current stock", presenter::finishRecorded, Modifier.testTag("receipt-done"), primary = true)
             }
             is ReceiptSubmission.Rejected -> {

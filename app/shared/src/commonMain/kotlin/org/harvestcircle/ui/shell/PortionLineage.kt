@@ -38,6 +38,7 @@ internal fun PortionLineage(
             val creation =
                 when (row.createdKind) {
                     HubGroupCreationKind.Receipt -> "Received"
+                    HubGroupCreationKind.CountedOpening -> "Counted opening"
                     HubGroupCreationKind.Movement -> "Separated during movement"
                     HubGroupCreationKind.Separation -> "Separated at the same location"
                 }

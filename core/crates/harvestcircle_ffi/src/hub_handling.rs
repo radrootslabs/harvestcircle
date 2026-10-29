@@ -3,7 +3,7 @@
 use crate::commands::HarvestCircleError;
 use crate::hub_portions::HubSplitResultDto;
 use crate::hub_reference::{HubReferenceRecordDto, invalid_input};
-use crate::hub_stock::{HubOccurrenceDto, HubQuantityWorkDto, HubReceiptTraceDto};
+use crate::hub_stock::{HubOccurrenceDto, HubQuantityWorkDto, HubStockPopulationDto};
 use crate::hub_treatment::HubTreatmentResultDto;
 use crate::hub_treatment_input::{HubAcceptanceInputDto, HubHoldInputDto, HubHoldReleaseInputDto};
 use harvestcircle_domain::hub::HubRevision;
@@ -341,7 +341,7 @@ pub struct HubGroupViewDto {
     pub location: HubReferenceRecordDto,
     pub product: HubReferenceRecordDto,
     pub variant: HubReferenceRecordDto,
-    pub trace: HubReceiptTraceDto,
+    pub trace: HubStockPopulationDto,
 }
 impl From<HubGroupView> for HubGroupViewDto {
     fn from(view: HubGroupView) -> Self {

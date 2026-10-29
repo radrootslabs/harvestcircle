@@ -137,20 +137,23 @@ class ReceivingAcceptanceTest {
                     planned,
                     first.rows
                         .single()
-                        .putAway.target
+                        .putAway
+                        ?.target
                         ?.id,
                 )
                 assertEquals(
                     0U,
                     first.rows
                         .single()
-                        .putAway.completed,
+                        .putAway
+                        ?.completed,
                 )
                 assertEquals(
                     20U,
                     first.rows
                         .single()
-                        .putAway.remaining,
+                        .putAway
+                        ?.remaining,
                 )
                 assertTrue(
                     first.rows

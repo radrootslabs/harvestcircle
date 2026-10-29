@@ -4,7 +4,7 @@ use crate::{
     commands::HarvestCircleError,
     hub_handling::HubHandlingReceiptDto,
     hub_reference::HubHandlingBasisDto,
-    hub_stock::{HubOccurrenceDto, HubReceiptTraceDto},
+    hub_stock::{HubOccurrenceDto, HubStockPopulationDto},
 };
 use harvestcircle_domain::hub::{
     portions::CapturedPhysicalScope,
@@ -305,7 +305,7 @@ impl From<HubHoldRow> for HubHoldRowDto {
 pub struct HubTreatmentSnapshotDto {
     pub stock_revision: u64,
     pub catalog_revision: u64,
-    pub trace: HubReceiptTraceDto,
+    pub trace: HubStockPopulationDto,
     pub basis: HubHandlingBasisDto,
     pub summary: HubTreatmentSummaryDto,
     pub history_capacity_reached: bool,

@@ -257,7 +257,7 @@ private fun HandlingGroupRecord(
         }
     }
     state.treatment?.let { TreatmentRecord(it, state, presenter) }
-    ReceiptTraceSummary(view.trace)
+    StockPopulationSummary(view.trace)
     state.lineage?.let { PortionLineage(it, state.loading, presenter, view.group.id) }
 }
 

@@ -20,6 +20,8 @@ fn receipt_ids(
         .map_err(|_| invalid_input())
 }
 
+pub(in crate::hub) mod opening;
+pub(crate) mod opening_schema;
 pub(crate) mod population_schema;
 pub(super) mod read;
 pub(crate) mod schema;
@@ -34,14 +36,26 @@ pub struct HubStockReceipt {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HubOpeningReceipt {
+    pub operation: DurableRequestId,
+    pub original: harvestcircle_domain::hub::stock::OpeningPlan,
+}
+
+/// Current projection of an actual intake requirement; counted opening has none.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HubStockWork {
+    pub quantity: QuantityWork,
+    pub revision: HubRevision,
+    pub target: Option<ReferenceRecord>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HubStockRow {
     pub product: ReferenceRecord,
     pub position: StockPosition,
     pub location: ReferenceRecord,
     pub trace: StockPopulation,
-    pub put_away: QuantityWork,
-    pub work_revision: HubRevision,
-    pub work_target: Option<ReferenceRecord>,
+    pub put_away: Option<HubStockWork>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

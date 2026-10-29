@@ -19,7 +19,7 @@ data class HubTraceQuery(
 )
 
 data class HubTraceRow(
-    val trace: HubReceiptTrace,
+    val trace: HubStockPopulation,
     val onHandWholePacks: UInt,
     val departedWholePacks: UInt,
 )
@@ -70,7 +70,7 @@ data class HubTraceSnapshot(
     val hubId: String,
     val stockRevision: ULong,
     val catalogRevision: ULong,
-    val trace: HubReceiptTrace,
+    val trace: HubStockPopulation,
     val onHandWholePacks: UInt,
     val departedWholePacks: UInt,
     val onHand: List<HubTracePosition>,
@@ -87,6 +87,7 @@ data class HubTraceHistoryQuery(
 
 enum class HubTraceHistoryKind {
     Receipt,
+    CountedOpening,
     Move,
     Split,
     Acceptance,
