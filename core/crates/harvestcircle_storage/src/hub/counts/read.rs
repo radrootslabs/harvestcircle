@@ -22,6 +22,30 @@ impl Database {
     }
 }
 
+pub(in crate::hub) async fn by_id_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    id: HubRecordId,
+) -> Result<HubCountObservationReceipt, SafeError> {
+    let operation: Option<String> = sqlx::query_scalar(
+        "SELECT substr(operation_id,1,37) FROM hub_count_observations WHERE count_id=? LIMIT 1",
+    )
+    .bind(id.as_bytes().as_slice())
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|_| storage_unavailable())?;
+    let operation = DurableRequestId::parse(operation.ok_or_else(stock::invalid_input)?)
+        .map_err(|_| corrupt_storage())?;
+    let record = stock::read::operation_on(tx, hub, &operation)
+        .await?
+        .ok_or_else(corrupt_storage)?;
+    let receipt = original_on(tx, hub, record).await?;
+    if receipt.original.id != id {
+        return Err(corrupt_storage());
+    }
+    Ok(receipt)
+}
+
 pub(in crate::hub) async fn original_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,

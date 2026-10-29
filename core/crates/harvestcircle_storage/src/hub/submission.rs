@@ -1,5 +1,6 @@
 //! Native submitted semantics, durable admission, current-session fencing and recovery reads.
 mod admission;
+pub(in crate::hub) use admission::uncertainty_on;
 mod capture;
 mod execute;
 mod intent;
@@ -39,6 +40,12 @@ use harvestcircle_domain::hub::{
 use harvestcircle_domain::{PublicKey, SafeError};
 use radroots_service_sqlite::ServiceSqliteTransaction;
 use std::collections::{BTreeMap, BTreeSet};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::hub) struct HubUncertainty {
+    pub uncertain_intent: bool,
+    pub unresolved_actual: bool,
+}
 
 impl Database {
     /// Reads one stable current cut. Admission must recapture inside its own transaction.

@@ -52,24 +52,7 @@ pub(super) async fn capture_on(
     }
     let mut material = Vec::new();
     if let Some(id) = targets.count {
-        let op: Option<String> = sqlx::query_scalar(
-            "SELECT substr(operation_id,1,37) FROM hub_count_observations WHERE count_id=? LIMIT 1",
-        )
-        .bind(id.as_bytes().as_slice())
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|_| storage_unavailable())?;
-        let op = DurableRequestId::parse(op.ok_or_else(stock::invalid_input)?)
-            .map_err(|_| corrupt_storage())?;
-        let original = stock::read::operation_on(tx, hub.id(), &op)
-            .await?
-            .ok_or_else(corrupt_storage)?;
-        let count = counts::read::original_on(tx, hub.id(), original)
-            .await?
-            .original;
-        if count.id != id {
-            return Err(corrupt_storage());
-        }
+        let count = counts::read::by_id_on(tx, hub.id(), id).await?.original;
         targets.groups.insert(count.scope.group);
         material.push(HubSubmittedMaterial::Count(Box::new(count)));
     }

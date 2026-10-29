@@ -56,7 +56,12 @@ stock/catalog/group versions. Saving an observation advances the journal and
 retains its history without changing stock or work; zero and uncertain-cutoff
 observations are retained evidence. Recovery verifies original command and
 result facts rather than hydrating them from current balances. Observation
-recording grants no reconciliation permission. Opening/count forms and count
+recording grants no reconciliation permission. Native read-only review uses one
+protected current cut for the group, latest physical activity/count/reconciliation
+and live pending-submission/actual-review sources. The returned comparison neither
+admits a command nor changes stock/work. Posting must repeat those checks inside
+its effect transaction. Actual-report command handling remains unfinished.
+Opening/count forms and count
 posting remain unfinished.
 
 Schema15 prepares immutable reconciliation headers, complete original work

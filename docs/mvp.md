@@ -292,6 +292,14 @@ Saving18 against recorded20 leaves stock20 and pending work20; concurrent stale
 submissions cannot overwrite a count. Read-only original recovery retains captured
 reference versions through later moves and reference edits. Zero/uncertain-cutoff
 observations remain evidence and cannot themselves authorize a stock change.
+Native read-only review now loads the original observation and current group,
+latest physical activity, latest count, prior reconciliation and live submission/
+actual-review uncertainty in one protected transaction. It returns the Rust
+comparison and current revisions without writing stock, work or admission.
+A newer count, changed physical scope/cutoff or unresolved submitted operation
+blocks readiness. This comparison is not a posting grant; posting must repeat
+current checks in its own effect transaction. Actual-report ingress/review and
+the count-posting command remain unfinished.
 Native opening admission is implemented without a fabricated receipt or intake
 requirement. Count posting, opening/count forms and complete lifecycle/recovery
 qualification remain unfinished.

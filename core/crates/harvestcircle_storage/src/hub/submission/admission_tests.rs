@@ -17,6 +17,100 @@ async fn active(db: &Database) -> HubSubmissionScope {
 }
 
 #[tokio::test]
+async fn native_count_review_reads_pending_admission_and_confirmed_resolution_without_stock_effects()
+ {
+    use harvestcircle_domain::hub::{
+        counts::{CountBlockReason, CountObserveCommand},
+        reference::{SourceProvenance, WholePacks},
+        stock::Occurrence,
+    };
+    let f = Fixture::new();
+    let db = f.open().await;
+    let catalog = setup(&db).await;
+    db.apply_hub_receipt(owner(), operation(1), command(&catalog), now())
+        .await
+        .unwrap();
+    let page = db.hub_stock_page(owner(), query()).await.unwrap();
+    let count = db
+        .observe_hub_count(
+            owner(),
+            operation(2),
+            CountObserveCommand {
+                expected_stock_revision: page.revision,
+                expected_catalog_revision: catalog.revision(),
+                group: page.rows[0].position.group,
+                expected_group_revision: page.rows[0].position.revision,
+                counted_packs: WholePacks::from_value(18).unwrap(),
+                cutoff: Occurrence::Known(now()),
+                observation: SourceProvenance::new(
+                    "Fictional count before a later interrupted submission",
+                )
+                .unwrap(),
+            },
+            now(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        db.hub_count_review(owner(), count.original.id)
+            .await
+            .unwrap()
+            .assessment
+            .ready()
+    );
+    let scope = active(&db).await;
+    let before = db.hub_stock_page(owner(), query()).await.unwrap();
+    let mut input = command(&catalog);
+    input.expected_stock_revision = before.revision;
+    let decision = db
+        .host()
+        .transaction(|tx| {
+            Box::pin(async move {
+                admission::prepare_on(
+                    tx,
+                    scope,
+                    operation(3),
+                    HubMutation::Receive(Box::new(input)),
+                    now(),
+                )
+                .await
+            })
+        })
+        .await
+        .unwrap();
+    assert!(matches!(decision, admission::Decision::Fresh(_)));
+    drop(decision);
+    let blocked = db
+        .hub_count_review(owner(), count.original.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        blocked.assessment.blockers,
+        vec![CountBlockReason::UncertainPriorOutcome]
+    );
+    assert_eq!(blocked.observation, count.original);
+    // The test deliberately discarded the fresh grant before any effect, then
+    // records that confirmed no-effect rejection through the production writer.
+    db.host()
+        .transaction(|tx| {
+            Box::pin(async move {
+                admission::reject_on(tx, &operation(3), stock::conflict(), now()).await
+            })
+        })
+        .await
+        .unwrap();
+    assert!(
+        db.hub_count_review(owner(), count.original.id)
+            .await
+            .unwrap()
+            .assessment
+            .ready()
+    );
+    assert_eq!(db.hub_stock_page(owner(), query()).await.unwrap(), before);
+    db.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn new_admission_records_one_original_and_replay_never_writes_another_effect() {
     let f = Fixture::new();
     let db = f.open().await;

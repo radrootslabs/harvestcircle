@@ -128,6 +128,14 @@ pub(in crate::hub) async fn has_unresolved_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     except: &DurableRequestId,
 ) -> Result<bool, SafeError> {
+    let facts = uncertainty_on(tx, except).await?;
+    Ok(facts.uncertain_intent || facts.unresolved_actual)
+}
+
+pub(in crate::hub) async fn uncertainty_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    except: &DurableRequestId,
+) -> Result<HubUncertainty, SafeError> {
     let pending:i64=sqlx::query_scalar(concat!(
         "SELECT count(*) FROM hub_submissions s WHERE s.operation_id<>? ",
         "AND NOT EXISTS (SELECT 1 FROM hub_submission_rejections r WHERE r.operation_id=s.operation_id) ",
@@ -144,7 +152,10 @@ pub(in crate::hub) async fn has_unresolved_on(
     if pending < 0 || actual < 0 {
         return Err(corrupt_storage());
     }
-    Ok(pending != 0 || actual != 0)
+    Ok(HubUncertainty {
+        uncertain_intent: pending != 0,
+        unresolved_actual: actual != 0,
+    })
 }
 
 fn unsafe_planned_kind(kind: &str) -> bool {
