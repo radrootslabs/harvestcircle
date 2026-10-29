@@ -16,6 +16,8 @@ harvestcircle_domain.workspace = true
 radroots_transport.workspace = true
 radroots_transport_nostr.workspace = true
 secrecy = "=0.10.3"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
 sha2.workspace = true
 time = { version = "=0.3.55", default-features = false, features = ["formatting"] }
 tokio = { version = "=1.47.1", features = ["macros", "rt-multi-thread", "sync", "time"] }

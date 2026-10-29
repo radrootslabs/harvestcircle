@@ -1,6 +1,7 @@
 use super::*;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DiscrepancyAction {
     Open {
         trace: HubRecordId,
@@ -14,7 +15,7 @@ pub enum DiscrepancyAction {
     },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct DiscrepancyCommand {
     pub expected_stock_revision: HubRevision,
     pub expected_catalog_revision: HubRevision,
@@ -62,7 +63,8 @@ impl DiscrepancyCommand {
 
 /// Closed actual handling commands, using the existing inventory operation ID.
 /// Scope validation and the corresponding pure plan precede any native writes.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum HandlingCommand {
     Move(MovementCommand),
     Split(crate::hub::portions::SplitCommand),

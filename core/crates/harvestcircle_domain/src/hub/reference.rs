@@ -110,7 +110,7 @@ impl HubRecordId {
 }
 
 /// Original UTF-8 text is retained; blank, control and bidi-override input denies.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct HubText<const MAX_BYTES: usize>(String);
 
 impl<const MAX_BYTES: usize> HubText<MAX_BYTES> {
@@ -138,7 +138,7 @@ pub type SourceCode = HubText<HUB_SOURCE_CODE_UTF8_BYTES>;
 pub type SourceProvenance = HubText<HUB_PROVENANCE_UTF8_BYTES>;
 
 /// Whole original packs; nominal mass is never an arithmetic stock unit.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct WholePacks(u32);
 
 impl WholePacks {
@@ -189,7 +189,7 @@ impl VariantQuantity {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct NominalGrams(u32);
 
 impl NominalGrams {
@@ -206,7 +206,8 @@ impl NominalGrams {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum LocationPurpose {
     Receiving,
     Storage,
@@ -221,7 +222,8 @@ pub enum ReferenceKind {
     Location,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ReferenceValue {
     Product {
         label: HubLabel,
@@ -276,7 +278,8 @@ pub struct ReferenceChange {
     pub current: ReferenceRecord,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ReferenceMutation {
     Create {
         id: HubRecordId,
@@ -289,7 +292,7 @@ pub enum ReferenceMutation {
     },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct ReferenceCommand {
     pub expected_catalog_revision: HubRevision,
     pub mutation: ReferenceMutation,
@@ -542,7 +545,8 @@ fn next_revision(revision: HubRevision) -> Result<HubRevision, HubReferenceError
     HubRevision::from_value(revision.value() + 1).map_err(|_| HubReferenceError::RevisionExhausted)
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SourceReferenceKind {
     ProducerBatch,
     SupplierReference,
@@ -550,7 +554,7 @@ pub enum SourceReferenceKind {
 }
 
 /// Two unknown issuers with the same code are not established as one source.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct SourceReference {
     pub id: HubRecordId,
     pub issuer: Option<HubRecordId>,
@@ -568,13 +572,15 @@ impl SourceReference {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SourceCertainty {
     ReportedPossible,
     Established,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SourceAttribution {
     Unknown,
     Referenced {

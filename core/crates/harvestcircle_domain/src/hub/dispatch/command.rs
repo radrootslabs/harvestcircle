@@ -9,7 +9,8 @@ pub struct DispatchContext<'a> {
     pub current: Option<&'a DispatchRecord>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DispatchAction {
     Prepare {
         recipient: HubRecordId,
@@ -37,7 +38,7 @@ pub enum DispatchAction {
     },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct DispatchCommand {
     pub expected_stock_revision: HubRevision,
     pub expected_catalog_revision: HubRevision,

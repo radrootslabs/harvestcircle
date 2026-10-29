@@ -20,7 +20,8 @@ pub const HUB_TREATMENT_SELECTION_GROUPS: usize = 64;
 pub const HUB_TREATMENT_RECORDS_PER_TRACE: usize = 256;
 pub const HUB_TREATMENT_CAPACITY: usize = 16_384;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AcceptanceStatus {
     ReviewRequired,
     Accepted,
@@ -55,7 +56,7 @@ impl From<PhysicalScopeError> for TreatmentError {
 }
 
 /// Whole currently identified groups; partial treatment first requires observed separation.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct TreatmentSelection(Vec<HubRecordId>);
 
 impl TreatmentSelection {

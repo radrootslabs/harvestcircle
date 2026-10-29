@@ -9,7 +9,8 @@ use crate::hub::{
 use crate::{PublicKey, UnixTimestamp};
 use sha2::{Digest, Sha256};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TreatmentAction {
     SetAcceptance {
         selection: TreatmentSelection,
@@ -24,7 +25,7 @@ pub enum TreatmentAction {
     },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct TreatmentCommand {
     pub expected_stock_revision: HubRevision,
     pub expected_catalog_revision: HubRevision,

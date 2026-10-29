@@ -12,7 +12,7 @@ use crate::{PublicKey, UnixTimestamp};
 
 /// Observe a separately distinguishable portion at its existing location.
 /// A whole-group location move or an unlabelled digital quantity is not a split.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct SplitCommand {
     pub expected_stock_revision: HubRevision,
     pub expected_catalog_revision: HubRevision,

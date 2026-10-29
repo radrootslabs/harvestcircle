@@ -221,6 +221,13 @@ replay stale submissions or infer an action never happened because an older
 restored history lacks its receipt. Unknown prior outcomes require explicit review.
 Do not create a new operation identity merely to escape uncertainty.
 
+The Rust application layer can encode complete hub request inputs as bounded,
+versioned read-only archives. Public identifiers, quantities, cutoff certainty,
+notes and action-specific fields are retained exactly; debug output omits their
+contents. The archive has no decoder into mutation commands and establishes no
+permission. This prepares durable admission; resolved reference/material capture,
+pre-commit persistence, native session fencing and recovery remain required.
+
 ### C07: Counts, opening, actual reports and correction
 
 Counts are observations with population/location, cutoff and observer. Posting is

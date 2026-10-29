@@ -4,7 +4,7 @@ use crate::hub::reference::SourceAttribution;
 use crate::hub::stock::QuantityWork;
 use crate::hub::treatment::AcceptanceStatus;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct CountPostCommand {
     pub expected_stock_revision: HubRevision,
     pub expected_catalog_revision: HubRevision,

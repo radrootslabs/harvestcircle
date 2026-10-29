@@ -65,7 +65,8 @@ impl From<HubReferenceError> for StockError {
 }
 
 /// Recording order never establishes when an actual event occurred.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Occurrence {
     Known(UnixTimestamp),
     Interval {
@@ -144,7 +145,7 @@ impl QuantityWork {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct ReceiptCommand {
     pub expected_stock_revision: HubRevision,
     pub expected_catalog_revision: HubRevision,
@@ -164,7 +165,8 @@ mod opening;
 pub use opening::{OpeningCommand, OpeningError, OpeningIdentities, OpeningPlan};
 
 /// A counted opening is a present observation, never a fabricated historical receipt.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OpeningHistory {
     Unknown,
     ExternalReference(SourceProvenance),

@@ -62,7 +62,7 @@ impl WorkRequirement {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct ReplanCommand {
     pub expected_stock_revision: HubRevision,
     pub expected_catalog_revision: HubRevision,

@@ -10,6 +10,7 @@ pub mod dispatch;
 pub mod movement;
 pub mod portions;
 pub mod reference;
+mod serialization;
 pub mod stock;
 pub mod trace;
 pub mod treatment;
@@ -35,7 +36,7 @@ impl HubId {
 }
 
 /// Revision fits the positive SQLite INTEGER range without lossy coercion.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct HubRevision(u64);
 
 impl HubRevision {
@@ -71,7 +72,7 @@ pub enum HubPolicyError {
 }
 
 /// Hub ownership is independent of removable account rows and signer metadata.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct HubOwnership {
     id: HubId,
     owner: PublicKey,

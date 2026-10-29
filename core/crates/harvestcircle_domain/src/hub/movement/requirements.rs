@@ -2,7 +2,7 @@ use super::*;
 
 /// Explicit new handling after earlier work. Ordinary backward movement never
 /// creates this requirement or resets completed progress.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct NewWorkCommand {
     pub expected_stock_revision: HubRevision,
     pub expected_catalog_revision: HubRevision,

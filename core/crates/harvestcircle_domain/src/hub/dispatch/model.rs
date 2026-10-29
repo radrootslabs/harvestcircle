@@ -1,14 +1,14 @@
 use super::*;
 use std::collections::BTreeSet;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct DispatchLineInput {
     pub group: HubRecordId,
     pub expected_group_revision: HubRevision,
     pub packs: WholePacks,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct DispatchSelection(Vec<DispatchLineInput>);
 
 impl DispatchSelection {

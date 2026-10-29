@@ -989,6 +989,8 @@ dependencies = [
  "radroots_transport",
  "radroots_transport_nostr",
  "secrecy",
+ "serde",
+ "serde_json",
  "sha2",
  "time",
  "tokio",
@@ -1004,6 +1006,7 @@ dependencies = [
  "radroots_event_codec",
  "radroots_identity",
  "secrecy",
+ "serde",
  "sha2",
  "zeroize",
 ]

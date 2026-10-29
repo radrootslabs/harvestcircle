@@ -4,7 +4,7 @@ use crate::hub::movement::{hash_occurrence, hash_text};
 use crate::hub::treatment::{PhysicalAction, TreatmentSelection};
 use std::collections::BTreeSet;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct DepartureCommand {
     pub expected_stock_revision: HubRevision,
     pub expected_catalog_revision: HubRevision,

@@ -89,7 +89,7 @@ impl From<StockError> for MovementError {
 
 /// An operator-observed tag, separate container or other distinguishable portion.
 /// A generated database ID or a claimed quantity alone is not this identification.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct PhysicalIdentification {
     pub label: HubLabel,
     pub observation: SourceProvenance,
@@ -181,7 +181,7 @@ impl PhysicalStockGroup {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct MovementCommand {
     pub expected_stock_revision: HubRevision,
     pub expected_catalog_revision: HubRevision,
