@@ -12,8 +12,12 @@ pub(super) enum HubStockCommand {
     ReceiptOperation(DurableRequestId),
 }
 impl HubStockCommand {
+    pub(super) const fn is_mutating(&self) -> bool {
+        matches!(self, Self::Receive { .. })
+    }
+
     pub(super) const fn class(&self) -> RuntimeCommandClass {
-        if matches!(self, Self::Receive { .. }) {
+        if self.is_mutating() {
             RuntimeCommandClass::UseCredential
         } else {
             RuntimeCommandClass::Observe
@@ -97,7 +101,7 @@ impl RuntimeActor {
         let actor = self
             .hub_actor(generation)
             .map_err(|_| hub_authority::denied())?;
-        let mutating = matches!(command, HubStockCommand::Receive { .. });
+        let mutating = command.is_mutating();
         let result = self
             .run_async(
                 context.deadline(),
@@ -133,25 +137,11 @@ impl RuntimeActor {
             )
             .await;
         result.map_err(|error| {
-            if mutating
-                && matches!(
-                    error.code(),
-                    SafeErrorCode::StorageUnavailable | SafeErrorCode::InvalidApplicationState
-                )
-            {
-                outcome_unknown()
+            if mutating {
+                hub_authority::mutation_error(error)
             } else {
                 error
             }
         })
     }
-}
-
-pub(super) const fn outcome_unknown() -> SafeError {
-    SafeError::new(
-        SafeErrorCode::HubOutcomeUnknown,
-        SafeMessage::new(
-            "The inventory operation outcome is unconfirmed. Check its original operation ID before another submission.",
-        ),
-    )
 }

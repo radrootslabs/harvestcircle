@@ -228,6 +228,12 @@ contents. The archive has no decoder into mutation commands and establishes no
 permission. This prepares durable admission; resolved reference/material capture,
 pre-commit persistence, native session fencing and recovery remain required.
 
+A callback rejection is a known storage rejection only after confirmed rollback.
+Unconfirmed rollback or commit retains a recovery requirement even when the
+callback also returned a conflict. Hub mutations, including initialization, report
+that uncertainty against their original operation; credential-protected read-only
+reviews do not become mutations.
+
 ### C07: Counts, opening, actual reports and correction
 
 Counts are observations with population/location, cutoff and observer. Posting is

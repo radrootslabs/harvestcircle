@@ -40,14 +40,15 @@ pub(super) enum HubHandlingCommand {
 }
 
 impl HubHandlingCommand {
-    pub(super) const fn class(&self) -> RuntimeCommandClass {
-        if matches!(
+    pub(super) const fn is_mutating(&self) -> bool {
+        matches!(
             self,
-            Self::Apply { .. }
-                | Self::ApplyDispatch { .. }
-                | Self::ApplyDeparture { .. }
-                | Self::DepartureReview(_)
-        ) {
+            Self::Apply { .. } | Self::ApplyDispatch { .. } | Self::ApplyDeparture { .. }
+        )
+    }
+
+    pub(super) const fn class(&self) -> RuntimeCommandClass {
+        if self.is_mutating() || matches!(self, Self::DepartureReview(_)) {
             RuntimeCommandClass::UseCredential
         } else {
             RuntimeCommandClass::Observe
@@ -217,12 +218,7 @@ impl RuntimeActor {
         let actor = self
             .hub_actor(generation)
             .map_err(|_| hub_authority::denied())?;
-        let mutating = matches!(
-            command,
-            HubHandlingCommand::Apply { .. }
-                | HubHandlingCommand::ApplyDispatch { .. }
-                | HubHandlingCommand::ApplyDeparture { .. }
-        );
+        let mutating = command.is_mutating();
         let result = self
             .run_async(
                 context.deadline(),
@@ -391,13 +387,8 @@ impl RuntimeActor {
             )
             .await;
         result.map_err(|error| {
-            if mutating
-                && matches!(
-                    error.code(),
-                    SafeErrorCode::StorageUnavailable | SafeErrorCode::InvalidApplicationState
-                )
-            {
-                hub_stock::outcome_unknown()
+            if mutating {
+                hub_authority::mutation_error(error)
             } else {
                 error
             }

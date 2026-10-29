@@ -350,3 +350,40 @@ async fn failure_after_all_count_writes_rolls_back_history_and_leaves_stock_unch
     sqlx::Connection::close(raw).await.unwrap();
     db.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn actual_confirmed_rollback_preserves_rejection_and_restores_native_state() {
+    let fixture = Fixture::new();
+    let db = fixture.open().await;
+    let rejected = stock::conflict();
+    let error = db
+        .host()
+        .transaction(|tx| {
+            Box::pin(async move {
+                sqlx::query("UPDATE runtime_state SET session_generation=31 WHERE singleton=1")
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|_| crate::db::storage_unavailable())?;
+                Err::<(), _>(rejected)
+            })
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.kind(),
+        radroots_service_sqlite::ServiceSqliteTransactionErrorKind::OperationRolledBack
+    );
+    assert_eq!(crate::db::map_transaction_error(error), rejected);
+    let mut raw = fixture.raw().await;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT session_generation FROM runtime_state WHERE singleton=1"
+        )
+        .fetch_one(&mut raw)
+        .await
+        .unwrap(),
+        0
+    );
+    sqlx::Connection::close(raw).await.unwrap();
+    db.close().await.unwrap();
+}

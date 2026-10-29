@@ -133,14 +133,21 @@ fn initialize_application_schema<'a>(
 }
 
 pub(crate) fn map_transaction_error(error: ServiceSqliteTransactionError<SafeError>) -> SafeError {
-    if let Some(operation) = error.operation_error() {
-        return *operation;
-    }
-    match error.kind() {
-        ServiceSqliteTransactionErrorKind::CommitOutcomeUnknown => commit_outcome_unknown(),
+    map_transaction_phase(error.kind(), error.operation_error().copied())
+}
+
+fn map_transaction_phase(
+    kind: ServiceSqliteTransactionErrorKind,
+    operation: Option<SafeError>,
+) -> SafeError {
+    match kind {
+        // A retained callback error cannot establish that rollback succeeded.
+        ServiceSqliteTransactionErrorKind::CommitOutcomeUnknown
+        | ServiceSqliteTransactionErrorKind::RollbackFailed => unconfirmed_transaction_outcome(),
         ServiceSqliteTransactionErrorKind::NotCommitted
-        | ServiceSqliteTransactionErrorKind::OperationRolledBack
-        | ServiceSqliteTransactionErrorKind::RollbackFailed => storage_unavailable(),
+        | ServiceSqliteTransactionErrorKind::OperationRolledBack => {
+            operation.unwrap_or_else(storage_unavailable)
+        }
     }
 }
 
@@ -180,9 +187,13 @@ pub(crate) const fn invalid_storage_contract() -> SafeError {
     )
 }
 
-const fn commit_outcome_unknown() -> SafeError {
+const fn unconfirmed_transaction_outcome() -> SafeError {
     SafeError::new(
         SafeErrorCode::PendingOperationRecoveryRequired,
-        SafeMessage::new("The storage commit outcome must be reconciled."),
+        SafeMessage::new("The storage transaction outcome must be reconciled."),
     )
 }
+
+#[cfg(test)]
+#[path = "db_transaction_tests.rs"]
+mod transaction_tests;

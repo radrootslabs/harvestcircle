@@ -19,8 +19,12 @@ pub(super) enum HubReferenceCommand {
 }
 
 impl HubReferenceCommand {
+    pub(super) const fn is_mutating(&self) -> bool {
+        matches!(self, Self::Apply { .. })
+    }
+
     pub(super) const fn class(&self) -> RuntimeCommandClass {
-        if matches!(self, Self::Apply { .. }) {
+        if self.is_mutating() {
             RuntimeCommandClass::UseCredential
         } else {
             RuntimeCommandClass::Observe
@@ -125,7 +129,7 @@ impl RuntimeActor {
         let actor = self
             .hub_actor(generation)
             .map_err(|_| permission_denied())?;
-        let mutating = matches!(command, HubReferenceCommand::Apply { .. });
+        let mutating = command.is_mutating();
         let result = self
             .run_async(
                 context.deadline(),
@@ -168,13 +172,8 @@ impl RuntimeActor {
             )
             .await;
         result.map_err(|error| {
-            if mutating
-                && matches!(
-                    error.code(),
-                    SafeErrorCode::StorageUnavailable | SafeErrorCode::InvalidApplicationState
-                )
-            {
-                outcome_unknown()
+            if mutating {
+                hub_authority::mutation_error(error)
             } else {
                 error
             }
@@ -186,14 +185,5 @@ const fn permission_denied() -> SafeError {
     SafeError::new(
         SafeErrorCode::HubPermissionDenied,
         SafeMessage::new("Activate the current hub owner's local identity to access hub records."),
-    )
-}
-
-pub(super) const fn outcome_unknown() -> SafeError {
-    SafeError::new(
-        SafeErrorCode::HubOutcomeUnknown,
-        SafeMessage::new(
-            "The reference operation outcome is unconfirmed. Check its original operation ID before another submission.",
-        ),
     )
 }

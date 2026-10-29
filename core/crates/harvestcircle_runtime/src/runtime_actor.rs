@@ -146,6 +146,16 @@ impl RuntimeCommand {
         }
     }
 
+    const fn is_hub_mutation(&self) -> bool {
+        match self {
+            Self::InitializeHub { .. } => true,
+            Self::HubReference { command, .. } => command.is_mutating(),
+            Self::HubStock { command, .. } => command.is_mutating(),
+            Self::HubHandling { command, .. } => command.is_mutating(),
+            _ => false,
+        }
+    }
+
     const fn resolves_revision_through_durable_replay(&self) -> bool {
         matches!(
             self,
@@ -782,25 +792,7 @@ impl RuntimeActorHandle {
         request_id: RequestId,
         deadline: Instant,
     ) -> Result<RuntimeCommandValue, SafeError> {
-        let reference_mutation = matches!(
-            command,
-            RuntimeCommand::HubReference {
-                command: HubReferenceCommand::Apply { .. },
-                ..
-            }
-        );
-        let stock_mutation = matches!(
-            command,
-            RuntimeCommand::HubStock {
-                command: HubStockCommand::Receive { .. },
-                ..
-            } | RuntimeCommand::HubHandling {
-                command: HubHandlingCommand::Apply { .. }
-                    | HubHandlingCommand::ApplyDispatch { .. }
-                    | HubHandlingCommand::ApplyDeparture { .. },
-                ..
-            }
-        );
+        let hub_mutation = command.is_hub_mutation();
         let context = CommandContext::new(request_id, expected_revision, deadline);
         let receipt = match self.mailbox.submit(context, command) {
             CommandSubmission::Accepted(ticket) => {
@@ -814,18 +806,15 @@ impl RuntimeActorHandle {
         };
         match receipt.into_result() {
             CommandResult::Completed(value) => Ok(value),
-            CommandResult::Conflicted { .. } if reference_mutation || stock_mutation => {
-                Err(SafeError::new(
-                    SafeErrorCode::HubConflict,
-                    SafeMessage::new(
-                        "The active application context changed. Review before submitting.",
-                    ),
-                ))
-            }
+            CommandResult::Conflicted { .. } if hub_mutation => Err(SafeError::new(
+                SafeErrorCode::HubConflict,
+                SafeMessage::new(
+                    "The active application context changed. Review before submitting.",
+                ),
+            )),
             CommandResult::Conflicted { .. } => Err(command_conflicted()),
             CommandResult::Rejected(_) => Err(command_rejected()),
-            CommandResult::TimedOut if stock_mutation => Err(hub_stock::outcome_unknown()),
-            CommandResult::TimedOut if reference_mutation => Err(hub_reference::outcome_unknown()),
+            CommandResult::TimedOut if hub_mutation => Err(hub_authority::outcome_unknown()),
             CommandResult::TimedOut => Err(command_timed_out()),
             CommandResult::Closed => Err(runtime_closed()),
             CommandResult::Failed(error) => Err(error),
@@ -1133,8 +1122,8 @@ impl RuntimeActor {
                 generation,
                 operation,
             } => match self.hub_actor(generation) {
-                Ok(actor) => {
-                    self.run_async(
+                Ok(actor) => self
+                    .run_async(
                         context.deadline(),
                         move |adapter, secrets, clock| async move {
                             let secret = secrets.load(actor).await?;
@@ -1160,7 +1149,7 @@ impl RuntimeActor {
                         },
                     )
                     .await
-                }
+                    .map_err(hub_authority::mutation_error),
                 Err(error) => Err(error),
             },
             RuntimeCommand::Snapshot => Ok(RuntimeCommandValue::Snapshot(Box::new(
@@ -1851,6 +1840,56 @@ mod tests {
         test_runtime_context,
     };
     use crate::{InstallationIdentity, InstallationIdentitySource, UuidInstallationIdentitySource};
+
+    #[test]
+    fn hub_mutation_classification_includes_initialization_and_excludes_observation_and_identity() {
+        use super::hub_reference::HubReferenceCommand;
+        use super::hub_stock::HubStockCommand;
+        let generation = SessionGeneration::initial();
+        let operation = DurableRequestId::parse("00000000-0000-7000-8000-000000000001").unwrap();
+        assert!(
+            RuntimeCommand::InitializeHub {
+                generation,
+                operation: operation.clone()
+            }
+            .is_hub_mutation()
+        );
+        for command in [
+            RuntimeCommand::Snapshot,
+            RuntimeCommand::HubRead { generation },
+            RuntimeCommand::HubReference {
+                generation,
+                command: HubReferenceCommand::Read,
+            },
+            RuntimeCommand::HubStock {
+                generation,
+                command: HubStockCommand::ReceiptOperation(operation.clone()),
+            },
+            RuntimeCommand::GenerateIdentity {
+                durable_request: operation,
+                expected_revision: 0,
+            },
+            RuntimeCommand::HubHandling {
+                generation,
+                command: super::hub_handling::HubHandlingCommand::DepartureReview(
+                    harvestcircle_storage::HubDepartureReviewInput {
+                        preparation: harvestcircle_domain::hub::reference::HubRecordId::from_bytes(
+                            [1; 16],
+                        )
+                        .unwrap(),
+                        expected_preparation_revision:
+                            harvestcircle_domain::hub::HubRevision::INITIAL,
+                        identification:
+                            harvestcircle_domain::hub::reference::HubRecordId::from_bytes([2; 16])
+                                .unwrap(),
+                    },
+                ),
+            },
+            RuntimeCommand::SignOut,
+        ] {
+            assert!(!command.is_hub_mutation());
+        }
+    }
 
     struct FixedInstallationIdentity(&'static str);
 

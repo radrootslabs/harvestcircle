@@ -30,3 +30,53 @@ pub(super) const fn denied() -> SafeError {
         SafeMessage::new("Activate the current hub owner's local identity to access hub records."),
     )
 }
+
+pub(super) const fn mutation_error(error: SafeError) -> SafeError {
+    match error.code() {
+        SafeErrorCode::StorageUnavailable
+        | SafeErrorCode::InvalidApplicationState
+        | SafeErrorCode::PendingOperationRecoveryRequired => outcome_unknown(),
+        _ => error,
+    }
+}
+
+pub(super) const fn outcome_unknown() -> SafeError {
+    SafeError::new(
+        SafeErrorCode::HubOutcomeUnknown,
+        SafeMessage::new(
+            "The hub operation outcome is unconfirmed. Check its original operation ID before another submission.",
+        ),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unconfirmed_storage_failures_preserve_hub_operation_recovery() {
+        for code in [
+            SafeErrorCode::StorageUnavailable,
+            SafeErrorCode::InvalidApplicationState,
+            SafeErrorCode::PendingOperationRecoveryRequired,
+        ] {
+            let error = SafeError::new(code, SafeMessage::new("fixture"));
+            assert_eq!(
+                mutation_error(error).code(),
+                SafeErrorCode::HubOutcomeUnknown
+            );
+        }
+        for code in [
+            SafeErrorCode::HubConflict,
+            SafeErrorCode::HubInvalidInput,
+            SafeErrorCode::HubCapacity,
+            SafeErrorCode::HubPermissionDenied,
+            SafeErrorCode::CredentialMissing,
+            SafeErrorCode::KeyringUnavailable,
+            SafeErrorCode::StorageCorrupt,
+        ] {
+            let error = SafeError::new(code, SafeMessage::new("fixture"));
+            assert_eq!(mutation_error(error), error);
+        }
+    }
+}
