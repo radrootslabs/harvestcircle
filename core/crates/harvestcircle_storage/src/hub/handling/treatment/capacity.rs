@@ -35,6 +35,16 @@ pub(in crate::hub) async fn ensure_on(
     check_budget(&counters, reservation)
 }
 
+/// Checks a new document-specific departure after original replay is resolved.
+/// Read-only reviews reuse this exact reservation arithmetic without admitting intent.
+pub(in crate::hub) async fn ensure_departure_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    events: u32,
+) -> Result<(), SafeError> {
+    check_budget(&counters_on(tx, hub).await?, Reservation::Depart(events))
+}
+
 fn check_budget(counters: &Counters, reservation: Reservation) -> Result<(), SafeError> {
     let (events, new_reservations, issued_reservations, safety_headroom) = match reservation {
         Reservation::Ordinary(events) => {
@@ -294,5 +304,32 @@ mod tests {
         assert!(check_budget(&both, Reservation::Ordinary(1)).is_err());
         assert!(check_budget(&both, Reservation::PlaceHold).is_err());
         assert!(check_budget(&before, Reservation::CloseIssued).is_err());
+    }
+}
+
+#[cfg(test)]
+mod departure_review_tests {
+    use super::*;
+    #[test]
+    fn an_issued_departure_uses_its_reserved_closure_while_generic_work_stays_blocked() {
+        let counters = Counters {
+            primary: 0,
+            open: 0,
+            issued: 1,
+            events: HUB_STOCK_EVENT_CAPACITY as u32 - 3,
+        };
+        assert_eq!(
+            check_budget(&counters, Reservation::Ordinary(1))
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubCapacity
+        );
+        check_budget(&counters, Reservation::Depart(1)).unwrap();
+        assert_eq!(
+            check_budget(&counters, Reservation::Depart(2))
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubCapacity
+        );
     }
 }

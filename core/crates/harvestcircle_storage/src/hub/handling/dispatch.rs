@@ -163,7 +163,10 @@ fn dispatch_error(error: DispatchError) -> SafeError {
 #[cfg(test)]
 mod tests;
 
-fn current_state(record: &DispatchRecord, used: bool) -> Result<HubDispatchState, SafeError> {
+pub(super) fn current_state(
+    record: &DispatchRecord,
+    used: bool,
+) -> Result<HubDispatchState, SafeError> {
     if used {
         return Ok(HubDispatchState::Departed);
     }

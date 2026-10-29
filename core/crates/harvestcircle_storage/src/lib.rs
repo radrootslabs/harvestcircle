@@ -30,7 +30,9 @@ pub use contract::{
     harvestcircle_schema_catalog,
 };
 pub use db::{CURRENT_SCHEMA_VERSION, Database};
-pub use hub::handling::departure::{HubDepartureReceipt, HubDepartureUse};
+pub use hub::handling::departure::{
+    HubDepartureReceipt, HubDepartureReview, HubDepartureReviewInput, HubDepartureUse,
+};
 pub use hub::handling::dispatch::{
     HubDispatchFilter, HubDispatchKind, HubDispatchPage, HubDispatchQuery, HubDispatchReceipt,
     HubDispatchRow, HubDispatchState, HubDispatchView,

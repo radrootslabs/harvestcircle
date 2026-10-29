@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 11, FFI is 5.9 and snapshot schema is 1. Rust and
+The current storage schema is 11, FFI is 5.10 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -187,7 +187,7 @@ lines and 32 versions are retained per preparation, with 1,024 preparations per 
 Native journal budgeting reserves a closure slot for every active issued version
 alongside outstanding hold releases and precautionary hold/release headroom.
 
-FFI 5.9 and the Kotlin transport expose bounded preparation pages, complete selected
+FFI 5.10 and the Kotlin transport expose bounded preparation pages, complete selected
 records, original receipts and closed commands. List rows are summaries; version
 history belongs to the selected record. Shared Dispatch editors select a recipient
 and whole current groups, prepare/revise, issue, replace or mark identification
@@ -229,11 +229,22 @@ Physical usage is a separate current projection: the preparation page and select
 view report Departed and its original operation, while as-issued material/status
 remain unchanged. Used identification cannot be revised or marked unused. Issued
 closure budgeting consumes that preparation's reserved closure while preserving
-other documents, hold releases and precautionary headroom. FFI 5.9 exposes a bounded
+other documents, hold releases and precautionary headroom. FFI 5.10 exposes a bounded
 actual-departure command and original-result lookup through the existing current
 session/owner/credential boundary. The shared confirmation UI and full candidate
 recovery/packaging qualification remain unfinished; API availability alone is not
 a demo-release qualification.
+
+Read-only departure review reuses the same native read/plan path as recording.
+It binds the requested preparation revision and identification, reports current
+material/treatment/capacity blocks, and returns proposed work transitions without
+writing stock, document, receipt or intent rows. The runtime requires the current
+owner's credential; historical views and original lookup retain their separate
+read-only authority. The document-specific check can consume its reserved closure
+at recording even when ordinary new work has no room. It never uses generic
+ordinary-action availability as the departure decision. Corrupt originals propagate
+storage errors. Preview carries no proposed receipt/operation identifier and
+reserves nothing; recording rechecks authority, clocks and every selected line.
 
 ## Secrets, transport and lifecycle
 

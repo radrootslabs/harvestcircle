@@ -1,13 +1,10 @@
 //! One protected transaction captures every original before any current mutation.
-use super::super::{lineage, treatment, write as journal};
+use super::super::{lineage, write as journal};
 use super::*;
 use crate::Database;
-use harvestcircle_domain::hub::departure::{
-    DepartureCommand, DepartureContext, DepartureError, DepartureTreatment, departure_result_digest,
-};
-use harvestcircle_domain::hub::dispatch::{DispatchSource, IdentificationStatus};
+use harvestcircle_domain::hub::departure::{DepartureCommand, departure_result_digest};
 use harvestcircle_domain::hub::movement::WorkProgress;
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 impl Database {
     pub async fn apply_hub_departure(
@@ -42,78 +39,10 @@ pub(super) async fn apply_on(
         }
         return read::original_on(tx, hub.id(), original).await;
     }
-    let state = stock::read::state_on(tx, hub.id()).await?;
-    let catalog = reference::load_catalog_on(tx, hub.id()).await?;
-    let paper = super::super::dispatch::read::record_on(tx, hub.id(), command.preparation).await?;
-    if read::usage_on(tx, hub.id(), paper.id).await?.is_some() {
-        return Err(unavailable());
-    }
-    if command.expected_stock_revision != state.revision
-        || command.expected_catalog_revision != catalog.revision()
-        || command.expected_preparation_revision != paper.revision
-    {
-        return Err(conflict());
-    }
-    let version = paper.versions.last().ok_or_else(unavailable)?;
-    if paper.draft.is_some()
-        || version.id != command.identification
-        || version.status != IdentificationStatus::Issued
-        || version.closed.is_some()
-    {
-        return Err(unavailable());
-    }
-    let mut traces = BTreeMap::new();
-    for line in &version.material.lines {
-        if let std::collections::btree_map::Entry::Vacant(slot) = traces.entry(line.trace.id) {
-            slot.insert(
-                lineage::load_on(tx, hub.id(), line.trace.id, &catalog, state.revision).await?,
-            );
-        }
-    }
-    let mut sources = Vec::with_capacity(version.material.lines.len());
-    for line in &version.material.lines {
-        let loaded = traces.get(&line.trace.id).ok_or_else(corrupt_storage)?;
-        let node = loaded.graph.node(line.group).ok_or_else(corrupt_storage)?;
-        if node.packs.value() == 0 {
-            return Err(unavailable());
-        }
-        let group = super::super::read::group_on(tx, hub.id(), line.group, &catalog).await?;
-        sources.push(DispatchSource {
-            group,
-            trace: loaded.trace.clone(),
-        });
-    }
-    let mut treatments = Vec::with_capacity(traces.len());
-    for loaded in traces.values() {
-        treatments.push(DepartureTreatment {
-            state: treatment::read::state_on(tx, hub.id(), &loaded.graph).await?,
-            lineage: loaded.graph.clone(),
-        });
-    }
-    let plan = command
-        .plan(
-            &DepartureContext {
-                hub: hub.id(),
-                stock_revision: state.revision,
-                catalog: &catalog,
-                paper: &paper,
-                sources: &sources,
-                treatments: &treatments,
-                prior_departure: None,
-            },
-            ids,
-            actor,
-            now,
-        )
-        .map_err(departure_error)?;
+    let context = super::plan::load_on(tx, hub.id(), command.preparation).await?;
+    let plan = super::plan::prepare_on(tx, hub.id(), actor, ids, &command, &context, now).await?;
+    let super::plan::Context { state, catalog, .. } = context;
     let events = u32::try_from(plan.physical_event_count()).map_err(|_| corrupt_storage())?;
-    treatment::capacity::ensure_on(
-        tx,
-        actor,
-        &operation,
-        treatment::capacity::Reservation::Depart(events),
-    )
-    .await?;
     let original = stock::read::OperationRecord {
         id: operation.clone(),
         kind: "departure".to_owned(),
@@ -200,8 +129,13 @@ pub(super) async fn apply_on(
     journal::advance_many_on(tx, hub.id(), &state, plan.stock_revision, events).await?;
     // Actual readers must accept the conserved remainder and complete work scope.
     let _ = stock::read::state_on(tx, hub.id()).await?;
-    for trace in traces.keys() {
-        let _ = lineage::load_on(tx, hub.id(), *trace, &catalog, plan.stock_revision).await?;
+    let traces = plan
+        .consumed
+        .iter()
+        .map(|effect| effect.before.trace)
+        .collect::<BTreeSet<_>>();
+    for trace in traces {
+        let _ = lineage::load_on(tx, hub.id(), trace, &catalog, plan.stock_revision).await?;
     }
     for change in &plan.work_changes {
         if super::super::read::work_on(tx, hub.id(), change.after.id).await? != change.after {
@@ -254,44 +188,4 @@ async fn capture_on(
         }
     }
     Ok(())
-}
-fn unavailable() -> SafeError {
-    SafeError::new(
-        SafeErrorCode::HubConflict,
-        SafeMessage::new(
-            "The selected identification or stock is no longer available for departure. Review current records.",
-        ),
-    )
-}
-fn departure_error(error: DepartureError) -> SafeError {
-    use harvestcircle_domain::hub::{dispatch::DispatchError, treatment::TreatmentError};
-    match error {
-        DepartureError::AlreadyUsed | DepartureError::IdentificationUnavailable => unavailable(),
-        DepartureError::MaterialChanged
-        | DepartureError::StaleRevision
-        | DepartureError::Dispatch(DispatchError::StaleRevision) => SafeError::new(
-            SafeErrorCode::HubConflict,
-            SafeMessage::new(
-                "Departure material changed. Review current stock and replace identification where required.",
-            ),
-        ),
-        DepartureError::Treatment(TreatmentError::ActionBlocked) => SafeError::new(
-            SafeErrorCode::HubConflict,
-            SafeMessage::new(
-                "Current sample acceptance or an active hold blocks normal departure. No stock was removed.",
-            ),
-        ),
-        DepartureError::Capacity
-        | DepartureError::RevisionExhausted
-        | DepartureError::Treatment(TreatmentError::Capacity) => capacity(),
-        DepartureError::Movement(harvestcircle_domain::hub::movement::MovementError::Stock(
-            harvestcircle_domain::hub::stock::StockError::InvalidOccurrence,
-        )) => SafeError::new(
-            SafeErrorCode::HubInvalidInput,
-            SafeMessage::new(
-                "Review actual occurrence time and the selected stock's causal history.",
-            ),
-        ),
-        _ => corrupt_storage(),
-    }
 }

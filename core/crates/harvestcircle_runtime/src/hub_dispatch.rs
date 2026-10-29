@@ -111,3 +111,18 @@ impl RuntimeActorHandle {
         }
     }
 }
+
+impl RuntimeActorHandle {
+    pub async fn hub_departure_review(
+        &self,
+        request: harvestcircle_storage::HubDepartureReviewInput,
+    ) -> Result<harvestcircle_storage::HubDepartureReview, SafeError> {
+        match self
+            .dispatch_handling(HubHandlingCommand::DepartureReview(request))
+            .await?
+        {
+            HubHandlingValue::DepartureReview(review) => Ok(*review),
+            _ => Err(invalid_actor_response()),
+        }
+    }
+}

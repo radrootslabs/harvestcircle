@@ -5,13 +5,14 @@ use harvestcircle_domain::hub::dispatch::DispatchCommand;
 use harvestcircle_domain::hub::movement::HandlingCommand;
 use harvestcircle_domain::hub::reference::HubRecordId;
 use harvestcircle_storage::{
-    HubDepartureReceipt, HubDiscrepancyRow, HubDispatchPage, HubDispatchQuery, HubDispatchReceipt,
-    HubDispatchView, HubGroupView, HubHandlingPage, HubHandlingQuery, HubHandlingReceipt,
-    HubLineagePage, HubLineageQuery, HubTreatmentPage, HubTreatmentQuery, HubTreatmentScope,
-    HubTreatmentSnapshot, HubWorkRow,
+    HubDepartureReceipt, HubDepartureReview, HubDepartureReviewInput, HubDiscrepancyRow,
+    HubDispatchPage, HubDispatchQuery, HubDispatchReceipt, HubDispatchView, HubGroupView,
+    HubHandlingPage, HubHandlingQuery, HubHandlingReceipt, HubLineagePage, HubLineageQuery,
+    HubTreatmentPage, HubTreatmentQuery, HubTreatmentScope, HubTreatmentSnapshot, HubWorkRow,
 };
 
 pub(super) enum HubHandlingCommand {
+    DepartureReview(HubDepartureReviewInput),
     DepartureOperation(DurableRequestId),
     ApplyDeparture {
         operation: DurableRequestId,
@@ -41,7 +42,10 @@ impl HubHandlingCommand {
     pub(super) const fn class(&self) -> RuntimeCommandClass {
         if matches!(
             self,
-            Self::Apply { .. } | Self::ApplyDispatch { .. } | Self::ApplyDeparture { .. }
+            Self::Apply { .. }
+                | Self::ApplyDispatch { .. }
+                | Self::ApplyDeparture { .. }
+                | Self::DepartureReview(_)
         ) {
             RuntimeCommandClass::UseCredential
         } else {
@@ -51,6 +55,7 @@ impl HubHandlingCommand {
 }
 
 pub(super) enum HubHandlingValue {
+    DepartureReview(Box<HubDepartureReview>),
     DepartureReceipt(Option<Box<HubDepartureReceipt>>),
     DispatchPage(Box<HubDispatchPage>),
     DispatchRecord(Box<HubDispatchView>),
@@ -221,6 +226,20 @@ impl RuntimeActor {
                 context.deadline(),
                 move |adapter, secrets, clock| async move {
                     let value = match command {
+                        HubHandlingCommand::DepartureReview(request) => {
+                            hub_authority::require_owner_credential(
+                                adapter.as_ref(),
+                                secrets.as_ref(),
+                                actor,
+                            )
+                            .await?;
+                            HubHandlingValue::DepartureReview(Box::new(
+                                adapter
+                                    .database()
+                                    .hub_departure_review(actor, request, clock.now())
+                                    .await?,
+                            ))
+                        }
                         HubHandlingCommand::DepartureOperation(operation) => {
                             HubHandlingValue::DepartureReceipt(
                                 adapter

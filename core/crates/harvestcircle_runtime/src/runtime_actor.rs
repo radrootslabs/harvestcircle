@@ -4118,6 +4118,20 @@ mod tests {
             )
             .unwrap(),
         };
+        let departure_review = harvestcircle_storage::HubDepartureReviewInput {
+            preparation: departure.preparation,
+            expected_preparation_revision: departure.expected_preparation_revision,
+            identification: departure.identification,
+        };
+        let blocked_preview = actor
+            .hub_departure_review(departure_review.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            blocked_preview.block.unwrap().code(),
+            SafeErrorCode::HubConflict
+        );
+        assert_eq!(blocked_preview.view.record, prepared.record);
         let old_generation = actor.session_generation();
         let credential = secrets.load(owner).await.unwrap();
         secrets
@@ -4242,6 +4256,14 @@ mod tests {
                 .await
                 .unwrap()
                 .is_none()
+        );
+        assert_eq!(
+            actor
+                .hub_departure_review(departure_review.clone())
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::CredentialMissing
         );
         secrets
             .put(&DurableRequestId::new_v7(), owner, credential)
@@ -4412,6 +4434,14 @@ mod tests {
         assert_eq!(
             actor
                 .hub_departure_operation(departure_id.clone())
+                .await
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubPermissionDenied
+        );
+        assert_eq!(
+            actor
+                .hub_departure_review(departure_review)
                 .await
                 .unwrap_err()
                 .code(),

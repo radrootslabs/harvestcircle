@@ -26,7 +26,9 @@ use radroots_runtime_paths::{
 };
 use radroots_service_sqlite::MigrationBuildIdentity;
 
-use crate::hub_departure::{HubDepartureInputDto, HubDepartureReceiptDto};
+use crate::hub_departure::{
+    HubDepartureInputDto, HubDepartureReceiptDto, HubDepartureReviewDto, HubDepartureReviewInputDto,
+};
 use crate::hub_dispatch::{
     HubDispatchPageDto, HubDispatchQueryDto, HubDispatchReceiptDto, HubDispatchViewDto,
 };
@@ -598,6 +600,19 @@ impl HarvestCircleAppCore {
             .await
             .map(Into::into)
             .map_err(HarvestCircleError::from)
+    }
+
+    pub async fn hub_departure_review(
+        &self,
+        input: HubDepartureReviewInputDto,
+    ) -> Result<HubDepartureReviewDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        self.inner
+            .actor
+            .hub_departure_review(input.decode()?)
+            .await
+            .map_err(HarvestCircleError::from)?
+            .try_into()
     }
 
     pub async fn apply_hub_departure(
@@ -2388,6 +2403,26 @@ mod tests {
             .hub_dispatch_record(issued.record.id.clone())
             .await
             .unwrap();
+        let review_input = crate::HubDepartureReviewInputDto {
+            preparation_id: issued.record.id.clone(),
+            expected_preparation_revision: issued.record.revision,
+            identification_id: issued.record.versions[0].id.clone(),
+        };
+        let before_review = core.hub_stock(query.clone()).await.unwrap();
+        let before_review_work = core.hub_work(work_query.clone()).await.unwrap();
+        let review = core
+            .hub_departure_review(review_input.clone())
+            .await
+            .unwrap();
+        assert!(review.ready);
+        assert!(review.block.is_none());
+        assert!(review.proposed_work_changes.is_empty());
+        assert_eq!(review.view.record, issued.record);
+        assert_eq!(before_review, core.hub_stock(query.clone()).await.unwrap());
+        assert_eq!(
+            before_review_work,
+            core.hub_work(work_query.clone()).await.unwrap()
+        );
         let departure_context = context(core.snapshot().revision);
         let departure_input = crate::HubDepartureInputDto {
             expected_stock_revision: current.stock_revision,
@@ -2455,6 +2490,14 @@ mod tests {
         assert_eq!(used.state, crate::HubDispatchStateDto::Departed);
         assert_eq!(used.record, issued.record);
         assert_eq!(used.departure.unwrap().id, departed.id);
+        let review = core
+            .hub_departure_review(review_input.clone())
+            .await
+            .unwrap();
+        assert!(!review.ready);
+        assert_eq!(review.view.state, crate::HubDispatchStateDto::Departed);
+        assert_eq!(review.view.departure.unwrap().id, departed.id);
+
         assert!(
             core.apply_hub_departure(context(core.snapshot().revision), departure_input.clone())
                 .await
@@ -2471,6 +2514,7 @@ mod tests {
                 .await
                 .is_err()
         );
+        assert!(core.hub_departure_review(review_input).await.is_err());
         assert!(core.hub_group(group.group.id).await.is_err());
         assert!(
             core.hub_handling_operation(move_context.request_id)

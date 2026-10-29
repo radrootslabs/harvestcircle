@@ -16,13 +16,13 @@ use harvestcircle_application::{
 use harvestcircle_domain::{PublicKey, SafeError, SecretKeyInput, UnixTimestamp};
 use harvestcircle_ffi::{
     HarvestCircleError, HubContextDto, HubDepartureInputDto, HubDepartureReceiptDto,
-    HubDiscrepancyPageDto, HubDispatchInputDto, HubDispatchPageDto, HubDispatchQueryDto,
-    HubDispatchReceiptDto, HubDispatchViewDto, HubGroupViewDto, HubHandlingInputDto,
-    HubHandlingQueryDto, HubHandlingReceiptDto, HubLineagePageDto, HubLineageQueryDto,
-    HubReceiptInputDto, HubReferenceEditDto, HubReferencePageDto, HubReferenceQueryDto,
-    HubReferenceReceiptDto, HubStockPageDto, HubStockQueryDto, HubStockReceiptDto,
-    HubTreatmentPageDto, HubTreatmentQueryDto, HubTreatmentScopeDto, HubTreatmentSnapshotDto,
-    HubWorkPageDto, SafeErrorDto,
+    HubDepartureReviewDto, HubDepartureReviewInputDto, HubDiscrepancyPageDto, HubDispatchInputDto,
+    HubDispatchPageDto, HubDispatchQueryDto, HubDispatchReceiptDto, HubDispatchViewDto,
+    HubGroupViewDto, HubHandlingInputDto, HubHandlingQueryDto, HubHandlingReceiptDto,
+    HubLineagePageDto, HubLineageQueryDto, HubReceiptInputDto, HubReferenceEditDto,
+    HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto, HubStockPageDto,
+    HubStockQueryDto, HubStockReceiptDto, HubTreatmentPageDto, HubTreatmentQueryDto,
+    HubTreatmentScopeDto, HubTreatmentSnapshotDto, HubWorkPageDto, SafeErrorDto,
 };
 use harvestcircle_nostr::SdkNostrClient;
 use harvestcircle_runtime::{
@@ -318,6 +318,18 @@ impl HarvestCircleTestBridge {
             .block_on(self.actor()?.hub_receipt_operation(operation))
             .map(|value| value.map(Into::into))
             .map_err(native_runtime_error)
+    }
+
+    pub fn departure_review(
+        &self,
+        input: HubDepartureReviewInputDto,
+    ) -> Result<HubDepartureReviewDto, TestBridgeError> {
+        let request = input.decode().map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_departure_review(request))
+            .map_err(native_runtime_error)?
+            .try_into()
+            .map_err(native_codec_error)
     }
 
     pub fn apply_departure(

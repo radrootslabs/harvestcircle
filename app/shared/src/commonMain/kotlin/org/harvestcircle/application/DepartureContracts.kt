@@ -49,6 +49,8 @@ data class HubDepartureReceipt(
 )
 
 interface HarvestCircleDepartureRuntime {
+    suspend fun departureReview(input: HubDepartureReviewInput): HubDepartureReview
+
     suspend fun applyDeparture(
         context: RequestContext,
         input: HubDepartureInput,
@@ -56,3 +58,17 @@ interface HarvestCircleDepartureRuntime {
 
     suspend fun departureOperation(operation: OperationId): HubDepartureReceipt?
 }
+
+data class HubDepartureReviewInput(
+    val preparationId: String,
+    val expectedPreparationRevision: ULong,
+    val identificationId: String,
+)
+
+data class HubDepartureReview(
+    val request: HubDepartureReviewInput,
+    val view: HubDispatchView,
+    val ready: Boolean,
+    val block: ApplicationProblem?,
+    val proposedWorkChanges: List<HubDepartureWorkChange>,
+)

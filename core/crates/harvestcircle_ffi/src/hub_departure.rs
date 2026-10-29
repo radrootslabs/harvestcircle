@@ -1,13 +1,58 @@
 //! Actual departure is distinct from paper issuance and uses native authority.
 use crate::commands::HarvestCircleError;
-use crate::hub_dispatch::HubDispatchRecordDto;
+use crate::dto::SafeErrorDto;
+use crate::hub_dispatch::{HubDispatchRecordDto, HubDispatchViewDto};
 use crate::hub_handling::HubWorkRequirementDto;
 use crate::hub_reference::invalid_input;
 use crate::hub_stock::HubOccurrenceDto;
 use crate::hub_treatment_input::{id, revision};
 use harvestcircle_domain::hub::departure::DepartureCommand;
 use harvestcircle_domain::hub::reference::SourceProvenance;
-use harvestcircle_storage::{HubDepartureReceipt, HubDepartureUse};
+use harvestcircle_storage::{
+    HubDepartureReceipt, HubDepartureReview, HubDepartureReviewInput, HubDepartureUse,
+};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct HubDepartureReviewInputDto {
+    pub preparation_id: String,
+    pub expected_preparation_revision: u64,
+    pub identification_id: String,
+}
+impl HubDepartureReviewInputDto {
+    pub fn decode(self) -> Result<HubDepartureReviewInput, HarvestCircleError> {
+        Ok(HubDepartureReviewInput {
+            preparation: id(&self.preparation_id)?,
+            expected_preparation_revision: revision(self.expected_preparation_revision)?,
+            identification: id(&self.identification_id)?,
+        })
+    }
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct HubDepartureReviewDto {
+    pub request: HubDepartureReviewInputDto,
+    pub view: HubDispatchViewDto,
+    pub ready: bool,
+    pub block: Option<SafeErrorDto>,
+    pub proposed_work_changes: Vec<HubDepartureWorkChangeDto>,
+}
+impl TryFrom<HubDepartureReview> for HubDepartureReviewDto {
+    type Error = HarvestCircleError;
+    fn try_from(value: HubDepartureReview) -> Result<Self, Self::Error> {
+        Ok(Self {
+            request: HubDepartureReviewInputDto {
+                preparation_id: value.request.preparation.to_hex(),
+                expected_preparation_revision: value.request.expected_preparation_revision.value(),
+                identification_id: value.request.identification.to_hex(),
+            },
+            view: value.view.try_into()?,
+            ready: value.block.is_none(),
+            block: value.block.map(Into::into),
+            proposed_work_changes: value.proposed_work_changes.iter().map(Into::into).collect(),
+        })
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
@@ -74,6 +119,17 @@ pub struct HubDepartureWorkChangeDto {
     pub after: HubWorkRequirementDto,
     pub retired_whole_packs: u32,
 }
+impl From<&harvestcircle_domain::hub::departure::DepartureWorkChange>
+    for HubDepartureWorkChangeDto
+{
+    fn from(value: &harvestcircle_domain::hub::departure::DepartureWorkChange) -> Self {
+        Self {
+            before: (&value.before).into(),
+            after: (&value.after).into(),
+            retired_whole_packs: value.retired.value(),
+        }
+    }
+}
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct HubDepartureReceiptDto {
@@ -113,15 +169,7 @@ impl TryFrom<HubDepartureReceipt> for HubDepartureReceiptDto {
                     whole_packs: line.before.packs.value(),
                 })
                 .collect(),
-            work_changes: record
-                .work_changes
-                .iter()
-                .map(|change| HubDepartureWorkChangeDto {
-                    before: (&change.before).into(),
-                    after: (&change.after).into(),
-                    retired_whole_packs: change.retired.value(),
-                })
-                .collect(),
+            work_changes: record.work_changes.iter().map(Into::into).collect(),
         })
     }
 }

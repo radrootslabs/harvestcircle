@@ -30,6 +30,8 @@ import org.harvestcircle.application.HarvestCircleStockRuntime
 import org.harvestcircle.application.HubContext
 import org.harvestcircle.application.HubDepartureInput
 import org.harvestcircle.application.HubDepartureReceipt
+import org.harvestcircle.application.HubDepartureReview
+import org.harvestcircle.application.HubDepartureReviewInput
 import org.harvestcircle.application.HubDiscrepancyPage
 import org.harvestcircle.application.HubDispatchInput
 import org.harvestcircle.application.HubDispatchPage
@@ -153,6 +155,9 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
         withContext(Dispatchers.IO) {
             callBridge { bridge.referenceHistory(id, afterRevision, limit).map { it.toModel() } }
         }
+
+    override suspend fun departureReview(input: HubDepartureReviewInput): HubDepartureReview =
+        withContext(Dispatchers.IO) { callBridge { bridge.departureReview(input.toNative()).toModel() } }
 
     override suspend fun applyDeparture(
         context: RequestContext,

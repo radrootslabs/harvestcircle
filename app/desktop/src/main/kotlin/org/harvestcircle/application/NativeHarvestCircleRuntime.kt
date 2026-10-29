@@ -17,6 +17,8 @@ import org.harvestcircle.ffi.HarvestCircleChangeObserver
 import org.harvestcircle.ffi.HubContextDto
 import org.harvestcircle.ffi.HubDepartureInputDto
 import org.harvestcircle.ffi.HubDepartureReceiptDto
+import org.harvestcircle.ffi.HubDepartureReviewDto
+import org.harvestcircle.ffi.HubDepartureReviewInputDto
 import org.harvestcircle.ffi.HubDiscrepancyPageDto
 import org.harvestcircle.ffi.HubDispatchInputDto
 import org.harvestcircle.ffi.HubDispatchPageDto
@@ -70,6 +72,9 @@ class NativeHarvestCircleRuntime internal constructor(
     HarvestCircleHandlingRuntime,
     HarvestCircleDispatchRuntime,
     HarvestCircleDepartureRuntime {
+    override suspend fun departureReview(input: HubDepartureReviewInput): HubDepartureReview =
+        callNative { hubPort().departureReview(input.toNative()).toModel() }
+
     override suspend fun applyDeparture(
         context: RequestContext,
         input: HubDepartureInput,
@@ -599,6 +604,8 @@ internal fun interface NativeSubscriptionHandle {
 }
 
 private interface NativeHubPort {
+    suspend fun departureReview(input: HubDepartureReviewInputDto): HubDepartureReviewDto
+
     suspend fun applyDeparture(
         context: RequestContextDto,
         input: HubDepartureInputDto,
@@ -671,6 +678,8 @@ private class UniFfiNativeCorePort(
     private val core: HarvestCircleAppCore,
 ) : NativeCorePort,
     NativeHubPort {
+    override suspend fun departureReview(input: HubDepartureReviewInputDto): HubDepartureReviewDto = core.hubDepartureReview(input)
+
     override suspend fun applyDeparture(
         context: RequestContextDto,
         input: HubDepartureInputDto,

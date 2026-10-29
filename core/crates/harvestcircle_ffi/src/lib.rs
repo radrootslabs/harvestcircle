@@ -35,8 +35,8 @@ pub use dto::{
     SignerBindingKindDto, WireErrorCategory, WireErrorCode, WireRecoveryAction,
 };
 pub use hub_departure::{
-    HubDepartureInputDto, HubDepartureLineDto, HubDepartureReceiptDto, HubDepartureUseDto,
-    HubDepartureWorkChangeDto,
+    HubDepartureInputDto, HubDepartureLineDto, HubDepartureReceiptDto, HubDepartureReviewDto,
+    HubDepartureReviewInputDto, HubDepartureUseDto, HubDepartureWorkChangeDto,
 };
 pub use hub_dispatch::{
     HubDispatchFilterDto, HubDispatchKindDto, HubDispatchLineDto, HubDispatchMaterialDto,
@@ -115,7 +115,7 @@ mod tests {
         assert_eq!(env!("CARGO_PKG_VERSION"), "0.1.0-alpha");
         assert_eq!(super::FFI_CONTRACT_ID, "harvestcircle-desktop-ffi-v5");
         assert_eq!(super::FFI_CONTRACT_MAJOR, 5);
-        assert_eq!(super::FFI_CONTRACT_MINOR, 9);
+        assert_eq!(super::FFI_CONTRACT_MINOR, 10);
         assert_eq!(super::SNAPSHOT_SCHEMA_VERSION, 1);
         assert_eq!(
             super::PRODUCT_COORDINATE_DIGEST,

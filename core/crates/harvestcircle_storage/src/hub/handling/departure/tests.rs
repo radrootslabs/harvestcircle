@@ -962,6 +962,7 @@ async fn corrupt_departure_original_is_never_disguised_as_unavailable_stock() {
     let group = intake.original.position.group;
     accept(&db, &[group], 2).await;
     let paper = issue(&db, &[group]).await;
+    let other_paper = issue_to(&db, &[group], id(9), 40).await;
     let recorded = db
         .apply_hub_departure(owner(), operation(30), departing(&db, &paper).await, now())
         .await
@@ -1000,5 +1001,38 @@ async fn corrupt_departure_original_is_never_disguised_as_unavailable_stock() {
         db.hub_group(owner(), group).await.unwrap_err().code(),
         SafeErrorCode::StorageCorrupt
     );
+    assert_eq!(
+        db.hub_departure_review(
+            owner(),
+            HubDepartureReviewInput {
+                preparation: paper.record.id,
+                expected_preparation_revision: paper.record.revision,
+                identification: paper.record.versions[0].id
+            },
+            now()
+        )
+        .await
+        .unwrap_err()
+        .code(),
+        SafeErrorCode::StorageCorrupt
+    );
+    assert_eq!(
+        db.hub_departure_review(
+            owner(),
+            HubDepartureReviewInput {
+                preparation: other_paper.record.id,
+                expected_preparation_revision: other_paper.record.revision,
+                identification: other_paper.record.versions[0].id
+            },
+            now()
+        )
+        .await
+        .unwrap_err()
+        .code(),
+        SafeErrorCode::StorageCorrupt
+    );
     db.close().await.unwrap();
 }
+
+#[path = "review_tests.rs"]
+mod review;

@@ -258,7 +258,7 @@ Issued recipient/source/reference snapshots remain immutable. Material replaceme
 links a new version and supersedes the prior issue; marking unused is explicit and
 retains the as-issued content. Limits are 64 lines and 32 identification versions
 per preparation. These plans do not authorize departure. Native schema 11 and
-FFI 5.9 persist preparation, revision, issuance, replacement and unused closure.
+FFI 5.10 persist preparation, revision, issuance, replacement and unused closure.
 Original recovery retains exact immutable material/reference/source history through later edits and
 restart without substituting current positions. The journal reserves one closure
 slot per active issue alongside outstanding hold releases. Native pages carry
@@ -280,10 +280,16 @@ outflow/usage and original work scope in one transaction, with one journal revis
 and a physical event for each selected line. On-hand plus retained outflow conserves
 each original trace independently; unlike products keep their own accounting.
 Current views distinguish Departed from unchanged as-issued identification history.
-Used identification cannot be replaced or marked unused. FFI 5.9 exposes bounded
+Used identification cannot be replaced or marked unused. FFI 5.10 exposes bounded
 actual-departure submission and read-only original recovery under current native
 owner/session/credential checks. No shared UI control records physical departure
 yet; that confirmation surface and full recovery/release qualification remain.
+Read-only native review now reports readiness for the exact issued version and
+proposed work effects from the recording planner, including its reserved-capacity
+rules. It changes no business rows and grants no future action. The current owner
+and credential are checked in Rust; actual occurrence and all fresh conditions are
+checked again on recording. Native block reasons remain distinct from storage
+corruption. Shared confirmation UI is the next part of this surface.
 
 Trace includes receipts, remaining stock, recipients, adjustments, returns and
 dispositions with explicit uncertainty and retrieval limits. Preserve every plausible
