@@ -128,11 +128,8 @@ impl CountPostCommand {
             },
             _ => return Err(CountError::InvalidInput),
         };
-        Ok(CountPostPlan {
-            id: derived_id(
-                b"harvestcircle.hub.count.reconciliation.identity.v1\0",
-                operation,
-            )?,
+        let plan = CountPostPlan {
+            id: count_reconciliation_id(operation)?,
             operation,
             count: count.clone(),
             before: current.group.clone(),
@@ -143,7 +140,9 @@ impl CountPostCommand {
             confirmed_on_hand_at,
             effect,
             reason: self.reason.clone(),
-        })
+        };
+        plan.validate()?;
+        Ok(plan)
     }
 
     #[must_use]
@@ -166,5 +165,106 @@ impl CountPostCommand {
         }
         hash_text(&mut hash, self.reason.as_str());
         hash.finalize().into()
+    }
+}
+
+pub fn count_reconciliation_id(operation: HubRecordId) -> Result<HubRecordId, CountError> {
+    derived_id(
+        b"harvestcircle.hub.count.reconciliation.identity.v1\0",
+        operation,
+    )
+}
+
+impl CountPostPlan {
+    /// Consistency of retained original facts, never current posting permission.
+    pub fn validate(&self) -> Result<(), CountError> {
+        self.count.validate()?;
+        self.before
+            .validate()
+            .map_err(|_| CountError::InvalidHistory)?;
+        let scope = &self.count.scope;
+        if self.id != count_reconciliation_id(self.operation)?
+            || self.stock_revision.value() <= self.count.recorded_revision.value()
+            || self.catalog_revision.value() < scope.catalog_revision.value()
+            || self.recorded_at < self.count.recorded_at
+            || self.count.cutoff != Occurrence::Known(self.confirmed_on_hand_at)
+            || self.confirmed_on_hand_at < scope.latest_physical_recorded_at
+            || self
+                .before
+                .causal_floor
+                .is_some_and(|at| at > self.confirmed_on_hand_at)
+            || self.before.id != scope.group
+            || self.before.trace != scope.trace
+            || self.before.variant != scope.variant.id
+            || self.before.location != scope.location.id
+            || self.before.revision != scope.group_revision
+            || self.before.packs != scope.recorded_packs
+        {
+            return Err(CountError::InvalidHistory);
+        }
+        match (&self.effect, self.count.difference()?) {
+            (CountEffect::NoVariance, CountDifference::None) => Ok(()),
+            (
+                CountEffect::Surplus {
+                    packs,
+                    source,
+                    acceptance,
+                    ..
+                },
+                CountDifference::Surplus(expected),
+            ) if *packs == expected
+                && *source == SourceAttribution::Unknown
+                && *acceptance == AcceptanceStatus::ReviewRequired =>
+            {
+                Ok(())
+            }
+            (
+                CountEffect::Shortage {
+                    packs,
+                    after_packs,
+                    after_revision,
+                    work_changes,
+                },
+                CountDifference::Shortage(expected),
+            ) if *packs == expected
+                && *after_packs == self.count.counted_packs
+                && *after_revision == super::next(self.before.revision)? =>
+            {
+                let pending = self
+                    .before
+                    .work
+                    .iter()
+                    .filter(|a| a.progress == WorkProgress::Pending)
+                    .collect::<Vec<_>>();
+                if pending.len() != work_changes.len() {
+                    return Err(CountError::InvalidHistory);
+                }
+                for allocation in pending {
+                    let before = &allocation.requirement;
+                    let change = work_changes
+                        .iter()
+                        .find(|change| change.before.id == before.id)
+                        .ok_or(CountError::InvalidHistory)?;
+                    let expected = WorkRequirement {
+                        quantity: QuantityWork::restore(
+                            before.quantity.required(),
+                            before.quantity.completed(),
+                            before.quantity.no_longer_required().checked_add(*packs)?,
+                            before.quantity.remaining().checked_sub(*packs)?,
+                        )?,
+                        revision: super::next(before.revision)?,
+                        ..before.clone()
+                    };
+                    if change.before != *before
+                        || change.after != expected
+                        || change.retired != *packs
+                    {
+                        return Err(CountError::InvalidHistory);
+                    }
+                }
+                Ok(())
+            }
+            _ => Err(CountError::InvalidHistory),
+        }
     }
 }

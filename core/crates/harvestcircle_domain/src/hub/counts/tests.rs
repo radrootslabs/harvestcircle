@@ -3,6 +3,9 @@ use crate::hub::movement::{WorkAllocation, WorkProgress, WorkRequirement};
 use crate::hub::reference::{HubLabel, LocationPurpose};
 use crate::hub::stock::QuantityWork;
 
+#[path = "result_tests.rs"]
+mod result_tests;
+
 fn id(n: u8) -> HubRecordId {
     HubRecordId::from_bytes([n; 16]).unwrap()
 }

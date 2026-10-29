@@ -16,7 +16,11 @@ use crate::{PublicKey, UnixTimestamp};
 use sha2::{Digest, Sha256};
 
 mod reconcile;
-pub use reconcile::{CountEffect, CountPostCommand, CountPostPlan, CountWorkChange};
+mod result;
+pub use reconcile::{
+    CountEffect, CountPostCommand, CountPostPlan, CountWorkChange, count_reconciliation_id,
+};
+pub use result::{count_observation_result_digest, count_post_result_digest};
 
 pub const HUB_COUNT_CAPACITY: usize = 4_096;
 
