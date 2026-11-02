@@ -9,6 +9,7 @@ import org.harvestcircle.application.HubCountDifference
 import org.harvestcircle.application.HubCountObserveInput
 import org.harvestcircle.application.HubCountPostInput
 import org.harvestcircle.application.HubCountReview
+import org.harvestcircle.application.HubHandlingInput
 import org.harvestcircle.application.HubLocalOutputRequest
 import org.harvestcircle.application.HubOccurrence
 import org.harvestcircle.application.HubOccurrenceKind
@@ -21,6 +22,7 @@ import org.harvestcircle.application.HubStockQuery
 import org.harvestcircle.application.HubTraceHistoryKind
 import org.harvestcircle.application.HubTraceHistoryQuery
 import org.harvestcircle.application.HubTraceSnapshotQuery
+import org.harvestcircle.application.HubTreatmentScope
 import org.harvestcircle.application.HubWorkProgress
 import java.nio.file.Files
 import kotlin.test.Test
@@ -33,6 +35,95 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class CountNativeAcceptanceTest {
+    @Test
+    fun acceptedHeldOriginalKeepsItsTreatmentWhileSurplusIsIndependentRestrictedStock(): Unit =
+        runBlocking {
+            val root = Files.createTempDirectory("harvestcircle-held-count-surplus-")
+            val runtime = TestBridgeHarvestCircleRuntime.openDemo(root.toString())
+            try {
+                val hub = HandlingFixture.open(runtime)
+                val rootId = hub.receipt.initialPosition.groupId
+                val original = runtime.group(rootId)
+                val accepted =
+                    runtime.applyHandling(
+                        hub.context(),
+                        HubHandlingInput.SetAcceptance(
+                            original.stockRevision,
+                            original.catalogRevision,
+                            listOf(rootId),
+                            HubAcceptanceStatus.Accepted,
+                            HubOccurrence(HubOccurrenceKind.Unknown),
+                            "Accepted original twenty independently of any surplus",
+                        ),
+                    )
+                val held = hub.hold(listOf(rootId), "Original twenty remain held")
+                val scope = HubTreatmentScope(hub.receipt.trace.id)
+                val treatmentBefore = runtime.treatment(scope)
+                val group = runtime.group(rootId)
+                assertEquals(20U, treatmentBefore.summary.accepted)
+                assertEquals(20U, treatmentBefore.summary.restricted)
+                val observed =
+                    runtime.observeCount(
+                        hub.context(),
+                        HubCountObserveInput(
+                            group.stockRevision,
+                            group.catalogRevision,
+                            group.group.id,
+                            group.group.revision,
+                            22U,
+                            counted(),
+                            "Two separately identified extra packs beside the held original",
+                        ),
+                    )
+                val review = runtime.countReview(observed.id)
+                assertTrue(review.ready)
+                val postContext = hub.context()
+                val input =
+                    posting(review).copy(
+                        surplusIdentification =
+                            HubPhysicalIdentification(
+                                "Separate surplus two",
+                                "Two yellow-tagged packs distinct from the accepted held original",
+                            ),
+                    )
+                val posted = runtime.postCount(postContext, input)
+                val surplus = assertNotNull(posted.surplus)
+                assertEquals(20U, posted.onHandAfter)
+                assertEquals(2U, surplus.population.originalWholePacks)
+                assertEquals(HubSourceCertainty.Unknown, surplus.population.source.certainty)
+                assertEquals(HubAcceptanceStatus.ReviewRequired, surplus.acceptance)
+                assertTrue(surplus.group.work.isEmpty())
+                assertTrue(posted.workChanges.isEmpty())
+                val treatmentAfter = runtime.treatment(scope)
+                assertEquals(treatmentBefore.summary, treatmentAfter.summary)
+                assertEquals(treatmentBefore.groups, treatmentAfter.groups)
+                assertEquals(treatmentBefore.holds, treatmentAfter.holds)
+                assertEquals(group.group.work, runtime.group(rootId).group.work)
+                assertEquals(20U, runtime.group(rootId).group.wholePacks)
+                val extraTreatment = runtime.treatment(HubTreatmentScope(surplus.population.id))
+                assertEquals(0U, extraTreatment.summary.accepted)
+                assertEquals(2U, extraTreatment.summary.reviewRequired)
+                assertEquals(0U, extraTreatment.summary.restricted)
+                assertEquals(0U, extraTreatment.summary.departureEligible)
+                assertTrue(
+                    extraTreatment.groups
+                        .single()
+                        .activeHoldIds
+                        .isEmpty(),
+                )
+                assertEquals(HubAcceptanceStatus.ReviewRequired, extraTreatment.groups.single().acceptance)
+                assertEquals(accepted, runtime.handlingOperation(accepted.operationId))
+                assertEquals(held, runtime.handlingOperation(held.operationId))
+                assertEquals(hub.receipt, runtime.receiptOperation(hub.receipt.operationId))
+                val beforeReplay = runtime.stock(HubStockQuery())
+                assertEquals(posted, runtime.postCount(postContext, input))
+                assertEquals(beforeReplay, runtime.stock(HubStockQuery()))
+            } finally {
+                runtime.close()
+                root.toFile().deleteRecursively()
+            }
+        }
+
     @Test
     fun generatedCountBoundaryPreservesObservationOriginalsWorkAndShortageTraceAcrossRestart(): Unit =
         runBlocking {
