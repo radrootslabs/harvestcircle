@@ -70,8 +70,12 @@ results. Separately counted entries retain population origin and acceptance rath
 than fabricating receipt work. The shared count coordinator retains unsubmitted
 input, clears confirmation after edits/context refresh, and resolves uncertain
 submissions through read-only original lookup. Absence does not permit resubmission.
-Shared opening/count forms have isolated native interaction coverage. Stock entry
-points and complete operational qualification remain unfinished.
+Stock exposes the shared opening/count forms. The coordinator follows the captured
+native binding and ready hub; submissions capture the rendered snapshot revision.
+Coalesced same-owner replacement disposes the old draft and confirmation, while a
+stale rendered callback cannot acquire refreshed context. Native interaction covers
+Stock save/post and session replacement. Complete opening/surplus, uncertain-result
+and restart recovery interaction qualification remains unfinished.
 
 Schema15 prepares immutable reconciliation headers, complete original work
 snapshots and removed-work scopes. Completed scope remains completed history;

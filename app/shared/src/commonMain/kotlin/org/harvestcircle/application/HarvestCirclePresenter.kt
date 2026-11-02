@@ -46,6 +46,7 @@ class HarvestCirclePresenter(
     val buildInfo: BuildInfo = runtime.buildInfo
     val hubRuntime: HarvestCircleHubRuntime? = runtime as? HarvestCircleHubRuntime
     val referenceRuntime: HarvestCircleReferenceRuntime? = runtime as? HarvestCircleReferenceRuntime
+    val countRuntime: HarvestCircleCountRuntime? = runtime as? HarvestCircleCountRuntime
     val stockRuntime: HarvestCircleStockRuntime? = runtime as? HarvestCircleStockRuntime
     val dispatchRuntime: HarvestCircleDispatchRuntime? = runtime as? HarvestCircleDispatchRuntime
     val handlingRuntime: HarvestCircleHandlingRuntime? = runtime as? HarvestCircleHandlingRuntime

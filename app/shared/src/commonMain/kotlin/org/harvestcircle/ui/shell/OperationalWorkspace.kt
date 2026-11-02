@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import org.harvestcircle.application.CountPresenter
+import org.harvestcircle.application.CountViewState
 import org.harvestcircle.application.DispatchPresenter
 import org.harvestcircle.application.HandlingPresenter
 import org.harvestcircle.application.HandlingViewState
@@ -27,11 +29,16 @@ internal fun OperationalWorkspace(
     openReferences: () -> Unit,
     openTrace: ((String) -> Unit)? = null,
     browseTrace: (() -> Unit)? = null,
+    countPresenter: CountPresenter? = null,
+    countState: CountViewState? = null,
+    submitCount: () -> Unit = {},
 ) {
     val showReceipt = stock.receiptOpen || stock.submission != null
     val showHandling =
         !showReceipt && (route == AppRoute.HubWork || handling.group != null || handling.formOpen || handling.submission != null)
-    if (showHandling) {
+    if (countPresenter != null && countState?.open == true) {
+        CountWorkspace(countState, countPresenter, submitCount)
+    } else if (showHandling) {
         HandlingWorkspace(
             handling,
             handlingPresenter,
@@ -67,6 +74,18 @@ internal fun OperationalWorkspace(
                 handlingEnabled = !handling.loading,
                 openTrace = openTrace,
                 browseTrace = browseTrace,
+                openOpening =
+                    countPresenter?.takeIf { countState?.available == true && stock.submission == null }?.let {
+                        {
+                            it
+                                .beginOpening()
+                        }
+                    },
+                openCount =
+                    countPresenter?.takeIf { countState?.available == true && stock.submission == null }?.let { target ->
+                        { id -> target.beginObservation(id) }
+                    },
+                resumeCount = countPresenter?.takeIf { countState?.target != null }?.let { { it.resume() } },
             )
         }
     }

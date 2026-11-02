@@ -39,6 +39,9 @@ fun StockWorkspace(
     handlingEnabled: Boolean = true,
     openTrace: ((String) -> Unit)? = null,
     browseTrace: (() -> Unit)? = null,
+    openOpening: (() -> Unit)? = null,
+    openCount: ((String) -> Unit)? = null,
+    resumeCount: (() -> Unit)? = null,
 ) {
     LaunchedEffect(route) {
         if (manageRoute) {
@@ -62,6 +65,22 @@ fun StockWorkspace(
                 Modifier.testTag("trace-browse"),
                 enabled = !state.loading,
             )
+        }
+        resumeCount?.let { HarvestCircleShellButton("Resume count operation", it, Modifier.testTag("count-resume")) }
+        openOpening?.let {
+            HarvestCircleShellButton(
+                "Count opening stock",
+                it,
+                Modifier.testTag("count-opening"),
+                enabled = !state.loading,
+            )
+        }
+        state.inspecting?.let { row ->
+            openCount?.let { open ->
+                HarvestCircleShellButton("Observe this group count", {
+                    open(row.position.groupId)
+                }, Modifier.testTag("count-observe"), enabled = !state.loading)
+            }
         }
         val traceId =
             state.inspecting?.trace?.id

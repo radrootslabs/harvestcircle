@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -18,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import org.harvestcircle.appearance.TextSizePreference
+import org.harvestcircle.application.CountPresenter
 import org.harvestcircle.application.DispatchPresenter
 import org.harvestcircle.application.DispatchViewState
 import org.harvestcircle.application.FoundationOverlay
@@ -76,6 +78,8 @@ fun HarvestCircleShell(
     dispatchPresenter: DispatchPresenter? = null,
     submitDispatch: () -> Unit = {},
     tracePresenter: TracePresenter? = null,
+    countPresenter: CountPresenter? = null,
+    submitCount: () -> Unit = {},
 ) {
     val routeDispatch: (HarvestCircleShellIntent) -> Unit = { intent ->
         if (tracePresenter?.intercept(intent, state.overlays.current) != true) dispatch(intent)
@@ -108,6 +112,8 @@ fun HarvestCircleShell(
                     dispatchPresenter,
                     submitDispatch,
                     tracePresenter,
+                    countPresenter,
+                    submitCount,
                 )
             }
         }
@@ -136,6 +142,8 @@ private fun HarvestCircleShellContent(
     dispatchPresenter: DispatchPresenter? = null,
     submitDispatch: () -> Unit = {},
     tracePresenter: TracePresenter? = null,
+    countPresenter: CountPresenter? = null,
+    submitCount: () -> Unit = {},
 ) {
     val modalOpen = state.overlays.current != null
     val fallback =
@@ -207,6 +215,8 @@ private fun HarvestCircleShellContent(
                     dispatchPresenter,
                     submitDispatch,
                     tracePresenter,
+                    countPresenter,
+                    submitCount,
                 )
         }
     }
@@ -314,8 +324,12 @@ private fun DashboardRoot(
     dispatchPresenter: DispatchPresenter? = null,
     submitDispatch: () -> Unit = {},
     tracePresenter: TracePresenter? = null,
+    countPresenter: CountPresenter? = null,
+    submitCount: () -> Unit = {},
 ) {
     val route = root.navigation.current
+    val countState = countPresenter?.state?.collectAsState()?.value
+    LaunchedEffect(route, countPresenter) { countPresenter?.park() }
     val traceState = tracePresenter?.state?.collectAsState()?.value
     val outputState =
         tracePresenter
@@ -450,6 +464,9 @@ private fun DashboardRoot(
                                                 openReferences = { dispatch(HarvestCircleShellIntent.Navigate(ScreenKey.HubReferences)) },
                                                 openTrace = openTrace,
                                                 browseTrace = browseTrace,
+                                                countPresenter = countPresenter,
+                                                countState = countState,
+                                                submitCount = submitCount,
                                             )
                                         } else {
                                             StockWorkspace(
