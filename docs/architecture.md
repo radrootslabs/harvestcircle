@@ -115,6 +115,14 @@ native/FFI commands and shared forms remain unfinished, as do actual disposition
 records and their separate accounting. No receipt/opening origin substitutes for a
 returned-intake origin.
 
+Pure disposition policy models a distinct observed non-buyer removal, not a
+shipment, count loss or release of a hold. It accepts one complete current physical
+group; partial scope first uses ordinary observed separation. Current native
+lineage/treatment and uncertainty facts must agree. Pending exit work uses the
+same retirement calculation as other physical exits, while completed or previously
+retired progress stays in the immutable consumed scope. Persistence, result sealing,
+FFI and shared disposition forms remain unfinished.
+
 Schema16 persists hub submissions before their effects. Admission recaptures the
 complete bounded input and selected native material inside a protected transaction.
 Only that newly committed admission returns an in-memory execution grant. A saved

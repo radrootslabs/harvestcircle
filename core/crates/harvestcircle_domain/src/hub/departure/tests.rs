@@ -702,3 +702,19 @@ pub(in crate::hub) fn return_policy_fixture(
     let departure = fixture.depart();
     (fixture.catalog, departure)
 }
+
+pub(in crate::hub) fn disposition_policy_fixture() -> (
+    ReferenceCatalog,
+    PhysicalStockGroup,
+    PhysicalLineage,
+    TreatmentState,
+) {
+    let mut fixture = Fixture::new(&[6], 0);
+    let treatment = fixture.treatments.remove(0);
+    (
+        fixture.catalog,
+        fixture.sources.remove(0).group,
+        treatment.lineage,
+        treatment.state,
+    )
+}

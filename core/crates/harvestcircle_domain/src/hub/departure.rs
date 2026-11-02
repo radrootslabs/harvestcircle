@@ -79,7 +79,9 @@ fn next(value: HubRevision) -> Result<HubRevision, DepartureError> {
 
 // One requirement can span multiple selected groups. Freeze one consistent
 // original, sum only pending exit, and advance the requirement exactly once.
-fn retired_work(groups: &[ConsumedStockGroup]) -> Result<Vec<DepartureWorkChange>, DepartureError> {
+pub(super) fn retired_work(
+    groups: &[ConsumedStockGroup],
+) -> Result<Vec<DepartureWorkChange>, DepartureError> {
     let mut work: BTreeMap<HubRecordId, (WorkRequirement, WholePacks)> = BTreeMap::new();
     for consumed in groups {
         consumed.before.validate()?;

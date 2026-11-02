@@ -7,6 +7,7 @@
 pub mod counts;
 pub mod departure;
 pub mod dispatch;
+pub mod disposition;
 pub mod movement;
 pub mod portions;
 pub mod reference;
