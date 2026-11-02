@@ -104,6 +104,17 @@ cause unknown; no departure or fictional missing-stock group is created. Rust
 computes these balances for the trace browser and bounded local HTML output.
 The shared trace inspector pages retained shortage details separately from departure.
 
+Pure returned-intake policy preserves observed new custody independently of its
+optional departure association. A known departure may retain an unresolved original
+group; bounded native candidate snapshots never establish attribution automatically.
+Overclaimed or contradictory links remain unresolved while returned stock stays
+review-required. Returning party, source knowledge and original recipient are separate.
+An explicitly requested target creates fresh pending work, without restoring old
+completion or inheriting holds/acceptance. These plans are data only: return storage,
+native/FFI commands and shared forms remain unfinished, as do actual disposition
+records and their separate accounting. No receipt/opening origin substitutes for a
+returned-intake origin.
+
 Schema16 persists hub submissions before their effects. Admission recaptures the
 complete bounded input and selected native material inside a protected transaction.
 Only that newly committed admission returns an in-memory execution grant. A saved

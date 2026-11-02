@@ -140,4 +140,4 @@ fn retired_work(groups: &[ConsumedStockGroup]) -> Result<Vec<DepartureWorkChange
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

@@ -693,3 +693,12 @@ fn original_digest_binds_paper_material_recording_and_causal_originals() {
     corrupt.work_changes.clear();
     assert!(departure_result_digest(&input, &corrupt).is_err());
 }
+
+/// Shared pure fixture: ordinary receipt/identification/departure planning only.
+pub(in crate::hub) fn return_policy_fixture(
+    selected: &[u32],
+) -> (ReferenceCatalog, DepartureRecord) {
+    let fixture = Fixture::new(selected, 0);
+    let departure = fixture.depart();
+    (fixture.catalog, departure)
+}

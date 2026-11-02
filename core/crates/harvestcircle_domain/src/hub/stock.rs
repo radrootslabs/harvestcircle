@@ -387,7 +387,7 @@ pub fn validate_source_reuse(
     Ok(())
 }
 
-fn hash_optional_id(hash: &mut Sha256, id: Option<HubRecordId>) {
+pub(super) fn hash_optional_id(hash: &mut Sha256, id: Option<HubRecordId>) {
     hash.update([u8::from(id.is_some())]);
     if let Some(id) = id {
         hash.update(id.as_bytes());
@@ -403,7 +403,7 @@ fn hash_text(hash: &mut Sha256, value: &str) {
     hash.update(value.as_bytes());
 }
 
-fn hash_source(hash: &mut Sha256, source: &SourceAttribution) {
+pub(super) fn hash_source(hash: &mut Sha256, source: &SourceAttribution) {
     match source {
         SourceAttribution::Unknown => hash.update([0]),
         SourceAttribution::Referenced { source, certainty } => {
