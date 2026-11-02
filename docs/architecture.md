@@ -78,8 +78,12 @@ Stock save/post and session replacement. Original-result lookup accepts a bounde
 canonical operation ID and a closed result kind, then reads existing native
 originals without reconstructing an attempt or execution grant. It preserves
 unresolved submitted attempts; absence never permits replay. Recovered observations
-require fresh native review before any separate posting. Complete opening/surplus,
-uncertain-result and restart interaction qualification remains unfinished.
+require fresh native review before any separate posting. Native interaction also
+qualifies counted opening/replay, independently identified surplus beside an
+accepted held original, lost-reply original recovery, moved-scope/unknown-cutoff
+blocking and same-profile reopen lookup. Test-adapter reply loss is separate from
+actual interruption and backup restoration; full cross-feature recovery and
+packaged/platform qualification remain unfinished.
 
 Schema15 prepares immutable reconciliation headers, complete original work
 snapshots and removed-work scopes. Completed scope remains completed history;

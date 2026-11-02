@@ -298,11 +298,17 @@ actual-review uncertainty in one protected transaction. It returns the Rust
 comparison and current revisions without writing stock, work or admission.
 A newer count, changed physical scope/cutoff or unresolved submitted operation
 blocks readiness. This comparison is not a posting grant; posting must repeat
-current checks in its own effect transaction. Actual-report ingress/review and
-the count-posting command remain unfinished.
-Native opening admission is implemented without a fabricated receipt or intake
-requirement. Count posting, opening/count forms and complete lifecycle/recovery
-qualification remain unfinished.
+current checks in its own effect transaction. Native posting, durable admission,
+original recovery and shared Stock opening/count forms are implemented. Actual
+native interaction covers separate save18/post18 with work0/2/18, opening replay,
+identified surplus beside accepted held stock, stale/uncertain cutoff blocking,
+retained draft review and current-owner original lookup after same-profile reopen.
+Lost replies retain one original operation; absent history never enables replay.
+Actual-report ingress/review, all-command interruption/restore interaction and
+packaged/platform qualification remain unfinished.
+Native opening admission creates neither a fabricated receipt nor an intake
+requirement. Surplus is separate unknown-source, review-required stock, without
+inherited holds or work; the original population retains its treatment and quantity.
 
 The Rust stock model now distinguishes received populations from counted opening
 and counted-surplus origins. Opening plans capture a presently identified count
@@ -313,8 +319,10 @@ independent of earlier intake history. Origin/history participates in immutable
 document consistency and escaped local output; existing receipt digest encoding
 and document content are preserved. Protected opening persistence and typed
 population-origin/optional-intake-work transport are implemented through forward
-migrations. Opening command bindings and forms remain unfinished; original
-receipt data, command fingerprints and document encoding are preserved.
+migrations. Opening command bindings and forms preserve original receipt data,
+command fingerprints and document encoding. Original operation IDs are selectable;
+Stock offers a closed-kind read-only lookup. Recovered observations still require
+fresh native review and separate confirmation before any reconciliation.
 
 ### C08: Preparation, departure, documents and trace
 
