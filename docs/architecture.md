@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 16, FFI is 5.18 and snapshot schema is 1. Rust and
+The current storage schema is 16, FFI is 5.19 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -70,7 +70,8 @@ results. Separately counted entries retain population origin and acceptance rath
 than fabricating receipt work. The shared count coordinator retains unsubmitted
 input, clears confirmation after edits/context refresh, and resolves uncertain
 submissions through read-only original lookup. Absence does not permit resubmission.
-Visible shared forms remain unfinished.
+Shared opening/count forms have isolated native interaction coverage. Stock entry
+points and complete operational qualification remain unfinished.
 
 Schema15 prepares immutable reconciliation headers, complete original work
 snapshots and removed-work scopes. Completed scope remains completed history;
@@ -112,6 +113,15 @@ that ordinary allocation. Other captures are bounded to 16 MiB, with an independ
 64 KiB raw input bound. Pending submissions and unresolved actual-report reviews
 block unsafe planned stock changes at admission and effect insertion. Actual-report
 handling, opening/count shared command surfaces, recovery UI and restore carry-forward remain unfinished.
+
+Native snapshots capture core data, runtime incarnation and session generation
+together after durable session advancement. Synchronous reads, observer delivery
+and command results use that settled cut. A generation change can advance context
+without changing core revision; queued snapshots keep their original binding.
+The shared consumer orders both dimensions and clears private presentation state
+when an attachment becomes inconsistent, retaining owned shutdown. The actor
+continues to check live authority and storage fences for every effect. Remaining
+coordinator binding and cross-feature restore qualification remain unfinished.
 
 The runtime context uses service `harvestcircle`, instance `desktop`, and exact
 `state.sqlite`/`state.lock` names. SQLx is the high-level SQLite authority. The

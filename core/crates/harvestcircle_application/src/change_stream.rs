@@ -52,7 +52,7 @@ impl SnapshotChange {
 pub struct SnapshotChangeReceiver {
     receiver: mpsc::Receiver<SnapshotChange>,
     latest: watch::Receiver<SnapshotChange>,
-    last_delivered_revision: Option<SnapshotRevision>,
+    last_delivered_snapshot: Option<Box<AppSnapshot>>,
 }
 
 impl SnapshotChangeReceiver {
@@ -84,14 +84,14 @@ impl SnapshotChangeReceiver {
     }
 
     fn deliver_newer(&mut self, change: SnapshotChange) -> Option<SnapshotChange> {
-        let revision = change.revision();
         if self
-            .last_delivered_revision
-            .is_some_and(|delivered| revision <= delivered)
+            .last_delivered_snapshot
+            .as_ref()
+            .is_some_and(|delivered| !change.snapshot().is_newer_than(delivered))
         {
             return None;
         }
-        self.last_delivered_revision = Some(revision);
+        self.last_delivered_snapshot = Some(Box::new(change.snapshot().clone()));
         Some(change)
     }
 }
@@ -152,7 +152,7 @@ impl OrderedSnapshotChanges {
             SnapshotChangeReceiver {
                 receiver,
                 latest: retained,
-                last_delivered_revision: None,
+                last_delivered_snapshot: None,
             },
         ))
     }
@@ -165,7 +165,7 @@ impl OrderedSnapshotChanges {
     pub fn publish(&mut self, snapshot: AppSnapshot) {
         self.subscribers
             .retain(|_, subscriber| !subscriber.sender.is_closed());
-        if self.closed || snapshot.revision() <= self.latest.revision() {
+        if self.closed || !snapshot.is_newer_than(&self.latest) {
             return;
         }
         let change = SnapshotChange {
@@ -202,6 +202,69 @@ mod tests {
     };
 
     const RECEIVE_TIMEOUT: Duration = Duration::from_secs(1);
+
+    fn native_snapshot(revision: u64, generation: u64) -> AppSnapshot {
+        snapshot(revision).with_runtime_session(crate::RuntimeSessionBinding::new(
+            crate::hub_submission::HubRuntimeIncarnation::from_bytes([1; 16]).unwrap(),
+            crate::SessionGeneration::from_value(generation),
+        ))
+    }
+
+    #[tokio::test]
+    async fn coalesced_same_revision_sessions_keep_captured_markers_and_reject_regression() {
+        let mut changes = OrderedSnapshotChanges::new(native_snapshot(7, 0));
+        let (_, mut receiver) = changes.subscribe(NonZeroUsize::new(1).unwrap()).unwrap();
+        next_change(&mut receiver, "initial binding").await;
+        changes.publish(native_snapshot(7, 1));
+        changes.publish(native_snapshot(7, 2));
+        changes.publish(native_snapshot(7, 3));
+        let queued = next_change(&mut receiver, "original queued marker").await;
+        assert_eq!(queued.snapshot(), &native_snapshot(7, 1));
+        assert_eq!(queued.previous_revision(), Some(revision(7)));
+        let tail = next_change(&mut receiver, "coalesced session replacement").await;
+        assert_eq!(tail.snapshot(), &native_snapshot(7, 3));
+
+        changes.publish(native_snapshot(8, 2));
+        changes.publish(native_snapshot(7, 3));
+        changes.publish(native_snapshot(6, 4));
+        changes.publish(snapshot(8));
+        changes.publish(
+            snapshot(99).with_runtime_session(crate::RuntimeSessionBinding::new(
+                crate::hub_submission::HubRuntimeIncarnation::from_bytes([2; 16]).unwrap(),
+                crate::SessionGeneration::from_value(4),
+            )),
+        );
+        changes.publish(native_snapshot(8, 3));
+        assert_eq!(
+            next_change(&mut receiver, "same session revision")
+                .await
+                .snapshot(),
+            &native_snapshot(8, 3)
+        );
+        changes.close();
+        assert!(next_delivery(&mut receiver).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn full_u64_generation_is_preserved_without_rewriting_core_revision() {
+        let mut changes = OrderedSnapshotChanges::new(native_snapshot(9, u64::MAX - 1));
+        let (_, mut receiver) = changes.subscribe(NonZeroUsize::new(1).unwrap()).unwrap();
+        next_change(&mut receiver, "initial full-width generation").await;
+        changes.publish(native_snapshot(9, u64::MAX));
+        let changed = next_change(&mut receiver, "maximum generation").await;
+        assert_eq!(changed.revision(), revision(9));
+        assert_eq!(
+            changed
+                .snapshot()
+                .runtime_session()
+                .unwrap()
+                .generation()
+                .value(),
+            u64::MAX
+        );
+        changes.close();
+        assert!(next_delivery(&mut receiver).await.is_none());
+    }
 
     #[tokio::test]
     async fn change_stream_publishes_monotonic_revisions_to_multiple_consumers() {

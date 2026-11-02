@@ -35,6 +35,8 @@ class HarvestCirclePresenter(
     private val removalMutex = Mutex()
     private val closeMutex = Mutex()
     private var closeReceipt: ShutdownReceipt? = null
+    private var observerInvalidProblem: ApplicationProblem? = null
+    private var observerInvalidSnapshot: ApplicationSnapshot? = null
     private var closePhase = PresenterClosePhase.Open
     private val closed: Boolean
         get() = closePhase != PresenterClosePhase.Open
@@ -66,6 +68,10 @@ class HarvestCirclePresenter(
     }
 
     override fun dispatch(intent: HarvestCircleIntent) {
+        if (observerInvalidProblem != null) {
+            (intent as? HarvestCircleIntent.EditImportDraft)?.takeDraft()?.clear()
+            return
+        }
         when (intent) {
             is HarvestCircleIntent.EditImportDraft -> editImportDraft(intent)
             HarvestCircleIntent.ChooseCreateIdentity -> updateState { copy(identityEntryMode = IdentityEntryMode.CREATE, problem = null) }
@@ -135,13 +141,17 @@ class HarvestCirclePresenter(
 
     private fun editImportDraft(intent: HarvestCircleIntent.EditImportDraft) {
         val incoming = intent.takeDraft() ?: return
-        if (closed) {
+        if (closed || observerInvalidProblem != null) {
             incoming.clear()
             rejectUnavailable("The application runtime is closed.")
             return
         }
         while (true) {
             val current = mutableState.value
+            if (closed || observerInvalidProblem != null) {
+                incoming.clear()
+                return
+            }
             val updated = current.copy(importDraft = incoming, lastProblem = null, problem = null)
             if (!mutableState.compareAndSet(current, updated)) continue
             if (current.importDraft !== incoming) current.importDraft.clear()
@@ -157,7 +167,11 @@ class HarvestCirclePresenter(
             }
             val recovery = runtime.prepareLocalIdentity()
             pendingRecovery = recovery
-            updateState { copy(generatedKeyBackup = recovery.backup) }
+            if (observerInvalidProblem != null) {
+                releaseRecovery()
+            } else {
+                updateState { copy(generatedKeyBackup = recovery.backup) }
+            }
         }
     }
 
@@ -234,7 +248,7 @@ class HarvestCirclePresenter(
                 }
             } catch (error: Exception) {
                 val problem = error.toProblem(operationId)
-                pendingRetry = PendingRetry(intent, operationId).takeIf { problem.retryable }
+                pendingRetry = PendingRetry(intent, operationId).takeIf { problem.retryable && observerInvalidProblem == null }
                 throw ApplicationFailure(problem)
             } finally {
                 activationTarget?.let { target ->
@@ -265,6 +279,10 @@ class HarvestCirclePresenter(
             val expired = request.isExpired()
             removalMutex.withLock {
                 pendingRemoval = lease
+                if (observerInvalidProblem != null) {
+                    // Retain the native lease for owned shutdown, without exposing a confirmation.
+                    return@withLock
+                }
                 if (expired) {
                     lease.phase = RemovalLeasePhase.Releasing
                     lease.releaseReason = RemovalReleaseReason.Expired
@@ -272,6 +290,7 @@ class HarvestCirclePresenter(
                     lease.expiryJob = scope.launch { expireRemovalLease(lease) }
                 }
             }
+            if (observerInvalidProblem != null) return@launchOperation
             if (expired) {
                 releaseClaimedRemoval(ClaimedRemovalRelease(lease, RemovalReleaseReason.Expired), RemovalStatus.FAILED)
                 throw ApplicationFailure(removalExpiredProblem())
@@ -612,6 +631,7 @@ class HarvestCirclePresenter(
 
     private fun rejectIfUnavailable(requireReady: Boolean): Boolean {
         val current = state.value
+        if (observerInvalidProblem != null) return true
         if (closed) {
             updateState {
                 copy(commandStatus = CommandStatus.REJECTED_CLOSED, problem = "The application runtime is closed.")
@@ -658,32 +678,72 @@ class HarvestCirclePresenter(
     }
 
     private fun acceptSnapshot(snapshot: ApplicationSnapshot) {
-        if (snapshot.revision.value >= state.value.snapshot.revision.value) {
-            updateState { copy(snapshot = snapshot, route = snapshot.toHarvestCircleRoute()) }
+        if (observerInvalidProblem != null) return
+        when (snapshot.orderAfter(state.value.snapshot)) {
+            SnapshotOrder.Invalid -> invalidateObserver()
+            SnapshotOrder.Older -> Unit
+            SnapshotOrder.Same, SnapshotOrder.Newer ->
+                updateState { copy(snapshot = snapshot, route = snapshot.toHarvestCircleRoute()) }
         }
     }
 
     private fun acceptChange(change: ApplicationChange) {
-        val acceptedRevision = state.value.snapshot.revision
-        if (change.snapshot.revision.value <= acceptedRevision.value) return
-        if (change.previousRevision == acceptedRevision) {
+        if (observerInvalidProblem != null) return
+        val accepted = state.value.snapshot
+        when (change.snapshot.orderAfter(accepted)) {
+            SnapshotOrder.Invalid -> {
+                invalidateObserver()
+                return
+            }
+            SnapshotOrder.Older, SnapshotOrder.Same -> return
+            SnapshotOrder.Newer -> Unit
+        }
+        if (change.previousRevision == accepted.revision) {
             acceptSnapshot(change.snapshot)
             return
         }
         val refreshed = runtime.currentSnapshot()
-        if (refreshed.revision.value < change.snapshot.revision.value) {
-            throw ApplicationFailure(
-                ApplicationProblem(
-                    code = ApplicationErrorCode.ObserverRegistrationFailed,
-                    category = ApplicationErrorCategory.Lifecycle,
-                    retryable = false,
-                    recoveryAction = RecoveryAction.RestartApplication,
-                    operationId = null,
-                    safeMessage = "Application updates could not be synchronized.",
-                ),
-            )
+        if (refreshed.orderAfter(change.snapshot) in setOf(SnapshotOrder.Older, SnapshotOrder.Invalid)) {
+            invalidateObserver()
+            return
         }
         acceptSnapshot(refreshed)
+    }
+
+    private fun invalidateObserver() {
+        if (observerInvalidProblem != null) return
+        val problem =
+            ApplicationProblem(
+                code = ApplicationErrorCode.ObserverRegistrationFailed,
+                category = ApplicationErrorCategory.Lifecycle,
+                retryable = false,
+                recoveryAction = RecoveryAction.RestartApplication,
+                operationId = null,
+                safeMessage = "Application updates could not be synchronized. Restart the application.",
+            )
+        observerInvalidProblem = problem
+        // This synthetic presentation state makes no claim of a native sign-out.
+        observerInvalidSnapshot =
+            state.value.snapshot.copy(
+                lifecycle = ApplicationLifecycle.Fatal,
+                lifecycleProblem = problem,
+                identities = emptyList(),
+                selectedIdentityId = null,
+                session = SessionLifecycle.SignedOut,
+                sessionSubjectIdentityId = null,
+                sessionProblem = problem,
+                activeIdentity = null,
+                recoverableProblem = problem,
+                runtimeSession = null,
+            )
+        commandJob?.cancel()
+        subscriptionJob?.cancel()
+        pendingRetry = null
+        pendingRemoval?.expiryJob?.cancel()
+        releaseRecovery()
+        clearImportDraft()
+        updateState { this }
+        mutableEffects.tryEmit(HarvestCircleEffect.Problem(problem))
     }
 
     private fun acceptFailure(
@@ -691,6 +751,10 @@ class HarvestCirclePresenter(
         operationId: OperationId?,
     ) {
         val problem = error.toProblem(operationId)
+        if (problem.code == ApplicationErrorCode.ObserverRegistrationFailed) {
+            invalidateObserver()
+            return
+        }
         updateState {
             copy(
                 commandStatus = if (problem.retryable) CommandStatus.FAILED_RETRYABLE else CommandStatus.FAILED_TERMINAL,
@@ -735,7 +799,28 @@ class HarvestCirclePresenter(
         RequestContext(operationId, state.value.snapshot.revision, COMMAND_DEADLINE_MILLIS)
 
     private fun updateState(transform: HarvestCirclePresenterState.() -> HarvestCirclePresenterState) {
-        mutableState.update(transform)
+        mutableState.update { current ->
+            val next = current.transform()
+            val terminal = observerInvalidProblem
+            val invalidSnapshot = observerInvalidSnapshot
+            if (terminal == null || invalidSnapshot == null) {
+                next
+            } else {
+                next.copy(
+                    snapshot = invalidSnapshot,
+                    route = if (closePhase == PresenterClosePhase.Open) HarvestCircleRoute.FATAL else next.route,
+                    generatedKeyBackup = null,
+                    removalConfirmation = null,
+                    lastRemovedIdentityId = null,
+                    identityChooserVisible = false,
+                    activatingIdentityId = null,
+                    identityEntryMode = IdentityEntryMode.CHOICE,
+                    commandStatus = if (closePhase == PresenterClosePhase.Open) CommandStatus.FAILED_TERMINAL else next.commandStatus,
+                    lastProblem = terminal,
+                    problem = if (closePhase == PresenterClosePhase.Open) terminal.safeMessage else next.problem,
+                )
+            }
+        }
     }
 }
 
@@ -869,3 +954,26 @@ internal fun removalExpiryDelayMillis(
 }
 
 private const val MILLIS_PER_SECOND = 1_000L
+
+private enum class SnapshotOrder { Older, Same, Newer, Invalid }
+
+private fun ApplicationSnapshot.orderAfter(previous: ApplicationSnapshot): SnapshotOrder {
+    val before = previous.runtimeSession
+    val after = runtimeSession
+    if (before != null && (after == null || after.incarnation != before.incarnation)) return SnapshotOrder.Invalid
+    if (before != null && after != null) {
+        if (revision.value > previous.revision.value &&
+            after.generation < before.generation ||
+            revision.value < previous.revision.value &&
+            after.generation > before.generation
+        ) {
+            return SnapshotOrder.Invalid
+        }
+        if (revision.value < previous.revision.value || after.generation < before.generation) return SnapshotOrder.Older
+        if (revision.value > previous.revision.value || after.generation > before.generation) return SnapshotOrder.Newer
+        return SnapshotOrder.Same
+    }
+    if (revision.value < previous.revision.value) return SnapshotOrder.Older
+    if (revision.value > previous.revision.value || before == null && after != null) return SnapshotOrder.Newer
+    return SnapshotOrder.Same
+}

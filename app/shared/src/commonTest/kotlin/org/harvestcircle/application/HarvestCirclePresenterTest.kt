@@ -3,6 +3,7 @@ package org.harvestcircle.application
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -11,6 +12,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import org.harvestcircle.identities.ui.toUiModel
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -93,6 +95,224 @@ class HarvestCirclePresenterTest {
             )
             assertEquals(CommandStatus.FAILED_TERMINAL, presenter.state.value.commandStatus)
             presenter.close()
+        }
+
+    @Test
+    fun capturedGenerationAdvancesAtEqualRevisionAndSameBindingLifecycleOverlayIsRetained() =
+        runTest {
+            val initial = nativeSnapshot(1UL, 1UL)
+            val runtime =
+                FakePresenterRuntime().apply {
+                    bootstrapValue = initial
+                    setCurrent(initial)
+                }
+            val presenter = presenter(runtime)
+            runCurrent()
+            runtime.emit(nativeSnapshot(1UL, 2UL))
+            runCurrent()
+            assertEquals(
+                2UL,
+                presenter.state.value.snapshot.runtimeSession
+                    ?.generation,
+            )
+            val reads = runtime.currentSnapshotCalls
+            runtime.emitChange(nativeSnapshot(1UL, 1UL), SnapshotRevision(1UL))
+            runtime.emitChange(nativeSnapshot(1UL, 2UL), SnapshotRevision(1UL))
+            runCurrent()
+            assertEquals(reads, runtime.currentSnapshotCalls)
+            assertEquals(
+                2UL,
+                presenter.state.value.snapshot.runtimeSession
+                    ?.generation,
+            )
+            runtime.executeValue = nativeSnapshot(1UL, 2UL).copy(lifecycle = ApplicationLifecycle.Degraded)
+            presenter.dispatch(HarvestCircleIntent.RefreshActiveProfile)
+            runCurrent()
+            assertEquals(ApplicationLifecycle.Degraded, presenter.state.value.snapshot.lifecycle)
+            assertEquals(
+                2UL,
+                presenter.state.value.snapshot.runtimeSession
+                    ?.generation,
+            )
+            presenter.close()
+        }
+
+    @Test
+    fun mismatchedIncarnationClearsPrivatePresentationAndRetainsRemovalForShutdown() =
+        runTest {
+            val initial = nativeSnapshot(1UL, 1UL, active = true)
+            val runtime =
+                FakePresenterRuntime().apply {
+                    bootstrapValue = initial
+                    setCurrent(initial)
+                }
+            val presenter = presenter(runtime)
+            runCurrent()
+            presenter.dispatch(HarvestCircleIntent.EditImportDraft.from("private draft"))
+            val draft = presenter.state.value.importDraft
+            presenter.dispatch(HarvestCircleIntent.GenerateIdentity)
+            runCurrent()
+            val backup = presenter.state.value.generatedKeyBackup ?: error("backup")
+            presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(identity().id))
+            runCurrent()
+            assertEquals(1, runtime.activeRemovalRequests.size)
+            runtime.emit(nativeSnapshot(2UL, 1UL, incarnation = "cd".repeat(16), active = true))
+            runCurrent()
+            assertFatalObserverState(presenter)
+            assertEquals(0, draft.length)
+            assertNull(backup.revealNsecOrNull())
+            assertNull(presenter.state.value.generatedKeyBackup)
+            assertNull(presenter.state.value.removalConfirmation)
+            val calls = runtime.executeCalls
+            val preparations = runtime.prepareCalls
+            val incoming = HarvestCircleIntent.EditImportDraft.from("late private draft")
+            presenter.dispatch(incoming)
+            presenter.dispatch(HarvestCircleIntent.GenerateIdentity)
+            presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(identity().id))
+            presenter.dispatch(HarvestCircleIntent.DismissProblem)
+            runCurrent()
+            assertNull(incoming.takeDraft())
+            assertEquals(calls, runtime.executeCalls)
+            assertEquals(preparations, runtime.prepareCalls)
+            assertEquals(1, runtime.removalRequestCalls)
+            assertFatalObserverState(presenter)
+            presenter.close()
+            assertTrue(runtime.shutdownCalled)
+            assertTrue(runtime.activeRemovalRequests.isEmpty())
+        }
+
+    @Test
+    fun terminalMismatchCannotBeOverwrittenByANoncancellableLateCommand() =
+        runTest {
+            val gate = CompletableDeferred<Unit>()
+            val initial = nativeSnapshot(1UL, 1UL, active = true)
+            val runtime =
+                FakePresenterRuntime(executeGate = gate, executeIgnoresCancellation = true).apply {
+                    bootstrapValue = initial
+                    setCurrent(initial)
+                    executeValue = nativeSnapshot(9UL, 1UL, active = true)
+                }
+            val presenter = presenter(runtime)
+            runCurrent()
+            presenter.dispatch(HarvestCircleIntent.RefreshActiveProfile)
+            runCurrent()
+            assertEquals(1, runtime.executeCalls)
+            runtime.emit(nativeSnapshot(2UL, 1UL, incarnation = "cd".repeat(16), active = true))
+            runCurrent()
+            assertFatalObserverState(presenter)
+            gate.complete(Unit)
+            runCurrent()
+            assertFatalObserverState(presenter)
+            presenter.dispatch(HarvestCircleIntent.RefreshActiveProfile)
+            runCurrent()
+            assertEquals(1, runtime.executeCalls)
+            presenter.close()
+            assertTrue(runtime.shutdownCalled)
+        }
+
+    @Test
+    fun mismatchedGapResnapshotAndCommandResultFailClosed() =
+        runTest {
+            for (throughGap in listOf(true, false)) {
+                val initial = nativeSnapshot(1UL, 1UL, active = true)
+                val foreign = nativeSnapshot(5UL, 1UL, incarnation = "cd".repeat(16), active = true)
+                val runtime =
+                    FakePresenterRuntime().apply {
+                        bootstrapValue = initial
+                        setCurrent(initial)
+                    }
+                val presenter = presenter(runtime)
+                runCurrent()
+                if (throughGap) {
+                    runtime.setCurrent(foreign)
+                    runtime.emitChange(nativeSnapshot(4UL, 1UL, active = true), SnapshotRevision(2UL))
+                } else {
+                    runtime.executeValue = foreign
+                    presenter.dispatch(HarvestCircleIntent.RefreshActiveProfile)
+                }
+                runCurrent()
+                assertFatalObserverState(presenter)
+                presenter.close()
+                assertTrue(runtime.shutdownCalled)
+            }
+        }
+
+    @Test
+    fun higherRevisionWithRegressedGenerationIsAContextFailure() =
+        runTest {
+            val initial = nativeSnapshot(1UL, 2UL, active = true)
+            val runtime =
+                FakePresenterRuntime().apply {
+                    bootstrapValue = initial
+                    setCurrent(initial)
+                }
+            val presenter = presenter(runtime)
+            runCurrent()
+            runtime.emit(nativeSnapshot(2UL, 1UL, active = true))
+            runCurrent()
+            assertFatalObserverState(presenter)
+            presenter.close()
+        }
+
+    @Test
+    fun lateRemovalAcquisitionRemainsOwnedUntilShutdownAfterInvalidation() =
+        runTest {
+            val gate = CompletableDeferred<Unit>()
+            val initial = nativeSnapshot(1UL, 1UL, active = true)
+            val runtime =
+                FakePresenterRuntime(removalRequestGate = gate).apply {
+                    bootstrapValue = initial
+                    setCurrent(initial)
+                }
+            val presenter = presenter(runtime)
+            runCurrent()
+            presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(identity().id))
+            runCurrent()
+            assertEquals(1, runtime.activeRemovalRequests.size)
+            runtime.emit(nativeSnapshot(2UL, 1UL, incarnation = "cd".repeat(16), active = true))
+            runCurrent()
+            val closing = async { presenter.close() }
+            runCurrent()
+            assertFalse(closing.isCompleted)
+            gate.complete(Unit)
+            runCurrent()
+            assertTrue(closing.await()?.closed == true)
+            assertTrue(runtime.activeRemovalRequests.isEmpty())
+            assertTrue(runtime.confirmedRemovalRequests.isEmpty())
+            assertNull(presenter.state.value.removalConfirmation)
+            assertNull(presenter.state.value.snapshot.activeIdentity)
+        }
+
+    @Test
+    fun removalAlreadyConfirmingCannotRestorePrivateStateOrBeRepeatedAfterMismatch() =
+        runTest {
+            val gate = CompletableDeferred<Unit>()
+            val initial = nativeSnapshot(1UL, 1UL, active = true)
+            val runtime =
+                FakePresenterRuntime(executeGate = gate, executeIgnoresCancellation = true).apply {
+                    bootstrapValue = initial
+                    setCurrent(initial)
+                    executeValue = nativeSnapshot(3UL, 1UL)
+                }
+            val presenter = presenter(runtime)
+            runCurrent()
+            presenter.dispatch(HarvestCircleIntent.RequestIdentityRemoval(identity().id))
+            runCurrent()
+            val confirmation = presenter.state.value.removalConfirmation ?: error("confirmation")
+            val intent = HarvestCircleIntent.ConfirmIdentityRemoval(confirmation.identityId, confirmation.requestId)
+            presenter.dispatch(intent)
+            runCurrent()
+            runtime.emit(nativeSnapshot(2UL, 1UL, incarnation = "cd".repeat(16), active = true))
+            runCurrent()
+            gate.complete(Unit)
+            runCurrent()
+            assertFatalObserverState(presenter)
+            presenter.dispatch(intent)
+            runCurrent()
+            assertEquals(1, runtime.executeCalls)
+            presenter.close()
+            assertTrue(runtime.shutdownCalled)
+            assertTrue(runtime.activeRemovalRequests.isEmpty())
         }
 
     @Test
@@ -925,14 +1145,19 @@ private class FakePresenterRuntime(
     private val bootstrapGate: CompletableDeferred<Unit>? = null,
     private val executeGate: CompletableDeferred<Unit>? = null,
     private val shutdownGate: CompletableDeferred<Unit>? = null,
+    private val executeIgnoresCancellation: Boolean = false,
+    private val removalRequestGate: CompletableDeferred<Unit>? = null,
 ) : HarvestCircleRuntime {
     override val buildInfo: BuildInfo = BuildInfo.unknown()
 
     private val changes = MutableSharedFlow<ApplicationChange>(extraBufferCapacity = 8)
     private var current = snapshot(0UL)
     var currentSnapshotCalls = 0
+    var bootstrapValue: ApplicationSnapshot? = null
+    var executeValue: ApplicationSnapshot? = null
     var nextFailure: ApplicationProblem? = null
     var executeCalls = 0
+    var prepareCalls = 0
     var executeCancelled = false
     var shutdownCalled = false
     var shutdownCalls = 0
@@ -951,7 +1176,7 @@ private class FakePresenterRuntime(
 
     override suspend fun bootstrap(): ApplicationSnapshot {
         bootstrapGate?.await()
-        return snapshot(1UL).also { current = it }
+        return (bootstrapValue ?: snapshot(1UL)).also { current = it }
     }
 
     override fun currentSnapshot(): ApplicationSnapshot {
@@ -971,7 +1196,11 @@ private class FakePresenterRuntime(
             throw ApplicationFailure(it)
         }
         try {
-            executeGate?.await()
+            if (executeIgnoresCancellation) {
+                withContext(NonCancellable) { executeGate?.await() }
+            } else {
+                executeGate?.await()
+            }
         } catch (error: CancellationException) {
             executeCancelled = true
             throw error
@@ -984,16 +1213,18 @@ private class FakePresenterRuntime(
             }
             else -> Unit
         }
-        return ApplicationCommandResult.Updated(current)
+        return ApplicationCommandResult.Updated(executeValue ?: current)
     }
 
-    override suspend fun prepareLocalIdentity(): GeneratedIdentityRecovery =
-        GeneratedIdentityRecovery(
+    override suspend fun prepareLocalIdentity(): GeneratedIdentityRecovery {
+        prepareCalls += 1
+        return GeneratedIdentityRecovery(
             requestId = RecoveryRequestId.from("recovery-1"),
             identity = identity(),
             expiresAt = UnixSeconds(60),
             backup = GeneratedKeyBackup("npub1presenter", "nsec1presenter-secret"),
         )
+    }
 
     override suspend fun requestIdentityRemoval(identityId: IdentityId): IdentityRemovalRequest {
         removalFailure?.let { throw ApplicationFailure(it) }
@@ -1001,6 +1232,7 @@ private class FakePresenterRuntime(
         val requestId = RemovalRequestId.from("removal-$removalRequestCalls")
         removalEvents += "request:${requestId.value}"
         activeRemovalRequests += requestId
+        withContext(NonCancellable) { removalRequestGate?.await() }
         return IdentityRemovalRequest(
             requestId = requestId,
             identityId = identityId,
@@ -1083,3 +1315,43 @@ private fun snapshot(revision: ULong) =
     )
 
 private const val TEST_OPERATION_ID = "01890f3e-7b1c-7000-8000-000000000001"
+
+private fun nativeSnapshot(
+    revision: ULong,
+    generation: ULong,
+    incarnation: String = "ab".repeat(16),
+    active: Boolean = false,
+): ApplicationSnapshot {
+    val who = identity()
+    return snapshot(revision).copy(
+        runtimeSession = NativeSessionBinding(incarnation, generation),
+        identities = if (active) listOf(who) else emptyList(),
+        selectedIdentityId = if (active) who.id else null,
+        session = if (active) SessionLifecycle.Active else SessionLifecycle.SignedOut,
+        activeIdentity =
+            if (active) {
+                ActiveIdentity(
+                    who,
+                    RelaySummary(emptyList(), RelayConnectionState.Disconnected),
+                    ProfileLoadState.Empty,
+                    null,
+                )
+            } else {
+                null
+            },
+    )
+}
+
+private fun assertFatalObserverState(presenter: HarvestCirclePresenter) {
+    val state = presenter.state.value
+    assertEquals(HarvestCircleRoute.FATAL, state.route)
+    assertEquals(ApplicationLifecycle.Fatal, state.snapshot.lifecycle)
+    assertEquals(SessionLifecycle.SignedOut, state.snapshot.session)
+    assertNull(state.snapshot.activeIdentity)
+    assertNull(state.snapshot.runtimeSession)
+    assertTrue(state.snapshot.identities.isEmpty())
+    assertEquals(ApplicationErrorCode.ObserverRegistrationFailed, state.lastProblem?.code)
+    assertEquals(false, state.lastProblem?.retryable)
+    assertEquals(RecoveryAction.RestartApplication, state.lastProblem?.recoveryAction)
+    assertEquals(CommandStatus.FAILED_TERMINAL, state.commandStatus)
+}

@@ -24,7 +24,8 @@ use harvestcircle_ffi::{
     HubOpeningInputDto, HubOpeningReceiptDto, HubReceiptInputDto, HubReferenceEditDto,
     HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto, HubStockPageDto,
     HubStockQueryDto, HubStockReceiptDto, HubTreatmentPageDto, HubTreatmentQueryDto,
-    HubTreatmentScopeDto, HubTreatmentSnapshotDto, HubWorkPageDto, SafeErrorDto,
+    HubTreatmentScopeDto, HubTreatmentSnapshotDto, HubWorkPageDto, RuntimeSessionBindingDto,
+    SafeErrorDto,
 };
 use harvestcircle_ffi::{
     HubLocalOutputDto, HubLocalOutputRequestDto, HubTraceHistoryPageDto, HubTraceHistoryQueryDto,
@@ -50,6 +51,16 @@ const OBSERVER_CAPACITY: usize = 16;
 const DEFAULT_TIMEOUT_MILLIS: u64 = 2_000;
 const FIXED_TIME_SECONDS: i64 = 1_700_000_000;
 const FIXED_INSTALLATION_ID: &str = "0123456789abcdef0123456789abcdef";
+
+/// Encoding-only data fixture. It neither creates an actor context nor grants execution.
+#[uniffi::export]
+pub fn session_binding_encoding_probe() -> RuntimeSessionBindingDto {
+    RuntimeSessionBindingDto::from(harvestcircle_application::RuntimeSessionBinding::new(
+        harvestcircle_application::hub_submission::HubRuntimeIncarnation::from_bytes([0xab; 16])
+            .unwrap(),
+        harvestcircle_application::SessionGeneration::from_value(u64::MAX),
+    ))
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct TestIdentity {
@@ -79,6 +90,7 @@ pub enum TestSession {
 #[derive(Clone, Debug, Eq, PartialEq, uniffi::Record)]
 pub struct TestSnapshot {
     pub revision: u64,
+    pub runtime_session: Option<RuntimeSessionBindingDto>,
     pub lifecycle: TestLifecycle,
     pub identities: Vec<TestIdentity>,
     pub selected_public_key_hex: Option<String>,
@@ -1128,6 +1140,9 @@ fn to_snapshot(snapshot: AppSnapshot) -> TestSnapshot {
         .map(ToOwned::to_owned);
     TestSnapshot {
         revision: snapshot.revision().value(),
+        runtime_session: snapshot
+            .runtime_session()
+            .map(RuntimeSessionBindingDto::from),
         lifecycle,
         identities: snapshot.identities().iter().map(to_identity).collect(),
         selected_public_key_hex: snapshot.selected_identity().map(PublicKey::to_hex),

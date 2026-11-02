@@ -75,7 +75,12 @@ data class ApplicationChange(
     val previousRevision: SnapshotRevision?,
 ) {
     init {
-        require(previousRevision == null || previousRevision.value < snapshot.revision.value) {
+        require(
+            previousRevision == null ||
+                previousRevision.value < snapshot.revision.value ||
+                previousRevision == snapshot.revision &&
+                snapshot.runtimeSession != null,
+        ) {
             "Application change revisions are not monotonic"
         }
     }

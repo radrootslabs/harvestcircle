@@ -49,6 +49,50 @@ import org.harvestcircle.application.generated.NativeCompatibilityExpectations a
 
 class NativeRuntimeMappingsTest {
     @Test
+    fun capturedNativeBindingKeepsFullWidthGenerationAndRejectsMalformedIdentity() {
+        val native =
+            populatedSnapshot(
+                4UL,
+            ).copy(runtimeSession = org.harvestcircle.ffi.RuntimeSessionBindingDto("ab".repeat(16), ULong.MAX_VALUE))
+        assertEquals(NativeSessionBinding("ab".repeat(16), ULong.MAX_VALUE), native.toApplicationSnapshot().runtimeSession)
+        val failure =
+            assertFailsWith<ApplicationFailure> {
+                native.copy(runtimeSession = org.harvestcircle.ffi.RuntimeSessionBindingDto("0".repeat(32), 1UL)).toApplicationSnapshot()
+            }
+        assertEquals(ApplicationErrorCode.ObserverRegistrationFailed, failure.problem.code)
+        assertFalse(failure.problem.retryable)
+        assertEquals(RecoveryAction.RestartApplication, failure.problem.recoveryAction)
+    }
+
+    @Test
+    fun sameRevisionNativeGenerationChangesCrossTheObserverAdapter() =
+        runTest {
+            val port = FakeNativeCorePort()
+            val runtime = NativeHarvestCircleRuntime(port)
+            val observed = mutableListOf<ApplicationChange>()
+            val collection = launch { runtime.changes().take(2).toList(observed) }
+            runCurrent()
+            port.emit(
+                SnapshotChangeDto(
+                    populatedSnapshot(4UL).copy(runtimeSession = org.harvestcircle.ffi.RuntimeSessionBindingDto("ab".repeat(16), 1UL)),
+                    null,
+                ),
+            )
+            runCurrent()
+            port.emit(
+                SnapshotChangeDto(
+                    populatedSnapshot(4UL).copy(runtimeSession = org.harvestcircle.ffi.RuntimeSessionBindingDto("ab".repeat(16), 2UL)),
+                    4UL,
+                ),
+            )
+            runCurrent()
+            collection.join()
+            assertEquals(listOf(1UL, 2UL), observed.map { it.snapshot.runtimeSession?.generation })
+            assertEquals(listOf(4UL, 4UL), observed.map { it.snapshot.revision.value })
+            assertEquals(1, port.subscriptionCloseCalls)
+        }
+
+    @Test
     fun referenceFailuresRemainTypedAndUnknownOutcomeKeepsOriginalOperation() {
         val pairs =
             listOf(
@@ -1010,6 +1054,7 @@ private fun populatedSnapshot(revision: ULong): AppSnapshotDto {
     val identity = nativeIdentity()
     return AppSnapshotDto(
         revision = revision,
+        runtimeSession = null,
         lifecycle = AppLifecycleDto.DEGRADED,
         lifecycleError = safeError(WireErrorCode.RELAY_CONNECTION_FAILED),
         configuredRelays =
@@ -1040,6 +1085,7 @@ private fun populatedSnapshot(revision: ULong): AppSnapshotDto {
 private fun emptySnapshot(): AppSnapshotDto =
     AppSnapshotDto(
         revision = 0UL,
+        runtimeSession = null,
         lifecycle = AppLifecycleDto.READY,
         lifecycleError = null,
         configuredRelays = emptyList(),

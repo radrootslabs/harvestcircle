@@ -519,7 +519,7 @@ async fn count_and_opening_mutations_require_current_custody_while_original_reco
     ] {
         assert!(
             actor
-                .adapter
+                ._adapter
                 .database()
                 .hub_submission(owner, operation)
                 .await

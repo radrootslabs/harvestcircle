@@ -195,6 +195,16 @@ data class ApplicationProblem(
     }
 }
 
+/** Captured native context identity. It confers no permission or execution grant. */
+data class NativeSessionBinding(
+    val incarnation: String,
+    val generation: ULong,
+) {
+    init {
+        require(incarnation.length == 32 && incarnation.all { it in '0'..'9' || it in 'a'..'f' } && incarnation.any { it != '0' })
+    }
+}
+
 data class ApplicationSnapshot(
     val revision: SnapshotRevision,
     val lifecycle: ApplicationLifecycle,
@@ -207,6 +217,7 @@ data class ApplicationSnapshot(
     val sessionProblem: ApplicationProblem?,
     val activeIdentity: ActiveIdentity?,
     val recoverableProblem: ApplicationProblem?,
+    val runtimeSession: NativeSessionBinding? = null,
 ) {
     init {
         require(configuredRelays.map(RelayEndpoint::url).distinct().size == configuredRelays.size) {

@@ -15,8 +15,8 @@ use harvestcircle_application::{
     GenerateIdentityReceipt, GeneratedKeyRecoveryHandle, GeneratedKeyStage, ImportIdentityReceipt,
     LifecycleGate, NostrClient, OrderedSnapshotChanges, ProfileFetchResult, ProfileRefreshPlan,
     RecoveryStageId, RelayConfiguration, RemovalConfirmationToken, RequestId, RuntimeCommandClass,
-    RuntimeLifecycle, SecretStore, SessionGeneration, SnapshotChange, SnapshotChangeReceiver,
-    SnapshotRevision, StagedGeneratedKey, TaskCorrelation,
+    RuntimeLifecycle, RuntimeSessionBinding, SecretStore, SessionGeneration, SnapshotChange,
+    SnapshotChangeReceiver, SnapshotRevision, StagedGeneratedKey, TaskCorrelation,
 };
 use harvestcircle_domain::{
     LocalKeyringBinding, NostrIdentityReference, PublicKey, SafeError, SafeErrorCode, SafeMessage,
@@ -189,10 +189,13 @@ struct RuntimeActor {
     session_generation: SessionGeneration,
     hub_runtime_incarnation: HubRuntimeIncarnation,
     published_session_generation: Arc<AtomicU64>,
+    published_snapshot: watch::Sender<AppSnapshot>,
     profile_tasks: BTreeMap<RequestId, PendingProfileTask>,
     changes: OrderedSnapshotChanges,
     published_foreground_session: Arc<Mutex<Option<ActiveSessionBinding>>>,
     generated_key_stage: GeneratedKeyStage,
+    #[cfg(test)]
+    session_advance_pause: Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>,
 }
 
 struct PendingProfileTask {
@@ -211,10 +214,12 @@ struct ProfileCompletion {
 #[derive(Clone)]
 pub struct RuntimeActorHandle {
     mailbox: ActorMailbox<RuntimeCommand, RuntimeCommandValue>,
-    adapter: Arc<PersistentAppCore>,
+    // Retain persistence ownership for the handle lifetime; reads use the settled cache.
+    _adapter: Arc<PersistentAppCore>,
     lifecycle: Arc<Mutex<LifecycleGate>>,
     next_request: Arc<AtomicU64>,
     session_generation: Arc<AtomicU64>,
+    published_snapshot: watch::Receiver<AppSnapshot>,
     hub_runtime_incarnation: HubRuntimeIncarnation,
     foreground_session: Arc<Mutex<Option<ActiveSessionBinding>>>,
     installation_identity: InstallationIdentity,
@@ -335,7 +340,16 @@ impl RuntimeActorHandle {
         let (mailbox, receiver) = ActorMailbox::bounded(capacity);
         let session_generation = Arc::new(AtomicU64::new(SessionGeneration::initial().value()));
         let foreground_session = Arc::new(Mutex::new(None));
-        let changes = OrderedSnapshotChanges::new(adapter.core().snapshot());
+        let initial_snapshot =
+            adapter
+                .core()
+                .snapshot()
+                .with_runtime_session(RuntimeSessionBinding::new(
+                    hub_runtime_incarnation,
+                    SessionGeneration::initial(),
+                ));
+        let (published_snapshot, snapshot_receiver) = watch::channel(initial_snapshot.clone());
+        let changes = OrderedSnapshotChanges::new(initial_snapshot);
         let actor = RuntimeActor {
             demo_profile,
             adapter: Arc::clone(&adapter),
@@ -347,10 +361,13 @@ impl RuntimeActorHandle {
             session_generation: SessionGeneration::initial(),
             hub_runtime_incarnation,
             published_session_generation: Arc::clone(&session_generation),
+            published_snapshot,
             profile_tasks: BTreeMap::new(),
             changes,
             published_foreground_session: Arc::clone(&foreground_session),
             generated_key_stage: GeneratedKeyStage::default(),
+            #[cfg(test)]
+            session_advance_pause: None,
         };
         let (actor_exit_sender, actor_exit) = watch::channel(false);
         let actor_task = runtime.spawn(async move {
@@ -359,10 +376,11 @@ impl RuntimeActorHandle {
         });
         Ok(Self {
             mailbox,
-            adapter,
+            _adapter: adapter,
             lifecycle,
             next_request: Arc::new(AtomicU64::new(1)),
             session_generation,
+            published_snapshot: snapshot_receiver,
             hub_runtime_incarnation,
             foreground_session,
             installation_identity,
@@ -430,7 +448,7 @@ impl RuntimeActorHandle {
 
     #[must_use]
     pub fn snapshot(&self) -> AppSnapshot {
-        self.adapter.core().snapshot()
+        self.published_snapshot.borrow().clone()
     }
 
     /// Returns the ready snapshot through the actor command boundary.
@@ -915,7 +933,7 @@ impl RuntimeActorHandle {
     ) -> Result<ImportIdentityReceipt, SafeError> {
         let raw_request = self.next_request.fetch_add(1, Ordering::Relaxed);
         let request_id = RequestId::new(raw_request).ok_or_else(request_space_exhausted)?;
-        let expected_revision = self.adapter.core().snapshot().revision();
+        let expected_revision = self.snapshot().revision();
         let durable_request = DurableRequestId::parse(format!(
             "01890f3e-7b1c-7000-8000-{:012x}",
             raw_request + 0x4000
@@ -1044,7 +1062,7 @@ impl RuntimeActor {
             }
             let snapshot = self.adapter.core().snapshot();
             self.cancel_profile_tasks(Some(&snapshot)).await;
-            self.changes.publish(snapshot);
+            self.publish_snapshot();
         }
         let mut result = self.execute_command(context, command).await;
         if changes_session && matches!(result, CommandResult::Completed(_)) {
@@ -1061,14 +1079,13 @@ impl RuntimeActor {
                         *foreground = None;
                     }
                     self.cancel_profile_tasks(None).await;
-                    self.changes.publish(self.adapter.core().snapshot());
+                    self.publish_snapshot();
                     result = CommandResult::Failed(error);
                 }
             }
         }
-        if matches!(result, CommandResult::Completed(_)) {
-            self.changes.publish(self.adapter.core().snapshot());
-        }
+        self.publish_snapshot();
+        let result = self.bind_snapshot_result(result);
         if let Err(receipt) = reply.send(CommandReceipt::new(context.request_id(), result))
             && let CommandResult::Completed(RuntimeCommandValue::Subscription(subscription)) =
                 receipt.into_result()
@@ -1411,7 +1428,9 @@ impl RuntimeActor {
         let Some(active) = current.active_identity() else {
             let _ = reply.send(CommandReceipt::new(
                 context.request_id(),
-                CommandResult::Completed(RuntimeCommandValue::Snapshot(Box::new(current))),
+                CommandResult::Completed(RuntimeCommandValue::Snapshot(Box::new(
+                    self.settled_snapshot(),
+                ))),
             ));
             return;
         };
@@ -1438,7 +1457,7 @@ impl RuntimeActor {
                 let _ = reply.send(CommandReceipt::new(
                     context.request_id(),
                     CommandResult::Completed(RuntimeCommandValue::Snapshot(Box::new(
-                        self.adapter.core().snapshot(),
+                        self.settled_snapshot(),
                     ))),
                 ));
                 return;
@@ -1451,6 +1470,7 @@ impl RuntimeActor {
                 return;
             }
         };
+        self.publish_snapshot();
         let correlation = TaskCorrelation::new(
             context.request_id(),
             plan.public_key(),
@@ -1623,10 +1643,40 @@ impl RuntimeActor {
         } else {
             CommandResult::Completed(RuntimeCommandValue::Snapshot(Box::new(current)))
         };
-        self.changes.publish(self.adapter.core().snapshot());
+        self.publish_snapshot();
+        let result = self.bind_snapshot_result(result);
         let _ = task
             .reply
             .send(CommandReceipt::new(task.correlation.request_id(), result));
+    }
+
+    fn settled_snapshot(&self) -> AppSnapshot {
+        self.adapter
+            .core()
+            .snapshot()
+            .with_runtime_session(RuntimeSessionBinding::new(
+                self.hub_runtime_incarnation,
+                self.session_generation,
+            ))
+    }
+
+    fn publish_snapshot(&mut self) -> AppSnapshot {
+        let snapshot = self.settled_snapshot();
+        self.published_snapshot.send_replace(snapshot.clone());
+        self.changes.publish(snapshot.clone());
+        snapshot
+    }
+
+    fn bind_snapshot_result(
+        &self,
+        result: CommandResult<RuntimeCommandValue>,
+    ) -> CommandResult<RuntimeCommandValue> {
+        match result {
+            CommandResult::Completed(RuntimeCommandValue::Snapshot(_)) => CommandResult::Completed(
+                RuntimeCommandValue::Snapshot(Box::new(self.settled_snapshot())),
+            ),
+            other => other,
+        }
     }
 
     async fn advance_session_generation(&mut self) -> Result<(), SafeError> {
@@ -1641,6 +1691,11 @@ impl RuntimeActor {
             .snapshot()
             .active_identity()
             .map(|active| active.identity().public_key());
+        #[cfg(test)]
+        if let Some((entered, resume)) = self.session_advance_pause.take() {
+            entered.notify_one();
+            resume.notified().await;
+        }
         let confirmed = self
             .adapter
             .database()
@@ -1712,7 +1767,14 @@ impl RuntimeActor {
             task.handle.abort();
             let _ = task.handle.await;
             let receipt_result = snapshot.map_or(CommandResult::Closed, |snapshot| {
-                CommandResult::Completed(RuntimeCommandValue::Snapshot(Box::new(snapshot.clone())))
+                CommandResult::Completed(RuntimeCommandValue::Snapshot(Box::new(
+                    snapshot
+                        .clone()
+                        .with_runtime_session(RuntimeSessionBinding::new(
+                            self.hub_runtime_incarnation,
+                            self.session_generation,
+                        )),
+                )))
             });
             let _ = task.reply.send(CommandReceipt::new(
                 task.correlation.request_id(),
@@ -2134,7 +2196,7 @@ mod tests {
             .expect("activate");
         let owner = RuntimeActor {
             demo_profile: false,
-            adapter: Arc::clone(&handle.adapter),
+            adapter: Arc::clone(&handle._adapter),
             secrets,
             clock: Arc::new(FixedClock),
             nostr: client,
@@ -2143,12 +2205,88 @@ mod tests {
             session_generation: handle.session_generation(),
             hub_runtime_incarnation: handle.hub_runtime_incarnation,
             published_session_generation: Arc::clone(&handle.session_generation),
+            published_snapshot: tokio::sync::watch::channel(handle.snapshot()).0,
             profile_tasks: std::collections::BTreeMap::new(),
             changes: OrderedSnapshotChanges::new(handle.snapshot()),
             published_foreground_session: Arc::clone(&handle.foreground_session),
             generated_key_stage: GeneratedKeyStage::default(),
+            #[cfg(test)]
+            session_advance_pause: None,
         };
         (owner, handle)
+    }
+
+    fn assert_actor_snapshot_binding(
+        snapshot: &harvestcircle_application::AppSnapshot,
+        owner: &RuntimeActor,
+    ) {
+        let binding = snapshot
+            .runtime_session()
+            .expect("native actor result must be bound");
+        assert_eq!(binding.incarnation(), owner.hub_runtime_incarnation);
+        assert_eq!(binding.generation(), owner.session_generation);
+    }
+
+    #[tokio::test]
+    async fn profile_success_stale_completion_and_session_cancellation_keep_captured_binding() {
+        let client = Arc::new(BlockingNostr::new());
+        let (mut owner, handle) = profile_owner(client.clone()).await;
+        let key = handle
+            .snapshot()
+            .active_identity()
+            .unwrap()
+            .identity()
+            .public_key();
+        let (sender, mut completed) = tokio::sync::mpsc::channel(4);
+        for id in 1..=3 {
+            let (reply, receipt) = tokio::sync::oneshot::channel();
+            owner
+                .start_profile_task(
+                    CommandContext::new(
+                        RequestId::new(id).unwrap(),
+                        None,
+                        Instant::now() + DEFAULT_COMMAND_TIMEOUT,
+                    ),
+                    reply,
+                    sender.clone(),
+                )
+                .await;
+            client.started.acquire().await.unwrap().forget();
+            let loading = owner.published_snapshot.borrow().clone();
+            assert_actor_snapshot_binding(&loading, &owner);
+            assert_eq!(
+                loading.active_identity().unwrap().profile_state(),
+                harvestcircle_application::ProfileLoadState::Loading
+            );
+            if id != 1 {
+                handle.sign_out().await.unwrap();
+                owner.session_generation = handle.session_generation();
+            }
+            if id == 3 {
+                let signed_out = owner.adapter.core().snapshot();
+                owner.cancel_profile_tasks(Some(&signed_out)).await;
+                owner.publish_snapshot();
+            } else {
+                client.release.add_permits(1);
+                owner
+                    .complete_profile_task(completed.recv().await.unwrap())
+                    .await;
+            }
+            let harvestcircle_application::CommandResult::Completed(
+                super::RuntimeCommandValue::Snapshot(result),
+            ) = receipt.await.unwrap().into_result()
+            else {
+                panic!("successful, stale and cancellation replies retain a snapshot");
+            };
+            assert_actor_snapshot_binding(&result, &owner);
+            assert_eq!(result.as_ref(), &*owner.published_snapshot.borrow());
+            if id != 1 {
+                assert_eq!(result.session(), SessionState::SignedOut);
+                handle.activate_identity(key).await.unwrap();
+                owner.session_generation = handle.session_generation();
+            }
+        }
+        handle.close().await.unwrap();
     }
 
     #[tokio::test]
@@ -2260,10 +2398,15 @@ mod tests {
                 sender,
             )
             .await;
-        assert!(matches!(
-            no_op.try_recv().expect("signed-out no-op").result(),
-            harvestcircle_application::CommandResult::Completed(_)
-        ));
+        let no_op_receipt = no_op.try_recv().expect("signed-out no-op");
+        let harvestcircle_application::CommandResult::Completed(
+            super::RuntimeCommandValue::Snapshot(snapshot),
+        ) = no_op_receipt.result()
+        else {
+            panic!("signed-out no-op returns a snapshot");
+        };
+        assert_actor_snapshot_binding(snapshot, &owner);
+        assert_eq!(snapshot.session(), SessionState::SignedOut);
         assert_eq!(owner.adapter.core().snapshot(), signed_out);
         owner.cancel_profile_tasks(Some(&signed_out)).await;
         for receipt in receipts {
@@ -2295,6 +2438,9 @@ mod tests {
             )
             .await;
         client.started.acquire().await.expect("started").forget();
+        let loading = changes.receive().await.expect("loading state published");
+        assert_actor_snapshot_binding(loading.snapshot(), &owner);
+        assert_eq!(loading.snapshot(), &*owner.published_snapshot.borrow());
         tokio::time::advance(Duration::from_secs(5)).await;
         tokio::task::yield_now().await;
         let completion = tokio::time::timeout(Duration::from_secs(1), completed.recv())
@@ -2304,7 +2450,9 @@ mod tests {
         owner.complete_profile_task(completion).await;
         assert!(owner.profile_tasks.is_empty());
         let change = changes.receive().await.expect("timeout state published");
-        assert_eq!(change.snapshot(), &owner.adapter.core().snapshot());
+        assert_actor_snapshot_binding(change.snapshot(), &owner);
+        assert_eq!(change.snapshot(), &owner.settled_snapshot());
+        assert_eq!(change.snapshot(), &*owner.published_snapshot.borrow());
 
         assert!(
             matches!(receipt.try_recv().expect("timeout receipt").result(),
@@ -2359,6 +2507,8 @@ mod tests {
             )
             .await;
         client.started.acquire().await.expect("started").forget();
+        let loading = changes.receive().await.expect("loading state published");
+        assert_actor_snapshot_binding(loading.snapshot(), &owner);
         owner
             .adapter
             .database()
@@ -2376,6 +2526,8 @@ mod tests {
         ));
         assert!(owner.profile_tasks.is_empty());
         let change = changes.receive().await.expect("failure must publish state");
+        assert_actor_snapshot_binding(change.snapshot(), &owner);
+        assert_eq!(change.snapshot(), &*owner.published_snapshot.borrow());
         assert!(matches!(
             change
                 .snapshot()
@@ -2466,6 +2618,94 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn session_publication_waits_for_durable_advance_and_results_share_the_captured_cut() {
+        let (mut owner, mut handle) = profile_owner(Arc::new(OfflineNostr)).await;
+        let initial = owner.settled_snapshot();
+        let (published, receiver) = tokio::sync::watch::channel(initial.clone());
+        owner.published_snapshot = published;
+        handle.published_snapshot = receiver;
+        let (_, mut changes) = owner
+            .changes
+            .subscribe(NonZeroUsize::new(4).unwrap())
+            .unwrap();
+        changes.receive().await.unwrap();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let resume = Arc::new(tokio::sync::Notify::new());
+        owner.session_advance_pause = Some((Arc::clone(&entered), Arc::clone(&resume)));
+        let (mailbox, mut commands) = ActorMailbox::bounded(NonZeroUsize::MIN);
+        let context = CommandContext::new(
+            RequestId::new(900).unwrap(),
+            None,
+            Instant::now() + DEFAULT_COMMAND_TIMEOUT,
+        );
+        let CommandSubmission::Accepted(ticket) = mailbox.submit(context, RuntimeCommand::SignOut)
+        else {
+            panic!("owned empty mailbox must accept signout");
+        };
+        let envelope = commands.recv().await.unwrap();
+        let (completions, _completed) = tokio::sync::mpsc::channel(1);
+        let running = tokio::spawn(async move {
+            assert!(owner.handle_command(envelope, &completions).await);
+            owner
+        });
+        entered.notified().await;
+        assert_eq!(
+            handle._adapter.core().snapshot().session(),
+            SessionState::SignedOut
+        );
+        assert!(handle._adapter.core().snapshot().revision() > initial.revision());
+        assert_eq!(
+            handle.snapshot(),
+            initial,
+            "unpersisted state cannot escape synchronously"
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), changes.receive())
+                .await
+                .is_err()
+        );
+        resume.notify_one();
+        let owner = running.await.unwrap();
+        let receipt = ticket.receipt().await;
+        let harvestcircle_application::CommandResult::Completed(
+            super::RuntimeCommandValue::Snapshot(result),
+        ) = receipt.into_result()
+        else {
+            panic!("persisted signout must complete");
+        };
+        let observed = changes.receive().await.unwrap();
+        assert_eq!(result.as_ref(), &handle.snapshot());
+        assert_eq!(observed.snapshot(), result.as_ref());
+        assert_eq!(
+            result.runtime_session().unwrap().generation(),
+            handle.session_generation()
+        );
+        assert_eq!(result.session(), SessionState::SignedOut);
+        drop(owner);
+        handle.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn repeated_native_signout_advances_binding_without_fabricating_a_core_revision() {
+        let (handle, _) = actor().await;
+        let initial = handle.snapshot();
+        let mut changes = handle.subscribe_changes(NonZeroUsize::MIN).await.unwrap();
+        changes.receive().await.unwrap();
+        let first = handle.sign_out().await.unwrap();
+        let second = handle.sign_out().await.unwrap();
+        assert_eq!(initial.revision(), first.revision());
+        assert_eq!(first.revision(), second.revision());
+        assert_eq!(
+            first.runtime_session().unwrap().generation().value() + 1,
+            second.runtime_session().unwrap().generation().value()
+        );
+        assert_eq!(changes.receive().await.unwrap().snapshot(), &first);
+        assert_eq!(changes.receive().await.unwrap().snapshot(), &second);
+        assert_eq!(handle.snapshot(), second);
+        handle.close().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn failed_session_fence_never_acknowledges_success_and_publishes_cleared_private_session()
     {
         let (handle, _) = actor().await;
@@ -2483,7 +2723,7 @@ mod tests {
             .await
             .unwrap();
         changes.receive().await.unwrap();
-        handle.adapter.database().close().await.unwrap();
+        handle._adapter.database().close().await.unwrap();
         assert!(handle.sign_out().await.is_err());
         assert!(matches!(handle.lifecycle(), RuntimeLifecycle::Fatal(_)));
         assert_eq!(handle.session_generation(), generation);
@@ -2493,6 +2733,11 @@ mod tests {
             .unwrap();
         assert_eq!(cleared.snapshot().session(), SessionState::SignedOut);
         assert!(cleared.snapshot().active_identity().is_none());
+        assert_eq!(handle.snapshot(), *cleared.snapshot());
+        assert_eq!(
+            cleared.snapshot().runtime_session().unwrap().generation(),
+            generation
+        );
         assert!(handle.foreground_session().is_none());
         assert!(handle.activate_identity(key).await.is_err());
         handle.close().await.unwrap();
@@ -2525,7 +2770,7 @@ mod tests {
         // A native durable fence replacement makes the actor's current fence
         // stale while leaving activation's real identity persistence available.
         handle
-            .adapter
+            ._adapter
             .database()
             .advance_hub_session(
                 handle.session_incarnation(),
@@ -3441,7 +3686,7 @@ mod tests {
         drop(probe_receiver);
         let mut owner = RuntimeActor {
             demo_profile: false,
-            adapter: Arc::clone(&handle.adapter),
+            adapter: Arc::clone(&handle._adapter),
             secrets,
             clock: Arc::new(FixedClock),
             nostr: Arc::new(OfflineNostr),
@@ -3450,10 +3695,13 @@ mod tests {
             session_generation: handle.session_generation(),
             hub_runtime_incarnation: handle.hub_runtime_incarnation,
             published_session_generation: Arc::clone(&handle.session_generation),
+            published_snapshot: tokio::sync::watch::channel(handle.snapshot()).0,
             profile_tasks: std::collections::BTreeMap::new(),
             changes: OrderedSnapshotChanges::new(snapshot),
             published_foreground_session: Arc::clone(&handle.foreground_session),
             generated_key_stage: GeneratedKeyStage::default(),
+            #[cfg(test)]
+            session_advance_pause: None,
         };
         let (mailbox, mut receiver) = ActorMailbox::bounded(NonZeroUsize::MIN);
         let context = CommandContext::new(
@@ -3662,6 +3910,23 @@ mod tests {
         let refresh = tokio::spawn(async move { refresh_actor.refresh_active_profile().await });
         let started = client.started.acquire().await.expect("refresh started");
         started.forget();
+        let loading = changes
+            .receive()
+            .await
+            .expect("loading published before close");
+        assert_eq!(loading.snapshot(), &actor.snapshot());
+        assert_eq!(
+            loading.snapshot().runtime_session().unwrap().generation(),
+            actor.session_generation()
+        );
+        assert_eq!(
+            loading
+                .snapshot()
+                .active_identity()
+                .unwrap()
+                .profile_state(),
+            harvestcircle_application::ProfileLoadState::Loading
+        );
         actor.close().await.expect("close");
 
         let cancelled = refresh
@@ -3898,13 +4163,13 @@ mod tests {
         actor.confirm_identity_removal_test(removal).await.unwrap();
         assert!(actor.hub_context().await.is_err());
         assert_eq!(
-            actor.adapter.database().load_hub().await.unwrap(),
+            actor._adapter.database().load_hub().await.unwrap(),
             Some(hub)
         );
         assert!(actor.hub_references().await.is_err());
         assert_eq!(
             actor
-                .adapter
+                ._adapter
                 .database()
                 .hub_reference_operation(owner, reference_operation)
                 .await
@@ -3939,7 +4204,15 @@ mod tests {
                 .await
                 .is_err()
         );
-        assert!(actor.adapter.database().load_hub().await.unwrap().is_none());
+        assert!(
+            actor
+                ._adapter
+                .database()
+                .load_hub()
+                .await
+                .unwrap()
+                .is_none()
+        );
         actor.close().await.unwrap();
     }
     #[tokio::test(flavor = "multi_thread")]

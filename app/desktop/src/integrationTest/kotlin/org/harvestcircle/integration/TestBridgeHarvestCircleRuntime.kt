@@ -600,6 +600,7 @@ private fun TestSnapshot.toApplicationSnapshot(): ApplicationSnapshot {
         }
     return ApplicationSnapshot(
         revision = SnapshotRevision(revision),
+        runtimeSession = runtimeSession?.let { org.harvestcircle.application.NativeSessionBinding(it.incarnation, it.generation) },
         lifecycle =
             when (lifecycle) {
                 TestLifecycle.BOOTING -> ApplicationLifecycle.Opening

@@ -74,6 +74,7 @@ pub use secrets::{
 };
 pub use snapshot::{
     ActiveIdentitySnapshot, AppLifecycle, AppSnapshot, MAX_CONFIGURED_RELAYS, ProfileLoadState,
-    RelayConfiguration, RelayConnectionState, SessionState, SnapshotRevision,
+    RelayConfiguration, RelayConnectionState, RuntimeSessionBinding, SessionState,
+    SnapshotRevision,
 };
 pub use state_machine::{StateMachine, StateTransition};

@@ -100,6 +100,7 @@ internal fun ActiveIdentityDto.toActiveIdentity(configuredRelays: List<RelayEndp
 internal fun AppSnapshotDto.toApplicationSnapshot(): ApplicationSnapshot =
     ApplicationSnapshot(
         revision = SnapshotRevision(revision),
+        runtimeSession = runtimeSession?.let { nativeSessionBinding(it.incarnation, it.generation) },
         lifecycle = lifecycle.toApplicationLifecycle(),
         lifecycleProblem = lifecycleError?.toApplicationProblem(),
         configuredRelays = configuredRelays.map { it.toRelayEndpoint() },
@@ -111,6 +112,25 @@ internal fun AppSnapshotDto.toApplicationSnapshot(): ApplicationSnapshot =
         activeIdentity = activeIdentity?.toActiveIdentity(configuredRelays.map { it.toRelayEndpoint() }),
         recoverableProblem = recoverableProblem?.toApplicationProblem(),
     )
+
+private fun nativeSessionBinding(
+    incarnation: String,
+    generation: ULong,
+): NativeSessionBinding =
+    try {
+        NativeSessionBinding(incarnation, generation)
+    } catch (_: IllegalArgumentException) {
+        throw ApplicationFailure(
+            ApplicationProblem(
+                code = ApplicationErrorCode.ObserverRegistrationFailed,
+                category = ApplicationErrorCategory.Lifecycle,
+                retryable = false,
+                recoveryAction = RecoveryAction.RestartApplication,
+                operationId = null,
+                safeMessage = "The native session context could not be verified. Restart the application.",
+            ),
+        )
+    }
 
 internal fun org.harvestcircle.ffi.RelayEndpointDto.toRelayEndpoint(): RelayEndpoint =
     RelayEndpoint(

@@ -5,6 +5,35 @@ use harvestcircle_domain::{
 };
 use radroots_transport_nostr::{RelayEndpoint, RelayProfile, RelayProfileKind, RelayUrlPolicy};
 
+use crate::{SessionGeneration, hub_submission::HubRuntimeIncarnation};
+
+/// Captured native context identity, never a permission or an execution grant.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RuntimeSessionBinding {
+    incarnation: HubRuntimeIncarnation,
+    generation: SessionGeneration,
+}
+
+impl RuntimeSessionBinding {
+    #[must_use]
+    pub const fn new(incarnation: HubRuntimeIncarnation, generation: SessionGeneration) -> Self {
+        Self {
+            incarnation,
+            generation,
+        }
+    }
+
+    #[must_use]
+    pub const fn incarnation(self) -> HubRuntimeIncarnation {
+        self.incarnation
+    }
+
+    #[must_use]
+    pub const fn generation(self) -> SessionGeneration {
+        self.generation
+    }
+}
+
 pub const MAX_CONFIGURED_RELAYS: usize = 16;
 
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
@@ -182,6 +211,7 @@ impl ActiveIdentitySnapshot {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AppSnapshot {
     revision: SnapshotRevision,
+    runtime_session: Option<RuntimeSessionBinding>,
     lifecycle: AppLifecycle,
     relay_configuration: RelayConfiguration,
     identities: Vec<NostrIdentity>,
@@ -196,6 +226,7 @@ impl AppSnapshot {
     pub fn booting() -> Self {
         Self {
             revision: SnapshotRevision::initial(),
+            runtime_session: None,
             lifecycle: AppLifecycle::Booting,
             relay_configuration: RelayConfiguration::default(),
             identities: Vec::new(),
@@ -214,6 +245,7 @@ impl AppSnapshot {
     ) -> Self {
         Self {
             revision,
+            runtime_session: None,
             lifecycle: AppLifecycle::Fatal(error),
             relay_configuration,
             identities: Vec::new(),
@@ -247,6 +279,7 @@ impl AppSnapshot {
         )?;
         Ok(Self {
             revision,
+            runtime_session: None,
             lifecycle: AppLifecycle::Ready,
             relay_configuration,
             identities,
@@ -260,6 +293,37 @@ impl AppSnapshot {
     #[must_use]
     pub const fn revision(&self) -> SnapshotRevision {
         self.revision
+    }
+
+    #[must_use]
+    pub const fn runtime_session(&self) -> Option<RuntimeSessionBinding> {
+        self.runtime_session
+    }
+
+    /// Attach only at the native actor's settled publication boundary.
+    #[must_use]
+    pub fn with_runtime_session(mut self, binding: RuntimeSessionBinding) -> Self {
+        self.runtime_session = Some(binding);
+        self
+    }
+
+    /// Core revisions and captured native generations must never move backwards.
+    #[must_use]
+    pub fn is_newer_than(&self, previous: &Self) -> bool {
+        if self.revision < previous.revision {
+            return false;
+        }
+        match (previous.runtime_session, self.runtime_session) {
+            (None, None) => self.revision > previous.revision,
+            (None, Some(_)) => true,
+            (Some(_), None) => false,
+            (Some(before), Some(after)) => {
+                before.incarnation == after.incarnation
+                    && after.generation.value() >= before.generation.value()
+                    && (self.revision > previous.revision
+                        || after.generation.value() > before.generation.value())
+            }
+        }
     }
 
     #[must_use]

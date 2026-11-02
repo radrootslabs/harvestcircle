@@ -2,7 +2,7 @@ use std::fmt::{self, Formatter};
 
 use harvestcircle_application::{
     ActiveIdentitySnapshot, AppLifecycle, AppSnapshot, ProfileLoadState, RelayConnectionState,
-    RelayEndpoint, RelayUrlPolicy, RuntimeLifecycle, SessionState,
+    RelayEndpoint, RelayUrlPolicy, RuntimeLifecycle, RuntimeSessionBinding, SessionState,
 };
 use harvestcircle_domain::{
     NostrIdentity, ProfileMetadata, SafeError, SafeErrorCode, SignerAvailability,
@@ -251,8 +251,30 @@ pub struct ActiveIdentityDto {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct RuntimeSessionBindingDto {
+    pub incarnation: String,
+    pub generation: u64,
+}
+
+impl From<RuntimeSessionBinding> for RuntimeSessionBindingDto {
+    fn from(binding: RuntimeSessionBinding) -> Self {
+        Self {
+            incarnation: binding
+                .incarnation()
+                .as_bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
+            generation: binding.generation().value(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct AppSnapshotDto {
     pub revision: u64,
+    pub runtime_session: Option<RuntimeSessionBindingDto>,
     pub lifecycle: AppLifecycleDto,
     pub lifecycle_error: Option<SafeErrorDto>,
     pub configured_relays: Vec<RelayEndpointDto>,
@@ -283,6 +305,9 @@ impl From<&AppSnapshot> for AppSnapshotDto {
         };
         Self {
             revision: snapshot.revision().value(),
+            runtime_session: snapshot
+                .runtime_session()
+                .map(RuntimeSessionBindingDto::from),
             lifecycle,
             lifecycle_error,
             configured_relays: snapshot
@@ -616,6 +641,24 @@ mod tests {
         SafeErrorDto, SignerAvailabilityDto, WireErrorCategory, WireErrorCode, WireRecoveryAction,
         error_policy,
     };
+
+    #[test]
+    fn captured_runtime_binding_preserves_incarnation_and_full_width_generation() {
+        let pure = harvestcircle_application::AppSnapshot::booting();
+        assert!(AppSnapshotDto::from(&pure).runtime_session.is_none());
+        let bound =
+            pure.with_runtime_session(harvestcircle_application::RuntimeSessionBinding::new(
+                harvestcircle_application::hub_submission::HubRuntimeIncarnation::from_bytes(
+                    [0xab; 16],
+                )
+                .unwrap(),
+                harvestcircle_application::SessionGeneration::from_value(u64::MAX),
+            ));
+        let dto = AppSnapshotDto::from(&bound);
+        let binding = dto.runtime_session.unwrap();
+        assert_eq!(binding.incarnation, "ab".repeat(16));
+        assert_eq!(binding.generation, u64::MAX);
+    }
 
     fn safe_error(code: SafeErrorCode) -> SafeError {
         SafeError::new(code, SafeMessage::new("Safe compatibility failure."))
