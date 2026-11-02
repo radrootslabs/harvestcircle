@@ -806,6 +806,11 @@ fn schema_objects_v6() -> Result<Vec<SchemaObject>, HarvestCircleStorageContract
     Ok(objects)
 }
 
+#[cfg(test)]
+pub(crate) fn retained_schema16_objects() -> Vec<SchemaObject> {
+    schema_objects_v16().expect("published schema16 contract")
+}
+
 fn schema_objects_v16() -> Result<Vec<SchemaObject>, HarvestCircleStorageContractError> {
     let mut objects = schema_objects_v15()?;
     objects.extend(crate::hub::submission::schema::schema_objects().map_err(schema_error)?);
