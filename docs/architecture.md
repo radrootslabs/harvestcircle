@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 16, FFI is 5.19 and snapshot schema is 1. Rust and
+The current storage schema is 16, FFI is 5.20 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -113,15 +113,19 @@ An explicitly requested target creates fresh pending work, without restoring old
 completion or inheriting holds/acceptance. These plans are data only: return storage,
 native/FFI commands and shared forms remain unfinished, as do actual disposition
 records and their separate accounting. No receipt/opening origin substitutes for a
-returned-intake origin.
+returned-intake origin. An original-result seal checks exact replanning and binds
+complete captured prior departure content and per-line return totals, including
+reference values and recording time. This is consistency proof, never an execution
+grant or authentication.
 
 Pure disposition policy models a distinct observed non-buyer removal, not a
 shipment, count loss or release of a hold. It accepts one complete current physical
 group; partial scope first uses ordinary observed separation. Current native
 lineage/treatment and uncertainty facts must agree. Pending exit work uses the
 same retirement calculation as other physical exits, while completed or previously
-retired progress stays in the immutable consumed scope. Persistence, result sealing,
-FFI and shared disposition forms remain unfinished.
+retired progress stays in the immutable consumed scope. Pure original-result
+digests bind the exact consumed group, work and captured references; they grant no current authority. Persistence, FFI and shared disposition
+forms remain unfinished.
 
 Schema16 persists hub submissions before their effects. Admission recaptures the
 complete bounded input and selected native material inside a protected transaction.

@@ -269,3 +269,6 @@ impl DispositionRecord {
 }
 #[cfg(test)]
 mod tests;
+
+mod result;
+pub use result::disposition_result_digest;

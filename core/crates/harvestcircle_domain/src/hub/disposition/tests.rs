@@ -277,3 +277,49 @@ fn identities_and_kind_fingerprints_do_not_alias_another_physical_effect() {
         Err(DispositionError::InvalidIdentity)
     );
 }
+
+#[test]
+fn disposition_seal_binds_original_input_and_distinct_removal_facts() {
+    let f = Fixture::new();
+    let record = f.plan();
+    let input = f.command.fingerprint(record.hub, owner(), f.ids);
+    let digest = disposition_result_digest(&input, &record).unwrap();
+    assert_eq!(digest, disposition_result_digest(&input, &record).unwrap());
+    assert!(disposition_result_digest(&[0; 32], &record).is_err());
+    let mut changed = record.clone();
+    changed.kind = DispositionKind::OtherObservedRemoval;
+    assert!(disposition_result_digest(&input, &changed).is_err());
+    changed = record.clone();
+    changed.work_changes.clear();
+    assert!(disposition_result_digest(&input, &changed).is_err());
+    assert_eq!(f.plan(), record);
+}
+
+#[test]
+fn disposition_seal_covers_reference_content_identity_and_causal_history() {
+    let f = Fixture::new();
+    let record = f.plan();
+    let input = f.command.fingerprint(record.hub, owner(), f.ids);
+    let digest = disposition_result_digest(&input, &record).unwrap();
+    let mut changed = record.clone();
+    changed.product.value = ReferenceValue::Product {
+        label: HubLabel::new("Different recorded product label").unwrap(),
+    };
+    assert_ne!(digest, disposition_result_digest(&input, &changed).unwrap());
+    changed = record.clone();
+    changed
+        .consumed
+        .before
+        .identification
+        .as_mut()
+        .unwrap()
+        .observation = note("Different retained physical observation");
+    assert_ne!(digest, disposition_result_digest(&input, &changed).unwrap());
+    changed = record.clone();
+    changed.recorded_at = at(151);
+    assert_ne!(digest, disposition_result_digest(&input, &changed).unwrap());
+    changed = record.clone();
+    changed.consumed.before.causal_floor = Some(at(149));
+    changed.consumed.causal_floor = Some(at(149));
+    assert_ne!(digest, disposition_result_digest(&input, &changed).unwrap());
+}

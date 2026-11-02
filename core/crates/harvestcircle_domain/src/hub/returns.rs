@@ -105,3 +105,6 @@ impl ReturnIdentities {
 
 #[cfg(test)]
 mod tests;
+
+mod result;
+pub use result::return_result_digest;

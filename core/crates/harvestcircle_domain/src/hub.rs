@@ -247,3 +247,5 @@ mod tests {
         assert_eq!(full.owner(), key(2));
     }
 }
+
+mod custody_result;

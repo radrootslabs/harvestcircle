@@ -441,3 +441,95 @@ fn overlength_native_totals_are_rejected_before_collecting_unbounded_context() {
         Err(ReturnError::InvalidNativeContext)
     );
 }
+
+#[test]
+fn original_return_seal_requires_exact_replanned_facts_and_input() {
+    let f = Fixture::new(&[6]);
+    let original = f.plan();
+    let input = f.command.fingerprint(f.departure.hub, owner(), f.ids);
+    let digest = return_result_digest(&input, &f.command, &f.context(), &original).unwrap();
+    assert_eq!(
+        digest,
+        return_result_digest(&input, &f.command, &f.context(), &original).unwrap()
+    );
+    assert!(return_result_digest(&[0; 32], &f.command, &f.context(), &original).is_err());
+    let mut changed = original.clone();
+    changed.acceptance = AcceptanceStatus::Accepted;
+    assert!(return_result_digest(&input, &f.command, &f.context(), &changed).is_err());
+    changed = original.clone();
+    changed.linkage.resolution = ReturnLinkResolution::Unknown;
+    assert!(return_result_digest(&input, &f.command, &f.context(), &changed).is_err());
+    changed = original.clone();
+    changed.group.packs = packs(3);
+    assert!(return_result_digest(&input, &f.command, &f.context(), &changed).is_err());
+    assert_eq!(f.plan(), original);
+}
+
+#[test]
+fn return_seal_captures_complete_prior_totals_without_order_dependence() {
+    let mut f = Fixture::new(&[6, 4]);
+    let input = f.command.fingerprint(f.departure.hub, owner(), f.ids);
+    let original = f.plan();
+    let digest = return_result_digest(&input, &f.command, &f.context(), &original).unwrap();
+    f.totals.reverse();
+    assert_eq!(
+        digest,
+        return_result_digest(&input, &f.command, &f.context(), &f.plan()).unwrap()
+    );
+    f.totals[0].packs = packs(1);
+    assert_ne!(
+        digest,
+        return_result_digest(&input, &f.command, &f.context(), &f.plan()).unwrap()
+    );
+    assert!(return_result_digest(&input, &f.command, &f.context(), &original).is_err());
+}
+
+#[test]
+fn return_seal_binds_reference_content_and_recording_time() {
+    let mut f = Fixture::new(&[6]);
+    let input = f.command.fingerprint(f.departure.hub, owner(), f.ids);
+    let original = f.plan();
+    let digest = return_result_digest(&input, &f.command, &f.context(), &original).unwrap();
+    let records = f
+        .catalog
+        .records()
+        .cloned()
+        .map(|mut record| {
+            if record.id == original.intake.product.id {
+                record.value = ReferenceValue::Product {
+                    label: HubLabel::new("Different captured original label").unwrap(),
+                };
+            }
+            record
+        })
+        .collect();
+    f.catalog = ReferenceCatalog::restore(f.catalog.revision(), records).unwrap();
+    assert_ne!(
+        digest,
+        return_result_digest(&input, &f.command, &f.context(), &f.plan()).unwrap()
+    );
+    assert!(return_result_digest(&input, &f.command, &f.context(), &original).is_err());
+    let later = f
+        .command
+        .plan(&f.context(), f.ids, owner(), at(151))
+        .unwrap();
+    assert_ne!(
+        return_result_digest(&input, &f.command, &f.context(), &f.plan()).unwrap(),
+        return_result_digest(&input, &f.command, &f.context(), &later).unwrap()
+    );
+}
+
+#[test]
+fn return_seal_covers_historical_departure_facts_outside_linkage_summary() {
+    let mut f = Fixture::new(&[6]);
+    let input = f.command.fingerprint(f.departure.hub, owner(), f.ids);
+    let original = f.plan();
+    let digest = return_result_digest(&input, &f.command, &f.context(), &original).unwrap();
+    f.departure.observation = note("Different retained original departure observation");
+    f.departure.validate().unwrap();
+    assert_eq!(f.plan(), original);
+    assert_ne!(
+        digest,
+        return_result_digest(&input, &f.command, &f.context(), &original).unwrap()
+    );
+}
