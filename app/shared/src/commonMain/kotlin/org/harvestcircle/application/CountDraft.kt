@@ -222,11 +222,20 @@ sealed interface CountSubmission {
     ) : CountSubmission
 }
 
+enum class CountLookupKind { Opening, Observation, Reconciliation }
+
+data class CountOriginalLookup(
+    val kind: CountLookupKind = CountLookupKind.Opening,
+    val operationText: String = "",
+    val result: CountResult? = null,
+)
+
 data class CountViewState(
     val available: Boolean = false,
     val open: Boolean = false,
     val loading: Boolean = false,
     val target: CountTarget? = null,
+    val originalLookup: CountOriginalLookup? = null,
     val draft: CountDraft? = null,
     val needsReview: Boolean = false,
     val review: CountContext? = null,

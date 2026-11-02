@@ -42,11 +42,69 @@ class CountPresenter(
 
     private fun begin(target: CountTarget) {
         if (!canRead() || mutableState.value.loading) return
-        if (mutableState.value.draft != null || mutableState.value.submission != null) {
+        if (mutableState.value.draft != null || mutableState.value.submission != null || mutableState.value.originalLookup != null) {
             resume()
             return
         }
         mutableState.value = CountViewState(available = true, open = true, target = target)
+        loadContext(initial = true)
+    }
+
+    fun beginOriginalLookup() {
+        if (!canRead() || mutableState.value.loading) return
+        if (mutableState.value.draft != null || mutableState.value.submission != null || mutableState.value.originalLookup != null) {
+            resume()
+            return
+        }
+        mutableState.value = CountViewState(available = true, open = true, originalLookup = CountOriginalLookup())
+    }
+
+    fun editOriginalLookup(
+        kind: CountLookupKind,
+        operationText: String,
+    ) {
+        val current = mutableState.value
+        if (current.originalLookup == null || current.loading || operationText.length > 36) return
+        mutableState.value = current.copy(originalLookup = CountOriginalLookup(kind, operationText), message = null)
+    }
+
+    fun lookupOriginal() {
+        val lookup = mutableState.value.originalLookup ?: return
+        val operation =
+            try {
+                OperationId.from(lookup.operationText)
+            } catch (_: IllegalArgumentException) {
+                mutableState.value = mutableState.value.copy(message = "Enter the complete canonical original operation ID.")
+                return
+            }
+        read {
+            val service = requireNotNull(runtime)
+            val result =
+                when (lookup.kind) {
+                    CountLookupKind.Opening -> service.openingOperation(operation)?.let(CountResult::Opened)
+                    CountLookupKind.Observation -> service.countObservationOperation(operation)?.let(CountResult::Observed)
+                    CountLookupKind.Reconciliation -> service.countPostOperation(operation)?.let(CountResult::Posted)
+                }
+            if (result != null) check(result.operation == operation)
+            val update: (CountViewState) -> CountViewState = { current ->
+                current.copy(
+                    originalLookup = lookup.copy(result = result),
+                    message =
+                        if (result == null) {
+                            "No original of this kind is visible. Absence does not establish no effect or authorize resubmission."
+                        } else {
+                            "Original result read without another submission. Historical facts grant no current mutation permission."
+                        },
+                )
+            }
+            update
+        }
+    }
+
+    fun reviewLookedUpObservation() {
+        val result = mutableState.value.originalLookup?.result as? CountResult.Observed ?: return
+        if (!canRead() || mutableState.value.loading) return
+        mutableState.value = CountViewState(available = true, open = true, target = CountTarget.Review(result.observation.id))
         loadContext(initial = true)
     }
 
@@ -84,9 +142,9 @@ class CountPresenter(
     }
 
     fun resume() {
-        if (!canRead() || mutableState.value.target == null) return
+        if (!canRead() || (mutableState.value.target == null && mutableState.value.originalLookup == null)) return
         mutableState.value = mutableState.value.copy(open = true)
-        if (mutableState.value.submission == null) reviewContext()
+        if (mutableState.value.submission == null && mutableState.value.originalLookup == null) reviewContext()
     }
 
     fun discard() {

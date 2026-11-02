@@ -42,6 +42,7 @@ fun StockWorkspace(
     openOpening: (() -> Unit)? = null,
     openCount: ((String) -> Unit)? = null,
     resumeCount: (() -> Unit)? = null,
+    lookupCount: (() -> Unit)? = null,
 ) {
     LaunchedEffect(route) {
         if (manageRoute) {
@@ -65,6 +66,9 @@ fun StockWorkspace(
                 Modifier.testTag("trace-browse"),
                 enabled = !state.loading,
             )
+        }
+        lookupCount?.let {
+            HarvestCircleShellButton("Read original count result", it, Modifier.testTag("count-lookup"), enabled = !state.loading)
         }
         resumeCount?.let { HarvestCircleShellButton("Resume count operation", it, Modifier.testTag("count-resume")) }
         openOpening?.let {

@@ -5,18 +5,21 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import org.harvestcircle.application.CountContext
 import org.harvestcircle.application.CountFields
+import org.harvestcircle.application.CountLookupKind
 import org.harvestcircle.application.CountPresenter
 import org.harvestcircle.application.CountResult
 import org.harvestcircle.application.CountSubmission
 import org.harvestcircle.application.CountViewState
 import org.harvestcircle.application.HubCountBlockReason
 import org.harvestcircle.application.HubCountDifference
+import org.harvestcircle.application.HubCountObservation
 import org.harvestcircle.application.HubOccurrenceKind
 import org.harvestcircle.application.HubReferenceKind
 import org.harvestcircle.application.HubSourceCertainty
@@ -49,7 +52,9 @@ fun CountWorkspace(
         state.message?.let { HarvestCircleShellText(it, Modifier.testTag("count-message")) }
         if (state.loading) HarvestCircleShellText("Reading native count context…")
         val submission = state.submission
-        if (submission != null) {
+        if (state.originalLookup != null) {
+            OriginalCountLookup(state, presenter)
+        } else if (submission != null) {
             CountOutcome(submission, state.loading, presenter)
         } else {
             HarvestCircleShellButton("Back to stock; keep draft", presenter::park, Modifier.testTag("count-park"))
@@ -155,6 +160,19 @@ private fun CountContextSummary(
                     },
                 )
                 HarvestCircleShellText("Native blockers: ${review.blockers.joinToString { countBlockLabel(it) }.ifEmpty { "None" }}")
+                review.current.work.forEach { scope ->
+                    val work = scope.requirement.quantity
+                    HarvestCircleShellText("Current work ${scope.requirement.id} · ${scope.progress}")
+                    HarvestCircleShellText(
+                        "Required ${work.required} · Completed ${work.completed} · No longer required ${work.noLongerRequired} · Remaining ${work.remaining}",
+                    )
+                }
+                if (review.difference is HubCountDifference.Shortage) {
+                    HarvestCircleShellText(
+                        "Posting removes this scoped shortage and retires only its pending work. Completed and previously retired work, and original receipts, remain history.",
+                    )
+                }
+
                 HarvestCircleShellText(
                     "Count time does not establish when or why stock was lost. Original receipts and completed work remain history.",
                 )
@@ -301,7 +319,7 @@ private fun CountOutcome(
     loading: Boolean,
     presenter: CountPresenter,
 ) {
-    HarvestCircleShellText("Original operation: ${submission.attempt.operation.value}")
+    SelectionContainer { HarvestCircleShellText("Original operation: ${submission.attempt.operation.value}") }
     when (submission) {
         is CountSubmission.Pending -> HarvestCircleShellText("Recording; retain the original operation…")
         is CountSubmission.Uncertain -> {
@@ -321,39 +339,7 @@ private fun CountOutcome(
         }
         is CountSubmission.Recorded -> {
             HarvestCircleShellText("Original result recorded", Modifier.testTag("count-recorded"))
-            when (val result = submission.result) {
-                is CountResult.Opened -> {
-                    HarvestCircleShellText("As-created acceptance: ${result.receipt.original.acceptance}")
-                    StockPopulationSummary(result.receipt.original.population)
-                }
-                is CountResult.Observed -> {
-                    HarvestCircleShellText(
-                        "Saved observation ${result.observation.countedWholePacks}; original recorded count ${result.observation.recordedWholePacks}. Stock and work were unchanged.",
-                    )
-                    HarvestCircleShellButton(
-                        "Review reconciliation separately",
-                        presenter::reviewRecordedObservation,
-                        Modifier.testTag("count-review-post"),
-                    )
-                }
-                is CountResult.Posted -> {
-                    HarvestCircleShellText(
-                        "Original before ${result.receipt.before.wholePacks} · On hand after ${result.receipt.onHandAfter}",
-                    )
-                    result.receipt.workChanges.forEach {
-                        HarvestCircleShellText(
-                            "Work ${it.after.id} · Required ${it.after.quantity.required} · Completed ${it.after.quantity.completed}",
-                        )
-                        HarvestCircleShellText(
-                            "No longer required ${it.after.quantity.noLongerRequired} · Remaining ${it.after.quantity.remaining}",
-                        )
-                    }
-                    result.receipt.surplus?.let {
-                        HarvestCircleShellText("As-created surplus acceptance: ${it.acceptance}")
-                        StockPopulationSummary(it.population)
-                    }
-                }
-            }
+            CountResultSummary(submission.result, presenter::reviewRecordedObservation)
             HarvestCircleShellButton("View current stock", presenter::finishRecorded, Modifier.testTag("count-done"))
         }
     }
@@ -369,3 +355,102 @@ private fun countBlockLabel(reason: HubCountBlockReason): String =
         HubCountBlockReason.UnresolvedActual -> "An actual report needs review"
         HubCountBlockReason.UncertainPriorOutcome -> "A prior operation is unconfirmed"
     }
+
+@Composable
+private fun OriginalCountLookup(
+    state: CountViewState,
+    presenter: CountPresenter,
+) {
+    val lookup = requireNotNull(state.originalLookup)
+    HarvestCircleShellText("Read an original count result", Modifier.testTag("count-original-lookup"))
+    HarvestCircleShellText(
+        "Use the original operation ID retained before closing. Lookup is read-only; missing history cannot authorize retry.",
+    )
+    HarvestCircleShellMenuButton(
+        lookup.kind,
+        CountLookupKind.entries.map { HarvestCircleMenuOption(it, it.name) },
+        { kind -> presenter.editOriginalLookup(kind, lookup.operationText) },
+        lookup.kind.name,
+        Modifier.testTag("count-lookup-kind"),
+    )
+    CountField("Original operation ID", "count-lookup-operation", lookup.operationText) {
+        presenter.editOriginalLookup(lookup.kind, it)
+    }
+    HarvestCircleShellButton(
+        "Read original result",
+        presenter::lookupOriginal,
+        Modifier.testTag("count-lookup-read"),
+        enabled = !state.loading,
+    )
+    lookup.result?.let { result ->
+        HarvestCircleShellText("Original result found", Modifier.testTag("count-lookup-result"))
+        SelectionContainer { HarvestCircleShellText("Original operation: ${result.operation.value}") }
+        CountResultSummary(result, presenter::reviewLookedUpObservation)
+    }
+    HarvestCircleShellButton("Back to stock", presenter::discard, Modifier.testTag("count-lookup-close"), enabled = !state.loading)
+}
+
+@Composable
+private fun CountResultSummary(
+    result: CountResult,
+    reviewObservation: (() -> Unit)? = null,
+) {
+    when (result) {
+        is CountResult.Opened -> {
+            HarvestCircleShellText("As-created acceptance: ${result.receipt.original.acceptance}")
+            StockPopulationSummary(result.receipt.original.population)
+            HarvestCircleShellText("Original group ${result.receipt.original.group.id} · ${result.receipt.original.group.identification}")
+        }
+        is CountResult.Observed -> {
+            OriginalCountObservationSummary(result.observation)
+            HarvestCircleShellText(
+                "Saved observation ${result.observation.countedWholePacks}; original recorded count ${result.observation.recordedWholePacks}. Stock and work were unchanged.",
+            )
+            reviewObservation?.let { review ->
+                HarvestCircleShellButton("Review reconciliation separately", review, Modifier.testTag("count-review-post"))
+            }
+        }
+        is CountResult.Posted -> {
+            OriginalCountObservationSummary(result.receipt.observation)
+            HarvestCircleShellText(
+                "Posting references: ${result.receipt.product.value.label} · ${result.receipt.variant.value.label} · ${result.receipt.location.value.label}",
+            )
+            HarvestCircleShellText("Reconciled by ${result.receipt.actor.value} · Recorded ${stockUtc(result.receipt.recordedAt.value)}")
+            HarvestCircleShellText("On-hand confirmed ${stockUtc(result.receipt.confirmedOnHandAt.value)}")
+            HarvestCircleShellText("Original reconciliation reason: ${result.receipt.reason}")
+            HarvestCircleShellText(
+                "Original before ${result.receipt.before.wholePacks} · On hand after ${result.receipt.onHandAfter}",
+            )
+            result.receipt.workChanges.forEach {
+                val before = it.before.quantity
+                HarvestCircleShellText("Before work ${it.before.id} · Required ${before.required} · Completed ${before.completed}")
+                HarvestCircleShellText("Before no longer required ${before.noLongerRequired} · Remaining ${before.remaining}")
+                HarvestCircleShellText(
+                    "Work ${it.after.id} · Required ${it.after.quantity.required} · Completed ${it.after.quantity.completed}",
+                )
+                HarvestCircleShellText(
+                    "No longer required ${it.after.quantity.noLongerRequired} · Remaining ${it.after.quantity.remaining}",
+                )
+            }
+            result.receipt.surplus?.let {
+                HarvestCircleShellText("As-created surplus acceptance: ${it.acceptance}")
+                StockPopulationSummary(it.population)
+            }
+        }
+    }
+}
+
+@Composable
+private fun OriginalCountObservationSummary(observation: HubCountObservation) {
+    HarvestCircleShellText(
+        "Original physical fact: ${observation.product.value.label} · ${observation.variant.value.label} · ${observation.location.value.label}",
+    )
+    HarvestCircleShellText("Original group ${observation.groupId} v${observation.groupRevision} · Population ${observation.populationId}")
+    HarvestCircleShellText("Observed by ${observation.actor.value} · Recorded ${stockUtc(observation.recordedAt.value)}")
+    HarvestCircleShellText(
+        "Original cutoff: ${observation.cutoff.kind} · ${observation.cutoff.startUnixSeconds?.let(
+            ::stockUtc,
+        ) ?: "Unknown"} · ${observation.cutoff.endUnixSeconds?.let(::stockUtc) ?: "No interval end"}",
+    )
+    HarvestCircleShellText("Original observation: ${observation.observation}")
+}

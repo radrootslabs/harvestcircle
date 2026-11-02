@@ -85,7 +85,14 @@ internal fun OperationalWorkspace(
                     countPresenter?.takeIf { countState?.available == true && stock.submission == null }?.let { target ->
                         { id -> target.beginObservation(id) }
                     },
-                resumeCount = countPresenter?.takeIf { countState?.target != null }?.let { { it.resume() } },
+                lookupCount = countPresenter?.takeIf { countState?.available == true }?.let { { it.beginOriginalLookup() } },
+                resumeCount =
+                    countPresenter?.takeIf { countState?.target != null || countState?.originalLookup != null }?.let {
+                        {
+                            it
+                                .resume()
+                        }
+                    },
             )
         }
     }

@@ -104,6 +104,20 @@ class CountStockAcceptanceTest {
                     assertEquals("", onNodeWithTag("count-quantity").fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
                     assertEquals("", onNodeWithTag("count-observation").fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
                 } else {
+                    onNodeWithTag("sidebar-HubWork").performClick()
+                    onNodeWithTag("sidebar-HubStock").performClick()
+                    waitUntil(timeoutMillis = 10_000) { onNodeWithTag("count-resume").runCatching { fetchSemanticsNode() }.isSuccess }
+                    onNodeWithTag("count-resume").performScrollTo().performClick()
+                    waitUntil(timeoutMillis = 10_000) { runCatching { onNodeWithTag("count-accept-review").assertIsEnabled() }.isSuccess }
+                    assertEquals("18", onNodeWithTag("count-quantity").fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
+                    assertEquals(
+                        "Eighteen original packs physically counted",
+                        onNodeWithTag("count-observation").fetchSemanticsNode().config[SemanticsProperties.EditableText].text,
+                    )
+                    onNodeWithTag("count-submit").assertIsNotEnabled()
+                    onNodeWithTag("count-accept-review").performScrollTo().performClick()
+                    onNodeWithTag("count-submit").assertIsNotEnabled()
+                    onNodeWithTag("count-confirm").performScrollTo().performClick()
                     onNodeWithTag("count-submit").performScrollTo().performClick()
                     waitUntil(timeoutMillis = 10_000) { onNodeWithTag("count-recorded").runCatching { fetchSemanticsNode() }.isSuccess }
                     val saved = runBlocking { runtime.stock(HubStockQuery()) }

@@ -74,8 +74,12 @@ Stock exposes the shared opening/count forms. The coordinator follows the captur
 native binding and ready hub; submissions capture the rendered snapshot revision.
 Coalesced same-owner replacement disposes the old draft and confirmation, while a
 stale rendered callback cannot acquire refreshed context. Native interaction covers
-Stock save/post and session replacement. Complete opening/surplus, uncertain-result
-and restart recovery interaction qualification remains unfinished.
+Stock save/post and session replacement. Original-result lookup accepts a bounded
+canonical operation ID and a closed result kind, then reads existing native
+originals without reconstructing an attempt or execution grant. It preserves
+unresolved submitted attempts; absence never permits replay. Recovered observations
+require fresh native review before any separate posting. Complete opening/surplus,
+uncertain-result and restart interaction qualification remains unfinished.
 
 Schema15 prepares immutable reconciliation headers, complete original work
 snapshots and removed-work scopes. Completed scope remains completed history;
@@ -116,7 +120,8 @@ unused-document closure have a separate per-capture 1 MiB bound and do not spend
 that ordinary allocation. Other captures are bounded to 16 MiB, with an independent
 64 KiB raw input bound. Pending submissions and unresolved actual-report reviews
 block unsafe planned stock changes at admission and effect insertion. Actual-report
-handling, opening/count shared command surfaces, recovery UI and restore carry-forward remain unfinished.
+handling, durable pending-operation discovery and restore carry-forward remain
+unfinished; counted-stock manual-ID lookup is separate read-only presentation.
 
 Native snapshots capture core data, runtime incarnation and session generation
 together after durable session advancement. Synchronous reads, observer delivery
@@ -125,7 +130,7 @@ without changing core revision; queued snapshots keep their original binding.
 The shared consumer orders both dimensions and clears private presentation state
 when an attachment becomes inconsistent, retaining owned shutdown. The actor
 continues to check live authority and storage fences for every effect. Remaining
-coordinator binding and cross-feature restore qualification remain unfinished.
+cross-feature coordinator and restore qualification remain unfinished.
 
 The runtime context uses service `harvestcircle`, instance `desktop`, and exact
 `state.sqlite`/`state.lock` names. SQLx is the high-level SQLite authority. The

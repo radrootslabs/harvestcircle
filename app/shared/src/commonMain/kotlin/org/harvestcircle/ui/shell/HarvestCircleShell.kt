@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -82,7 +81,16 @@ fun HarvestCircleShell(
     submitCount: () -> Unit = {},
 ) {
     val routeDispatch: (HarvestCircleShellIntent) -> Unit = { intent ->
-        if (tracePresenter?.intercept(intent, state.overlays.current) != true) dispatch(intent)
+        if (tracePresenter?.intercept(intent, state.overlays.current) != true) {
+            if (intent is HarvestCircleShellIntent.Navigate ||
+                intent is HarvestCircleShellIntent.Navigation ||
+                intent == HarvestCircleShellIntent.ManageIdentity ||
+                intent == HarvestCircleShellIntent.EnterReadOnly
+            ) {
+                countPresenter?.park()
+            }
+            dispatch(intent)
+        }
     }
     HarvestCircleTheme(state.appearance) {
         val focusRegistry = remember { ShellFocusRegistry() }
@@ -329,7 +337,6 @@ private fun DashboardRoot(
 ) {
     val route = root.navigation.current
     val countState = countPresenter?.state?.collectAsState()?.value
-    LaunchedEffect(route, countPresenter) { countPresenter?.park() }
     val traceState = tracePresenter?.state?.collectAsState()?.value
     val outputState =
         tracePresenter

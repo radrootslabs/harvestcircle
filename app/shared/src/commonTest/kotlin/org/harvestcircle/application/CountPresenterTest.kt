@@ -17,6 +17,103 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class CountPresenterTest {
     @Test
+    fun mismatchedOriginalOperationNeverBecomesARecoveredFact() =
+        runTest {
+            val runtime = CountFake()
+            runtime.countStored = runtime.countReviewValue.observation
+            val presenter = CountPresenter(runtime, runtime, runtime, runtime, this, OperationIdSource { error("No write") })
+            presenter.attach("hub")
+            presenter.beginOriginalLookup()
+            presenter.editOriginalLookup(CountLookupKind.Observation, "01900000-0000-7000-8000-000000000999")
+            presenter.lookupOriginal()
+            runCurrent()
+            assertNull(
+                presenter.state.value.originalLookup
+                    ?.result,
+            )
+            assertNull(presenter.state.value.submission)
+            assertNull(presenter.state.value.draft)
+            assertNotNull(presenter.state.value.message)
+            assertTrue(runtime.countWrites.isEmpty())
+            presenter.close()
+        }
+
+    @Test
+    fun originalLookupNeverAllocatesOrSubmitsAndAbsenceDoesNotCreateAnAttempt() =
+        runTest {
+            val runtime = CountFake()
+            runtime.countStored = runtime.countReviewValue.observation
+            val presenter =
+                CountPresenter(runtime, runtime, runtime, runtime, this, OperationIdSource { error("Lookup cannot allocate an operation") })
+            presenter.attach("hub")
+            presenter.beginOriginalLookup()
+            presenter.editOriginalLookup(CountLookupKind.Observation, "bad")
+            presenter.lookupOriginal()
+            runCurrent()
+            assertTrue(runtime.countLookups.isEmpty())
+            presenter.editOriginalLookup(CountLookupKind.Observation, StockFixtures.operation.value)
+            presenter.lookupOriginal()
+            runCurrent()
+            assertIs<CountResult.Observed>(
+                presenter.state.value.originalLookup
+                    ?.result,
+            )
+            assertNull(presenter.state.value.submission)
+            assertTrue(runtime.countWrites.isEmpty())
+            assertEquals(0, runtime.posts)
+            presenter.editOriginalLookup(CountLookupKind.Opening, StockFixtures.operation.value)
+            presenter.lookupOriginal()
+            runCurrent()
+            assertNull(
+                presenter.state.value.originalLookup
+                    ?.result,
+            )
+            assertTrue(requireNotNull(presenter.state.value.message).contains("does not establish no effect"))
+            assertNull(presenter.state.value.draft)
+            assertNull(presenter.state.value.submission)
+            presenter.editOriginalLookup(CountLookupKind.Observation, StockFixtures.operation.value)
+            presenter.lookupOriginal()
+            runCurrent()
+            runtime.countReviewValue =
+                runtime.countReviewValue.copy(ready = false, blockers = listOf(HubCountBlockReason.UncertainPriorOutcome))
+            presenter.reviewLookedUpObservation()
+            runCurrent()
+            presenter.confirm(true)
+            presenter.submit(SnapshotRevision(1UL))
+            assertFalse(requireNotNull(presenter.state.value.draft).fields.confirmed)
+            assertEquals(0, runtime.posts)
+            presenter.close()
+        }
+
+    @Test
+    fun lateOriginalLookupAfterOwnerCloseCannotRestorePrivateFacts() =
+        runTest {
+            val started = CompletableDeferred<Unit>()
+            val finish = CompletableDeferred<Unit>()
+            val runtime =
+                object : CountFake() {
+                    override suspend fun countObservationOperation(operation: OperationId): HubCountObservation =
+                        withContext(NonCancellable) {
+                            started.complete(Unit)
+                            finish.await()
+                            countReviewValue.observation
+                        }
+                }
+            val presenter = CountPresenter(runtime, runtime, runtime, runtime, this, OperationIdSource { error("No write") })
+            presenter.attach("hub")
+            presenter.beginOriginalLookup()
+            presenter.editOriginalLookup(CountLookupKind.Observation, StockFixtures.operation.value)
+            presenter.lookupOriginal()
+            runCurrent()
+            started.await()
+            presenter.close()
+            finish.complete(Unit)
+            runCurrent()
+            assertEquals(CountViewState(), presenter.state.value)
+            assertTrue(runtime.countWrites.isEmpty())
+        }
+
+    @Test
     fun observationKeepsInputAndChecksLostReplyWithoutAnotherSubmission() =
         runTest {
             val runtime = CountFake()
@@ -38,7 +135,10 @@ class CountPresenterTest {
             presenter.confirm(true)
             presenter.submit(SnapshotRevision(1UL))
             runCurrent()
-            assertIs<CountSubmission.Uncertain>(presenter.state.value.submission)
+            val uncertain = assertIs<CountSubmission.Uncertain>(presenter.state.value.submission)
+            presenter.beginOriginalLookup()
+            assertEquals(uncertain, presenter.state.value.submission)
+            assertNull(presenter.state.value.originalLookup)
             assertEquals(
                 18U,
                 runtime.countWrites
