@@ -293,3 +293,374 @@ async fn corrupted_physical_original_or_occurrence_never_yields_clear_activity()
         db.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn frozen_native_cut_ignores_later_arrivals_births_and_depletion_without_current_balances() {
+    let fixture = Fixture::new();
+    let db = fixture.open().await;
+    let intake = received(&db).await;
+    let trace = intake.original.trace.id;
+    let root = intake.original.position.group;
+    let child = separated(&db, root).await;
+    let saved = db
+        .hub_actual_source(owner(), source_query(trace, operation(1), root))
+        .await
+        .unwrap();
+    move_whole(&db, child, id(7), 3, 120).await;
+    let view = db.hub_group(owner(), root).await.unwrap();
+    db.apply_hub_split(
+        owner(),
+        operation(4),
+        SplitCommand {
+            expected_stock_revision: view.revision,
+            expected_catalog_revision: view.catalog_revision,
+            group: root,
+            expected_group_revision: view.group.revision,
+            packs: packs(4),
+            identification: PhysicalIdentification {
+                label: HubLabel::new("Later four outside old cut").unwrap(),
+                observation: note("Physically separate later cohort"),
+            },
+            occurred: Occurrence::Known(at(130)),
+            observation: note("Later native birth must not enter original review context"),
+        },
+        at(130),
+    )
+    .await
+    .unwrap();
+    let view = db.hub_group(owner(), child).await.unwrap();
+    db.apply_hub_disposition(
+        owner(),
+        operation(5),
+        DispositionCommand {
+            expected_stock_revision: view.revision,
+            expected_catalog_revision: view.catalog_revision,
+            group: child,
+            expected_group_revision: view.group.revision,
+            packs: packs(6),
+            kind: DispositionKind::Destroyed,
+            occurred: Occurrence::Known(at(140)),
+            observation: note("All original six removed after the frozen native cut"),
+        },
+        at(140),
+    )
+    .await
+    .unwrap();
+    let before = crate::hub::custody::tests::material(&fixture).await;
+    let retained = saved.clone();
+    let (births, source, activity) = db
+        .host()
+        .transaction(|tx| {
+            Box::pin(async move {
+                let hub = crate::hub::reference::authorize_on(tx, owner()).await?;
+                let graph = &retained.lineage.lineage;
+                let births =
+                    crate::hub::handling::lineage::historical_births_on(tx, hub.id(), graph)
+                        .await?;
+                let source = crate::hub::handling::actuals::source_on(
+                    tx,
+                    hub.id(),
+                    graph,
+                    &retained.lineage.population,
+                    &operation(1),
+                    root,
+                )
+                .await?;
+                let activity =
+                    crate::hub::handling::actuals::activity_on(tx, hub.id(), graph, &source)
+                        .await?;
+                let floor = crate::hub::handling::read::causal_floor_through_on(
+                    tx,
+                    child,
+                    graph.revision(),
+                )
+                .await?;
+                assert_eq!(floor, Some(at(110)));
+                Ok::<_, SafeError>((births, source, activity))
+            })
+        })
+        .await
+        .unwrap();
+    assert_eq!(births, saved.lineage.births);
+    assert_eq!(source, saved.source);
+    assert_eq!(activity, saved.subsequent_activity);
+    assert_eq!(saved.lineage.lineage.node(child).unwrap().packs, packs(6));
+    let current = db.hub_actual_lineage(owner(), query(trace)).await.unwrap();
+    assert_eq!(current.lineage.node(child).unwrap().packs, packs(0));
+    assert_eq!(current.births.len(), 3);
+    assert_eq!(births.len(), 2);
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    db.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn known_departure_discovery_stays_at_the_original_native_cut() {
+    let fixture = Fixture::new();
+    let db = fixture.open().await;
+    let (intake, departure) =
+        crate::hub::handling::departure::tests::custody_departure_fixture(&db).await;
+    let trace = intake.original.trace.id;
+    let revision = departure.record.stock_revision;
+    let before = crate::hub::custody::tests::material(&fixture).await;
+    let (earlier, current) = db
+        .host()
+        .transaction(|tx| {
+            Box::pin(async move {
+                let hub = crate::hub::reference::authorize_on(tx, owner()).await?;
+                let earlier = crate::hub::handling::actuals::known_departures_on(
+                    tx,
+                    hub.id(),
+                    trace,
+                    HubRevision::from_value(revision.value() - 1).unwrap(),
+                )
+                .await?;
+                let current = crate::hub::handling::actuals::known_departures_on(
+                    tx,
+                    hub.id(),
+                    trace,
+                    revision,
+                )
+                .await?;
+                Ok::<_, SafeError>((earlier, current))
+            })
+        })
+        .await
+        .unwrap();
+    assert!(earlier.is_empty());
+    assert_eq!(current.len(), 1);
+    assert_eq!(current[0].packs().unwrap(), packs(6));
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    db.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn frozen_treatment_cut_keeps_original_hold_without_later_release_or_new_hold() {
+    use harvestcircle_domain::hub::treatment::{
+        TreatmentAction, TreatmentCommand, TreatmentSelection,
+    };
+    let fixture = Fixture::new();
+    let db = fixture.open().await;
+    let intake = received(&db).await;
+    let trace = intake.original.trace.id;
+    let group = intake.original.position.group;
+    let view = db.hub_group(owner(), group).await.unwrap();
+    db.apply_hub_treatment(
+        owner(),
+        operation(2),
+        TreatmentCommand {
+            expected_stock_revision: view.revision,
+            expected_catalog_revision: view.catalog_revision,
+            action: TreatmentAction::PlaceHold {
+                selection: TreatmentSelection::new(vec![group]).unwrap(),
+            },
+            occurred: Occurrence::Known(at(110)),
+            observation: note("Original physical precautionary restriction"),
+        },
+        at(110),
+    )
+    .await
+    .unwrap();
+    let saved = db.hub_actual_lineage(owner(), query(trace)).await.unwrap();
+    let graph = saved.lineage.clone();
+    let original = db
+        .host()
+        .transaction(|tx| {
+            Box::pin(async move {
+                let hub = crate::hub::reference::authorize_on(tx, owner()).await?;
+                crate::hub::handling::treatment::read::historical_state_on(tx, hub.id(), &graph)
+                    .await
+            })
+        })
+        .await
+        .unwrap();
+    assert_eq!(original.holds().len(), 1);
+    let held = &original.holds()[0];
+    let view = db.hub_group(owner(), group).await.unwrap();
+    db.apply_hub_treatment(
+        owner(),
+        operation(3),
+        TreatmentCommand {
+            expected_stock_revision: view.revision,
+            expected_catalog_revision: view.catalog_revision,
+            action: TreatmentAction::ReleaseHold {
+                hold: held.stamp.id,
+                expected_revision: held.revision(),
+            },
+            occurred: Occurrence::Known(at(120)),
+            observation: note("Later separately authorized release"),
+        },
+        at(120),
+    )
+    .await
+    .unwrap();
+    let view = db.hub_group(owner(), group).await.unwrap();
+    db.apply_hub_treatment(
+        owner(),
+        operation(4),
+        TreatmentCommand {
+            expected_stock_revision: view.revision,
+            expected_catalog_revision: view.catalog_revision,
+            action: TreatmentAction::PlaceHold {
+                selection: TreatmentSelection::new(vec![group]).unwrap(),
+            },
+            occurred: Occurrence::Known(at(130)),
+            observation: note("Different later physical precautionary restriction"),
+        },
+        at(130),
+    )
+    .await
+    .unwrap();
+    let current = db.hub_actual_lineage(owner(), query(trace)).await.unwrap();
+    let before = crate::hub::custody::tests::material(&fixture).await;
+    let (past, current) = db
+        .host()
+        .transaction(|tx| {
+            Box::pin(async move {
+                let hub = crate::hub::reference::authorize_on(tx, owner()).await?;
+                let past = crate::hub::handling::treatment::read::historical_state_on(
+                    tx,
+                    hub.id(),
+                    &saved.lineage,
+                )
+                .await?;
+                let current = crate::hub::handling::treatment::read::historical_state_on(
+                    tx,
+                    hub.id(),
+                    &current.lineage,
+                )
+                .await?;
+                Ok::<_, SafeError>((past, current))
+            })
+        })
+        .await
+        .unwrap();
+    assert_eq!(past, original);
+    assert!(past.holds()[0].release.is_none());
+    assert_eq!(current.holds().len(), 2);
+    assert!(
+        current
+            .holds()
+            .iter()
+            .any(|h| h.stamp.id == past.holds()[0].stamp.id && h.release.is_some())
+    );
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    db.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn frozen_catalog_cut_retains_old_location_while_current_reference_advances() {
+    use harvestcircle_domain::hub::reference::{
+        ReferenceCommand, ReferenceMutation, ReferenceValue,
+    };
+    let fixture = Fixture::new();
+    let db = fixture.open().await;
+    let intake = received(&db).await;
+    let original = db.hub_references(owner()).await.unwrap();
+    let location = original.get(id(6)).unwrap();
+    let mut value = location.value.clone();
+    let ReferenceValue::Location { label, .. } = &mut value else {
+        panic!("location")
+    };
+    *label = HubLabel::new("Receiving renamed after original cut").unwrap();
+    db.apply_hub_reference(
+        owner(),
+        operation(2000),
+        ReferenceCommand {
+            expected_catalog_revision: original.revision(),
+            mutation: ReferenceMutation::Revise {
+                id: id(6),
+                expected_record_revision: location.revision,
+                value,
+            },
+        },
+        at(120),
+    )
+    .await
+    .unwrap();
+    let current = db.hub_references(owner()).await.unwrap();
+    assert_ne!(current.get(id(6)), original.get(id(6)));
+    let before = crate::hub::custody::tests::material(&fixture).await;
+    let cut = original.revision();
+    let past = db
+        .host()
+        .transaction(|tx| {
+            Box::pin(async move {
+                let hub = crate::hub::reference::authorize_on(tx, owner()).await?;
+                crate::hub::reference::load_catalog_through_on(tx, hub.id(), cut).await
+            })
+        })
+        .await
+        .unwrap();
+    assert_eq!(past, original);
+    let evidence = db
+        .hub_actual_source(
+            owner(),
+            source_query(
+                intake.original.trace.id,
+                intake.operation,
+                intake.original.position.group,
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(evidence.source.location, *original.get(id(6)).unwrap());
+    assert_eq!(evidence.lineage.catalog_revision, current.revision());
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    db.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn balanced_sibling_shrink_and_growth_without_a_canonical_outflow_is_not_native_birth_evidence()
+ {
+    let fixture = Fixture::new();
+    let db = fixture.open().await;
+    let intake = received(&db).await;
+    let root = intake.original.position.group;
+    let child = separated(&db, root).await;
+    let mut raw = fixture.raw().await;
+    assert!(
+        sqlx::query("UPDATE hub_group_work SET scoped_packs=scoped_packs+2 WHERE group_id=?")
+            .bind(root.as_bytes().as_slice())
+            .execute(&mut raw)
+            .await
+            .is_err()
+    );
+    let ddl:String=sqlx::query_scalar("SELECT sql FROM sqlite_master WHERE type='trigger' AND name='hub_group_work_identity_immutable'")
+        .fetch_one(&mut raw).await.unwrap();
+    sqlx::query("DROP TRIGGER hub_group_work_identity_immutable")
+        .execute(&mut raw)
+        .await
+        .unwrap();
+    for (group, delta) in [(root, 2_i64), (child, -2_i64)] {
+        sqlx::query("UPDATE hub_stock_positions SET packs=packs+? WHERE group_id=?")
+            .bind(delta)
+            .bind(group.as_bytes().as_slice())
+            .execute(&mut raw)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE hub_group_work SET scoped_packs=scoped_packs+? WHERE group_id=?")
+            .bind(delta)
+            .bind(group.as_bytes().as_slice())
+            .execute(&mut raw)
+            .await
+            .unwrap();
+    }
+    sqlx::query(sqlx::AssertSqlSafe(ddl.clone()))
+        .execute(&mut raw)
+        .await
+        .unwrap();
+    let restored:String=sqlx::query_scalar("SELECT sql FROM sqlite_master WHERE type='trigger' AND name='hub_group_work_identity_immutable'")
+        .fetch_one(&mut raw).await.unwrap();
+    assert_eq!(restored, ddl);
+    raw.close().await.unwrap();
+    let before = crate::hub::custody::tests::material(&fixture).await;
+    assert_eq!(
+        db.hub_actual_lineage(owner(), query(intake.original.trace.id))
+            .await
+            .unwrap_err()
+            .code(),
+        SafeErrorCode::StorageCorrupt
+    );
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    db.close().await.unwrap();
+}

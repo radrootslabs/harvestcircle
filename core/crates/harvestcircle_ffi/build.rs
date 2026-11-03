@@ -269,10 +269,10 @@ fn validate_baseline_inputs(baseline: &BTreeMap<String, String>) {
         "harvestcircle-desktop-ffi-v5"
     );
     assert_eq!(required(baseline, "contract.major"), "5");
-    assert_eq!(required(baseline, "contract.minor"), "21");
+    assert_eq!(required(baseline, "contract.minor"), "22");
     assert_eq!(required(baseline, "snapshot.schema"), "1");
     assert_eq!(required(baseline, "storage.schema.minimum"), "1");
-    assert_eq!(required(baseline, "storage.schema.current"), "17");
+    assert_eq!(required(baseline, "storage.schema.current"), "18");
     assert_eq!(
         required(baseline, "product.version"),
         env!("CARGO_PKG_VERSION")
@@ -287,7 +287,7 @@ fn validate_baseline_inputs(baseline: &BTreeMap<String, String>) {
         product_digest
     );
 
-    assert_eq!(required(baseline, "storage.schema.current"), "17");
+    assert_eq!(required(baseline, "storage.schema.current"), "18");
 }
 
 fn required<'a>(baseline: &'a BTreeMap<String, String>, key: &str) -> &'a str {

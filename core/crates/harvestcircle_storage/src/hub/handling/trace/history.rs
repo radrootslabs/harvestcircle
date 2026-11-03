@@ -3,7 +3,9 @@ use super::*;
 macro_rules! linked_predicate { () => { concat!(
     "EXISTS(SELECT 1 FROM hub_stock_events e WHERE e.operation_id=o.operation_id AND e.trace_id=?) OR ",
     "EXISTS(SELECT 1 FROM hub_dispatch_changes d LEFT JOIN hub_dispatch_changes prior ON prior.preparation_id=d.preparation_id AND prior.record_revision=d.expected_record_revision JOIN hub_dispatch_material_lines m ON m.operation_id=d.material_operation_id OR m.operation_id=prior.material_operation_id WHERE d.operation_id=o.operation_id AND m.trace_id=?) OR ",
-    "EXISTS(SELECT 1 FROM hub_returns returned JOIN hub_return_sources source ON source.return_id=returned.return_id JOIN hub_departure_lines line ON line.operation_id=source.departure_operation_id AND line.ordinal=source.ordinal WHERE returned.operation_id=o.operation_id AND line.trace_id=?)"
+    "EXISTS(SELECT 1 FROM hub_returns returned JOIN hub_return_sources source ON source.return_id=returned.return_id JOIN hub_departure_lines line ON line.operation_id=source.departure_operation_id AND line.ordinal=source.ordinal WHERE returned.operation_id=o.operation_id AND line.trace_id=?) OR ",
+    "EXISTS(SELECT 1 FROM hub_actual_reports r JOIN hub_actual_report_sources s ON s.report_id=r.report_id WHERE r.operation_id=o.operation_id AND s.trace_id=?) OR ",
+    "EXISTS(SELECT 1 FROM hub_actual_reviews r WHERE r.operation_id=o.operation_id AND r.trace_id=?)"
 ) }; }
 impl Database {
     pub async fn hub_trace_history(
@@ -31,6 +33,8 @@ impl Database {
                     .bind(query.trace.as_bytes().as_slice())
                     .bind(query.trace.as_bytes().as_slice())
                     .bind(query.trace.as_bytes().as_slice())
+                    .bind(query.trace.as_bytes().as_slice())
+                    .bind(query.trace.as_bytes().as_slice())
                     .fetch_one(&mut *tx)
                     .await
                     .map_err(|_| storage_unavailable())?;
@@ -45,6 +49,8 @@ impl Database {
                         " ",
                         "ORDER BY o.stock_revision LIMIT ? OFFSET ?"
                     ))
+                    .bind(query.trace.as_bytes().as_slice())
+                    .bind(query.trace.as_bytes().as_slice())
                     .bind(query.trace.as_bytes().as_slice())
                     .bind(query.trace.as_bytes().as_slice())
                     .bind(query.trace.as_bytes().as_slice())
@@ -90,6 +96,31 @@ async fn entry_on(
     let recorded_at = operation.recorded_at;
     let result = operation.result;
     let (kind, occurred, observation) = match operation.kind.as_str() {
+        "actual_report" => {
+            let original = crate::hub::actuals::reports::original_on(tx, hub, operation)
+                .await?
+                .original;
+            (
+                HubTraceHistoryKind::ActualReported,
+                Some(original.report.occurred),
+                original.report.observation,
+            )
+        }
+        "actual_review" => {
+            let original = crate::hub::actuals::reviews::original_on(tx, hub, operation).await?;
+            match original.original {
+                crate::hub::actuals::HubActualReviewOriginal::Departure(plan) => (
+                    HubTraceHistoryKind::ActualReconciled,
+                    Some(plan.comparison.facts.occurred),
+                    plan.duplicate_review_basis,
+                ),
+                crate::hub::actuals::HubActualReviewOriginal::Duplicate(plan) => (
+                    HubTraceHistoryKind::ActualLinked,
+                    Some(plan.known.occurred),
+                    plan.verification,
+                ),
+            }
+        }
         "return" => {
             let original = crate::hub::custody::returns::read::original_on(tx, hub, operation)
                 .await?

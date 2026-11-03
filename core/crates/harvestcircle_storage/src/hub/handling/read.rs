@@ -157,6 +157,8 @@ pub(in crate::hub) async fn work_on(
         .fetch_one(&mut *transaction).await.map_err(|_| storage_unavailable())?;
     let count: i64 = scope.try_get("n").map_err(|_| corrupt_storage())?;
     let removed = crate::hub::counts::posting::removed_work_on(transaction, hub, id).await?;
+    let actual_removed =
+        crate::hub::actuals::validation::removed_work_on(transaction, hub, id).await?;
     if !(1..=HUB_REQUIREMENT_GROUPS as i64).contains(&count)
         || scope
             .try_get::<i64, _>("invalid")
@@ -164,16 +166,19 @@ pub(in crate::hub) async fn work_on(
             != 0
         || whole_packs(scope.try_get("total").map_err(|_| corrupt_storage())?)?
             .checked_add(removed.total)
+            .and_then(|packs| packs.checked_add(actual_removed.total))
             .map_err(|_| corrupt_storage())?
             != quantity.required()
         || whole_packs(scope.try_get("pending").map_err(|_| corrupt_storage())?)?
             != quantity.remaining()
         || whole_packs(scope.try_get("completed").map_err(|_| corrupt_storage())?)?
             .checked_add(removed.completed)
+            .and_then(|packs| packs.checked_add(actual_removed.completed))
             .map_err(|_| corrupt_storage())?
             != quantity.completed()
         || whole_packs(scope.try_get("retired").map_err(|_| corrupt_storage())?)?
             .checked_add(removed.retired)
+            .and_then(|packs| packs.checked_add(actual_removed.retired))
             .map_err(|_| corrupt_storage())?
             != quantity.no_longer_required()
     {
@@ -208,6 +213,7 @@ pub(in crate::hub) async fn group_on(
         crate::hub::custody::disposition::validation::trace_on(transaction, hub, trace).await?;
     let counted_loss =
         crate::hub::counts::posting::loss_quantity_on(transaction, hub, trace).await?;
+    let actual_loss = crate::hub::actuals::validation::trace_on(transaction, hub, trace).await?;
     if whole_packs(
         mass.try_get("original_packs")
             .map_err(|_| corrupt_storage())?,
@@ -215,6 +221,7 @@ pub(in crate::hub) async fn group_on(
         .checked_add(super::departure::conservation::trace_on(transaction, hub, trace).await?)
         .and_then(|packs| packs.checked_add(disposed))
         .and_then(|packs| packs.checked_add(counted_loss))
+        .and_then(|packs| packs.checked_add(actual_loss))
         .map_err(|_| corrupt_storage())?
     {
         return Err(corrupt_storage());
@@ -353,15 +360,32 @@ async fn causal_floor_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     group: HubRecordId,
 ) -> Result<Option<UnixTimestamp>, SafeError> {
+    causal_floor_bound_on(transaction, group, i64::MAX).await
+}
+
+/// Original reconstruction uses the retained native cut, never later clocks.
+pub(in crate::hub) async fn causal_floor_through_on(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    group: HubRecordId,
+    cut: HubRevision,
+) -> Result<Option<UnixTimestamp>, SafeError> {
+    causal_floor_bound_on(transaction, group, integer(cut)?).await
+}
+
+async fn causal_floor_bound_on(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    group: HubRecordId,
+    cut: i64,
+) -> Result<Option<UnixTimestamp>, SafeError> {
     let row=sqlx::query(concat!(
-        "WITH RECURSIVE lineage(group_id,ceiling,depth) AS (SELECT ?,9223372036854775807,0 UNION ALL ",
+        "WITH RECURSIVE lineage(group_id,ceiling,depth) AS (SELECT ?,?,0 UNION ALL ",
         "SELECT i.parent_group_id,min(l.ceiling,o.stock_revision-1),l.depth+1 FROM lineage l JOIN hub_group_identification i ON i.group_id=l.group_id ",
         "JOIN hub_stock_operations o ON o.operation_id=i.created_operation_id WHERE i.parent_group_id IS NOT NULL AND l.depth<256) ",
         "SELECT max(CASE WHEN e.occurrence_kind IN ('known','interval') THEN e.occurrence_start_unix_s END) AS floor,",
         "(SELECT count(*) FROM lineage l JOIN hub_group_identification i ON i.group_id=l.group_id WHERE l.depth=256 AND i.parent_group_id IS NOT NULL) AS truncated ",
-        "FROM lineage l LEFT JOIN hub_stock_events e ON e.group_id=l.group_id AND e.kind IN ('receipt','opening','return','move','split','count_post') ",
+        "FROM lineage l LEFT JOIN hub_stock_events e ON e.group_id=l.group_id AND e.kind IN ('receipt','opening','return','move','split','count_post','actual_review') ",
         "LEFT JOIN hub_stock_operations o ON o.operation_id=e.operation_id WHERE o.stock_revision<=l.ceiling OR o.stock_revision IS NULL"
-    )).bind(group.as_bytes().as_slice()).fetch_one(&mut *transaction).await.map_err(|_|storage_unavailable())?;
+    )).bind(group.as_bytes().as_slice()).bind(cut).fetch_one(&mut *transaction).await.map_err(|_|storage_unavailable())?;
     if row
         .try_get::<i64, _>("truncated")
         .map_err(|_| corrupt_storage())?

@@ -15,6 +15,11 @@ use std::collections::BTreeSet;
 
 mod hold_scope;
 mod reconcile;
+mod result;
+pub use result::{
+    actual_departure_projection_digest, actual_departure_result_digest,
+    actual_duplicate_result_digest, actual_report_result_digest,
+};
 mod review;
 pub use hold_scope::{
     ActualPhysicalBirth, ActualPhysicalBirthKind, HistoricalHoldScopeAssessment,
@@ -126,6 +131,16 @@ pub struct ActualReportRecord {
     pub report: ActualReportCommand,
 }
 
+/// Relation of an unverified claimed clock to the native recording clock, not
+/// proof that an event occurred. Both original clocks remain unchanged.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActualReportedClockAssessment {
+    Unknown,
+    NotAfterRecordedTime,
+    RecordingClockConflict,
+}
+
 pub fn actual_report_id(operation: HubRecordId) -> Result<HubRecordId, ActualReportError> {
     let mut hash = Sha256::new();
     hash.update(b"harvestcircle.hub.actual.report.identity.v1\0");
@@ -135,14 +150,15 @@ pub fn actual_report_id(operation: HubRecordId) -> Result<HubRecordId, ActualRep
 }
 
 impl ActualReportCommand {
-    pub fn validate(&self, recorded_at: UnixTimestamp) -> Result<(), ActualReportError> {
+    pub fn validate(&self) -> Result<(), ActualReportError> {
         self.sources.validate()?;
         if self.packs.is_some_and(|v| v.value() == 0) {
             return Err(ActualReportError::InvalidInput);
         }
-        self.occurred
-            .validate(recorded_at)
-            .map_err(|_| ActualReportError::InvalidInput)
+        if matches!(self.occurred,Occurrence::Interval {earliest,latest} if earliest>latest) {
+            return Err(ActualReportError::InvalidInput);
+        }
+        Ok(())
     }
 
     /// Does not use acceptance, current holds or balance as an ingress filter.
@@ -156,7 +172,7 @@ impl ActualReportCommand {
         actor: PublicKey,
         recorded_at: UnixTimestamp,
     ) -> Result<ActualReportRecord, ActualReportError> {
-        self.validate(recorded_at)?;
+        self.validate()?;
         let record = ActualReportRecord {
             id: actual_report_id(operation)?,
             operation,
@@ -210,6 +226,19 @@ impl ActualReportCommand {
 }
 
 impl ActualReportRecord {
+    #[must_use]
+    pub fn recording_clock_assessment(&self) -> ActualReportedClockAssessment {
+        let latest = match self.report.occurred {
+            Occurrence::Unknown => return ActualReportedClockAssessment::Unknown,
+            Occurrence::Known(at) => at,
+            Occurrence::Interval { latest, .. } => latest,
+        };
+        if latest > self.recorded_at {
+            ActualReportedClockAssessment::RecordingClockConflict
+        } else {
+            ActualReportedClockAssessment::NotAfterRecordedTime
+        }
+    }
     pub fn validate(&self) -> Result<(), ActualReportError> {
         if self.id != actual_report_id(self.operation)?
             || self.id == self.operation
@@ -217,7 +246,7 @@ impl ActualReportRecord {
         {
             return Err(ActualReportError::InvalidHistory);
         }
-        self.report.validate(self.recorded_at)
+        self.report.validate()
     }
 }
 

@@ -17,6 +17,18 @@ pub(in crate::hub) struct LoadedLineage {
     pub trace: StockPopulation,
 }
 
+#[derive(Clone)]
+struct ActualBirthRow {
+    id: HubRecordId,
+    parent: Option<HubRecordId>,
+    created_operation: DurableRequestId,
+    created_by: PublicKey,
+    created_at: UnixTimestamp,
+    created_revision: HubRevision,
+    created_kind: HubGroupCreationKind,
+    occurred: Occurrence,
+}
+
 /// Every quantity comes from its validated immutable birth original, not the
 /// current lineage row. Current zero-pack groups remain part of the evidence.
 pub(in crate::hub) async fn actual_births_on(
@@ -24,28 +36,89 @@ pub(in crate::hub) async fn actual_births_on(
     hub: HubId,
     loaded: &LoadedLineage,
 ) -> Result<Vec<harvestcircle_domain::hub::actuals::ActualPhysicalBirth>, SafeError> {
+    if loaded.graph.trace() != loaded.trace.id || loaded.rows.len() != loaded.graph.nodes().len() {
+        return Err(corrupt_storage());
+    }
+    historical_births_on(tx, hub, &loaded.graph).await
+}
+
+/// Validates an immutable retained cut against native birth topology and
+/// originals. Supplied quantities still require the owning result's capture seal;
+/// this historical evidence is never current stock or permission to execute.
+pub(in crate::hub) async fn historical_births_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    graph: &PhysicalLineage,
+) -> Result<Vec<harvestcircle_domain::hub::actuals::ActualPhysicalBirth>, SafeError> {
+    let topology = historical_on(tx, hub, graph.trace(), graph.revision()).await?;
+    if graph.hub() != hub
+        || graph.variant() != topology.variant()
+        || graph.nodes().len() != topology.nodes().len()
+        || graph.nodes().iter().any(|node| {
+            topology.node(node.id).is_none_or(|native| {
+                native.parent != node.parent
+                    || native.created_revision != node.created_revision
+                    || native.trace != node.trace
+                    || native.variant != node.variant
+            })
+        })
+    {
+        return Err(corrupt_storage());
+    }
+    let trace = read::trace_on(tx, hub, graph.trace()).await?;
+    let mut rows = Vec::with_capacity(graph.nodes().len());
+    for node in graph.nodes() {
+        let operation:String=sqlx::query_scalar("SELECT substr(created_operation_id,1,37) FROM hub_group_identification WHERE group_id=? LIMIT 1")
+            .bind(node.id.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_|corrupt_storage())?;
+        let operation = DurableRequestId::parse(operation).map_err(|_| corrupt_storage())?;
+        let op = stock::read::operation_on(tx, hub, &operation)
+            .await?
+            .ok_or_else(corrupt_storage)?;
+        let created_by = op.actor;
+        let created_at = op.recorded_at;
+        let created_revision = op.revision;
+        let (kind, _, occurred, _) = creation_on(tx, hub, &trace, node.id, node.parent, op).await?;
+        rows.push(ActualBirthRow {
+            id: node.id,
+            parent: node.parent,
+            created_operation: operation,
+            created_by,
+            created_at,
+            created_revision,
+            created_kind: kind,
+            occurred,
+        });
+    }
+    births_for_rows_on(tx, hub, graph, &trace, &rows).await
+}
+
+async fn births_for_rows_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    graph: &PhysicalLineage,
+    trace: &StockPopulation,
+    rows: &[ActualBirthRow],
+) -> Result<Vec<harvestcircle_domain::hub::actuals::ActualPhysicalBirth>, SafeError> {
     use harvestcircle_domain::hub::actuals::{
         ActualPhysicalBirth, ActualPhysicalBirthKind as Kind,
     };
-    use harvestcircle_domain::hub::portions::PhysicalScopeAnchor;
-    if loaded.graph.hub() != hub
-        || loaded.graph.trace() != loaded.trace.id
-        || loaded.rows.len() != loaded.graph.nodes().len()
-        || loaded.rows.is_empty()
-        || loaded.rows.len() > HUB_LINEAGE_GROUPS
+    if graph.hub() != hub
+        || graph.trace() != trace.id
+        || rows.len() != graph.nodes().len()
+        || rows.is_empty()
+        || rows.len() > HUB_LINEAGE_GROUPS
     {
         return Err(corrupt_storage());
     }
     // Stored recording bounds qualify archival data even during a host-clock
     // rollback. This read neither invents physical occurrence nor grants writes.
-    let recording_bound = loaded
-        .rows
+    let recording_bound = rows
         .iter()
         .map(|r| r.created_at)
         .max()
         .ok_or_else(corrupt_storage)?;
-    let mut births = Vec::with_capacity(loaded.rows.len());
-    for row in &loaded.rows {
+    let mut births = Vec::with_capacity(rows.len());
+    for row in rows {
         let operation = stock::read::operation_on(tx, hub, &row.created_operation)
             .await?
             .ok_or_else(corrupt_storage)?;
@@ -72,9 +145,8 @@ pub(in crate::hub) async fn actual_births_on(
                 if operation.kind != expected {
                     return Err(corrupt_storage());
                 }
-                let original =
-                    stock::read::population_on(tx, hub, operation, loaded.trace.id).await?;
-                if original != loaded.trace || original.occurred != row.occurred {
+                let original = stock::read::population_on(tx, hub, operation, trace.id).await?;
+                if original != *trace || original.occurred != row.occurred {
                     return Err(corrupt_storage());
                 }
                 (kind, original.original_packs)
@@ -84,7 +156,7 @@ pub(in crate::hub) async fn actual_births_on(
                 let HubHandlingResult::Moved(result) = original.result else {
                     return Err(corrupt_storage());
                 };
-                if original.trace != loaded.trace.id
+                if original.trace != trace.id
                     || result.moved_group != row.id
                     || Some(result.selected_group) != row.parent
                     || result.occurred != row.occurred
@@ -99,7 +171,7 @@ pub(in crate::hub) async fn actual_births_on(
                 let HubHandlingResult::Separated(result) = original.result else {
                     return Err(corrupt_storage());
                 };
-                if original.trace != loaded.trace.id
+                if original.trace != trace.id
                     || result.portion_group != row.id
                     || Some(result.selected_group) != row.parent
                     || result.occurred != row.occurred
@@ -113,8 +185,8 @@ pub(in crate::hub) async fn actual_births_on(
             kind,
             operation: operation_id,
             hub,
-            trace: loaded.trace.id,
-            variant: loaded.trace.variant.id,
+            trace: trace.id,
+            variant: trace.variant.id,
             group: row.id,
             parent: row.parent,
             stock_revision: row.created_revision,
@@ -124,33 +196,39 @@ pub(in crate::hub) async fn actual_births_on(
             recorded_at: row.created_at,
         };
         birth
-            .validate(&loaded.graph, recording_bound)
+            .validate(graph, recording_bound)
             .map_err(|_| corrupt_storage())?;
-        let node = loaded.graph.node(row.id).ok_or_else(corrupt_storage)?;
-        let original = loaded
-            .graph
-            .restore_scope(
-                birth.stock_revision,
-                vec![PhysicalScopeAnchor {
-                    group: row.id,
-                    created_revision: node.created_revision,
-                    captured_packs: birth.packs,
-                }],
-            )
-            .map_err(|_| corrupt_storage())?;
-        if loaded
-            .graph
-            .resolve(&original)
-            .map_err(|_| corrupt_storage())?
-            .packs()
-            .value()
-            > birth.packs.value()
-        {
-            return Err(corrupt_storage());
-        }
         births.push(birth);
     }
     births.sort_by_key(|b| (b.stock_revision.value(), b.group));
+    let outflows = super::actuals::physical_outflows_on(tx, hub, graph).await?;
+    let mut totals = std::collections::BTreeMap::new();
+    for node in graph.nodes() {
+        let outflow = outflows
+            .get(&node.id)
+            .copied()
+            .unwrap_or(WholePacks::from_value(0).expect("zero"));
+        totals.insert(
+            node.id,
+            node.packs
+                .checked_add(outflow)
+                .map_err(|_| corrupt_storage())?,
+        );
+    }
+    // Reverse native birth order aggregates every structural branch, including
+    // zero-pack groups, exactly once. No current-position fallback for old cuts.
+    for birth in births.iter().rev() {
+        let total = *totals.get(&birth.group).ok_or_else(corrupt_storage)?;
+        if total != birth.packs {
+            return Err(corrupt_storage());
+        }
+        if let Some(parent) = birth.parent {
+            let parent_total = totals.get_mut(&parent).ok_or_else(corrupt_storage)?;
+            *parent_total = parent_total
+                .checked_add(total)
+                .map_err(|_| corrupt_storage())?;
+        }
+    }
     Ok(births)
 }
 
@@ -345,10 +423,12 @@ pub(in crate::hub) async fn load_on(
         crate::hub::custody::disposition::validation::trace_on(transaction, hub, trace_id).await?;
     let counted_loss =
         crate::hub::counts::posting::loss_quantity_on(transaction, hub, trace_id).await?;
+    let actual_loss = crate::hub::actuals::validation::trace_on(transaction, hub, trace_id).await?;
     if total
         .checked_add(super::departure::conservation::trace_on(transaction, hub, trace_id).await?)
         .and_then(|packs| packs.checked_add(disposed))
         .and_then(|packs| packs.checked_add(counted_loss))
+        .and_then(|packs| packs.checked_add(actual_loss))
         .map_err(|_| corrupt_storage())?
         != trace.original_packs
     {

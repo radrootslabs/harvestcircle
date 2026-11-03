@@ -96,21 +96,21 @@ pub struct ActualReviewContext<'a> {
     pub uncertain_submissions: bool,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct HistoricalHoldFinding {
     pub original: Hold,
     pub conditional_timing: HistoricalHoldTiming,
     pub applicability: HistoricalHoldApplicability,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 pub enum HistoricalHoldApplicability {
     /// Native recorded-order lineage does not prove physical anchor birth time.
     /// No consumer may promote conditional timing to breach or clearance.
     HistoricalScopeUnverified,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct ActualBalanceComparison {
     pub product: ReferenceRecord,
     pub variant: ReferenceRecord,
@@ -124,7 +124,7 @@ pub struct ActualBalanceComparison {
     pub pending_work_to_retire: Vec<HubRecordId>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 pub enum ActualSourceComparison {
     UnknownClaim,
     /// A current identifier/location match still needs historical verification.
@@ -139,9 +139,10 @@ pub enum ActualSourceComparison {
 /// position is never historical source evidence. Immutable historical source
 /// verification, duplicate-event review and current effect admission remain
 /// prerequisites even when identifiers and locations happen to match.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct ActualReviewComparison {
     pub original: ActualReportRecord,
+    pub reported_clock: ActualReportedClockAssessment,
     pub facts: ActualReviewFacts,
     pub scope: ActualBalanceComparison,
     pub source_comparison: ActualSourceComparison,
@@ -281,6 +282,7 @@ impl ActualReviewFacts {
         };
         Ok(ActualReviewComparison {
             original: context.original.clone(),
+            reported_clock: context.original.recording_clock_assessment(),
             facts: self.clone(),
             scope,
             source_comparison,

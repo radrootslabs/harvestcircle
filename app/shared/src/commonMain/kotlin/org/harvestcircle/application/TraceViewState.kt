@@ -17,6 +17,7 @@ data class TraceViewState(
     val exitsOffset: Int = 0,
     val countLossesOffset: Int = 0,
     val dispositionsOffset: Int = 0,
+    val actualDeparturesOffset: Int = 0,
     val needsRefresh: Boolean = false,
     val message: String? = null,
 )

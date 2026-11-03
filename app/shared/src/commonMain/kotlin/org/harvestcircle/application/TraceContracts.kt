@@ -24,6 +24,7 @@ data class HubTraceRow(
     val departedWholePacks: UInt,
     val countedLossWholePacks: UInt = 0U,
     val disposedWholePacks: UInt = 0U,
+    val actualDepartedWholePacks: UInt = 0U,
 )
 
 data class HubTracePage(
@@ -95,6 +96,41 @@ data class HubTraceSnapshot(
     val disposedWholePacks: UInt = 0U,
     val countLosses: List<HubTraceCountLoss> = emptyList(),
     val dispositions: List<HubTraceDisposition> = emptyList(),
+    val actualDepartedWholePacks: UInt = 0U,
+    val actualDepartures: List<HubTraceActualDeparture> = emptyList(),
+)
+
+data class HubTraceActualDeparture(
+    val reportId: String,
+    val operationId: OperationId,
+    val stockRevision: ULong,
+    val catalogRevision: ULong,
+    val reportActor: IdentityId,
+    val reportRecordedAt: UnixSeconds,
+    val reportedOccurrence: HubOccurrence,
+    val reportedClockConflict: Boolean,
+    val originalObservation: String,
+    val actor: IdentityId,
+    val recordedAt: UnixSeconds,
+    val occurrence: HubOccurrence,
+    val wholePacks: UInt,
+    val before: HubPhysicalGroup,
+    val onHandAfterWholePacks: UInt,
+    val afterGroupRevision: ULong,
+    val afterCausalFloor: UnixSeconds?,
+    val product: HubReferenceRecord,
+    val variant: HubReferenceRecord,
+    val recipient: HubReferenceRecord,
+    val balancingLocation: HubReferenceRecord,
+    val historicalLocation: HubReferenceRecord,
+    val sourceOperationId: OperationId,
+    val sourceGroupId: String,
+    val sourceEvidence: String,
+    val quantityEvidence: String,
+    val recipientEvidence: String,
+    val timingEvidence: String,
+    val duplicateReviewBasis: String,
+    val workChanges: List<HubDepartureWorkChange>,
 )
 
 data class HubTraceHistoryQuery(
@@ -127,6 +163,9 @@ enum class HubTraceHistoryKind {
     ReplaceIdentification,
     MarkIdentificationUnused,
     Departure,
+    ActualReported,
+    ActualReconciled,
+    ActualLinked,
 }
 
 data class HubTraceHistoryEntry(

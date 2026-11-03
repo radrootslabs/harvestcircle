@@ -6,6 +6,7 @@ use crate::hub::treatment::{Hold, TreatmentStamp, TreatmentState};
 
 mod hold_scope;
 mod reconcile;
+mod result;
 mod source;
 
 fn id(n: u8) -> HubRecordId {
@@ -219,18 +220,12 @@ fn source_claims_keep_every_bounded_candidate_and_never_pick_one() {
     };
     let mut input = report();
     input.sources = ActualReportSources::Possible(vec![first, second]);
-    input.validate(at(170)).unwrap();
+    input.validate().unwrap();
     assert_eq!(input.sources.candidates(), &[first, second]);
     input.sources = ActualReportSources::Possible(vec![first, first]);
-    assert_eq!(
-        input.validate(at(170)),
-        Err(ActualReportError::InvalidInput)
-    );
+    assert_eq!(input.validate(), Err(ActualReportError::InvalidInput));
     input.sources = ActualReportSources::Possible(Vec::new());
-    assert_eq!(
-        input.validate(at(170)),
-        Err(ActualReportError::InvalidInput)
-    );
+    assert_eq!(input.validate(), Err(ActualReportError::InvalidInput));
     input.sources = ActualReportSources::Possible(
         (1..=65)
             .map(|n| ReportedActualSource {
@@ -240,7 +235,7 @@ fn source_claims_keep_every_bounded_candidate_and_never_pick_one() {
             })
             .collect(),
     );
-    assert_eq!(input.validate(at(170)), Err(ActualReportError::Capacity));
+    assert_eq!(input.validate(), Err(ActualReportError::Capacity));
 }
 
 #[test]
@@ -248,21 +243,27 @@ fn report_bounds_and_original_identity_fail_closed_without_losing_valid_unknowns
     let f = Fixture::new(Occurrence::Unknown);
     let mut input = report();
     input.packs = Some(packs(0));
-    assert_eq!(
-        input.validate(at(170)),
-        Err(ActualReportError::InvalidInput)
-    );
+    assert_eq!(input.validate(), Err(ActualReportError::InvalidInput));
     input.packs = None;
     input.occurred = known(171);
+    input.validate().unwrap();
+    let preserved = input
+        .preserve(
+            f.graph.hub(),
+            f.graph.revision(),
+            f.catalog.revision(),
+            id(183),
+            owner(),
+            at(170),
+        )
+        .unwrap();
+    assert_eq!(preserved.report.occurred, known(171));
     assert_eq!(
-        input.validate(at(170)),
-        Err(ActualReportError::InvalidInput)
+        preserved.recording_clock_assessment(),
+        ActualReportedClockAssessment::RecordingClockConflict
     );
     input.occurred = interval(169, 168);
-    assert_eq!(
-        input.validate(at(170)),
-        Err(ActualReportError::InvalidInput)
-    );
+    assert_eq!(input.validate(), Err(ActualReportError::InvalidInput));
     let mut corrupt = f.original.clone();
     corrupt.id = id(182);
     assert_eq!(corrupt.validate(), Err(ActualReportError::InvalidHistory));
@@ -488,4 +489,82 @@ fn review_rejects_stale_scope_mismatched_native_world_and_unresolved_submission(
         f.facts.review(&f.context(), at(149)),
         Err(ActualReportError::InvalidNativeContext)
     );
+}
+
+#[test]
+fn future_claim_is_preserved_as_recording_clock_conflict_without_physical_review_permission() {
+    let mut f = Fixture::new(known(160));
+    assert_eq!(f.original.recorded_at, at(150));
+    assert_eq!(f.original.report.occurred, known(160));
+    assert_eq!(
+        f.original.recording_clock_assessment(),
+        ActualReportedClockAssessment::RecordingClockConflict
+    );
+    f.original.validate().unwrap();
+    assert_eq!(f.review(), Err(ActualReportError::InvalidInput));
+    f.facts.occurred = known(140);
+    assert_eq!(f.review(), Err(ActualReportError::ConflictingEvidence));
+    assert_eq!(f.original.report.occurred, known(160));
+    f.original.report.occurred = interval(160, 180);
+    assert_eq!(f.review(), Err(ActualReportError::ConflictingEvidence));
+    f.facts.occurred = known(165);
+    assert_eq!(f.review(), Err(ActualReportError::InvalidInput));
+}
+
+#[test]
+fn crossing_claim_interval_can_refine_to_verified_past_time_without_rewriting_original_warning() {
+    let mut f = Fixture::new(known(145));
+    f.original.report.occurred = interval(140, 160);
+    f.original.validate().unwrap();
+    let comparison = f.review().unwrap();
+    assert_eq!(comparison.original.report.occurred, interval(140, 160));
+    assert_eq!(comparison.original.recorded_at, at(150));
+    assert_eq!(comparison.facts.occurred, known(145));
+    assert_eq!(
+        comparison.reported_clock,
+        ActualReportedClockAssessment::RecordingClockConflict
+    );
+    f.facts.occurred = known(155);
+    assert_eq!(f.review(), Err(ActualReportError::InvalidInput));
+}
+
+#[test]
+fn exact_existing_departure_can_link_a_clock_conflicting_report_without_repeating_stock() {
+    let f = Fixture::new(known(160));
+    let known = ActualKnownDeparture {
+        operation: id(240),
+        actor: owner(),
+        hub: f.graph.hub(),
+        stock_revision: HubRevision::from_value(f.original.stock_revision.value() - 1).unwrap(),
+        catalog_revision: f.catalog.revision(),
+        trace: f.graph.trace(),
+        variant: f.catalog.get(f.group.variant).unwrap().clone(),
+        recipient: f.catalog.get(f.facts.recipient).unwrap().clone(),
+        occurred: super::Occurrence::Known(at(160)),
+        recorded_at: at(165),
+        lines: vec![ActualKnownDepartureLine {
+            group: f.group.id,
+            location: f.catalog.get(f.group.location).unwrap().clone(),
+            packs: packs(2),
+        }],
+    };
+    let command = ActualDuplicateLink {
+        report: f.original.id,
+        known_operation: known.operation,
+        known_trace: known.trace,
+        known_variant: known.variant.id,
+        verification: note(
+            "Independent witness identifies this exact already recorded physical occurrence despite the recorder clock conflict",
+        ),
+    };
+    let plan = command
+        .plan(&f.original, &known, None, id(241), owner(), at(170))
+        .unwrap();
+    assert_eq!(plan.original.report.occurred, Occurrence::Known(at(160)));
+    assert_eq!(
+        plan.original.recording_clock_assessment(),
+        ActualReportedClockAssessment::RecordingClockConflict
+    );
+    assert_eq!(plan.known, known);
+    assert_eq!(plan.original, f.original);
 }

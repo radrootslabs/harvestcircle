@@ -35,6 +35,7 @@ impl From<&PhysicalStockGroup> for HistoricalActualPosition {
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct HistoricalActualSource {
     pub operation: HubRecordId,
+    pub actor: PublicKey,
     pub hub: HubId,
     pub stock_revision: HubRevision,
     pub catalog_revision: HubRevision,
@@ -58,6 +59,7 @@ pub enum ActualPhysicalActivityKind {
 pub struct ActualPhysicalActivity {
     pub sequence: u32,
     pub operation: HubRecordId,
+    pub actor: PublicKey,
     pub stock_revision: HubRevision,
     pub hub: HubId,
     pub trace: HubRecordId,
@@ -77,7 +79,7 @@ pub struct ActualSourceContext<'a> {
     pub subsequent_activity: &'a [ActualPhysicalActivity],
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct ResolvedActualSource {
     historical: HistoricalActualSource,
     balancing_group: HubRecordId,
@@ -187,6 +189,9 @@ impl ActualSourceContext<'_> {
         let resolved = graph
             .resolve(&captured)
             .map_err(|_| ActualReportError::InvalidNativeContext)?;
+        if resolved.packs().value() > source.group.packs.value() {
+            return Err(ActualReportError::HistoricalSourceUnresolved);
+        }
         if !resolved.groups().iter().any(|g| g.id == current.id) {
             return Err(ActualReportError::HistoricalSourceUnresolved);
         }
@@ -228,8 +233,11 @@ impl ActualSourceContext<'_> {
                 return Err(ActualReportError::InvalidNativeContext);
             }
             if operations
-                .insert(event.operation, (event.stock_revision, event.recorded_at))
-                .is_some_and(|old| old != (event.stock_revision, event.recorded_at))
+                .insert(
+                    event.operation,
+                    (event.stock_revision, event.recorded_at, event.actor),
+                )
+                .is_some_and(|old| old != (event.stock_revision, event.recorded_at, event.actor))
             {
                 return Err(ActualReportError::InvalidNativeContext);
             }

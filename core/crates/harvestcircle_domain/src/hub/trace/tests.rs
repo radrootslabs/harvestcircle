@@ -71,6 +71,7 @@ fn fixture() -> TraceSnapshot {
         observation: text("Counted twenty original crates"),
     };
     TraceSnapshot {
+        actual_departures: vec![],
         count_losses: vec![],
         dispositions: vec![],
         hub: HubId::from_bytes([1; 16]).unwrap(),
@@ -213,7 +214,8 @@ fn physical_accounting_keeps_originals_depleted_populations_and_distinct_pack_un
             on_hand: packs(15),
             departed: packs(5),
             counted_loss: packs(0),
-            disposed: packs(0)
+            disposed: packs(0),
+            actual_departed: packs(0)
         }
     );
     snapshot.on_hand.clear();

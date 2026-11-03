@@ -9,6 +9,12 @@ use sqlx::Row;
 
 pub(in crate::hub) enum Reservation {
     Ordinary(u32),
+    /// Preserve a report and reserve one operation/event for its later review.
+    ActualReport,
+    /// Close this report reservation; a duplicate link has no physical event.
+    ActualReview {
+        physical: bool,
+    },
     PlaceHold,
     ReleaseHold,
     OpenIssued,
@@ -46,64 +52,85 @@ pub(in crate::hub) async fn ensure_departure_on(
 }
 
 fn check_budget(counters: &Counters, reservation: Reservation) -> Result<(), SafeError> {
-    let (events, new_reservations, issued_reservations, safety_headroom) = match reservation {
-        Reservation::Ordinary(events) => {
-            if events == 0 || events as usize > HUB_STOCK_EVENT_CAPACITY {
-                return Err(invalid_input());
+    let (events, new_reservations, issued_reservations, actual_reservations, safety_headroom) =
+        match reservation {
+            Reservation::ActualReport => (0, 0, 0, 1, 2),
+            Reservation::ActualReview { physical } => {
+                if counters.actual == 0 {
+                    return Err(corrupt_storage());
+                }
+                (u32::from(physical), 0, 0, -1, 0)
             }
-            if counters.primary >= HUB_TREATMENT_CAPACITY as u32 {
-                return Err(capacity());
+            Reservation::Ordinary(events) => {
+                if events == 0 || events as usize > HUB_STOCK_EVENT_CAPACITY {
+                    return Err(invalid_input());
+                }
+                if counters.primary >= HUB_TREATMENT_CAPACITY as u32 {
+                    return Err(capacity());
+                }
+                // A precautionary hold and its release must still fit after normal work.
+                (events, 0, 0, 0, 2)
             }
-            // A precautionary hold and its release must still fit after normal work.
-            (events, 0, 0, 2)
-        }
-        Reservation::PlaceHold => {
-            if counters.primary >= HUB_TREATMENT_CAPACITY as u32 {
-                return Err(capacity());
+            Reservation::PlaceHold => {
+                if counters.primary >= HUB_TREATMENT_CAPACITY as u32 {
+                    return Err(capacity());
+                }
+                (1, 1, 0, 0, 0)
             }
-            (1, 1, 0, 0)
-        }
-        Reservation::ReleaseHold => {
-            if counters.open == 0 {
-                return Err(corrupt_storage());
+            Reservation::ReleaseHold => {
+                if counters.open == 0 {
+                    return Err(corrupt_storage());
+                }
+                (1, -1, 0, 0, 0)
             }
-            (1, -1, 0, 0)
-        }
-        Reservation::OpenIssued => {
-            if counters.primary >= HUB_TREATMENT_CAPACITY as u32 {
-                return Err(capacity());
+            Reservation::OpenIssued => {
+                if counters.primary >= HUB_TREATMENT_CAPACITY as u32 {
+                    return Err(capacity());
+                }
+                (1, 0, 1, 0, 2)
             }
-            (1, 0, 1, 2)
-        }
-        Reservation::Depart(events) => {
-            if events == 0
-                || events as usize > harvestcircle_domain::hub::dispatch::HUB_DISPATCH_LINES
-            {
-                return Err(invalid_input());
+            Reservation::Depart(events) => {
+                if events == 0
+                    || events as usize > harvestcircle_domain::hub::dispatch::HUB_DISPATCH_LINES
+                {
+                    return Err(invalid_input());
+                }
+                if counters.issued == 0 {
+                    return Err(corrupt_storage());
+                }
+                if counters.primary >= HUB_TREATMENT_CAPACITY as u32 {
+                    return Err(capacity());
+                }
+                (events, 0, -1, 0, 2)
             }
-            if counters.issued == 0 {
-                return Err(corrupt_storage());
+            Reservation::CloseIssued => {
+                if counters.issued == 0 {
+                    return Err(corrupt_storage());
+                }
+                (1, 0, -1, 0, 0)
             }
-            if counters.primary >= HUB_TREATMENT_CAPACITY as u32 {
-                return Err(capacity());
-            }
-            (events, 0, -1, 2)
-        }
-        Reservation::CloseIssued => {
-            if counters.issued == 0 {
-                return Err(corrupt_storage());
-            }
-            (1, 0, -1, 0)
-        }
-    };
+        };
     let reserved = i64::from(counters.events)
         + i64::from(counters.open)
         + i64::from(counters.issued)
         + i64::from(events)
         + i64::from(new_reservations)
         + i64::from(issued_reservations)
+        + i64::from(counters.actual)
+        + i64::from(actual_reservations)
         + i64::from(safety_headroom);
-    if reserved > HUB_STOCK_EVENT_CAPACITY as i64 {
+    let operation_reserved = i64::from(counters.operations)
+        + i64::from(counters.open)
+        + i64::from(counters.issued)
+        + 1
+        + i64::from(new_reservations)
+        + i64::from(issued_reservations)
+        + i64::from(counters.actual)
+        + i64::from(actual_reservations)
+        + i64::from(safety_headroom);
+    if reserved > HUB_STOCK_EVENT_CAPACITY as i64
+        || operation_reserved > HUB_STOCK_EVENT_CAPACITY as i64
+    {
         return Err(capacity());
     }
     Ok(())
@@ -118,6 +145,8 @@ pub(in crate::hub) async fn available_on(
 }
 
 struct Counters {
+    operations: u32,
+    actual: u32,
     primary: u32,
     open: u32,
     issued: u32,
@@ -152,12 +181,32 @@ async fn counters_on(
     }
     let open = placed - released;
     let issued = issued_on(tx, hub).await?;
-    if u64::from(stock.event_count) + u64::from(open) + u64::from(issued)
-        > HUB_STOCK_EVENT_CAPACITY as u64
+    let actual: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hub_actual_report_reviews WHERE review_operation_id IS NULL",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|_| storage_unavailable())?;
+    let actual = u32::try_from(actual).map_err(|_| corrupt_storage())?;
+    let operations = u32::try_from(
+        stock
+            .revision
+            .value()
+            .checked_sub(1)
+            .ok_or_else(corrupt_storage)?,
+    )
+    .map_err(|_| corrupt_storage())?;
+    if actual as usize > harvestcircle_domain::hub::actuals::HUB_ACTUAL_REPORT_CAPACITY
+        || u64::from(operations) + u64::from(open) + u64::from(issued) + u64::from(actual)
+            > HUB_STOCK_EVENT_CAPACITY as u64
+        || u64::from(stock.event_count) + u64::from(open) + u64::from(issued) + u64::from(actual)
+            > HUB_STOCK_EVENT_CAPACITY as u64
     {
         return Err(corrupt_storage());
     }
     Ok(Counters {
+        operations,
+        actual,
         primary,
         open,
         issued,
@@ -214,6 +263,8 @@ mod tests {
     fn journal_budget_keeps_precautionary_hold_and_all_existing_releases_possible() {
         let maximum = HUB_STOCK_EVENT_CAPACITY as u32;
         let before = Counters {
+            operations: 0,
+            actual: 0,
             events: maximum - 3,
             open: 0,
             issued: 0,
@@ -221,6 +272,8 @@ mod tests {
         };
         check_budget(&before, Reservation::Ordinary(1)).unwrap();
         let last_precaution = Counters {
+            operations: 0,
+            actual: 0,
             events: maximum - 2,
             open: 0,
             issued: 0,
@@ -234,6 +287,8 @@ mod tests {
         );
         check_budget(&last_precaution, Reservation::PlaceHold).unwrap();
         let held = Counters {
+            operations: 0,
+            actual: 0,
             events: maximum - 1,
             open: 1,
             issued: 0,
@@ -243,6 +298,8 @@ mod tests {
         assert!(check_budget(&held, Reservation::Ordinary(1)).is_err());
         assert!(check_budget(&held, Reservation::PlaceHold).is_err());
         let two = Counters {
+            operations: 0,
+            actual: 0,
             events: maximum - 2,
             open: 2,
             issued: 0,
@@ -251,6 +308,8 @@ mod tests {
         check_budget(&two, Reservation::ReleaseHold).unwrap();
         check_budget(
             &Counters {
+                operations: 0,
+                actual: 0,
                 events: maximum - 1,
                 open: 1,
                 issued: 0,
@@ -262,6 +321,8 @@ mod tests {
         assert!(
             check_budget(
                 &Counters {
+                    operations: 0,
+                    actual: 0,
                     events: maximum,
                     open: 0,
                     issued: 0,
@@ -278,6 +339,8 @@ mod tests {
     fn issued_documents_reserve_unused_closure_without_spending_hold_release_slots() {
         let maximum = HUB_STOCK_EVENT_CAPACITY as u32;
         let before = Counters {
+            operations: 0,
+            actual: 0,
             events: maximum - 4,
             open: 0,
             issued: 0,
@@ -285,6 +348,8 @@ mod tests {
         };
         check_budget(&before, Reservation::OpenIssued).unwrap();
         let full = Counters {
+            operations: 0,
+            actual: 0,
             events: maximum - 1,
             open: 0,
             issued: 1,
@@ -294,6 +359,8 @@ mod tests {
         assert!(check_budget(&full, Reservation::Ordinary(1)).is_err());
         assert!(check_budget(&full, Reservation::OpenIssued).is_err());
         let both = Counters {
+            operations: 0,
+            actual: 0,
             events: maximum - 2,
             open: 1,
             issued: 1,
@@ -313,6 +380,8 @@ mod departure_review_tests {
     #[test]
     fn an_issued_departure_uses_its_reserved_closure_while_generic_work_stays_blocked() {
         let counters = Counters {
+            operations: 0,
+            actual: 0,
             primary: 0,
             open: 0,
             issued: 1,
@@ -331,5 +400,93 @@ mod departure_review_tests {
                 .code(),
             SafeErrorCode::HubCapacity
         );
+    }
+}
+
+#[cfg(test)]
+mod actual_journal_tests {
+    use super::*;
+    #[test]
+    fn multiple_pending_reports_reserve_every_review_alongside_hold_and_document_closure() {
+        let mut c = Counters {
+            operations: HUB_STOCK_EVENT_CAPACITY as u32 - 10,
+            events: HUB_STOCK_EVENT_CAPACITY as u32 - 12,
+            primary: HUB_TREATMENT_CAPACITY as u32,
+            actual: 3,
+            open: 2,
+            issued: 1,
+        };
+        check_budget(&c, Reservation::ActualReport).unwrap();
+        c.operations += 1;
+        c.actual += 1;
+        assert_eq!(
+            check_budget(&c, Reservation::ActualReport)
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubCapacity
+        );
+        for _ in 0..4 {
+            check_budget(&c, Reservation::ActualReview { physical: true }).unwrap();
+            c.operations += 1;
+            c.events += 1;
+            c.actual -= 1;
+        }
+        for _ in 0..2 {
+            check_budget(&c, Reservation::ReleaseHold).unwrap();
+            c.operations += 1;
+            c.events += 1;
+            c.open -= 1;
+        }
+        check_budget(&c, Reservation::CloseIssued).unwrap();
+        assert_eq!(
+            check_budget(&c, Reservation::ActualReview { physical: false })
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::StorageCorrupt
+        );
+    }
+    #[test]
+    fn pending_review_reserves_a_physical_event_while_duplicate_link_releases_it() {
+        let mut c = Counters {
+            operations: 100,
+            events: HUB_STOCK_EVENT_CAPACITY as u32 - 5,
+            primary: 0,
+            actual: 2,
+            open: 1,
+            issued: 0,
+        };
+        assert_eq!(
+            check_budget(&c, Reservation::ActualReport)
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubCapacity
+        );
+        check_budget(&c, Reservation::ActualReview { physical: true }).unwrap();
+        check_budget(&c, Reservation::ActualReview { physical: false }).unwrap();
+        c.operations += 1;
+        c.actual -= 1;
+        check_budget(&c, Reservation::ActualReport).unwrap();
+    }
+    #[test]
+    fn ordinary_effects_and_document_closure_reserve_operations_independently_of_event_space() {
+        let c = Counters {
+            operations: HUB_STOCK_EVENT_CAPACITY as u32 - 2,
+            events: 100,
+            primary: 0,
+            actual: 0,
+            open: 0,
+            issued: 1,
+        };
+        assert_eq!(
+            check_budget(&c, Reservation::Ordinary(1))
+                .unwrap_err()
+                .code(),
+            SafeErrorCode::HubCapacity
+        );
+        assert_eq!(
+            check_budget(&c, Reservation::Depart(1)).unwrap_err().code(),
+            SafeErrorCode::HubCapacity
+        );
+        check_budget(&c, Reservation::CloseIssued).unwrap();
     }
 }

@@ -89,6 +89,7 @@ class TracePresenter(
                 exitsOffset = 0,
                 countLossesOffset = 0,
                 dispositionsOffset = 0,
+                actualDeparturesOffset = 0,
             )
         read {
             val snapshot = requireNotNull(runtime).traceSnapshot(HubTraceSnapshotQuery(id))
@@ -156,6 +157,13 @@ class TracePresenter(
         val count = current.snapshot?.countLosses?.size ?: return
         val offset = current.countLossesOffset + delta * 64
         if (delta in -1..1 && offset >= 0 && offset < count) mutableState.value = current.copy(countLossesOffset = offset)
+    }
+
+    fun actualDeparturesPage(delta: Int) {
+        val current = mutableState.value
+        val count = current.snapshot?.actualDepartures?.size ?: return
+        val offset = current.actualDeparturesOffset + delta * 64
+        if (delta in -1..1 && offset >= 0 && offset < count) mutableState.value = current.copy(actualDeparturesOffset = offset)
     }
 
     fun dispositionsPage(delta: Int) {

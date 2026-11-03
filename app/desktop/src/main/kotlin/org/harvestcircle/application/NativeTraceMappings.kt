@@ -61,6 +61,7 @@ internal fun HubTracePageDto.toModel() =
                 it.departedWholePacks,
                 it.countedLossWholePacks,
                 it.disposedWholePacks,
+                it.actualDepartedWholePacks,
             )
         },
     )
@@ -134,6 +135,43 @@ internal fun HubTraceSnapshotDto.toModel() =
                 it.observation,
             )
         },
+        actualDepartedWholePacks,
+        actualDepartures.map {
+            HubTraceActualDeparture(
+                it.reportId,
+                OperationId.from(it.operationId),
+                it.stockRevision,
+                it.catalogRevision,
+                IdentityId.fromPublicKeyHex(it.reportActorPublicKey),
+                UnixSeconds(it.reportRecordedAtUnixS),
+                it.reportedOccurrence.toModel(),
+                it.reportedClockConflict,
+                it.originalObservation,
+                IdentityId.fromPublicKeyHex(it.actorPublicKey),
+                UnixSeconds(it.recordedAtUnixS),
+                it.occurrence.toModel(),
+                it.wholePacks,
+                it.before.toModel(),
+                it.onHandAfterWholePacks,
+                it.afterGroupRevision,
+                it.afterCausalFloorUnixS?.let(::UnixSeconds),
+                it.product.toModel(),
+                it.variant.toModel(),
+                it.recipient.toModel(),
+                it.balancingLocation.toModel(),
+                it.historicalLocation.toModel(),
+                OperationId.from(it.sourceOperationId),
+                it.sourceGroupId,
+                it.sourceEvidence,
+                it.quantityEvidence,
+                it.recipientEvidence,
+                it.timingEvidence,
+                it.duplicateReviewBasis,
+                it.workChanges.map { change ->
+                    HubDepartureWorkChange(change.before.toModel(), change.after.toModel(), change.retiredWholePacks)
+                },
+            )
+        },
     )
 
 private fun HubTraceHistoryKindDto.toModel() =
@@ -159,6 +197,9 @@ private fun HubTraceHistoryKindDto.toModel() =
         HubTraceHistoryKindDto.REPLACE_IDENTIFICATION -> HubTraceHistoryKind.ReplaceIdentification
         HubTraceHistoryKindDto.MARK_IDENTIFICATION_UNUSED -> HubTraceHistoryKind.MarkIdentificationUnused
         HubTraceHistoryKindDto.DEPARTURE -> HubTraceHistoryKind.Departure
+        HubTraceHistoryKindDto.ACTUAL_REPORTED -> HubTraceHistoryKind.ActualReported
+        HubTraceHistoryKindDto.ACTUAL_RECONCILED -> HubTraceHistoryKind.ActualReconciled
+        HubTraceHistoryKindDto.ACTUAL_LINKED -> HubTraceHistoryKind.ActualLinked
     }
 
 internal fun HubTraceHistoryPageDto.toModel() =

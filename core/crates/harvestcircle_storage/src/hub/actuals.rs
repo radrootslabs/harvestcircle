@@ -1,4 +1,15 @@
 //! Canonical read evidence for reported actuals. No mutation or archived grant.
+pub(in crate::hub) mod common;
+pub(in crate::hub) mod links;
+mod model;
+pub use model::*;
+pub(in crate::hub) mod frozen;
+pub(in crate::hub) mod projection;
+pub(in crate::hub) mod reports;
+pub(in crate::hub) mod reviews;
+pub(crate) mod schema;
+pub(in crate::hub) mod validation;
+pub(in crate::hub) mod write;
 use super::{handling, reference, stock};
 use crate::{
     Database,
@@ -85,16 +96,22 @@ impl Database {
                     let source = handling::actuals::source_on(
                         tx,
                         hub.id(),
-                        &loaded,
+                        &loaded.graph,
+                        &loaded.trace,
                         &query.operation,
                         query.group,
                     )
                     .await?;
                     let subsequent_activity =
-                        handling::actuals::activity_on(tx, hub.id(), &loaded, &source).await?;
-                    let known_departures =
-                        handling::actuals::known_departures_on(tx, hub.id(), query.context.trace)
+                        handling::actuals::activity_on(tx, hub.id(), &loaded.graph, &source)
                             .await?;
+                    let known_departures = handling::actuals::known_departures_on(
+                        tx,
+                        hub.id(),
+                        query.context.trace,
+                        state.revision,
+                    )
+                    .await?;
                     Ok(HubActualSourceEvidence {
                         lineage: HubActualLineageEvidence {
                             revision: state.revision,
@@ -161,3 +178,5 @@ impl Database {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod upgrade_tests;

@@ -7,6 +7,11 @@ pub(super) async fn capture_on(
     operation: &DurableRequestId,
     request: HubSubmittedRequest<'_>,
 ) -> Result<ArchivedHubSubmission, SafeError> {
+    if let HubSubmittedRequest::ActualReport(command) = &request {
+        command
+            .validate()
+            .map_err(crate::hub::actuals::common::error)?;
+    }
     request.archive().map_err(archive_error)?;
     if actor != scope.actor {
         return Err(reference::hub_permission_denied());
@@ -39,12 +44,17 @@ pub(super) async fn capture_on(
     let hub = reference::authorize_on(tx, actor).await?;
     let catalog = reference::load_catalog_on(tx, hub.id()).await?;
     let state = stock::read::state_on(tx, hub.id()).await?;
-    let (expected_stock, expected_catalog) =
-        targets::expected_versions(&request).ok_or_else(corrupt_storage)?;
-    if expected_catalog != catalog.revision()
-        || expected_stock.is_some_and(|revision| revision != state.revision)
-    {
-        return Err(stock::conflict());
+    if let Some((expected_stock, expected_catalog)) = targets::expected_versions(&request) {
+        if expected_catalog != catalog.revision()
+            || expected_stock.is_some_and(|revision| revision != state.revision)
+        {
+            return Err(stock::conflict());
+        }
+    } else if !matches!(
+        &request,
+        HubSubmittedRequest::ActualReport(_) | HubSubmittedRequest::ActualLink(_)
+    ) {
+        return Err(corrupt_storage());
     }
     let mut targets = targets::Targets::from_request(&request);
     if targets.groups.len() > harvestcircle_domain::hub::portions::HUB_PHYSICAL_SCOPES {
@@ -52,6 +62,57 @@ pub(super) async fn capture_on(
     }
     let mut material = Vec::new();
     match &request {
+        HubSubmittedRequest::ActualReview(command) => {
+            let context =
+                crate::hub::actuals::frozen::current_on(tx, hub.id(), command, None).await?;
+            targets
+                .references
+                .extend([context.group.variant, context.group.location]);
+            material.push(HubSubmittedMaterial::ActualReview(Box::new(
+                harvestcircle_application::hub_submission::HubSubmittedActualReview {
+                    id: crate::hub::actuals::common::operation_id(operation)?,
+                    report: context.report,
+                    group: context.group,
+                    lineage: context.lineage,
+                    births: context.births,
+                    treatment: context.treatment,
+                    source: context.source,
+                    activity: context.activity,
+                    known_departures: context.known,
+                    uncertain_submissions: context.uncertain_submissions,
+                },
+            )));
+        }
+        HubSubmittedRequest::ActualLink(command) => {
+            let report = crate::hub::actuals::reports::by_id_on(tx, hub.id(), command.report)
+                .await?
+                .original;
+            let reviewed:Option<String>=sqlx::query_scalar("SELECT review_operation_id FROM hub_actual_report_reviews WHERE report_id=? LIMIT 1")
+                .bind(report.id.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+            if reviewed.is_some() {
+                return Err(stock::conflict());
+            }
+            let known = handling::actuals::known_departures_on(
+                tx,
+                hub.id(),
+                command.known_trace,
+                state.revision,
+            )
+            .await?
+            .into_iter()
+            .find(|known| {
+                known.operation == command.known_operation
+                    && known.variant.id == command.known_variant
+            })
+            .ok_or_else(stock::invalid_input)?;
+            material.push(HubSubmittedMaterial::ActualLink(Box::new(
+                harvestcircle_application::hub_submission::HubSubmittedActualLink {
+                    id: crate::hub::actuals::common::operation_id(operation)?,
+                    report,
+                    known,
+                },
+            )));
+        }
         HubSubmittedRequest::Return(command) => {
             let context =
                 crate::hub::custody::returns::context::load_on(tx, hub.id(), command).await?;
@@ -162,7 +223,7 @@ pub(super) async fn capture_on(
     let mut work = BTreeMap::new();
     if let Some(id) = targets.work {
         let value = handling::read::work_on(tx, hub.id(), id).await?;
-        let rows=sqlx::query("SELECT substr(group_id,1,17) AS group_id FROM hub_group_work WHERE work_id=? AND progress='pending' ORDER BY group_id LIMIT 257")
+        let rows=sqlx::query("SELECT substr(group_id,1,17) AS group_id FROM hub_group_work WHERE work_id=? AND progress='pending' AND scoped_packs>0 ORDER BY group_id LIMIT 257")
             .bind(id.as_bytes().as_slice()).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
         if rows.len() > harvestcircle_domain::hub::movement::HUB_REQUIREMENT_GROUPS {
             return Err(corrupt_storage());
@@ -215,7 +276,11 @@ pub(super) async fn capture_on(
             &HubSubmissionContext {
                 hub,
                 catalog_revision: Some(catalog.revision()),
-                stock_revision: expected_stock.map(|_| state.revision),
+                stock_revision: if matches!(&request, HubSubmittedRequest::Reference(_)) {
+                    None
+                } else {
+                    Some(state.revision)
+                },
                 material: &material,
             },
         )

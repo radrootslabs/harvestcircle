@@ -105,6 +105,9 @@ pub enum HubTraceHistoryKind {
     Handling(HubHandlingKind),
     Dispatch(dispatch::HubDispatchKind),
     Departure,
+    ActualReported,
+    ActualReconciled,
+    ActualLinked,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HubTraceHistoryEntry {

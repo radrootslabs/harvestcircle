@@ -337,6 +337,51 @@ pub(super) async fn load_catalog_on(
     ReferenceCatalog::restore(revision_from_sql(revision)?, records).map_err(|_| corrupt_storage())
 }
 
+/// Immutable catalog through a captured native revision. Later labels/archival
+/// changes do not rewrite original comparison. This grants no current authority.
+pub(in crate::hub) async fn load_catalog_through_on(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    cut: HubRevision,
+) -> Result<ReferenceCatalog, SafeError> {
+    validate_basis_on(transaction, hub).await?;
+    let cut_sql = i64::try_from(cut.value()).map_err(|_| corrupt_storage())?;
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM hub_reference_versions WHERE hub_id=? AND catalog_revision<=?",
+    )
+    .bind(hub.as_bytes().as_slice())
+    .bind(cut_sql)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(|_| storage_unavailable())?;
+    if !(0..=HUB_REFERENCE_HISTORY_CAPACITY as i64).contains(&count)
+        || count.checked_add(1).and_then(|v| u64::try_from(v).ok()) != Some(cut.value())
+    {
+        return Err(corrupt_storage());
+    }
+    let gaps:i64=sqlx::query_scalar("SELECT count(*) FROM (SELECT record_id FROM hub_reference_versions WHERE hub_id=? AND catalog_revision<=? GROUP BY record_id HAVING count(*)<>max(record_revision))")
+        .bind(hub.as_bytes().as_slice()).bind(cut_sql).fetch_one(&mut *transaction).await.map_err(|_|storage_unavailable())?;
+    if gaps != 0 {
+        return Err(corrupt_storage());
+    }
+    let query = reference_select!(
+        " FROM hub_reference_versions AS v WHERE v.hub_id=? AND v.catalog_revision<=? AND NOT EXISTS (SELECT 1 FROM hub_reference_versions AS newer WHERE newer.record_id=v.record_id AND newer.catalog_revision<=? AND newer.record_revision>v.record_revision) ORDER BY v.record_id LIMIT ?"
+    );
+    let rows = sqlx::query(query)
+        .bind(hub.as_bytes().as_slice())
+        .bind(cut_sql)
+        .bind(cut_sql)
+        .bind(i64::try_from(HUB_REFERENCE_CAPACITY + 1).expect("finite capacity"))
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| storage_unavailable())?;
+    let records = rows
+        .iter()
+        .map(decode_record)
+        .collect::<Result<Vec<_>, _>>()?;
+    ReferenceCatalog::restore(cut, records).map_err(|_| corrupt_storage())
+}
+
 async fn operation_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,

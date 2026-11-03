@@ -1,6 +1,58 @@
 use super::source::witness;
 use super::*;
 
+#[test]
+fn historical_actual_preserves_later_native_floor_and_fences_new_handling() {
+    let mut f = Fixture::new(known_occurrence(120));
+    f.group.causal_floor = Some(at(130));
+    let reduction = ActualPhysicalReduction::plan(&f.group, packs(2)).unwrap();
+    assert!(
+        f.group
+            .observation_floor(known_occurrence(120), at(170))
+            .is_err()
+    );
+    for occurred in [
+        known_occurrence(120),
+        interval(120, 140),
+        Occurrence::Unknown,
+    ] {
+        assert_eq!(
+            reduction
+                .causal_floor_after_reconciliation(occurred, at(170))
+                .unwrap(),
+            Some(at(130))
+        );
+    }
+    assert_eq!(
+        reduction
+            .causal_floor_after_reconciliation(known_occurrence(140), at(170))
+            .unwrap(),
+        Some(at(140))
+    );
+    assert_eq!(
+        reduction.causal_floor_after_reconciliation(known_occurrence(171), at(170)),
+        Err(ActualReportError::InvalidInput)
+    );
+    assert_eq!(
+        reduction.causal_floor_after_reconciliation(Occurrence::Unknown, at(120)),
+        Err(ActualReportError::InvalidNativeContext)
+    );
+    f.group.causal_floor = None;
+    let reduction = ActualPhysicalReduction::plan(&f.group, packs(2)).unwrap();
+    assert_eq!(
+        reduction
+            .causal_floor_after_reconciliation(Occurrence::Unknown, at(170))
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        reduction
+            .causal_floor_after_reconciliation(interval(120, 140), at(170))
+            .unwrap(),
+        Some(at(120))
+    );
+}
+
 fn command(f: &Fixture) -> ActualNewDepartureCommand {
     ActualNewDepartureCommand {
         facts: f.facts.clone(),
@@ -48,6 +100,7 @@ fn advance(f: &mut Fixture) {
 }
 fn known(f: &Fixture) -> ActualKnownDeparture {
     ActualKnownDeparture {
+        actor: owner(),
         operation: id(231),
         hub: f.graph.hub(),
         stock_revision: HubRevision::from_value(f.original.stock_revision.value() + 1).unwrap(),

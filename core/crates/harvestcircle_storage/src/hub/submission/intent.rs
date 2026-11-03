@@ -48,6 +48,9 @@ pub(super) fn hash(
         ),
         HubSubmittedRequest::CountObservation(c) => c.fingerprint(hub, actor, id),
         HubSubmittedRequest::CountPosting(c) => c.fingerprint(hub, actor, id),
+        HubSubmittedRequest::ActualReport(c) => c.fingerprint(hub, actor, id),
+        HubSubmittedRequest::ActualReview(c) => c.fingerprint(hub, actor, id),
+        HubSubmittedRequest::ActualLink(c) => c.fingerprint(hub, actor, id),
         HubSubmittedRequest::Return(c) => c.fingerprint(
             hub,
             actor,

@@ -175,5 +175,7 @@ fn known_kind(kind: &str) -> bool {
             | "count_post"
             | "return"
             | "disposition"
+            | "actual_report"
+            | "actual_review"
     )
 }

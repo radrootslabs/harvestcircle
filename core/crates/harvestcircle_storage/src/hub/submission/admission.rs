@@ -3,6 +3,10 @@ use super::*;
 use harvestcircle_domain::{SafeErrorCode, SafeMessage, UnixTimestamp};
 
 const ORDINARY_ADMISSION_CAPACITY: i64 = 65_536;
+// The extra raw admission preserves a blocking pending fact if the completed
+// report allocation is full. Ordinary command traffic cannot consume this slot.
+const ACTUAL_REPORT_ADMISSION_CAPACITY: i64 =
+    harvestcircle_domain::hub::actuals::HUB_ACTUAL_REPORT_CAPACITY as i64 + 1;
 const CLOSURE_CAPTURE_BYTES: usize = 1024 * 1024;
 
 // Neither serialized, cloned nor reconstructed from a saved pending row.
@@ -28,6 +32,11 @@ pub(super) async fn prepare_on(
 ) -> Result<Decision, SafeError> {
     session::require_on(tx, scope).await?;
     let request = mutation.submitted_request();
+    if let HubSubmittedRequest::ActualReport(command) = &request {
+        command
+            .validate()
+            .map_err(crate::hub::actuals::common::error)?;
+    }
     let raw = request.archive().map_err(archive_error)?;
     let hub = match &request {
         HubSubmittedRequest::Initialize(candidate) => {
@@ -88,14 +97,30 @@ pub(super) async fn prepare_on(
     }
     let archive = capture::capture_on(tx, scope.actor, scope, &operation, request).await?;
     let closing = matches!(archive.kind(), "hold_release" | "dispatch_unused");
-    if closing {
+    if archive.kind() == "actual_report" {
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM hub_submissions WHERE kind='actual_report'")
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(|_| storage_unavailable())?;
+        if count < 0 {
+            return Err(corrupt_storage());
+        }
+        if count >= ACTUAL_REPORT_ADMISSION_CAPACITY {
+            return Err(stock::capacity());
+        }
+    } else if archive.kind() == "actual_review" {
+        // This closes an existing unresolved report, validated by capture.
+        // Complete native review cuts retain the regular bounded 16MiB archive
+        // allowance; ordinary traffic must never consume their closure capacity.
+    } else if closing {
         // Recovery/closure does not spend the ordinary-admission allocation.
         // Every individual archived input/material remains bounded.
         if archive.as_bytes().len() > CLOSURE_CAPTURE_BYTES {
             return Err(stock::capacity());
         }
     } else {
-        let count:i64=sqlx::query_scalar("SELECT count(*) FROM hub_submissions WHERE kind NOT IN ('hold_release','dispatch_unused')")
+        let count:i64=sqlx::query_scalar("SELECT count(*) FROM hub_submissions WHERE kind NOT IN ('hold_release','dispatch_unused','actual_report','actual_review')")
             .fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
         if count < 0 {
             return Err(corrupt_storage());

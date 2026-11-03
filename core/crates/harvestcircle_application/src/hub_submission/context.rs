@@ -147,6 +147,29 @@ pub struct HubSubmittedDisposition {
     pub unresolved_actuals: bool,
 }
 
+/// Complete native physical cut for review. Its presence grants no current
+/// authority and stored material has no command decoder.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct HubSubmittedActualReview {
+    pub id: HubRecordId,
+    pub report: harvestcircle_domain::hub::actuals::ActualReportRecord,
+    pub group: PhysicalStockGroup,
+    pub lineage: harvestcircle_domain::hub::portions::PhysicalLineage,
+    pub births: Vec<harvestcircle_domain::hub::actuals::ActualPhysicalBirth>,
+    pub treatment: harvestcircle_domain::hub::treatment::TreatmentState,
+    pub source: harvestcircle_domain::hub::actuals::HistoricalActualSource,
+    pub activity: Vec<harvestcircle_domain::hub::actuals::ActualPhysicalActivity>,
+    pub known_departures: Vec<harvestcircle_domain::hub::actuals::ActualKnownDeparture>,
+    pub uncertain_submissions: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct HubSubmittedActualLink {
+    pub id: HubRecordId,
+    pub report: harvestcircle_domain::hub::actuals::ActualReportRecord,
+    pub known: harvestcircle_domain::hub::actuals::ActualKnownDeparture,
+}
+
 /// Native adapters capture only referenced/affected records at the admission cut.
 /// A record's presence does not establish current authority or safe reconciliation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -162,6 +185,8 @@ pub enum HubSubmittedMaterial {
     Discrepancy(Box<harvestcircle_domain::hub::movement::Discrepancy>),
     Return(Box<HubSubmittedReturn>),
     Disposition(Box<HubSubmittedDisposition>),
+    ActualReview(Box<HubSubmittedActualReview>),
+    ActualLink(Box<HubSubmittedActualLink>),
 }
 impl HubSubmittedMaterial {
     fn identity(&self) -> (u8, HubRecordId, u64) {
@@ -176,6 +201,8 @@ impl HubSubmittedMaterial {
             Self::Discrepancy(v) => (7, v.id, 0),
             Self::Return(v) => (8, v.id, 0),
             Self::Disposition(v) => (9, v.id, 0),
+            Self::ActualReview(v) => (10, v.id, 0),
+            Self::ActualLink(v) => (11, v.id, 0),
         }
     }
 }

@@ -173,7 +173,25 @@ pub(super) async fn load_on(
         });
     }
     dispositions.sort_by_key(|r| (r.stock_revision.value(), r.id));
+    let ids:Vec<String>=sqlx::query_scalar("SELECT substr(r.operation_id,1,37) FROM hub_actual_reviews r JOIN hub_stock_operations o ON o.operation_id=r.operation_id WHERE r.trace_id=? AND r.review_kind='departure' ORDER BY o.stock_revision LIMIT 4097")
+        .bind(trace.as_bytes().as_slice()).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    if ids.len() > harvestcircle_domain::hub::actuals::HUB_ACTUAL_REPORT_CAPACITY {
+        return Err(corrupt_storage());
+    }
+    let mut actual_departures = Vec::with_capacity(ids.len());
+    for id in ids {
+        let id = DurableRequestId::parse(id).map_err(|_| corrupt_storage())?;
+        let op = stock::read::operation_on(tx, hub, &id)
+            .await?
+            .ok_or_else(corrupt_storage)?;
+        let receipt = crate::hub::actuals::reviews::original_on(tx, hub, op).await?;
+        let crate::hub::actuals::HubActualReviewOriginal::Departure(plan) = receipt.original else {
+            return Err(corrupt_storage());
+        };
+        actual_departures.push(*plan);
+    }
     let snapshot = TraceSnapshot {
+        actual_departures,
         count_losses: crate::hub::counts::posting::losses_on(tx, hub, trace).await?,
         dispositions,
         hub,

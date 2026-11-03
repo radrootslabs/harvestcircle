@@ -21,6 +21,12 @@ impl Targets {
         let mut t = Self::default();
         match request {
             HubSubmittedRequest::Initialize(_) => {}
+            // Raw actual claims must not resolve possibly unknown identifiers.
+            // Linking a depleted original requires no current positive group.
+            HubSubmittedRequest::ActualReport(_) | HubSubmittedRequest::ActualLink(_) => {}
+            HubSubmittedRequest::ActualReview(c) => {
+                t.references.insert(c.facts.recipient);
+            }
             HubSubmittedRequest::Reference(c) => match &c.mutation {
                 ReferenceMutation::Create { value, .. } => t.reference_value(value),
                 ReferenceMutation::Revise { id, value, .. } => {
@@ -143,6 +149,11 @@ pub(super) fn expected_versions(
 ) -> Option<(Option<HubRevision>, HubRevision)> {
     Some(match request {
         HubSubmittedRequest::Initialize(_) => return None,
+        HubSubmittedRequest::ActualReport(_) | HubSubmittedRequest::ActualLink(_) => return None,
+        HubSubmittedRequest::ActualReview(c) => (
+            Some(c.facts.expected_stock_revision),
+            c.facts.expected_catalog_revision,
+        ),
         HubSubmittedRequest::Reference(c) => (None, c.expected_catalog_revision),
         HubSubmittedRequest::Receive(c) => {
             (Some(c.expected_stock_revision), c.expected_catalog_revision)

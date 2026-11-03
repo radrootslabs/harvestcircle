@@ -19,6 +19,8 @@ pub enum HubMutationResult {
     CountPosted(Box<HubCountPostReceipt>),
     Returned(Box<HubReturnReceipt>),
     Disposed(Box<HubDispositionReceipt>),
+    ActualReported(Box<crate::HubActualReportReceipt>),
+    ActualReviewed(Box<crate::HubActualReviewReceipt>),
 }
 
 impl std::fmt::Debug for HubMutationResult {
@@ -35,6 +37,8 @@ impl std::fmt::Debug for HubMutationResult {
             Self::CountPosted(_) => "CountPosted",
             Self::Returned(_) => "Returned",
             Self::Disposed(_) => "Disposed",
+            Self::ActualReported(_) => "ActualReported",
+            Self::ActualReviewed(_) => "ActualReviewed",
         };
         f.debug_tuple("HubMutationResult").field(&kind).finish()
     }
@@ -75,9 +79,14 @@ pub(super) async fn execute_fresh(
     now: UnixTimestamp,
 ) -> Result<HubMutationResult, SafeError> {
     let operation = grant.operation.clone();
+    let preserve_actual_report = matches!(&grant.mutation, HubMutation::ActualReport(_));
     let result = execute(db, grant.scope.actor, grant.operation, grant.mutation, now).await;
     match result {
         Ok(value) => Ok(value),
+        // A valid already-taken claim was committed at admission. An execution
+        // failure must retain that raw pending original and its planned-action
+        // fence, even when the stock transaction itself certainly rolled back.
+        Err(_) if preserve_actual_report => Err(admission::outcome_unknown()),
         Err(error)
             if matches!(
                 error.code(),
@@ -110,6 +119,41 @@ async fn execute(
 ) -> Result<HubMutationResult, SafeError> {
     use harvestcircle_domain::hub::movement::HandlingCommand;
     Ok(match mutation {
+        HubMutation::ActualReport(command) => HubMutationResult::ActualReported(Box::new(
+            db.host()
+                .transaction(|tx| {
+                    Box::pin(async move {
+                        crate::hub::actuals::reports::apply_on(tx, actor, operation, *command, now)
+                            .await
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)?,
+        )),
+        HubMutation::ActualReview(command) => HubMutationResult::ActualReviewed(Box::new(
+            db.host()
+                .transaction(|tx| {
+                    Box::pin(async move {
+                        crate::hub::actuals::write::departure_on(
+                            tx, actor, operation, *command, now,
+                        )
+                        .await
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)?,
+        )),
+        HubMutation::ActualLink(command) => HubMutationResult::ActualReviewed(Box::new(
+            db.host()
+                .transaction(|tx| {
+                    Box::pin(async move {
+                        crate::hub::actuals::links::apply_on(tx, actor, operation, *command, now)
+                            .await
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)?,
+        )),
         HubMutation::Initialize(candidate) => {
             HubMutationResult::Initialized(db.initialize_hub(*candidate, &operation, now).await?)
         }

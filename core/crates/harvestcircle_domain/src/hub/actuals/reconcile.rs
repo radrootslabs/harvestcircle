@@ -27,6 +27,29 @@ pub struct ActualPhysicalReduction {
     pub removed_work_scope: Vec<ActualRemovedWorkScope>,
 }
 impl ActualPhysicalReduction {
+    /// Already-taken facts may precede a later recorded arrival. Reconciliation
+    /// never lowers the remaining cohort's native floor or permits earlier new
+    /// planned handling. Unknown occurrence supplies no invented clock.
+    pub fn causal_floor_after_reconciliation(
+        &self,
+        occurred: Occurrence,
+        now: UnixTimestamp,
+    ) -> Result<Option<UnixTimestamp>, ActualReportError> {
+        self.validate()?;
+        if self.before.causal_floor.is_some_and(|floor| floor > now) {
+            return Err(ActualReportError::InvalidNativeContext);
+        }
+        occurred
+            .validate(now)
+            .map_err(|_| ActualReportError::InvalidInput)?;
+        let observed = match occurred {
+            Occurrence::Known(at) => Some(at),
+            Occurrence::Interval { earliest, .. } => Some(earliest),
+            Occurrence::Unknown => None,
+        };
+        Ok(self.before.causal_floor.max(observed))
+    }
+
     pub fn plan(before: &PhysicalStockGroup, packs: WholePacks) -> Result<Self, ActualReportError> {
         before
             .validate()
@@ -118,6 +141,7 @@ pub struct ActualKnownDepartureLine {
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct ActualKnownDeparture {
     pub operation: HubRecordId,
+    pub actor: PublicKey,
     pub hub: HubId,
     pub stock_revision: HubRevision,
     pub catalog_revision: HubRevision,
@@ -182,7 +206,7 @@ pub struct ActualNewDepartureContext<'a> {
     pub known_departures: &'a [ActualKnownDeparture],
     pub prior_review: Option<HubRecordId>,
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct ActualNewDeparturePlan {
     pub operation: HubRecordId,
     pub report: ActualReportRecord,
@@ -192,7 +216,53 @@ pub struct ActualNewDeparturePlan {
     pub comparison: ActualReviewComparison,
     pub historical_source: ResolvedActualSource,
     pub reduction: ActualPhysicalReduction,
+    pub after_causal_floor: Option<UnixTimestamp>,
     pub duplicate_review_basis: SourceProvenance,
+}
+impl ActualNewDeparturePlan {
+    /// Scoped physical facts from this result, not a validated full original or
+    /// permission. Native persistence first verifies the complete plan/context.
+    pub fn physical_projection(&self) -> Result<ActualKnownDeparture, ActualReportError> {
+        self.report.validate()?;
+        self.reduction.validate()?;
+        let before = &self.reduction.before;
+        let scope = &self.comparison.scope;
+        let source = self.historical_source.historical();
+        if self.comparison.original != self.report
+            || scope.before != *before
+            || scope.compared_departure != self.reduction.actual_departed
+            || scope.on_hand_after != self.reduction.on_hand_after
+            || self.comparison.facts.group != before.id
+            || self.comparison.facts.packs != self.reduction.actual_departed
+            || scope.variant.id != before.variant
+            || scope.recipient.id != self.comparison.facts.recipient
+            || self.historical_source.balancing_group() != before.id
+            || source.group.trace != before.trace
+            || source.group.variant != before.variant
+            || source.hub != self.report.hub
+        {
+            return Err(ActualReportError::InvalidHistory);
+        }
+        let projection = ActualKnownDeparture {
+            operation: self.operation,
+            actor: self.actor,
+            hub: self.report.hub,
+            stock_revision: self.stock_revision,
+            catalog_revision: self.comparison.facts.expected_catalog_revision,
+            trace: before.trace,
+            variant: scope.variant.clone(),
+            recipient: scope.recipient.clone(),
+            occurred: self.comparison.facts.occurred,
+            recorded_at: self.recorded_at,
+            lines: vec![ActualKnownDepartureLine {
+                group: before.id,
+                location: source.location.clone(),
+                packs: self.reduction.actual_departed,
+            }],
+        };
+        projection.validate()?;
+        Ok(projection)
+    }
 }
 impl ActualNewDepartureCommand {
     #[must_use]
@@ -286,6 +356,8 @@ impl ActualNewDepartureCommand {
             }
         }
         let reduction = ActualPhysicalReduction::plan(context.review.group, self.facts.packs)?;
+        let after_causal_floor =
+            reduction.causal_floor_after_reconciliation(self.facts.occurred, now)?;
         Ok(ActualNewDeparturePlan {
             operation,
             report: context.review.original.clone(),
@@ -299,6 +371,7 @@ impl ActualNewDepartureCommand {
             comparison,
             historical_source: source,
             reduction,
+            after_causal_floor,
             duplicate_review_basis: self.duplicate_review_basis.clone(),
         })
     }

@@ -6,6 +6,8 @@ mod execute;
 mod intent;
 pub use execute::HubMutationResult;
 #[cfg(test)]
+mod actual_tests;
+#[cfg(test)]
 mod admission_tests;
 mod read;
 mod session;

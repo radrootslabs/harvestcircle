@@ -91,6 +91,9 @@ internal fun TraceWorkspace(
                     "Original ${snapshot.trace.originalWholePacks} · On hand ${snapshot.onHandWholePacks} · Actual departed ${snapshot.departedWholePacks}",
                     Modifier.testTag("trace-balance"),
                 )
+                if (snapshot.actualDepartedWholePacks > 0U) {
+                    HarvestCircleShellText("Reconciled already-taken departures ${snapshot.actualDepartedWholePacks}")
+                }
                 HarvestCircleShellText(
                     "Counts belong to this population and pack unit. Unknown origin and unrecorded or off-device activity cannot be ruled out.",
                 )
@@ -162,6 +165,9 @@ private fun TraceBrowser(
                 HarvestCircleShellText(
                     "Original ${row.trace.originalWholePacks} · On hand ${row.onHandWholePacks} · Actual departed ${row.departedWholePacks} · Count shortage ${row.countedLossWholePacks} · Physical disposition ${row.disposedWholePacks}",
                 )
+                if (row.actualDepartedWholePacks > 0U) {
+                    HarvestCircleShellText("Reconciled already-taken departures ${row.actualDepartedWholePacks}")
+                }
                 HarvestCircleShellText(
                     "Source: ${row.trace.source.certainty} · ${row.trace.source.code ?: "Unknown"} · Issuer ${row.trace.source.issuer
                         ?.value
@@ -224,8 +230,62 @@ private fun TraceOverview(
             )
         }
     }
-    HarvestCircleShellText("Retained actual departure lines", role = HarvestCircleShellTextRole.SectionTitle)
-    if (snapshot.exits.isEmpty()) HarvestCircleShellText("No recorded actual departure in this population.")
+    if (snapshot.actualDepartures.isNotEmpty()) {
+        HarvestCircleShellText("Reconciled already-taken departures", role = HarvestCircleShellTextRole.SectionTitle)
+        HarvestCircleShellText("Reconciliation records historical facts. Current holds and planned-action requirements remain separate.")
+        snapshot.actualDepartures.drop(state.actualDeparturesOffset).take(64).forEach { actual ->
+            HarvestCircleShellPanel {
+                HarvestCircleShellText(
+                    "${actual.wholePacks} packs · Recipient ${actual.recipient.value.label}",
+                    role = HarvestCircleShellTextRole.BodyStrong,
+                )
+                HarvestCircleShellText("Report ${actual.reportId} · Review ${actual.operationId.value}")
+                HarvestCircleShellText("Original report: ${actual.originalObservation}")
+                HarvestCircleShellText(
+                    "Reported occurrence ${actual.reportedOccurrence.kind} · Start ${actual.reportedOccurrence.startUnixSeconds ?: "Unknown"} · End ${actual.reportedOccurrence.endUnixSeconds ?: "Unknown"}",
+                )
+                HarvestCircleShellText("Report recorded ${stockUtc(actual.reportRecordedAt.value)} · ${actual.reportActor.value}")
+                if (actual.reportedClockConflict) {
+                    HarvestCircleShellText(
+                        "The original reported time conflicts with its recording clock. The original claim remains unchanged.",
+                    )
+                }
+                HarvestCircleShellText(
+                    "Reviewed occurrence ${actual.occurrence.kind} · Start ${actual.occurrence.startUnixSeconds ?: "Unknown"} · End ${actual.occurrence.endUnixSeconds ?: "Unknown"}",
+                )
+                HarvestCircleShellText("Review recorded ${stockUtc(actual.recordedAt.value)} · ${actual.actor.value}")
+                HarvestCircleShellText(
+                    "Historical source: ${actual.historicalLocation.value.label} · Group ${actual.sourceGroupId} · ${actual.sourceOperationId.value}",
+                )
+                HarvestCircleShellText(
+                    "Balancing location at review: ${actual.balancingLocation.value.label} · Before ${actual.before.wholePacks} · After ${actual.onHandAfterWholePacks}",
+                )
+                HarvestCircleShellText("Source: ${actual.sourceEvidence}")
+                HarvestCircleShellText("Quantity: ${actual.quantityEvidence}")
+                HarvestCircleShellText("Recipient: ${actual.recipientEvidence}")
+                HarvestCircleShellText("Timing: ${actual.timingEvidence}")
+                HarvestCircleShellText("Duplicate review: ${actual.duplicateReviewBasis}")
+            }
+        }
+        if (snapshot.actualDepartures.size > 64) {
+            Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
+                HarvestCircleShellButton(
+                    "Previous reconciliations",
+                    { presenter.actualDeparturesPage(-1) },
+                    enabled =
+                        state.actualDeparturesOffset > 0,
+                )
+                HarvestCircleShellButton(
+                    "Next reconciliations",
+                    { presenter.actualDeparturesPage(1) },
+                    enabled =
+                        state.actualDeparturesOffset + 64 < snapshot.actualDepartures.size,
+                )
+            }
+        }
+    }
+    HarvestCircleShellText("Retained documented departure lines", role = HarvestCircleShellTextRole.SectionTitle)
+    if (snapshot.exits.isEmpty()) HarvestCircleShellText("No documented departure in this population.")
     snapshot.exits.drop(state.exitsOffset).take(64).forEach { exit ->
         HarvestCircleShellPanel {
             HarvestCircleShellText(
@@ -386,4 +446,7 @@ private fun traceActionLabel(kind: HubTraceHistoryKind): String =
         HubTraceHistoryKind.ReplaceIdentification -> "Identification replaced"
         HubTraceHistoryKind.MarkIdentificationUnused -> "Identification marked unused"
         HubTraceHistoryKind.Departure -> "Actual departure recorded"
+        HubTraceHistoryKind.ActualReported -> "Unverified already-taken report preserved"
+        HubTraceHistoryKind.ActualReconciled -> "Already-taken departure reconciled"
+        HubTraceHistoryKind.ActualLinked -> "Duplicate report linked to original departure"
     }

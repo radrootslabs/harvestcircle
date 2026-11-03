@@ -31,7 +31,9 @@ pub use contract::{
 };
 pub use db::{CURRENT_SCHEMA_VERSION, Database};
 pub use hub::actuals::{
-    HubActualLineageEvidence, HubActualLineageQuery, HubActualSourceEvidence, HubActualSourceQuery,
+    HubActualLineageEvidence, HubActualLineageQuery, HubActualReportFilter, HubActualReportPage,
+    HubActualReportQuery, HubActualReportReceipt, HubActualReportRow, HubActualReviewOriginal,
+    HubActualReviewReceipt, HubActualSourceEvidence, HubActualSourceQuery,
 };
 pub use hub::counts::{HubCountObservationReceipt, HubCountPostReceipt, HubCountReview};
 pub use hub::handling::departure::{

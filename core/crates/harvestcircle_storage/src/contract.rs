@@ -14,7 +14,7 @@ pub const HARVESTCIRCLE_SERVICE_ID: &str = "harvestcircle";
 pub const HARVESTCIRCLE_INSTANCE_ID: &str = "desktop";
 pub const HARVESTCIRCLE_APPLICATION_ID: u32 = 0x4843_5231;
 pub(crate) const HARVESTCIRCLE_INITIAL_STATE_SCHEMA_VERSION: u32 = 1;
-pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 17;
+pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 18;
 pub const HARVESTCIRCLE_IDENTITY_CAPACITY: usize = 256;
 pub const HARVESTCIRCLE_UNFINISHED_DURABLE_OPERATION_CAPACITY: usize = 1_024;
 pub const HARVESTCIRCLE_DURABLE_OPERATION_CAPACITY: usize = 4_096;
@@ -652,6 +652,13 @@ pub fn harvestcircle_migration_catalog()
         crate::hub::custody::schema::MIGRATION_CHECKSUM,
     )
     .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)?;
+    let actuals = MigrationDescriptor::sql(
+        18,
+        "add_actual_reports_and_reviews",
+        crate::hub::actuals::schema::MIGRATION_SQL,
+        crate::hub::actuals::schema::MIGRATION_CHECKSUM,
+    )
+    .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)?;
     MigrationCatalog::new([
         migration,
         evidence,
@@ -669,6 +676,7 @@ pub fn harvestcircle_migration_catalog()
         reconciliation,
         submission,
         custody,
+        actuals,
     ])
     .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)
 }
@@ -781,6 +789,12 @@ fn schema_catalog_for(
         SchemaDigest::from_bytes(crate::hub::custody::schema::SCHEMA_DIGEST),
     )
     .map_err(schema_error)?;
+    let version_eighteen = SchemaVersionCatalog::new(
+        18,
+        schema_objects_v18()?,
+        SchemaDigest::from_bytes(crate::hub::actuals::schema::SCHEMA_DIGEST),
+    )
+    .map_err(schema_error)?;
     SchemaCatalog::new(
         migrations,
         [
@@ -801,6 +815,7 @@ fn schema_catalog_for(
             version_fifteen,
             version_sixteen,
             version_seventeen,
+            version_eighteen,
         ],
     )
     .map_err(schema_error)
@@ -821,12 +836,25 @@ fn schema_objects_v6() -> Result<Vec<SchemaObject>, HarvestCircleStorageContract
     Ok(objects)
 }
 
+fn schema_objects_v18() -> Result<Vec<SchemaObject>, HarvestCircleStorageContractError> {
+    let mut objects = schema_objects_v17()?;
+    objects
+        .retain(|object| !crate::hub::actuals::schema::REPLACED_OBJECTS.contains(&object.name()));
+    objects.extend(crate::hub::actuals::schema::schema_objects().map_err(schema_error)?);
+    Ok(objects)
+}
+
 fn schema_objects_v17() -> Result<Vec<SchemaObject>, HarvestCircleStorageContractError> {
     let mut objects = schema_objects_v16()?;
     objects
         .retain(|object| !crate::hub::custody::schema::REPLACED_OBJECTS.contains(&object.name()));
     objects.extend(crate::hub::custody::schema::schema_objects().map_err(schema_error)?);
     Ok(objects)
+}
+
+#[cfg(test)]
+pub(crate) fn retained_schema17_objects() -> Vec<SchemaObject> {
+    schema_objects_v17().expect("published schema17 contract")
 }
 
 #[cfg(test)]
@@ -1129,6 +1157,25 @@ mod tests {
     }
 
     #[test]
+    fn actual_schema18_native_definition_measurements() {
+        let schema = &crate::hub::actuals::schema::MIGRATION_SQL;
+        let checksum = MigrationChecksum::for_sql(schema);
+        let mut objects = retained_schema17_objects();
+        objects.retain(|object| {
+            !crate::hub::actuals::schema::REPLACED_OBJECTS.contains(&object.name())
+        });
+        objects.extend(crate::hub::actuals::schema::schema_objects().unwrap());
+        let digest = SchemaVersionCatalog::computed_digest(18, objects).unwrap();
+        println!("ACTUAL_CHECKSUM={:?}", checksum.as_bytes());
+        println!("ACTUAL_SCHEMA_DIGEST={:?}", digest.as_bytes());
+        assert_eq!(checksum, crate::hub::actuals::schema::MIGRATION_CHECKSUM);
+        assert_eq!(
+            digest.as_bytes(),
+            &crate::hub::actuals::schema::SCHEMA_DIGEST
+        );
+    }
+
+    #[test]
     fn count_schema15_pins_match_reviewed_definitions() {
         let checksum =
             MigrationChecksum::for_sql(crate::hub::counts::reconciliation_schema::MIGRATION_SQL);
@@ -1335,10 +1382,10 @@ mod tests {
             contract.application_id().get(),
             HARVESTCIRCLE_APPLICATION_ID
         );
-        assert_eq!(contract.state_schema_version().get(), 17);
-        assert_eq!(contract.migrations().current_version(), 17);
-        assert_eq!(contract.migrations().descriptors().len(), 16);
-        assert_eq!(contract.schema().versions().len(), 17);
+        assert_eq!(contract.state_schema_version().get(), 18);
+        assert_eq!(contract.migrations().current_version(), 18);
+        assert_eq!(contract.migrations().descriptors().len(), 17);
+        assert_eq!(contract.schema().versions().len(), 18);
         assert_eq!(harvestcircle_initial_schema_sql().len(), 9);
     }
 

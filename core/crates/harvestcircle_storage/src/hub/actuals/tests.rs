@@ -11,6 +11,14 @@ use harvestcircle_domain::hub::{
 use harvestcircle_domain::{SafeErrorCode, UnixTimestamp};
 use sqlx::Connection;
 
+mod arrivals;
+mod candidate_schema;
+mod closure;
+mod holds;
+mod mutations;
+mod replan;
+mod report_capacity;
+mod seals;
 mod source;
 
 fn at(n: i64) -> UnixTimestamp {

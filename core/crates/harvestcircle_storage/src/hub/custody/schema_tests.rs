@@ -17,7 +17,9 @@ async fn forward_custody_schema_is_additive_and_preserves_current_originals() {
             .iter()
             .find(|row| row.get::<String, _>("name") == object.name())
             .unwrap();
-        if !super::schema::REPLACED_OBJECTS.contains(&object.name()) {
+        if !super::schema::REPLACED_OBJECTS.contains(&object.name())
+            && !crate::hub::actuals::schema::REPLACED_OBJECTS.contains(&object.name())
+        {
             let actual = radroots_service_sqlite::SchemaObject::computed_digest(
                 object.kind(),
                 object.name(),

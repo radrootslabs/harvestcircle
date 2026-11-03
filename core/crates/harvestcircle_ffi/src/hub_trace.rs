@@ -95,6 +95,7 @@ pub struct HubTraceRowDto {
     pub departed_whole_packs: u32,
     pub counted_loss_whole_packs: u32,
     pub disposed_whole_packs: u32,
+    pub actual_departed_whole_packs: u32,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
@@ -125,6 +126,7 @@ impl From<HubTracePage> for HubTracePageDto {
                     departed_whole_packs: row.balance.departed.value(),
                     counted_loss_whole_packs: row.balance.counted_loss.value(),
                     disposed_whole_packs: row.balance.disposed.value(),
+                    actual_departed_whole_packs: row.balance.actual_departed.value(),
                 })
                 .collect(),
         }
@@ -202,10 +204,95 @@ pub struct HubTraceSnapshotDto {
     pub departed_whole_packs: u32,
     pub counted_loss_whole_packs: u32,
     pub disposed_whole_packs: u32,
+    pub actual_departed_whole_packs: u32,
     pub on_hand: Vec<HubTracePositionDto>,
     pub exits: Vec<HubTraceExitDto>,
     pub count_losses: Vec<HubTraceCountLossDto>,
     pub dispositions: Vec<HubTraceDispositionDto>,
+    pub actual_departures: Vec<HubTraceActualDepartureDto>,
+}
+
+/// An immutable native reconciliation; current location and historical source
+/// remain distinct. This transport grants no later action or hold clearance.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct HubTraceActualDepartureDto {
+    pub report_id: String,
+    pub operation_id: String,
+    pub stock_revision: u64,
+    pub catalog_revision: u64,
+    pub report_actor_public_key: String,
+    pub report_recorded_at_unix_s: i64,
+    pub reported_occurrence: HubOccurrenceDto,
+    pub reported_clock_conflict: bool,
+    pub original_observation: String,
+    pub actor_public_key: String,
+    pub recorded_at_unix_s: i64,
+    pub occurrence: HubOccurrenceDto,
+    pub whole_packs: u32,
+    pub before: crate::hub_handling::HubPhysicalGroupDto,
+    pub on_hand_after_whole_packs: u32,
+    pub after_group_revision: u64,
+    pub after_causal_floor_unix_s: Option<i64>,
+    pub product: HubReferenceRecordDto,
+    pub variant: HubReferenceRecordDto,
+    pub recipient: HubReferenceRecordDto,
+    pub balancing_location: HubReferenceRecordDto,
+    pub historical_location: HubReferenceRecordDto,
+    pub source_operation_id: String,
+    pub source_group_id: String,
+    pub source_evidence: String,
+    pub quantity_evidence: String,
+    pub recipient_evidence: String,
+    pub timing_evidence: String,
+    pub duplicate_review_basis: String,
+    pub work_changes: Vec<crate::hub_departure::HubDepartureWorkChangeDto>,
+}
+impl From<&harvestcircle_domain::hub::actuals::ActualNewDeparturePlan>
+    for HubTraceActualDepartureDto
+{
+    fn from(value: &harvestcircle_domain::hub::actuals::ActualNewDeparturePlan) -> Self {
+        let source = value.historical_source.historical();
+        let scope = &value.comparison.scope;
+        let facts = &value.comparison.facts;
+        Self {
+            report_id: value.report.id.to_hex(),
+            operation_id: operation_text(value.operation),
+            stock_revision: value.stock_revision.value(),
+            catalog_revision: facts.expected_catalog_revision.value(),
+            report_actor_public_key: value.report.actor.to_hex(),
+            report_recorded_at_unix_s: value.report.recorded_at.as_seconds(),
+            reported_occurrence: value.report.report.occurred.into(),
+            reported_clock_conflict:value.report.recording_clock_assessment()==harvestcircle_domain::hub::actuals::ActualReportedClockAssessment::RecordingClockConflict,
+            original_observation: value.report.report.observation.as_str().to_owned(),
+            actor_public_key: value.actor.to_hex(),
+            recorded_at_unix_s: value.recorded_at.as_seconds(),
+            occurrence: facts.occurred.into(),
+            whole_packs: facts.packs.value(),
+            before: (&value.reduction.before).into(),
+            on_hand_after_whole_packs: value.reduction.on_hand_after.value(),
+            after_group_revision: value.reduction.after_revision.value(),
+            after_causal_floor_unix_s: value.after_causal_floor.map(|at| at.as_seconds()),
+            product: (&scope.product).into(),
+            variant: (&scope.variant).into(),
+            recipient: (&scope.recipient).into(),
+            balancing_location: (&scope.current_location).into(),
+            historical_location: (&source.location).into(),
+            source_operation_id: operation_text(source.operation),
+            source_group_id: source.group.id.to_hex(),
+            source_evidence: facts.source_evidence.as_str().to_owned(),
+            quantity_evidence: facts.quantity_evidence.as_str().to_owned(),
+            recipient_evidence: facts.recipient_evidence.as_str().to_owned(),
+            timing_evidence: facts.timing_evidence.as_str().to_owned(),
+            duplicate_review_basis: value.duplicate_review_basis.as_str().to_owned(),
+            work_changes: value
+                .reduction
+                .work_changes
+                .iter()
+                .map(Into::into)
+                .collect(),
+        }
+    }
 }
 impl TryFrom<TraceSnapshot> for HubTraceSnapshotDto {
     type Error = HarvestCircleError;
@@ -225,6 +312,8 @@ impl TryFrom<TraceSnapshot> for HubTraceSnapshotDto {
             departed_whole_packs: balance.departed.value(),
             counted_loss_whole_packs: balance.counted_loss.value(),
             disposed_whole_packs: balance.disposed.value(),
+            actual_departed_whole_packs: balance.actual_departed.value(),
+            actual_departures: value.actual_departures.iter().map(Into::into).collect(),
             dispositions: value.dispositions.into_iter().map(Into::into).collect(),
             on_hand: value
                 .on_hand
@@ -343,6 +432,9 @@ pub enum HubTraceHistoryKindDto {
     ReplaceIdentification,
     MarkIdentificationUnused,
     Departure,
+    ActualReported,
+    ActualReconciled,
+    ActualLinked,
 }
 impl From<HubTraceHistoryKind> for HubTraceHistoryKindDto {
     fn from(value: HubTraceHistoryKind) -> Self {
@@ -354,6 +446,9 @@ impl From<HubTraceHistoryKind> for HubTraceHistoryKindDto {
             HubTraceHistoryKind::CountObserved => Self::CountObserved,
             HubTraceHistoryKind::CountReconciled => Self::CountReconciled,
             HubTraceHistoryKind::Departure => Self::Departure,
+            HubTraceHistoryKind::ActualReported => Self::ActualReported,
+            HubTraceHistoryKind::ActualReconciled => Self::ActualReconciled,
+            HubTraceHistoryKind::ActualLinked => Self::ActualLinked,
             HubTraceHistoryKind::Handling(kind) => match kind {
                 HubHandlingKind::Move => Self::Move,
                 HubHandlingKind::Split => Self::Split,

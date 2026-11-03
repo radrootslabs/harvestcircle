@@ -19,6 +19,36 @@ pub(in crate::hub) async fn state_on(
     restore(graph, &records)
 }
 
+/// Immutable treatment originals through a sealed physical review cut. Later
+/// placements/releases are intentionally excluded, never treated as permission.
+pub(in crate::hub) async fn historical_state_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    graph: &PhysicalLineage,
+) -> Result<TreatmentState, SafeError> {
+    let count:i64=sqlx::query_scalar("SELECT count(*) FROM hub_treatment_records t JOIN hub_stock_operations o ON o.operation_id=t.operation_id WHERE t.trace_id=? AND o.hub_id=? AND o.stock_revision<=?")
+        .bind(graph.trace().as_bytes().as_slice()).bind(hub.as_bytes().as_slice()).bind(integer(graph.revision())?)
+        .fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    if !(0..=(HUB_TREATMENT_RECORDS_PER_TRACE * 2) as i64).contains(&count) {
+        return Err(corrupt_storage());
+    }
+    let ids:Vec<String>=sqlx::query_scalar("SELECT substr(t.operation_id,1,37) FROM hub_treatment_records t JOIN hub_stock_operations o ON o.operation_id=t.operation_id WHERE t.trace_id=? AND o.hub_id=? AND o.stock_revision<=? ORDER BY o.stock_revision LIMIT 513")
+        .bind(graph.trace().as_bytes().as_slice()).bind(hub.as_bytes().as_slice()).bind(integer(graph.revision())?)
+        .fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    if ids.len() != count as usize {
+        return Err(corrupt_storage());
+    }
+    let mut records = Vec::with_capacity(ids.len());
+    for id in ids {
+        let id = DurableRequestId::parse(id).map_err(|_| corrupt_storage())?;
+        let op = stock::read::operation_on(tx, hub, &id)
+            .await?
+            .ok_or_else(corrupt_storage)?;
+        records.push(history::decode_on(tx, graph, op).await?);
+    }
+    restore(graph, &records)
+}
+
 fn restore(
     graph: &PhysicalLineage,
     records: &[HubHandlingReceipt],

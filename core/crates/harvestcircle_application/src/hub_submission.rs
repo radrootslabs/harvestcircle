@@ -5,6 +5,7 @@
 //! verify the current session and persist admission before executing a mutation.
 use harvestcircle_domain::hub::{
     HubOwnership,
+    actuals::{ActualDuplicateLink, ActualNewDepartureCommand, ActualReportCommand},
     counts::{CountObserveCommand, CountPostCommand},
     departure::DepartureCommand,
     dispatch::DispatchCommand,
@@ -39,6 +40,9 @@ pub enum HubSubmittedRequest<'a> {
     CountPosting(&'a CountPostCommand),
     Return(&'a ReturnCommand),
     Disposition(&'a DispositionCommand),
+    ActualReport(&'a ActualReportCommand),
+    ActualReview(&'a ActualNewDepartureCommand),
+    ActualLink(&'a ActualDuplicateLink),
 }
 
 /// An owned native request can move through admission without decoding an archive.
@@ -55,6 +59,9 @@ pub enum HubMutation {
     CountPosting(Box<CountPostCommand>),
     Return(Box<ReturnCommand>),
     Disposition(Box<DispositionCommand>),
+    ActualReport(Box<ActualReportCommand>),
+    ActualReview(Box<ActualNewDepartureCommand>),
+    ActualLink(Box<ActualDuplicateLink>),
 }
 
 impl HubMutation {
@@ -72,6 +79,9 @@ impl HubMutation {
             Self::CountPosting(value) => HubSubmittedRequest::CountPosting(value),
             Self::Return(value) => HubSubmittedRequest::Return(value),
             Self::Disposition(value) => HubSubmittedRequest::Disposition(value),
+            Self::ActualReport(value) => HubSubmittedRequest::ActualReport(value),
+            Self::ActualReview(value) => HubSubmittedRequest::ActualReview(value),
+            Self::ActualLink(value) => HubSubmittedRequest::ActualLink(value),
         }
     }
 }
@@ -91,6 +101,8 @@ impl HubSubmittedRequest<'_> {
             Self::CountPosting(_) => "count_post",
             Self::Return(_) => "return",
             Self::Disposition(_) => "disposition",
+            Self::ActualReport(_) => "actual_report",
+            Self::ActualReview(_) | Self::ActualLink(_) => "actual_review",
         }
     }
 
@@ -137,6 +149,31 @@ impl Serialize for HubSubmittedRequest<'_> {
             Self::CountPosting(command) => command.serialize(serializer),
             Self::Return(command) => command.serialize(serializer),
             Self::Disposition(command) => command.serialize(serializer),
+            Self::ActualReport(command) => command.serialize(serializer),
+            Self::ActualReview(command) => {
+                #[derive(Serialize)]
+                struct Input<'a> {
+                    review_kind: &'static str,
+                    details: &'a ActualNewDepartureCommand,
+                }
+                Input {
+                    review_kind: "departure",
+                    details: command,
+                }
+                .serialize(serializer)
+            }
+            Self::ActualLink(command) => {
+                #[derive(Serialize)]
+                struct Input<'a> {
+                    review_kind: &'static str,
+                    details: &'a ActualDuplicateLink,
+                }
+                Input {
+                    review_kind: "link",
+                    details: command,
+                }
+                .serialize(serializer)
+            }
         }
     }
 }

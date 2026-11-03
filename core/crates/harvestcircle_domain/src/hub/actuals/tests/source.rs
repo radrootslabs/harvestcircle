@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) fn witness(f: &Fixture) -> HistoricalActualSource {
     HistoricalActualSource {
+        actor: owner(),
         operation: id(200),
         hub: f.graph.hub(),
         stock_revision: HubRevision::from_value(f.original.stock_revision.value() - 1).unwrap(),
@@ -31,6 +32,7 @@ fn event(
     occurred: Occurrence,
 ) -> ActualPhysicalActivity {
     ActualPhysicalActivity {
+        actor: owner(),
         sequence: 10,
         operation: id(201),
         hub: f.graph.hub(),
@@ -86,6 +88,20 @@ fn later_reconciled_count_blocks_a_second_reduction_of_already_accounted_missing
     let counted = event(&f, ActualPhysicalActivityKind::CountReconciled, known(140));
     assert_eq!(
         resolve(&f, &source, &[counted]),
+        Err(ActualReportError::HistoricalSourceUnresolved)
+    );
+}
+
+#[test]
+fn narrowed_original_arrival_cannot_lend_an_expanded_current_cohort_even_when_requested_packs_fit()
+{
+    let f = Fixture::new(known(120));
+    let mut source = witness(&f);
+    source.group.packs = packs(5);
+    assert_eq!(f.group.packs, packs(6));
+    assert!(f.facts.packs.value() <= 5);
+    assert_eq!(
+        resolve(&f, &source, &[]),
         Err(ActualReportError::HistoricalSourceUnresolved)
     );
 }
@@ -205,5 +221,12 @@ fn native_activity_bounds_order_scope_and_original_snapshot_damage_fail_closed()
     );
     let mut next = event.clone();
     next.sequence += 1;
-    assert!(resolve(&f, &source, &[event, next]).is_ok());
+    assert!(resolve(&f, &source, &[event.clone(), next.clone()]).is_ok());
+    next.actor =
+        PublicKey::from_hex("c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5")
+            .unwrap();
+    assert_eq!(
+        resolve(&f, &source, &[event, next]),
+        Err(ActualReportError::InvalidNativeContext)
+    );
 }

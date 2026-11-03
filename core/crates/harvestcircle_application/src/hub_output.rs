@@ -162,7 +162,21 @@ pub fn trace_output(snapshot: &TraceSnapshot) -> Result<LocalOutput, LocalOutput
     out.field(original_label, &balance.original.value().to_string())?;
     out.field("On hand", &balance.on_hand.value().to_string())?;
     out.field("Actual departed", &balance.departed.value().to_string())?;
-    if balance.disposed.value() > 0 {
+    if balance.actual_departed.value() > 0 {
+        out.field(
+            "Reconciled already-taken departures",
+            &balance.actual_departed.value().to_string(),
+        )?;
+        out.field(
+            "Observed non-buyer removal",
+            &balance.disposed.value().to_string(),
+        )?;
+        out.field(
+            "Unexplained count shortage",
+            &balance.counted_loss.value().to_string(),
+        )?;
+        out.paragraph("Original recorded packs equal on-hand packs, documented departures, reconciled already-taken departures, observed non-buyer removals and unexplained count shortages. Historical reconciliation grants no retrospective permission and changes no current hold.")?;
+    } else if balance.disposed.value() > 0 {
         out.field(
             "Observed non-buyer removal",
             &balance.disposed.value().to_string(),
@@ -230,9 +244,87 @@ pub fn trace_output(snapshot: &TraceSnapshot) -> Result<LocalOutput, LocalOutput
             out.field("Observation", removal.observation.as_str())?;
         }
     }
-    out.heading("All retained actual departure lines in this population")?;
+    if !snapshot.actual_departures.is_empty() {
+        out.heading("Reconciled already-taken departures")?;
+        for actual in &snapshot.actual_departures {
+            out.field("Original report", &actual.report.id.to_hex())?;
+            out.field("Review operation", &operation_text(actual.operation))?;
+            out.field("Review actor", &actual.actor.to_hex())?;
+            out.field("Report actor", &actual.report.actor.to_hex())?;
+            out.field(
+                "Report recorded at (Unix seconds)",
+                &actual.report.recorded_at.as_seconds().to_string(),
+            )?;
+            out.field(
+                "Review recorded at (Unix seconds)",
+                &actual.recorded_at.as_seconds().to_string(),
+            )?;
+            out.field(
+                "Whole packs",
+                &actual.reduction.actual_departed.value().to_string(),
+            )?;
+            reference(
+                &mut out,
+                "Verified recipient",
+                &actual.comparison.scope.recipient,
+            )?;
+            reference(
+                &mut out,
+                "Historical source location",
+                &actual.historical_source.historical().location,
+            )?;
+            reference(
+                &mut out,
+                "Balancing location at review",
+                &actual.comparison.scope.current_location,
+            )?;
+            out.field(
+                "Original observation",
+                actual.report.report.observation.as_str(),
+            )?;
+            out.field("Original reported clock",match actual.report.recording_clock_assessment() {
+                harvestcircle_domain::hub::actuals::ActualReportedClockAssessment::Unknown=>"Unknown",
+                harvestcircle_domain::hub::actuals::ActualReportedClockAssessment::NotAfterRecordedTime=>"Not after recording",
+                harvestcircle_domain::hub::actuals::ActualReportedClockAssessment::RecordingClockConflict=>"Recording clock conflict; original claim retained",
+            })?;
+            out.field(
+                "Original reported occurrence (UTC)",
+                &occurrence_value(actual.report.report.occurred)?,
+            )?;
+            out.field(
+                "Reviewed physical occurrence (UTC)",
+                &occurrence_value(actual.comparison.facts.occurred)?,
+            )?;
+            out.field(
+                "Source verification",
+                actual.comparison.facts.source_evidence.as_str(),
+            )?;
+            out.field(
+                "Quantity verification",
+                actual.comparison.facts.quantity_evidence.as_str(),
+            )?;
+            out.field(
+                "Recipient verification",
+                actual.comparison.facts.recipient_evidence.as_str(),
+            )?;
+            out.field(
+                "Timing verification",
+                actual.comparison.facts.timing_evidence.as_str(),
+            )?;
+            out.field("Duplicate review", actual.duplicate_review_basis.as_str())?;
+        }
+    }
+    out.heading(if snapshot.actual_departures.is_empty() {
+        "All retained actual departure lines in this population"
+    } else {
+        "All retained documented departure lines in this population"
+    })?;
     if snapshot.exits.is_empty() {
-        out.paragraph("No recorded actual departure in this population.")?;
+        out.paragraph(if snapshot.actual_departures.is_empty() {
+            "No recorded actual departure in this population."
+        } else {
+            "No documented departure in this population."
+        })?;
     }
     for exit in &snapshot.exits {
         let event = &exit.departure;
@@ -358,6 +450,17 @@ fn occurrence(out: &mut Html, value: Occurrence) -> Result<(), LocalOutputError>
             "Actual occurrence interval (UTC)",
             &format!("{} through {}", utc(earliest)?, utc(latest)?),
         ),
+    }
+}
+fn occurrence_value(value: Occurrence) -> Result<String, LocalOutputError> {
+    match value {
+        Occurrence::Unknown => {
+            Ok("Unknown; recording time does not establish actual time".to_owned())
+        }
+        Occurrence::Known(at) => utc(at),
+        Occurrence::Interval { earliest, latest } => {
+            Ok(format!("{} through {}", utc(earliest)?, utc(latest)?))
+        }
     }
 }
 fn reference(out: &mut Html, label: &str, value: &ReferenceRecord) -> Result<(), LocalOutputError> {

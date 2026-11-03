@@ -249,6 +249,8 @@ pub struct TraceBalance {
     pub departed: WholePacks,
     pub counted_loss: WholePacks,
     pub disposed: WholePacks,
+    /// Verified already-taken departures, separate from planned documents and loss.
+    pub actual_departed: WholePacks,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TraceSnapshot {
@@ -260,6 +262,7 @@ pub struct TraceSnapshot {
     pub exits: Vec<TraceExit>,
     pub count_losses: Vec<TraceCountLoss>,
     pub dispositions: Vec<TraceDisposition>,
+    pub actual_departures: Vec<super::actuals::ActualNewDeparturePlan>,
 }
 impl TraceSnapshot {
     /// Reconciles one original population; never sums different pack variants.
@@ -280,6 +283,9 @@ impl TraceSnapshot {
         if self.count_losses.len() > super::counts::HUB_COUNT_CAPACITY {
             return Err(TraceError::Capacity);
         }
+        if self.actual_departures.len() > super::actuals::HUB_ACTUAL_REPORT_CAPACITY {
+            return Err(TraceError::Capacity);
+        }
         let mut groups = BTreeSet::new();
         let mut departures = BTreeMap::new();
         let mut operations = BTreeMap::new();
@@ -287,6 +293,7 @@ impl TraceSnapshot {
         let mut departed = on_hand;
         let mut counted_loss = on_hand;
         let mut disposed = on_hand;
+        let mut actual_departed = on_hand;
         for position in &self.on_hand {
             if position.packs.value() == 0
                 || position.location.value.kind() != ReferenceKind::Location
@@ -380,10 +387,35 @@ impl TraceSnapshot {
                 .checked_add(loss.packs)
                 .map_err(|_| TraceError::Accounting)?;
         }
+        let mut reports = BTreeSet::new();
+        for actual in &self.actual_departures {
+            let physical = actual
+                .physical_projection()
+                .map_err(|_| TraceError::InvalidSnapshot)?;
+            if physical.hub != self.hub
+                || physical.trace != self.trace.id
+                || physical.variant.id != self.trace.variant.id
+                || physical.stock_revision.value() > self.stock_revision.value()
+                || physical.catalog_revision.value() > self.catalog_revision.value()
+                || actual.report.stock_revision.value() >= actual.stock_revision.value()
+                || actual.report.catalog_revision.value() > physical.catalog_revision.value()
+                || actual.report.recorded_at > actual.recorded_at
+                || !reports.insert(actual.report.id)
+                || operations
+                    .insert(actual.operation, actual.report.id)
+                    .is_some()
+            {
+                return Err(TraceError::InvalidSnapshot);
+            }
+            actual_departed = actual_departed
+                .checked_add(physical.packs().map_err(|_| TraceError::InvalidSnapshot)?)
+                .map_err(|_| TraceError::Accounting)?;
+        }
         if on_hand
             .checked_add(departed)
             .and_then(|total| total.checked_add(counted_loss))
             .and_then(|total| total.checked_add(disposed))
+            .and_then(|total| total.checked_add(actual_departed))
             .map_err(|_| TraceError::Accounting)?
             != self.trace.original_packs
         {
@@ -396,6 +428,7 @@ impl TraceSnapshot {
             departed,
             counted_loss,
             disposed,
+            actual_departed,
         })
     }
 }
