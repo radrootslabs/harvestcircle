@@ -9,6 +9,9 @@ use super::reference::{HubRecordId, WholePacks};
 use super::trace::TraceBalance;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod attribution;
+pub use attribution::*;
+
 pub const HUB_CORRECTION_ROWS: usize = 4_096;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

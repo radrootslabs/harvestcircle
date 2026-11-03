@@ -292,6 +292,19 @@ There are at most 4,096 correction/amendment/explanation rows in a complete trac
 accounting cut, independently of existing original-event capacities. These pure
 checks grant no source, treatment, physical handling or execution authority.
 
+Unexposed attribution policy reconstructs current source and whole-event recipient
+meaning from complete ordered amendments. Changing issuer/type/code/provenance
+requires a new source identity; matching printed codes do not merge sources.
+Explicit unknown and possible facts remain visible. Every original population,
+prior association, affected departure, frozen issued version and recipient remains
+in a bounded impact set; omission or exhaustion blocks the amendment. Source
+amendments require later native scope to cover prior downstream impacts. Each new
+correction starts outstanding manual follow-up. Local per-target work observations
+retain evidence, actor, time and their preceding version; they neither establish
+external delivery/acknowledgement nor carry completion to a later correction.
+Current native authority, complete original/scope readers, atomic persistence and
+application forms remain required before operational exposure.
+
 Pure count policy lives in `harvestcircle_domain::hub::counts`. Observation plans
 capture the original population, pack/location versions, recorded count, cutoff
 and observer without changing stock or work. A fresh comparison rejects changed
