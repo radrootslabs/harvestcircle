@@ -17,6 +17,143 @@ pub(in crate::hub) struct LoadedLineage {
     pub trace: StockPopulation,
 }
 
+/// Every quantity comes from its validated immutable birth original, not the
+/// current lineage row. Current zero-pack groups remain part of the evidence.
+pub(in crate::hub) async fn actual_births_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    loaded: &LoadedLineage,
+) -> Result<Vec<harvestcircle_domain::hub::actuals::ActualPhysicalBirth>, SafeError> {
+    use harvestcircle_domain::hub::actuals::{
+        ActualPhysicalBirth, ActualPhysicalBirthKind as Kind,
+    };
+    use harvestcircle_domain::hub::portions::PhysicalScopeAnchor;
+    if loaded.graph.hub() != hub
+        || loaded.graph.trace() != loaded.trace.id
+        || loaded.rows.len() != loaded.graph.nodes().len()
+        || loaded.rows.is_empty()
+        || loaded.rows.len() > HUB_LINEAGE_GROUPS
+    {
+        return Err(corrupt_storage());
+    }
+    // Stored recording bounds qualify archival data even during a host-clock
+    // rollback. This read neither invents physical occurrence nor grants writes.
+    let recording_bound = loaded
+        .rows
+        .iter()
+        .map(|r| r.created_at)
+        .max()
+        .ok_or_else(corrupt_storage)?;
+    let mut births = Vec::with_capacity(loaded.rows.len());
+    for row in &loaded.rows {
+        let operation = stock::read::operation_on(tx, hub, &row.created_operation)
+            .await?
+            .ok_or_else(corrupt_storage)?;
+        if operation.actor != row.created_by
+            || operation.recorded_at != row.created_at
+            || operation.revision != row.created_revision
+        {
+            return Err(corrupt_storage());
+        }
+        let operation_id = HubRecordId::from_hex(&operation.id.as_str().replace('-', ""))
+            .map_err(|_| corrupt_storage())?;
+        let (kind, packs) = match row.created_kind {
+            HubGroupCreationKind::Receipt
+            | HubGroupCreationKind::CountedOpening
+            | HubGroupCreationKind::CountedSurplus
+            | HubGroupCreationKind::Returned => {
+                let (kind, expected) = match row.created_kind {
+                    HubGroupCreationKind::Receipt => (Kind::Receipt, "receipt"),
+                    HubGroupCreationKind::CountedOpening => (Kind::CountedOpening, "opening"),
+                    HubGroupCreationKind::CountedSurplus => (Kind::CountedSurplus, "count_post"),
+                    HubGroupCreationKind::Returned => (Kind::Returned, "return"),
+                    _ => return Err(corrupt_storage()),
+                };
+                if operation.kind != expected {
+                    return Err(corrupt_storage());
+                }
+                let original =
+                    stock::read::population_on(tx, hub, operation, loaded.trace.id).await?;
+                if original != loaded.trace || original.occurred != row.occurred {
+                    return Err(corrupt_storage());
+                }
+                (kind, original.original_packs)
+            }
+            HubGroupCreationKind::Movement => {
+                let original = history::movement_on(tx, hub, operation).await?;
+                let HubHandlingResult::Moved(result) = original.result else {
+                    return Err(corrupt_storage());
+                };
+                if original.trace != loaded.trace.id
+                    || result.moved_group != row.id
+                    || Some(result.selected_group) != row.parent
+                    || result.occurred != row.occurred
+                    || result.separated_portion.is_none()
+                {
+                    return Err(corrupt_storage());
+                }
+                (Kind::ObservedPortion, result.packs)
+            }
+            HubGroupCreationKind::Separation => {
+                let original = portions::original_on(tx, hub, operation).await?;
+                let HubHandlingResult::Separated(result) = original.result else {
+                    return Err(corrupt_storage());
+                };
+                if original.trace != loaded.trace.id
+                    || result.portion_group != row.id
+                    || Some(result.selected_group) != row.parent
+                    || result.occurred != row.occurred
+                {
+                    return Err(corrupt_storage());
+                }
+                (Kind::ObservedPortion, result.packs)
+            }
+        };
+        let birth = ActualPhysicalBirth {
+            kind,
+            operation: operation_id,
+            hub,
+            trace: loaded.trace.id,
+            variant: loaded.trace.variant.id,
+            group: row.id,
+            parent: row.parent,
+            stock_revision: row.created_revision,
+            packs,
+            actor: row.created_by,
+            occurred: row.occurred,
+            recorded_at: row.created_at,
+        };
+        birth
+            .validate(&loaded.graph, recording_bound)
+            .map_err(|_| corrupt_storage())?;
+        let node = loaded.graph.node(row.id).ok_or_else(corrupt_storage)?;
+        let original = loaded
+            .graph
+            .restore_scope(
+                birth.stock_revision,
+                vec![PhysicalScopeAnchor {
+                    group: row.id,
+                    created_revision: node.created_revision,
+                    captured_packs: birth.packs,
+                }],
+            )
+            .map_err(|_| corrupt_storage())?;
+        if loaded
+            .graph
+            .resolve(&original)
+            .map_err(|_| corrupt_storage())?
+            .packs()
+            .value()
+            > birth.packs.value()
+        {
+            return Err(corrupt_storage());
+        }
+        births.push(birth);
+    }
+    births.sort_by_key(|b| (b.stock_revision.value(), b.group));
+    Ok(births)
+}
+
 impl Database {
     pub async fn hub_lineage(
         &self,
