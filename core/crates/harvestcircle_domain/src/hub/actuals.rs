@@ -13,8 +13,13 @@ use crate::{PublicKey, UnixTimestamp};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
+mod hold_scope;
 mod reconcile;
 mod review;
+pub use hold_scope::{
+    ActualPhysicalBirth, ActualPhysicalBirthKind, HistoricalHoldScopeAssessment,
+    HistoricalHoldScopeContext, HistoricalHoldScopeUncertainty, VerifiedHistoricalHoldScope,
+};
 mod source;
 pub use reconcile::{
     ActualDuplicateLink, ActualDuplicateLinkPlan, ActualKnownDeparture, ActualKnownDepartureLine,

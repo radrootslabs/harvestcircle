@@ -4,6 +4,7 @@ use crate::hub::portions::PhysicalLineage;
 use crate::hub::reference::{ReferenceCatalog, ReferenceKind};
 use crate::hub::treatment::{Hold, TreatmentStamp, TreatmentState};
 
+mod hold_scope;
 mod reconcile;
 mod source;
 
