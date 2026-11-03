@@ -33,7 +33,7 @@ pub use review::{
 };
 pub use source::{
     ActualPhysicalActivity, ActualPhysicalActivityKind, ActualSourceContext,
-    HistoricalActualSource, ResolvedActualSource,
+    HistoricalActualPosition, HistoricalActualSource, ResolvedActualSource,
 };
 
 pub const HUB_ACTUAL_REPORT_SOURCE_CANDIDATES: usize = 64;

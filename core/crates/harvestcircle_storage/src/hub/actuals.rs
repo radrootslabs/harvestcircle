@@ -4,11 +4,34 @@ use crate::{
     Database,
     db::{corrupt_storage, map_transaction_error},
 };
+use harvestcircle_application::DurableRequestId;
 use harvestcircle_domain::hub::{
-    HubRevision, actuals::ActualPhysicalBirth, portions::PhysicalLineage, reference::HubRecordId,
+    HubRevision,
+    actuals::{
+        ActualKnownDeparture, ActualPhysicalActivity, ActualPhysicalBirth, HistoricalActualSource,
+    },
+    portions::PhysicalLineage,
+    reference::HubRecordId,
     stock::StockPopulation,
 };
 use harvestcircle_domain::{PublicKey, SafeError};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HubActualSourceQuery {
+    pub context: HubActualLineageQuery,
+    pub operation: DurableRequestId,
+    pub group: HubRecordId,
+}
+
+/// Complete canonical evidence for one explicit historical physical witness.
+/// No caller supplies an activity list or duplicate-clear flag.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HubActualSourceEvidence {
+    pub lineage: HubActualLineageEvidence,
+    pub source: HistoricalActualSource,
+    pub subsequent_activity: Vec<ActualPhysicalActivity>,
+    pub known_departures: Vec<ActualKnownDeparture>,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HubActualLineageQuery {
@@ -28,6 +51,68 @@ pub struct HubActualLineageEvidence {
     pub births: Vec<ActualPhysicalBirth>,
 }
 impl Database {
+    pub async fn hub_actual_source(
+        &self,
+        actor: PublicKey,
+        query: HubActualSourceQuery,
+    ) -> Result<HubActualSourceEvidence, SafeError> {
+        self.host()
+            .transaction(|tx| {
+                Box::pin(async move {
+                    let hub = reference::authorize_on(tx, actor).await?;
+                    let state = stock::read::state_on(tx, hub.id()).await?;
+                    let catalog = reference::load_catalog_on(tx, hub.id()).await?;
+                    if query
+                        .context
+                        .expected_revision
+                        .is_some_and(|v| v != state.revision)
+                        || query
+                            .context
+                            .expected_catalog_revision
+                            .is_some_and(|v| v != catalog.revision())
+                    {
+                        return Err(stock::conflict());
+                    }
+                    let loaded = handling::lineage::load_on(
+                        tx,
+                        hub.id(),
+                        query.context.trace,
+                        &catalog,
+                        state.revision,
+                    )
+                    .await?;
+                    let births = handling::lineage::actual_births_on(tx, hub.id(), &loaded).await?;
+                    let source = handling::actuals::source_on(
+                        tx,
+                        hub.id(),
+                        &loaded,
+                        &query.operation,
+                        query.group,
+                    )
+                    .await?;
+                    let subsequent_activity =
+                        handling::actuals::activity_on(tx, hub.id(), &loaded, &source).await?;
+                    let known_departures =
+                        handling::actuals::known_departures_on(tx, hub.id(), query.context.trace)
+                            .await?;
+                    Ok(HubActualSourceEvidence {
+                        lineage: HubActualLineageEvidence {
+                            revision: state.revision,
+                            catalog_revision: catalog.revision(),
+                            population: loaded.trace,
+                            lineage: loaded.graph,
+                            births,
+                        },
+                        source,
+                        subsequent_activity,
+                        known_departures,
+                    })
+                })
+            })
+            .await
+            .map_err(map_transaction_error)
+    }
+
     /// Trusted native read adapter; external clients still require current
     /// runtime identity/credential authority before this storage boundary.
     pub async fn hub_actual_lineage(

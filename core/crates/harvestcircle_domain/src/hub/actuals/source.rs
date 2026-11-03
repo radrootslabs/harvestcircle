@@ -6,6 +6,32 @@ use crate::hub::movement::PhysicalStockGroup;
 use crate::hub::portions::{PhysicalLineage, PhysicalScopeAnchor};
 use crate::hub::reference::{ReferenceKind, ReferenceRecord};
 
+/// An original physical position, without historical work or action authority.
+/// Native adapters construct it from an immutable birth/arrival original.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct HistoricalActualPosition {
+    pub id: HubRecordId,
+    pub trace: HubRecordId,
+    pub variant: HubRecordId,
+    pub parent: Option<HubRecordId>,
+    pub location: HubRecordId,
+    pub packs: WholePacks,
+    pub revision: HubRevision,
+}
+impl From<&PhysicalStockGroup> for HistoricalActualPosition {
+    fn from(group: &PhysicalStockGroup) -> Self {
+        Self {
+            id: group.id,
+            trace: group.trace,
+            variant: group.variant,
+            parent: group.parent,
+            location: group.location,
+            packs: group.packs,
+            revision: group.revision,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct HistoricalActualSource {
     pub operation: HubRecordId,
@@ -13,7 +39,7 @@ pub struct HistoricalActualSource {
     pub stock_revision: HubRevision,
     pub catalog_revision: HubRevision,
     /// Original group snapshot from a native birth or arrival operation.
-    pub group: PhysicalStockGroup,
+    pub group: HistoricalActualPosition,
     pub location: ReferenceRecord,
     pub occurred: Occurrence,
     pub recorded_at: UnixTimestamp,
@@ -77,20 +103,15 @@ fn bounds(value: Occurrence) -> Option<(UnixTimestamp, UnixTimestamp)> {
 
 impl HistoricalActualSource {
     pub fn validate(&self) -> Result<(), ActualReportError> {
-        self.group
-            .validate()
-            .map_err(|_| ActualReportError::InvalidHistory)?;
         self.occurred
             .validate(self.recorded_at)
             .map_err(|_| ActualReportError::InvalidHistory)?;
         if self.location.id != self.group.location
+            || self.group.packs.value() == 0
+            || self.group.parent == Some(self.group.id)
             || self.location.value.kind() != ReferenceKind::Location
             || self.location.revision.value() > self.catalog_revision.value()
             || self.group.revision.value() > self.stock_revision.value()
-            || self
-                .group
-                .causal_floor
-                .is_some_and(|v| v > self.recorded_at)
         {
             return Err(ActualReportError::InvalidHistory);
         }

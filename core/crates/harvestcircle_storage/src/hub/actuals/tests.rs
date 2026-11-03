@@ -11,6 +11,8 @@ use harvestcircle_domain::hub::{
 use harvestcircle_domain::{SafeErrorCode, UnixTimestamp};
 use sqlx::Connection;
 
+mod source;
+
 fn at(n: i64) -> UnixTimestamp {
     UnixTimestamp::from_seconds(n).unwrap()
 }
@@ -246,6 +248,35 @@ async fn moved_portion_birth_is_its_original_eight_not_a_later_whole_group_arriv
     assert_eq!(birth.packs, packs(8));
     assert_eq!(birth.occurred, Occurrence::Known(at(110)));
     assert_eq!(birth.recorded_at, at(110));
+    let original_arrival = db
+        .hub_actual_source(
+            owner(),
+            HubActualSourceQuery {
+                context: query(intake.original.trace.id),
+                operation: operation(2),
+                group: moved.moved_group,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(original_arrival.source.group.packs, packs(8));
+    assert_eq!(original_arrival.source.group.revision, HubRevision::INITIAL);
+    assert_eq!(original_arrival.source.location.id, id(7));
+    assert_eq!(original_arrival.subsequent_activity.len(), 1);
+    let later_arrival = db
+        .hub_actual_source(
+            owner(),
+            HubActualSourceQuery {
+                context: query(intake.original.trace.id),
+                operation: operation(3),
+                group: moved.moved_group,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(later_arrival.source.location.id, id(6));
+    assert_eq!(later_arrival.source.group.revision.value(), 2);
+    assert!(later_arrival.subsequent_activity.is_empty());
     assert_eq!(
         db.hub_group(owner(), moved.moved_group)
             .await
@@ -301,6 +332,19 @@ async fn counted_opening_and_surplus_have_their_distinct_original_births() {
         ActualPhysicalBirthKind::CountedOpening
     );
     assert_eq!(evidence.births[0].packs, packs(8));
+    let historical = db
+        .hub_actual_source(
+            owner(),
+            HubActualSourceQuery {
+                context: query(opening.original.population.id),
+                operation: operation(2000),
+                group: opening.original.group.id,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(historical.source.group.packs, packs(8));
+    assert!(historical.subsequent_activity.is_empty());
     db.close().await.unwrap();
 
     let fixture = Fixture::new();
@@ -366,6 +410,35 @@ async fn counted_opening_and_surplus_have_their_distinct_original_births() {
     assert_eq!(evidence.births[0].packs, packs(5));
     assert_eq!(evidence.births[0].occurred, Occurrence::Known(now()));
     assert_eq!(evidence.births[0].group, surplus.group.id);
+    let historical = db
+        .hub_actual_source(
+            owner(),
+            HubActualSourceQuery {
+                context: query(surplus.population.id),
+                operation: operation(3),
+                group: surplus.group.id,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(historical.source.group.packs, packs(5));
+    assert!(historical.subsequent_activity.is_empty());
+    let historical = db
+        .hub_actual_source(
+            owner(),
+            HubActualSourceQuery {
+                context: query(intake.original.trace.id),
+                operation: operation(1),
+                group: intake.original.position.group,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(historical.subsequent_activity.len(), 1);
+    assert_eq!(
+        historical.subsequent_activity[0].kind,
+        harvestcircle_domain::hub::actuals::ActualPhysicalActivityKind::CountReconciled
+    );
     db.close().await.unwrap();
 }
 
@@ -442,6 +515,20 @@ async fn returned_birth(occurred: Occurrence) {
     assert_eq!(evidence.births[0].occurred, occurred);
     assert_eq!(evidence.births[0].parent, None);
     assert_ne!(evidence.births[0].trace, intake.original.trace.id);
+    let historical = db
+        .hub_actual_source(
+            owner(),
+            HubActualSourceQuery {
+                context: query(returned.original.identities.population),
+                operation: operation(2000),
+                group: returned.original.identities.group,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(historical.source.group.packs, packs(2));
+    assert_eq!(historical.source.occurred, occurred);
+    assert!(historical.known_departures.is_empty());
     assert_eq!(
         db.hub_departure_operation(owner(), operation(30))
             .await

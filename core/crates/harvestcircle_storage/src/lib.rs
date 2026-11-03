@@ -30,7 +30,9 @@ pub use contract::{
     harvestcircle_schema_catalog,
 };
 pub use db::{CURRENT_SCHEMA_VERSION, Database};
-pub use hub::actuals::{HubActualLineageEvidence, HubActualLineageQuery};
+pub use hub::actuals::{
+    HubActualLineageEvidence, HubActualLineageQuery, HubActualSourceEvidence, HubActualSourceQuery,
+};
 pub use hub::counts::{HubCountObservationReceipt, HubCountPostReceipt, HubCountReview};
 pub use hub::handling::departure::{
     HubDepartureReceipt, HubDepartureReview, HubDepartureReviewInput, HubDepartureUse,

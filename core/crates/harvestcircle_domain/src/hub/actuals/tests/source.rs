@@ -6,7 +6,7 @@ pub(super) fn witness(f: &Fixture) -> HistoricalActualSource {
         hub: f.graph.hub(),
         stock_revision: HubRevision::from_value(f.original.stock_revision.value() - 1).unwrap(),
         catalog_revision: f.catalog.revision(),
-        group: f.group.clone(),
+        group: (&f.group).into(),
         location: f.catalog.get(f.group.location).unwrap().clone(),
         occurred: known(100),
         recorded_at: at(100),
@@ -98,7 +98,6 @@ fn old_root_capture_includes_later_descendants_but_later_root_capture_excludes_d
     let node = f.graph.node(root).unwrap();
     source.group.id = root;
     source.group.parent = None;
-    source.group.identification = None;
     source.group.packs = packs(20);
     source.group.revision = HubRevision::INITIAL;
     source.stock_revision = node.created_revision;
@@ -173,6 +172,18 @@ fn native_activity_bounds_order_scope_and_original_snapshot_damage_fail_closed()
     let source = witness(&f);
     let mut damaged = source.clone();
     damaged.location = f.catalog.get(f.group.variant).unwrap().clone();
+    assert_eq!(
+        resolve(&f, &damaged, &[]),
+        Err(ActualReportError::InvalidHistory)
+    );
+    let mut damaged = source.clone();
+    damaged.group.packs = packs(0);
+    assert_eq!(
+        resolve(&f, &damaged, &[]),
+        Err(ActualReportError::InvalidHistory)
+    );
+    let mut damaged = source.clone();
+    damaged.group.parent = Some(damaged.group.id);
     assert_eq!(
         resolve(&f, &damaged, &[]),
         Err(ActualReportError::InvalidHistory)

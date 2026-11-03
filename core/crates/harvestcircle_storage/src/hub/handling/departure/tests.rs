@@ -416,6 +416,32 @@ async fn actual_multiline_departure_has_one_journal_revision_and_all_line_effect
         .unwrap();
     assert_eq!(result.record.stock_revision.value(), before.value() + 1);
     assert_eq!(result.record.physical_event_count(), 2);
+    let evidence = db
+        .hub_actual_source(
+            owner(),
+            crate::HubActualSourceQuery {
+                context: crate::HubActualLineageQuery {
+                    trace: intake.original.trace.id,
+                    expected_revision: None,
+                    expected_catalog_revision: None,
+                },
+                operation: intake.operation.clone(),
+                group: root,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(evidence.known_departures.len(), 1);
+    assert_eq!(evidence.known_departures[0].lines.len(), 2);
+    assert_eq!(evidence.known_departures[0].packs().unwrap(), packs(10));
+    let physical: Vec<_> = evidence
+        .subsequent_activity
+        .iter()
+        .filter(|e| e.operation == result.record.operation)
+        .collect();
+    assert_eq!(physical.len(), 2);
+    assert_eq!(physical[0].stock_revision, physical[1].stock_revision);
+    assert!(physical[0].sequence < physical[1].sequence);
     assert_eq!(result.record.work_changes.len(), 1);
     let after = db.hub_stock_page(owner(), query()).await.unwrap();
     assert_eq!(after.rows.len(), 1);
@@ -782,6 +808,36 @@ async fn unlike_products_keep_separate_trace_mass_in_one_actual_departure() {
             .is_empty()
     );
     for intake in [&first, &second] {
+        let evidence = db
+            .hub_actual_source(
+                owner(),
+                crate::HubActualSourceQuery {
+                    context: crate::HubActualLineageQuery {
+                        trace: intake.original.trace.id,
+                        expected_revision: None,
+                        expected_catalog_revision: None,
+                    },
+                    operation: intake.operation.clone(),
+                    group: intake.original.position.group,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(evidence.known_departures.len(), 1);
+        assert_eq!(evidence.known_departures[0].lines.len(), 1);
+        assert_eq!(
+            evidence.known_departures[0].variant,
+            intake.original.trace.variant
+        );
+        assert_eq!(
+            evidence.known_departures[0].packs().unwrap(),
+            intake.original.trace.original_packs
+        );
+        assert_eq!(evidence.subsequent_activity.len(), 1);
+        assert_eq!(
+            evidence.subsequent_activity[0].group,
+            intake.original.position.group
+        );
         let lineage = db
             .hub_lineage(
                 owner(),
