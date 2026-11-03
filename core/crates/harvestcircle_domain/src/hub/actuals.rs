@@ -13,10 +13,22 @@ use crate::{PublicKey, UnixTimestamp};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
+mod reconcile;
 mod review;
+mod source;
+pub use reconcile::{
+    ActualDuplicateLink, ActualDuplicateLinkPlan, ActualKnownDeparture, ActualKnownDepartureLine,
+    ActualNewDepartureCommand, ActualNewDepartureContext, ActualNewDeparturePlan,
+    ActualPhysicalReduction, ActualRemovedWorkScope,
+};
 pub use review::{
     ActualBalanceComparison, ActualReviewComparison, ActualReviewContext, ActualReviewFacts,
-    ActualSourceComparison, HistoricalHoldFinding, HistoricalHoldTiming, classify_hold_timing,
+    ActualSourceComparison, HistoricalHoldApplicability, HistoricalHoldFinding,
+    HistoricalHoldTiming, classify_hold_timing,
+};
+pub use source::{
+    ActualPhysicalActivity, ActualPhysicalActivityKind, ActualSourceContext,
+    HistoricalActualSource, ResolvedActualSource,
 };
 
 pub const HUB_ACTUAL_REPORT_SOURCE_CANDIDATES: usize = 64;
@@ -34,6 +46,9 @@ pub enum ActualReportError {
     ConflictingEvidence,
     InsufficientBalance,
     UncertainSubmission,
+    HistoricalSourceUnresolved,
+    DuplicateReviewRequired,
+    AlreadyReviewed,
 }
 
 /// Reported identifiers remain claims. Their existence or a selected row does

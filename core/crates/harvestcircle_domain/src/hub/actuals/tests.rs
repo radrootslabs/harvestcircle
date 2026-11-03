@@ -4,6 +4,9 @@ use crate::hub::portions::PhysicalLineage;
 use crate::hub::reference::{ReferenceCatalog, ReferenceKind};
 use crate::hub::treatment::{Hold, TreatmentStamp, TreatmentState};
 
+mod reconcile;
+mod source;
+
 fn id(n: u8) -> HubRecordId {
     HubRecordId::from_bytes([n; 16]).unwrap()
 }
@@ -324,7 +327,10 @@ fn review_preserves_the_exact_original_and_current_hold_for_all_three_timing_wor
         let review = f.review().unwrap();
         assert_eq!(review.original, original);
         assert_eq!(review.potential_historical_holds[0].original, hold);
-        assert_eq!(review.potential_historical_holds[0].timing, expected);
+        assert_eq!(
+            review.potential_historical_holds[0].conditional_timing,
+            expected
+        );
         assert_eq!(review.scope.compared_departure, packs(2));
         assert_eq!(review.scope.on_hand_after, packs(4));
         assert_eq!(
@@ -346,7 +352,7 @@ fn current_release_does_not_hide_an_established_earlier_breach() {
     let mut f = Fixture::new(known(105));
     f.hold(known(100), Some(known(120)));
     assert_eq!(
-        f.review().unwrap().potential_historical_holds[0].timing,
+        f.review().unwrap().potential_historical_holds[0].conditional_timing,
         HistoricalHoldTiming::EstablishedBreach
     );
     f.facts.occurred = known(125);

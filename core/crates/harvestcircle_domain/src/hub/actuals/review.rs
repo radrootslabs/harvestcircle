@@ -16,6 +16,8 @@ pub enum HistoricalHoldTiming {
 /// Half-open effective restriction interval. Both occurrence and effective
 /// timing may be uncertain. Recording order and current release status alone
 /// cannot establish a breach or establish its absence.
+/// This compares clocks only. Historical applicability of the captured physical
+/// scope requires separate native original birth evidence, not current membership.
 #[must_use]
 pub fn classify_hold_timing(
     departure: Occurrence,
@@ -97,7 +99,15 @@ pub struct ActualReviewContext<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HistoricalHoldFinding {
     pub original: Hold,
-    pub timing: HistoricalHoldTiming,
+    pub conditional_timing: HistoricalHoldTiming,
+    pub applicability: HistoricalHoldApplicability,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HistoricalHoldApplicability {
+    /// Native recorded-order lineage does not prove physical anchor birth time.
+    /// No consumer may promote conditional timing to breach or clearance.
+    HistoricalScopeUnverified,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -231,11 +241,12 @@ impl ActualReviewFacts {
             if scope.groups().iter().any(|n| n.id == group.id) {
                 potential_historical_holds.push(HistoricalHoldFinding {
                     original: hold.clone(),
-                    timing: classify_hold_timing(
+                    conditional_timing: classify_hold_timing(
                         self.occurred,
                         hold.stamp.occurred,
                         hold.release.as_ref().map(|r| r.occurred),
                     ),
+                    applicability: HistoricalHoldApplicability::HistoricalScopeUnverified,
                 });
             }
         }
@@ -280,7 +291,7 @@ impl ActualReviewFacts {
 
 /// A review may resolve an unknown or narrow a reported interval. Changing an
 /// already asserted fact requires a separate linked correction, not review.
-fn refines(original: Occurrence, verified: Occurrence) -> bool {
+pub(super) fn refines(original: Occurrence, verified: Occurrence) -> bool {
     match (bounds(original), bounds(verified)) {
         (None, _) => true,
         (Some((a, b)), Some((c, d))) => a <= c && d <= b,
