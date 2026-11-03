@@ -13,3 +13,6 @@ pub(in crate::hub) mod tests;
 
 #[cfg(test)]
 mod upgrade_tests;
+
+#[cfg(test)]
+mod retention_tests;
