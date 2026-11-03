@@ -4,6 +4,17 @@ import kotlinx.coroutines.runBlocking
 import org.harvestcircle.application.ApplicationCommand
 import org.harvestcircle.application.ApplicationErrorCode
 import org.harvestcircle.application.ApplicationFailure
+import org.harvestcircle.application.HubActualClockAssessment
+import org.harvestcircle.application.HubActualDepartureInput
+import org.harvestcircle.application.HubActualHoldAssessment
+import org.harvestcircle.application.HubActualHoldTiming
+import org.harvestcircle.application.HubActualHoldUncertainty
+import org.harvestcircle.application.HubActualLinkInput
+import org.harvestcircle.application.HubActualReportInput
+import org.harvestcircle.application.HubActualReportQuery
+import org.harvestcircle.application.HubActualReviewOriginal
+import org.harvestcircle.application.HubActualSourceClaim
+import org.harvestcircle.application.HubActualSourceKind
 import org.harvestcircle.application.HubHandlingInput
 import org.harvestcircle.application.HubHandlingQuery
 import org.harvestcircle.application.HubOccurrence
@@ -15,6 +26,7 @@ import org.harvestcircle.application.HubReferenceQuery
 import org.harvestcircle.application.HubReferenceValue
 import org.harvestcircle.application.HubStockQuery
 import org.harvestcircle.application.HubTreatmentScope
+import org.harvestcircle.application.toModel
 import org.harvestcircle.ffi.HubActualClockAssessmentDto
 import org.harvestcircle.ffi.HubActualDepartureInputDto
 import org.harvestcircle.ffi.HubActualHoldAssessmentDto
@@ -131,6 +143,19 @@ class ActualNativeTransportAcceptanceTest {
                     assertEquals(2U, preview.proposed.wholePacks)
                     assertEquals(recipient.id, preview.proposed.recipient.id)
                     assertEquals(remaining, preview.proposed.onHandAfterWholePacks)
+                    val model = preview.toModel()
+                    assertEquals(saved.toModel(), model.report)
+                    assertEquals(hub.receipt.operationId, model.proposed.sourceOperationId)
+                    if (separateCohort) {
+                        val unresolved = assertIs<HubActualHoldAssessment.Unresolved>(model.historicalHolds.single())
+                        assertEquals(HubActualHoldTiming.EstablishedBreach, unresolved.conditionalTiming)
+                        assertEquals(HubActualHoldUncertainty.AnchorCohortUnverified, unresolved.reason)
+                    } else {
+                        assertEquals(
+                            HubActualHoldTiming.EstablishedBreach,
+                            assertIs<HubActualHoldAssessment.Verified>(model.historicalHolds.single()).timing,
+                        )
+                    }
                     val finding = preview.historicalHolds.single()
                     if (separateCohort) {
                         val unresolved = assertIs<HubActualHoldAssessmentDto.Unresolved>(finding)
@@ -204,6 +229,7 @@ class ActualNativeTransportAcceptanceTest {
                     val future = runtime.reportActualNative(futureContext, futureInput)
                     assertEquals(HubActualClockAssessmentDto.RECORDING_CLOCK_CONFLICT, future.clockAssessment)
                     assertEquals(futureInput, future.reported)
+                    assertEquals(HubActualClockAssessment.RecordingClockConflict, future.toModel().clockAssessment)
                     assertEquals(after.rows, runtime.stock(HubStockQuery()).rows)
                     runtime.restart()
                     runtime.execute(ApplicationCommand.ActivateIdentity(hub.owner))
@@ -237,6 +263,104 @@ class ActualNativeTransportAcceptanceTest {
                     runtime.close()
                     Files.walk(root).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists) }
                 }
+            }
+        }
+
+    @Test
+    fun sharedActualAdapterPreservesReportedClaimsAndCopiesNativeEffectsWithoutClientMath() =
+        runBlocking {
+            val root = Files.createTempDirectory("harvestcircle-actual-model-adapter-")
+            val runtime = TestBridgeHarvestCircleRuntime.openDemo(root.toString())
+            try {
+                val hub = HandlingFixture.open(runtime, HubOccurrence(HubOccurrenceKind.Known, 1_699_999_940L))
+                val catalog = runtime.references(HubReferenceQuery())
+                val recipient =
+                    runtime
+                        .editReference(
+                            hub.context(),
+                            HubReferenceEdit(
+                                catalog.catalogRevision,
+                                value = HubReferenceValue(HubReferenceKind.Party, "Fictional recipient"),
+                            ),
+                        ).current
+                val claim = HubActualSourceClaim(hub.receipt.trace.id, hub.receipt.initialPosition.groupId, hub.receiving)
+                val input =
+                    HubActualReportInput(
+                        sourceKind = HubActualSourceKind.Reported,
+                        sourceClaims = listOf(claim),
+                        observation = "A reported source is a claim requiring independent review",
+                    )
+                val reportContext = hub.context()
+                val saved = runtime.reportActual(reportContext, input)
+                assertEquals(input, saved.reported)
+                assertEquals(
+                    saved,
+                    runtime
+                        .actualReports(HubActualReportQuery())
+                        .rows
+                        .single()
+                        .report,
+                )
+                val group = runtime.group(hub.receipt.initialPosition.groupId)
+                val reviewInput =
+                    HubActualDepartureInput(
+                        saved.id,
+                        group.stockRevision,
+                        group.catalogRevision,
+                        group.group.id,
+                        group.group.revision,
+                        2U,
+                        recipient.id,
+                        HubOccurrence(HubOccurrenceKind.Known, 1_699_999_990L),
+                        hub.receipt.operationId,
+                        group.group.id,
+                        "Original source cohort verified",
+                        "Two packs verified",
+                        "Recipient independently verified",
+                        "Occurrence independently verified",
+                        "Complete native history checked",
+                    )
+                val reviewContext = hub.context()
+                val preview = runtime.actualDeparturePreview(reviewContext.operationId, reviewInput)
+                assertEquals(saved, preview.report)
+                assertEquals(18U, preview.proposed.onHandAfterWholePacks)
+                assertEquals(20U, runtime.group(group.group.id).group.wholePacks)
+                val committed = runtime.reconcileActual(reviewContext, reviewInput)
+                val original = assertIs<HubActualReviewOriginal.Departure>(committed.original)
+                assertEquals(saved, original.report)
+                assertEquals(input.sourceClaims, original.report.reported.sourceClaims)
+                assertEquals(18U, original.original.onHandAfterWholePacks)
+                assertEquals(
+                    2U,
+                    original.original.workChanges
+                        .single()
+                        .retiredWholePacks,
+                )
+                val duplicate = runtime.reportActual(hub.context(), input)
+                val linkContext = hub.context()
+                val link =
+                    HubActualLinkInput(
+                        duplicate.id,
+                        reviewContext.operationId,
+                        hub.receipt.trace.id,
+                        group.variant.id,
+                        "Same native original departure independently verified",
+                    )
+                val linkedPreview = runtime.actualLinkPreview(linkContext.operationId, link)
+                assertEquals(2U, linkedPreview.proposed.known.wholePacks)
+                val linked = runtime.linkActual(linkContext, link)
+                assertEquals(linkedPreview.proposed, assertIs<HubActualReviewOriginal.Duplicate>(linked.original).original)
+                assertEquals(18U, runtime.group(group.group.id).group.wholePacks)
+                assertEquals(0U, runtime.actualReports(HubActualReportQuery()).total)
+                runtime.restart()
+                runtime.execute(ApplicationCommand.ActivateIdentity(hub.owner))
+                assertEquals(saved, runtime.actualReportOperation(reportContext.operationId))
+                assertEquals(committed, runtime.actualReviewOperation(reviewContext.operationId))
+                assertEquals(linked, runtime.actualReviewOperation(linkContext.operationId))
+                assertEquals(hub.receipt, runtime.receiptOperation(hub.receipt.operationId))
+            } finally {
+                runtime.close()
+                Files.walk(root).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists) }
             }
         }
 

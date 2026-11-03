@@ -20,6 +20,7 @@ import org.harvestcircle.application.ApplicationSnapshot
 import org.harvestcircle.application.BuildInfo
 import org.harvestcircle.application.GeneratedIdentityRecovery
 import org.harvestcircle.application.GeneratedKeyBackup
+import org.harvestcircle.application.HarvestCircleActualRuntime
 import org.harvestcircle.application.HarvestCircleCountRuntime
 import org.harvestcircle.application.HarvestCircleCustodyRuntime
 import org.harvestcircle.application.HarvestCircleDepartureRuntime
@@ -30,6 +31,15 @@ import org.harvestcircle.application.HarvestCircleReferenceRuntime
 import org.harvestcircle.application.HarvestCircleRuntime
 import org.harvestcircle.application.HarvestCircleStockRuntime
 import org.harvestcircle.application.HarvestCircleTraceRuntime
+import org.harvestcircle.application.HubActualDepartureInput
+import org.harvestcircle.application.HubActualDeparturePreview
+import org.harvestcircle.application.HubActualLinkInput
+import org.harvestcircle.application.HubActualLinkPreview
+import org.harvestcircle.application.HubActualReport
+import org.harvestcircle.application.HubActualReportInput
+import org.harvestcircle.application.HubActualReportPage
+import org.harvestcircle.application.HubActualReportQuery
+import org.harvestcircle.application.HubActualReviewReceipt
 import org.harvestcircle.application.HubContext
 import org.harvestcircle.application.HubCountObservation
 import org.harvestcircle.application.HubCountObserveInput
@@ -127,6 +137,7 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     HarvestCircleReferenceRuntime,
     HarvestCircleStockRuntime,
     HarvestCircleCountRuntime,
+    HarvestCircleActualRuntime,
     HarvestCircleCustodyRuntime,
     HarvestCircleHandlingRuntime,
     HarvestCircleDispatchRuntime,
@@ -314,6 +325,61 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
 
     override suspend fun dispositionOperation(operation: OperationId): HubDispositionReceipt? =
         withContext(Dispatchers.IO) { callBridge { bridge.dispositionOperation(operation.value)?.toModel() } }
+
+    override suspend fun reportActual(
+        context: RequestContext,
+        input: HubActualReportInput,
+    ): HubActualReport =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.reportActual(context.operationId.value, context.expectedRevision.value, input.toNative()).toModel() }
+        }
+
+    override suspend fun reconcileActual(
+        context: RequestContext,
+        input: HubActualDepartureInput,
+    ): HubActualReviewReceipt =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.reconcileActual(context.operationId.value, context.expectedRevision.value, input.toNative()).toModel() }
+        }
+
+    override suspend fun linkActual(
+        context: RequestContext,
+        input: HubActualLinkInput,
+    ): HubActualReviewReceipt =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.linkActual(context.operationId.value, context.expectedRevision.value, input.toNative()).toModel() }
+        }
+
+    override suspend fun actualDeparturePreview(
+        operation: OperationId,
+        input: HubActualDepartureInput,
+    ): HubActualDeparturePreview =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.actualDeparturePreview(operation.value, input.toNative()).toModel() }
+        }
+
+    override suspend fun actualLinkPreview(
+        operation: OperationId,
+        input: HubActualLinkInput,
+    ): HubActualLinkPreview =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.actualLinkPreview(operation.value, input.toNative()).toModel() }
+        }
+
+    override suspend fun actualReportOperation(operation: OperationId): HubActualReport? =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.actualReportOperation(operation.value)?.toModel() }
+        }
+
+    override suspend fun actualReviewOperation(operation: OperationId): HubActualReviewReceipt? =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.actualReviewOperation(operation.value)?.toModel() }
+        }
+
+    override suspend fun actualReports(query: HubActualReportQuery): HubActualReportPage =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.actualReports(query.toNative()).toModel() }
+        }
 
     suspend fun reportActualNative(
         context: RequestContext,

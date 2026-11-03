@@ -14,6 +14,15 @@ import org.harvestcircle.ffi.AppSnapshotDto
 import org.harvestcircle.ffi.GeneratedRecoveryRequest
 import org.harvestcircle.ffi.HarvestCircleAppCore
 import org.harvestcircle.ffi.HarvestCircleChangeObserver
+import org.harvestcircle.ffi.HubActualDepartureInputDto
+import org.harvestcircle.ffi.HubActualDeparturePreviewDto
+import org.harvestcircle.ffi.HubActualLinkInputDto
+import org.harvestcircle.ffi.HubActualLinkPreviewDto
+import org.harvestcircle.ffi.HubActualReportDto
+import org.harvestcircle.ffi.HubActualReportInputDto
+import org.harvestcircle.ffi.HubActualReportPageDto
+import org.harvestcircle.ffi.HubActualReportQueryDto
+import org.harvestcircle.ffi.HubActualReviewReceiptDto
 import org.harvestcircle.ffi.HubContextDto
 import org.harvestcircle.ffi.HubCountObservationDto
 import org.harvestcircle.ffi.HubCountObserveInputDto
@@ -89,6 +98,7 @@ class NativeHarvestCircleRuntime internal constructor(
     HarvestCircleReferenceRuntime,
     HarvestCircleStockRuntime,
     HarvestCircleCountRuntime,
+    HarvestCircleActualRuntime,
     HarvestCircleCustodyRuntime,
     HarvestCircleHandlingRuntime,
     HarvestCircleDispatchRuntime,
@@ -217,6 +227,61 @@ class NativeHarvestCircleRuntime internal constructor(
         afterRevision: ULong,
         limit: UInt,
     ): List<HubReferenceReceipt> = callNative { hubPort().referenceHistory(id, afterRevision, limit).map { it.toModel() } }
+
+    override suspend fun reportActual(
+        context: RequestContext,
+        input: HubActualReportInput,
+    ): HubActualReport =
+        callNative(context.operationId) {
+            hubPort().reportActual(context.toNative(), input.toNative()).toModel()
+        }
+
+    override suspend fun reconcileActual(
+        context: RequestContext,
+        input: HubActualDepartureInput,
+    ): HubActualReviewReceipt =
+        callNative(context.operationId) {
+            hubPort().reconcileActual(context.toNative(), input.toNative()).toModel()
+        }
+
+    override suspend fun linkActual(
+        context: RequestContext,
+        input: HubActualLinkInput,
+    ): HubActualReviewReceipt =
+        callNative(context.operationId) {
+            hubPort().linkActual(context.toNative(), input.toNative()).toModel()
+        }
+
+    override suspend fun actualDeparturePreview(
+        operation: OperationId,
+        input: HubActualDepartureInput,
+    ): HubActualDeparturePreview =
+        callNative(operation) {
+            hubPort().actualDeparturePreview(operation.value, input.toNative()).toModel()
+        }
+
+    override suspend fun actualLinkPreview(
+        operation: OperationId,
+        input: HubActualLinkInput,
+    ): HubActualLinkPreview =
+        callNative(operation) {
+            hubPort().actualLinkPreview(operation.value, input.toNative()).toModel()
+        }
+
+    override suspend fun actualReportOperation(operation: OperationId): HubActualReport? =
+        callNative(operation) {
+            hubPort().actualReportOperation(operation.value)?.toModel()
+        }
+
+    override suspend fun actualReviewOperation(operation: OperationId): HubActualReviewReceipt? =
+        callNative(operation) {
+            hubPort().actualReviewOperation(operation.value)?.toModel()
+        }
+
+    override suspend fun actualReports(query: HubActualReportQuery): HubActualReportPage =
+        callNative {
+            hubPort().actualReports(query.toNative()).toModel()
+        }
 
     override suspend fun recordOpening(
         context: RequestContext,
@@ -686,6 +751,37 @@ internal fun interface NativeSubscriptionHandle {
 }
 
 private interface NativeHubPort {
+    suspend fun reportActual(
+        context: RequestContextDto,
+        input: HubActualReportInputDto,
+    ): HubActualReportDto
+
+    suspend fun reconcileActual(
+        context: RequestContextDto,
+        input: HubActualDepartureInputDto,
+    ): HubActualReviewReceiptDto
+
+    suspend fun linkActual(
+        context: RequestContextDto,
+        input: HubActualLinkInputDto,
+    ): HubActualReviewReceiptDto
+
+    suspend fun actualDeparturePreview(
+        operation: String,
+        input: HubActualDepartureInputDto,
+    ): HubActualDeparturePreviewDto
+
+    suspend fun actualLinkPreview(
+        operation: String,
+        input: HubActualLinkInputDto,
+    ): HubActualLinkPreviewDto
+
+    suspend fun actualReportOperation(operation: String): HubActualReportDto?
+
+    suspend fun actualReviewOperation(operation: String): HubActualReviewReceiptDto?
+
+    suspend fun actualReports(query: HubActualReportQueryDto): HubActualReportPageDto
+
     suspend fun applyReturn(
         context: RequestContextDto,
         input: HubReturnInputDto,
@@ -805,6 +901,37 @@ private class UniFfiNativeCorePort(
     private val core: HarvestCircleAppCore,
 ) : NativeCorePort,
     NativeHubPort {
+    override suspend fun reportActual(
+        context: RequestContextDto,
+        input: HubActualReportInputDto,
+    ): HubActualReportDto = core.reportHubActual(context, input)
+
+    override suspend fun reconcileActual(
+        context: RequestContextDto,
+        input: HubActualDepartureInputDto,
+    ): HubActualReviewReceiptDto = core.reconcileHubActual(context, input)
+
+    override suspend fun linkActual(
+        context: RequestContextDto,
+        input: HubActualLinkInputDto,
+    ): HubActualReviewReceiptDto = core.linkHubActual(context, input)
+
+    override suspend fun actualDeparturePreview(
+        operation: String,
+        input: HubActualDepartureInputDto,
+    ): HubActualDeparturePreviewDto = core.hubActualDeparturePreview(operation, input)
+
+    override suspend fun actualLinkPreview(
+        operation: String,
+        input: HubActualLinkInputDto,
+    ): HubActualLinkPreviewDto = core.hubActualLinkPreview(operation, input)
+
+    override suspend fun actualReportOperation(operation: String): HubActualReportDto? = core.hubActualReportOperation(operation)
+
+    override suspend fun actualReviewOperation(operation: String): HubActualReviewReceiptDto? = core.hubActualReviewOperation(operation)
+
+    override suspend fun actualReports(query: HubActualReportQueryDto): HubActualReportPageDto = core.hubActualReports(query)
+
     override suspend fun applyReturn(
         context: RequestContextDto,
         input: HubReturnInputDto,

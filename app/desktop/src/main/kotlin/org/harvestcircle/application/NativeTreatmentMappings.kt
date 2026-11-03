@@ -52,7 +52,7 @@ private fun HubTreatmentStampDto.toModel() =
         observation,
     )
 
-private fun HubHoldDto.toModel() = HubHold(stamp.toModel(), scope.toModel(), revision, release?.toModel())
+internal fun HubHoldDto.toModel() = HubHold(stamp.toModel(), scope.toModel(), revision, release?.toModel())
 
 private fun HubTreatmentChangeDto.toModel(): HubTreatmentChange =
     when (this) {

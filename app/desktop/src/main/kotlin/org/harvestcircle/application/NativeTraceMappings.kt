@@ -2,6 +2,7 @@ package org.harvestcircle.application
 
 import org.harvestcircle.ffi.HubLocalOutputDto
 import org.harvestcircle.ffi.HubLocalOutputRequestDto
+import org.harvestcircle.ffi.HubTraceActualDepartureDto
 import org.harvestcircle.ffi.HubTraceHistoryKindDto
 import org.harvestcircle.ffi.HubTraceHistoryPageDto
 import org.harvestcircle.ffi.HubTraceHistoryQueryDto
@@ -136,42 +137,7 @@ internal fun HubTraceSnapshotDto.toModel() =
             )
         },
         actualDepartedWholePacks,
-        actualDepartures.map {
-            HubTraceActualDeparture(
-                it.reportId,
-                OperationId.from(it.operationId),
-                it.stockRevision,
-                it.catalogRevision,
-                IdentityId.fromPublicKeyHex(it.reportActorPublicKey),
-                UnixSeconds(it.reportRecordedAtUnixS),
-                it.reportedOccurrence.toModel(),
-                it.reportedClockConflict,
-                it.originalObservation,
-                IdentityId.fromPublicKeyHex(it.actorPublicKey),
-                UnixSeconds(it.recordedAtUnixS),
-                it.occurrence.toModel(),
-                it.wholePacks,
-                it.before.toModel(),
-                it.onHandAfterWholePacks,
-                it.afterGroupRevision,
-                it.afterCausalFloorUnixS?.let(::UnixSeconds),
-                it.product.toModel(),
-                it.variant.toModel(),
-                it.recipient.toModel(),
-                it.balancingLocation.toModel(),
-                it.historicalLocation.toModel(),
-                OperationId.from(it.sourceOperationId),
-                it.sourceGroupId,
-                it.sourceEvidence,
-                it.quantityEvidence,
-                it.recipientEvidence,
-                it.timingEvidence,
-                it.duplicateReviewBasis,
-                it.workChanges.map { change ->
-                    HubDepartureWorkChange(change.before.toModel(), change.after.toModel(), change.retiredWholePacks)
-                },
-            )
-        },
+        actualDepartures.map { it.toModel() },
     )
 
 private fun HubTraceHistoryKindDto.toModel() =
@@ -231,3 +197,39 @@ internal fun HubLocalOutputRequest.toNative() =
     }
 
 internal fun HubLocalOutputDto.toModel() = HubLocalOutput(identity, suggestedFilename, html)
+
+internal fun HubTraceActualDepartureDto.toModel() =
+    HubTraceActualDeparture(
+        reportId,
+        OperationId.from(operationId),
+        stockRevision,
+        catalogRevision,
+        IdentityId.fromPublicKeyHex(reportActorPublicKey),
+        UnixSeconds(reportRecordedAtUnixS),
+        reportedOccurrence.toModel(),
+        reportedClockConflict,
+        originalObservation,
+        IdentityId.fromPublicKeyHex(actorPublicKey),
+        UnixSeconds(recordedAtUnixS),
+        occurrence.toModel(),
+        wholePacks,
+        before.toModel(),
+        onHandAfterWholePacks,
+        afterGroupRevision,
+        afterCausalFloorUnixS?.let(::UnixSeconds),
+        product.toModel(),
+        variant.toModel(),
+        recipient.toModel(),
+        balancingLocation.toModel(),
+        historicalLocation.toModel(),
+        OperationId.from(sourceOperationId),
+        sourceGroupId,
+        sourceEvidence,
+        quantityEvidence,
+        recipientEvidence,
+        timingEvidence,
+        duplicateReviewBasis,
+        workChanges.map { change ->
+            HubDepartureWorkChange(change.before.toModel(), change.after.toModel(), change.retiredWholePacks)
+        },
+    )
