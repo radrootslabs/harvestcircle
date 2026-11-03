@@ -156,6 +156,7 @@ pub fn actual_trace_encoding_probe() -> HubTraceSnapshotDto {
         group.variant,
         report.stock_revision,
         vec![PhysicalLineageNode {
+            recovery: None,
             id: group.id,
             parent: None,
             trace: group.trace,

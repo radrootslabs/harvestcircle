@@ -20,6 +20,7 @@ fn native_like_fixture() -> (Fixture, HistoricalActualSource, Vec<ActualPhysical
         f.group.variant,
         HubRevision::from_value(4).unwrap(),
         vec![PhysicalLineageNode {
+            recovery: None,
             id: ids.group,
             parent: None,
             trace: ids.trace,

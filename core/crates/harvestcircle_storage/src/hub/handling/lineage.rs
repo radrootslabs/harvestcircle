@@ -396,6 +396,7 @@ pub(in crate::hub) async fn load_on(
             return Err(corrupt_storage());
         }
         nodes.push(PhysicalLineageNode {
+            recovery: None,
             id,
             parent,
             trace: trace_id,
@@ -604,6 +605,7 @@ pub(super) async fn historical_on(
             return Err(corrupt_storage());
         }
         nodes.push(PhysicalLineageNode {
+            recovery: None,
             id,
             parent,
             trace: trace_id,

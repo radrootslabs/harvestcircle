@@ -305,6 +305,31 @@ external delivery/acknowledgement nor carry completion to a later correction.
 Current native authority, complete original/scope readers, atomic persistence and
 application forms remain required before operational exposure.
 
+Pure found-remainder plans reserve recovery against each exact immutable physical
+debit, subtracting prior recoveries and returns established against that scope.
+An additional debit from another group cannot fund a return already linked to the
+original group. Ambiguous return funding blocks recovery. Up to 64 explicitly
+identified allocations create distinct children of their funded parents; consumed
+parents stay depleted, current birth time is retained, and old completed/retired
+work remains untouched. Every prior credit must retain its child, original birth
+allowance and review marker; one sibling cannot subsidize another's expanded
+scope. A fixed `InitialGroupReview` requires review for these exact newborn groups.
+It preserves holds from applicable captured cohorts and can be superseded by
+later explicit ordinary acceptance. Ordinary acceptance/hold scope rules remain unchanged. Empty legacy
+treatment captures retain their exact bytes; nonempty birth review state is bound
+separately. Native persistence, current readers and application exposure remain
+unfinished.
+
+Recovered children retain their exact original debit operation/revision and
+independent evidence that they are outside the recorded post-debit remainder.
+A scope captured before that debit inherits the recovered cohort; a later
+remainder scope does not. Explicit child selection captures that child's cohort.
+The debit cut describes recorded membership, never physical departure time or
+retrospective permission. Current and historical scope resolution share this
+boundary while physical ancestry remains intact. Canonical found-birth evidence
+uses the new allocation identity and current observation time. Native current and
+frozen readers must restore all origins and initial reviews before exposure.
+
 Pure count policy lives in `harvestcircle_domain::hub::counts`. Observation plans
 capture the original population, pack/location versions, recorded count, cutoff
 and observer without changing stock or work. A fresh comparison rejects changed

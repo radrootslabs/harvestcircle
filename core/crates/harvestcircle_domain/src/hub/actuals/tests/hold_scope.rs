@@ -4,12 +4,210 @@ use crate::hub::portions::PhysicalLineageNode;
 use crate::hub::reference::SampleHandlingBasis;
 use crate::hub::stock::ReceiptIdentities;
 
+#[test]
+fn recovered_birth_uses_same_cohort_boundary_for_historical_holds() {
+    let mut f = ScopeFixture::new(false);
+    let revision = |n| HubRevision::from_value(n).unwrap();
+    let operation = id(240);
+    let group = crate::hub::corrections::found_stock_group_id(operation, 0).unwrap();
+    let mut nodes = f.graph.nodes().to_vec();
+    nodes.iter_mut().find(|n| n.id == f.root).unwrap().packs = packs(12);
+    nodes.push(PhysicalLineageNode {
+        id: group,
+        parent: Some(f.root),
+        trace: f.graph.trace(),
+        variant: f.graph.variant(),
+        created_revision: revision(8),
+        packs: packs(2),
+        recovery: Some(crate::hub::portions::PhysicalRecoveryOrigin {
+            debit_operation: id(241),
+            debit_revision: revision(6),
+        }),
+    });
+    f.graph = PhysicalLineage::new(
+        f.graph.hub(),
+        f.graph.trace(),
+        f.graph.variant(),
+        revision(10),
+        nodes,
+    )
+    .unwrap();
+    let birth = ActualPhysicalBirth {
+        kind: ActualPhysicalBirthKind::FoundRemainder { allocation: 0 },
+        operation,
+        hub: f.graph.hub(),
+        trace: f.graph.trace(),
+        variant: f.graph.variant(),
+        group,
+        parent: Some(f.root),
+        stock_revision: revision(8),
+        packs: packs(2),
+        actor: owner(),
+        occurred: known(200),
+        recorded_at: at(200),
+    };
+    f.births.push(birth.clone());
+    let verify = |hold: &Hold, births: &[ActualPhysicalBirth]| {
+        HistoricalHoldScopeContext {
+            lineage: &f.graph,
+            group,
+            occurred: known(220),
+            births,
+            now: at(250),
+        }
+        .verify(hold)
+    };
+    assert!(matches!(
+        verify(&f.hold, &f.births).unwrap(),
+        HistoricalHoldScopeAssessment::Verified(_)
+    ));
+    let mut post_debit = f.hold.clone();
+    post_debit.scope = f
+        .graph
+        .restore_scope(
+            revision(6),
+            vec![crate::hub::portions::PhysicalScopeAnchor {
+                group: f.root,
+                created_revision: revision(2),
+                captured_packs: packs(12),
+            }],
+        )
+        .unwrap();
+    post_debit.stamp.stock_revision = revision(7);
+    assert!(matches!(
+        verify(&post_debit, &f.births).unwrap(),
+        HistoricalHoldScopeAssessment::Unresolved {
+            reason: HistoricalHoldScopeUncertainty::ScopeNotEstablished,
+            ..
+        }
+    ));
+    let mut explicit = post_debit;
+    explicit.scope = f
+        .graph
+        .restore_scope(
+            revision(8),
+            vec![crate::hub::portions::PhysicalScopeAnchor {
+                group,
+                created_revision: revision(8),
+                captured_packs: packs(2),
+            }],
+        )
+        .unwrap();
+    explicit.stamp.stock_revision = revision(9);
+    explicit.stamp.recorded_at = at(210);
+    explicit.stamp.occurred = known(205);
+    assert!(matches!(
+        verify(&explicit, &f.births).unwrap(),
+        HistoricalHoldScopeAssessment::Verified(_)
+    ));
+    let mut invalid = f.births.clone();
+    invalid.last_mut().unwrap().occurred = known(120);
+    assert_eq!(
+        verify(&explicit, &invalid),
+        Err(ActualReportError::InvalidNativeContext)
+    );
+    invalid = f.births.clone();
+    invalid.last_mut().unwrap().kind = ActualPhysicalBirthKind::ObservedPortion;
+    assert_eq!(
+        verify(&explicit, &invalid),
+        Err(ActualReportError::InvalidNativeContext)
+    );
+    invalid = f.births.clone();
+    invalid.last_mut().unwrap().kind = ActualPhysicalBirthKind::FoundRemainder { allocation: 1 };
+    assert_eq!(
+        verify(&explicit, &invalid),
+        Err(ActualReportError::InvalidNativeContext)
+    );
+}
+
 struct ScopeFixture {
     graph: PhysicalLineage,
     root: HubRecordId,
     child: HubRecordId,
     hold: Hold,
     births: Vec<ActualPhysicalBirth>,
+}
+
+#[test]
+fn canonical_found_births_share_one_original_only_with_consistent_allocation_facts() {
+    let mut f = ScopeFixture::new(false);
+    let revision = |n| HubRevision::from_value(n).unwrap();
+    let operation = id(240);
+    let mut nodes = f.graph.nodes().to_vec();
+    nodes.iter_mut().find(|n| n.id == f.root).unwrap().packs = packs(12);
+    for allocation in 0..2 {
+        let group = crate::hub::corrections::found_stock_group_id(operation, allocation).unwrap();
+        nodes.push(PhysicalLineageNode {
+            id: group,
+            parent: Some(f.root),
+            trace: f.graph.trace(),
+            variant: f.graph.variant(),
+            created_revision: revision(8),
+            packs: packs(1),
+            recovery: Some(crate::hub::portions::PhysicalRecoveryOrigin {
+                debit_operation: id(241),
+                debit_revision: revision(6),
+            }),
+        });
+        f.births.push(ActualPhysicalBirth {
+            kind: ActualPhysicalBirthKind::FoundRemainder { allocation },
+            operation,
+            hub: f.graph.hub(),
+            trace: f.graph.trace(),
+            variant: f.graph.variant(),
+            group,
+            parent: Some(f.root),
+            stock_revision: revision(8),
+            packs: packs(1),
+            actor: owner(),
+            occurred: known(200),
+            recorded_at: at(200),
+        });
+    }
+    f.graph = PhysicalLineage::new(
+        f.graph.hub(),
+        f.graph.trace(),
+        f.graph.variant(),
+        revision(10),
+        nodes,
+    )
+    .unwrap();
+    let verify = |births: &[ActualPhysicalBirth]| {
+        HistoricalHoldScopeContext {
+            lineage: &f.graph,
+            group: births[2].group,
+            occurred: known(220),
+            births,
+            now: at(250),
+        }
+        .verify(&f.hold)
+    };
+    assert!(matches!(
+        verify(&f.births).unwrap(),
+        HistoricalHoldScopeAssessment::Verified(_)
+    ));
+    for changed_field in 0..4 {
+        let mut invalid = f.births.clone();
+        let b = invalid.last_mut().unwrap();
+        match changed_field {
+            0 => {
+                b.recorded_at = at(201);
+                b.occurred = known(201);
+            }
+            1 => {
+                b.actor = PublicKey::from_hex(
+                    "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+                )
+                .unwrap()
+            }
+            2 => b.kind = ActualPhysicalBirthKind::FoundRemainder { allocation: 0 },
+            _ => invalid.push(f.births[2].clone()),
+        }
+        assert_eq!(
+            verify(&invalid),
+            Err(ActualReportError::InvalidNativeContext)
+        );
+    }
 }
 impl ScopeFixture {
     fn new(direct_child: bool) -> Self {
@@ -24,6 +222,7 @@ impl ScopeFixture {
         let variant = id(223);
         let revision = |n| HubRevision::from_value(n).unwrap();
         let root_node = PhysicalLineageNode {
+            recovery: None,
             id: root,
             parent: None,
             trace: root_ids.trace,
@@ -40,6 +239,7 @@ impl ScopeFixture {
                 ..root_node
             },
             PhysicalLineageNode {
+                recovery: None,
                 id: child,
                 parent: Some(root),
                 trace: root_ids.trace,
@@ -486,6 +686,7 @@ fn each_intake_origin_requires_its_own_native_birth_namespace() {
             variant,
             revision,
             vec![PhysicalLineageNode {
+                recovery: None,
                 id: group,
                 parent: None,
                 trace,
@@ -527,6 +728,7 @@ fn complete_native_birth_inventory_accepts_the_lineage_limit_and_rejects_one_mor
     let ids = ReceiptIdentities::from_operation_bytes(operation).unwrap();
     let revision = |v| HubRevision::from_value(v).unwrap();
     let root_node = PhysicalLineageNode {
+        recovery: None,
         id: ids.group,
         parent: None,
         trace: ids.trace,
@@ -563,6 +765,7 @@ fn complete_native_birth_inventory_accepts_the_lineage_limit_and_rejects_one_mor
             .group;
         let stock_revision = revision(u64::from(n) + 4);
         nodes.push(PhysicalLineageNode {
+            recovery: None,
             id: group,
             parent: Some(ids.group),
             trace: ids.trace,
@@ -654,6 +857,7 @@ fn sibling_fixture(
             ..*n
         })
         .chain(std::iter::once(PhysicalLineageNode {
+            recovery: None,
             id: sibling,
             parent: Some(f.root),
             trace: f.graph.trace(),
@@ -724,6 +928,7 @@ fn contradictory_birth_clocks_on_a_nonselected_branch_do_not_become_verified_coh
         .group;
     let mut nodes = f.graph.nodes().to_vec();
     nodes.push(PhysicalLineageNode {
+        recovery: None,
         id: group,
         parent: Some(sibling),
         trace: f.graph.trace(),

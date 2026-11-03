@@ -179,6 +179,7 @@ pub(in crate::hub) async fn original_on(
         .iter()
         .map(|node| {
             Ok(PhysicalLineageNode {
+                recovery: None,
                 id: record_id(node, "group_id")?,
                 parent: optional_id(node, "parent_group_id")?,
                 trace,

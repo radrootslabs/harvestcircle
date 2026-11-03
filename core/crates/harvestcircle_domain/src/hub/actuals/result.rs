@@ -383,6 +383,20 @@ fn lineage(hash: &mut Sha256, graph: &PhysicalLineage) -> Result<(), ActualRepor
         hash.update(node.created_revision.value().to_be_bytes());
         hash.update(node.packs.value().to_be_bytes());
     }
+    let origins = graph
+        .nodes()
+        .iter()
+        .filter_map(|n| n.recovery.map(|o| (n.id, o)))
+        .collect::<Vec<_>>();
+    if !origins.is_empty() {
+        hash.update(b"harvestcircle.hub.lineage.recovery-origin.capture.v1\0");
+        length(hash, origins.len())?;
+        for (group, origin) in origins {
+            hash.update(group.as_bytes());
+            hash.update(origin.debit_operation.as_bytes());
+            hash.update(origin.debit_revision.value().to_be_bytes());
+        }
+    }
     Ok(())
 }
 fn stamp(hash: &mut Sha256, value: &TreatmentStamp) {
@@ -433,6 +447,15 @@ fn treatment(hash: &mut Sha256, value: &TreatmentState) -> Result<(), ActualRepo
     for value in value.holds() {
         hold(hash, value)?;
     }
+    if !value.initial_reviews().is_empty() {
+        hash.update(b"harvestcircle.hub.treatment.initial-review.capture.v1\0");
+        length(hash, value.initial_reviews().len())?;
+        for review in value.initial_reviews() {
+            stamp(hash, &review.stamp);
+            scope(hash, &review.scope)?;
+            hash.update(b"review_required\0");
+        }
+    }
     Ok(())
 }
 fn birth(hash: &mut Sha256, value: &ActualPhysicalBirth) {
@@ -442,7 +465,11 @@ fn birth(hash: &mut Sha256, value: &ActualPhysicalBirth) {
         ActualPhysicalBirthKind::Returned => 2,
         ActualPhysicalBirthKind::CountedSurplus => 3,
         ActualPhysicalBirthKind::ObservedPortion => 4,
+        ActualPhysicalBirthKind::FoundRemainder { .. } => 5,
     }]);
+    if let ActualPhysicalBirthKind::FoundRemainder { allocation } = value.kind {
+        hash.update([allocation]);
+    }
     hash.update(value.operation.as_bytes());
     hash.update(value.hub.as_bytes());
     hash.update(value.trace.as_bytes());
@@ -548,4 +575,190 @@ fn hash_source(
     hash_occurrence(hash, source.occurred);
     hash.update(source.recorded_at.as_seconds().to_be_bytes());
     Ok(())
+}
+
+#[cfg(test)]
+mod initial_review_compatibility_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_treatment_capture_encoding_stays_frozen() {
+        let (_, group, graph, original) =
+            crate::hub::departure::tests::disposition_policy_fixture();
+        let decision = &original.decisions()[0];
+        let scope = graph
+            .restore_scope(
+                HubRevision::from_value(9).unwrap(),
+                graph.capture(&[group.id]).unwrap().anchors().to_vec(),
+            )
+            .unwrap();
+        let hold = crate::hub::treatment::Hold {
+            stamp: TreatmentStamp {
+                id: HubRecordId::from_bytes([217; 16]).unwrap(),
+                stock_revision: HubRevision::from_value(10).unwrap(),
+                ..decision.stamp.clone()
+            },
+            scope,
+            release: None,
+        };
+        let state =
+            TreatmentState::restore(&graph, original.decisions().to_vec(), vec![hold]).unwrap();
+        assert!(!state.decisions().is_empty());
+        assert!(!state.holds().is_empty());
+        let mut hash = Sha256::new();
+        treatment(&mut hash, &state).unwrap();
+        assert_eq!(
+            format!("{:x}", hash.finalize()),
+            "f2a0b6518933b5e9d20ab0d448f37e14c5ee0056d1a4559f974247021451b7f7"
+        );
+    }
+
+    #[test]
+    fn legacy_lineage_capture_encoding_stays_frozen() {
+        let (_, _, graph, _) = crate::hub::departure::tests::disposition_policy_fixture();
+        let mut hash = Sha256::new();
+        lineage(&mut hash, &graph).unwrap();
+        let actual = format!("{:x}", hash.finalize());
+        assert_eq!(
+            actual,
+            "c4831fa6c8ded97d830865f55f07607a949e9d6b6901957e5141009cd9916b72"
+        );
+    }
+
+    #[test]
+    fn recovery_origin_capture_binds_debit_identity_and_recorded_cut() {
+        let (_, group, graph, _) = crate::hub::departure::tests::disposition_policy_fixture();
+        let child = HubRecordId::from_bytes([211; 16]).unwrap();
+        let origin = crate::hub::portions::PhysicalRecoveryOrigin {
+            debit_operation: HubRecordId::from_bytes([210; 16]).unwrap(),
+            debit_revision: HubRevision::from_value(5).unwrap(),
+        };
+        let seal = |recovery| {
+            let mut nodes = graph.nodes().to_vec();
+            nodes.push(crate::hub::portions::PhysicalLineageNode {
+                id: child,
+                parent: Some(group.id),
+                trace: graph.trace(),
+                variant: graph.variant(),
+                created_revision: HubRevision::from_value(11).unwrap(),
+                packs: WholePacks::from_value(1).unwrap(),
+                recovery,
+            });
+            let graph = PhysicalLineage::new(
+                graph.hub(),
+                graph.trace(),
+                graph.variant(),
+                HubRevision::from_value(11).unwrap(),
+                nodes,
+            )
+            .unwrap();
+            let mut hash = Sha256::new();
+            lineage(&mut hash, &graph).unwrap();
+            hash.finalize()
+        };
+        let base = seal(Some(origin));
+        assert_ne!(base, seal(None));
+        assert_ne!(
+            base,
+            seal(Some(crate::hub::portions::PhysicalRecoveryOrigin {
+                debit_operation: child,
+                ..origin
+            }))
+        );
+        assert_ne!(
+            base,
+            seal(Some(crate::hub::portions::PhysicalRecoveryOrigin {
+                debit_revision: HubRevision::from_value(6).unwrap(),
+                ..origin
+            }))
+        );
+    }
+    #[test]
+    fn nonempty_initial_review_capture_binds_its_stamp_and_scope_separately() {
+        use crate::hub::portions::{PhysicalLineage, PhysicalLineageNode};
+        use crate::hub::treatment::InitialGroupReview;
+        let (_, group, graph, state) = crate::hub::departure::tests::disposition_policy_fixture();
+        let child = HubRecordId::from_bytes([214; 16]).unwrap();
+        let mut nodes = graph.nodes().to_vec();
+        nodes.iter_mut().find(|n| n.id == group.id).unwrap().packs =
+            WholePacks::from_value(5).unwrap();
+        nodes.push(PhysicalLineageNode {
+            recovery: None,
+            id: child,
+            parent: Some(group.id),
+            trace: graph.trace(),
+            variant: graph.variant(),
+            created_revision: HubRevision::from_value(11).unwrap(),
+            packs: WholePacks::from_value(1).unwrap(),
+        });
+        let graph = PhysicalLineage::new(
+            graph.hub(),
+            graph.trace(),
+            graph.variant(),
+            HubRevision::from_value(12).unwrap(),
+            nodes,
+        )
+        .unwrap();
+        let scope = graph
+            .restore_scope(
+                HubRevision::from_value(11).unwrap(),
+                vec![crate::hub::portions::PhysicalScopeAnchor {
+                    group: child,
+                    created_revision: HubRevision::from_value(11).unwrap(),
+                    captured_packs: WholePacks::from_value(1).unwrap(),
+                }],
+            )
+            .unwrap();
+        let review = InitialGroupReview {
+            stamp: TreatmentStamp {
+                id: HubRecordId::from_bytes([213; 16]).unwrap(),
+                stock_revision: HubRevision::from_value(11).unwrap(),
+                recorded_at: UnixTimestamp::from_seconds(200).unwrap(),
+                occurred: Occurrence::Known(UnixTimestamp::from_seconds(200).unwrap()),
+                ..state.decisions()[0].stamp.clone()
+            },
+            scope,
+        };
+        let seal = |review: Option<InitialGroupReview>| {
+            let value = TreatmentState::restore_with_initial_reviews(
+                &graph,
+                state.decisions().to_vec(),
+                state.holds().to_vec(),
+                review.into_iter().collect(),
+            )
+            .unwrap();
+            let mut hash = Sha256::new();
+            treatment(&mut hash, &value).unwrap();
+            format!("{:x}", hash.finalize())
+        };
+        let base = seal(Some(review.clone()));
+        assert_ne!(base, seal(None));
+        let mut changes = Vec::new();
+        let mut changed = review.clone();
+        changed.stamp.id = HubRecordId::from_bytes([212; 16]).unwrap();
+        changes.push(changed);
+        let mut changed = review.clone();
+        changed.stamp.observation =
+            SourceProvenance::new("Different recorded review evidence").unwrap();
+        changes.push(changed);
+        let mut changed = review.clone();
+        changed.stamp.actor =
+            PublicKey::from_hex("c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5")
+                .unwrap();
+        changes.push(changed);
+        let mut changed = review.clone();
+        changed.stamp.recorded_at = UnixTimestamp::from_seconds(201).unwrap();
+        changed.stamp.occurred = Occurrence::Known(changed.stamp.recorded_at);
+        changes.push(changed);
+        let mut anchors = review.scope.anchors().to_vec();
+        anchors[0].captured_packs = WholePacks::from_value(2).unwrap();
+        let mut changed = review;
+        changed.scope = graph
+            .restore_scope(HubRevision::from_value(11).unwrap(), anchors)
+            .unwrap();
+        changes.push(changed);
+        for changed in changes {
+            assert_ne!(base, seal(Some(changed)));
+        }
+    }
 }

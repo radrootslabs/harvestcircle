@@ -11,6 +11,7 @@ fn packs(n: u32) -> WholePacks {
 }
 fn node(id_value: u8, parent: Option<u8>, born: u64, quantity: u32) -> PhysicalLineageNode {
     PhysicalLineageNode {
+        recovery: None,
         id: id(id_value),
         parent: parent.map(id),
         trace: id(100),
@@ -28,6 +29,99 @@ fn graph(at: u64, nodes: Vec<PhysicalLineageNode>) -> PhysicalLineage {
         nodes,
     )
     .unwrap()
+}
+
+fn recovered(
+    id_value: u8,
+    parent: u8,
+    debit: u64,
+    born: u64,
+    quantity: u32,
+) -> PhysicalLineageNode {
+    PhysicalLineageNode {
+        recovery: Some(PhysicalRecoveryOrigin {
+            debit_operation: id(200),
+            debit_revision: revision(debit),
+        }),
+        ..node(id_value, Some(parent), born, quantity)
+    }
+}
+
+#[test]
+fn recovered_cohort_uses_original_debit_cut_and_explicit_child_anchors() {
+    let before = graph(9, vec![node(1, None, 2, 14)])
+        .capture(&[id(1)])
+        .unwrap();
+    let after = graph(10, vec![node(1, None, 2, 12)])
+        .capture(&[id(1)])
+        .unwrap();
+    let later = graph(21, vec![node(1, None, 2, 12), recovered(2, 1, 10, 21, 2)]);
+    assert_eq!(later.resolve(&before).unwrap().packs(), packs(14));
+    assert_eq!(later.resolve(&after).unwrap().packs(), packs(12));
+    let explicit = later.capture(&[id(2)]).unwrap();
+    assert_eq!(later.resolve(&explicit).unwrap().packs(), packs(2));
+    for (scope, member) in [(&before, true), (&after, false), (&explicit, true)] {
+        assert_eq!(
+            later.captured_member(scope.anchors()[0].group, scope.captured_revision(), id(2)),
+            member
+        );
+    }
+    assert_eq!(later.node(id(2)).unwrap().parent, Some(id(1)));
+}
+
+#[test]
+fn recovery_boundaries_survive_depletion_and_nested_recoveries() {
+    let before = graph(9, vec![node(1, None, 2, 14)])
+        .capture(&[id(1)])
+        .unwrap();
+    let after = graph(10, vec![node(1, None, 2, 12)])
+        .capture(&[id(1)])
+        .unwrap();
+    let later = graph(
+        25,
+        vec![
+            node(1, None, 2, 0),
+            recovered(2, 1, 10, 21, 0),
+            recovered(3, 2, 23, 25, 1),
+        ],
+    );
+    assert!(later.captured_member(id(1), before.captured_revision(), id(3)));
+    assert!(!later.captured_member(id(1), after.captured_revision(), id(3)));
+    assert!(later.captured_member(id(2), revision(21), id(3)));
+    assert!(!later.captured_member(id(2), revision(23), id(3)));
+    assert_eq!(later.resolve(&before).unwrap().packs(), packs(1));
+    assert_eq!(later.resolve(&after).unwrap().packs(), packs(0));
+    assert!(!later.captured_member(id(99), revision(21), id(99)));
+    assert!(!later.captured_member(id(2), revision(20), id(2)));
+    assert!(!later.captured_member(id(1), revision(26), id(1)));
+}
+
+#[test]
+fn recovery_origins_require_a_strict_parent_debit_birth_order() {
+    for debit in [1, 2, 21, 22] {
+        assert_eq!(
+            PhysicalLineage::new(
+                HubId::from_bytes([1; 16]).unwrap(),
+                id(100),
+                id(101),
+                revision(22),
+                vec![node(1, None, 2, 12), recovered(2, 1, debit, 21, 2)]
+            ),
+            Err(PhysicalScopeError::InvalidLineage)
+        );
+    }
+    let mut root = node(1, None, 2, 12);
+    root.recovery = recovered(2, 1, 10, 21, 2).recovery;
+    assert_eq!(
+        PhysicalLineage::new(
+            HubId::from_bytes([1; 16]).unwrap(),
+            id(100),
+            id(101),
+            revision(22),
+            vec![root]
+        ),
+        Err(PhysicalScopeError::InvalidLineage)
+    );
 }
 
 #[test]

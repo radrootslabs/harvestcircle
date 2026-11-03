@@ -1,5 +1,73 @@
 use super::*;
 
+#[test]
+fn source_activity_uses_captured_cohort_instead_of_unconditional_physical_ancestry() {
+    use crate::hub::portions::{PhysicalLineageNode, PhysicalRecoveryOrigin};
+    let mut f = Fixture::new(known(120));
+    let source = witness(&f);
+    let revision = |n| HubRevision::from_value(n).unwrap();
+    let cut = source.stock_revision.value();
+    let child = id(230);
+    let mut nodes = f.graph.nodes().to_vec();
+    nodes.push(PhysicalLineageNode {
+        id: child,
+        parent: Some(f.group.id),
+        trace: f.graph.trace(),
+        variant: f.graph.variant(),
+        created_revision: revision(cut + 1),
+        packs: packs(0),
+        recovery: Some(PhysicalRecoveryOrigin {
+            debit_operation: id(231),
+            debit_revision: source.stock_revision,
+        }),
+    });
+    f.graph = PhysicalLineage::new(
+        f.graph.hub(),
+        f.graph.trace(),
+        f.graph.variant(),
+        revision(cut + 2),
+        nodes.clone(),
+    )
+    .unwrap();
+    let mut counted = event(&f, ActualPhysicalActivityKind::CountReconciled, known(140));
+    counted.group = child;
+    assert!(resolve(&f, &source, &[counted.clone()]).is_ok());
+    nodes.last_mut().unwrap().recovery = None;
+    f.graph = PhysicalLineage::new(
+        f.graph.hub(),
+        f.graph.trace(),
+        f.graph.variant(),
+        revision(cut + 2),
+        nodes.clone(),
+    )
+    .unwrap();
+    assert_eq!(
+        resolve(&f, &source, &[counted.clone()]),
+        Err(ActualReportError::HistoricalSourceUnresolved)
+    );
+    // A later descendant of a branch already detached at the capture stays out.
+    nodes.last_mut().unwrap().created_revision = source.stock_revision;
+    nodes.push(PhysicalLineageNode {
+        id: id(232),
+        parent: Some(child),
+        trace: f.graph.trace(),
+        variant: f.graph.variant(),
+        created_revision: revision(cut + 1),
+        packs: packs(0),
+        recovery: None,
+    });
+    f.graph = PhysicalLineage::new(
+        f.graph.hub(),
+        f.graph.trace(),
+        f.graph.variant(),
+        revision(cut + 2),
+        nodes,
+    )
+    .unwrap();
+    counted.group = id(232);
+    assert!(resolve(&f, &source, &[counted]).is_ok());
+}
+
 pub(super) fn witness(f: &Fixture) -> HistoricalActualSource {
     HistoricalActualSource {
         actor: owner(),

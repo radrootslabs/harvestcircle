@@ -7,8 +7,8 @@
 mod lineage;
 mod split;
 pub use lineage::{
-    CapturedPhysicalScope, PhysicalLineage, PhysicalLineageNode, PhysicalScopeAnchor,
-    PhysicalScopeError, ResolvedPhysicalScope,
+    CapturedPhysicalScope, PhysicalLineage, PhysicalLineageNode, PhysicalRecoveryOrigin,
+    PhysicalScopeAnchor, PhysicalScopeError, ResolvedPhysicalScope,
 };
 pub use split::{SplitCommand, SplitPlan};
 

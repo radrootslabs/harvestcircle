@@ -261,9 +261,8 @@ impl ActualSourceContext<'_> {
                     balancing_birth_known = true;
                 }
             }
-            let affected = event.group == source.group.id
-                || (node.created_revision.value() > source.stock_revision.value()
-                    && descendant_of(graph, event.group, source.group.id));
+            let affected =
+                graph.captured_member(source.group.id, source.stock_revision, event.group);
             if !affected {
                 continue;
             }
@@ -290,15 +289,4 @@ impl ActualSourceContext<'_> {
             balancing_group: current.id,
         })
     }
-}
-
-fn descendant_of(graph: &PhysicalLineage, mut group: HubRecordId, ancestor: HubRecordId) -> bool {
-    // Native lineage construction guarantees an acyclic strictly advancing tree.
-    while let Some(parent) = graph.node(group).and_then(|g| g.parent) {
-        if parent == ancestor {
-            return true;
-        }
-        group = parent;
-    }
-    false
 }

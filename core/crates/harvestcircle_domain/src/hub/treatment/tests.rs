@@ -27,6 +27,7 @@ fn at(n: i64) -> UnixTimestamp {
 }
 fn node(n: u8, parent: Option<u8>, born: u64, count: u32) -> PhysicalLineageNode {
     PhysicalLineageNode {
+        recovery: None,
         id: id(n),
         parent: parent.map(id),
         trace: id(100),

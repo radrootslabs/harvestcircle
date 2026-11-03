@@ -16,6 +16,7 @@ pub enum ActualPhysicalBirthKind {
     Returned,
     CountedSurplus,
     ObservedPortion,
+    FoundRemainder { allocation: u8 },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
@@ -68,6 +69,11 @@ impl ActualPhysicalBirth {
                     .map_err(|_| invalid())?;
                 (ids.group, None)
             }
+            ActualPhysicalBirthKind::FoundRemainder { allocation } => (
+                crate::hub::corrections::found_stock_group_id(self.operation, allocation)
+                    .map_err(|_| invalid())?,
+                None,
+            ),
         };
         let node = graph.node(self.group).ok_or_else(invalid)?;
         if self.group != group
@@ -76,7 +82,17 @@ impl ActualPhysicalBirth {
             || self.variant != graph.variant()
             || population.is_some_and(|v| v != self.trace)
             || self.parent != node.parent
-            || (self.kind == ActualPhysicalBirthKind::ObservedPortion) != self.parent.is_some()
+            || matches!(
+                self.kind,
+                ActualPhysicalBirthKind::ObservedPortion
+                    | ActualPhysicalBirthKind::FoundRemainder { .. }
+            ) != self.parent.is_some()
+            || matches!(self.kind, ActualPhysicalBirthKind::FoundRemainder { .. })
+                != node.recovery.is_some()
+            || (node.recovery.is_some() && self.occurred != Occurrence::Known(self.recorded_at))
+            || node
+                .recovery
+                .is_some_and(|origin| origin.debit_operation == self.operation)
             || self.stock_revision != node.created_revision
             || self.stock_revision == HubRevision::INITIAL
             || self.packs.value() == 0
@@ -196,10 +212,25 @@ impl HistoricalHoldScopeContext<'_> {
             return Err(ActualReportError::Capacity);
         }
         let mut births = BTreeMap::new();
-        let mut operations = BTreeSet::new();
+        let mut operations: BTreeMap<HubRecordId, &ActualPhysicalBirth> = BTreeMap::new();
         for birth in self.births {
             birth.validate(graph, self.now)?;
-            if births.insert(birth.group, birth).is_some() || !operations.insert(birth.operation) {
+            if births.insert(birth.group, birth).is_some() {
+                return Err(ActualReportError::InvalidNativeContext);
+            }
+            if let Some(prior) = operations.insert(birth.operation, birth)
+                && (!matches!((prior.kind, birth.kind), (
+                    ActualPhysicalBirthKind::FoundRemainder { allocation: a },
+                    ActualPhysicalBirthKind::FoundRemainder { allocation: b }
+                ) if a != b)
+                    || prior.hub != birth.hub
+                    || prior.trace != birth.trace
+                    || prior.variant != birth.variant
+                    || prior.stock_revision != birth.stock_revision
+                    || prior.actor != birth.actor
+                    || prior.occurred != birth.occurred
+                    || prior.recorded_at != birth.recorded_at)
+            {
                 return Err(ActualReportError::InvalidNativeContext);
             }
         }
@@ -213,7 +244,7 @@ impl HistoricalHoldScopeContext<'_> {
             let single = graph
                 .restore_scope(hold.scope.captured_revision(), vec![*anchor])
                 .map_err(|_| ActualReportError::InvalidNativeContext)?;
-            if !captured_member(graph, anchor.group, single.captured_revision(), self.group) {
+            if !graph.captured_member(anchor.group, single.captured_revision(), self.group) {
                 continue;
             }
             if graph
@@ -342,28 +373,6 @@ fn bounds(value: Occurrence) -> Option<(UnixTimestamp, UnixTimestamp)> {
 
 // Historical membership retains zero-pack nodes. A branch that already existed
 // when its ancestor was captured is detached, even if it later has descendants.
-fn captured_member(
-    graph: &PhysicalLineage,
-    anchor: HubRecordId,
-    captured: HubRevision,
-    mut group: HubRecordId,
-) -> bool {
-    loop {
-        if group == anchor {
-            return true;
-        }
-        let Some(node) = graph.node(group) else {
-            return false;
-        };
-        if node.created_revision.value() <= captured.value() {
-            return false;
-        }
-        let Some(parent) = node.parent else {
-            return false;
-        };
-        group = parent;
-    }
-}
 
 fn cohort_detachments(
     graph: &PhysicalLineage,
@@ -374,7 +383,7 @@ fn cohort_detachments(
 ) -> Result<Vec<ActualPhysicalBirth>, HistoricalHoldScopeUncertainty> {
     let mut proofs = Vec::new();
     for node in graph.nodes() {
-        if node.id == anchor || !captured_member(graph, anchor, captured, node.id) {
+        if node.id == anchor || !graph.captured_member(anchor, captured, node.id) {
             continue;
         }
         let birth = births

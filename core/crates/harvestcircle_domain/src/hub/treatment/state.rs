@@ -26,6 +26,14 @@ pub struct AcceptanceDecision {
     pub status: AcceptanceStatus,
 }
 
+/// Fixed negative constraint at the birth cut, never an acceptance grant.
+/// Ordinary decisions and holds retain their preceding-cut scope rule.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct InitialGroupReview {
+    pub stamp: TreatmentStamp,
+    pub scope: CapturedPhysicalScope,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct Hold {
     pub stamp: TreatmentStamp,
@@ -45,6 +53,8 @@ impl Hold {
 pub struct TreatmentState {
     pub(super) decisions: Vec<AcceptanceDecision>,
     pub(super) holds: Vec<Hold>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(super) initial_reviews: Vec<InitialGroupReview>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -161,7 +171,21 @@ impl TreatmentState {
         decisions: Vec<AcceptanceDecision>,
         holds: Vec<Hold>,
     ) -> Result<Self, TreatmentError> {
-        let state = Self { decisions, holds };
+        Self::restore_with_initial_reviews(graph, decisions, holds, Vec::new())
+    }
+    /// Native readers must supply every original birth review at the selected cut.
+    /// No accepted status or hold release can be supplied through this constructor.
+    pub fn restore_with_initial_reviews(
+        graph: &PhysicalLineage,
+        decisions: Vec<AcceptanceDecision>,
+        holds: Vec<Hold>,
+        initial_reviews: Vec<InitialGroupReview>,
+    ) -> Result<Self, TreatmentError> {
+        let state = Self {
+            decisions,
+            holds,
+            initial_reviews,
+        };
         state.validate(graph)?;
         Ok(state)
     }
@@ -173,15 +197,20 @@ impl TreatmentState {
     pub fn holds(&self) -> &[Hold] {
         &self.holds
     }
-    /// Primary decisions and holds. Each hold retains one bounded release slot.
+    #[must_use]
+    pub fn initial_reviews(&self) -> &[InitialGroupReview] {
+        &self.initial_reviews
+    }
+    /// Primary decisions, birth reviews and holds. Each hold retains one bounded release slot.
     #[must_use]
     pub fn record_count(&self) -> usize {
-        self.decisions.len() + self.holds.len()
+        self.decisions.len() + self.holds.len() + self.initial_reviews.len()
     }
 
     fn validate(&self, graph: &PhysicalLineage) -> Result<(), TreatmentError> {
         if self.decisions.len() > HUB_TREATMENT_RECORDS_PER_TRACE
             || self.holds.len() > HUB_TREATMENT_RECORDS_PER_TRACE
+            || self.initial_reviews.len() > HUB_TREATMENT_RECORDS_PER_TRACE
             || self.record_count() > HUB_TREATMENT_RECORDS_PER_TRACE
         {
             return Err(TreatmentError::Capacity);
@@ -222,6 +251,39 @@ impl TreatmentState {
                 }
             }
         }
+        for review in &self.initial_reviews {
+            stamp(&review.stamp)?;
+            if review.scope.captured_revision() != review.stamp.stock_revision
+                || review.scope.anchors().len() > HUB_TREATMENT_SELECTION_GROUPS
+                || review.stamp.occurred != Occurrence::Known(review.stamp.recorded_at)
+            {
+                return Err(TreatmentError::InvalidHistory);
+            }
+            let mut captured = WholePacks::from_value(0).expect("zero packs");
+            for anchor in review.scope.anchors() {
+                let node = graph
+                    .node(anchor.group)
+                    .ok_or(TreatmentError::InvalidHistory)?;
+                if anchor.created_revision != review.stamp.stock_revision
+                    || node.created_revision != review.stamp.stock_revision
+                    || node.parent.is_none()
+                    || anchor.captured_packs.value() == 0
+                {
+                    return Err(TreatmentError::InvalidHistory);
+                }
+                let single =
+                    graph.restore_scope(review.scope.captured_revision(), vec![*anchor])?;
+                if graph.resolve(&single)?.packs().value() > anchor.captured_packs.value() {
+                    return Err(TreatmentError::InvalidHistory);
+                }
+                captured = captured
+                    .checked_add(anchor.captured_packs)
+                    .map_err(|_| TreatmentError::InvalidHistory)?;
+            }
+            if graph.resolve(&review.scope)?.packs().value() > captured.value() {
+                return Err(TreatmentError::InvalidHistory);
+            }
+        }
         Ok(())
     }
 
@@ -245,6 +307,23 @@ impl TreatmentState {
                     }
                     std::collections::btree_map::Entry::Vacant(entry) => {
                         entry.insert((&decision.stamp, decision.status));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for review in &self.initial_reviews {
+            for node in graph.resolve(&review.scope)?.groups() {
+                let slot = acceptance.entry(*node.id.as_bytes());
+                match slot {
+                    std::collections::btree_map::Entry::Occupied(mut entry)
+                        if entry.get().0.stock_revision.value()
+                            < review.stamp.stock_revision.value() =>
+                    {
+                        entry.insert((&review.stamp, AcceptanceStatus::ReviewRequired));
+                    }
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        entry.insert((&review.stamp, AcceptanceStatus::ReviewRequired));
                     }
                     _ => {}
                 }

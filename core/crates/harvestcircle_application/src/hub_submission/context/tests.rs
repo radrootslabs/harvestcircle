@@ -265,3 +265,5 @@ fn inspection_checks_read_only_metadata_and_preserves_raw_input_digest() {
         assert!(inspect_hub_submission(altered.as_bytes()).is_err());
     }
 }
+
+mod initial_review_compatibility;

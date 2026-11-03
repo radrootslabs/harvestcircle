@@ -23,6 +23,16 @@ pub struct PhysicalLineageNode {
     pub variant: HubRecordId,
     pub created_revision: HubRevision,
     pub packs: WholePacks,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery: Option<PhysicalRecoveryOrigin>,
+}
+
+/// Native debit record order defines cohort membership, never physical timing.
+/// The new child is independently verified outside the recorded post-debit remainder.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct PhysicalRecoveryOrigin {
+    pub debit_operation: HubRecordId,
+    pub debit_revision: HubRevision,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
@@ -137,6 +147,14 @@ impl PhysicalLineage {
                 if parent.created_revision.value() >= node.created_revision.value() {
                     return Err(PhysicalScopeError::InvalidLineage);
                 }
+                if node.recovery.is_some_and(|origin| {
+                    origin.debit_revision.value() <= parent.created_revision.value()
+                        || origin.debit_revision.value() >= node.created_revision.value()
+                }) {
+                    return Err(PhysicalScopeError::InvalidLineage);
+                }
+            } else if node.recovery.is_some() {
+                return Err(PhysicalScopeError::InvalidLineage);
             }
             total = total
                 .checked_add(node.packs)
@@ -224,6 +242,40 @@ impl PhysicalLineage {
             .map(|index| &self.nodes[index])
     }
 
+    /// Membership includes depleted historical nodes. An explicit anchor includes
+    /// its own cohort; inherited edges cannot cross an already detached branch or
+    /// a recovery from a debit already recorded at the capture cut.
+    #[must_use]
+    pub fn captured_member(
+        &self,
+        anchor: HubRecordId,
+        captured: HubRevision,
+        mut group: HubRecordId,
+    ) -> bool {
+        if captured.value() > self.revision.value()
+            || self
+                .node(anchor)
+                .is_none_or(|n| n.created_revision.value() > captured.value())
+        {
+            return false;
+        }
+        loop {
+            let Some(node) = self.node(group) else {
+                return false;
+            };
+            if group == anchor {
+                return true;
+            }
+            if !node.inherits_at(captured) {
+                return false;
+            }
+            let Some(parent) = node.parent else {
+                return false;
+            };
+            group = parent;
+        }
+    }
+
     pub fn capture(
         &self,
         selected: &[HubRecordId],
@@ -297,7 +349,7 @@ impl PhysicalLineage {
             }
             let mut included = BTreeSet::new();
             for node in &chronological {
-                let inherited = node.created_revision.value() > scope.captured_revision.value()
+                let inherited = node.inherits_at(scope.captured_revision)
                     && node
                         .parent
                         .is_some_and(|parent| included.contains(parent.as_bytes()));
@@ -323,6 +375,15 @@ impl PhysicalLineage {
             groups,
             packs,
         })
+    }
+}
+
+impl PhysicalLineageNode {
+    fn inherits_at(&self, captured: HubRevision) -> bool {
+        self.created_revision.value() > captured.value()
+            && self
+                .recovery
+                .is_none_or(|origin| captured.value() < origin.debit_revision.value())
     }
 }
 

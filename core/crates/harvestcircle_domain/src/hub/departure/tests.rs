@@ -152,6 +152,7 @@ impl Fixture {
             })
             .collect();
         let mut nodes = vec![PhysicalLineageNode {
+            recovery: None,
             id: id(10),
             parent: None,
             trace: intake.trace.id,
@@ -161,6 +162,7 @@ impl Fixture {
         }];
         if completed > 0 {
             nodes.push(PhysicalLineageNode {
+                recovery: None,
                 id: id(13),
                 parent: Some(id(10)),
                 trace: intake.trace.id,
@@ -174,6 +176,7 @@ impl Fixture {
                 .iter()
                 .enumerate()
                 .map(|(i, s)| PhysicalLineageNode {
+                    recovery: None,
                     id: s.group.id,
                     parent: s.group.parent,
                     trace: s.group.trace,

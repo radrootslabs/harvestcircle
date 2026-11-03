@@ -173,6 +173,7 @@ fn partial_disposition_requires_an_observed_separate_physical_scope() {
     let mut nodes = f.lineage.nodes().to_vec();
     nodes.iter_mut().find(|n| n.id == f.group.id).unwrap().packs = split.remainder.packs;
     nodes.push(PhysicalLineageNode {
+        recovery: None,
         id: split.portion.id,
         parent: split.portion.parent,
         trace: split.portion.trace,

@@ -9,6 +9,9 @@ use super::reference::{HubRecordId, WholePacks};
 use super::trace::TraceBalance;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod physical;
+pub use physical::*;
+
 mod attribution;
 pub use attribution::*;
 

@@ -9,8 +9,8 @@ pub use command::{
 };
 pub use result::treatment_result_digest;
 pub use state::{
-    AcceptanceDecision, GroupTreatment, Hold, TreatmentProjection, TreatmentStamp, TreatmentState,
-    TreatmentSummary,
+    AcceptanceDecision, GroupTreatment, Hold, InitialGroupReview, TreatmentProjection,
+    TreatmentStamp, TreatmentState, TreatmentSummary,
 };
 
 use super::portions::PhysicalScopeError;
