@@ -4,8 +4,8 @@ use harvestcircle_domain::hub::actuals::{
     ActualDuplicateLink, ActualNewDepartureCommand, ActualReportCommand,
 };
 use harvestcircle_storage::{
-    HubActualReportPage, HubActualReportQuery, HubActualReportReceipt, HubActualReviewReceipt,
-    HubActualSourceEvidence, HubActualSourceQuery,
+    HubActualDeparturePreview, HubActualLinkPreview, HubActualReportPage, HubActualReportQuery,
+    HubActualReportReceipt, HubActualReviewReceipt, HubActualSourceEvidence, HubActualSourceQuery,
 };
 
 pub(super) enum HubActualCommand {
@@ -18,6 +18,14 @@ pub(super) enum HubActualCommand {
         command: Box<ActualNewDepartureCommand>,
     },
     Link {
+        operation: DurableRequestId,
+        command: Box<ActualDuplicateLink>,
+    },
+    DeparturePreview {
+        operation: DurableRequestId,
+        command: Box<ActualNewDepartureCommand>,
+    },
+    LinkPreview {
         operation: DurableRequestId,
         command: Box<ActualDuplicateLink>,
     },
@@ -42,12 +50,46 @@ impl HubActualCommand {
     }
 }
 pub(super) enum HubActualValue {
+    DeparturePreview(Box<HubActualDeparturePreview>),
+    LinkPreview(Box<HubActualLinkPreview>),
     Report(Option<Box<HubActualReportReceipt>>),
     Review(Option<Box<HubActualReviewReceipt>>),
     Reports(Box<HubActualReportPage>),
     Source(Box<HubActualSourceEvidence>),
 }
 impl RuntimeActorHandle {
+    pub async fn hub_actual_departure_preview(
+        &self,
+        operation: DurableRequestId,
+        command: ActualNewDepartureCommand,
+    ) -> Result<HubActualDeparturePreview, SafeError> {
+        match self
+            .dispatch_actual(HubActualCommand::DeparturePreview {
+                operation,
+                command: Box::new(command),
+            })
+            .await?
+        {
+            HubActualValue::DeparturePreview(value) => Ok(*value),
+            _ => Err(invalid_actor_response()),
+        }
+    }
+    pub async fn hub_actual_link_preview(
+        &self,
+        operation: DurableRequestId,
+        command: ActualDuplicateLink,
+    ) -> Result<HubActualLinkPreview, SafeError> {
+        match self
+            .dispatch_actual(HubActualCommand::LinkPreview {
+                operation,
+                command: Box::new(command),
+            })
+            .await?
+        {
+            HubActualValue::LinkPreview(value) => Ok(*value),
+            _ => Err(invalid_actor_response()),
+        }
+    }
     pub async fn report_hub_actual(
         &self,
         operation: DurableRequestId,
@@ -207,6 +249,32 @@ impl RuntimeActor {
                 context.deadline(),
                 move |adapter, secrets, clock| async move {
                     let value = match command {
+                        HubActualCommand::DeparturePreview { operation, command } => {
+                            HubActualValue::DeparturePreview(Box::new(
+                                adapter
+                                    .database()
+                                    .hub_actual_departure_preview(
+                                        actor,
+                                        operation,
+                                        *command,
+                                        clock.now(),
+                                    )
+                                    .await?,
+                            ))
+                        }
+                        HubActualCommand::LinkPreview { operation, command } => {
+                            HubActualValue::LinkPreview(Box::new(
+                                adapter
+                                    .database()
+                                    .hub_actual_link_preview(
+                                        actor,
+                                        operation,
+                                        *command,
+                                        clock.now(),
+                                    )
+                                    .await?,
+                            ))
+                        }
                         HubActualCommand::ReportOperation(operation) => HubActualValue::Report(
                             adapter
                                 .database()

@@ -16,6 +16,7 @@ mod candidate_schema;
 mod closure;
 mod holds;
 mod mutations;
+mod preview;
 mod replan;
 mod report_capacity;
 mod seals;

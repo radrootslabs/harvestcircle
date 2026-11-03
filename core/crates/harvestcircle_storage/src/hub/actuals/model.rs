@@ -77,3 +77,18 @@ pub struct HubActualReportPage {
     pub more: bool,
     pub rows: Vec<HubActualReportRow>,
 }
+
+/// Current computed comparison only. It is distinct from a persisted receipt.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HubActualDeparturePreview {
+    pub revision: HubRevision,
+    pub catalog_revision: HubRevision,
+    pub plan: ActualNewDeparturePlan,
+    pub historical_holds: Vec<HistoricalHoldScopeAssessment>,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HubActualLinkPreview {
+    pub revision: HubRevision,
+    pub catalog_revision: HubRevision,
+    pub plan: ActualDuplicateLinkPlan,
+}

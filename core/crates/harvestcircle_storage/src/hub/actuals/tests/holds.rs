@@ -56,6 +56,20 @@ async fn retained_hold_world(occurred: Occurrence, expected: HistoricalHoldTimin
     };
     let mut command = review(&db, saved.original.id, group).await;
     command.facts.occurred = occurred;
+    let preview = db
+        .hub_actual_departure_preview(owner(), operation(81), command.clone(), at(160))
+        .await
+        .unwrap();
+    assert_eq!(
+        db.hub_group(owner(), group).await.unwrap().group.packs,
+        packs(20)
+    );
+    assert!(
+        db.hub_submission(owner(), operation(81))
+            .await
+            .unwrap()
+            .is_none()
+    );
     let crate::HubMutationResult::ActualReviewed(original) = db
         .submit_hub_mutation(
             scope,
@@ -69,6 +83,7 @@ async fn retained_hold_world(occurred: Occurrence, expected: HistoricalHoldTimin
         panic!("review")
     };
     assert_eq!(original.historical_holds.len(), 1);
+    assert_eq!(preview.historical_holds, original.historical_holds);
     let HistoricalHoldScopeAssessment::Verified(finding) = &original.historical_holds[0] else {
         panic!("canonical birth proves original whole cohort")
     };

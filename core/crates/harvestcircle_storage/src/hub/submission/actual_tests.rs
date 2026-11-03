@@ -379,3 +379,109 @@ async fn actual_execution_session_loss_never_turns_committed_raw_fact_into_known
     );
     db.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn actual_preview_rejects_pending_candidate_and_never_excludes_another_uncertain_report() {
+    use harvestcircle_domain::hub::actuals::{ActualNewDepartureCommand, ActualReviewFacts};
+    use harvestcircle_domain::hub::reference::WholePacks;
+    let fixture = Fixture::new();
+    let db = fixture.open().await;
+    let catalog = setup(&db).await;
+    let intake = db
+        .apply_hub_receipt(owner(), operation(1), command(&catalog), at(100))
+        .await
+        .unwrap();
+    let scope = active_scope(&db).await;
+    let crate::HubMutationResult::ActualReported(saved) = db
+        .submit_hub_mutation(
+            scope,
+            operation(80),
+            HubMutation::ActualReport(Box::new(report())),
+            at(150),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("report");
+    };
+    let group = db
+        .hub_group(owner(), intake.original.position.group)
+        .await
+        .unwrap();
+    let candidate = ActualNewDepartureCommand {
+        facts: ActualReviewFacts {
+            report: saved.original.id,
+            expected_stock_revision: group.revision,
+            expected_catalog_revision: group.catalog_revision,
+            group: group.group.id,
+            expected_group_revision: group.group.revision,
+            packs: WholePacks::from_value(2).unwrap(),
+            recipient: id(3),
+            occurred: Occurrence::Known(at(110)),
+            source_evidence: SourceProvenance::new("Original cohort verified").unwrap(),
+            quantity_evidence: SourceProvenance::new("Two whole packs verified").unwrap(),
+            recipient_evidence: SourceProvenance::new("Recipient independently verified").unwrap(),
+            timing_evidence: SourceProvenance::new("Time independently verified").unwrap(),
+        },
+        source_operation: HubRecordId::from_hex(&operation(1).as_str().replace('-', "")).unwrap(),
+        source_group: group.group.id,
+        duplicate_review_basis: SourceProvenance::new("Complete native original history checked")
+            .unwrap(),
+    };
+    let decision = db
+        .host()
+        .transaction(|tx| {
+            Box::pin(async move {
+                admission::prepare_on(
+                    tx,
+                    scope,
+                    operation(82),
+                    HubMutation::ActualReport(Box::new(report())),
+                    at(151),
+                )
+                .await
+            })
+        })
+        .await
+        .unwrap();
+    assert!(matches!(decision, admission::Decision::Fresh(_)));
+    drop(decision);
+    let pending = db
+        .hub_submission(owner(), operation(82))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(pending.status, HubSubmissionStatus::Pending);
+    assert_eq!(
+        db.hub_actual_departure_preview(owner(), operation(82), candidate.clone(), at(160))
+            .await
+            .unwrap_err()
+            .code(),
+        SafeErrorCode::HubConflict
+    );
+    assert_eq!(
+        db.hub_actual_departure_preview(owner(), operation(81), candidate, at(160))
+            .await
+            .unwrap_err()
+            .code(),
+        SafeErrorCode::HubConflict
+    );
+    assert_eq!(
+        db.hub_submission(owner(), operation(82)).await.unwrap(),
+        Some(pending)
+    );
+    assert!(
+        db.hub_submission(owner(), operation(81))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(db.hub_group(owner(), group.group.id).await.unwrap(), group);
+    assert_eq!(
+        db.hub_actual_report_operation(owner(), operation(80))
+            .await
+            .unwrap(),
+        Some(*saved)
+    );
+    db.close().await.unwrap();
+}

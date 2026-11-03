@@ -71,6 +71,16 @@ impl Database {
     }
 }
 
+/// Shared current candidate-ID check for read-only previews. It grants neither
+/// admission nor replay, including for published pre-admission originals.
+pub(in crate::hub) async fn operation_exists_on(
+    tx: &mut radroots_service_sqlite::ServiceSqliteTransaction<'_>,
+    operation: &DurableRequestId,
+) -> Result<bool, SafeError> {
+    Ok(read::record_on(tx, operation).await?.is_some()
+        || read::original_on(tx, operation).await?.is_some())
+}
+
 fn archive_error(error: HubRequestArchiveError) -> SafeError {
     match error {
         HubRequestArchiveError::Capacity => stock::capacity(),

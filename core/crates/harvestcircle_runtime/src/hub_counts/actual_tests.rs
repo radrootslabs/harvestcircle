@@ -134,6 +134,30 @@ async fn actual_runtime_preserves_raw_reports_reconciles_once_and_links_without_
         source_group: group,
         duplicate_review_basis: note("Complete native known departure history checked"),
     };
+    let review_op = DurableRequestId::new_v7();
+    let preview = actor
+        .hub_actual_departure_preview(review_op.clone(), command.clone())
+        .await
+        .unwrap();
+    assert_eq!(preview.revision, view.revision);
+    assert_eq!(preview.catalog_revision, view.catalog_revision);
+    assert_eq!(preview.plan.reduction.on_hand_after, packs(18));
+    assert!(preview.historical_holds.is_empty());
+    assert!(
+        actor
+            ._adapter
+            .database()
+            .hub_submission(owner, review_op.clone())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        actor.hub_stock(query()).await.unwrap().rows[0]
+            .position
+            .packs,
+        packs(20)
+    );
     let credential = secrets.load(owner).await.unwrap();
     secrets
         .delete(&DurableRequestId::new_v7(), owner)
@@ -150,7 +174,6 @@ async fn actual_runtime_preserves_raw_reports_reconciles_once_and_links_without_
             .unwrap(),
         raw
     );
-    let review_op = DurableRequestId::new_v7();
     assert_eq!(
         actor
             .reconcile_hub_actual(
@@ -172,6 +195,13 @@ async fn actual_runtime_preserves_raw_reports_reconciles_once_and_links_without_
             .await
             .unwrap()
             .is_none()
+    );
+    assert_eq!(
+        actor
+            .hub_actual_departure_preview(review_op.clone(), command.clone())
+            .await
+            .unwrap(),
+        preview
     );
     let blocked_report = DurableRequestId::new_v7();
     assert_eq!(
@@ -281,6 +311,28 @@ async fn actual_runtime_preserves_raw_reports_reconciles_once_and_links_without_
         verification: note("Same already-recorded two-crate event independently verified"),
     };
     let link_op = DurableRequestId::new_v7();
+    let link_preview = actor
+        .hub_actual_link_preview(link_op.clone(), link.clone())
+        .await
+        .unwrap();
+    assert_eq!(link_preview.plan.known.operation, record_id(&review_op));
+    assert!(
+        actor
+            ._adapter
+            .database()
+            .hub_submission(owner, link_op.clone())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        actor
+            .hub_actual_reports(HubActualReportQuery::default())
+            .await
+            .unwrap()
+            .total,
+        1
+    );
     let credential = secrets.load(owner).await.unwrap();
     secrets
         .delete(&DurableRequestId::new_v7(), owner)
@@ -321,6 +373,13 @@ async fn actual_runtime_preserves_raw_reports_reconciles_once_and_links_without_
         .put(&DurableRequestId::new_v7(), owner, credential)
         .await
         .unwrap();
+    assert_eq!(
+        actor
+            .hub_actual_link_preview(link_op.clone(), link.clone())
+            .await
+            .unwrap(),
+        link_preview
+    );
     let linked = actor
         .link_hub_actual(
             link_op.clone(),

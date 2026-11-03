@@ -2,6 +2,7 @@
 pub(in crate::hub) mod common;
 pub(in crate::hub) mod links;
 mod model;
+mod preview;
 pub use model::*;
 pub(in crate::hub) mod frozen;
 pub(in crate::hub) mod projection;
