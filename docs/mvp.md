@@ -274,6 +274,24 @@ downstream recipient/document follow-up. Known departures cannot become generic
 loss. Source/recipient/quantity amendments use bounded specialized paths; no free
 historical overwrite or unrestricted Undo after dependent activity.
 
+Pure linked-correction accounting lives in `harvestcircle_domain::hub::corrections`.
+It is not exposed as an operational command yet. Each original departure line
+retains its captured quantity. Effective departure quantity is original plus
+additional departure minus separately identified found remainder; each delta
+requires its own native physical balancing proof before future posting. Current
+established linked returns cannot exceed the effective departure. Found stock
+cannot resurrect the consumed group or completed/retired work. A counted-shortage
+explanation creates a distinct known departure from the already removed quantity:
+it transfers unexplained count loss into known actual departure without another
+stock debit or work retirement. Partial explanation retains the unexplained balance.
+The current trace equation is original = on hand + effective normal departures +
+effective actual departures + unexplained count loss + disposition. Returned
+intakes remain separate populations. Native ledgers must be complete and bound to
+original operations/populations/variants; duplicate event roles fail closed.
+There are at most 4,096 correction/amendment/explanation rows in a complete trace
+accounting cut, independently of existing original-event capacities. These pure
+checks grant no source, treatment, physical handling or execution authority.
+
 Pure count policy lives in `harvestcircle_domain::hub::counts`. Observation plans
 capture the original population, pack/location versions, recorded count, cutoff
 and observer without changing stock or work. A fresh comparison rejects changed

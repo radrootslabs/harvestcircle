@@ -5,6 +5,7 @@
 //! Persistence and native session checks must protect the complete command.
 
 pub mod actuals;
+pub mod corrections;
 pub mod counts;
 pub mod departure;
 pub mod dispatch;
