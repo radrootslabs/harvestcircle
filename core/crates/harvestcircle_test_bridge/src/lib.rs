@@ -1,4 +1,9 @@
 #![doc = "Integration-only native test bridge for HarvestCircle."]
+use harvestcircle_ffi::{
+    HubActualDepartureInputDto, HubActualDeparturePreviewDto, HubActualLinkInputDto,
+    HubActualLinkPreviewDto, HubActualReportDto, HubActualReportInputDto, HubActualReportPageDto,
+    HubActualReportQueryDto, HubActualReviewReceiptDto,
+};
 mod actual_trace;
 pub use actual_trace::{actual_trace_encoding_probe, actual_trace_history_encoding_probe};
 
@@ -383,6 +388,127 @@ impl HarvestCircleTestBridge {
             .block_on(self.actor()?.hub_disposition_operation(operation))
             .map_err(native_runtime_error)?;
         Ok(value.map(Into::into))
+    }
+    pub fn report_actual(
+        &self,
+        operation_id: String,
+        expected_revision: u64,
+        input: HubActualReportInputDto,
+    ) -> Result<HubActualReportDto, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let command = input.command().map_err(native_codec_error)?;
+        let value = self
+            .runtime
+            .block_on(self.actor()?.report_hub_actual(
+                operation,
+                command,
+                SnapshotRevision::from_value(expected_revision),
+                Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            ))
+            .map_err(native_runtime_error)?;
+        Ok(value.into())
+    }
+    pub fn reconcile_actual(
+        &self,
+        operation_id: String,
+        expected_revision: u64,
+        input: HubActualDepartureInputDto,
+    ) -> Result<HubActualReviewReceiptDto, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let command = input.command().map_err(native_codec_error)?;
+        let value = self
+            .runtime
+            .block_on(self.actor()?.reconcile_hub_actual(
+                operation,
+                command,
+                SnapshotRevision::from_value(expected_revision),
+                Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            ))
+            .map_err(native_runtime_error)?;
+        value.try_into().map_err(native_codec_error)
+    }
+    pub fn link_actual(
+        &self,
+        operation_id: String,
+        expected_revision: u64,
+        input: HubActualLinkInputDto,
+    ) -> Result<HubActualReviewReceiptDto, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let command = input.command().map_err(native_codec_error)?;
+        let value = self
+            .runtime
+            .block_on(self.actor()?.link_hub_actual(
+                operation,
+                command,
+                SnapshotRevision::from_value(expected_revision),
+                Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            ))
+            .map_err(native_runtime_error)?;
+        value.try_into().map_err(native_codec_error)
+    }
+    pub fn actual_departure_preview(
+        &self,
+        operation_id: String,
+        input: HubActualDepartureInputDto,
+    ) -> Result<HubActualDeparturePreviewDto, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let command = input.command().map_err(native_codec_error)?;
+        let value = self
+            .runtime
+            .block_on(
+                self.actor()?
+                    .hub_actual_departure_preview(operation, command),
+            )
+            .map_err(native_runtime_error)?;
+        Ok(value.into())
+    }
+    pub fn actual_link_preview(
+        &self,
+        operation_id: String,
+        input: HubActualLinkInputDto,
+    ) -> Result<HubActualLinkPreviewDto, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let command = input.command().map_err(native_codec_error)?;
+        let value = self
+            .runtime
+            .block_on(self.actor()?.hub_actual_link_preview(operation, command))
+            .map_err(native_runtime_error)?;
+        value.try_into().map_err(native_codec_error)
+    }
+    pub fn actual_report_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubActualReportDto>, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let value = self
+            .runtime
+            .block_on(self.actor()?.hub_actual_report_operation(operation))
+            .map_err(native_runtime_error)?;
+        Ok(value.map(Into::into))
+    }
+    pub fn actual_review_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubActualReviewReceiptDto>, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let value = self
+            .runtime
+            .block_on(self.actor()?.hub_actual_review_operation(operation))
+            .map_err(native_runtime_error)?;
+        value
+            .map(TryInto::try_into)
+            .transpose()
+            .map_err(native_codec_error)
+    }
+    pub fn actual_reports(
+        &self,
+        query: HubActualReportQueryDto,
+    ) -> Result<HubActualReportPageDto, TestBridgeError> {
+        let query = query.decode().map_err(native_codec_error)?;
+        self.runtime
+            .block_on(self.actor()?.hub_actual_reports(query))
+            .map(Into::into)
+            .map_err(native_runtime_error)
     }
     pub fn observe_count(
         &self,

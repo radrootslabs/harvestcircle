@@ -10,7 +10,7 @@ public class AvailabilityEvidenceCompatibilityTest {
         val baseline = FfiCompatibilityBaseline.parse(fixture)
 
         assertEquals("5", baseline["contract.major"])
-        assertEquals("22", baseline["contract.minor"])
+        assertEquals("23", baseline["contract.minor"])
         assertEquals("1", baseline["snapshot.schema"])
         assertEquals("1", baseline["storage.schema.minimum"])
         assertEquals("18", baseline["storage.schema.current"])
@@ -20,29 +20,30 @@ public class AvailabilityEvidenceCompatibilityTest {
     @Test
     public fun previousCurrentSchemaOrMinorAreRejected() {
         listOf(
-            fixture.replace("contract.minor=22", "contract.minor=0"),
-            fixture.replace("contract.minor=22", "contract.minor=1"),
-            fixture.replace("contract.minor=22", "contract.minor=2"),
-            fixture.replace("contract.minor=22", "contract.minor=3"),
-            fixture.replace("contract.minor=22", "contract.minor=4"),
-            fixture.replace("contract.minor=22", "contract.minor=5"),
-            fixture.replace("contract.minor=22", "contract.minor=6"),
-            fixture.replace("contract.minor=22", "contract.minor=7"),
-            fixture.replace("contract.minor=22", "contract.minor=8"),
-            fixture.replace("contract.minor=22", "contract.minor=9"),
-            fixture.replace("contract.minor=22", "contract.minor=10"),
-            fixture.replace("contract.minor=22", "contract.minor=11"),
-            fixture.replace("contract.minor=22", "contract.minor=12"),
-            fixture.replace("contract.minor=22", "contract.minor=13"),
-            fixture.replace("contract.minor=22", "contract.minor=14"),
-            fixture.replace("contract.minor=22", "contract.minor=23"),
-            fixture.replace("contract.minor=22", "contract.minor=15"),
-            fixture.replace("contract.minor=22", "contract.minor=16"),
-            fixture.replace("contract.minor=22", "contract.minor=17"),
-            fixture.replace("contract.minor=22", "contract.minor=18"),
-            fixture.replace("contract.minor=22", "contract.minor=19"),
-            fixture.replace("contract.minor=22", "contract.minor=20"),
-            fixture.replace("contract.minor=22", "contract.minor=21"),
+            fixture.replace("contract.minor=23", "contract.minor=0"),
+            fixture.replace("contract.minor=23", "contract.minor=1"),
+            fixture.replace("contract.minor=23", "contract.minor=2"),
+            fixture.replace("contract.minor=23", "contract.minor=3"),
+            fixture.replace("contract.minor=23", "contract.minor=4"),
+            fixture.replace("contract.minor=23", "contract.minor=5"),
+            fixture.replace("contract.minor=23", "contract.minor=6"),
+            fixture.replace("contract.minor=23", "contract.minor=7"),
+            fixture.replace("contract.minor=23", "contract.minor=8"),
+            fixture.replace("contract.minor=23", "contract.minor=9"),
+            fixture.replace("contract.minor=23", "contract.minor=10"),
+            fixture.replace("contract.minor=23", "contract.minor=11"),
+            fixture.replace("contract.minor=23", "contract.minor=12"),
+            fixture.replace("contract.minor=23", "contract.minor=13"),
+            fixture.replace("contract.minor=23", "contract.minor=14"),
+            fixture.replace("contract.minor=23", "contract.minor=24"),
+            fixture.replace("contract.minor=23", "contract.minor=15"),
+            fixture.replace("contract.minor=23", "contract.minor=16"),
+            fixture.replace("contract.minor=23", "contract.minor=17"),
+            fixture.replace("contract.minor=23", "contract.minor=18"),
+            fixture.replace("contract.minor=23", "contract.minor=19"),
+            fixture.replace("contract.minor=23", "contract.minor=20"),
+            fixture.replace("contract.minor=23", "contract.minor=21"),
+            fixture.replace("contract.minor=23", "contract.minor=22"),
             fixture.replace("storage.schema.current=18", "storage.schema.current=10"),
             fixture.replace("storage.schema.current=18", "storage.schema.current=9"),
             fixture.replace("storage.schema.current=18", "storage.schema.current=8"),
@@ -74,7 +75,7 @@ public class AvailabilityEvidenceCompatibilityTest {
         schema=harvestcircle.ffi.v5
         contract.id=harvestcircle-desktop-ffi-v5
         contract.major=5
-        contract.minor=22
+        contract.minor=23
         contract.hash=${"a".repeat(64)}
         product.coordinate_digest=${"b".repeat(64)}
         snapshot.schema=1

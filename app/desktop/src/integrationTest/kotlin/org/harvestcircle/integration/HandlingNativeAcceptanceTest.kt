@@ -569,7 +569,10 @@ internal class HandlingFixture(
     }
 
     companion object {
-        suspend fun open(runtime: TestBridgeHarvestCircleRuntime): HandlingFixture {
+        suspend fun open(
+            runtime: TestBridgeHarvestCircleRuntime,
+            receiptOccurrence: HubOccurrence = HubOccurrence(HubOccurrenceKind.Unknown),
+        ): HandlingFixture {
             fun context() =
                 RequestContext(
                     OperationId.from(org.harvestcircle.ffi.generateOperationIdV7()),
@@ -611,7 +614,7 @@ internal class HandlingFixture(
                         20U,
                         receiving,
                         a3,
-                        HubOccurrence(HubOccurrenceKind.Unknown),
+                        receiptOccurrence,
                         "Manually counted twenty fictional crates",
                     ),
                 )

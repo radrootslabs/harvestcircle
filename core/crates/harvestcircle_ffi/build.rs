@@ -11,6 +11,9 @@ const CONTRACT_SOURCES: &[&str] = &[
     "src/commands.rs",
     "src/hub_reference.rs",
     "src/hub_counts.rs",
+    "src/hub_actuals.rs",
+    "src/hub_actuals/input.rs",
+    "src/hub_actuals/output.rs",
     "src/hub_returns.rs",
     "src/hub_disposition.rs",
     "src/hub_opening.rs",
@@ -269,7 +272,7 @@ fn validate_baseline_inputs(baseline: &BTreeMap<String, String>) {
         "harvestcircle-desktop-ffi-v5"
     );
     assert_eq!(required(baseline, "contract.major"), "5");
-    assert_eq!(required(baseline, "contract.minor"), "22");
+    assert_eq!(required(baseline, "contract.minor"), "23");
     assert_eq!(required(baseline, "snapshot.schema"), "1");
     assert_eq!(required(baseline, "storage.schema.minimum"), "1");
     assert_eq!(required(baseline, "storage.schema.current"), "18");

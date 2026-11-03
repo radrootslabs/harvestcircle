@@ -6,6 +6,7 @@ mod commands;
 mod contract;
 mod dto;
 mod host_runtime;
+mod hub_actuals;
 mod hub_counts;
 mod hub_departure;
 mod hub_dispatch;
@@ -39,6 +40,15 @@ pub use dto::{
     RelayDestinationDto, RelayEndpointDto, RuntimeSessionBindingDto, SafeErrorDto, SessionStateDto,
     SignerAvailabilityDto, SignerBindingKindDto, WireErrorCategory, WireErrorCode,
     WireRecoveryAction,
+};
+pub use hub_actuals::{
+    HubActualClockAssessmentDto, HubActualDepartureInputDto, HubActualDeparturePreviewDto,
+    HubActualDuplicateDto, HubActualHoldAssessmentDto, HubActualHoldTimingDto,
+    HubActualHoldUncertaintyDto, HubActualKnownDepartureDto, HubActualKnownLineDto,
+    HubActualLinkInputDto, HubActualLinkPreviewDto, HubActualReportDto, HubActualReportFilterDto,
+    HubActualReportInputDto, HubActualReportPageDto, HubActualReportQueryDto,
+    HubActualReportRowDto, HubActualReviewOriginalDto, HubActualReviewReceiptDto,
+    HubActualSourceClaimDto, HubActualSourceKindDto,
 };
 pub use hub_counts::{
     HubCountBlockReasonDto, HubCountDifferenceDto, HubCountObservationDto, HubCountObserveInputDto,
@@ -142,7 +152,7 @@ mod tests {
         assert_eq!(env!("CARGO_PKG_VERSION"), "0.1.0-alpha");
         assert_eq!(super::FFI_CONTRACT_ID, "harvestcircle-desktop-ffi-v5");
         assert_eq!(super::FFI_CONTRACT_MAJOR, 5);
-        assert_eq!(super::FFI_CONTRACT_MINOR, 22);
+        assert_eq!(super::FFI_CONTRACT_MINOR, 23);
         assert_eq!(super::SNAPSHOT_SCHEMA_VERSION, 1);
         assert_eq!(
             super::PRODUCT_COORDINATE_DIGEST,

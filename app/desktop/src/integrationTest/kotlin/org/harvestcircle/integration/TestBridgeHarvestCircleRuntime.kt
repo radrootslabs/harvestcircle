@@ -101,6 +101,15 @@ import org.harvestcircle.application.UnixSeconds
 import org.harvestcircle.application.toApplicationProblem
 import org.harvestcircle.application.toModel
 import org.harvestcircle.application.toNative
+import org.harvestcircle.ffi.HubActualDepartureInputDto
+import org.harvestcircle.ffi.HubActualDeparturePreviewDto
+import org.harvestcircle.ffi.HubActualLinkInputDto
+import org.harvestcircle.ffi.HubActualLinkPreviewDto
+import org.harvestcircle.ffi.HubActualReportDto
+import org.harvestcircle.ffi.HubActualReportInputDto
+import org.harvestcircle.ffi.HubActualReportPageDto
+import org.harvestcircle.ffi.HubActualReportQueryDto
+import org.harvestcircle.ffi.HubActualReviewReceiptDto
 import org.harvestcircle.testbridge.ffi.HarvestCircleTestBridge
 import org.harvestcircle.testbridge.ffi.TestBridgeException
 import org.harvestcircle.testbridge.ffi.TestGeneratedRecoveryRequest
@@ -305,6 +314,45 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
 
     override suspend fun dispositionOperation(operation: OperationId): HubDispositionReceipt? =
         withContext(Dispatchers.IO) { callBridge { bridge.dispositionOperation(operation.value)?.toModel() } }
+
+    suspend fun reportActualNative(
+        context: RequestContext,
+        input: HubActualReportInputDto,
+    ): HubActualReportDto =
+        withContext(Dispatchers.IO) { callBridge { bridge.reportActual(context.operationId.value, context.expectedRevision.value, input) } }
+
+    suspend fun reconcileActualNative(
+        context: RequestContext,
+        input: HubActualDepartureInputDto,
+    ): HubActualReviewReceiptDto =
+        withContext(
+            Dispatchers.IO,
+        ) { callBridge { bridge.reconcileActual(context.operationId.value, context.expectedRevision.value, input) } }
+
+    suspend fun linkActualNative(
+        context: RequestContext,
+        input: HubActualLinkInputDto,
+    ): HubActualReviewReceiptDto =
+        withContext(Dispatchers.IO) { callBridge { bridge.linkActual(context.operationId.value, context.expectedRevision.value, input) } }
+
+    suspend fun actualDeparturePreviewNative(
+        operation: OperationId,
+        input: HubActualDepartureInputDto,
+    ): HubActualDeparturePreviewDto = withContext(Dispatchers.IO) { callBridge { bridge.actualDeparturePreview(operation.value, input) } }
+
+    suspend fun actualLinkPreviewNative(
+        operation: OperationId,
+        input: HubActualLinkInputDto,
+    ): HubActualLinkPreviewDto = withContext(Dispatchers.IO) { callBridge { bridge.actualLinkPreview(operation.value, input) } }
+
+    suspend fun actualReportOperationNative(operation: OperationId): HubActualReportDto? =
+        withContext(Dispatchers.IO) { callBridge { bridge.actualReportOperation(operation.value) } }
+
+    suspend fun actualReviewOperationNative(operation: OperationId): HubActualReviewReceiptDto? =
+        withContext(Dispatchers.IO) { callBridge { bridge.actualReviewOperation(operation.value) } }
+
+    suspend fun actualReportsNative(query: HubActualReportQueryDto): HubActualReportPageDto =
+        withContext(Dispatchers.IO) { callBridge { bridge.actualReports(query) } }
 
     override suspend fun observeCount(
         context: RequestContext,

@@ -401,3 +401,6 @@ fn hub_count_transport_rejects_invalid_ids_revisions_and_cutoffs_without_losing_
     bad.cutoff.kind = HubOccurrenceKindDto::Unknown;
     assert!(bad.command().is_err());
 }
+
+#[path = "actual_tests.rs"]
+mod actuals;

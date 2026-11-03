@@ -1,3 +1,8 @@
+use crate::hub_actuals::{
+    HubActualDepartureInputDto, HubActualDeparturePreviewDto, HubActualLinkInputDto,
+    HubActualLinkPreviewDto, HubActualReportDto, HubActualReportInputDto, HubActualReportPageDto,
+    HubActualReportQueryDto, HubActualReviewReceiptDto,
+};
 use crate::hub_disposition::{HubDispositionInputDto, HubDispositionReceiptDto};
 use crate::hub_returns::{HubReturnInputDto, HubReturnReceiptDto};
 use std::collections::BTreeMap;
@@ -939,6 +944,147 @@ impl HarvestCircleAppCore {
             .await
             .map_err(|error| HarvestCircleError::correlated(error, &request))?;
         Ok(value.map(Into::into))
+    }
+    pub async fn report_hub_actual(
+        &self,
+        context: RequestContextDto,
+        input: HubActualReportInputDto,
+    ) -> Result<HubActualReportDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let (request, timeout) = validate_request_context(&context)?;
+        let command = input.command()?;
+        let value = self
+            .inner
+            .actor
+            .report_hub_actual(
+                request.clone(),
+                command,
+                harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
+                timeout,
+            )
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        Ok(value.into())
+    }
+    pub async fn reconcile_hub_actual(
+        &self,
+        context: RequestContextDto,
+        input: HubActualDepartureInputDto,
+    ) -> Result<HubActualReviewReceiptDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let (request, timeout) = validate_request_context(&context)?;
+        let command = input.command()?;
+        let value = self
+            .inner
+            .actor
+            .reconcile_hub_actual(
+                request.clone(),
+                command,
+                harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
+                timeout,
+            )
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        value.try_into()
+    }
+    pub async fn link_hub_actual(
+        &self,
+        context: RequestContextDto,
+        input: HubActualLinkInputDto,
+    ) -> Result<HubActualReviewReceiptDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let (request, timeout) = validate_request_context(&context)?;
+        let command = input.command()?;
+        let value = self
+            .inner
+            .actor
+            .link_hub_actual(
+                request.clone(),
+                command,
+                harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
+                timeout,
+            )
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        value.try_into()
+    }
+    /// Read-only current review; never admits the candidate operation.
+    pub async fn hub_actual_departure_preview(
+        &self,
+        operation_id: String,
+        input: HubActualDepartureInputDto,
+    ) -> Result<HubActualDeparturePreviewDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let request = DurableRequestId::parse(operation_id)
+            .map_err(|_| crate::hub_reference::invalid_input())?;
+        let value = self
+            .inner
+            .actor
+            .hub_actual_departure_preview(request.clone(), input.command()?)
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        Ok(value.into())
+    }
+    /// Read-only current review; never admits the candidate operation.
+    pub async fn hub_actual_link_preview(
+        &self,
+        operation_id: String,
+        input: HubActualLinkInputDto,
+    ) -> Result<HubActualLinkPreviewDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let request = DurableRequestId::parse(operation_id)
+            .map_err(|_| crate::hub_reference::invalid_input())?;
+        let value = self
+            .inner
+            .actor
+            .hub_actual_link_preview(request.clone(), input.command()?)
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        value.try_into()
+    }
+    /// Read-only original lookup. Absence never authorizes another submission.
+    pub async fn hub_actual_report_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubActualReportDto>, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let request = DurableRequestId::parse(operation_id)
+            .map_err(|_| crate::hub_reference::invalid_input())?;
+        let value = self
+            .inner
+            .actor
+            .hub_actual_report_operation(request.clone())
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        Ok(value.map(Into::into))
+    }
+    /// Read-only original lookup. Absence never authorizes another submission.
+    pub async fn hub_actual_review_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubActualReviewReceiptDto>, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let request = DurableRequestId::parse(operation_id)
+            .map_err(|_| crate::hub_reference::invalid_input())?;
+        let value = self
+            .inner
+            .actor
+            .hub_actual_review_operation(request.clone())
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        value.map(TryInto::try_into).transpose()
+    }
+    pub async fn hub_actual_reports(
+        &self,
+        query: HubActualReportQueryDto,
+    ) -> Result<HubActualReportPageDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        self.inner
+            .actor
+            .hub_actual_reports(query.decode()?)
+            .await
+            .map(Into::into)
+            .map_err(HarvestCircleError::from)
     }
     pub async fn observe_hub_count(
         &self,
