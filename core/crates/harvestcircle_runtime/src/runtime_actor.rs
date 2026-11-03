@@ -43,6 +43,9 @@ use hub_reference::{HubReferenceCommand, HubReferenceValue};
 #[path = "hub_stock.rs"]
 mod hub_stock;
 use hub_stock::{HubStockCommand, HubStockValue};
+#[path = "hub_actuals.rs"]
+mod hub_actuals;
+use hub_actuals::{HubActualCommand, HubActualValue};
 #[path = "hub_counts.rs"]
 mod hub_counts;
 #[path = "hub_custody.rs"]
@@ -72,6 +75,10 @@ enum RuntimeCommand {
     HubStock {
         generation: SessionGeneration,
         command: HubStockCommand,
+    },
+    HubActual {
+        generation: SessionGeneration,
+        command: HubActualCommand,
     },
     HubCount {
         generation: SessionGeneration,
@@ -122,6 +129,7 @@ enum RuntimeCommandValue {
     HubReference(HubReferenceValue),
     HubStock(HubStockValue),
     HubCount(HubCountValue),
+    HubActual(HubActualValue),
     HubHandling(HubHandlingValue),
     Snapshot(Box<AppSnapshot>),
     Generated(GenerateIdentityReceipt),
@@ -140,6 +148,7 @@ impl RuntimeCommand {
             Self::HubReference { command, .. } => command.class(),
             Self::HubStock { command, .. } => command.class(),
             Self::HubCount { command, .. } => command.class(),
+            Self::HubActual { command, .. } => command.class(),
             Self::HubHandling { command, .. } => command.class(),
             Self::Snapshot
             | Self::HubRead { .. }
@@ -167,6 +176,7 @@ impl RuntimeCommand {
             Self::HubReference { command, .. } => command.is_mutating(),
             Self::HubStock { command, .. } => command.is_mutating(),
             Self::HubCount { command, .. } => command.is_mutating(),
+            Self::HubActual { command, .. } => command.is_mutating(),
             Self::HubHandling { command, .. } => command.is_mutating(),
             _ => false,
         }
@@ -1156,6 +1166,10 @@ impl RuntimeActor {
                 generation,
                 command,
             } => self.execute_hub_stock(generation, context, command).await,
+            RuntimeCommand::HubActual {
+                generation,
+                command,
+            } => self.execute_hub_actual(generation, context, command).await,
             RuntimeCommand::HubCount {
                 generation,
                 command,
