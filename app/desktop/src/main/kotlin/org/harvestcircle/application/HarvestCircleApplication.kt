@@ -182,6 +182,28 @@ internal fun HarvestCircleApplicationWithDependencies(
         if (native != null && countHub != null) custodyPresenter.attach(countHub, native)
     }
 
+    val actualPresenter =
+        remember(presenter, hubIdentity, countSnapshot.runtimeSession, countHub) {
+            ActualPresenter(
+                presenter.actualRuntime,
+                presenter.stockRuntime,
+                presenter.handlingRuntime,
+                presenter.referenceRuntime,
+                presenter.traceRuntime,
+                hubScope,
+                DesktopOperationIdSource,
+                onFinished = {
+                    stockPresenter.refresh()
+                    handlingPresenter.refresh()
+                },
+            )
+        }
+    DisposableEffect(actualPresenter) { onDispose { actualPresenter.close() } }
+    LaunchedEffect(actualPresenter, countHub) {
+        val native = countSnapshot.runtimeSession
+        if (native != null && countHub != null) actualPresenter.attach(countHub, native)
+    }
+
     val dispatchPresenter =
         remember(presenter, hubIdentity) {
             DispatchPresenter(
@@ -256,6 +278,8 @@ internal fun HarvestCircleApplicationWithDependencies(
         submitCount = { countPresenter.submit(countSnapshot.revision) },
         custodyPresenter = custodyPresenter,
         submitCustody = { custodyPresenter.submit(countSnapshot.revision) },
+        actualPresenter = actualPresenter,
+        submitActual = { actualPresenter.submit(countSnapshot.revision) },
     )
 }
 

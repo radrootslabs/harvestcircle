@@ -5,10 +5,15 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -17,15 +22,18 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import kotlinx.coroutines.runBlocking
 import org.harvestcircle.appearance.AppearanceState
+import org.harvestcircle.application.ActualLookupKind
 import org.harvestcircle.application.ActualPresenter
 import org.harvestcircle.application.ActualPreview
 import org.harvestcircle.application.ActualResult
 import org.harvestcircle.application.ActualSubmission
+import org.harvestcircle.application.ApplicationCommand
 import org.harvestcircle.application.HarvestCircleActualRuntime
 import org.harvestcircle.application.HubActualDepartureInput
 import org.harvestcircle.application.HubActualDeparturePreview
 import org.harvestcircle.application.HubActualHoldAssessment
 import org.harvestcircle.application.HubActualHoldTiming
+import org.harvestcircle.application.HubActualLinkInput
 import org.harvestcircle.application.HubActualReport
 import org.harvestcircle.application.HubActualReportInput
 import org.harvestcircle.application.HubActualReviewOriginal
@@ -40,6 +48,7 @@ import org.harvestcircle.application.HubReferenceKind
 import org.harvestcircle.application.HubReferenceQuery
 import org.harvestcircle.application.HubReferenceValue
 import org.harvestcircle.application.HubStockQuery
+import org.harvestcircle.application.HubTraceSnapshotQuery
 import org.harvestcircle.application.HubTreatmentScope
 import org.harvestcircle.application.OperationId
 import org.harvestcircle.application.OperationIdSource
@@ -130,9 +139,186 @@ class ActualFormAcceptanceTest {
     @Test
     fun uncertainHistoricalScopeKeepsConditionalBreachUnverified() = physicalReview(false, true)
 
+    @Test
+    fun staleCatalogRequiresReviewedCurrentContextBeforeAnotherReconciliation() = physicalReview(false, staleCatalog = true)
+
+    @Test
+    fun depletedPopulationLinkHasZeroEffectAndReadsItsOriginalAfterRestart() =
+        runDesktopComposeUiTest(width = 1280, height = 800) {
+            val root = Files.createTempDirectory("harvestcircle-actual-link-form-")
+            val runtime = TestBridgeHarvestCircleRuntime.openDemo(root.toString())
+            lateinit var presenter: ActualPresenter
+            var epoch by mutableStateOf(0)
+            var lookup by mutableStateOf(false)
+            var operationText = ""
+            var writes = 0
+            try {
+                val hub = runBlocking { HandlingFixture.open(runtime, HubOccurrence(HubOccurrenceKind.Known, 1_699_999_940L)) }
+                val known =
+                    runBlocking {
+                        val catalog = runtime.references(HubReferenceQuery())
+                        val recipient =
+                            runtime
+                                .editReference(
+                                    hub.context(),
+                                    HubReferenceEdit(
+                                        catalog.catalogRevision,
+                                        value = HubReferenceValue(HubReferenceKind.Party, "Fictional whole-population recipient"),
+                                    ),
+                                ).current
+                        val report =
+                            runtime.reportActual(
+                                hub.context(),
+                                HubActualReportInput(wholePacks = 20U, observation = "Twenty reported departed; facts reviewed separately"),
+                            )
+                        val group = runtime.group(hub.receipt.initialPosition.groupId)
+                        runtime.reconcileActual(
+                            hub.context(),
+                            HubActualDepartureInput(
+                                report.id,
+                                group.stockRevision,
+                                group.catalogRevision,
+                                group.group.id,
+                                group.group.revision,
+                                20U,
+                                recipient.id,
+                                HubOccurrence(HubOccurrenceKind.Known, 1_699_999_990L),
+                                hub.receipt.operationId,
+                                group.group.id,
+                                "Original birth cohort verified",
+                                "All twenty original crates",
+                                "Recipient acknowledged all twenty",
+                                "Witnessed physical occurrence",
+                                "Checked complete history; distinct physical event",
+                            ),
+                        )
+                    }
+                val duplicate =
+                    runBlocking {
+                        runtime.reportActual(
+                            hub.context(),
+                            HubActualReportInput(observation = "Another report may describe the same twenty; no new removal authorized"),
+                        )
+                    }
+                val hubId = runBlocking { assertNotNull(runtime.hubContext()).id }
+                val before = runBlocking { runtime.stock(HubStockQuery()) }
+                assertTrue(before.rows.isEmpty())
+                val work = runBlocking { runtime.work(HubHandlingQuery(openOnly = false)) }.rows
+                val lost =
+                    object : HarvestCircleActualRuntime by runtime {
+                        override suspend fun linkActual(
+                            context: RequestContext,
+                            input: HubActualLinkInput,
+                        ): HubActualReviewReceipt {
+                            writes++
+                            runtime.linkActual(context, input)
+                            error("Test-owned lost link reply after native commit")
+                        }
+                    }
+                setContent {
+                    key(epoch) {
+                        NativeActualForm(runtime, lost, hubId, {
+                            if (lookup) {
+                                it.beginOriginalLookup()
+                                it.editOriginalLookup(ActualLookupKind.Review, operationText)
+                                it.lookupOriginal()
+                            } else {
+                                it.beginLink(duplicate)
+                            }
+                        }) { presenter = it }
+                    }
+                }
+                waitUntil(timeoutMillis = 10_000) { presenter.state.value.draft != null }
+
+                fun context() {
+                    onNodeWithTag("actual-refresh-context").performScrollTo().performClick()
+                    waitUntil(timeoutMillis = 10_000) { presenter.state.value.currentContext != null && !presenter.state.value.loading }
+                    onNodeWithTag("actual-accept-context").performScrollTo().performClick()
+                }
+                context()
+                onNodeWithTag("actual-trace-${hub.receipt.trace.id}").performScrollTo().performClick()
+                context()
+                val choice = assertNotNull(presenter.state.value.draft).context.known.single { it.operation == known.operationId }
+                onNodeWithTag("actual-known-${choice.key}").performScrollTo().performClick()
+                onNodeWithTag(
+                    "actual-duplicate-basis",
+                ).performScrollTo().performTextInput("Verified both reports refer to the same complete twenty-crate departure")
+                onNodeWithTag("actual-preview").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000) { presenter.state.value.preview != null && !presenter.state.value.loading }
+                val preview = assertIs<ActualPreview.Link>(presenter.state.value.preview)
+                assertEquals(20U, preview.value.proposed.known.wholePacks)
+                assertEquals(
+                    20U,
+                    preview.value.proposed.known.lines
+                        .single()
+                        .wholePacks,
+                )
+                assertEquals(before, runBlocking { runtime.stock(HubStockQuery()) })
+                onNodeWithTag("actual-confirm").performScrollTo().performClick()
+                onNodeWithTag("actual-submit").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000) { presenter.state.value.submission is ActualSubmission.Uncertain }
+                runOnIdle {
+                    presenter.preview()
+                    presenter.submit(runtime.currentSnapshot().revision)
+                }
+                assertEquals(1, writes)
+                onNodeWithTag("actual-check-original").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000) { presenter.state.value.submission is ActualSubmission.Recorded }
+                val receipt =
+                    assertIs<ActualResult.Reviewed>(
+                        assertIs<ActualSubmission.Recorded>(presenter.state.value.submission).result,
+                    ).value
+                assertEquals(preview.attempt.operation, receipt.operationId)
+                assertEquals(preview.value.proposed, assertIs<HubActualReviewOriginal.Duplicate>(receipt.original).original)
+                assertTrue(runBlocking { runtime.stock(HubStockQuery()) }.rows.isEmpty())
+                assertEquals(work, runBlocking { runtime.work(HubHandlingQuery(openOnly = false)) }.rows)
+                assertEquals(
+                    20U,
+                    runBlocking { runtime.traceSnapshot(HubTraceSnapshotQuery(hub.receipt.trace.id)) }.actualDepartedWholePacks,
+                )
+                val oldPresenter = presenter
+                val oldBinding = runtime.currentSnapshot().runtimeSession
+                runOnIdle {
+                    oldPresenter.close()
+                    runBlocking {
+                        runtime.restart()
+                        runtime.execute(ApplicationCommand.ActivateIdentity(hub.owner))
+                    }
+                    operationText = receipt.operationId.value
+                    lookup = true
+                    epoch++
+                }
+                waitUntil(timeoutMillis = 10_000) {
+                    presenter !== oldPresenter &&
+                        presenter.state.value.originalLookup
+                            ?.result != null
+                }
+                assertTrue(oldBinding != runtime.currentSnapshot().runtimeSession)
+                assertFalse(oldPresenter.state.value.available)
+                assertEquals(
+                    receipt,
+                    assertIs<ActualResult.Reviewed>(
+                        presenter.state.value.originalLookup
+                            ?.result,
+                    ).value,
+                )
+                onNodeWithText("Linked to a known departure · Zero new stock or work effect").performScrollTo().assertExists()
+                assertEquals(known, runBlocking { runtime.actualReviewOperation(known.operationId) })
+                assertEquals(1, writes)
+            } finally {
+                runtime.close()
+                Files.walk(root).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists) }
+            }
+        }
+
+    @Test
+    fun unknownHoldTimeRemainsUnknownInTheNativeFormWithoutChangingTheOriginalClocks() = physicalReview(false, unknownHoldTime = true)
+
     private fun physicalReview(
         beforeHold: Boolean,
         separateCohort: Boolean = false,
+        staleCatalog: Boolean = false,
+        unknownHoldTime: Boolean = false,
     ) = runDesktopComposeUiTest(width = 1280, height = 800) {
         val root = Files.createTempDirectory("harvestcircle-actual-review-form-")
         val runtime = TestBridgeHarvestCircleRuntime.openDemo(root.toString())
@@ -179,7 +365,13 @@ class ActualFormAcceptanceTest {
                             group.stockRevision,
                             group.catalogRevision,
                             listOf(groupId),
-                            HubOccurrence(HubOccurrenceKind.Known, 1_699_999_970L),
+                            if (unknownHoldTime) {
+                                HubOccurrence(
+                                    HubOccurrenceKind.Unknown,
+                                )
+                            } else {
+                                HubOccurrence(HubOccurrenceKind.Known, 1_699_999_970L)
+                            },
                             "Current hold remains independent",
                         ),
                     )
@@ -278,12 +470,20 @@ class ActualFormAcceptanceTest {
             corruptPreview = false
             onNodeWithTag("actual-preview").performScrollTo().performClick()
             waitUntil(timeoutMillis = 10_000) { presenter.state.value.preview != null && !presenter.state.value.loading }
-            val preview = assertIs<ActualPreview.Departure>(presenter.state.value.preview).value
+            var preview = assertIs<ActualPreview.Departure>(presenter.state.value.preview).value
             assertEquals(beforePacks, runBlocking { runtime.group(groupId) }.group.wholePacks)
             assertEquals(afterPacks, preview.proposed.onHandAfterWholePacks)
             assertNull(preview.report.reported.recipientId)
             assertEquals(HubOccurrenceKind.Unknown, preview.report.reported.occurrence.kind)
-            if (separateCohort) {
+            if (unknownHoldTime) {
+                val assessment = assertIs<HubActualHoldAssessment.Verified>(preview.historicalHolds.single())
+                assertEquals(HubActualHoldTiming.TimingUnknown, assessment.timing)
+                assertEquals(HubOccurrenceKind.Unknown, assessment.original.stamp.occurrence.kind)
+                assertEquals(report, preview.report)
+                onNodeWithText("Verified historical scope · TimingUnknown", substring = true).performScrollTo().assertExists()
+                onAllNodesWithText("EstablishedBreach", substring = true).assertCountEquals(0)
+                onAllNodesWithText("BeforeHold", substring = true).assertCountEquals(0)
+            } else if (separateCohort) {
                 val assessment = assertIs<HubActualHoldAssessment.Unresolved>(preview.historicalHolds.single())
                 assertEquals(HubActualHoldTiming.EstablishedBreach, assessment.conditionalTiming)
                 onNodeWithText("Unresolved scope", substring = true).performScrollTo().assertExists()
@@ -294,6 +494,34 @@ class ActualFormAcceptanceTest {
                 )
             }
             onNodeWithTag("actual-confirm").performScrollTo().performClick()
+            if (staleCatalog) {
+                runBlocking {
+                    val catalog = runtime.references(HubReferenceQuery())
+                    runtime.editReference(
+                        hub.context(),
+                        HubReferenceEdit(
+                            catalog.catalogRevision,
+                            value = HubReferenceValue(HubReferenceKind.Party, "Another fictional party"),
+                        ),
+                    )
+                }
+                onNodeWithTag("actual-submit").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000) { presenter.state.value.submission is ActualSubmission.Rejected }
+                val rejected = assertIs<ActualSubmission.Rejected>(presenter.state.value.submission).attempt.operation
+                assertEquals(beforePacks, runBlocking { runtime.group(groupId) }.group.wholePacks)
+                assertNull(runBlocking { runtime.actualReviewOperation(rejected) })
+                onNodeWithTag("actual-review-rejected").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000) { presenter.state.value.currentContext != null && !presenter.state.value.loading }
+                onNodeWithTag("actual-accept-context").performScrollTo().performClick()
+                onNodeWithTag("actual-birth-${source.key}").performScrollTo().performClick()
+                onNodeWithTag("actual-submit").performScrollTo().assertIsNotEnabled()
+                onNodeWithTag("actual-preview").performScrollTo().performClick()
+                waitUntil(timeoutMillis = 10_000) { presenter.state.value.preview != null && !presenter.state.value.loading }
+                val fresh = assertIs<ActualPreview.Departure>(presenter.state.value.preview)
+                assertTrue(fresh.attempt.operation != rejected)
+                preview = fresh.value
+                onNodeWithTag("actual-confirm").performScrollTo().performClick()
+            }
             onNodeWithTag("actual-submit").performScrollTo().performClick()
             waitUntil(timeoutMillis = 10_000) { presenter.state.value.submission is ActualSubmission.Uncertain }
             val operation = assertIs<ActualSubmission.Uncertain>(presenter.state.value.submission).attempt.operation
@@ -307,6 +535,7 @@ class ActualFormAcceptanceTest {
                 ).value
             val original = assertIs<HubActualReviewOriginal.Departure>(receipt.original)
             assertEquals(preview.proposed, original.original)
+            if (unknownHoldTime) assertEquals(report, original.report)
             assertEquals(afterPacks, runBlocking { runtime.group(groupId) }.group.wholePacks)
             val work =
                 runBlocking { runtime.work(HubHandlingQuery(openOnly = false)) }

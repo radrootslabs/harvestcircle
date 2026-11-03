@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import org.harvestcircle.appearance.TextSizePreference
+import org.harvestcircle.application.ActualPresenter
 import org.harvestcircle.application.CountPresenter
 import org.harvestcircle.application.CustodyPresenter
 import org.harvestcircle.application.DispatchPresenter
@@ -82,6 +83,8 @@ fun HarvestCircleShell(
     submitCount: () -> Unit = {},
     custodyPresenter: CustodyPresenter? = null,
     submitCustody: () -> Unit = {},
+    actualPresenter: ActualPresenter? = null,
+    submitActual: () -> Unit = {},
 ) {
     val routeDispatch: (HarvestCircleShellIntent) -> Unit = { intent ->
         if (tracePresenter?.intercept(intent, state.overlays.current) != true) {
@@ -92,6 +95,7 @@ fun HarvestCircleShell(
             ) {
                 countPresenter?.park()
                 custodyPresenter?.park()
+                actualPresenter?.park()
             }
             dispatch(intent)
         }
@@ -128,6 +132,8 @@ fun HarvestCircleShell(
                     submitCount,
                     custodyPresenter,
                     submitCustody,
+                    actualPresenter,
+                    submitActual,
                 )
             }
         }
@@ -160,6 +166,8 @@ private fun HarvestCircleShellContent(
     submitCount: () -> Unit = {},
     custodyPresenter: CustodyPresenter? = null,
     submitCustody: () -> Unit = {},
+    actualPresenter: ActualPresenter? = null,
+    submitActual: () -> Unit = {},
 ) {
     val modalOpen = state.overlays.current != null
     val fallback =
@@ -235,6 +243,8 @@ private fun HarvestCircleShellContent(
                     submitCount,
                     custodyPresenter,
                     submitCustody,
+                    actualPresenter,
+                    submitActual,
                 )
         }
     }
@@ -346,10 +356,13 @@ private fun DashboardRoot(
     submitCount: () -> Unit = {},
     custodyPresenter: CustodyPresenter? = null,
     submitCustody: () -> Unit = {},
+    actualPresenter: ActualPresenter? = null,
+    submitActual: () -> Unit = {},
 ) {
     val route = root.navigation.current
     val countState = countPresenter?.state?.collectAsState()?.value
     val custodyState = custodyPresenter?.state?.collectAsState()?.value
+    val actualState = actualPresenter?.state?.collectAsState()?.value
     val traceState = tracePresenter?.state?.collectAsState()?.value
     val outputState =
         tracePresenter
@@ -490,6 +503,9 @@ private fun DashboardRoot(
                                                 custodyPresenter = custodyPresenter,
                                                 custodyState = custodyState,
                                                 submitCustody = submitCustody,
+                                                actualPresenter = actualPresenter,
+                                                actualState = actualState,
+                                                submitActual = submitActual,
                                             )
                                         } else {
                                             StockWorkspace(

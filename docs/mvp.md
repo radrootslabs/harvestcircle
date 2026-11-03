@@ -6,7 +6,10 @@ sample acceptance/independent holds, discrepancy follow-up, immutable identifica
 and Work/Stock/Dispatch navigation are implemented alongside
 existing Nostr identity, custody, persistence and startup. Later operational
 workflows remain intended behavior. Existing
-functionality remains supported while those workflows are developed.
+functionality remains supported while those workflows are developed. Counted
+opening/count review, restricted returns/dispositions and conflicting actual-report
+review are implemented. Linked corrections, cross-feature interruption/restore
+and final packaged/platform qualification remain unfinished.
 
 ## Release scope
 
@@ -304,8 +307,8 @@ native interaction covers separate save18/post18 with work0/2/18, opening replay
 identified surplus beside accepted held stock, stale/uncertain cutoff blocking,
 retained draft review and current-owner original lookup after same-profile reopen.
 Lost replies retain one original operation; absent history never enables replay.
-Actual-report ingress/review, all-command interruption/restore interaction and
-packaged/platform qualification remain unfinished.
+All-command interruption/restore interaction and packaged/platform qualification
+remain unfinished.
 Native opening admission creates neither a fabricated receipt nor an intake
 requirement. Surplus is separate unknown-source, review-required stock, without
 inherited holds or work; the original population retains its treatment and quantity.
@@ -323,6 +326,28 @@ migrations. Opening command bindings and forms preserve original receipt data,
 command fingerprints and document encoding. Original operation IDs are selectable;
 Stock offers a closed-kind read-only lookup. Recovered observations still require
 fresh native review and separate confirmation before any reconciliation.
+
+Work and Stock offer **Actual reports and historical review**. Saving a report
+preserves unverified claims without changing stock or work; quantity, recipient,
+source and occurrence may remain unknown. A future occurrence claim is retained
+with its recording-clock conflict. Reports remain reachable while other operational
+outcomes are unconfirmed, without clearing or retrying those attempts.
+
+Physical reconciliation separately selects current balancing stock and an explicit
+historical birth or whole arrival, with source, quantity, recipient, timing and
+known-departure comparison evidence. A read-only native preview shows consequences
+before separate confirmation. Historical hold scope and timing are independent:
+verified scope may still have unknown timing, and a conditional breach under
+unresolved scope is not a verified breach. Reconciliation never grants retrospective
+permission or releases a current hold. Linking to a complete known departure,
+including a depleted population, creates no new stock or work effect.
+
+The default All report view retains reviewed findings and globally visible unknown
+source claims. Original report and review lookup preserves separate actors, clocks,
+evidence and immutable quantities. Unconfirmed submissions retain their original
+operation and input; an absent result after restore grants no resubmission. Drafts
+survive ordinary navigation, lose confirmation on renewed review, and clear when
+the native owner/session binding changes.
 
 ### C08: Preparation, departure, documents and trace
 

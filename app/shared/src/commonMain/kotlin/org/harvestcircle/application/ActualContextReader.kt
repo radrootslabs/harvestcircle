@@ -1,5 +1,7 @@
 package org.harvestcircle.application
 
+import kotlin.time.Instant
+
 /** Bounded read choices only; native previews independently validate complete history. */
 internal class ActualContextReader(
     private val stock: HarvestCircleStockRuntime?,
@@ -110,7 +112,11 @@ internal class ActualContextReader(
         val choices =
             lineage.rows
                 .map {
-                    ActualSourceChoice(it.createdOperationId, it.id, "${it.createdKind} • ${it.id} • recorded ${it.createdAt}")
+                    ActualSourceChoice(
+                        it.createdOperationId,
+                        it.id,
+                        "${it.createdKind} • ${it.id} • recorded ${Instant.fromEpochSeconds(it.createdAt.value)}",
+                    )
                 }.toMutableList()
         for (entry in history.rows.filter { it.kind == HubTraceHistoryKind.Move }) {
             val original = requireNotNull(handling).handlingOperation(entry.operationId) ?: continue
@@ -120,7 +126,7 @@ internal class ActualContextReader(
                 ActualSourceChoice(
                     original.operationId,
                     moved.movedGroupId,
-                    "Arrival • ${moved.to.value.label} • recorded ${original.recordedAt}",
+                    "Arrival • ${moved.to.value.label} • recorded ${Instant.fromEpochSeconds(original.recordedAt.value)}",
                 )
         }
         return choices.distinctBy { it.key }

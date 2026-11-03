@@ -161,7 +161,7 @@ class ActualPresenterTest {
     private fun binding(generation: ULong) = NativeSessionBinding("01".repeat(16), generation)
 }
 
-private class ActualFake : HarvestCircleActualRuntime {
+internal class ActualFake : HarvestCircleActualRuntime {
     var writes = 0
     var lostReply = false
     var hideOriginal = false

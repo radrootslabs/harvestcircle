@@ -5,6 +5,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import org.harvestcircle.application.ActualPresenter
+import org.harvestcircle.application.ActualViewState
 import org.harvestcircle.application.CountPresenter
 import org.harvestcircle.application.CountViewState
 import org.harvestcircle.application.CustodyPresenter
@@ -15,6 +18,7 @@ import org.harvestcircle.application.HandlingViewState
 import org.harvestcircle.application.StockPresenter
 import org.harvestcircle.application.StockViewState
 import org.harvestcircle.application.TracePresenter
+import org.harvestcircle.designsystem.shell.HarvestCircleShellButton
 import org.harvestcircle.designsystem.shell.HarvestCircleShellText
 import org.harvestcircle.navigation.AppRoute
 
@@ -37,92 +41,124 @@ internal fun OperationalWorkspace(
     custodyPresenter: CustodyPresenter? = null,
     custodyState: CustodyViewState? = null,
     submitCustody: () -> Unit = {},
+    actualPresenter: ActualPresenter? = null,
+    actualState: ActualViewState? = null,
+    submitActual: () -> Unit = {},
 ) {
-    val showReceipt = stock.receiptOpen || stock.submission != null
-    val showHandling =
-        !showReceipt && (route == AppRoute.HubWork || handling.group != null || handling.formOpen || handling.submission != null)
-    if (countPresenter != null && countState?.open == true) {
-        CountWorkspace(countState, countPresenter, submitCount)
-    } else if (custodyPresenter != null && custodyState?.open == true) {
-        CustodyWorkspace(custodyState, custodyPresenter, submitCustody)
-    } else if (showHandling) {
-        HandlingWorkspace(
-            handling,
-            handlingPresenter,
-            submitHandling,
-            finish = {
-                handlingPresenter.finishRecorded()
-                stockPresenter.refresh()
-            },
-            receive = { stockPresenter.beginReceipt() },
-            openStock = { trace ->
-                stockPresenter.showTrace(trace)
-                handlingPresenter.closeRecord()
-                openStock()
-            },
-            openReferences = openReferences,
-            receiveEnabled = !stock.loading && stock.page != null,
-            receiveLabel = if (stock.draft != null) "Resume receipt draft" else "Receive original packs",
-            openTrace = openTrace,
-            browseTrace = browseTrace,
-        )
-    } else {
-        Column(Modifier.fillMaxSize()) {
-            if (handling.loading) HarvestCircleShellText("Reading local handling records…")
-            handling.message?.let { HarvestCircleShellText(it) }
-            StockWorkspace(
-                route,
-                stock,
-                stockPresenter,
-                submitReceipt,
-                openReferences,
-                openHandling = handlingPresenter::inspectGroup,
-                manageRoute = false,
-                handlingEnabled = !handling.loading,
+    if (actualPresenter != null && actualState?.open == true) {
+        ActualWorkspace(actualState, actualPresenter, submitActual)
+        return
+    }
+    Column(Modifier.fillMaxSize()) {
+        if (actualPresenter != null && actualState?.available == true) {
+            HarvestCircleShellButton(
+                if (actualState.draft != null ||
+                    actualState.originalLookup != null
+                ) {
+                    "Resume actual report or review"
+                } else {
+                    "Actual reports and historical review"
+                },
+                {
+                    countPresenter?.park()
+                    custodyPresenter?.park()
+                    if (actualState.draft != null ||
+                        actualState.originalLookup != null
+                    ) {
+                        actualPresenter.resume()
+                    } else {
+                        actualPresenter.open()
+                    }
+                },
+                Modifier.testTag("operations-actual-reports"),
+            )
+        }
+        val showReceipt = stock.receiptOpen || stock.submission != null
+        val showHandling =
+            !showReceipt && (route == AppRoute.HubWork || handling.group != null || handling.formOpen || handling.submission != null)
+        if (countPresenter != null && countState?.open == true) {
+            CountWorkspace(countState, countPresenter, submitCount)
+        } else if (custodyPresenter != null && custodyState?.open == true) {
+            CustodyWorkspace(custodyState, custodyPresenter, submitCustody)
+        } else if (showHandling) {
+            HandlingWorkspace(
+                handling,
+                handlingPresenter,
+                submitHandling,
+                finish = {
+                    handlingPresenter.finishRecorded()
+                    stockPresenter.refresh()
+                },
+                receive = { stockPresenter.beginReceipt() },
+                openStock = { trace ->
+                    stockPresenter.showTrace(trace)
+                    handlingPresenter.closeRecord()
+                    openStock()
+                },
+                openReferences = openReferences,
+                receiveEnabled = !stock.loading && stock.page != null,
+                receiveLabel = if (stock.draft != null) "Resume receipt draft" else "Receive original packs",
                 openTrace = openTrace,
                 browseTrace = browseTrace,
-                openOpening =
-                    countPresenter?.takeIf { countState?.available == true && stock.submission == null }?.let {
-                        {
-                            it
-                                .beginOpening()
-                        }
-                    },
-                openCount =
-                    countPresenter?.takeIf { countState?.available == true && stock.submission == null }?.let { target ->
-                        { id -> target.beginObservation(id) }
-                    },
-                openReturn =
-                    custodyPresenter?.takeIf { custodyState?.available == true && stock.submission == null }?.let {
-                        {
-                            it
-                                .beginReturn()
-                        }
-                    },
-                openDisposition =
-                    custodyPresenter?.takeIf { custodyState?.available == true && stock.submission == null }?.let { target ->
-                        { id -> target.beginDisposition(id) }
-                    },
-                lookupCustody = custodyPresenter?.takeIf { custodyState?.available == true }?.let { { it.beginOriginalLookup() } },
-                resumeCustody =
-                    custodyPresenter
-                        ?.takeIf {
-                            custodyState?.target != null || custodyState?.originalLookup != null
-                        }?.let {
+            )
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                if (handling.loading) HarvestCircleShellText("Reading local handling records…")
+                handling.message?.let { HarvestCircleShellText(it) }
+                StockWorkspace(
+                    route,
+                    stock,
+                    stockPresenter,
+                    submitReceipt,
+                    openReferences,
+                    openHandling = handlingPresenter::inspectGroup,
+                    manageRoute = false,
+                    handlingEnabled = !handling.loading,
+                    openTrace = openTrace,
+                    browseTrace = browseTrace,
+                    openOpening =
+                        countPresenter?.takeIf { countState?.available == true && stock.submission == null }?.let {
+                            {
+                                it
+                                    .beginOpening()
+                            }
+                        },
+                    openCount =
+                        countPresenter?.takeIf { countState?.available == true && stock.submission == null }?.let { target ->
+                            { id -> target.beginObservation(id) }
+                        },
+                    openReturn =
+                        custodyPresenter?.takeIf { custodyState?.available == true && stock.submission == null }?.let {
+                            {
+                                it
+                                    .beginReturn()
+                            }
+                        },
+                    openDisposition =
+                        custodyPresenter?.takeIf { custodyState?.available == true && stock.submission == null }?.let { target ->
+                            { id -> target.beginDisposition(id) }
+                        },
+                    lookupCustody = custodyPresenter?.takeIf { custodyState?.available == true }?.let { { it.beginOriginalLookup() } },
+                    resumeCustody =
+                        custodyPresenter
+                            ?.takeIf {
+                                custodyState?.target != null || custodyState?.originalLookup != null
+                            }?.let {
+                                {
+                                    it
+                                        .resume()
+                                }
+                            },
+                    lookupCount = countPresenter?.takeIf { countState?.available == true }?.let { { it.beginOriginalLookup() } },
+                    resumeCount =
+                        countPresenter?.takeIf { countState?.target != null || countState?.originalLookup != null }?.let {
                             {
                                 it
                                     .resume()
                             }
                         },
-                lookupCount = countPresenter?.takeIf { countState?.available == true }?.let { { it.beginOriginalLookup() } },
-                resumeCount =
-                    countPresenter?.takeIf { countState?.target != null || countState?.originalLookup != null }?.let {
-                        {
-                            it
-                                .resume()
-                        }
-                    },
-            )
+                )
+            }
         }
     }
 }
