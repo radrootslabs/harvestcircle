@@ -112,8 +112,9 @@ review-required. Returning party, source knowledge and original recipient are se
 An explicitly requested target creates fresh pending work, without restoring old
 completion or inheriting holds/acceptance. Schema17 persists returned custody under
 its own origin, immutable association context and new physical group. The native
-actor and typed FFI expose durable admission and read-only original recovery; shared
-return forms remain unfinished. No receipt/opening origin substitutes for a
+actor and typed FFI expose durable admission and read-only original recovery.
+Shared return forms retain independent source/returning-party facts and explicit
+original-departure claims. No receipt/opening origin substitutes for a
 returned-intake origin. An original-result seal checks exact replanning and binds
 complete captured prior departure content and per-line return totals, including
 reference values and recording time. This is consistency proof, never an execution
@@ -128,9 +129,23 @@ retired progress stays in the immutable consumed scope. Pure original-result
 digests bind the exact consumed group, work and captured references; they grant no
 current authority. Schema17 commits the original, work retirement, physical removal
 and distinct event atomically. Typed original recovery retains product, pack and
-location records from that operation, including after catalog edits. Shared
-disposition forms remain unfinished. Trace balances and local output expose actual
+location records from that operation, including after catalog edits. The shared
+disposition form submits the complete selected native group. Smaller removal first
+requires ordinary observed physical separation. Trace balances and local output expose actual
 disposition separately from buyer departure and unexplained count loss.
+
+Stock exposes both forms and read-only original-result lookup. Each custody owner
+binds the captured native incarnation/generation, active identity and ready hub;
+replacement disposes old input and callbacks. Submitted requests capture the
+rendered snapshot revision. Edits and navigation clear confirmation; resuming a
+draft requires a fresh native context review and renewed confirmation. A failed
+refresh cannot retain an older staged review. Unknown submitted attempts retain
+the original operation and offer original lookup without a new-ID escape; absence
+never authorizes another effect. Historical lookup preserves original physical,
+actor, occurrence/recording and work facts rather than substituting current labels.
+Known departure choices display original physical identification and material;
+the user chooses a group explicitly or leaves it unknown. Native admission still
+resolves all association totals, authority and stock consequences.
 
 Returned population reads use a purpose-separated projection seal; full original
 reads additionally validate the captured departure and complete prior return totals.

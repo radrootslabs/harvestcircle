@@ -43,6 +43,10 @@ fun StockWorkspace(
     openCount: ((String) -> Unit)? = null,
     resumeCount: (() -> Unit)? = null,
     lookupCount: (() -> Unit)? = null,
+    openReturn: (() -> Unit)? = null,
+    openDisposition: ((String) -> Unit)? = null,
+    lookupCustody: (() -> Unit)? = null,
+    resumeCustody: (() -> Unit)? = null,
 ) {
     LaunchedEffect(route) {
         if (manageRoute) {
@@ -67,6 +71,18 @@ fun StockWorkspace(
                 enabled = !state.loading,
             )
         }
+        openReturn?.let {
+            HarvestCircleShellButton("Record actual returned stock", it, Modifier.testTag("custody-return"), enabled = !state.loading)
+        }
+        lookupCustody?.let {
+            HarvestCircleShellButton(
+                "Read original return or disposition",
+                it,
+                Modifier.testTag("custody-lookup"),
+                enabled = !state.loading,
+            )
+        }
+        resumeCustody?.let { HarvestCircleShellButton("Resume custody operation", it, Modifier.testTag("custody-resume")) }
         lookupCount?.let {
             HarvestCircleShellButton("Read original count result", it, Modifier.testTag("count-lookup"), enabled = !state.loading)
         }
@@ -80,6 +96,15 @@ fun StockWorkspace(
             )
         }
         state.inspecting?.let { row ->
+            openDisposition?.let { open ->
+                HarvestCircleShellButton(
+                    "Record observed disposition of this group",
+                    { open(row.position.groupId) },
+                    Modifier.testTag("custody-dispose"),
+                    enabled = !state.loading,
+                )
+            }
+
             openCount?.let { open ->
                 HarvestCircleShellButton("Observe this group count", {
                     open(row.position.groupId)
@@ -282,7 +307,7 @@ internal fun StockPopulationSummary(trace: HubStockPopulation) {
         trace.source.provenance?.let { HarvestCircleShellText("Source observation: $it") }
         HarvestCircleShellText("Manual confirmation: ${trace.observation}")
         HarvestCircleShellText("Recorded: ${stockUtc(trace.recordedAt.value)}")
-        val clockLabel = if (receipt) "Occurrence" else "Count time"
+        val clockLabel = if (receipt || returned) "Occurrence" else "Count time"
         val startTime =
             trace.occurrence.startUnixSeconds
                 ?.let { " · ${stockUtc(it)}" }

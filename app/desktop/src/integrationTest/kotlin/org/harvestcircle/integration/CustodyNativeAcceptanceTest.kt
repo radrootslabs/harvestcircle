@@ -14,6 +14,7 @@ import org.harvestcircle.application.HubDispositionInput
 import org.harvestcircle.application.HubDispositionKind
 import org.harvestcircle.application.HubHandlingInput
 import org.harvestcircle.application.HubHandlingQuery
+import org.harvestcircle.application.HubLocalOutputRequest
 import org.harvestcircle.application.HubOccurrence
 import org.harvestcircle.application.HubOccurrenceKind
 import org.harvestcircle.application.HubPhysicalIdentification
@@ -147,6 +148,14 @@ class CustodyNativeAcceptanceTest {
                 assertEquals(2U, trace.disposedWholePacks)
                 assertEquals(1, trace.dispositions.size)
                 assertEquals(disposed.id, trace.dispositions.single().id)
+                val document = runtime.localOutput(HubLocalOutputRequest.Trace(trace.trace.id, trace.stockRevision, trace.catalogRevision))
+                assertTrue(document.html.contains("Observed non-buyer removal:</strong> 2"))
+                assertTrue(document.html.contains("Original returned intake:</strong> 2"))
+                assertTrue(document.html.contains(disposed.id))
+                assertEquals(
+                    document,
+                    runtime.localOutput(HubLocalOutputRequest.Trace(trace.trace.id, trace.stockRevision, trace.catalogRevision)),
+                )
                 val page = runtime.tracePage(HubTraceQuery(HubTraceSelection(HubTraceScope.Receipt, receiptId = returned.population.id)))
                 assertEquals(2U, page.rows.single().disposedWholePacks)
                 assertEquals(14UL, runtime.stock(HubStockQuery()).rows.sumOf { it.position.wholePacks.toULong() })
@@ -176,7 +185,7 @@ class CustodyNativeAcceptanceTest {
         }
 }
 
-private suspend fun custodyIssue(
+internal suspend fun custodyIssue(
     hub: HandlingFixture,
     groups: List<String>,
     recipientName: String,
@@ -221,7 +230,7 @@ private suspend fun custodyIssue(
     )
 }
 
-private suspend fun custodyDepartureInput(
+internal suspend fun custodyDepartureInput(
     runtime: TestBridgeHarvestCircleRuntime,
     paper: HubDispatchReceipt,
 ): HubDepartureInput {

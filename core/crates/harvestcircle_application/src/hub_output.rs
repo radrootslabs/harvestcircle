@@ -280,6 +280,7 @@ fn trace_source(out: &mut Html, trace: &StockPopulation) -> Result<(), LocalOutp
         PopulationOrigin::Returned { returned } => {
             out.field("Population entry", "Returned intake")?;
             out.field("Return reference", &returned.to_hex())?;
+            reference(out, "Returned location", &trace.initial_location)?;
             out.paragraph("This is new returned custody. Its source, treatment and handling are independent of the original departure. Source-impact searches conservatively include all returned populations for review; inclusion establishes no source relationship or ancestry clearance.")?;
         }
         PopulationOrigin::CountedOpening { history } => {
@@ -309,7 +310,11 @@ fn trace_source(out: &mut Html, trace: &StockPopulation) -> Result<(), LocalOutp
     reference(out, "Original product", &trace.product)?;
     reference(out, "Original pack", &trace.variant)?;
     out.field(
-        "Original counted packs",
+        if matches!(&trace.origin, PopulationOrigin::Returned { .. }) {
+            "Original returned packs"
+        } else {
+            "Original counted packs"
+        },
         &trace.original_packs.value().to_string(),
     )?;
     optional_reference(out, "Supplier as recorded", trace.supplier.as_ref())?;

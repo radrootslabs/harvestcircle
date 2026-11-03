@@ -306,3 +306,85 @@ fn trace_output_preserves_count_shortages_without_inventing_departure_and_escape
     assert!(!output.html.contains("<script>"));
     assert_eq!(output, trace_output(&value).unwrap());
 }
+
+#[test]
+fn disposition_output_keeps_distinct_accounting_original_facts_and_escaped_provenance() {
+    use harvestcircle_domain::hub::disposition::{DispositionIdentities, DispositionKind};
+    use harvestcircle_domain::hub::trace::TraceDisposition;
+    let mut value = snapshot();
+    value.on_hand[0].packs = WholePacks::from_value(18).unwrap();
+    value.on_hand[0].treatment.packs = value.on_hand[0].packs;
+    let operation = id(12);
+    let original = DispositionIdentities::from_operation_bytes(operation).unwrap();
+    value.dispositions.push(TraceDisposition {
+        id: original.disposition,
+        operation,
+        population: value.trace.id,
+        group: id(14),
+        stock_revision: value.stock_revision,
+        packs: WholePacks::from_value(2).unwrap(),
+        location: value.trace.initial_location.clone(),
+        kind: DispositionKind::Destroyed,
+        actor: value.trace.actor,
+        recorded_at: at(200),
+        occurred: Occurrence::Unknown,
+        observation: note("Observed <script>unsafe()</script> & destroyed separately"),
+    });
+    let output = trace_output(&value).unwrap();
+    assert!(
+        output
+            .html
+            .contains("Observed non-buyer removal:</strong> 2")
+    );
+    assert!(output.html.contains("Actual departed:</strong> 0"));
+    assert!(output.html.contains("On hand:</strong> 18"));
+    assert!(output.html.contains("Retained observed non-buyer removals"));
+    assert!(output.html.contains(&original.disposition.to_hex()));
+    assert!(output.html.contains(&value.trace.actor.to_hex()));
+    assert!(
+        output
+            .html
+            .contains("Recorded at (Unix seconds):</strong> 200")
+    );
+    assert!(
+        output
+            .html
+            .contains("Unknown; recording time does not establish actual time")
+    );
+    assert!(
+        output
+            .html
+            .contains("Observed &lt;script&gt;unsafe()&lt;/script&gt; &amp; destroyed separately")
+    );
+    assert!(!output.html.contains("<script>"));
+    assert!(!output.html.contains("Unexplained count shortage:</strong>"));
+    assert_eq!(output, trace_output(&value).unwrap());
+}
+
+#[test]
+fn returned_population_output_names_new_custody_without_fabricating_a_count_or_receipt() {
+    use harvestcircle_domain::hub::{returns::ReturnIdentities, stock::PopulationOrigin};
+    let mut value = snapshot();
+    let ids = ReturnIdentities::from_operation_bytes(id(12)).unwrap();
+    value.trace.id = ids.population;
+    value.trace.origin = PopulationOrigin::Returned {
+        returned: ids.returned,
+    };
+    value.on_hand[0].group = ids.group;
+    value.on_hand[0].treatment.group = ids.group;
+    let output = trace_output(&value).unwrap();
+    assert!(
+        output
+            .html
+            .contains("Original returned intake:</strong> 20")
+    );
+    assert!(output.html.contains("Returned intake"));
+    assert!(output.html.contains(&ids.returned.to_hex()));
+    assert!(
+        output
+            .html
+            .contains("source, treatment and handling are independent")
+    );
+    assert!(!output.html.contains("Original counted packs:</strong>"));
+    assert_eq!(output, trace_output(&value).unwrap());
+}

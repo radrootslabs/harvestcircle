@@ -7,6 +7,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import org.harvestcircle.application.CountPresenter
 import org.harvestcircle.application.CountViewState
+import org.harvestcircle.application.CustodyPresenter
+import org.harvestcircle.application.CustodyViewState
 import org.harvestcircle.application.DispatchPresenter
 import org.harvestcircle.application.HandlingPresenter
 import org.harvestcircle.application.HandlingViewState
@@ -32,12 +34,17 @@ internal fun OperationalWorkspace(
     countPresenter: CountPresenter? = null,
     countState: CountViewState? = null,
     submitCount: () -> Unit = {},
+    custodyPresenter: CustodyPresenter? = null,
+    custodyState: CustodyViewState? = null,
+    submitCustody: () -> Unit = {},
 ) {
     val showReceipt = stock.receiptOpen || stock.submission != null
     val showHandling =
         !showReceipt && (route == AppRoute.HubWork || handling.group != null || handling.formOpen || handling.submission != null)
     if (countPresenter != null && countState?.open == true) {
         CountWorkspace(countState, countPresenter, submitCount)
+    } else if (custodyPresenter != null && custodyState?.open == true) {
+        CustodyWorkspace(custodyState, custodyPresenter, submitCustody)
     } else if (showHandling) {
         HandlingWorkspace(
             handling,
@@ -85,6 +92,28 @@ internal fun OperationalWorkspace(
                     countPresenter?.takeIf { countState?.available == true && stock.submission == null }?.let { target ->
                         { id -> target.beginObservation(id) }
                     },
+                openReturn =
+                    custodyPresenter?.takeIf { custodyState?.available == true && stock.submission == null }?.let {
+                        {
+                            it
+                                .beginReturn()
+                        }
+                    },
+                openDisposition =
+                    custodyPresenter?.takeIf { custodyState?.available == true && stock.submission == null }?.let { target ->
+                        { id -> target.beginDisposition(id) }
+                    },
+                lookupCustody = custodyPresenter?.takeIf { custodyState?.available == true }?.let { { it.beginOriginalLookup() } },
+                resumeCustody =
+                    custodyPresenter
+                        ?.takeIf {
+                            custodyState?.target != null || custodyState?.originalLookup != null
+                        }?.let {
+                            {
+                                it
+                                    .resume()
+                            }
+                        },
                 lookupCount = countPresenter?.takeIf { countState?.available == true }?.let { { it.beginOriginalLookup() } },
                 resumeCount =
                     countPresenter?.takeIf { countState?.target != null || countState?.originalLookup != null }?.let {
