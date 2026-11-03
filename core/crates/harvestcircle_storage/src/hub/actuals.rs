@@ -178,6 +178,8 @@ impl Database {
 }
 
 #[cfg(test)]
+mod retention_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod upgrade_tests;
