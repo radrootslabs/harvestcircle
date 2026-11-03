@@ -19,10 +19,11 @@ use harvestcircle_ffi::{
     HubCountPostInputDto, HubCountPostReceiptDto, HubCountReviewDto, HubDepartureInputDto,
     HubDepartureReceiptDto, HubDepartureReviewDto, HubDepartureReviewInputDto,
     HubDiscrepancyPageDto, HubDispatchInputDto, HubDispatchPageDto, HubDispatchQueryDto,
-    HubDispatchReceiptDto, HubDispatchViewDto, HubGroupViewDto, HubHandlingInputDto,
-    HubHandlingQueryDto, HubHandlingReceiptDto, HubLineagePageDto, HubLineageQueryDto,
-    HubOpeningInputDto, HubOpeningReceiptDto, HubReceiptInputDto, HubReferenceEditDto,
-    HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto, HubStockPageDto,
+    HubDispatchReceiptDto, HubDispatchViewDto, HubDispositionInputDto, HubDispositionReceiptDto,
+    HubGroupViewDto, HubHandlingInputDto, HubHandlingQueryDto, HubHandlingReceiptDto,
+    HubLineagePageDto, HubLineageQueryDto, HubOpeningInputDto, HubOpeningReceiptDto,
+    HubReceiptInputDto, HubReferenceEditDto, HubReferencePageDto, HubReferenceQueryDto,
+    HubReferenceReceiptDto, HubReturnInputDto, HubReturnReceiptDto, HubStockPageDto,
     HubStockQueryDto, HubStockReceiptDto, HubTreatmentPageDto, HubTreatmentQueryDto,
     HubTreatmentScopeDto, HubTreatmentSnapshotDto, HubWorkPageDto, RuntimeSessionBindingDto,
     SafeErrorDto,
@@ -320,6 +321,66 @@ impl HarvestCircleTestBridge {
             ))
             .map_err(native_runtime_error)?;
         Ok(value.into())
+    }
+    pub fn apply_return(
+        &self,
+        operation_id: String,
+        expected_revision: u64,
+        input: HubReturnInputDto,
+    ) -> Result<HubReturnReceiptDto, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let command = input.command(&operation).map_err(native_codec_error)?;
+        let value = self
+            .runtime
+            .block_on(self.actor()?.apply_hub_return(
+                operation,
+                command,
+                SnapshotRevision::from_value(expected_revision),
+                Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            ))
+            .map_err(native_runtime_error)?;
+        Ok(value.into())
+    }
+    pub fn return_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubReturnReceiptDto>, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let value = self
+            .runtime
+            .block_on(self.actor()?.hub_return_operation(operation))
+            .map_err(native_runtime_error)?;
+        Ok(value.map(Into::into))
+    }
+    pub fn apply_disposition(
+        &self,
+        operation_id: String,
+        expected_revision: u64,
+        input: HubDispositionInputDto,
+    ) -> Result<HubDispositionReceiptDto, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let command = input.command().map_err(native_codec_error)?;
+        let value = self
+            .runtime
+            .block_on(self.actor()?.apply_hub_disposition(
+                operation,
+                command,
+                SnapshotRevision::from_value(expected_revision),
+                Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            ))
+            .map_err(native_runtime_error)?;
+        Ok(value.into())
+    }
+    pub fn disposition_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubDispositionReceiptDto>, TestBridgeError> {
+        let operation = DurableRequestId::parse(operation_id).map_err(native_runtime_error)?;
+        let value = self
+            .runtime
+            .block_on(self.actor()?.hub_disposition_operation(operation))
+            .map_err(native_runtime_error)?;
+        Ok(value.map(Into::into))
     }
     pub fn observe_count(
         &self,

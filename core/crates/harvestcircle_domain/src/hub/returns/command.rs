@@ -18,7 +18,7 @@ pub struct ReturnCommand {
     pub occurred: Occurrence,
     pub observation: SourceProvenance,
 }
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct EstablishedReturnTotal {
     pub original_group: HubRecordId,
     pub packs: WholePacks,

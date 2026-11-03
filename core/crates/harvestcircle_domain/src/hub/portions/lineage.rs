@@ -15,7 +15,7 @@ pub enum PhysicalScopeError {
 
 /// Creation uses native record order, independently of uncertain physical times.
 /// Empty retained ancestors remain necessary to resolve older captured scope.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct PhysicalLineageNode {
     pub id: HubRecordId,
     pub parent: Option<HubRecordId>,
@@ -25,7 +25,7 @@ pub struct PhysicalLineageNode {
     pub packs: WholePacks,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct PhysicalLineage {
     hub: HubId,
     trace: HubRecordId,

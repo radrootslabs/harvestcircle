@@ -162,6 +162,10 @@ fn trace(hash: &mut Sha256, owner: &DispatchRecord, catalog: HubRevision, value:
     // Receipt v1 bytes remain frozen for already issued documents.
     match &value.origin {
         PopulationOrigin::Receipt => (),
+        PopulationOrigin::Returned { returned } => {
+            hash.update(b"harvestcircle.hub.population.returned.v1\0");
+            hash.update(returned.as_bytes());
+        }
         PopulationOrigin::CountedOpening { history } => {
             hash.update(b"harvestcircle.hub.population.counted-opening.v1\0");
             match history {

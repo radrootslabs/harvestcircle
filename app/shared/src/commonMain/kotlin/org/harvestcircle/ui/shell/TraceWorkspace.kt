@@ -127,7 +127,7 @@ private fun TraceBrowser(
     }, Modifier.testTag("trace-unresolved"), enabled = !state.loading)
     if (state.selection.scope == HubTraceScope.SourceImpact) {
         HarvestCircleShellText(
-            "Source impact candidates: exact selected source plus every unresolved population. Inclusion does not establish a source relationship.",
+            "Source impact candidates: selected source, unresolved populations and all returned stock, regardless of its independently recorded source. Inclusion is for review and establishes no source relationship or ancestry clearance.",
         )
         HarvestCircleShellText("Selected source: ${state.selection.sourceId}")
     } else {
@@ -160,7 +160,7 @@ private fun TraceBrowser(
                     role = HarvestCircleShellTextRole.BodyStrong,
                 )
                 HarvestCircleShellText(
-                    "Original ${row.trace.originalWholePacks} · On hand ${row.onHandWholePacks} · Actual departed ${row.departedWholePacks} · Count shortage ${row.countedLossWholePacks}",
+                    "Original ${row.trace.originalWholePacks} · On hand ${row.onHandWholePacks} · Actual departed ${row.departedWholePacks} · Count shortage ${row.countedLossWholePacks} · Physical disposition ${row.disposedWholePacks}",
                 )
                 HarvestCircleShellText(
                     "Source: ${row.trace.source.certainty} · ${row.trace.source.code ?: "Unknown"} · Issuer ${row.trace.source.issuer
@@ -200,7 +200,7 @@ private fun TraceOverview(
         }, Modifier.testTag("trace-source-impact"), enabled = !state.loading)
     }
     HarvestCircleShellText(
-        "Original ${snapshot.trace.originalWholePacks} · On hand ${snapshot.onHandWholePacks} · Actual departed ${snapshot.departedWholePacks} · Count shortage ${snapshot.countedLossWholePacks}",
+        "Original ${snapshot.trace.originalWholePacks} · On hand ${snapshot.onHandWholePacks} · Actual departed ${snapshot.departedWholePacks} · Count shortage ${snapshot.countedLossWholePacks} · Physical disposition ${snapshot.disposedWholePacks}",
     )
     HarvestCircleShellText("Current on-hand groups", role = HarvestCircleShellTextRole.SectionTitle)
     if (snapshot.onHand.isEmpty()) HarvestCircleShellText("No packs remain on hand in this population.")
@@ -246,6 +246,36 @@ private fun TraceOverview(
         Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
             HarvestCircleShellButton("Previous departures", { presenter.exitsPage(-1) }, enabled = state.exitsOffset > 0)
             HarvestCircleShellButton("Next departures", { presenter.exitsPage(1) }, enabled = state.exitsOffset + 64 < snapshot.exits.size)
+        }
+    }
+    if (snapshot.dispositions.isNotEmpty()) {
+        HarvestCircleShellText("Observed physical dispositions", role = HarvestCircleShellTextRole.SectionTitle)
+        snapshot.dispositions.drop(state.dispositionsOffset).take(64).forEach { disposal ->
+            HarvestCircleShellPanel {
+                HarvestCircleShellText("${disposal.wholePacks} original packs · ${disposal.kind} · ${disposal.location.value.label}")
+                HarvestCircleShellText(disposal.observation)
+                HarvestCircleShellText("Recorded ${stockUtc(disposal.recordedAt.value)} · ${disposal.actor.value}")
+                HarvestCircleShellText("Actual occurrence: ${disposal.occurrence.kind}")
+                disposal.occurrence.startUnixSeconds?.let { HarvestCircleShellText("Start: ${stockUtc(it)}") }
+                disposal.occurrence.endUnixSeconds?.let { HarvestCircleShellText("End: ${stockUtc(it)}") }
+                HarvestCircleShellText("Group ${disposal.groupId} · Original disposition ${disposal.id}")
+                SelectionContainer { HarvestCircleShellText("Original operation ${disposal.operationId.value}") }
+            }
+        }
+        if (snapshot.dispositions.size > 64) {
+            Row(horizontalArrangement = Arrangement.spacedBy(HarvestCircleTheme.shell.layout.inlineGap)) {
+                HarvestCircleShellButton(
+                    "Previous dispositions",
+                    { presenter.dispositionsPage(-1) },
+                    enabled = state.dispositionsOffset > 0,
+                )
+                HarvestCircleShellButton(
+                    "Next dispositions",
+                    { presenter.dispositionsPage(1) },
+                    enabled =
+                        state.dispositionsOffset + 64 < snapshot.dispositions.size,
+                )
+            }
         }
     }
     if (snapshot.countLosses.isNotEmpty()) {
@@ -335,6 +365,8 @@ private fun TraceHistory(
 
 private fun traceActionLabel(kind: HubTraceHistoryKind): String =
     when (kind) {
+        HubTraceHistoryKind.Returned -> "Returned custody recorded"
+        HubTraceHistoryKind.Disposition -> "Actual physical disposition recorded"
         HubTraceHistoryKind.Receipt -> "Original receipt"
         HubTraceHistoryKind.CountedOpening -> "Counted opening stock"
         HubTraceHistoryKind.CountObserved -> "Stock count observed"

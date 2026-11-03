@@ -96,6 +96,23 @@ pub(in crate::hub) async fn definition_on(
                 }) == row
                     .try_get::<Option<i64>, _>("original_target_revision")
                     .map_err(|_| corrupt_storage())? => {}
+        "return" => {
+            let op = stock::read::operation_on(transaction, hub, &created_operation)
+                .await?
+                .ok_or_else(corrupt_storage)?;
+            let original =
+                crate::hub::custody::returns::read::intake_work_on(transaction, hub, &op)
+                    .await?
+                    .ok_or_else(corrupt_storage)?;
+            if original.id != id
+                || original.trace != trace
+                || original.variant != variant
+                || original.quantity.required() != required
+                || original.target != target
+            {
+                return Err(corrupt_storage());
+            }
+        }
         "work_replan" | "work_new"
             if record_id(&row, "created_result")? == id
                 && handling_ids(&created_operation)?.requirement == id => {}
@@ -187,6 +204,8 @@ pub(in crate::hub) async fn group_on(
     let trace = record_id(&row, "trace_id")?;
     let mass = sqlx::query("SELECT r.original_packs,COALESCE((SELECT sum(p.packs) FROM hub_stock_groups g JOIN hub_stock_positions p ON p.group_id=g.group_id WHERE g.trace_id=r.trace_id),0) AS on_hand FROM hub_receipts r WHERE r.trace_id=? LIMIT 1")
         .bind(trace.as_bytes().as_slice()).fetch_one(&mut *transaction).await.map_err(|_| storage_unavailable())?;
+    let disposed =
+        crate::hub::custody::disposition::validation::trace_on(transaction, hub, trace).await?;
     let counted_loss =
         crate::hub::counts::posting::loss_quantity_on(transaction, hub, trace).await?;
     if whole_packs(
@@ -194,6 +213,7 @@ pub(in crate::hub) async fn group_on(
             .map_err(|_| corrupt_storage())?,
     )? != whole_packs(mass.try_get("on_hand").map_err(|_| corrupt_storage())?)?
         .checked_add(super::departure::conservation::trace_on(transaction, hub, trace).await?)
+        .and_then(|packs| packs.checked_add(disposed))
         .and_then(|packs| packs.checked_add(counted_loss))
         .map_err(|_| corrupt_storage())?
     {
@@ -244,7 +264,8 @@ pub(in crate::hub) async fn group_on(
         }
         None if record_id(&row, "root_group_id")? == id
             && ((created_kind == "receipt" && identification.is_none())
-                || (created_kind == "opening" && identification.is_some()))
+                || (matches!(created_kind.as_str(), "opening" | "return")
+                    && identification.is_some()))
             && row
                 .try_get::<String, _>("created_operation_id")
                 .map_err(|_| corrupt_storage())?

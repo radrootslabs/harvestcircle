@@ -108,7 +108,7 @@ pub(crate) async fn apply_on(
     })
 }
 
-pub(super) async fn persist_source_on(
+pub(in crate::hub) async fn persist_source_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubOwnership,
     operation: &DurableRequestId,
@@ -168,6 +168,9 @@ pub(in crate::hub) async fn insert_population_on(
     let (kind, start, end) = occurrence_fields(trace.occurred);
     // The receipt statement remains valid for actual pre-schema12 fixtures.
     let sql = match &trace.origin {
+        harvestcircle_domain::hub::stock::PopulationOrigin::Returned { .. } => {
+            "INSERT INTO hub_receipts (trace_id,root_group_id,operation_id,variant_id,variant_revision,product_id,product_revision,supplier_id,supplier_revision,producer_id,producer_revision,source_id,source_certainty,source_issuer_revision,original_packs,receiving_id,receiving_revision,planned_location_id,planned_location_revision,occurrence_kind,occurrence_start_unix_s,occurrence_end_unix_s,observation,origin_kind) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'return')"
+        }
         harvestcircle_domain::hub::stock::PopulationOrigin::Receipt => {
             "INSERT INTO hub_receipts (trace_id,root_group_id,operation_id,variant_id,variant_revision,product_id,product_revision,supplier_id,supplier_revision,producer_id,producer_revision,source_id,source_certainty,source_issuer_revision,original_packs,receiving_id,receiving_revision,planned_location_id,planned_location_revision,occurrence_kind,occurrence_start_unix_s,occurrence_end_unix_s,observation) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
         }

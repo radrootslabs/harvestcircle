@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 16, FFI is 5.20 and snapshot schema is 1. Rust and
+The current storage schema is 17, FFI is 5.21 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -110,22 +110,43 @@ group; bounded native candidate snapshots never establish attribution automatica
 Overclaimed or contradictory links remain unresolved while returned stock stays
 review-required. Returning party, source knowledge and original recipient are separate.
 An explicitly requested target creates fresh pending work, without restoring old
-completion or inheriting holds/acceptance. These plans are data only: return storage,
-native/FFI commands and shared forms remain unfinished, as do actual disposition
-records and their separate accounting. No receipt/opening origin substitutes for a
+completion or inheriting holds/acceptance. Schema17 persists returned custody under
+its own origin, immutable association context and new physical group. The native
+actor and typed FFI expose durable admission and read-only original recovery; shared
+return forms remain unfinished. No receipt/opening origin substitutes for a
 returned-intake origin. An original-result seal checks exact replanning and binds
 complete captured prior departure content and per-line return totals, including
 reference values and recording time. This is consistency proof, never an execution
 grant or authentication.
 
-Pure disposition policy models a distinct observed non-buyer removal, not a
+Disposition policy models a distinct observed non-buyer removal, not a
 shipment, count loss or release of a hold. It accepts one complete current physical
 group; partial scope first uses ordinary observed separation. Current native
 lineage/treatment and uncertainty facts must agree. Pending exit work uses the
 same retirement calculation as other physical exits, while completed or previously
 retired progress stays in the immutable consumed scope. Pure original-result
-digests bind the exact consumed group, work and captured references; they grant no current authority. Persistence, FFI and shared disposition
-forms remain unfinished.
+digests bind the exact consumed group, work and captured references; they grant no
+current authority. Schema17 commits the original, work retirement, physical removal
+and distinct event atomically. Typed original recovery retains product, pack and
+location records from that operation, including after catalog edits. Shared
+disposition forms remain unfinished. Trace balances and local output expose actual
+disposition separately from buyer departure and unexplained count loss.
+
+Returned population reads use a purpose-separated projection seal; full original
+reads additionally validate the captured departure and complete prior return totals.
+A later matching departure cannot rewrite an originally unrecorded association.
+New linked intake validates every relevant prior original before crediting its
+association quantity. Readers do not recursively follow a chain of returned exits.
+Source-impact lookup conservatively includes every returned population regardless
+of its independently recorded source. This is a review overapproximation, never an
+ancestry relationship or source clearance; the unresolved filter still describes
+current source knowledge. Exact population lookup and bounded pages remain explicit.
+
+Return admission captures the complete known old departure and all validated
+per-line totals, including explicit absence. Disposition admission captures current
+native physical lineage, treatment and uncertainty. Neither archive has a decoder
+into an executable command. Both kinds use the existing current-session and
+credential checks; an unresolved earlier submission blocks another planned effect.
 
 Schema16 persists hub submissions before their effects. Admission recaptures the
 complete bounded input and selected native material inside a protected transaction.

@@ -57,3 +57,7 @@ pub use hub::submission::{
     HubMutationResult, HubRuntimeSession, HubSubmissionRecord, HubSubmissionStatus,
 };
 pub use os_keyring::{CREDENTIAL_SERVICE, OsKeyringSecretStore};
+
+pub use hub::custody::HubReturnReceipt;
+
+pub use hub::custody::HubDispositionReceipt;

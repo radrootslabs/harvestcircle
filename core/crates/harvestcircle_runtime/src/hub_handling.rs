@@ -6,13 +6,24 @@ use harvestcircle_domain::hub::movement::HandlingCommand;
 use harvestcircle_domain::hub::reference::HubRecordId;
 use harvestcircle_storage::{
     HubDepartureReceipt, HubDepartureReview, HubDepartureReviewInput, HubDiscrepancyRow,
-    HubDispatchPage, HubDispatchQuery, HubDispatchReceipt, HubDispatchView, HubGroupView,
-    HubHandlingPage, HubHandlingQuery, HubHandlingReceipt, HubLineagePage, HubLineageQuery,
-    HubTreatmentPage, HubTreatmentQuery, HubTreatmentScope, HubTreatmentSnapshot, HubWorkRow,
+    HubDispatchPage, HubDispatchQuery, HubDispatchReceipt, HubDispatchView, HubDispositionReceipt,
+    HubGroupView, HubHandlingPage, HubHandlingQuery, HubHandlingReceipt, HubLineagePage,
+    HubLineageQuery, HubReturnReceipt, HubTreatmentPage, HubTreatmentQuery, HubTreatmentScope,
+    HubTreatmentSnapshot, HubWorkRow,
 };
 
 pub(super) enum HubHandlingCommand {
     Trace(Box<super::hub_trace::HubTraceCommand>),
+    ReturnOperation(DurableRequestId),
+    DispositionOperation(DurableRequestId),
+    ApplyReturn {
+        operation: DurableRequestId,
+        command: Box<harvestcircle_domain::hub::returns::ReturnCommand>,
+    },
+    ApplyDisposition {
+        operation: DurableRequestId,
+        command: Box<harvestcircle_domain::hub::disposition::DispositionCommand>,
+    },
     DepartureReview(HubDepartureReviewInput),
     DepartureOperation(DurableRequestId),
     ApplyDeparture {
@@ -43,7 +54,11 @@ impl HubHandlingCommand {
     pub(super) const fn is_mutating(&self) -> bool {
         matches!(
             self,
-            Self::Apply { .. } | Self::ApplyDispatch { .. } | Self::ApplyDeparture { .. }
+            Self::Apply { .. }
+                | Self::ApplyDispatch { .. }
+                | Self::ApplyDeparture { .. }
+                | Self::ApplyReturn { .. }
+                | Self::ApplyDisposition { .. }
         )
     }
 
@@ -58,6 +73,8 @@ impl HubHandlingCommand {
 
 pub(super) enum HubHandlingValue {
     Trace(super::hub_trace::HubTraceValue),
+    ReturnReceipt(Option<Box<HubReturnReceipt>>),
+    DispositionReceipt(Option<Box<HubDispositionReceipt>>),
     DepartureReview(Box<HubDepartureReview>),
     DepartureReceipt(Option<Box<HubDepartureReceipt>>),
     DispatchPage(Box<HubDispatchPage>),
@@ -241,6 +258,54 @@ impl RuntimeActor {
                                     .hub_departure_review(actor, request, clock.now())
                                     .await?,
                             ))
+                        }
+                        HubHandlingCommand::ReturnOperation(operation) => {
+                            HubHandlingValue::ReturnReceipt(
+                                adapter
+                                    .database()
+                                    .hub_return_operation(actor, operation)
+                                    .await?
+                                    .map(Box::new),
+                            )
+                        }
+                        HubHandlingCommand::DispositionOperation(operation) => {
+                            HubHandlingValue::DispositionReceipt(
+                                adapter
+                                    .database()
+                                    .hub_disposition_operation(actor, operation)
+                                    .await?
+                                    .map(Box::new),
+                            )
+                        }
+                        HubHandlingCommand::ApplyReturn { operation, command } => {
+                            let result = hub_authority::submit(
+                                adapter.as_ref(),
+                                secrets.as_ref(),
+                                clock.as_ref(),
+                                scope,
+                                operation,
+                                HubMutation::Return(command),
+                            )
+                            .await?;
+                            let HubMutationResult::Returned(receipt) = result else {
+                                return Err(invalid_actor_response());
+                            };
+                            HubHandlingValue::ReturnReceipt(Some(receipt))
+                        }
+                        HubHandlingCommand::ApplyDisposition { operation, command } => {
+                            let result = hub_authority::submit(
+                                adapter.as_ref(),
+                                secrets.as_ref(),
+                                clock.as_ref(),
+                                scope,
+                                operation,
+                                HubMutation::Disposition(command),
+                            )
+                            .await?;
+                            let HubMutationResult::Disposed(receipt) = result else {
+                                return Err(invalid_actor_response());
+                            };
+                            HubHandlingValue::DispositionReceipt(Some(receipt))
                         }
                         HubHandlingCommand::DepartureOperation(operation) => {
                             HubHandlingValue::DepartureReceipt(

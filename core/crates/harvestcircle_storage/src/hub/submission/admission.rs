@@ -169,6 +169,8 @@ fn unsafe_planned_kind(kind: &str) -> bool {
             | "dispatch_replace"
             | "departure"
             | "count_post"
+            | "return"
+            | "disposition"
     )
 }
 

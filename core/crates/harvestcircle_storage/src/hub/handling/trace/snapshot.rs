@@ -35,6 +35,28 @@ pub(super) async fn load_on(
     trace: HubRecordId,
 ) -> Result<TraceSnapshot, SafeError> {
     let loaded = super::super::lineage::load_on(tx, hub, trace, catalog, state.revision).await?;
+    if matches!(
+        loaded.trace.origin,
+        harvestcircle_domain::hub::stock::PopulationOrigin::Returned { .. }
+    ) {
+        let id: String = sqlx::query_scalar(
+            "SELECT substr(operation_id,1,37) FROM hub_returns WHERE population_id=? LIMIT 1",
+        )
+        .bind(trace.as_bytes().as_slice())
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| storage_unavailable())?
+        .ok_or_else(corrupt_storage)?;
+        let id = DurableRequestId::parse(id).map_err(|_| corrupt_storage())?;
+        let op = stock::read::operation_on(tx, hub, &id)
+            .await?
+            .ok_or_else(corrupt_storage)?;
+        let original = crate::hub::custody::returns::read::original_on(tx, hub, op).await?;
+        if original.original.population() != loaded.trace {
+            return Err(corrupt_storage());
+        }
+    }
+
     let treatment = super::super::treatment::read::state_on(tx, hub, &loaded.graph).await?;
     let projection = treatment
         .project(&loaded.graph, catalog.handling_basis())
@@ -119,8 +141,41 @@ pub(super) async fn load_on(
         }
     }
     exits.sort_by_key(|exit| (exit.departure.stock_revision.value(), exit.group));
+    let ids:Vec<String>=sqlx::query_scalar("SELECT substr(operation_id,1,37) FROM hub_dispositions WHERE trace_id=? ORDER BY operation_id LIMIT 257").bind(trace.as_bytes().as_slice()).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    if ids.len() > HUB_LINEAGE_GROUPS {
+        return Err(corrupt_storage());
+    }
+    let mut dispositions = Vec::with_capacity(ids.len());
+    for id in ids {
+        let op = DurableRequestId::parse(id).map_err(|_| corrupt_storage())?;
+        let op = stock::read::operation_on(tx, hub, &op)
+            .await?
+            .ok_or_else(corrupt_storage)?;
+        let record = crate::hub::custody::disposition::read::original_on(tx, hub, op)
+            .await?
+            .original;
+        if record.consumed.before.trace != trace {
+            return Err(corrupt_storage());
+        }
+        dispositions.push(harvestcircle_domain::hub::trace::TraceDisposition {
+            id: record.identities.disposition,
+            operation: record.identities.operation,
+            population: trace,
+            group: record.consumed.before.id,
+            stock_revision: record.stock_revision,
+            packs: record.consumed.before.packs,
+            location: record.location,
+            kind: record.kind,
+            actor: record.actor,
+            recorded_at: record.recorded_at,
+            occurred: record.occurred,
+            observation: record.observation,
+        });
+    }
+    dispositions.sort_by_key(|r| (r.stock_revision.value(), r.id));
     let snapshot = TraceSnapshot {
         count_losses: crate::hub::counts::posting::losses_on(tx, hub, trace).await?,
+        dispositions,
         hub,
         stock_revision: state.revision,
         catalog_revision: catalog.revision(),

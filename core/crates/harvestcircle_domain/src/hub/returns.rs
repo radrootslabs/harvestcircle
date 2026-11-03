@@ -107,4 +107,4 @@ impl ReturnIdentities {
 mod tests;
 
 mod result;
-pub use result::return_result_digest;
+pub use result::{return_population_digest, return_result_digest};

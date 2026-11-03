@@ -154,15 +154,27 @@ pub fn trace_output(snapshot: &TraceSnapshot) -> Result<LocalOutput, LocalOutput
     trace_source(&mut out, &snapshot.trace)?;
     out.heading("Physical accounting in this pack unit")?;
     reference(&mut out, "Pack", &snapshot.trace.variant)?;
-    let original_label = if matches!(snapshot.trace.origin, PopulationOrigin::Receipt) {
-        "Original intake"
-    } else {
-        "Original counted packs"
+    let original_label = match snapshot.trace.origin {
+        PopulationOrigin::Receipt => "Original intake",
+        PopulationOrigin::Returned { .. } => "Original returned intake",
+        _ => "Original counted packs",
     };
     out.field(original_label, &balance.original.value().to_string())?;
     out.field("On hand", &balance.on_hand.value().to_string())?;
     out.field("Actual departed", &balance.departed.value().to_string())?;
-    if balance.counted_loss.value() == 0 {
+    if balance.disposed.value() > 0 {
+        out.field(
+            "Observed non-buyer removal",
+            &balance.disposed.value().to_string(),
+        )?;
+        if balance.counted_loss.value() > 0 {
+            out.field(
+                "Unexplained count shortage",
+                &balance.counted_loss.value().to_string(),
+            )?;
+        }
+        out.paragraph("Original recorded packs equal on-hand packs, actual departures, observed non-buyer removals and unexplained count shortages. These are separate facts, not yield or money accounting.")?;
+    } else if balance.counted_loss.value() == 0 {
         out.paragraph("Original intake equals current on-hand packs plus retained actual departure. This is counted stock, not inferred measured mass.")?;
     } else {
         out.field(
@@ -198,6 +210,24 @@ pub fn trace_output(snapshot: &TraceSnapshot) -> Result<LocalOutput, LocalOutput
         )?;
         for hold in &position.treatment.active_holds {
             out.field("Active hold reference", &hold.to_hex())?;
+        }
+    }
+    if !snapshot.dispositions.is_empty() {
+        out.heading("Retained observed non-buyer removals")?;
+        for removal in &snapshot.dispositions {
+            out.field("Disposition", &removal.id.to_hex())?;
+            out.field("Original operation", &operation_text(removal.operation))?;
+            out.field("Group", &removal.group.to_hex())?;
+            out.field("Whole packs", &removal.packs.value().to_string())?;
+            reference(&mut out, "Location when recorded", &removal.location)?;
+            out.field("Kind",match removal.kind {harvestcircle_domain::hub::disposition::DispositionKind::Destroyed=>"Destroyed",harvestcircle_domain::hub::disposition::DispositionKind::OtherObservedRemoval=>"Other observed removal"})?;
+            out.field(
+                "Recorded at (Unix seconds)",
+                &removal.recorded_at.as_seconds().to_string(),
+            )?;
+            out.field("Actor", &removal.actor.to_hex())?;
+            occurrence(&mut out, removal.occurred)?;
+            out.field("Observation", removal.observation.as_str())?;
         }
     }
     out.heading("All retained actual departure lines in this population")?;
@@ -247,6 +277,11 @@ fn trace_source(out: &mut Html, trace: &StockPopulation) -> Result<(), LocalOutp
     out.field("Original population", &trace.id.to_hex())?;
     match &trace.origin {
         PopulationOrigin::Receipt => (),
+        PopulationOrigin::Returned { returned } => {
+            out.field("Population entry", "Returned intake")?;
+            out.field("Return reference", &returned.to_hex())?;
+            out.paragraph("This is new returned custody. Its source, treatment and handling are independent of the original departure. Source-impact searches conservatively include all returned populations for review; inclusion establishes no source relationship or ancestry clearance.")?;
+        }
         PopulationOrigin::CountedOpening { history } => {
             out.field("Population entry", "Counted opening")?;
             reference(out, "Counted location", &trace.initial_location)?;

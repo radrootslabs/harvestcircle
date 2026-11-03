@@ -37,6 +37,12 @@ fn documents() -> HubDispatchQuery {
     }
 }
 async fn open(db: &Database) -> HubStockReceipt {
+    open_with_source(db, None).await
+}
+async fn open_with_source(
+    db: &Database,
+    source: Option<harvestcircle_domain::hub::reference::SourceAttribution>,
+) -> HubStockReceipt {
     setup(db).await;
     for (n, label) in [(8, "Recipient A"), (9, "Recipient B")] {
         let catalog = db.hub_references(owner()).await.unwrap();
@@ -58,7 +64,11 @@ async fn open(db: &Database) -> HubStockReceipt {
         .unwrap();
     }
     let catalog = db.hub_references(owner()).await.unwrap();
-    db.apply_hub_receipt(owner(), operation(1), intake_command(&catalog), now())
+    let mut command = intake_command(&catalog);
+    if let Some(source) = source {
+        command.source = source;
+    }
+    db.apply_hub_receipt(owner(), operation(1), command, now())
         .await
         .unwrap()
 }
@@ -183,7 +193,7 @@ async fn departing(db: &Database, paper: &HubDispatchReceipt) -> DepartureComman
 async fn actual_current_host_installs_departure_objects_without_changing_reference_setup() {
     let fixture = Fixture::new();
     let db = fixture.open().await;
-    assert_eq!(db.metadata().state_schema_version().get(), 16);
+    assert_eq!(db.metadata().state_schema_version().get(), 17);
     let intake = open(&db).await;
     let before = db.hub_stock_page(owner(), query()).await.unwrap();
     assert_eq!(before.rows[0].position.packs.value(), 20);
@@ -1036,3 +1046,44 @@ async fn corrupt_departure_original_is_never_disguised_as_unavailable_stock() {
 
 #[path = "review_tests.rs"]
 mod review;
+
+/// Fresh current native fixture; never a retained historical world.
+pub(in crate::hub) async fn custody_departure_fixture(
+    db: &Database,
+) -> (HubStockReceipt, HubDepartureReceipt) {
+    custody_departure_fixture_with_source(db, None).await
+}
+pub(in crate::hub) async fn custody_departure_fixture_with_source(
+    db: &Database,
+    source: Option<harvestcircle_domain::hub::reference::SourceAttribution>,
+) -> (HubStockReceipt, HubDepartureReceipt) {
+    let intake = open_with_source(db, source).await;
+    let six = split(
+        db,
+        intake.original.position.group,
+        6,
+        2,
+        "Observed outbound six",
+    )
+    .await;
+    accept(db, &[intake.original.position.group, six], 3).await;
+    let paper = issue_to(db, &[six], id(8), 20).await;
+    let command = departing(db, &paper).await;
+    let departure = db
+        .apply_hub_departure(owner(), operation(30), command, now())
+        .await
+        .unwrap();
+    (intake, departure)
+}
+pub(in crate::hub) async fn custody_depart_current_group(
+    db: &Database,
+    group: HubRecordId,
+    base: u32,
+) -> HubDepartureReceipt {
+    accept(db, &[group], base).await;
+    let paper = issue_to(db, &[group], id(8), base + 1).await;
+    let command = departing(db, &paper).await;
+    db.apply_hub_departure(owner(), operation(base + 3), command, now())
+        .await
+        .unwrap()
+}

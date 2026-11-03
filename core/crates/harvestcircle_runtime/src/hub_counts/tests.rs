@@ -549,3 +549,6 @@ async fn count_and_opening_mutations_require_current_custody_while_original_reco
     );
     actor.close().await.unwrap();
 }
+
+#[path = "custody_tests.rs"]
+mod custody;

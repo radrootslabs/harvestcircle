@@ -1,3 +1,5 @@
+use crate::hub_disposition::{HubDispositionInputDto, HubDispositionReceiptDto};
+use crate::hub_returns::{HubReturnInputDto, HubReturnReceiptDto};
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::num::NonZeroUsize;
@@ -863,6 +865,80 @@ impl HarvestCircleAppCore {
             .await
             .map_err(|error| HarvestCircleError::correlated(error, &request))?;
         Ok(value.into())
+    }
+    pub async fn apply_hub_return(
+        &self,
+        context: RequestContextDto,
+        input: HubReturnInputDto,
+    ) -> Result<HubReturnReceiptDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let (request, timeout) = validate_request_context(&context)?;
+        let command = input.command(&request)?;
+        let value = self
+            .inner
+            .actor
+            .apply_hub_return(
+                request.clone(),
+                command,
+                harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
+                timeout,
+            )
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        Ok(value.into())
+    }
+    /// Read-only original recovery; absence never grants another physical effect.
+    pub async fn hub_return_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubReturnReceiptDto>, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let request = DurableRequestId::parse(operation_id)
+            .map_err(|_| crate::hub_reference::invalid_input())?;
+        let value = self
+            .inner
+            .actor
+            .hub_return_operation(request.clone())
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        Ok(value.map(Into::into))
+    }
+    pub async fn apply_hub_disposition(
+        &self,
+        context: RequestContextDto,
+        input: HubDispositionInputDto,
+    ) -> Result<HubDispositionReceiptDto, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let (request, timeout) = validate_request_context(&context)?;
+        let command = input.command()?;
+        let value = self
+            .inner
+            .actor
+            .apply_hub_disposition(
+                request.clone(),
+                command,
+                harvestcircle_application::SnapshotRevision::from_value(context.expected_revision),
+                timeout,
+            )
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        Ok(value.into())
+    }
+    /// Read-only original recovery; absence never grants another physical effect.
+    pub async fn hub_disposition_operation(
+        &self,
+        operation_id: String,
+    ) -> Result<Option<HubDispositionReceiptDto>, HarvestCircleError> {
+        self.inner.ensure_open()?;
+        let request = DurableRequestId::parse(operation_id)
+            .map_err(|_| crate::hub_reference::invalid_input())?;
+        let value = self
+            .inner
+            .actor
+            .hub_disposition_operation(request.clone())
+            .await
+            .map_err(|error| HarvestCircleError::correlated(error, &request))?;
+        Ok(value.map(Into::into))
     }
     pub async fn observe_hub_count(
         &self,
@@ -3293,7 +3369,7 @@ mod tests {
             .to_path_buf();
         assert!(database.ends_with("data/services/harvestcircle/desktop/state.sqlite"));
         assert!(!database.to_string_lossy().contains("harvestcircle.sqlite3"));
-        assert_eq!(CURRENT_SCHEMA_VERSION, 16);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 17);
     }
 
     #[test]

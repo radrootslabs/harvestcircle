@@ -1,7 +1,7 @@
 package org.harvestcircle.application
 
 // Native projections only. Rust resolves creation lineage and physical scope.
-enum class HubGroupCreationKind { Receipt, CountedOpening, CountedSurplus, Movement, Separation }
+enum class HubGroupCreationKind { Returned, Receipt, CountedOpening, CountedSurplus, Movement, Separation }
 
 data class HubLineageQuery(
     val traceId: String,

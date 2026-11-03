@@ -72,6 +72,7 @@ fn fixture() -> TraceSnapshot {
     };
     TraceSnapshot {
         count_losses: vec![],
+        dispositions: vec![],
         hub: HubId::from_bytes([1; 16]).unwrap(),
         stock_revision: rev(5),
         catalog_revision: rev(5),
@@ -211,7 +212,8 @@ fn physical_accounting_keeps_originals_depleted_populations_and_distinct_pack_un
             original: packs(20),
             on_hand: packs(15),
             departed: packs(5),
-            counted_loss: packs(0)
+            counted_loss: packs(0),
+            disposed: packs(0)
         }
     );
     snapshot.on_hand.clear();
@@ -308,4 +310,64 @@ fn impossible_totals_duplicate_groups_and_inconsistent_departure_history_fail_cl
     let mut snapshot = fixture();
     snapshot.on_hand = vec![snapshot.on_hand[0].clone(); HUB_LINEAGE_GROUPS];
     assert_eq!(snapshot.balance(), Err(TraceError::Capacity));
+}
+
+#[test]
+fn disposition_is_distinct_outflow_and_cannot_duplicate_current_or_departed_group() {
+    let mut s = fixture();
+    s.on_hand[0].packs = packs(11);
+    s.on_hand[0].treatment.packs = packs(11);
+    let operation = id(40);
+    let ids =
+        super::super::disposition::DispositionIdentities::from_operation_bytes(operation).unwrap();
+    s.dispositions.push(TraceDisposition {
+        id: ids.disposition,
+        operation,
+        population: s.trace.id,
+        group: id(41),
+        stock_revision: s.stock_revision,
+        packs: packs(4),
+        location: s.on_hand[0].location.clone(),
+        kind: super::super::disposition::DispositionKind::Destroyed,
+        actor: actor(),
+        recorded_at: at(200),
+        occurred: Occurrence::Unknown,
+        observation: text("Observed non-buyer removal of four"),
+    });
+    let b = s.balance().unwrap();
+    assert_eq!(b.on_hand, packs(11));
+    assert_eq!(b.departed, packs(5));
+    assert_eq!(b.disposed, packs(4));
+    assert_eq!(b.counted_loss, packs(0));
+    let original = s.clone();
+    s.dispositions[0].group = s.exits[0].group;
+    assert_eq!(s.balance(), Err(TraceError::InvalidSnapshot));
+    s = original.clone();
+    s.dispositions[0].group = s.on_hand[0].group;
+    assert_eq!(s.balance(), Err(TraceError::InvalidSnapshot));
+    s = original;
+    s.dispositions[0].packs = packs(5);
+    assert_eq!(s.balance(), Err(TraceError::Accounting));
+}
+
+#[test]
+fn impact_includes_return_with_different_established_source_without_reclassifying_attribution() {
+    let mut s = fixture();
+    source(&mut s.trace, 20, 21, SourceCertainty::Established);
+    s.trace.origin = crate::hub::stock::PopulationOrigin::Returned { returned: id(30) };
+    assert!(TraceScope::SourceImpact(id(99)).includes(&s.trace));
+    assert!(!TraceScope::Unresolved.includes(&s.trace));
+    assert!(
+        TraceSelection {
+            scope: TraceScope::SourceImpact(id(99)),
+            text: String::new()
+        }
+        .includes(&s.trace)
+        .unwrap()
+    );
+    let evidence = TraceSourceEvidence::for_population(&s.trace);
+    assert!(!evidence.unresolved());
+    assert!(TraceScope::SourceImpact(id(99)).includes_evidence(s.trace.id, evidence));
+    assert!(!TraceScope::Receipt(id(99)).includes(&s.trace));
+    assert_eq!(source_certainty_label(&s.trace.source), "Established");
 }

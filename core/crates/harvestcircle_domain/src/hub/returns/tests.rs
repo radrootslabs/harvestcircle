@@ -533,3 +533,104 @@ fn return_seal_covers_historical_departure_facts_outside_linkage_summary() {
         return_result_digest(&input, &f.command, &f.context(), &original).unwrap()
     );
 }
+
+#[test]
+fn returned_population_has_its_own_bounded_seal_and_no_inherited_intake_roles() {
+    let f = Fixture::new(&[6]);
+    let plan = f.plan();
+    let population = plan.population();
+    let input = f.command.fingerprint(f.departure.hub, owner(), f.ids);
+    assert_eq!(
+        population.origin,
+        crate::hub::stock::PopulationOrigin::Returned {
+            returned: f.ids.returned
+        }
+    );
+    assert!(population.supplier.is_none() && population.producer.is_none());
+    assert_eq!(population.original_packs, packs(2));
+    let digest = return_population_digest(
+        &input,
+        f.departure.hub,
+        plan.catalog_revision,
+        f.ids,
+        &population,
+    )
+    .unwrap();
+    assert_ne!(
+        digest,
+        return_result_digest(&input, &f.command, &f.context(), &plan).unwrap()
+    );
+    let mut changed = population.clone();
+    changed.origin = crate::hub::stock::PopulationOrigin::Receipt;
+    assert!(
+        return_population_digest(
+            &input,
+            f.departure.hub,
+            plan.catalog_revision,
+            f.ids,
+            &changed
+        )
+        .is_err()
+    );
+    changed = population.clone();
+    changed.product.value = ReferenceValue::Product {
+        label: HubLabel::new("Different captured intake product").unwrap(),
+    };
+    assert_ne!(
+        digest,
+        return_population_digest(
+            &input,
+            f.departure.hub,
+            plan.catalog_revision,
+            f.ids,
+            &changed
+        )
+        .unwrap()
+    );
+    let mut ids = f.ids;
+    ids.group = id(55);
+    assert!(
+        return_population_digest(
+            &input,
+            f.departure.hub,
+            plan.catalog_revision,
+            ids,
+            &population
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn population_projection_seal_stays_separate_from_changed_prior_linkage_history() {
+    let mut f = Fixture::new(&[6]);
+    let original = f.plan();
+    let input = f.command.fingerprint(f.departure.hub, owner(), f.ids);
+    let population = return_population_digest(
+        &input,
+        f.departure.hub,
+        original.catalog_revision,
+        f.ids,
+        &original.population(),
+    )
+    .unwrap();
+    let full = return_result_digest(&input, &f.command, &f.context(), &original).unwrap();
+    f.departure.observation =
+        note("Changed complete prior history, independent of new intake facts");
+    assert_eq!(original, f.plan());
+    assert_eq!(
+        population,
+        return_population_digest(
+            &input,
+            f.departure.hub,
+            original.catalog_revision,
+            f.ids,
+            &original.population()
+        )
+        .unwrap()
+    );
+    assert_ne!(
+        full,
+        return_result_digest(&input, &f.command, &f.context(), &original).unwrap()
+    );
+}

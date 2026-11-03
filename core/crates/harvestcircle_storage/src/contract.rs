@@ -14,7 +14,7 @@ pub const HARVESTCIRCLE_SERVICE_ID: &str = "harvestcircle";
 pub const HARVESTCIRCLE_INSTANCE_ID: &str = "desktop";
 pub const HARVESTCIRCLE_APPLICATION_ID: u32 = 0x4843_5231;
 pub(crate) const HARVESTCIRCLE_INITIAL_STATE_SCHEMA_VERSION: u32 = 1;
-pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 16;
+pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 17;
 pub const HARVESTCIRCLE_IDENTITY_CAPACITY: usize = 256;
 pub const HARVESTCIRCLE_UNFINISHED_DURABLE_OPERATION_CAPACITY: usize = 1_024;
 pub const HARVESTCIRCLE_DURABLE_OPERATION_CAPACITY: usize = 4_096;
@@ -645,6 +645,13 @@ pub fn harvestcircle_migration_catalog()
         crate::hub::submission::schema::MIGRATION_CHECKSUM,
     )
     .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)?;
+    let custody = MigrationDescriptor::sql(
+        17,
+        "add_returned_custody_and_dispositions",
+        crate::hub::custody::schema::MIGRATION_SQL,
+        crate::hub::custody::schema::MIGRATION_CHECKSUM,
+    )
+    .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)?;
     MigrationCatalog::new([
         migration,
         evidence,
@@ -661,6 +668,7 @@ pub fn harvestcircle_migration_catalog()
         counts,
         reconciliation,
         submission,
+        custody,
     ])
     .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)
 }
@@ -767,6 +775,12 @@ fn schema_catalog_for(
         SchemaDigest::from_bytes(crate::hub::submission::schema::SCHEMA_DIGEST),
     )
     .map_err(schema_error)?;
+    let version_seventeen = SchemaVersionCatalog::new(
+        17,
+        schema_objects_v17()?,
+        SchemaDigest::from_bytes(crate::hub::custody::schema::SCHEMA_DIGEST),
+    )
+    .map_err(schema_error)?;
     SchemaCatalog::new(
         migrations,
         [
@@ -786,6 +800,7 @@ fn schema_catalog_for(
             version_fourteen,
             version_fifteen,
             version_sixteen,
+            version_seventeen,
         ],
     )
     .map_err(schema_error)
@@ -803,6 +818,14 @@ fn schema_objects_v4() -> Result<Vec<SchemaObject>, HarvestCircleStorageContract
 fn schema_objects_v6() -> Result<Vec<SchemaObject>, HarvestCircleStorageContractError> {
     let mut objects = schema_objects_v5()?;
     objects.extend(crate::hub::stock::schema::schema_objects().map_err(schema_error)?);
+    Ok(objects)
+}
+
+fn schema_objects_v17() -> Result<Vec<SchemaObject>, HarvestCircleStorageContractError> {
+    let mut objects = schema_objects_v16()?;
+    objects
+        .retain(|object| !crate::hub::custody::schema::REPLACED_OBJECTS.contains(&object.name()));
+    objects.extend(crate::hub::custody::schema::schema_objects().map_err(schema_error)?);
     Ok(objects)
 }
 
@@ -1092,6 +1115,20 @@ mod tests {
         }
     }
     #[test]
+    fn custody_schema17_pins_match_reviewed_definitions() {
+        let checksum = MigrationChecksum::for_sql(crate::hub::custody::schema::MIGRATION_SQL);
+        let digest =
+            SchemaVersionCatalog::computed_digest(17, schema_objects_v17().unwrap()).unwrap();
+        println!("CUSTODY_CHECKSUM={:?}", checksum.as_bytes());
+        println!("CUSTODY_SCHEMA_DIGEST={:?}", digest.as_bytes());
+        assert_eq!(checksum, crate::hub::custody::schema::MIGRATION_CHECKSUM);
+        assert_eq!(
+            digest.as_bytes(),
+            &crate::hub::custody::schema::SCHEMA_DIGEST
+        );
+    }
+
+    #[test]
     fn count_schema15_pins_match_reviewed_definitions() {
         let checksum =
             MigrationChecksum::for_sql(crate::hub::counts::reconciliation_schema::MIGRATION_SQL);
@@ -1298,10 +1335,10 @@ mod tests {
             contract.application_id().get(),
             HARVESTCIRCLE_APPLICATION_ID
         );
-        assert_eq!(contract.state_schema_version().get(), 16);
-        assert_eq!(contract.migrations().current_version(), 16);
-        assert_eq!(contract.migrations().descriptors().len(), 15);
-        assert_eq!(contract.schema().versions().len(), 16);
+        assert_eq!(contract.state_schema_version().get(), 17);
+        assert_eq!(contract.migrations().current_version(), 17);
+        assert_eq!(contract.migrations().descriptors().len(), 16);
+        assert_eq!(contract.schema().versions().len(), 17);
         assert_eq!(harvestcircle_initial_schema_sql().len(), 9);
     }
 

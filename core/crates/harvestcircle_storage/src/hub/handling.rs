@@ -172,6 +172,7 @@ pub enum HubGroupCreationKind {
     Receipt,
     CountedOpening,
     CountedSurplus,
+    Returned,
     Movement,
     Separation,
 }

@@ -29,8 +29,8 @@ use harvestcircle_application::{
     DurableRequestId,
     hub_submission::{
         ArchivedHubSubmission, HubMutation, HubRequestArchiveError, HubSubmissionContext,
-        HubSubmissionScope, HubSubmittedDispatch, HubSubmittedGroup, HubSubmittedMaterial,
-        HubSubmittedRequest,
+        HubSubmissionScope, HubSubmittedDispatch, HubSubmittedDisposition, HubSubmittedGroup,
+        HubSubmittedMaterial, HubSubmittedRequest, HubSubmittedReturn,
     },
 };
 use harvestcircle_domain::hub::{
@@ -75,3 +75,6 @@ fn archive_error(error: HubRequestArchiveError) -> SafeError {
         HubRequestArchiveError::InvalidContext => corrupt_storage(),
     }
 }
+
+#[cfg(test)]
+mod custody_tests;

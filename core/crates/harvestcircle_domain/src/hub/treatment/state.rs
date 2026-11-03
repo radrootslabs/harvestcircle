@@ -19,7 +19,7 @@ pub struct TreatmentStamp {
     pub observation: SourceProvenance,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct AcceptanceDecision {
     pub stamp: TreatmentStamp,
     pub scope: CapturedPhysicalScope,
@@ -41,7 +41,7 @@ impl Hold {
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
 pub struct TreatmentState {
     pub(super) decisions: Vec<AcceptanceDecision>,
     pub(super) holds: Vec<Hold>,

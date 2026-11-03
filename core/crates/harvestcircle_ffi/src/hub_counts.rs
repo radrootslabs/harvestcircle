@@ -312,7 +312,7 @@ impl TryFrom<HubCountPostReceipt> for HubCountPostReceiptDto {
         })
     }
 }
-fn operation_text(value: harvestcircle_domain::hub::reference::HubRecordId) -> String {
+pub(crate) fn operation_text(value: harvestcircle_domain::hub::reference::HubRecordId) -> String {
     let hex = value.to_hex();
     format!(
         "{}-{}-{}-{}-{}",

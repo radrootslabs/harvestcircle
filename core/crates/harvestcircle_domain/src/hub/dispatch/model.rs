@@ -230,7 +230,7 @@ pub struct IdentificationVersion {
     pub closed: Option<DispatchStamp>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct DispatchRecord {
     pub id: HubRecordId,
     pub hub: HubId,

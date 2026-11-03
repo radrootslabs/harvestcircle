@@ -23,6 +23,7 @@ data class HubTraceRow(
     val onHandWholePacks: UInt,
     val departedWholePacks: UInt,
     val countedLossWholePacks: UInt = 0U,
+    val disposedWholePacks: UInt = 0U,
 )
 
 data class HubTracePage(
@@ -91,7 +92,9 @@ data class HubTraceSnapshot(
     val onHand: List<HubTracePosition>,
     val exits: List<HubTraceExit>,
     val countedLossWholePacks: UInt = 0U,
+    val disposedWholePacks: UInt = 0U,
     val countLosses: List<HubTraceCountLoss> = emptyList(),
+    val dispositions: List<HubTraceDisposition> = emptyList(),
 )
 
 data class HubTraceHistoryQuery(
@@ -103,6 +106,8 @@ data class HubTraceHistoryQuery(
 )
 
 enum class HubTraceHistoryKind {
+    Returned,
+    Disposition,
     Receipt,
     CountedOpening,
     CountObserved,
@@ -173,3 +178,18 @@ interface HarvestCircleTraceRuntime {
 
     suspend fun localOutput(request: HubLocalOutputRequest): HubLocalOutput
 }
+
+data class HubTraceDisposition(
+    val id: String,
+    val operationId: OperationId,
+    val populationId: String,
+    val groupId: String,
+    val stockRevision: ULong,
+    val wholePacks: UInt,
+    val location: HubReferenceRecord,
+    val kind: HubDispositionKind,
+    val actor: IdentityId,
+    val recordedAt: UnixSeconds,
+    val occurrence: HubOccurrence,
+    val observation: String,
+)

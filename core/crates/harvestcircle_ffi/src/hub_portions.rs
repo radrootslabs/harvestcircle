@@ -73,6 +73,7 @@ impl HubLineageQueryDto {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
 pub enum HubGroupCreationKindDto {
+    Returned,
     Receipt,
     CountedOpening,
     CountedSurplus,
@@ -108,6 +109,7 @@ impl From<HubLineageRow> for HubLineageRowDto {
             location: value.location.as_ref().map(Into::into),
             created_stock_revision: value.created_revision.value(),
             created_kind: match value.created_kind {
+                HubGroupCreationKind::Returned => HubGroupCreationKindDto::Returned,
                 HubGroupCreationKind::Receipt => HubGroupCreationKindDto::Receipt,
                 HubGroupCreationKind::CountedOpening => HubGroupCreationKindDto::CountedOpening,
                 HubGroupCreationKind::CountedSurplus => HubGroupCreationKindDto::CountedSurplus,

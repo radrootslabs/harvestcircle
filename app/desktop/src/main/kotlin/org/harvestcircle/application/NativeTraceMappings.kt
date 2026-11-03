@@ -54,7 +54,15 @@ internal fun HubTracePageDto.toModel() =
         offset,
         total,
         more,
-        rows.map { HubTraceRow(it.trace.toModel(), it.onHandWholePacks, it.departedWholePacks, it.countedLossWholePacks) },
+        rows.map {
+            HubTraceRow(
+                it.trace.toModel(),
+                it.onHandWholePacks,
+                it.departedWholePacks,
+                it.countedLossWholePacks,
+                it.disposedWholePacks,
+            )
+        },
     )
 
 internal fun HubTraceSnapshotDto.toModel() =
@@ -94,6 +102,7 @@ internal fun HubTraceSnapshotDto.toModel() =
             )
         },
         countedLossWholePacks,
+        disposedWholePacks,
         countLosses.map {
             HubTraceCountLoss(
                 it.reconciliationId,
@@ -109,10 +118,28 @@ internal fun HubTraceSnapshotDto.toModel() =
                 it.reason,
             )
         },
+        dispositions.map {
+            HubTraceDisposition(
+                it.id,
+                OperationId.from(it.operationId),
+                it.populationId,
+                it.groupId,
+                it.stockRevision,
+                it.wholePacks,
+                it.location.toModel(),
+                it.kind.toModel(),
+                IdentityId.fromPublicKeyHex(it.actorPublicKey),
+                UnixSeconds(it.recordedAtUnixS),
+                it.occurrence.toModel(),
+                it.observation,
+            )
+        },
     )
 
 private fun HubTraceHistoryKindDto.toModel() =
     when (this) {
+        HubTraceHistoryKindDto.RETURNED -> HubTraceHistoryKind.Returned
+        HubTraceHistoryKindDto.DISPOSITION -> HubTraceHistoryKind.Disposition
         HubTraceHistoryKindDto.RECEIPT -> HubTraceHistoryKind.Receipt
         HubTraceHistoryKindDto.COUNTED_OPENING -> HubTraceHistoryKind.CountedOpening
         HubTraceHistoryKindDto.COUNT_OBSERVED -> HubTraceHistoryKind.CountObserved

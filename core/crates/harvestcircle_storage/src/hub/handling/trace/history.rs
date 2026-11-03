@@ -2,7 +2,8 @@ use super::*;
 
 macro_rules! linked_predicate { () => { concat!(
     "EXISTS(SELECT 1 FROM hub_stock_events e WHERE e.operation_id=o.operation_id AND e.trace_id=?) OR ",
-    "EXISTS(SELECT 1 FROM hub_dispatch_changes d LEFT JOIN hub_dispatch_changes prior ON prior.preparation_id=d.preparation_id AND prior.record_revision=d.expected_record_revision JOIN hub_dispatch_material_lines m ON m.operation_id=d.material_operation_id OR m.operation_id=prior.material_operation_id WHERE d.operation_id=o.operation_id AND m.trace_id=?)"
+    "EXISTS(SELECT 1 FROM hub_dispatch_changes d LEFT JOIN hub_dispatch_changes prior ON prior.preparation_id=d.preparation_id AND prior.record_revision=d.expected_record_revision JOIN hub_dispatch_material_lines m ON m.operation_id=d.material_operation_id OR m.operation_id=prior.material_operation_id WHERE d.operation_id=o.operation_id AND m.trace_id=?) OR ",
+    "EXISTS(SELECT 1 FROM hub_returns returned JOIN hub_return_sources source ON source.return_id=returned.return_id JOIN hub_departure_lines line ON line.operation_id=source.departure_operation_id AND line.ordinal=source.ordinal WHERE returned.operation_id=o.operation_id AND line.trace_id=?)"
 ) }; }
 impl Database {
     pub async fn hub_trace_history(
@@ -29,6 +30,7 @@ impl Database {
                     ))
                     .bind(query.trace.as_bytes().as_slice())
                     .bind(query.trace.as_bytes().as_slice())
+                    .bind(query.trace.as_bytes().as_slice())
                     .fetch_one(&mut *tx)
                     .await
                     .map_err(|_| storage_unavailable())?;
@@ -43,6 +45,7 @@ impl Database {
                         " ",
                         "ORDER BY o.stock_revision LIMIT ? OFFSET ?"
                     ))
+                    .bind(query.trace.as_bytes().as_slice())
                     .bind(query.trace.as_bytes().as_slice())
                     .bind(query.trace.as_bytes().as_slice())
                     .bind(i64::from(query.limit))
@@ -87,6 +90,26 @@ async fn entry_on(
     let recorded_at = operation.recorded_at;
     let result = operation.result;
     let (kind, occurred, observation) = match operation.kind.as_str() {
+        "return" => {
+            let original = crate::hub::custody::returns::read::original_on(tx, hub, operation)
+                .await?
+                .original;
+            (
+                HubTraceHistoryKind::Returned,
+                Some(original.intake.occurred),
+                original.intake.observation,
+            )
+        }
+        "disposition" => {
+            let original = crate::hub::custody::disposition::read::original_on(tx, hub, operation)
+                .await?
+                .original;
+            (
+                HubTraceHistoryKind::Disposition,
+                Some(original.occurred),
+                original.observation,
+            )
+        }
         "count_post" => {
             let original = crate::hub::counts::posting::original_on(tx, hub, operation)
                 .await?

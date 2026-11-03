@@ -102,3 +102,32 @@ pub struct ReturnPlan {
     pub acceptance: AcceptanceStatus,
     pub linkage: ReturnLinkSnapshot,
 }
+
+impl ReturnPlan {
+    /// The generic population projection preserves this distinct intake origin.
+    /// Returning party and old departure linkage remain in the return original;
+    /// neither becomes a supplier, producer or inherited treatment/work fact.
+    #[must_use]
+    pub fn population(&self) -> crate::hub::stock::StockPopulation {
+        let intake = &self.intake;
+        crate::hub::stock::StockPopulation {
+            id: intake.population,
+            variant: intake.variant.clone(),
+            product: intake.product.clone(),
+            supplier: None,
+            producer: None,
+            source: intake.source.clone(),
+            source_issuer: intake.source_issuer.clone(),
+            original_packs: intake.packs,
+            initial_location: intake.location.clone(),
+            origin: crate::hub::stock::PopulationOrigin::Returned {
+                returned: self.identities.returned,
+            },
+            planned_location: intake.planned_location.clone(),
+            occurred: intake.occurred,
+            recorded_at: intake.recorded_at,
+            actor: intake.actor,
+            observation: intake.observation.clone(),
+        }
+    }
+}

@@ -45,6 +45,8 @@ mod hub_stock;
 use hub_stock::{HubStockCommand, HubStockValue};
 #[path = "hub_counts.rs"]
 mod hub_counts;
+#[path = "hub_custody.rs"]
+mod hub_custody;
 use hub_counts::{HubCountCommand, HubCountValue};
 #[path = "hub_handling.rs"]
 mod hub_handling;

@@ -127,6 +127,26 @@ pub struct HubSubmittedDispatch {
     pub identification: Option<IdentificationVersion>,
 }
 
+/// Complete native old departure and all validated prior totals, including absence.
+/// The claimed identifiers remain in the raw command; absence grants no future link.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct HubSubmittedReturn {
+    pub id: HubRecordId,
+    pub departure: Option<harvestcircle_domain::hub::departure::DepartureRecord>,
+    pub established_return_totals: Vec<harvestcircle_domain::hub::returns::EstablishedReturnTotal>,
+}
+
+/// Current native physical and treatment context, not caller-supplied safety flags.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct HubSubmittedDisposition {
+    pub id: HubRecordId,
+    pub group: PhysicalStockGroup,
+    pub lineage: harvestcircle_domain::hub::portions::PhysicalLineage,
+    pub treatment: harvestcircle_domain::hub::treatment::TreatmentState,
+    pub uncertain_submissions: bool,
+    pub unresolved_actuals: bool,
+}
+
 /// Native adapters capture only referenced/affected records at the admission cut.
 /// A record's presence does not establish current authority or safe reconciliation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -140,6 +160,8 @@ pub enum HubSubmittedMaterial {
     Count(Box<CountObservation>),
     Hold(Box<harvestcircle_domain::hub::treatment::Hold>),
     Discrepancy(Box<harvestcircle_domain::hub::movement::Discrepancy>),
+    Return(Box<HubSubmittedReturn>),
+    Disposition(Box<HubSubmittedDisposition>),
 }
 impl HubSubmittedMaterial {
     fn identity(&self) -> (u8, HubRecordId, u64) {
@@ -152,6 +174,8 @@ impl HubSubmittedMaterial {
             Self::Count(v) => (5, v.id, 0),
             Self::Hold(v) => (6, v.stamp.id, 0),
             Self::Discrepancy(v) => (7, v.id, 0),
+            Self::Return(v) => (8, v.id, 0),
+            Self::Disposition(v) => (9, v.id, 0),
         }
     }
 }

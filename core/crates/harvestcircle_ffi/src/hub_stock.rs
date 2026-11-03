@@ -287,6 +287,9 @@ pub enum HubPopulationOriginDto {
         count_id: String,
         related_population_id: String,
     },
+    Returned {
+        return_id: String,
+    },
 }
 
 impl From<&harvestcircle_domain::hub::stock::PopulationOrigin> for HubPopulationOriginDto {
@@ -294,6 +297,9 @@ impl From<&harvestcircle_domain::hub::stock::PopulationOrigin> for HubPopulation
         use harvestcircle_domain::hub::stock::{OpeningHistory, PopulationOrigin};
         match origin {
             PopulationOrigin::Receipt => Self::Receipt,
+            PopulationOrigin::Returned { returned } => Self::Returned {
+                return_id: returned.to_hex(),
+            },
             PopulationOrigin::CountedOpening { history } => Self::CountedOpening {
                 history_reference: match history {
                     OpeningHistory::Unknown => None,

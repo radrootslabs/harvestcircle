@@ -78,6 +78,7 @@ impl Database {
                 let definition = read::definition_on(transaction,hub.id(),id).await?;
                 let operation = stock::read::operation_on(transaction,hub.id(),&definition.created_operation).await?.ok_or_else(corrupt_storage)?;
                 let origin = match operation.kind.as_str() { "receipt" if id==work.trace && operation.result==work.trace => HubWorkOrigin::Intake,
+                    "return" => HubWorkOrigin::Intake,
                     "work_replan" if operation.result==id => HubWorkOrigin::Replan,
                     "work_new" if operation.result==id => HubWorkOrigin::NewHandling, _ => return Err(corrupt_storage()) };
                 let trace = read::trace_on(transaction,hub.id(),work.trace).await?;

@@ -3,7 +3,7 @@ pub(in crate::hub) mod conservation;
 pub(crate) mod schema;
 
 mod plan;
-pub(super) mod read;
+pub(in crate::hub) mod read;
 mod review;
 mod write;
 use super::dispatch::HubDispatchView;
@@ -51,4 +51,4 @@ fn identities(operation: &DurableRequestId) -> Result<DepartureIdentities, SafeE
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::hub) mod tests;

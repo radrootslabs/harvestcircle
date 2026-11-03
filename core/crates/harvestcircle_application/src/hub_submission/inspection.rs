@@ -173,5 +173,7 @@ fn known_kind(kind: &str) -> bool {
             | "departure"
             | "count_observe"
             | "count_post"
+            | "return"
+            | "disposition"
     )
 }

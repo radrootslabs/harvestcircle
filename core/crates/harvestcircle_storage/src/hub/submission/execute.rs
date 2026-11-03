@@ -2,7 +2,8 @@
 use super::*;
 use crate::{
     HubCountObservationReceipt, HubCountPostReceipt, HubDepartureReceipt, HubDispatchReceipt,
-    HubHandlingReceipt, HubOpeningReceipt, HubReferenceReceipt, HubStockReceipt,
+    HubDispositionReceipt, HubHandlingReceipt, HubOpeningReceipt, HubReferenceReceipt,
+    HubReturnReceipt, HubStockReceipt,
 };
 use harvestcircle_domain::{SafeErrorCode, UnixTimestamp, hub::HubOwnership};
 
@@ -16,6 +17,8 @@ pub enum HubMutationResult {
     Departure(Box<HubDepartureReceipt>),
     CountObserved(Box<HubCountObservationReceipt>),
     CountPosted(Box<HubCountPostReceipt>),
+    Returned(Box<HubReturnReceipt>),
+    Disposed(Box<HubDispositionReceipt>),
 }
 
 impl std::fmt::Debug for HubMutationResult {
@@ -30,6 +33,8 @@ impl std::fmt::Debug for HubMutationResult {
             Self::Departure(_) => "Departure",
             Self::CountObserved(_) => "CountObserved",
             Self::CountPosted(_) => "CountPosted",
+            Self::Returned(_) => "Returned",
+            Self::Disposed(_) => "Disposed",
         };
         f.debug_tuple("HubMutationResult").field(&kind).finish()
     }
@@ -126,6 +131,13 @@ async fn execute(
         )),
         HubMutation::Departure(command) => HubMutationResult::Departure(Box::new(
             db.apply_hub_departure(actor, operation, *command, now)
+                .await?,
+        )),
+        HubMutation::Return(command) => HubMutationResult::Returned(Box::new(
+            db.apply_hub_return(actor, operation, *command, now).await?,
+        )),
+        HubMutation::Disposition(command) => HubMutationResult::Disposed(Box::new(
+            db.apply_hub_disposition(actor, operation, *command, now)
                 .await?,
         )),
         HubMutation::CountObservation(command) => HubMutationResult::CountObserved(Box::new(

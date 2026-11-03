@@ -127,6 +127,7 @@ fn snapshot() -> TraceSnapshot {
     let line = &record.versions[0].material.lines[0];
     TraceSnapshot {
         count_losses: vec![],
+        dispositions: vec![],
         hub: record.hub,
         stock_revision: rev(3),
         catalog_revision: rev(5),

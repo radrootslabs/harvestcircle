@@ -224,14 +224,44 @@ private fun StockRecord(
 @Composable
 internal fun StockPopulationSummary(trace: HubStockPopulation) {
     val receipt = trace.origin == HubPopulationOrigin.Receipt
+    val returned = trace.origin is HubPopulationOrigin.Returned
     HarvestCircleShellPanel(Modifier.testTag("stock-population")) {
-        HarvestCircleShellText(if (receipt) "Original receipt" else "Counted stock entry", role = HarvestCircleShellTextRole.SectionTitle)
+        HarvestCircleShellText(
+            if (receipt) {
+                "Original receipt"
+            } else if (returned) {
+                "Returned stock entry"
+            } else {
+                "Counted stock entry"
+            },
+            role = HarvestCircleShellTextRole.SectionTitle,
+        )
         HarvestCircleShellText("${trace.originalWholePacks} original packs · ${trace.variant.value.label}")
-        HarvestCircleShellText("${if (receipt) "Product when received" else "Product when counted"}: ${trace.product.value.label}")
-        HarvestCircleShellText("${if (receipt) "Received at" else "Counted at"}: ${trace.initialLocation.value.label}")
+        HarvestCircleShellText(
+            "${if (receipt) {
+                "Product when received"
+            } else if (returned) {
+                "Product when returned"
+            } else {
+                "Product when counted"
+            }}: ${trace.product.value.label}",
+        )
+        HarvestCircleShellText(
+            "${if (receipt) {
+                "Received at"
+            } else if (returned) {
+                "Returned at"
+            } else {
+                "Counted at"
+            }}: ${trace.initialLocation.value.label}",
+        )
         if (receipt) HarvestCircleShellText("Planned destination: ${trace.plannedLocation?.value?.label ?: "Not planned"}")
         when (val origin = trace.origin) {
             HubPopulationOrigin.Receipt -> Unit
+            is HubPopulationOrigin.Returned ->
+                HarvestCircleShellText(
+                    "Returned custody record ${origin.returnId}. Original source, acceptance and work are not inherited.",
+                )
             is HubPopulationOrigin.CountedOpening ->
                 HarvestCircleShellText(
                     origin.historyReference?.let { "Earlier intake reference: $it" } ?: "Earlier intake history: Unknown",

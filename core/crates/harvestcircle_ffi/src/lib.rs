@@ -10,10 +10,12 @@ mod hub_counts;
 mod hub_departure;
 mod hub_dispatch;
 mod hub_dispatch_input;
+mod hub_disposition;
 mod hub_handling;
 mod hub_opening;
 mod hub_portions;
 mod hub_reference;
+mod hub_returns;
 mod hub_stock;
 mod hub_trace;
 mod hub_treatment;
@@ -57,6 +59,9 @@ pub use hub_dispatch_input::{
     HubDispatchActionInputDto, HubDispatchEditInputDto, HubDispatchInputDto,
     HubDispatchLineInputDto, HubDispatchMaterialInputDto,
 };
+pub use hub_disposition::{
+    HubDispositionInputDto, HubDispositionKindDto, HubDispositionReceiptDto,
+};
 pub use hub_handling::{
     HubActionGroupDto, HubDiscrepancyDto, HubDiscrepancyOpenInputDto, HubDiscrepancyPageDto,
     HubDiscrepancyResolveInputDto, HubDiscrepancyRowDto, HubGroupViewDto, HubGroupWorkDto,
@@ -76,6 +81,10 @@ pub use hub_reference::{
     HubReferenceKindDto, HubReferencePageDto, HubReferenceQueryDto, HubReferenceReceiptDto,
     HubReferenceRecordDto,
 };
+pub use hub_returns::{
+    HubReturnClaimDto, HubReturnDepartureDto, HubReturnInputDto, HubReturnReceiptDto,
+    HubReturnResolutionDto, HubReturnSourceDto, HubReturnTimingDto, HubUnresolvedReturnLinkDto,
+};
 pub use hub_stock::{
     HubOccurrenceDto, HubOccurrenceKindDto, HubPopulationOriginDto, HubQuantityWorkDto,
     HubReceiptInputDto, HubSourceCertaintyDto, HubSourceDto, HubSourceInputDto, HubSourceKindDto,
@@ -83,8 +92,8 @@ pub use hub_stock::{
     HubStockReceiptDto, HubStockRowDto,
 };
 pub use hub_trace::{
-    HubLocalOutputDto, HubLocalOutputRequestDto, HubTraceCountLossDto, HubTraceExitDto,
-    HubTraceHistoryEntryDto, HubTraceHistoryKindDto, HubTraceHistoryPageDto,
+    HubLocalOutputDto, HubLocalOutputRequestDto, HubTraceCountLossDto, HubTraceDispositionDto,
+    HubTraceExitDto, HubTraceHistoryEntryDto, HubTraceHistoryKindDto, HubTraceHistoryPageDto,
     HubTraceHistoryQueryDto, HubTracePageDto, HubTracePositionDto, HubTraceQueryDto,
     HubTraceRowDto, HubTraceScopeDto, HubTraceSelectionDto, HubTraceSnapshotDto,
     HubTraceSnapshotQueryDto,
@@ -133,7 +142,7 @@ mod tests {
         assert_eq!(env!("CARGO_PKG_VERSION"), "0.1.0-alpha");
         assert_eq!(super::FFI_CONTRACT_ID, "harvestcircle-desktop-ffi-v5");
         assert_eq!(super::FFI_CONTRACT_MAJOR, 5);
-        assert_eq!(super::FFI_CONTRACT_MINOR, 20);
+        assert_eq!(super::FFI_CONTRACT_MINOR, 21);
         assert_eq!(super::SNAPSHOT_SCHEMA_VERSION, 1);
         assert_eq!(
             super::PRODUCT_COORDINATE_DIGEST,

@@ -17,6 +17,7 @@ pub(in crate::hub) async fn require_on_hand_on(
     catalog: &harvestcircle_domain::hub::reference::ReferenceCatalog,
 ) -> Result<(), SafeError> {
     crate::hub::counts::posting::require_not_counted_empty_on(tx, hub, group, catalog).await?;
+    crate::hub::custody::disposition::read::require_unconsumed_on(tx, hub, group).await?;
     let operation: Option<String> = sqlx::query_scalar(
         "SELECT substr(operation_id,1,37) FROM hub_departure_lines WHERE group_id=? LIMIT 1",
     )

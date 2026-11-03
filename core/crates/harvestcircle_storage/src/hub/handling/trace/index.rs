@@ -91,10 +91,10 @@ async fn candidates_on(
     // One bounded original-field scan; no N+1 deep-reader traversal merely to
     // filter candidates. Selected populations use the complete original readers.
     let candidates=sqlx::query(concat!(
-        "SELECT substr(r.trace_id,1,17) AS trace_id,substr(r.source_id,1,17) AS source_id,substr(r.source_certainty,1,17) AS certainty,substr(s.issuer_id,1,17) AS issuer_id,",
+        "SELECT substr(r.origin_kind,1,33) AS origin_kind,substr(r.trace_id,1,17) AS trace_id,substr(r.source_id,1,17) AS source_id,substr(r.source_certainty,1,17) AS certainty,substr(s.issuer_id,1,17) AS issuer_id,",
         "substr(CAST(p.label AS BLOB),1,121) AS product_label,substr(CAST(v.label AS BLOB),1,121) AS variant_label,substr(CAST(su.label AS BLOB),1,121) AS supplier_label,",
         "substr(CAST(pr.label AS BLOB),1,121) AS producer_label,substr(CAST(si.label AS BLOB),1,121) AS issuer_label,substr(CAST(s.source_code AS BLOB),1,129) AS source_code,",
-        "CASE WHEN o.operation_id IS NULL OR o.hub_id<>? OR NOT ((o.kind='receipt' AND r.origin_kind='receipt') OR (o.kind='opening' AND r.origin_kind='opening') OR (o.kind='count_post' AND r.origin_kind='surplus' AND EXISTS(SELECT 1 FROM hub_counted_surplus cs JOIN hub_count_reconciliations cr ON cr.reconciliation_id=cs.reconciliation_id WHERE cs.population_id=r.trace_id AND cr.operation_id=o.operation_id AND cr.reconciliation_id=o.result_id AND cr.effect_kind='surplus'))) OR p.record_id IS NULL OR p.kind<>'product' OR p.hub_id<>o.hub_id OR v.record_id IS NULL OR v.kind<>'pack' OR v.hub_id<>o.hub_id OR ",
+        "CASE WHEN o.operation_id IS NULL OR o.hub_id<>? OR NOT ((o.kind='receipt' AND r.origin_kind='receipt') OR (o.kind='opening' AND r.origin_kind='opening') OR (o.kind='return' AND r.origin_kind='return' AND EXISTS(SELECT 1 FROM hub_returns returned WHERE returned.population_id=r.trace_id AND returned.operation_id=o.operation_id AND returned.return_id=o.result_id)) OR (o.kind='count_post' AND r.origin_kind='surplus' AND EXISTS(SELECT 1 FROM hub_counted_surplus cs JOIN hub_count_reconciliations cr ON cr.reconciliation_id=cs.reconciliation_id WHERE cs.population_id=r.trace_id AND cr.operation_id=o.operation_id AND cr.reconciliation_id=o.result_id AND cr.effect_kind='surplus'))) OR p.record_id IS NULL OR p.kind<>'product' OR p.hub_id<>o.hub_id OR v.record_id IS NULL OR v.kind<>'pack' OR v.hub_id<>o.hub_id OR ",
         "(r.supplier_id IS NOT NULL AND (su.record_id IS NULL OR su.kind<>'party' OR su.hub_id<>o.hub_id)) OR (r.producer_id IS NOT NULL AND (pr.record_id IS NULL OR pr.kind<>'party' OR pr.hub_id<>o.hub_id)) OR ",
         "(r.source_id IS NOT NULL AND (s.source_id IS NULL OR s.hub_id<>o.hub_id OR (s.issuer_id IS NOT NULL AND (si.record_id IS NULL OR si.kind<>'party' OR si.hub_id<>o.hub_id)))) THEN 1 ELSE 0 END AS invalid ",
         "FROM hub_receipts r LEFT JOIN hub_stock_operations o ON o.operation_id=r.operation_id LEFT JOIN hub_source_references s ON s.source_id=r.source_id ",
@@ -140,6 +140,17 @@ async fn candidates_on(
                 }
             }
             _ => return Err(corrupt_storage()),
+        };
+        let source = if row
+            .try_get::<String, _>("origin_kind")
+            .map_err(|_| corrupt_storage())?
+            == "return"
+        {
+            TraceSourceEvidence::Returned {
+                attributed_unresolved: source.unresolved(),
+            }
+        } else {
+            source
         };
         let mut fields = vec![trace.to_hex()];
         for field in [

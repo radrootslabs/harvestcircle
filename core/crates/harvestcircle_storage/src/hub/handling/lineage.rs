@@ -204,10 +204,13 @@ pub(in crate::hub) async fn load_on(
             observation,
         });
     }
+    let disposed =
+        crate::hub::custody::disposition::validation::trace_on(transaction, hub, trace_id).await?;
     let counted_loss =
         crate::hub::counts::posting::loss_quantity_on(transaction, hub, trace_id).await?;
     if total
         .checked_add(super::departure::conservation::trace_on(transaction, hub, trace_id).await?)
+        .and_then(|packs| packs.checked_add(disposed))
         .and_then(|packs| packs.checked_add(counted_loss))
         .map_err(|_| corrupt_storage())?
         != trace.original_packs
@@ -236,6 +239,19 @@ pub(super) async fn creation_on(
     SafeError,
 > {
     Ok(match operation.kind.as_str() {
+        "return" if parent.is_none() => {
+            let (population, group) =
+                crate::hub::custody::returns::read::birth_on(transaction, hub, &operation).await?;
+            if population != *trace || group.id != id {
+                return Err(corrupt_storage());
+            }
+            (
+                HubGroupCreationKind::Returned,
+                group.identification,
+                trace.occurred,
+                trace.observation.clone(),
+            )
+        }
         "opening" if parent.is_none() => {
             let original = stock::opening::original_on(transaction, hub, operation).await?;
             if original.original.group.id != id || original.original.population != *trace {

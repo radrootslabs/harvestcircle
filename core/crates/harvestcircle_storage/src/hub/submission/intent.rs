@@ -4,7 +4,9 @@ use harvestcircle_domain::hub::{
     HubId,
     departure::DepartureIdentities,
     dispatch::DispatchIdentities,
+    disposition::DispositionIdentities,
     movement::HandlingIdentities,
+    returns::ReturnIdentities,
     stock::{OpeningIdentities, ReceiptIdentities},
 };
 
@@ -46,5 +48,15 @@ pub(super) fn hash(
         ),
         HubSubmittedRequest::CountObservation(c) => c.fingerprint(hub, actor, id),
         HubSubmittedRequest::CountPosting(c) => c.fingerprint(hub, actor, id),
+        HubSubmittedRequest::Return(c) => c.fingerprint(
+            hub,
+            actor,
+            ReturnIdentities::from_operation_bytes(id).map_err(|_| stock::invalid_input())?,
+        ),
+        HubSubmittedRequest::Disposition(c) => c.fingerprint(
+            hub,
+            actor,
+            DispositionIdentities::from_operation_bytes(id).map_err(|_| stock::invalid_input())?,
+        ),
     }))
 }

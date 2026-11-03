@@ -21,6 +21,7 @@ import org.harvestcircle.application.BuildInfo
 import org.harvestcircle.application.GeneratedIdentityRecovery
 import org.harvestcircle.application.GeneratedKeyBackup
 import org.harvestcircle.application.HarvestCircleCountRuntime
+import org.harvestcircle.application.HarvestCircleCustodyRuntime
 import org.harvestcircle.application.HarvestCircleDepartureRuntime
 import org.harvestcircle.application.HarvestCircleDispatchRuntime
 import org.harvestcircle.application.HarvestCircleHandlingRuntime
@@ -45,6 +46,8 @@ import org.harvestcircle.application.HubDispatchPage
 import org.harvestcircle.application.HubDispatchQuery
 import org.harvestcircle.application.HubDispatchReceipt
 import org.harvestcircle.application.HubDispatchView
+import org.harvestcircle.application.HubDispositionInput
+import org.harvestcircle.application.HubDispositionReceipt
 import org.harvestcircle.application.HubGroupView
 import org.harvestcircle.application.HubHandlingInput
 import org.harvestcircle.application.HubHandlingQuery
@@ -60,6 +63,8 @@ import org.harvestcircle.application.HubReferenceEdit
 import org.harvestcircle.application.HubReferencePage
 import org.harvestcircle.application.HubReferenceQuery
 import org.harvestcircle.application.HubReferenceReceipt
+import org.harvestcircle.application.HubReturnInput
+import org.harvestcircle.application.HubReturnReceipt
 import org.harvestcircle.application.HubStockPage
 import org.harvestcircle.application.HubStockQuery
 import org.harvestcircle.application.HubStockReceipt
@@ -113,6 +118,7 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
     HarvestCircleReferenceRuntime,
     HarvestCircleStockRuntime,
     HarvestCircleCountRuntime,
+    HarvestCircleCustodyRuntime,
     HarvestCircleHandlingRuntime,
     HarvestCircleDispatchRuntime,
     HarvestCircleDepartureRuntime,
@@ -277,6 +283,28 @@ internal class TestBridgeHarvestCircleRuntime private constructor(
         withContext(Dispatchers.IO) {
             callBridge { bridge.recordOpening(context.operationId.value, context.expectedRevision.value, input.toNative()).toModel() }
         }
+
+    override suspend fun applyReturn(
+        context: RequestContext,
+        input: HubReturnInput,
+    ): HubReturnReceipt =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.applyReturn(context.operationId.value, context.expectedRevision.value, input.toNative()).toModel() }
+        }
+
+    override suspend fun returnOperation(operation: OperationId): HubReturnReceipt? =
+        withContext(Dispatchers.IO) { callBridge { bridge.returnOperation(operation.value)?.toModel() } }
+
+    override suspend fun applyDisposition(
+        context: RequestContext,
+        input: HubDispositionInput,
+    ): HubDispositionReceipt =
+        withContext(Dispatchers.IO) {
+            callBridge { bridge.applyDisposition(context.operationId.value, context.expectedRevision.value, input.toNative()).toModel() }
+        }
+
+    override suspend fun dispositionOperation(operation: OperationId): HubDispositionReceipt? =
+        withContext(Dispatchers.IO) { callBridge { bridge.dispositionOperation(operation.value)?.toModel() } }
 
     override suspend fun observeCount(
         context: RequestContext,

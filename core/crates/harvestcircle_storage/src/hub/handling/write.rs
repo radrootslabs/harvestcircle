@@ -279,7 +279,7 @@ pub(in crate::hub) async fn update_work_on(
     Ok(())
 }
 
-pub(super) async fn work_change_on(
+pub(in crate::hub) async fn work_change_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     operation: &DurableRequestId,
     before: Option<&WorkRequirement>,

@@ -107,6 +107,22 @@ impl Targets {
                 t.groups.insert(c.group);
             }
             HubSubmittedRequest::CountPosting(c) => t.count = Some(c.count),
+            HubSubmittedRequest::Return(c) => {
+                t.references.extend(
+                    [
+                        Some(c.variant),
+                        Some(c.location),
+                        c.returned_by,
+                        c.planned_location,
+                    ]
+                    .into_iter()
+                    .flatten(),
+                );
+                t.source(&c.source);
+            }
+            HubSubmittedRequest::Disposition(c) => {
+                t.groups.insert(c.group);
+            }
         }
         t
     }
@@ -145,6 +161,12 @@ pub(super) fn expected_versions(
             (Some(c.expected_stock_revision), c.expected_catalog_revision)
         }
         HubSubmittedRequest::CountObservation(c) => {
+            (Some(c.expected_stock_revision), c.expected_catalog_revision)
+        }
+        HubSubmittedRequest::Return(c) => {
+            (Some(c.expected_stock_revision), c.expected_catalog_revision)
+        }
+        HubSubmittedRequest::Disposition(c) => {
             (Some(c.expected_stock_revision), c.expected_catalog_revision)
         }
         HubSubmittedRequest::CountPosting(c) => {

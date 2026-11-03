@@ -8,8 +8,10 @@ use harvestcircle_domain::hub::{
     counts::{CountObserveCommand, CountPostCommand},
     departure::DepartureCommand,
     dispatch::DispatchCommand,
+    disposition::DispositionCommand,
     movement::HandlingCommand,
     reference::ReferenceCommand,
+    returns::ReturnCommand,
     stock::{OpeningCommand, ReceiptCommand},
 };
 use serde::{Serialize, Serializer};
@@ -35,6 +37,8 @@ pub enum HubSubmittedRequest<'a> {
     Departure(&'a DepartureCommand),
     CountObservation(&'a CountObserveCommand),
     CountPosting(&'a CountPostCommand),
+    Return(&'a ReturnCommand),
+    Disposition(&'a DispositionCommand),
 }
 
 /// An owned native request can move through admission without decoding an archive.
@@ -49,6 +53,8 @@ pub enum HubMutation {
     Departure(Box<DepartureCommand>),
     CountObservation(Box<CountObserveCommand>),
     CountPosting(Box<CountPostCommand>),
+    Return(Box<ReturnCommand>),
+    Disposition(Box<DispositionCommand>),
 }
 
 impl HubMutation {
@@ -64,6 +70,8 @@ impl HubMutation {
             Self::Departure(value) => HubSubmittedRequest::Departure(value),
             Self::CountObservation(value) => HubSubmittedRequest::CountObservation(value),
             Self::CountPosting(value) => HubSubmittedRequest::CountPosting(value),
+            Self::Return(value) => HubSubmittedRequest::Return(value),
+            Self::Disposition(value) => HubSubmittedRequest::Disposition(value),
         }
     }
 }
@@ -81,6 +89,8 @@ impl HubSubmittedRequest<'_> {
             Self::Departure(_) => "departure",
             Self::CountObservation(_) => "count_observe",
             Self::CountPosting(_) => "count_post",
+            Self::Return(_) => "return",
+            Self::Disposition(_) => "disposition",
         }
     }
 
@@ -125,6 +135,8 @@ impl Serialize for HubSubmittedRequest<'_> {
             Self::Departure(command) => command.serialize(serializer),
             Self::CountObservation(command) => command.serialize(serializer),
             Self::CountPosting(command) => command.serialize(serializer),
+            Self::Return(command) => command.serialize(serializer),
+            Self::Disposition(command) => command.serialize(serializer),
         }
     }
 }

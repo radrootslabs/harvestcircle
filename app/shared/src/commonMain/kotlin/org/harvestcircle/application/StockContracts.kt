@@ -56,6 +56,10 @@ data class HubStockQuery(
 )
 
 sealed interface HubPopulationOrigin {
+    data class Returned(
+        val returnId: String,
+    ) : HubPopulationOrigin
+
     data object Receipt : HubPopulationOrigin
 
     data class CountedOpening(

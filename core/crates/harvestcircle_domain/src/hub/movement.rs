@@ -105,13 +105,13 @@ pub enum WorkProgress {
 
 /// Every pack in a physical group has this same requirement status. Partial
 /// treatment first separates an identified group; it never guesses mixed credit.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct WorkAllocation {
     pub requirement: WorkRequirement,
     pub progress: WorkProgress,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct PhysicalStockGroup {
     pub id: HubRecordId,
     pub trace: HubRecordId,

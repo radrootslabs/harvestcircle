@@ -183,6 +183,9 @@ pub enum PopulationOrigin {
         count: HubRecordId,
         related_population: HubRecordId,
     },
+    Returned {
+        returned: HubRecordId,
+    },
 }
 
 /// Original reference versions survive later label changes and corrections.

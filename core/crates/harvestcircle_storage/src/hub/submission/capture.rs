@@ -51,6 +51,39 @@ pub(super) async fn capture_on(
         return Err(stock::invalid_input());
     }
     let mut material = Vec::new();
+    match &request {
+        HubSubmittedRequest::Return(command) => {
+            let context =
+                crate::hub::custody::returns::context::load_on(tx, hub.id(), command).await?;
+            let id = crate::hub::custody::returns::identities(operation)?.returned;
+            material.push(HubSubmittedMaterial::Return(Box::new(HubSubmittedReturn {
+                id,
+                departure: context.departure,
+                established_return_totals: context.totals,
+            })));
+        }
+        HubSubmittedRequest::Disposition(command) => {
+            let context = crate::hub::custody::disposition::context::load_on(
+                tx,
+                hub.id(),
+                operation,
+                command,
+            )
+            .await?;
+            let id = crate::hub::custody::disposition::identities(operation)?.disposition;
+            material.push(HubSubmittedMaterial::Disposition(Box::new(
+                HubSubmittedDisposition {
+                    id,
+                    group: context.group,
+                    lineage: context.lineage,
+                    treatment: context.treatment,
+                    uncertain_submissions: context.activity.uncertain_submissions,
+                    unresolved_actuals: context.activity.unresolved_actuals,
+                },
+            )));
+        }
+        _ => {}
+    }
     if let Some(id) = targets.count {
         let count = counts::read::by_id_on(tx, hub.id(), id).await?.original;
         targets.groups.insert(count.scope.group);

@@ -110,6 +110,7 @@ internal fun HubStockPopulationDto.toModel() =
         observation,
         when (val value = origin) {
             is HubPopulationOriginDto.Receipt -> HubPopulationOrigin.Receipt
+            is HubPopulationOriginDto.Returned -> HubPopulationOrigin.Returned(value.returnId)
             is HubPopulationOriginDto.CountedOpening -> HubPopulationOrigin.CountedOpening(value.historyReference)
             is HubPopulationOriginDto.CountedSurplus ->
                 HubPopulationOrigin.CountedSurplus(

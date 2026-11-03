@@ -94,6 +94,7 @@ pub struct HubTraceRowDto {
     pub on_hand_whole_packs: u32,
     pub departed_whole_packs: u32,
     pub counted_loss_whole_packs: u32,
+    pub disposed_whole_packs: u32,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
@@ -123,6 +124,7 @@ impl From<HubTracePage> for HubTracePageDto {
                     on_hand_whole_packs: row.balance.on_hand.value(),
                     departed_whole_packs: row.balance.departed.value(),
                     counted_loss_whole_packs: row.balance.counted_loss.value(),
+                    disposed_whole_packs: row.balance.disposed.value(),
                 })
                 .collect(),
         }
@@ -199,9 +201,11 @@ pub struct HubTraceSnapshotDto {
     pub on_hand_whole_packs: u32,
     pub departed_whole_packs: u32,
     pub counted_loss_whole_packs: u32,
+    pub disposed_whole_packs: u32,
     pub on_hand: Vec<HubTracePositionDto>,
     pub exits: Vec<HubTraceExitDto>,
     pub count_losses: Vec<HubTraceCountLossDto>,
+    pub dispositions: Vec<HubTraceDispositionDto>,
 }
 impl TryFrom<TraceSnapshot> for HubTraceSnapshotDto {
     type Error = HarvestCircleError;
@@ -220,6 +224,8 @@ impl TryFrom<TraceSnapshot> for HubTraceSnapshotDto {
             on_hand_whole_packs: balance.on_hand.value(),
             departed_whole_packs: balance.departed.value(),
             counted_loss_whole_packs: balance.counted_loss.value(),
+            disposed_whole_packs: balance.disposed.value(),
+            dispositions: value.dispositions.into_iter().map(Into::into).collect(),
             on_hand: value
                 .on_hand
                 .into_iter()
@@ -316,6 +322,8 @@ impl HubTraceHistoryQueryDto {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
 pub enum HubTraceHistoryKindDto {
+    Returned,
+    Disposition,
     Receipt,
     CountedOpening,
     CountObserved,
@@ -339,6 +347,8 @@ pub enum HubTraceHistoryKindDto {
 impl From<HubTraceHistoryKind> for HubTraceHistoryKindDto {
     fn from(value: HubTraceHistoryKind) -> Self {
         match value {
+            HubTraceHistoryKind::Returned => Self::Returned,
+            HubTraceHistoryKind::Disposition => Self::Disposition,
             HubTraceHistoryKind::Receipt => Self::Receipt,
             HubTraceHistoryKind::CountedOpening => Self::CountedOpening,
             HubTraceHistoryKind::CountObserved => Self::CountObserved,
@@ -579,5 +589,40 @@ mod tests {
             .decode()
             .is_ok()
         );
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct HubTraceDispositionDto {
+    pub id: String,
+    pub operation_id: String,
+    pub population_id: String,
+    pub group_id: String,
+    pub stock_revision: u64,
+    pub whole_packs: u32,
+    pub location: HubReferenceRecordDto,
+    pub kind: crate::hub_disposition::HubDispositionKindDto,
+    pub actor_public_key: String,
+    pub recorded_at_unix_s: i64,
+    pub occurrence: HubOccurrenceDto,
+    pub observation: String,
+}
+impl From<harvestcircle_domain::hub::trace::TraceDisposition> for HubTraceDispositionDto {
+    fn from(value: harvestcircle_domain::hub::trace::TraceDisposition) -> Self {
+        Self {
+            id: value.id.to_hex(),
+            operation_id: operation_text(value.operation),
+            population_id: value.population.to_hex(),
+            group_id: value.group.to_hex(),
+            stock_revision: value.stock_revision.value(),
+            whole_packs: value.packs.value(),
+            location: (&value.location).into(),
+            kind: value.kind.into(),
+            actor_public_key: value.actor.to_hex(),
+            recorded_at_unix_s: value.recorded_at.as_seconds(),
+            occurrence: value.occurred.into(),
+            observation: value.observation.as_str().to_owned(),
+        }
     }
 }

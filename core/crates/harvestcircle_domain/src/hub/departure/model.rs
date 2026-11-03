@@ -3,19 +3,19 @@ use crate::hub::dispatch::{HUB_DISPATCH_LINES, IdentificationStatus};
 
 /// Positive original scope followed by complete physical exit. There is no
 /// fabricated zero-pack PhysicalStockGroup; native storage retains its ancestry.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct ConsumedStockGroup {
     pub before: PhysicalStockGroup,
     pub after_revision: HubRevision,
     pub causal_floor: Option<UnixTimestamp>,
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct DepartureWorkChange {
     pub before: WorkRequirement,
     pub after: WorkRequirement,
     pub retired: WholePacks,
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct DepartureRecord {
     pub id: HubRecordId,
     pub operation: HubRecordId,

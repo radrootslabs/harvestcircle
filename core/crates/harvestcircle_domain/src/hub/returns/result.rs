@@ -2,6 +2,86 @@
 use super::*;
 use crate::hub::{custody_result, departure::departure_result_digest};
 
+/// Seals only this intake's generic population facts. Stock/document readers can
+/// verify a returned population without recursively loading every older return.
+/// Full return/linkage reads must additionally verify `return_result_digest`.
+pub fn return_population_digest(
+    input: &[u8; 32],
+    hub: HubId,
+    catalog: HubRevision,
+    ids: ReturnIdentities,
+    population: &crate::hub::stock::StockPopulation,
+) -> Result<[u8; 32], ReturnError> {
+    use crate::hub::movement::{hash_occurrence, hash_text};
+    use crate::hub::stock::PopulationOrigin;
+    ids.validate()?;
+    if population.id != ids.population
+        || population.origin
+            != (PopulationOrigin::Returned {
+                returned: ids.returned,
+            })
+        || population.original_packs.value() == 0
+        || population.supplier.is_some()
+        || population.producer.is_some()
+        || population.product.value.kind() != ReferenceKind::Product
+        || !matches!(population.variant.value, ReferenceValue::Pack {product, ..} if product == population.product.id)
+        || population.initial_location.value.kind() != ReferenceKind::Location
+        || population.planned_location.as_ref().is_some_and(|target| {
+            target.value.kind() != ReferenceKind::Location
+                || target.id == population.initial_location.id
+        })
+    {
+        return Err(ReturnError::InvalidNativeContext);
+    }
+    population.occurred.validate(population.recorded_at)?;
+    let issuer = match &population.source {
+        SourceAttribution::Unknown => None,
+        SourceAttribution::Referenced { source, .. } => source.issuer,
+    };
+    if issuer != population.source_issuer.as_ref().map(|value| value.id)
+        || population
+            .source_issuer
+            .as_ref()
+            .is_some_and(|value| value.value.kind() != ReferenceKind::Party)
+    {
+        return Err(ReturnError::InvalidNativeContext);
+    }
+    let mut hash = Sha256::new();
+    hash.update(b"harvestcircle.hub.return.population-result.v1\0");
+    hash.update(input);
+    hash.update(hub.as_bytes());
+    hash.update(catalog.value().to_be_bytes());
+    for id in [ids.operation, ids.returned, ids.population] {
+        hash.update(id.as_bytes());
+    }
+    hash.update(population.actor.as_bytes());
+    hash.update(population.recorded_at.as_seconds().to_be_bytes());
+    hash.update(population.original_packs.value().to_be_bytes());
+    hash_occurrence(&mut hash, population.occurred);
+    hash_text(&mut hash, population.observation.as_str());
+    hash_source(&mut hash, &population.source);
+    for value in [
+        &population.product,
+        &population.variant,
+        &population.initial_location,
+    ] {
+        if value.revision.value() > catalog.value() {
+            return Err(ReturnError::InvalidNativeContext);
+        }
+        custody_result::reference(&mut hash, value, hub, population.actor, catalog);
+    }
+    for value in [&population.source_issuer, &population.planned_location] {
+        hash.update([u8::from(value.is_some())]);
+        if let Some(value) = value {
+            if value.revision.value() > catalog.value() {
+                return Err(ReturnError::InvalidNativeContext);
+            }
+            custody_result::reference(&mut hash, value, hub, population.actor, catalog);
+        }
+    }
+    Ok(hash.finalize().into())
+}
+
 /// The context must be the complete immutable original capture when reading an
 /// original, or fresh protected native data when planning a new effect.
 pub fn return_result_digest(

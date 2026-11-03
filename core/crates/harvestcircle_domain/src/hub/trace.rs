@@ -23,7 +23,8 @@ pub enum TraceError {
 }
 
 /// A source impact retrieval deliberately includes every unresolved population.
-/// Neither matching code text nor a different tentative source rules one out.
+/// Returned populations are also conservatively included, regardless of current
+/// attribution. Inclusion is review scope, not association or ancestry clearance.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum TraceScope {
     #[default]
@@ -36,6 +37,10 @@ pub enum TraceScope {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TraceSourceEvidence {
     Unknown,
+    /// Impact retrieval includes every returned population conservatively.
+    Returned {
+        attributed_unresolved: bool,
+    },
     Referenced {
         source: HubRecordId,
         certainty: SourceCertainty,
@@ -56,21 +61,38 @@ impl From<&SourceAttribution> for TraceSourceEvidence {
 }
 impl TraceSourceEvidence {
     #[must_use]
+    pub fn for_population(population: &StockPopulation) -> Self {
+        let attributed: Self = (&population.source).into();
+        if matches!(
+            population.origin,
+            super::stock::PopulationOrigin::Returned { .. }
+        ) {
+            Self::Returned {
+                attributed_unresolved: attributed.unresolved(),
+            }
+        } else {
+            attributed
+        }
+    }
+    #[must_use]
     pub const fn unresolved(self) -> bool {
-        !matches!(
-            self,
+        match self {
+            Self::Returned {
+                attributed_unresolved,
+            } => attributed_unresolved,
             Self::Referenced {
                 certainty: SourceCertainty::Established,
                 issuer: Some(_),
                 ..
-            }
-        )
+            } => false,
+            _ => true,
+        }
     }
 }
 impl TraceScope {
     #[must_use]
     pub fn includes(self, trace: &StockPopulation) -> bool {
-        self.includes_evidence(trace.id, (&trace.source).into())
+        self.includes_evidence(trace.id, TraceSourceEvidence::for_population(trace))
     }
     #[must_use]
     pub fn includes_evidence(self, trace: HubRecordId, source: TraceSourceEvidence) -> bool {
@@ -79,7 +101,8 @@ impl TraceScope {
             Self::Unresolved => source.unresolved(),
             Self::Receipt(id) => trace == id,
             Self::SourceImpact(id) => {
-                source.unresolved()
+                matches!(source, TraceSourceEvidence::Returned { .. })
+                    || source.unresolved()
                     || matches!(source, TraceSourceEvidence::Referenced { source, .. } if source == id)
             }
         }
@@ -129,7 +152,11 @@ impl TraceSelection {
         .into_iter()
         .flatten()
         .collect::<Vec<_>>();
-        self.includes_fields(trace.id, (&trace.source).into(), &fields)
+        self.includes_fields(
+            trace.id,
+            TraceSourceEvidence::for_population(trace),
+            &fields,
+        )
     }
     /// Original, bounded text fields from the native index, before deep selected-row reads.
     pub fn includes_fields(
@@ -198,6 +225,22 @@ pub struct TraceCountLoss {
     pub actor: PublicKey,
     pub reason: SourceProvenance,
 }
+/// Actual non-buyer removal is separate from delivery and unexplained count loss.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TraceDisposition {
+    pub id: HubRecordId,
+    pub operation: HubRecordId,
+    pub population: HubRecordId,
+    pub group: HubRecordId,
+    pub stock_revision: HubRevision,
+    pub packs: WholePacks,
+    pub location: ReferenceRecord,
+    pub kind: super::disposition::DispositionKind,
+    pub actor: PublicKey,
+    pub recorded_at: UnixTimestamp,
+    pub occurred: Occurrence,
+    pub observation: SourceProvenance,
+}
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TraceBalance {
     pub variant: HubRecordId,
@@ -205,6 +248,7 @@ pub struct TraceBalance {
     pub on_hand: WholePacks,
     pub departed: WholePacks,
     pub counted_loss: WholePacks,
+    pub disposed: WholePacks,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TraceSnapshot {
@@ -215,6 +259,7 @@ pub struct TraceSnapshot {
     pub on_hand: Vec<TracePosition>,
     pub exits: Vec<TraceExit>,
     pub count_losses: Vec<TraceCountLoss>,
+    pub dispositions: Vec<TraceDisposition>,
 }
 impl TraceSnapshot {
     /// Reconciles one original population; never sums different pack variants.
@@ -223,6 +268,7 @@ impl TraceSnapshot {
             .on_hand
             .len()
             .checked_add(self.exits.len())
+            .and_then(|n| n.checked_add(self.dispositions.len()))
             .ok_or(TraceError::Capacity)?
             > HUB_LINEAGE_GROUPS
         {
@@ -240,6 +286,7 @@ impl TraceSnapshot {
         let mut on_hand = WholePacks::from_value(0).map_err(|_| TraceError::Accounting)?;
         let mut departed = on_hand;
         let mut counted_loss = on_hand;
+        let mut disposed = on_hand;
         for position in &self.on_hand {
             if position.packs.value() == 0
                 || position.location.value.kind() != ReferenceKind::Location
@@ -289,6 +336,28 @@ impl TraceSnapshot {
                 .checked_add(exit.packs)
                 .map_err(|_| TraceError::Accounting)?;
         }
+        for removal in &self.dispositions {
+            if removal.population != self.trace.id
+                || removal.packs.value() == 0
+                || !groups.insert(removal.group)
+                || removal.stock_revision.value() > self.stock_revision.value()
+                || removal.location.value.kind() != ReferenceKind::Location
+                || removal.location.revision.value() > self.catalog_revision.value()
+                || removal.occurred.validate(removal.recorded_at).is_err()
+                || super::disposition::DispositionIdentities::from_operation_bytes(
+                    removal.operation,
+                )
+                .map_err(|_| TraceError::InvalidSnapshot)?
+                .disposition
+                    != removal.id
+                || operations.insert(removal.operation, removal.id).is_some()
+            {
+                return Err(TraceError::InvalidSnapshot);
+            }
+            disposed = disposed
+                .checked_add(removal.packs)
+                .map_err(|_| TraceError::Accounting)?;
+        }
         let mut reconciliations = BTreeSet::new();
         let mut counts = BTreeSet::new();
         for loss in &self.count_losses {
@@ -314,6 +383,7 @@ impl TraceSnapshot {
         if on_hand
             .checked_add(departed)
             .and_then(|total| total.checked_add(counted_loss))
+            .and_then(|total| total.checked_add(disposed))
             .map_err(|_| TraceError::Accounting)?
             != self.trace.original_packs
         {
@@ -325,6 +395,7 @@ impl TraceSnapshot {
             on_hand,
             departed,
             counted_loss,
+            disposed,
         })
     }
 }

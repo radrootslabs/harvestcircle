@@ -30,6 +30,8 @@ import org.harvestcircle.ffi.HubDispatchPageDto
 import org.harvestcircle.ffi.HubDispatchQueryDto
 import org.harvestcircle.ffi.HubDispatchReceiptDto
 import org.harvestcircle.ffi.HubDispatchViewDto
+import org.harvestcircle.ffi.HubDispositionInputDto
+import org.harvestcircle.ffi.HubDispositionReceiptDto
 import org.harvestcircle.ffi.HubGroupViewDto
 import org.harvestcircle.ffi.HubHandlingInputDto
 import org.harvestcircle.ffi.HubHandlingQueryDto
@@ -45,6 +47,8 @@ import org.harvestcircle.ffi.HubReferenceEditDto
 import org.harvestcircle.ffi.HubReferencePageDto
 import org.harvestcircle.ffi.HubReferenceQueryDto
 import org.harvestcircle.ffi.HubReferenceReceiptDto
+import org.harvestcircle.ffi.HubReturnInputDto
+import org.harvestcircle.ffi.HubReturnReceiptDto
 import org.harvestcircle.ffi.HubStockPageDto
 import org.harvestcircle.ffi.HubStockQueryDto
 import org.harvestcircle.ffi.HubStockReceiptDto
@@ -85,6 +89,7 @@ class NativeHarvestCircleRuntime internal constructor(
     HarvestCircleReferenceRuntime,
     HarvestCircleStockRuntime,
     HarvestCircleCountRuntime,
+    HarvestCircleCustodyRuntime,
     HarvestCircleHandlingRuntime,
     HarvestCircleDispatchRuntime,
     HarvestCircleDepartureRuntime,
@@ -108,6 +113,23 @@ class NativeHarvestCircleRuntime internal constructor(
 
     override suspend fun departureReview(input: HubDepartureReviewInput): HubDepartureReview =
         callNative { hubPort().departureReview(input.toNative()).toModel() }
+
+    override suspend fun applyReturn(
+        context: RequestContext,
+        input: HubReturnInput,
+    ): HubReturnReceipt = callNative(context.operationId) { hubPort().applyReturn(context.toNative(), input.toNative()).toModel() }
+
+    override suspend fun returnOperation(operation: OperationId): HubReturnReceipt? =
+        callNative(operation) { hubPort().returnOperation(operation.value)?.toModel() }
+
+    override suspend fun applyDisposition(
+        context: RequestContext,
+        input: HubDispositionInput,
+    ): HubDispositionReceipt =
+        callNative(context.operationId) { hubPort().applyDisposition(context.toNative(), input.toNative()).toModel() }
+
+    override suspend fun dispositionOperation(operation: OperationId): HubDispositionReceipt? =
+        callNative(operation) { hubPort().dispositionOperation(operation.value)?.toModel() }
 
     override suspend fun applyDeparture(
         context: RequestContext,
@@ -664,6 +686,20 @@ internal fun interface NativeSubscriptionHandle {
 }
 
 private interface NativeHubPort {
+    suspend fun applyReturn(
+        context: RequestContextDto,
+        input: HubReturnInputDto,
+    ): HubReturnReceiptDto
+
+    suspend fun returnOperation(operation: String): HubReturnReceiptDto?
+
+    suspend fun applyDisposition(
+        context: RequestContextDto,
+        input: HubDispositionInputDto,
+    ): HubDispositionReceiptDto
+
+    suspend fun dispositionOperation(operation: String): HubDispositionReceiptDto?
+
     suspend fun recordOpening(
         context: RequestContextDto,
         input: HubOpeningInputDto,
@@ -769,6 +805,20 @@ private class UniFfiNativeCorePort(
     private val core: HarvestCircleAppCore,
 ) : NativeCorePort,
     NativeHubPort {
+    override suspend fun applyReturn(
+        context: RequestContextDto,
+        input: HubReturnInputDto,
+    ): HubReturnReceiptDto = core.applyHubReturn(context, input)
+
+    override suspend fun returnOperation(operation: String): HubReturnReceiptDto? = core.hubReturnOperation(operation)
+
+    override suspend fun applyDisposition(
+        context: RequestContextDto,
+        input: HubDispositionInputDto,
+    ): HubDispositionReceiptDto = core.applyHubDisposition(context, input)
+
+    override suspend fun dispositionOperation(operation: String): HubDispositionReceiptDto? = core.hubDispositionOperation(operation)
+
     override suspend fun recordOpening(
         context: RequestContextDto,
         input: HubOpeningInputDto,
