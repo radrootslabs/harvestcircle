@@ -45,6 +45,8 @@ impl HubTraceQuery {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HubTraceRow {
+    pub source_corrections:
+        Vec<harvestcircle_domain::hub::corrections::SourceAttributionCorrection>,
     pub trace: StockPopulation,
     pub balance: TraceBalance,
 }
@@ -111,6 +113,7 @@ pub enum HubTraceHistoryKind {
     CorrectionObserved,
     FoundCorrected,
     AdditionalCorrected,
+    SourceAttributed,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HubTraceHistoryEntry {

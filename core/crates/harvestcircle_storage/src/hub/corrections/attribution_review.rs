@@ -2,14 +2,14 @@
 use super::*;
 use harvestcircle_domain::hub::{
     corrections::{
-        AmendedRecipient, AmendedSource, AttributionAffectedDeparture, AttributionCut,
-        AttributionError, OriginalRecipientAttribution, OriginalSourceAttribution,
-        RecipientAttributionCommand, RecipientAttributionContext, RecipientAttributionCorrection,
-        SourceAttributionCommand, SourceAttributionContext, SourceAttributionCorrection,
+        AttributionAffectedDeparture, AttributionCut, AttributionError,
+        OriginalRecipientAttribution, OriginalSourceAttribution, RecipientAttributionCommand,
+        RecipientAttributionContext, RecipientAttributionCorrection, SourceAttributionCommand,
+        SourceAttributionCorrection,
     },
     reference::{ReferenceCatalog, SourceAttribution},
 };
-mod registry;
+pub(super) mod registry;
 #[cfg(test)]
 mod tests;
 
@@ -30,6 +30,8 @@ pub struct HubSourceAttributionReview {
     /// Every canonical source identity, retaining distinct IDs and issuers.
     pub known_sources: Vec<SourceAttribution>,
     pub affected: Vec<AttributionAffectedDeparture>,
+    pub issued_versions:
+        Vec<harvestcircle_domain::hub::corrections::AttributionAffectedIssuedVersion>,
     pub uncertain_intent: bool,
     pub unresolved_actual: bool,
     pub outcome: HubAttributionReviewOutcome<SourceAttributionCorrection>,
@@ -82,7 +84,7 @@ async fn cut_on(
     }
     // These histories require qualified original/current consumers before a
     // writer can activate them. No absent adapter becomes an empty history.
-    let unsupported:i64=sqlx::query_scalar("SELECT count(*) FROM hub_corrections WHERE family IN ('source','recipient','document','count_explain','count_classify')")
+    let unsupported:i64=sqlx::query_scalar("SELECT count(*) FROM hub_corrections WHERE family IN ('recipient','document','count_explain','count_classify')")
         .fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
     if unsupported != 0 {
         return Err(corrupt_storage());
@@ -120,71 +122,33 @@ impl Database {
                         command.expected_catalog_revision,
                     )
                     .await?;
-                    // Full registry and every original population precede trace selection.
-                    let registry = Box::pin(registry::load_on(tx, cut.hub)).await?;
-                    let population = registry
-                        .populations
-                        .iter()
-                        .find(|p| p.population.id == command.trace)
-                        .ok_or_else(stock::invalid_input)?;
-                    let original = OriginalSourceAttribution {
-                        hub: cut.hub,
-                        operation: crate::hub::actuals::common::operation_id(&population.operation)
-                            .map_err(|_| corrupt_storage())?,
-                        trace: population.population.id,
-                        stock_revision: population.revision,
-                        catalog_revision: population.catalog_revision,
-                        recorded_at: population.recorded_at,
-                        actor: population.actor,
-                        source: AmendedSource {
-                            source: population.population.source.clone(),
-                            issuer: population.population.source_issuer.clone(),
-                        },
-                    };
-                    let known = Box::pin(super::known::load_on(
+                    let ledger = Box::pin(super::source_ledger::load_on(tx, cut.hub)).await?;
+                    let mut context = Box::pin(super::source_context::at_on(
                         tx,
                         cut.hub,
+                        &ledger,
                         command.trace,
                         cut.revision,
+                        cut.catalog.revision(),
                     ))
                     .await?;
-                    let affected = known
-                        .into_iter()
-                        .map(|event| AttributionAffectedDeparture {
-                            operation: event.original.operation,
-                            populations: event.recipient_original.populations,
-                            recipients: vec![AmendedRecipient::Known(
-                                event.recipient_original.recipient,
-                            )],
-                            issued_versions: event.recipient_original.issued_versions,
-                        })
-                        .collect::<Vec<_>>();
+                    context.uncertain = cut.uncertainty.uncertain_intent;
                     let mut review = HubSourceAttributionReview {
                         revision: cut.revision,
                         catalog_revision: cut.catalog.revision(),
                         proposed_operation: operation.clone(),
-                        original,
-                        history: Vec::new(),
-                        known_sources: registry.sources,
-                        affected,
+                        original: context.original.clone(),
+                        history: context.history.clone(),
+                        known_sources: context.known_sources.clone(),
+                        affected: context.affected.clone(),
+                        issued_versions: context.issued_versions.clone(),
                         uncertain_intent: cut.uncertainty.uncertain_intent,
                         unresolved_actual: cut.uncertainty.unresolved_actual,
                         outcome: HubAttributionReviewOutcome::OperationAlreadyUsed,
                     };
                     if !crate::hub::submission::operation_exists_on(tx, &operation).await? {
                         let own = crate::hub::actuals::common::operation_id(&operation)?;
-                        review.outcome = match command.plan(
-                            &SourceAttributionContext {
-                                cut: cut.domain(),
-                                original: &review.original,
-                                history: &review.history,
-                                known_sources: &review.known_sources,
-                                affected: &review.affected,
-                            },
-                            own,
-                            actor,
-                            now,
-                        ) {
+                        review.outcome = match command.plan(&context.domain(), own, actor, now) {
                             Ok(plan) => HubAttributionReviewOutcome::Candidate(Box::new(plan)),
                             Err(error) => HubAttributionReviewOutcome::Blocked(error),
                         };

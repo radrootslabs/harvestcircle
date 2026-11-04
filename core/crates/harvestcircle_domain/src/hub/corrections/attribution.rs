@@ -180,6 +180,38 @@ pub struct AttributionAffectedDeparture {
     pub recipients: Vec<AmendedRecipient>,
     pub issued_versions: Vec<HubRecordId>,
 }
+
+/// Immutable issued scope, including unused/superseded copies. Later local
+/// closure never proves external acknowledgement or erases the original issue.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct AttributionAffectedIssuedVersion {
+    pub version: HubRecordId,
+    pub stock_revision: HubRevision,
+    pub catalog_revision: HubRevision,
+    pub populations: Vec<HubRecordId>,
+    pub recipient: ReferenceRecord,
+}
+impl AttributionAffectedIssuedVersion {
+    fn impact(&self, targets: &mut ImpactBuilder) -> Result<(), AttributionError> {
+        if self.populations.is_empty()
+            || self.populations.len() > crate::hub::dispatch::HUB_DISPATCH_LINES
+        {
+            return Err(AttributionError::Capacity);
+        }
+        if self.stock_revision == HubRevision::INITIAL
+            || self.populations.iter().collect::<BTreeSet<_>>().len() != self.populations.len()
+        {
+            return Err(AttributionError::InvalidHistory);
+        }
+        party(&self.recipient, self.catalog_revision)?;
+        targets.add(CorrectionImpact::IssuedVersion(self.version))?;
+        targets.add(CorrectionImpact::Recipient(self.recipient.id))?;
+        for population in &self.populations {
+            targets.add(CorrectionImpact::Population(*population))?;
+        }
+        Ok(())
+    }
+}
 impl AttributionAffectedDeparture {
     fn impact(
         &self,

@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 19, FFI is 5.26 and snapshot schema is 1. Rust and
+The current storage schema is 19, FFI is 5.27 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -213,8 +213,21 @@ creator before trace selection; matching codes never merge IDs or issuers. Curre
 stock and reference clocks both bound the comparison. Raw actual uncertainty stays
 visible separately from pending intent, which blocks a candidate. These reads
 change no original, source, recipient, stock, work or follow-up state and create no
-admission. Source/recipient and later linked-document histories remain explicitly
-fenced until their effect adapters and all current consumers qualify.
+admission. Native source posting uses a separate fresh admission and append-only
+root with complete affected scope. Original recovery reconstructs the historical
+cut and compares the exact admitted material; saved pending input grants no new
+execution. Source identities introduced by a correction retain their first creator
+and remain valid for later independent receipts. Stock, work, holds and as-issued
+records stay unchanged. Trace reads/search and local output retain original and
+amended source interpretations, with paged manual follow-up scope. Recipient,
+linked-document and count histories remain fenced pending their qualified
+adapters. Source-entry forms and a public correction mutation route are unfinished.
+The affected scope includes every issued version at the captured cut, including
+paper with no departure, and all populations and original recipients on that paper.
+Later closure does not remove that historical scope. Current preparation, issue,
+replacement and departure reject source-amended populations until linked current
+document behavior is qualified. Exact original output and marking paper unused
+remain available; this restriction does not complete linked-document behavior.
 
 Current trace reads retain gross original departures separately from native
 effective quantities, established returns and ordered amendments. The read-only

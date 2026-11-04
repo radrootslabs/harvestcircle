@@ -65,6 +65,21 @@ pub(super) async fn prepare_on(
         return Err(unavailable());
     }
     let mut traces = BTreeMap::new();
+    let source_traces = version
+        .material
+        .lines
+        .iter()
+        .map(|line| line.trace.id)
+        .collect::<Vec<_>>();
+    Box::pin(
+        crate::hub::corrections::require_source_document_material_on(
+            tx,
+            hub,
+            &source_traces,
+            state.revision,
+        ),
+    )
+    .await?;
     for line in &version.material.lines {
         if let std::collections::btree_map::Entry::Vacant(slot) = traces.entry(line.trace.id) {
             slot.insert(lineage::load_on(tx, hub, line.trace.id, catalog, state.revision).await?);

@@ -32,8 +32,8 @@ pub(super) async fn for_line_on(
     // omit one if a future writer becomes available before its current reader.
     let unsupported:i64=sqlx::query_scalar(concat!(
         "SELECT count(*) FROM hub_corrections correction JOIN hub_stock_operations original ON original.operation_id=correction.operation_id ",
-        "WHERE original.hub_id=? AND original.stock_revision<=? AND ((correction.family='source' AND correction.subject_id=?) OR (correction.family='recipient' AND correction.target_operation_id=?))"
-    )).bind(hub.as_bytes().as_slice()).bind(i64::try_from(cut.value()).map_err(|_|corrupt_storage())?).bind(target.trace.as_bytes().as_slice()).bind(operation.as_str()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+        "WHERE original.hub_id=? AND original.stock_revision<=? AND correction.family='recipient' AND correction.target_operation_id=?"
+    )).bind(hub.as_bytes().as_slice()).bind(i64::try_from(cut.value()).map_err(|_|corrupt_storage())?).bind(operation.as_str()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
     if unsupported != 0 {
         return Err(corrupt_storage());
     }
@@ -50,6 +50,20 @@ pub(super) async fn for_line_on(
             impact.insert(CorrectionImpact::Source(source.id));
             if source.issuer.is_none() || *certainty == SourceCertainty::ReportedPossible {
                 impact.insert(CorrectionImpact::UnresolvedSource(target.trace));
+            }
+        }
+    }
+    let source_history = Box::pin(super::source_history_on(tx, hub, target.trace, cut)).await?;
+    for correction in source_history {
+        match &correction.after.source {
+            SourceAttribution::Unknown => {
+                impact.insert(CorrectionImpact::UnresolvedSource(target.trace));
+            }
+            SourceAttribution::Referenced { source, certainty } => {
+                impact.insert(CorrectionImpact::Source(source.id));
+                if source.issuer.is_none() || *certainty == SourceCertainty::ReportedPossible {
+                    impact.insert(CorrectionImpact::UnresolvedSource(target.trace));
+                }
             }
         }
     }

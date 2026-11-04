@@ -140,6 +140,13 @@ async fn accept(db: &Database, groups: &[HubRecordId], op: u32) {
 async fn issue(db: &Database, groups: &[HubRecordId]) -> HubDispatchReceipt {
     issue_to(db, groups, id(8), 20).await
 }
+
+pub(in crate::hub) async fn issued_departure_fixture(db: &Database) -> HubDispatchReceipt {
+    let receipt = open(db).await;
+    let group = receipt.original.position.group;
+    accept(db, &[group], 10).await;
+    issue(db, &[group]).await
+}
 async fn issue_to(
     db: &Database,
     groups: &[HubRecordId],

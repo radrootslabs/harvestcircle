@@ -1,7 +1,9 @@
 package org.harvestcircle.integration
 
 import org.harvestcircle.application.HubActualReportResolutionKind
+import org.harvestcircle.application.HubCorrectionImpactKind
 import org.harvestcircle.application.HubOccurrenceKind
+import org.harvestcircle.application.HubSourceCertainty
 import org.harvestcircle.application.HubTraceHistoryKind
 import org.harvestcircle.application.HubTraceQuantityAmendmentKind
 import org.harvestcircle.application.toModel
@@ -9,6 +11,7 @@ import org.harvestcircle.testbridge.ffi.actualReportResolutionEncodingProbe
 import org.harvestcircle.testbridge.ffi.actualTraceEncodingProbe
 import org.harvestcircle.testbridge.ffi.actualTraceHistoryEncodingProbe
 import org.harvestcircle.testbridge.ffi.correctedTraceEncodingProbe
+import org.harvestcircle.testbridge.ffi.sourceTraceEncodingProbe
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -17,6 +20,26 @@ import kotlin.test.assertTrue
 // This is an encoding/read-consumer fixture, not native admission or persisted
 // effect acceptance. Real storage worlds qualify those independently.
 class ActualTraceReadAcceptanceTest {
+    @Test
+    fun generatedSourceHistoryKeepsOriginalPossibleInterpretationAndManualImpactDistinct() {
+        val original = actualTraceEncodingProbe().toModel()
+        val native = sourceTraceEncodingProbe()
+        val model = native.toModel()
+        assertEquals(original.trace, model.trace)
+        assertEquals(original.onHand, model.onHand)
+        assertEquals(original.actualDepartures, model.actualDepartures)
+        val correction = model.sourceCorrections.single()
+        assertEquals(HubSourceCertainty.Unknown, correction.before.certainty)
+        assertEquals(HubSourceCertainty.Possible, correction.after.certainty)
+        assertEquals("ENCODING-ONLY-POSSIBLE-SOURCE", correction.after.code)
+        assertEquals(null, correction.after.issuer)
+        assertEquals(model.stockRevision, correction.stockRevision)
+        assertEquals(native.sourceCorrections.single().operationId, correction.operationId.value)
+        assertTrue(correction.impact.any { it.kind == HubCorrectionImpactKind.UnresolvedSource && it.targetId == model.trace.id })
+        assertTrue(correction.impact.any { it.kind == HubCorrectionImpactKind.Departure })
+        assertTrue(correction.impact.any { it.kind == HubCorrectionImpactKind.Recipient })
+    }
+
     @Test
     fun generatedReportResolutionKeepsUnresolvedActualReviewAndAdditionalCorrectionDistinct() {
         val native = actualReportResolutionEncodingProbe()

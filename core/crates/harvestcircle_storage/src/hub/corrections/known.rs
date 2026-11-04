@@ -259,3 +259,47 @@ pub(super) async fn load_on(
 
 #[cfg(test)]
 mod tests;
+
+/// Whole immutable events without invoking quantity/funding projections. Source
+/// originals need this acyclic scope even when later quantity corrections exist.
+pub(super) async fn attribution_affected_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    trace: HubRecordId,
+    cut: HubRevision,
+) -> Result<Vec<harvestcircle_domain::hub::corrections::AttributionAffectedDeparture>, SafeError> {
+    use harvestcircle_domain::hub::corrections::{AmendedRecipient, AttributionAffectedDeparture};
+    let limit = harvestcircle_domain::hub::stock::HUB_STOCK_EVENT_CAPACITY
+        + harvestcircle_domain::hub::actuals::HUB_ACTUAL_REPORT_CAPACITY;
+    let ids:Vec<String>=sqlx::query_scalar("SELECT substr(operation_id,1,37) FROM hub_stock_operations WHERE kind IN ('departure','actual_review') AND stock_revision<=? ORDER BY stock_revision LIMIT ?")
+        .bind(i64::try_from(cut.value()).map_err(|_|corrupt_storage())?).bind(i64::try_from(limit+1).map_err(|_|corrupt_storage())?).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    if ids.len() > limit {
+        return Err(stock::capacity());
+    }
+    let mut result = Vec::new();
+    for id in ids {
+        let id = DurableRequestId::parse(id).map_err(|_| corrupt_storage())?;
+        let op = stock::read::operation_on(tx, hub, &id)
+            .await?
+            .ok_or_else(corrupt_storage)?;
+        if op.kind == "actual_review" {
+            let original = Box::pin(crate::hub::actuals::reviews::original_on(tx, hub, op)).await?;
+            if !matches!(
+                original.original,
+                crate::HubActualReviewOriginal::Departure(_)
+            ) {
+                continue;
+            }
+        }
+        let original = Box::pin(recipient_on(tx, hub, &id)).await?;
+        if original.populations.contains(&trace) {
+            result.push(AttributionAffectedDeparture {
+                operation: original.operation,
+                populations: original.populations,
+                recipients: vec![AmendedRecipient::Known(original.recipient)],
+                issued_versions: original.issued_versions,
+            });
+        }
+    }
+    Ok(result)
+}

@@ -91,10 +91,14 @@ class TracePresenter(
                 dispositionsOffset = 0,
                 actualDeparturesOffset = 0,
                 quantityCorrectionsOffset = 0,
+                sourceCorrectionsOffset = 0,
+                sourceImpactOperationId = null,
+                sourceImpactOffset = 0,
             )
         read {
             val snapshot = requireNotNull(runtime).traceSnapshot(HubTraceSnapshotQuery(id))
             check(snapshot.trace.id == id)
+            check(snapshot.sourceCorrections.size <= 4096 && snapshot.sourceCorrections.all { it.impact.size <= 4096 })
             check(snapshot.quantityCorrections.size <= 4096 && snapshot.quantityCorrections.sumOf { it.amendments.size.toLong() } <= 4096L)
             val history = requireNotNull(runtime).traceHistory(HubTraceHistoryQuery(id, snapshot.stockRevision, snapshot.catalogRevision))
             checkHistory(snapshot, history)
@@ -145,6 +149,32 @@ class TracePresenter(
         val count = current.snapshot?.onHand?.size ?: return
         val offset = current.positionsOffset + delta * 64
         if (delta in -1..1 && offset >= 0 && offset < count) mutableState.value = current.copy(positionsOffset = offset)
+    }
+
+    fun sourceCorrectionsPage(delta: Int) {
+        val current = mutableState.value
+        val count = current.snapshot?.sourceCorrections?.size ?: return
+        val offset = current.sourceCorrectionsOffset + delta * 64
+        if (delta in -1..1 && offset >= 0 && offset < count) mutableState.value = current.copy(sourceCorrectionsOffset = offset)
+    }
+
+    fun sourceImpact(operation: OperationId?) {
+        val current = mutableState.value
+        if (operation == null || current.snapshot?.sourceCorrections?.any { it.operationId == operation } == true) {
+            mutableState.value = current.copy(sourceImpactOperationId = operation, sourceImpactOffset = 0)
+        }
+    }
+
+    fun sourceImpactPage(delta: Int) {
+        val current = mutableState.value
+        val count =
+            current.snapshot
+                ?.sourceCorrections
+                ?.find { it.operationId == current.sourceImpactOperationId }
+                ?.impact
+                ?.size ?: return
+        val offset = current.sourceImpactOffset + delta * 64
+        if (delta in -1..1 && offset >= 0 && offset < count) mutableState.value = current.copy(sourceImpactOffset = offset)
     }
 
     fun quantityCorrectionsPage(delta: Int) {

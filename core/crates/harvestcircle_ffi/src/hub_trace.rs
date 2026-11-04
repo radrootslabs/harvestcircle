@@ -3,6 +3,7 @@ use crate::commands::HarvestCircleError;
 use crate::hub_handling::HubPhysicalIdentificationDto;
 use crate::hub_reference::{HubReferenceRecordDto, invalid_input};
 use crate::hub_stock::{HubOccurrenceDto, HubStockPopulationDto};
+use crate::hub_trace_source::HubTraceSourceCorrectionDto;
 use crate::hub_treatment::HubAcceptanceStatusDto;
 use crate::hub_treatment_input::{id, revision};
 use harvestcircle_domain::hub::trace::{TraceScope, TraceSelection, TraceSnapshot};
@@ -90,6 +91,7 @@ impl HubTraceQueryDto {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct HubTraceRowDto {
+    pub source_corrections: Vec<HubTraceSourceCorrectionDto>,
     pub trace: HubStockPopulationDto,
     pub on_hand_whole_packs: u32,
     pub departed_whole_packs: u32,
@@ -121,6 +123,7 @@ impl From<HubTracePage> for HubTracePageDto {
                 .rows
                 .into_iter()
                 .map(|row| HubTraceRowDto {
+                    source_corrections: row.source_corrections.iter().map(Into::into).collect(),
                     trace: (&row.trace).into(),
                     on_hand_whole_packs: row.balance.on_hand.value(),
                     departed_whole_packs: row.balance.departed.value(),
@@ -196,6 +199,7 @@ pub struct HubTraceCountLossDto {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct HubTraceSnapshotDto {
+    pub source_corrections: Vec<HubTraceSourceCorrectionDto>,
     pub hub_id: String,
     pub stock_revision: u64,
     pub catalog_revision: u64,
@@ -366,6 +370,7 @@ impl TryFrom<TraceSnapshot> for HubTraceSnapshotDto {
     fn try_from(value: TraceSnapshot) -> Result<Self, Self::Error> {
         let balance = value.balance().map_err(|_| invalid_input())?;
         Ok(Self {
+            source_corrections: value.source_corrections.iter().map(Into::into).collect(),
             hub_id: value
                 .hub
                 .as_bytes()
@@ -443,7 +448,7 @@ impl TryFrom<TraceSnapshot> for HubTraceSnapshotDto {
         })
     }
 }
-fn operation_text(value: harvestcircle_domain::hub::reference::HubRecordId) -> String {
+pub(crate) fn operation_text(value: harvestcircle_domain::hub::reference::HubRecordId) -> String {
     let hex = value.to_hex();
     format!(
         "{}-{}-{}-{}-{}",
@@ -506,6 +511,7 @@ pub enum HubTraceHistoryKindDto {
     CorrectionObserved,
     FoundCorrected,
     AdditionalCorrected,
+    SourceAttributed,
 }
 impl From<HubTraceHistoryKind> for HubTraceHistoryKindDto {
     fn from(value: HubTraceHistoryKind) -> Self {
@@ -523,6 +529,7 @@ impl From<HubTraceHistoryKind> for HubTraceHistoryKindDto {
             HubTraceHistoryKind::CorrectionObserved => Self::CorrectionObserved,
             HubTraceHistoryKind::FoundCorrected => Self::FoundCorrected,
             HubTraceHistoryKind::AdditionalCorrected => Self::AdditionalCorrected,
+            HubTraceHistoryKind::SourceAttributed => Self::SourceAttributed,
             HubTraceHistoryKind::Handling(kind) => match kind {
                 HubHandlingKind::Move => Self::Move,
                 HubHandlingKind::Split => Self::Split,

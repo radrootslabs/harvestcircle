@@ -152,6 +152,56 @@ pub fn trace_output(snapshot: &TraceSnapshot) -> Result<LocalOutput, LocalOutput
         &snapshot.catalog_revision.value().to_string(),
     )?;
     trace_source(&mut out, &snapshot.trace)?;
+    if !snapshot.source_corrections.is_empty() {
+        out.heading("Linked source corrections: original and current meaning")?;
+        out.paragraph("Original intake and as-issued source facts remain unchanged. Every correction starts outstanding manual follow-up. A retained affected reference is not proof of external delivery or acknowledgement.")?;
+        for correction in &snapshot.source_corrections {
+            out.field(
+                "Source correction operation",
+                &correction.stamp.operation.to_hex(),
+            )?;
+            out.field(
+                "Recorded stock revision",
+                &correction.stamp.stock_revision.value().to_string(),
+            )?;
+            out.heading("Before source amendment")?;
+            source_meaning(
+                &mut out,
+                &correction.before.source,
+                correction.before.issuer.as_ref(),
+            )?;
+            out.heading("After source amendment")?;
+            source_meaning(
+                &mut out,
+                &correction.after.source,
+                correction.after.issuer.as_ref(),
+            )?;
+            out.field("Source correction basis", correction.stamp.basis.as_str())?;
+            actor_time(
+                &mut out,
+                correction.stamp.actor,
+                correction.stamp.recorded_at,
+            )?;
+            out.heading("Retained affected scope")?;
+            for target in correction.impact.rows() {
+                use harvestcircle_domain::hub::corrections::CorrectionImpact;
+                let (label, id) = match *target {
+                    CorrectionImpact::Population(id) => ("Population", id),
+                    CorrectionImpact::Source(id) => ("Source", id),
+                    CorrectionImpact::Departure(id) => ("Departure", id),
+                    CorrectionImpact::IssuedVersion(id) => ("Issued version", id),
+                    CorrectionImpact::Recipient(id) => ("Recipient", id),
+                    CorrectionImpact::UnresolvedSource(id) => {
+                        ("Unresolved source for population", id)
+                    }
+                    CorrectionImpact::UnresolvedRecipient(id) => {
+                        ("Unresolved recipient for departure", id)
+                    }
+                };
+                out.field(label, &id.to_hex())?;
+            }
+        }
+    }
     out.heading("Physical accounting in this pack unit")?;
     reference(&mut out, "Pack", &snapshot.trace.variant)?;
     let original_label = match snapshot.trace.origin {
@@ -454,13 +504,26 @@ fn trace_source(out: &mut Html, trace: &StockPopulation) -> Result<(), LocalOutp
     )?;
     optional_reference(out, "Supplier as recorded", trace.supplier.as_ref())?;
     optional_reference(out, "Producer as recorded", trace.producer.as_ref())?;
-    out.field("Source certainty", source_certainty_label(&trace.source))?;
-    match &trace.source {
+    source_meaning(out, &trace.source, trace.source_issuer.as_ref())?;
+    actor_time(out, trace.actor, trace.recorded_at)?;
+    occurrence(out, trace.occurred)?;
+    out.field("Original intake observation", trace.observation.as_str())
+}
+fn source_meaning(
+    out: &mut Html,
+    source_attribution: &SourceAttribution,
+    issuer: Option<&ReferenceRecord>,
+) -> Result<(), LocalOutputError> {
+    out.field(
+        "Source certainty",
+        source_certainty_label(source_attribution),
+    )?;
+    match source_attribution {
         SourceAttribution::Unknown => out.paragraph("Origin is not established. Unknown origin is not evidence of no relationship to another source.")?,
         SourceAttribution::Referenced{source,..}=>{
             out.field("Distinct source reference",&source.id.to_hex())?;
             out.field("Source code as recorded",source.code.as_str())?;
-            optional_reference(out,"Source issuer as recorded",trace.source_issuer.as_ref())?;
+            optional_reference(out,"Source issuer as recorded",issuer)?;
             out.field("Source type",match source.kind {
                 harvestcircle_domain::hub::reference::SourceReferenceKind::ProducerBatch=>"Producer batch",
                 harvestcircle_domain::hub::reference::SourceReferenceKind::SupplierReference=>"Supplier reference",
@@ -470,9 +533,7 @@ fn trace_source(out: &mut Html, trace: &StockPopulation) -> Result<(), LocalOutp
             out.paragraph("Matching source code text never merges populations or establishes issuer identity.")?;
         }
     }
-    actor_time(out, trace.actor, trace.recorded_at)?;
-    occurrence(out, trace.occurred)?;
-    out.field("Original intake observation", trace.observation.as_str())
+    Ok(())
 }
 fn actor_time(
     out: &mut Html,

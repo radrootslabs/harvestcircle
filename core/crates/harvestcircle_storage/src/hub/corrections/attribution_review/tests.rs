@@ -5,6 +5,7 @@ use crate::hub::stock::tests::{
 use harvestcircle_domain::{
     SafeErrorCode,
     hub::{
+        corrections::AmendedRecipient,
         reference::{
             HubLabel, ReferenceCommand, ReferenceMutation, ReferenceValue, SourceCertainty,
             SourceCode, SourceProvenance, SourceReference, SourceReferenceKind,

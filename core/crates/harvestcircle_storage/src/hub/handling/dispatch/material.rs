@@ -31,6 +31,14 @@ pub(super) async fn sources_on(
             group,
         });
     }
+    let traces = sources
+        .iter()
+        .map(|source| source.trace.id)
+        .collect::<Vec<_>>();
+    Box::pin(
+        crate::hub::corrections::require_source_document_material_on(tx, hub, &traces, revision),
+    )
+    .await?;
     Ok(sources)
 }
 

@@ -150,7 +150,11 @@ private fun TraceBrowser(
         HarvestCircleShellText(
             "${page.total} matching populations · Captured stock ${page.stockRevision} · Catalog ${page.catalogRevision}",
         )
-        if (page.selection.text.isNotEmpty()) HarvestCircleShellText("Results for original fields: ${page.selection.text}")
+        if (page.selection.text.isNotEmpty()) {
+            HarvestCircleShellText(
+                "Results for recorded original and amended source fields: ${page.selection.text}",
+            )
+        }
         if (page.rows.isEmpty()) {
             HarvestCircleShellText(
                 "No stored population matches this selection. This does not establish absence of unrecorded activity.",
@@ -168,12 +172,16 @@ private fun TraceBrowser(
                 if (row.actualDepartedWholePacks > 0U) {
                     HarvestCircleShellText("Reconciled already-taken departures ${row.actualDepartedWholePacks}")
                 }
-                HarvestCircleShellText(
-                    "Source: ${row.trace.source.certainty} · ${row.trace.source.code ?: "Unknown"} · Issuer ${row.trace.source.issuer
-                        ?.value
-                        ?.label ?: "Unknown"}",
-                )
-                if (row.trace.sourceNeedsReview) HarvestCircleShellText("Source review needed")
+                HarvestCircleShellText("Original source: ${traceSourceMeaning(row.trace.source)}")
+                if (row.trace.sourceNeedsReview) HarvestCircleShellText("Original source review needed")
+                row.sourceCorrections.lastOrNull()?.let { correction ->
+                    HarvestCircleShellText(
+                        "Current source interpretation: ${traceSourceMeaning(correction.after)}",
+                    )
+                    HarvestCircleShellText(
+                        "${row.sourceCorrections.size} linked source amendments; original and amended scope retained",
+                    )
+                }
                 HarvestCircleShellButton("Inspect population", {
                     presenter.openReceipt(row.trace.id)
                 }, Modifier.testTag("trace-open-${row.trace.id}"), enabled = !state.loading)
@@ -284,6 +292,7 @@ private fun TraceOverview(
             }
         }
     }
+    TraceSourceCorrections(state, presenter)
     TraceQuantityCorrections(state, presenter)
     HarvestCircleShellText("Retained documented departure lines", role = HarvestCircleShellTextRole.SectionTitle)
     if (snapshot.exits.isEmpty()) HarvestCircleShellText("No documented departure in this population.")
@@ -453,4 +462,5 @@ private fun traceActionLabel(kind: HubTraceHistoryKind): String =
         HubTraceHistoryKind.CorrectionObserved -> "Unverified correction facts preserved"
         HubTraceHistoryKind.FoundCorrected -> "Found stock correction posted"
         HubTraceHistoryKind.AdditionalCorrected -> "Additional departure quantity corrected"
+        HubTraceHistoryKind.SourceAttributed -> "Source attribution amended; original retained"
     }

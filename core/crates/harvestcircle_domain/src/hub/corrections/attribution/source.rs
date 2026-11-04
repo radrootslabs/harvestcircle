@@ -60,6 +60,9 @@ pub struct SourceAttributionContext<'a> {
     pub known_sources: &'a [SourceAttribution],
     /// Complete downstream events supplied by native bounded readers, not a UI selection.
     pub affected: &'a [AttributionAffectedDeparture],
+    /// Every as-issued version involving this population at the native cut,
+    /// including paper that has not departed. A document is never an outflow.
+    pub issued_versions: &'a [AttributionAffectedIssuedVersion],
 }
 
 /// Returns frozen current interpretation plus every original/amended association.
@@ -149,6 +152,7 @@ impl SourceAttributionCommand {
         if context.history.len() >= HUB_CORRECTION_ROWS
             || context.known_sources.len() > HUB_REFERENCE_HISTORY_CAPACITY
             || context.affected.len() > HUB_CORRECTION_ROWS
+            || context.issued_versions.len() > super::HUB_CORRECTION_IMPACTS
         {
             return Err(AttributionError::Capacity);
         }
@@ -232,6 +236,18 @@ impl SourceAttributionCommand {
                 return Err(AttributionError::InvalidScope);
             }
             event.impact(&mut downstream, context.cut.catalog.revision())?;
+        }
+        let mut versions = BTreeSet::new();
+        for issued in context.issued_versions {
+            if !issued.populations.contains(&self.trace)
+                || issued.version == operation
+                || !versions.insert(issued.version)
+                || issued.stock_revision.value() > context.cut.stock_revision.value()
+                || issued.catalog_revision.value() > context.cut.catalog.revision().value()
+            {
+                return Err(AttributionError::InvalidScope);
+            }
+            issued.impact(&mut downstream)?;
         }
         for prior in context.history {
             for target in prior.impact.rows() {

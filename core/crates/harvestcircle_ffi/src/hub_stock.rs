@@ -154,7 +154,13 @@ pub struct HubSourceDto {
 }
 impl HubSourceDto {
     fn from_trace(trace: &StockPopulation) -> Self {
-        match &trace.source {
+        Self::from_attribution(&trace.source, trace.source_issuer.as_ref())
+    }
+    pub(crate) fn from_attribution(
+        attribution: &SourceAttribution,
+        issuer: Option<&harvestcircle_domain::hub::reference::ReferenceRecord>,
+    ) -> Self {
+        match attribution {
             SourceAttribution::Unknown => Self {
                 id: None,
                 issuer: None,
@@ -165,7 +171,7 @@ impl HubSourceDto {
             },
             SourceAttribution::Referenced { source, certainty } => Self {
                 id: Some(source.id.to_hex()),
-                issuer: trace.source_issuer.as_ref().map(Into::into),
+                issuer: issuer.map(Into::into),
                 kind: Some(match source.kind {
                     SourceReferenceKind::ProducerBatch => HubSourceKindDto::ProducerBatch,
                     SourceReferenceKind::SupplierReference => HubSourceKindDto::SupplierReference,

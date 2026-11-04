@@ -72,6 +72,7 @@ fn fixture() -> TraceSnapshot {
         observation: text("Counted twenty original crates"),
     };
     TraceSnapshot {
+        source_corrections: Vec::new(),
         quantity_corrections: vec![],
         actual_departures: vec![],
         count_losses: vec![],

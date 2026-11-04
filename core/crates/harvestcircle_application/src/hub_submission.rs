@@ -8,6 +8,7 @@ use harvestcircle_domain::hub::{
     actuals::{ActualDuplicateLink, ActualNewDepartureCommand, ActualReportCommand},
     corrections::{
         AdditionalQuantityCommand, CorrectionObservationCommand, FoundCorrectionCommand,
+        SourceAttributionCommand,
     },
     counts::{CountObserveCommand, CountPostCommand},
     departure::DepartureCommand,
@@ -60,6 +61,7 @@ pub enum HubSubmittedRequest<'a> {
     CorrectionObservation(&'a CorrectionObservationCommand),
     FoundCorrection(&'a FoundCorrectionCommand),
     AdditionalQuantity(&'a AdditionalQuantityCommand),
+    SourceAttribution(&'a SourceAttributionCommand),
 }
 
 /// An owned native request can move through admission without decoding an archive.
@@ -82,6 +84,7 @@ pub enum HubMutation {
     CorrectionObservation(Box<CorrectionObservationCommand>),
     FoundCorrection(Box<FoundCorrectionCommand>),
     AdditionalQuantity(Box<AdditionalQuantityCommand>),
+    SourceAttribution(Box<SourceAttributionCommand>),
 }
 
 impl HubMutation {
@@ -105,6 +108,7 @@ impl HubMutation {
             Self::CorrectionObservation(value) => HubSubmittedRequest::CorrectionObservation(value),
             Self::FoundCorrection(value) => HubSubmittedRequest::FoundCorrection(value),
             Self::AdditionalQuantity(value) => HubSubmittedRequest::AdditionalQuantity(value),
+            Self::SourceAttribution(value) => HubSubmittedRequest::SourceAttribution(value),
         }
     }
 }
@@ -129,6 +133,7 @@ impl HubSubmittedRequest<'_> {
             Self::CorrectionObservation(_) => "correction_observe",
             Self::FoundCorrection(_) => "correction_found",
             Self::AdditionalQuantity(_) => "correction_additional",
+            Self::SourceAttribution(_) => "correction_source",
         }
     }
 
@@ -179,6 +184,7 @@ impl Serialize for HubSubmittedRequest<'_> {
             Self::CorrectionObservation(command) => command.serialize(serializer),
             Self::FoundCorrection(command) => command.serialize(serializer),
             Self::AdditionalQuantity(command) => command.serialize(serializer),
+            Self::SourceAttribution(command) => command.serialize(serializer),
             Self::ActualReview(command) => {
                 #[derive(Serialize)]
                 struct Input<'a> {

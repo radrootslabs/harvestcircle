@@ -1,4 +1,5 @@
 use super::*;
+mod issued;
 use crate::hub::reference::{
     HubLabel, ReferenceValue, SourceCertainty, SourceCode, SourceReference, SourceReferenceKind,
 };
@@ -134,6 +135,7 @@ fn wrong_issuer_after_issued_departure_preserves_original_and_complete_downstrea
         history: &[],
         known_sources: std::slice::from_ref(&original.source.source),
         affected: std::slice::from_ref(&event),
+        issued_versions: &[],
     };
     let result = source_command(&c)
         .plan(&context, id(40), actor(), at(120))
@@ -175,6 +177,7 @@ fn source_identity_content_is_immutable_and_matching_code_never_merges_issuers()
         history: &[],
         known_sources: &[],
         affected: &[],
+        issued_versions: &[],
     };
     let bad = SourceAttributionCommand {
         source: source(12, Some(2), SourceCertainty::Established),
@@ -208,6 +211,7 @@ fn unknown_possible_and_missing_issuer_remain_explicit_and_in_impact_history() {
         history: &[],
         known_sources: &[],
         affected: &[],
+        issued_versions: &[],
     };
     let first = SourceAttributionCommand {
         source: SourceAttribution::Unknown,
@@ -255,6 +259,7 @@ fn competing_source_amendment_and_uncertain_or_wrong_scope_cannot_make_a_plan() 
         history: &[],
         known_sources: &[],
         affected: &[],
+        issued_versions: &[],
     };
     let first = source_command(&c)
         .plan(&context, id(40), actor(), at(120))
@@ -305,6 +310,7 @@ fn damaged_source_chain_does_not_replace_the_original_or_drop_prior_associations
         history: &[],
         known_sources: &[],
         affected: &[],
+        issued_versions: &[],
     };
     let record = source_command(&c)
         .plan(&context, id(40), actor(), at(120))
@@ -691,6 +697,7 @@ fn impact_capacity_never_truncates_downstream_evidence() {
         history: &[],
         known_sources: &[],
         affected: &affected,
+        issued_versions: &[],
     };
     assert_eq!(
         source_command(&c).plan(&context, id(40), actor(), at(120)),
@@ -847,6 +854,7 @@ fn later_source_correction_cannot_drop_old_unknown_recipient_or_issued_versions(
                 history: &[],
                 known_sources: &[],
                 affected: std::slice::from_ref(&event),
+                issued_versions: &[],
             },
             id(40),
             actor(),
@@ -899,6 +907,7 @@ fn later_source_correction_cannot_drop_old_unknown_recipient_or_issued_versions(
         history: &history,
         known_sources: &[],
         affected: &[],
+        issued_versions: &[],
     };
     assert_eq!(
         command.plan(&context, id(41), actor(), at(122)),
@@ -968,6 +977,7 @@ fn source_reconstruction_checks_identity_reuse_after_an_intervening_identity() {
         history: &[],
         known_sources: &[],
         affected: &[],
+        issued_versions: &[],
     };
     let first = source_command(&c)
         .plan(&context, id(40), actor(), at(120))
@@ -1020,6 +1030,7 @@ fn supplied_original_event_identity_cannot_be_reused_as_a_new_source_operation()
         history: &[],
         known_sources: &[],
         affected: std::slice::from_ref(&event),
+        issued_versions: &[],
     };
     assert_eq!(
         source_command(&c).plan(&context, event.operation, actor(), at(120)),

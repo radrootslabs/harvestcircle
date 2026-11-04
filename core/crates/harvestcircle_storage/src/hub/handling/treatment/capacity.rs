@@ -9,6 +9,8 @@ use sqlx::Row;
 
 pub(in crate::hub) enum Reservation {
     Ordinary(u32),
+    /// Append-only meaning with no physical event; preserve closure reserves.
+    OrdinaryMetadata,
     /// Preserve a report and reserve one operation/event for its later review.
     ActualReport,
     /// New nonphysical facts reserve one closure operation and their bounded
@@ -109,6 +111,12 @@ fn check_budget(counters: &Counters, reservation: Reservation) -> Result<(), Saf
                     return Err(corrupt_storage());
                 }
                 (u32::from(physical), 0, 0, -1, 0)
+            }
+            Reservation::OrdinaryMetadata => {
+                if primary_reserved >= HUB_TREATMENT_CAPACITY as i64 {
+                    return Err(capacity());
+                }
+                (0, 0, 0, 0, 2)
             }
             Reservation::Ordinary(events) => {
                 if events == 0 || events as usize > HUB_STOCK_EVENT_CAPACITY {

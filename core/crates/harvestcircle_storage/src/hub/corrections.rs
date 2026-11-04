@@ -133,6 +133,10 @@ pub(in crate::hub) async fn headers_on(
     reservations_on(tx).await?;
     found_headers_on(tx, hub).await?;
     additional_headers_on(tx, hub).await?;
+    let sources:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM hub_stock_operations WHERE kind='correction_source')+(SELECT count(*) FROM hub_corrections WHERE family='source')").fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    if sources != 0 {
+        Box::pin(source_ledger::load_on(tx, hub)).await?;
+    }
     Ok(())
 }
 
@@ -200,6 +204,74 @@ pub(in crate::hub) mod quantity;
 pub use known::{HubCorrectionKnownDeparture, HubCorrectionKnownEvidence, HubCorrectionKnownQuery};
 mod additional_review;
 mod attribution_review;
+mod source_context;
+mod source_documents;
+mod source_ledger;
+mod source_payload;
+pub(in crate::hub) mod source_write;
+pub use source_ledger::HubSourceAttributionReceipt;
+/// Normal material must not silently reuse original source facts after an
+/// amendment. Qualified linked-document material will replace this closed gate.
+pub(in crate::hub) async fn require_source_document_material_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    traces: &[HubRecordId],
+    cut: HubRevision,
+) -> Result<(), SafeError> {
+    let records = Box::pin(source_records_on(tx, hub, cut)).await?;
+    if records.iter().any(|r| traces.contains(&r.original.trace)) {
+        return Err(harvestcircle_domain::SafeError::new(
+            harvestcircle_domain::SafeErrorCode::HubConflict,
+            harvestcircle_domain::SafeMessage::new(
+                "Source attribution changed. Review the linked correction before preparing identification or recording a departure.",
+            ),
+        ));
+    }
+    Ok(())
+}
+pub(in crate::hub) async fn source_records_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    cut: HubRevision,
+) -> Result<Vec<harvestcircle_domain::hub::corrections::SourceAttributionCorrection>, SafeError> {
+    let count:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM hub_corrections WHERE family='source')+(SELECT count(*) FROM hub_stock_operations WHERE kind='correction_source')").fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    let ledger = Box::pin(source_ledger::load_on(tx, hub)).await?;
+    Ok(ledger
+        .records
+        .into_iter()
+        .filter(|c| c.stamp.stock_revision.value() <= cut.value())
+        .collect())
+}
+pub(in crate::hub) async fn source_history_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    trace: HubRecordId,
+    cut: HubRevision,
+) -> Result<Vec<harvestcircle_domain::hub::corrections::SourceAttributionCorrection>, SafeError> {
+    Ok(Box::pin(source_records_on(tx, hub, cut))
+        .await?
+        .into_iter()
+        .filter(|c| c.original.trace == trace)
+        .collect())
+}
+
+pub(in crate::hub) async fn capture_source_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    actor: PublicKey,
+    operation: &DurableRequestId,
+    command: &harvestcircle_domain::hub::corrections::SourceAttributionCommand,
+) -> Result<harvestcircle_application::hub_submission::HubSubmittedSourceAttribution, SafeError> {
+    let context = Box::pin(source_context::current_on(tx, hub, command, None)).await?;
+    let own = crate::hub::actuals::common::operation_id(operation)?;
+    command
+        .plan(&context.domain(), own, actor, context.latest)
+        .map_err(source_context::error)?;
+    Ok(context.material(own))
+}
 #[cfg(test)]
 pub(in crate::hub) use additional_review::tests::actual_world as additional_review_fixture;
 pub use additional_review::{HubAdditionalQuantityReview, HubAdditionalQuantityReviewOutcome};

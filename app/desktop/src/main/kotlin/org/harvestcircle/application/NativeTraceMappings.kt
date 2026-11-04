@@ -64,6 +64,7 @@ internal fun HubTracePageDto.toModel() =
                 it.countedLossWholePacks,
                 it.disposedWholePacks,
                 it.actualDepartedWholePacks,
+                it.sourceCorrections.map { correction -> correction.toModel() },
             )
         },
     )
@@ -162,6 +163,7 @@ internal fun HubTraceSnapshotDto.toModel() =
                 },
             )
         },
+        sourceCorrections.map { it.toModel() },
     )
 
 private fun HubTraceHistoryKindDto.toModel() =
@@ -193,6 +195,7 @@ private fun HubTraceHistoryKindDto.toModel() =
         HubTraceHistoryKindDto.CORRECTION_OBSERVED -> HubTraceHistoryKind.CorrectionObserved
         HubTraceHistoryKindDto.FOUND_CORRECTED -> HubTraceHistoryKind.FoundCorrected
         HubTraceHistoryKindDto.ADDITIONAL_CORRECTED -> HubTraceHistoryKind.AdditionalCorrected
+        HubTraceHistoryKindDto.SOURCE_ATTRIBUTED -> HubTraceHistoryKind.SourceAttributed
     }
 
 internal fun HubTraceHistoryPageDto.toModel() =

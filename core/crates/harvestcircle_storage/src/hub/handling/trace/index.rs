@@ -1,5 +1,7 @@
 use super::*;
-use harvestcircle_domain::hub::reference::{HubLabel, SourceCertainty, SourceCode};
+use harvestcircle_domain::hub::reference::{
+    HubLabel, SourceAttribution, SourceCertainty, SourceCode,
+};
 use harvestcircle_domain::hub::stock::HUB_TRACE_CAPACITY;
 use harvestcircle_domain::hub::trace::{TraceScope, TraceSourceEvidence};
 use sqlx::{Row, sqlite::SqliteRow};
@@ -21,7 +23,7 @@ impl Database {
                         query.expected_catalog_revision,
                     )
                     .await?;
-                    let selected = candidates_on(tx, hub, &query.selection).await?;
+                    let selected = candidates_on(tx, hub, state.revision, &query.selection).await?;
                     let total = u32::try_from(selected.len()).map_err(|_| corrupt_storage())?;
                     if query.offset > total {
                         return Err(invalid_input());
@@ -34,15 +36,15 @@ impl Database {
                     {
                         let snapshot =
                             super::snapshot::load_on(tx, hub, &state, &catalog, id).await?;
-                        if !query
-                            .selection
-                            .includes(&snapshot.trace)
+                        if !snapshot
+                            .includes_source_history(&query.selection)
                             .map_err(|_| corrupt_storage())?
                         {
                             return Err(corrupt_storage());
                         }
                         rows.push(HubTraceRow {
                             balance: snapshot.balance().map_err(|_| corrupt_storage())?,
+                            source_corrections: snapshot.source_corrections,
                             trace: snapshot.trace,
                         });
                     }
@@ -66,6 +68,7 @@ impl Database {
 async fn candidates_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
+    cut: HubRevision,
     selection: &TraceSelection,
 ) -> Result<Vec<HubRecordId>, SafeError> {
     if let TraceScope::SourceImpact(id) = selection.scope {
@@ -105,6 +108,7 @@ async fn candidates_on(
     if candidates.len() != count as usize {
         return Err(corrupt_storage());
     }
+    let corrections = Box::pin(crate::hub::corrections::source_records_on(tx, hub, cut)).await?;
     let mut selected = Vec::new();
     let mut found_exact = false;
     for row in candidates {
@@ -158,7 +162,6 @@ async fn candidates_on(
             "variant_label",
             "supplier_label",
             "producer_label",
-            "issuer_label",
         ] {
             if let Some(text) = optional_text(&row, field)? {
                 HubLabel::new(text.clone()).map_err(|_| corrupt_storage())?;
@@ -167,17 +170,55 @@ async fn candidates_on(
                 return Err(corrupt_storage());
             }
         }
+        // Each interpretation has at most the original eight fields. Keep the
+        // five common fields and replace source-specific fields per amendment;
+        // appending to the full original vector would exceed the domain bound.
+        let common_fields = fields.clone();
+        if let Some(issuer) = optional_text(&row, "issuer_label")? {
+            HubLabel::new(issuer.clone()).map_err(|_| corrupt_storage())?;
+            fields.push(issuer);
+        }
         if let Some(code) = code {
             fields.push(code);
         }
         if let Some(source) = source_id {
             fields.push(source.to_hex());
         }
-        let fields = fields.iter().map(String::as_str).collect::<Vec<_>>();
-        if selection
-            .includes_fields(trace, source, &fields)
-            .map_err(|_| corrupt_storage())?
-        {
+        let mut included = selection
+            .includes_fields(
+                trace,
+                source,
+                &fields.iter().map(String::as_str).collect::<Vec<_>>(),
+            )
+            .map_err(|_| corrupt_storage())?;
+        for correction in corrections.iter().filter(|c| c.original.trace == trace) {
+            let mut amended_fields = common_fields.clone();
+            if let SourceAttribution::Referenced { source, .. } = &correction.after.source {
+                amended_fields.extend([source.id.to_hex(), source.code.as_str().to_owned()]);
+            }
+            if let Some(issuer) = &correction.after.issuer {
+                amended_fields.push(issuer.value.label().as_str().to_owned());
+            }
+            let evidence = if matches!(source, TraceSourceEvidence::Returned { .. }) {
+                TraceSourceEvidence::Returned {
+                    attributed_unresolved: TraceSourceEvidence::from(&correction.after.source)
+                        .unresolved(),
+                }
+            } else {
+                TraceSourceEvidence::from(&correction.after.source)
+            };
+            included |= selection
+                .includes_fields(
+                    trace,
+                    evidence,
+                    &amended_fields
+                        .iter()
+                        .map(String::as_str)
+                        .collect::<Vec<_>>(),
+                )
+                .map_err(|_| corrupt_storage())?;
+        }
+        if included {
             selected.push(trace);
         }
     }

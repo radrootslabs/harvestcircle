@@ -47,6 +47,87 @@ pub fn actual_trace_encoding_probe() -> HubTraceSnapshotDto {
     HubTraceSnapshotDto::try_from(actual_trace_snapshot()).unwrap()
 }
 
+/// Encoding-only source interpretation. No database, submission or native grant.
+#[uniffi::export]
+pub fn source_trace_encoding_probe() -> HubTraceSnapshotDto {
+    use harvestcircle_domain::hub::corrections::*;
+    let mut snapshot = actual_trace_snapshot();
+    let catalog = ReferenceCatalog::restore(
+        snapshot.catalog_revision,
+        vec![
+            snapshot.trace.product.clone(),
+            snapshot.trace.variant.clone(),
+            snapshot.trace.initial_location.clone(),
+        ],
+    )
+    .unwrap();
+    let original = OriginalSourceAttribution {
+        hub: snapshot.hub,
+        operation: op(1),
+        trace: snapshot.trace.id,
+        stock_revision: revision(2),
+        catalog_revision: snapshot.catalog_revision,
+        recorded_at: snapshot.trace.recorded_at,
+        actor: snapshot.trace.actor,
+        source: AmendedSource {
+            source: snapshot.trace.source.clone(),
+            issuer: snapshot.trace.source_issuer.clone(),
+        },
+    };
+    let actual = &snapshot.actual_departures[0];
+    let affected = vec![AttributionAffectedDeparture {
+        operation: actual.operation,
+        populations: vec![snapshot.trace.id],
+        recipients: vec![AmendedRecipient::Known(
+            actual.comparison.scope.recipient.clone(),
+        )],
+        issued_versions: Vec::new(),
+    }];
+    let command = SourceAttributionCommand {
+        trace: snapshot.trace.id,
+        expected_stock_revision: snapshot.stock_revision,
+        expected_catalog_revision: snapshot.catalog_revision,
+        expected_prior: None,
+        source: SourceAttribution::Referenced {
+            source: SourceReference {
+                id: id(75),
+                issuer: None,
+                kind: SourceReferenceKind::Other,
+                code: SourceCode::new("ENCODING-ONLY-POSSIBLE-SOURCE").unwrap(),
+                provenance: note(
+                    "Encoding fixture retains possible origin, not a native source grant",
+                ),
+            },
+            certainty: SourceCertainty::ReportedPossible,
+        },
+        basis: note("Encoding-only original/current source and downstream scope"),
+    };
+    let plan = command
+        .plan(
+            &SourceAttributionContext {
+                cut: AttributionCut {
+                    hub: snapshot.hub,
+                    stock_revision: snapshot.stock_revision,
+                    catalog: &catalog,
+                    latest_recorded_at: at(190),
+                    uncertain_submissions: false,
+                },
+                original: &original,
+                history: &[],
+                known_sources: &[],
+                affected: &affected,
+                issued_versions: &[],
+            },
+            op(83),
+            reviewer(),
+            at(210),
+        )
+        .unwrap();
+    snapshot.stock_revision = plan.stamp.stock_revision;
+    snapshot.source_corrections = vec![plan];
+    HubTraceSnapshotDto::try_from(snapshot).unwrap()
+}
+
 /// Domain-checked encoding only, never a persisted correction or admission.
 #[uniffi::export]
 pub fn corrected_trace_encoding_probe() -> HubTraceSnapshotDto {
@@ -300,6 +381,7 @@ fn actual_trace_snapshot() -> TraceSnapshot {
         PhysicalLineage::new(hub, group.trace, group.variant, plan.stock_revision, after).unwrap();
     let projection = treatment.project(&after, catalog.handling_basis()).unwrap();
     TraceSnapshot {
+        source_corrections: Vec::new(),
         quantity_corrections: vec![],
         hub,
         stock_revision: plan.stock_revision,

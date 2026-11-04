@@ -7,7 +7,8 @@ use harvestcircle_domain::hub::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) struct Population {
+#[derive(Clone)]
+pub(in crate::hub::corrections) struct Population {
     pub operation: DurableRequestId,
     pub revision: HubRevision,
     pub catalog_revision: HubRevision,
@@ -15,15 +16,11 @@ pub(super) struct Population {
     pub actor: PublicKey,
     pub population: StockPopulation,
 }
-pub(super) struct Registry {
-    pub populations: Vec<Population>,
-    pub sources: Vec<SourceAttribution>,
-}
 
-pub(super) async fn load_on(
+pub(in crate::hub::corrections) async fn populations_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
-) -> Result<Registry, SafeError> {
+) -> Result<Vec<Population>, SafeError> {
     // Start from original operations as well as present bodies: a later reuse
     // may disappear without altering the source registry's first creator.
     let missing:i64=sqlx::query_scalar(concat!(
@@ -56,7 +53,6 @@ pub(super) async fn load_on(
         return Err(corrupt_storage());
     }
     let mut populations = Vec::with_capacity(rows.len());
-    let mut associations: BTreeMap<HubRecordId, Vec<usize>> = BTreeMap::new();
     for row in rows {
         let trace = stock::read::record_id(&row, "trace_id")?;
         let operation = DurableRequestId::parse(
@@ -73,12 +69,6 @@ pub(super) async fn load_on(
         if population.id != trace {
             return Err(corrupt_storage());
         }
-        if let SourceAttribution::Referenced { source, .. } = &population.source {
-            associations
-                .entry(source.id)
-                .or_default()
-                .push(populations.len());
-        }
         populations.push(Population {
             operation,
             revision,
@@ -87,6 +77,40 @@ pub(super) async fn load_on(
             actor,
             population,
         });
+    }
+    Ok(populations)
+}
+
+pub(in crate::hub::corrections) async fn verify_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    populations: Vec<Population>,
+    corrections: &[harvestcircle_domain::hub::corrections::SourceAttributionCorrection],
+) -> Result<Vec<SourceAttribution>, SafeError> {
+    let mut origins = populations
+        .iter()
+        .map(|p| {
+            Ok((
+                p.operation.clone(),
+                p.revision,
+                p.population.source.clone(),
+                p.population.source_issuer.clone(),
+            ))
+        })
+        .collect::<Result<Vec<_>, SafeError>>()?;
+    for c in corrections {
+        origins.push((
+            crate::hub::actuals::common::operation(c.stamp.operation)?,
+            c.stamp.stock_revision,
+            c.after.source.clone(),
+            c.after.issuer.clone(),
+        ));
+    }
+    let mut associations: BTreeMap<HubRecordId, Vec<usize>> = BTreeMap::new();
+    for (i, (_, _, source, _)) in origins.iter().enumerate() {
+        if let SourceAttribution::Referenced { source, .. } = source {
+            associations.entry(source.id).or_default().push(i);
+        }
     }
     let rows=sqlx::query(concat!(
         "SELECT substr(source_id,1,17) AS source_id,substr(hub_id,1,17) AS hub_id,substr(created_operation_id,1,37) AS created,",
@@ -108,13 +132,13 @@ pub(super) async fn load_on(
         let indices = associations.get(&source_id).ok_or_else(corrupt_storage)?;
         let first = indices
             .iter()
-            .map(|i| &populations[*i])
-            .min_by_key(|p| p.revision.value())
+            .map(|i| &origins[*i])
+            .min_by_key(|p| p.1.value())
             .ok_or_else(corrupt_storage)?;
         if row
             .try_get::<String, _>("created")
             .map_err(|_| corrupt_storage())?
-            != first.operation.as_str()
+            != first.0.as_str()
         {
             return Err(corrupt_storage());
         }
@@ -124,7 +148,7 @@ pub(super) async fn load_on(
         };
         let SourceAttribution::Referenced {
             source: canonical, ..
-        } = &first.population.source
+        } = &first.2
         else {
             return Err(corrupt_storage());
         };
@@ -132,8 +156,7 @@ pub(super) async fn load_on(
             .try_get("issuer_revision")
             .map_err(|_| corrupt_storage())?;
         let expected = first
-            .population
-            .source_issuer
+            .3
             .as_ref()
             .map(|r| i64::try_from(r.revision.value()).map_err(|_| corrupt_storage()))
             .transpose()?;
@@ -141,16 +164,10 @@ pub(super) async fn load_on(
             return Err(corrupt_storage());
         }
         for index in indices {
-            validate_source_reuse(
-                &populations[*index].population.source,
-                [first.population.source.clone()],
-            )
-            .map_err(|_| corrupt_storage())?;
+            validate_source_reuse(&origins[*index].2, [first.2.clone()])
+                .map_err(|_| corrupt_storage())?;
         }
-        sources.push(first.population.source.clone());
+        sources.push(first.2.clone());
     }
-    Ok(Registry {
-        populations,
-        sources,
-    })
+    Ok(sources)
 }

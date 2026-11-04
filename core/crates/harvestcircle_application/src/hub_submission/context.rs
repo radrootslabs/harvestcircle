@@ -216,6 +216,20 @@ pub struct HubSubmittedAdditionalQuantity {
     pub uncertain_submissions: bool,
 }
 
+/// Complete source interpretation at admission; descriptive material only.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct HubSubmittedSourceAttribution {
+    pub id: HubRecordId,
+    pub original: harvestcircle_domain::hub::corrections::OriginalSourceAttribution,
+    pub history: Vec<harvestcircle_domain::hub::corrections::SourceAttributionCorrection>,
+    pub known_sources: Vec<harvestcircle_domain::hub::reference::SourceAttribution>,
+    pub affected: Vec<harvestcircle_domain::hub::corrections::AttributionAffectedDeparture>,
+    pub latest_recorded_at: UnixTimestamp,
+    pub uncertain_submissions: bool,
+    pub issued_versions:
+        Vec<harvestcircle_domain::hub::corrections::AttributionAffectedIssuedVersion>,
+}
+
 /// Native adapters capture only referenced/affected records at the admission cut.
 /// A record's presence does not establish current authority or safe reconciliation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -235,6 +249,7 @@ pub enum HubSubmittedMaterial {
     ActualLink(Box<HubSubmittedActualLink>),
     FoundCorrection(Box<HubSubmittedFoundCorrection>),
     AdditionalQuantity(Box<HubSubmittedAdditionalQuantity>),
+    SourceAttribution(Box<HubSubmittedSourceAttribution>),
 }
 impl HubSubmittedMaterial {
     fn identity(&self) -> (u8, HubRecordId, u64) {
@@ -253,6 +268,7 @@ impl HubSubmittedMaterial {
             Self::ActualLink(v) => (11, v.id, 0),
             Self::FoundCorrection(v) => (12, v.id, 0),
             Self::AdditionalQuantity(v) => (13, v.id, 0),
+            Self::SourceAttribution(v) => (14, v.id, 0),
         }
     }
 }

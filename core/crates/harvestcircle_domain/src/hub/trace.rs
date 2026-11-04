@@ -254,6 +254,9 @@ pub struct TraceBalance {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TraceSnapshot {
+    /// Original source stays on `trace`; ordered amendments retain every prior
+    /// interpretation and their downstream manual follow-up obligations.
+    pub source_corrections: Vec<super::corrections::SourceAttributionCorrection>,
     /// Complete native accounts for every amended original line. Originals in
     /// exits/actual_departures remain gross, independently readable evidence.
     pub quantity_corrections: Vec<super::corrections::DepartureQuantityAccount>,
@@ -268,6 +271,52 @@ pub struct TraceSnapshot {
     pub actual_departures: Vec<super::actuals::ActualNewDeparturePlan>,
 }
 impl TraceSnapshot {
+    fn validate_source_corrections(&self) -> Result<(), TraceError> {
+        let Some(first) = self.source_corrections.first() else {
+            return Ok(());
+        };
+        let original = &first.original;
+        if original.hub != self.hub
+            || original.trace != self.trace.id
+            || original.actor != self.trace.actor
+            || original.recorded_at != self.trace.recorded_at
+            || original.source.source != self.trace.source
+            || original.source.issuer != self.trace.source_issuer
+            || self.source_corrections.iter().any(|c| {
+                c.stamp.stock_revision.value() > self.stock_revision.value()
+                    || c.stamp.catalog_revision.value() > self.catalog_revision.value()
+            })
+        {
+            return Err(TraceError::InvalidSnapshot);
+        }
+        super::corrections::current_source_attribution(original, &self.source_corrections)
+            .map_err(|_| TraceError::InvalidSnapshot)?;
+        Ok(())
+    }
+    pub fn current_source(&self) -> Result<&SourceAttribution, TraceError> {
+        self.validate_source_corrections()?;
+        Ok(self
+            .source_corrections
+            .last()
+            .map_or(&self.trace.source, |c| &c.after.source))
+    }
+    /// Retrieval retains the original and every amended association. Unknown,
+    /// possible and returned custody keep their conservative review scope.
+    pub fn includes_source_history(&self, selection: &TraceSelection) -> Result<bool, TraceError> {
+        self.validate_source_corrections()?;
+        if selection.includes(&self.trace)? {
+            return Ok(true);
+        }
+        for correction in &self.source_corrections {
+            let mut interpreted = self.trace.clone();
+            interpreted.source = correction.after.source.clone();
+            interpreted.source_issuer = correction.after.issuer.clone();
+            if selection.includes(&interpreted)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
     /// Reconciles one original population; never sums different pack variants.
     pub fn balance(&self) -> Result<TraceBalance, TraceError> {
         if self
@@ -283,6 +332,7 @@ impl TraceSnapshot {
         if self.trace.original_packs.value() == 0 {
             return Err(TraceError::InvalidSnapshot);
         }
+        self.validate_source_corrections()?;
         if self.count_losses.len() > super::counts::HUB_COUNT_CAPACITY {
             return Err(TraceError::Capacity);
         }

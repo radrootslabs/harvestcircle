@@ -86,7 +86,7 @@ internal fun HubReceiptInput.toNative() =
 internal fun HubStockQuery.toNative() =
     HubStockQueryDto(expectedCatalogRevision, expectedStockRevision, offset, limit, locationId, traceId, text)
 
-private fun HubSourceDto.toModel() = HubSource(id, issuer?.toModel(), kind?.toModel(), code, provenance, certainty.toModel())
+internal fun HubSourceDto.toModel() = HubSource(id, issuer?.toModel(), kind?.toModel(), code, provenance, certainty.toModel())
 
 internal fun HubQuantityWorkDto.toModel() = HubQuantityWork(required, completed, noLongerRequired, remaining, revision, target?.toModel())
 

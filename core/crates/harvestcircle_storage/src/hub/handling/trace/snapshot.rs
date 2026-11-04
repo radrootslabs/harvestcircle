@@ -194,6 +194,13 @@ pub(super) async fn load_on(
         crate::hub::corrections::quantity::trace_accounts_on(tx, hub, trace, state.revision)
             .await?;
     let snapshot = TraceSnapshot {
+        source_corrections: Box::pin(crate::hub::corrections::source_history_on(
+            tx,
+            hub,
+            trace,
+            state.revision,
+        ))
+        .await?,
         quantity_corrections,
         actual_departures,
         count_losses: crate::hub::counts::posting::losses_on(tx, hub, trace).await?,

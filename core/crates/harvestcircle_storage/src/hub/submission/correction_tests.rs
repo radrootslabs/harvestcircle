@@ -5,6 +5,7 @@ mod additional_cases;
 mod admission_cases;
 mod attribution_cases;
 mod found_cases;
+mod source_cases;
 use crate::hub::stock::tests::{Fixture, command, now, operation, owner, query, setup};
 use harvestcircle_application::SessionGeneration;
 use harvestcircle_domain::{
