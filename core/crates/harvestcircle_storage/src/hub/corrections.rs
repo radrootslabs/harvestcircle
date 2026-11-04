@@ -161,12 +161,14 @@ async fn found_headers_on(
 pub(in crate::hub) mod birth;
 pub(in crate::hub) mod funding;
 pub(in crate::hub) mod initial_review;
+mod known;
 mod observation_payload;
 #[cfg(test)]
 pub(super) mod projection_native_tests;
 #[cfg(test)]
 mod projection_tests;
 pub(in crate::hub) mod quantity;
+pub use known::{HubCorrectionKnownDeparture, HubCorrectionKnownEvidence, HubCorrectionKnownQuery};
 pub(in crate::hub) mod return_allowances;
 pub(in crate::hub) mod return_capture;
 pub(in crate::hub) mod return_projection;

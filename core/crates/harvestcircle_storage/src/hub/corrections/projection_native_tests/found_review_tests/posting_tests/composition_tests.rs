@@ -61,6 +61,27 @@ async fn second_found_credit_reduces_exact_funding_preserves_first_original_and_
                 first.original.allocations[0].group.id,
                 second.original.allocations[0].group.id
             );
+            let known = world
+                .db
+                .hub_correction_known_departures(
+                    owner(),
+                    crate::HubCorrectionKnownQuery {
+                        trace: second.original.allocations[0].group.trace,
+                        expected_stock_revision: None,
+                        expected_catalog_revision: None,
+                    },
+                )
+                .await
+                .unwrap();
+            assert_eq!(known.departures.len(), 1);
+            assert_eq!(known.departures[0].original.lines[0].packs.value(), 6);
+            assert_eq!(known.departures[0].quantities[0].amendments().len(), 2);
+            assert_eq!(
+                known.departures[0].quantities[0].amendments()[1]
+                    .after
+                    .value(),
+                0
+            );
             assert_eq!(
                 world
                     .db

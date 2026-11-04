@@ -44,6 +44,48 @@ async fn complete_found_writer_late_rollback_retains_exact_pending_raw_fact_and_
         .unwrap()
         .unwrap();
     let material = crate::hub::custody::tests::material(&fixture).await;
+    let observed = db
+        .hub_correction_observation_original(owner(), operation(1600))
+        .await
+        .unwrap();
+    let harvestcircle_domain::hub::corrections::CorrectionObservedFacts::Found {
+        target_operation,
+        target_group,
+        ..
+    } = observed.original.observation.facts
+    else {
+        panic!("found observation")
+    };
+    let funding = db
+        .hub_correction_target_funding(
+            owner(),
+            crate::HubCorrectionFundingQuery {
+                target_operation: crate::hub::actuals::common::operation(target_operation).unwrap(),
+                original_group: target_group,
+                expected_stock_revision: None,
+                expected_catalog_revision: None,
+            },
+        )
+        .await
+        .unwrap();
+    let known = db
+        .hub_correction_known_departures(
+            owner(),
+            crate::HubCorrectionKnownQuery {
+                trace: funding.quantity.original().trace,
+                expected_stock_revision: None,
+                expected_catalog_revision: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(known.uncertain_intent && known.unresolved_actual);
+    assert_eq!(known.departures.len(), 1);
+    assert_eq!(known.departures[0].original.lines[0].packs.value(), 6);
+    assert_eq!(
+        crate::hub::custody::tests::material(&fixture).await,
+        material
+    );
     let result = db
         .host()
         .transaction(|tx| {

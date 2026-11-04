@@ -1112,6 +1112,38 @@ async fn corrupt_departure_original_is_never_disguised_as_unavailable_stock() {
 mod review;
 
 /// Fresh current native fixture; never a retained historical world.
+pub(in crate::hub) async fn multi_population_departure(db: &Database) -> HubDepartureReceipt {
+    let first = open(db).await;
+    let catalog = db.hub_references(owner()).await.unwrap();
+    let mut input = intake_command(&catalog);
+    input.expected_stock_revision = db.hub_stock_page(owner(), query()).await.unwrap().revision;
+    let second = db
+        .apply_hub_receipt(owner(), operation(2), input, now())
+        .await
+        .unwrap();
+    let portion = split(
+        db,
+        first.original.position.group,
+        8,
+        3,
+        "Separate identified eight",
+    )
+    .await;
+    accept(db, &[first.original.position.group, portion], 4).await;
+    accept(db, &[second.original.position.group], 5).await;
+    let groups = [
+        first.original.position.group,
+        portion,
+        second.original.position.group,
+    ];
+    let paper = issue_to(db, &groups, id(8), 20).await;
+    let command = departing(db, &paper).await;
+    db.apply_hub_departure(owner(), operation(30), command, now())
+        .await
+        .unwrap()
+}
+
+/// Fresh current native fixture; never a retained historical world.
 pub(in crate::hub) async fn custody_departure_fixture(
     db: &Database,
 ) -> (HubStockReceipt, HubDepartureReceipt) {

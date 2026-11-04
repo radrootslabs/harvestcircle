@@ -176,6 +176,15 @@ facts, every child birth, the initial negative review and downstream manual scop
 Additional-stock, source, recipient and classification posting remain unavailable;
 correction posting has no desktop command or editor yet.
 
+The native correction-known query reads one population at paired stock/catalog
+revisions under current-owner authorization. It retains immutable positive events,
+every original line (including zero effective quantities), whole-event original
+recipient populations and issued versions, complete found amendments and verified
+physical return reservations. Unresolved return scope and global pending/raw-fact
+uncertainty remain explicit. Full originals are checked before trace filtering.
+Original issued versions do not include later linked documents. Unqualified
+recipient/count/additional histories fail closed; this read supplies no admission.
+
 Current trace reads retain gross original departures separately from native
 effective quantities, established returns and ordered amendments. The read-only
 desktop panel pages these records without calculating stock. As-issued output

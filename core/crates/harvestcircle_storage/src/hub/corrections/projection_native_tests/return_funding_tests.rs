@@ -6,7 +6,7 @@ use harvestcircle_domain::hub::{
     returns::{ReturnCommand, ReturnDepartureClaim, ReturnLinkResolution},
 };
 
-pub(super) async fn record_return(
+pub(in crate::hub::corrections) async fn record_return(
     db: &Database,
     claim: Option<ReturnDepartureClaim>,
     time: i64,

@@ -131,6 +131,29 @@ async fn found_against_reviewed_actual_preserves_original_facts_and_work_after_f
         panic!("actual found posted")
     };
     assert_eq!(receipt.original, *expected);
+    let known = db
+        .hub_correction_known_departures(
+            owner(),
+            crate::HubCorrectionKnownQuery {
+                trace: before.trace,
+                expected_stock_revision: None,
+                expected_catalog_revision: None,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(known.departures.len(), 1);
+    assert_eq!(known.departures[0].original.lines[0].packs.value(), 2);
+    assert_eq!(
+        known.departures[0].quantities[0].amendments()[0]
+            .after
+            .value(),
+        0
+    );
+    assert_eq!(
+        known.departures[0].funding[0].available().unwrap().value(),
+        0
+    );
     assert_eq!(receipt.observation, *observation);
     assert_eq!(
         (
