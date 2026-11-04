@@ -165,12 +165,14 @@ impl TraceSelection {
         source: TraceSourceEvidence,
         fields: &[&str],
     ) -> Result<bool, TraceError> {
+        let matched = self.matches_fields(fields)?;
+        Ok(self.scope.includes_evidence(trace, source) && matched)
+    }
+    /// Text matching over one bounded interpretation; scope is checked separately.
+    pub fn matches_fields(&self, fields: &[&str]) -> Result<bool, TraceError> {
         self.validate()?;
         if fields.len() > 8 || fields.iter().any(|field| field.len() > 128) {
             return Err(TraceError::InvalidQuery);
-        }
-        if !self.scope.includes_evidence(trace, source) {
-            return Ok(false);
         }
         let needle = self.text.trim().to_lowercase();
         Ok(needle.is_empty()
@@ -257,6 +259,8 @@ pub struct TraceSnapshot {
     /// Original source stays on `trace`; ordered amendments retain every prior
     /// interpretation and their downstream manual follow-up obligations.
     pub source_corrections: Vec<super::corrections::SourceAttributionCorrection>,
+    /// Ordered whole-event recipient meanings; physical exits remain original.
+    pub recipient_corrections: Vec<super::corrections::RecipientAttributionCorrection>,
     /// Complete native accounts for every amended original line. Originals in
     /// exits/actual_departures remain gross, independently readable evidence.
     pub quantity_corrections: Vec<super::corrections::DepartureQuantityAccount>,
@@ -271,6 +275,101 @@ pub struct TraceSnapshot {
     pub actual_departures: Vec<super::actuals::ActualNewDeparturePlan>,
 }
 impl TraceSnapshot {
+    fn validate_recipient_corrections(&self) -> Result<(), TraceError> {
+        use super::corrections::{
+            CorrectedDepartureFamily, HUB_CORRECTION_ROWS, current_recipient_attribution,
+        };
+        if self.recipient_corrections.len() > HUB_CORRECTION_ROWS {
+            return Err(TraceError::Capacity);
+        }
+        let mut by_event: BTreeMap<
+            HubRecordId,
+            Vec<super::corrections::RecipientAttributionCorrection>,
+        > = BTreeMap::new();
+        let mut operations = BTreeSet::new();
+        let mut previous = 0;
+        for row in &self.recipient_corrections {
+            let original = &row.original;
+            if original.hub != self.hub
+                || !original.populations.contains(&self.trace.id)
+                || row.stamp.stock_revision.value() > self.stock_revision.value()
+                || row.stamp.catalog_revision.value() > self.catalog_revision.value()
+                || row.stamp.stock_revision.value() <= previous
+                || !operations.insert(row.stamp.operation)
+            {
+                return Err(TraceError::InvalidSnapshot);
+            }
+            previous = row.stamp.stock_revision.value();
+            let matches = match original.family {
+                CorrectedDepartureFamily::Normal => self.exits.iter().any(|exit| {
+                    let departure = &exit.departure;
+                    departure.operation == original.operation
+                        && departure.stock_revision == original.stock_revision
+                        && departure.actor == original.actor
+                        && departure.recorded_at == original.recorded_at
+                        && departure.recipient == original.recipient
+                        && original.issued_versions.contains(&departure.identification)
+                }),
+                CorrectedDepartureFamily::ReviewedActual => {
+                    self.actual_departures.iter().any(|actual| {
+                        actual.operation == original.operation
+                            && actual.stock_revision == original.stock_revision
+                            && actual.actor == original.actor
+                            && actual.recorded_at == original.recorded_at
+                            && actual.comparison.scope.recipient == original.recipient
+                            && actual.comparison.facts.expected_catalog_revision
+                                == original.catalog_revision
+                    })
+                }
+                CorrectedDepartureFamily::ExplainedCountLoss => false,
+            };
+            if !matches {
+                return Err(TraceError::InvalidSnapshot);
+            }
+            by_event
+                .entry(original.operation)
+                .or_default()
+                .push(row.clone());
+        }
+        for history in by_event.values() {
+            current_recipient_attribution(&history[0].original, history)
+                .map_err(|_| TraceError::InvalidSnapshot)?;
+        }
+        Ok(())
+    }
+    pub fn current_recipient(
+        &self,
+        operation: HubRecordId,
+    ) -> Result<super::corrections::AmendedRecipient, TraceError> {
+        self.validate_recipient_corrections()?;
+        if let Some(row) = self
+            .recipient_corrections
+            .iter()
+            .rev()
+            .find(|row| row.original.operation == operation)
+        {
+            return Ok(row.after.clone());
+        }
+        if let Some(exit) = self
+            .exits
+            .iter()
+            .find(|exit| exit.departure.operation == operation)
+        {
+            return Ok(super::corrections::AmendedRecipient::Known(
+                exit.departure.recipient.clone(),
+            ));
+        }
+        if let Some(actual) = self
+            .actual_departures
+            .iter()
+            .find(|actual| actual.operation == operation)
+        {
+            return Ok(super::corrections::AmendedRecipient::Known(
+                actual.comparison.scope.recipient.clone(),
+            ));
+        }
+        Err(TraceError::InvalidSnapshot)
+    }
     fn validate_source_corrections(&self) -> Result<(), TraceError> {
         let Some(first) = self.source_corrections.first() else {
             return Ok(());
@@ -304,6 +403,7 @@ impl TraceSnapshot {
     /// possible and returned custody keep their conservative review scope.
     pub fn includes_source_history(&self, selection: &TraceSelection) -> Result<bool, TraceError> {
         self.validate_source_corrections()?;
+        self.validate_recipient_corrections()?;
         if selection.includes(&self.trace)? {
             return Ok(true);
         }
@@ -313,6 +413,40 @@ impl TraceSnapshot {
             interpreted.source_issuer = correction.after.issuer.clone();
             if selection.includes(&interpreted)? {
                 return Ok(true);
+            }
+        }
+        let eligible = selection.scope.includes_evidence(
+            self.trace.id,
+            TraceSourceEvidence::for_population(&self.trace),
+        ) || self.source_corrections.iter().any(|row| {
+            let mut interpreted = self.trace.clone();
+            interpreted.source = row.after.source.clone();
+            interpreted.source_issuer = row.after.issuer.clone();
+            selection.scope.includes_evidence(
+                self.trace.id,
+                TraceSourceEvidence::for_population(&interpreted),
+            )
+        });
+        if eligible {
+            for record in &self.recipient_corrections {
+                for recipient in [
+                    &super::corrections::AmendedRecipient::Known(record.original.recipient.clone()),
+                    &record.after,
+                ] {
+                    let fields = match recipient {
+                        super::corrections::AmendedRecipient::Known(party) => {
+                            vec![party.value.label().as_str().to_owned(), party.id.to_hex()]
+                        }
+                        super::corrections::AmendedRecipient::Unknown => {
+                            vec!["Unknown recipient".to_owned()]
+                        }
+                    };
+                    if selection
+                        .matches_fields(&fields.iter().map(String::as_str).collect::<Vec<_>>())?
+                    {
+                        return Ok(true);
+                    }
+                }
             }
         }
         Ok(false)
@@ -333,6 +467,7 @@ impl TraceSnapshot {
             return Err(TraceError::InvalidSnapshot);
         }
         self.validate_source_corrections()?;
+        self.validate_recipient_corrections()?;
         if self.count_losses.len() > super::counts::HUB_COUNT_CAPACITY {
             return Err(TraceError::Capacity);
         }

@@ -71,6 +71,8 @@ pub(in crate::hub) async fn current_on(
     except: Option<&DurableRequestId>,
 ) -> Result<Context, SafeError> {
     let state = stock::read::state_on(tx, hub).await?;
+    Box::pin(crate::hub::corrections::require_recipient_actual_adapter_on(tx, hub, state.revision))
+        .await?;
     let catalog = reference::load_catalog_on(tx, hub).await?;
     if state.revision != command.facts.expected_stock_revision
         || catalog.revision() != command.facts.expected_catalog_revision

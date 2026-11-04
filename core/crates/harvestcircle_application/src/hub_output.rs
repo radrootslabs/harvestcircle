@@ -202,6 +202,65 @@ pub fn trace_output(snapshot: &TraceSnapshot) -> Result<LocalOutput, LocalOutput
             }
         }
     }
+    if !snapshot.recipient_corrections.is_empty() {
+        out.heading("Linked recipient corrections: original and current meaning")?;
+        out.paragraph("Original physical departure and as-issued recipient remain unchanged. Affected recipient and paper references are manual follow-up, never external acknowledgement.")?;
+        for correction in &snapshot.recipient_corrections {
+            out.field(
+                "Recipient correction operation",
+                &correction.stamp.operation.to_hex(),
+            )?;
+            out.field(
+                "Original departure operation",
+                &correction.original.operation.to_hex(),
+            )?;
+            out.field(
+                "Recorded stock revision",
+                &correction.stamp.stock_revision.value().to_string(),
+            )?;
+            for (label, meaning) in [
+                ("Before recipient amendment", &correction.before),
+                ("After recipient amendment", &correction.after),
+            ] {
+                match meaning {
+                    harvestcircle_domain::hub::corrections::AmendedRecipient::Unknown => {
+                        out.field(label, "Unknown recipient")?
+                    }
+                    harvestcircle_domain::hub::corrections::AmendedRecipient::Known(party) => {
+                        out.field(label, party.value.label().as_str())?;
+                        out.field("Recipient reference", &party.id.to_hex())?;
+                    }
+                }
+            }
+            out.field(
+                "Recipient correction basis",
+                correction.stamp.basis.as_str(),
+            )?;
+            actor_time(
+                &mut out,
+                correction.stamp.actor,
+                correction.stamp.recorded_at,
+            )?;
+            out.heading("Retained affected scope")?;
+            for target in correction.impact.rows() {
+                use harvestcircle_domain::hub::corrections::CorrectionImpact;
+                let (label, id) = match *target {
+                    CorrectionImpact::Population(id) => ("Population", id),
+                    CorrectionImpact::Source(id) => ("Source", id),
+                    CorrectionImpact::Departure(id) => ("Departure", id),
+                    CorrectionImpact::IssuedVersion(id) => ("Issued version", id),
+                    CorrectionImpact::Recipient(id) => ("Recipient", id),
+                    CorrectionImpact::UnresolvedSource(id) => {
+                        ("Unresolved source for population", id)
+                    }
+                    CorrectionImpact::UnresolvedRecipient(id) => {
+                        ("Unresolved recipient for departure", id)
+                    }
+                };
+                out.field(label, &id.to_hex())?;
+            }
+        }
+    }
     out.heading("Physical accounting in this pack unit")?;
     reference(&mut out, "Pack", &snapshot.trace.variant)?;
     let original_label = match snapshot.trace.origin {

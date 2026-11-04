@@ -132,6 +132,11 @@ pub(in crate::hub) async fn headers_on(
     }
     reservations_on(tx).await?;
     found_headers_on(tx, hub).await?;
+    let recipient_roots:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM hub_stock_operations WHERE kind='correction_recipient')+(SELECT count(*) FROM hub_corrections WHERE family='recipient')").fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    if recipient_roots != 0 {
+        Box::pin(recipient_ledger::load_on(tx, hub)).await?;
+    }
+
     additional_headers_on(tx, hub).await?;
     let sources:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM hub_stock_operations WHERE kind='correction_source')+(SELECT count(*) FROM hub_corrections WHERE family='source')").fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
     if sources != 0 {
@@ -204,6 +209,11 @@ pub(in crate::hub) mod quantity;
 pub use known::{HubCorrectionKnownDeparture, HubCorrectionKnownEvidence, HubCorrectionKnownQuery};
 mod additional_review;
 mod attribution_review;
+mod recipient_context;
+mod recipient_ledger;
+mod recipient_payload;
+pub(in crate::hub) mod recipient_write;
+pub use recipient_ledger::HubRecipientAttributionReceipt;
 mod source_context;
 mod source_documents;
 mod source_ledger;
@@ -256,6 +266,59 @@ pub(in crate::hub) async fn source_history_on(
         .into_iter()
         .filter(|c| c.original.trace == trace)
         .collect())
+}
+
+/// Temporary fresh-review fence until exact-cut actual association integration
+/// qualifies. Raw report ingress and immutable historical reads stay available.
+pub(in crate::hub) async fn require_recipient_actual_adapter_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    cut: HubRevision,
+) -> Result<(), SafeError> {
+    if !Box::pin(recipient_records_on(tx, hub, cut))
+        .await?
+        .is_empty()
+    {
+        return Err(harvestcircle_domain::SafeError::new(
+            harvestcircle_domain::SafeErrorCode::HubConflict,
+            harvestcircle_domain::SafeMessage::new(
+                "Recipient attribution changed. Actual-event review needs the linked original and amended associations before it can continue.",
+            ),
+        ));
+    }
+    Ok(())
+}
+
+pub(in crate::hub) async fn recipient_records_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    cut: HubRevision,
+) -> Result<Vec<harvestcircle_domain::hub::corrections::RecipientAttributionCorrection>, SafeError>
+{
+    let count:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM hub_corrections WHERE family='recipient')+(SELECT count(*) FROM hub_stock_operations WHERE kind='correction_recipient')").fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    Ok(
+        Box::pin(recipient_ledger::load_through_on(tx, hub, Some(cut)))
+            .await?
+            .records,
+    )
+}
+pub(in crate::hub) async fn capture_recipient_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    actor: PublicKey,
+    operation: &DurableRequestId,
+    command: &harvestcircle_domain::hub::corrections::RecipientAttributionCommand,
+) -> Result<harvestcircle_application::hub_submission::HubSubmittedRecipientAttribution, SafeError>
+{
+    let context = Box::pin(recipient_context::current_on(tx, hub, command, None)).await?;
+    let own = crate::hub::actuals::common::operation_id(operation)?;
+    command
+        .plan(&context.domain(), own, actor, context.latest)
+        .map_err(source_context::error)?;
+    Ok(context.material(own))
 }
 
 pub(in crate::hub) async fn capture_source_on(

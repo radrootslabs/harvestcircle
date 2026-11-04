@@ -47,6 +47,66 @@ pub fn actual_trace_encoding_probe() -> HubTraceSnapshotDto {
     HubTraceSnapshotDto::try_from(actual_trace_snapshot()).unwrap()
 }
 
+/// Encoding-only whole-event recipient history. No runtime, database or grant.
+#[uniffi::export]
+pub fn recipient_trace_encoding_probe() -> HubTraceSnapshotDto {
+    use harvestcircle_domain::hub::corrections::*;
+    let mut snapshot = actual_trace_snapshot();
+    let actual = &snapshot.actual_departures[0];
+    let original = OriginalRecipientAttribution {
+        hub: snapshot.hub,
+        family: CorrectedDepartureFamily::ReviewedActual,
+        operation: actual.operation,
+        stock_revision: actual.stock_revision,
+        catalog_revision: actual.comparison.facts.expected_catalog_revision,
+        recorded_at: actual.recorded_at,
+        actor: actual.actor,
+        recipient: actual.comparison.scope.recipient.clone(),
+        populations: vec![snapshot.trace.id],
+        issued_versions: Vec::new(),
+    };
+    let catalog = ReferenceCatalog::restore(
+        snapshot.catalog_revision,
+        vec![
+            snapshot.trace.product.clone(),
+            snapshot.trace.variant.clone(),
+            snapshot.trace.initial_location.clone(),
+            original.recipient.clone(),
+        ],
+    )
+    .unwrap();
+    let command = RecipientAttributionCommand {
+        departure_operation: original.operation,
+        expected_stock_revision: snapshot.stock_revision,
+        expected_catalog_revision: snapshot.catalog_revision,
+        expected_prior: None,
+        recipient: None,
+        basis: note("Encoding-only explicit unknown recipient and retained original/manual impact"),
+    };
+    let plan = command
+        .plan(
+            &RecipientAttributionContext {
+                cut: AttributionCut {
+                    hub: snapshot.hub,
+                    stock_revision: snapshot.stock_revision,
+                    catalog: &catalog,
+                    latest_recorded_at: at(190),
+                    uncertain_submissions: false,
+                },
+                original: &original,
+                history: &[],
+                linked_issued_versions: &[],
+            },
+            op(84),
+            reviewer(),
+            at(210),
+        )
+        .unwrap();
+    snapshot.stock_revision = plan.stamp.stock_revision;
+    snapshot.recipient_corrections = vec![plan];
+    HubTraceSnapshotDto::try_from(snapshot).unwrap()
+}
+
 /// Encoding-only source interpretation. No database, submission or native grant.
 #[uniffi::export]
 pub fn source_trace_encoding_probe() -> HubTraceSnapshotDto {
@@ -382,6 +442,7 @@ fn actual_trace_snapshot() -> TraceSnapshot {
     let projection = treatment.project(&after, catalog.handling_basis()).unwrap();
     TraceSnapshot {
         source_corrections: Vec::new(),
+        recipient_corrections: Vec::new(),
         quantity_corrections: vec![],
         hub,
         stock_revision: plan.stock_revision,

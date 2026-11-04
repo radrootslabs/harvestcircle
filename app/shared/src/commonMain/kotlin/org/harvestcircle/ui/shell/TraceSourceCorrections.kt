@@ -94,7 +94,7 @@ private fun TraceSourceImpact(
             "Original and amended populations, sources, departures, issued versions and recipients remain review scope. Local work is not external acknowledgement.",
         )
         correction.impact.drop(state.sourceImpactOffset).take(64).forEach { impact ->
-            HarvestCircleShellText("${impactLabel(impact.kind)} · ${impact.targetId}")
+            HarvestCircleShellText("${traceImpactLabel(impact.kind)} · ${impact.targetId}")
         }
         if (correction.impact.size > 64) {
             HarvestCircleShellText(
@@ -124,7 +124,7 @@ private fun TraceSourceImpact(
     }
 }
 
-private fun impactLabel(kind: HubCorrectionImpactKind): String =
+internal fun traceImpactLabel(kind: HubCorrectionImpactKind): String =
     when (kind) {
         HubCorrectionImpactKind.Population -> "Population"
         HubCorrectionImpactKind.Source -> "Source"

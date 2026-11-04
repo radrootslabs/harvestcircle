@@ -45,6 +45,7 @@ impl Database {
                         rows.push(HubTraceRow {
                             balance: snapshot.balance().map_err(|_| corrupt_storage())?,
                             source_corrections: snapshot.source_corrections,
+                            recipient_corrections: snapshot.recipient_corrections,
                             trace: snapshot.trace,
                         });
                     }
@@ -109,6 +110,7 @@ async fn candidates_on(
         return Err(corrupt_storage());
     }
     let corrections = Box::pin(crate::hub::corrections::source_records_on(tx, hub, cut)).await?;
+    let recipients = Box::pin(crate::hub::corrections::recipient_records_on(tx, hub, cut)).await?;
     let mut selected = Vec::new();
     let mut found_exact = false;
     for row in candidates {
@@ -184,6 +186,7 @@ async fn candidates_on(
         if let Some(source) = source_id {
             fields.push(source.to_hex());
         }
+        let mut eligible_scope = selection.scope.includes_evidence(trace, source);
         let mut included = selection
             .includes_fields(
                 trace,
@@ -207,6 +210,7 @@ async fn candidates_on(
             } else {
                 TraceSourceEvidence::from(&correction.after.source)
             };
+            eligible_scope |= selection.scope.includes_evidence(trace, evidence);
             included |= selection
                 .includes_fields(
                     trace,
@@ -217,6 +221,31 @@ async fn candidates_on(
                         .collect::<Vec<_>>(),
                 )
                 .map_err(|_| corrupt_storage())?;
+        }
+        if eligible_scope {
+            for record in recipients
+                .iter()
+                .filter(|r| r.original.populations.contains(&trace))
+            {
+                for recipient in [
+                    &harvestcircle_domain::hub::corrections::AmendedRecipient::Known(
+                        record.original.recipient.clone(),
+                    ),
+                    &record.after,
+                ] {
+                    let fields = match recipient {
+                        harvestcircle_domain::hub::corrections::AmendedRecipient::Known(party) => {
+                            vec![party.value.label().as_str().to_owned(), party.id.to_hex()]
+                        }
+                        harvestcircle_domain::hub::corrections::AmendedRecipient::Unknown => {
+                            vec!["Unknown recipient".to_owned()]
+                        }
+                    };
+                    included |= selection
+                        .matches_fields(&fields.iter().map(String::as_str).collect::<Vec<_>>())
+                        .map_err(|_| corrupt_storage())?;
+                }
+            }
         }
         if included {
             selected.push(trace);

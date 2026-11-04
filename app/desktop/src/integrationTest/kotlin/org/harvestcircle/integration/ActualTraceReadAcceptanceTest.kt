@@ -11,6 +11,7 @@ import org.harvestcircle.testbridge.ffi.actualReportResolutionEncodingProbe
 import org.harvestcircle.testbridge.ffi.actualTraceEncodingProbe
 import org.harvestcircle.testbridge.ffi.actualTraceHistoryEncodingProbe
 import org.harvestcircle.testbridge.ffi.correctedTraceEncodingProbe
+import org.harvestcircle.testbridge.ffi.recipientTraceEncodingProbe
 import org.harvestcircle.testbridge.ffi.sourceTraceEncodingProbe
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -20,6 +21,32 @@ import kotlin.test.assertTrue
 // This is an encoding/read-consumer fixture, not native admission or persisted
 // effect acceptance. Real storage worlds qualify those independently.
 class ActualTraceReadAcceptanceTest {
+    @Test
+    fun generatedRecipientHistoryKeepsOriginalPartyUnknownMeaningAndManualScopeDistinct() {
+        val original = actualTraceEncodingProbe().toModel()
+        val native = recipientTraceEncodingProbe()
+        val model = native.toModel()
+        assertEquals(original.trace, model.trace)
+        assertEquals(original.onHand, model.onHand)
+        assertEquals(original.actualDepartures, model.actualDepartures)
+        val correction = model.recipientCorrections.single()
+        assertEquals(original.actualDepartures.single().recipient, correction.originalRecipient)
+        assertEquals(correction.originalRecipient, correction.before)
+        assertEquals(null, correction.after)
+        assertEquals(original.actualDepartures.single().operationId, correction.originalDepartureOperationId)
+        assertEquals(listOf(original.trace.id), correction.originalPopulationIds)
+        assertEquals(emptyList(), correction.originalIssuedVersionIds)
+        assertEquals(native.recipientCorrections.single().operationId, correction.operationId.value)
+        assertEquals(model.stockRevision, correction.stockRevision)
+        assertTrue(correction.impact.any { it.kind == HubCorrectionImpactKind.Recipient && it.targetId == correction.originalRecipient.id })
+        assertTrue(
+            correction.impact.any {
+                it.kind == HubCorrectionImpactKind.UnresolvedRecipient &&
+                    it.targetId == correction.originalDepartureOperationId.value.replace("-", "")
+            },
+        )
+    }
+
     @Test
     fun generatedSourceHistoryKeepsOriginalPossibleInterpretationAndManualImpactDistinct() {
         val original = actualTraceEncodingProbe().toModel()

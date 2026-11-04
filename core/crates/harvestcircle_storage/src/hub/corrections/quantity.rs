@@ -206,7 +206,8 @@ pub(super) async fn original_on(
             )
         }
         "actual_review" => {
-            let original = crate::hub::actuals::projection::known_on(tx, hub, &op).await?;
+            let original =
+                Box::pin(crate::hub::actuals::projection::known_on(tx, hub, &op)).await?;
             let line = original
                 .lines
                 .iter()

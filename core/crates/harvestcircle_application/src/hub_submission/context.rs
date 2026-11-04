@@ -230,6 +230,17 @@ pub struct HubSubmittedSourceAttribution {
         Vec<harvestcircle_domain::hub::corrections::AttributionAffectedIssuedVersion>,
 }
 
+/// Complete recipient interpretation at admission; descriptive material only.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct HubSubmittedRecipientAttribution {
+    pub id: HubRecordId,
+    pub original: harvestcircle_domain::hub::corrections::OriginalRecipientAttribution,
+    pub history: Vec<harvestcircle_domain::hub::corrections::RecipientAttributionCorrection>,
+    pub linked_issued_versions: Vec<HubRecordId>,
+    pub latest_recorded_at: UnixTimestamp,
+    pub uncertain_submissions: bool,
+}
+
 /// Native adapters capture only referenced/affected records at the admission cut.
 /// A record's presence does not establish current authority or safe reconciliation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -250,6 +261,7 @@ pub enum HubSubmittedMaterial {
     FoundCorrection(Box<HubSubmittedFoundCorrection>),
     AdditionalQuantity(Box<HubSubmittedAdditionalQuantity>),
     SourceAttribution(Box<HubSubmittedSourceAttribution>),
+    RecipientAttribution(Box<HubSubmittedRecipientAttribution>),
 }
 impl HubSubmittedMaterial {
     fn identity(&self) -> (u8, HubRecordId, u64) {
@@ -269,6 +281,7 @@ impl HubSubmittedMaterial {
             Self::FoundCorrection(v) => (12, v.id, 0),
             Self::AdditionalQuantity(v) => (13, v.id, 0),
             Self::SourceAttribution(v) => (14, v.id, 0),
+            Self::RecipientAttribution(v) => (15, v.id, 0),
         }
     }
 }

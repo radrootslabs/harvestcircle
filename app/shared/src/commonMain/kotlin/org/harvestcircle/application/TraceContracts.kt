@@ -26,6 +26,7 @@ data class HubTraceRow(
     val disposedWholePacks: UInt = 0U,
     val actualDepartedWholePacks: UInt = 0U,
     val sourceCorrections: List<HubTraceSourceCorrection> = emptyList(),
+    val recipientCorrections: List<HubTraceRecipientCorrection> = emptyList(),
 )
 
 data class HubTracePage(
@@ -101,6 +102,7 @@ data class HubTraceSnapshot(
     val actualDepartures: List<HubTraceActualDeparture> = emptyList(),
     val quantityCorrections: List<HubTraceQuantityCorrection> = emptyList(),
     val sourceCorrections: List<HubTraceSourceCorrection> = emptyList(),
+    val recipientCorrections: List<HubTraceRecipientCorrection> = emptyList(),
 )
 
 data class HubTraceQuantityCorrection(
@@ -193,6 +195,7 @@ enum class HubTraceHistoryKind {
     FoundCorrected,
     AdditionalCorrected,
     SourceAttributed,
+    RecipientAttributed,
 }
 
 data class HubTraceHistoryEntry(

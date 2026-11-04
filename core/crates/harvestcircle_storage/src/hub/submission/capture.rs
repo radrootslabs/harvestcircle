@@ -67,6 +67,19 @@ pub(super) async fn capture_on(
     }
     let mut material = Vec::new();
     match &request {
+        HubSubmittedRequest::RecipientAttribution(command) => {
+            let captured = Box::pin(crate::hub::corrections::capture_recipient_on(
+                tx,
+                hub.id(),
+                actor,
+                operation,
+                command,
+            ))
+            .await?;
+            material.push(HubSubmittedMaterial::RecipientAttribution(Box::new(
+                captured,
+            )));
+        }
         HubSubmittedRequest::SourceAttribution(command) => {
             let captured = Box::pin(crate::hub::corrections::capture_source_on(
                 tx,
@@ -117,6 +130,14 @@ pub(super) async fn capture_on(
             )));
         }
         HubSubmittedRequest::ActualLink(command) => {
+            Box::pin(
+                crate::hub::corrections::require_recipient_actual_adapter_on(
+                    tx,
+                    hub.id(),
+                    state.revision,
+                ),
+            )
+            .await?;
             let report = crate::hub::actuals::reports::by_id_on(tx, hub.id(), command.report)
                 .await?
                 .original;

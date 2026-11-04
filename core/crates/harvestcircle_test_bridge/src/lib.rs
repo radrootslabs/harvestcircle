@@ -7,7 +7,7 @@ use harvestcircle_ffi::{
 mod actual_trace;
 pub use actual_trace::{
     actual_trace_encoding_probe, actual_trace_history_encoding_probe,
-    corrected_trace_encoding_probe, source_trace_encoding_probe,
+    corrected_trace_encoding_probe, recipient_trace_encoding_probe, source_trace_encoding_probe,
 };
 
 use std::fmt::{self, Display, Formatter};

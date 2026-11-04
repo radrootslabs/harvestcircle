@@ -169,7 +169,7 @@ pub(super) async fn load_on(
     // than using a gross-only list that silently loses a known interpretation.
     let unsupported: i64 = sqlx::query_scalar(concat!(
         "SELECT count(*) FROM hub_corrections c JOIN hub_stock_operations o ON o.operation_id=c.operation_id ",
-        "WHERE o.hub_id=? AND o.stock_revision<=? AND c.family IN ('recipient','count_explain','count_classify')"
+        "WHERE o.hub_id=? AND o.stock_revision<=? AND c.family IN ('count_explain','count_classify')"
     )).bind(hub.as_bytes().as_slice())
         .bind(i64::try_from(cut.value()).map_err(|_| corrupt_storage())?)
         .fetch_one(&mut *tx).await.map_err(|_| storage_unavailable())?;
@@ -206,6 +206,7 @@ pub(super) async fn load_on(
         }
     }
     let originals = Box::pin(handling::actuals::known_departures_on(tx, hub, trace, cut)).await?;
+    let recipient_records = Box::pin(super::recipient_records_on(tx, hub, cut)).await?;
     let mut result = Vec::with_capacity(originals.len());
     let mut ids = BTreeSet::new();
     for original in originals {
@@ -248,8 +249,12 @@ pub(super) async fn load_on(
         }
         result.push(HubCorrectionKnownDeparture {
             original,
-            recipient_original,
-            recipient_history: Vec::new(),
+            recipient_original: recipient_original.clone(),
+            recipient_history: recipient_records
+                .iter()
+                .filter(|r| r.original.operation == recipient_original.operation)
+                .cloned()
+                .collect(),
             quantities,
             funding,
         });
@@ -276,6 +281,7 @@ pub(super) async fn attribution_affected_on(
     if ids.len() > limit {
         return Err(stock::capacity());
     }
+    let recipient_records = Box::pin(super::recipient_records_on(tx, hub, cut)).await?;
     let mut result = Vec::new();
     for id in ids {
         let id = DurableRequestId::parse(id).map_err(|_| corrupt_storage())?;
@@ -296,7 +302,14 @@ pub(super) async fn attribution_affected_on(
             result.push(AttributionAffectedDeparture {
                 operation: original.operation,
                 populations: original.populations,
-                recipients: vec![AmendedRecipient::Known(original.recipient)],
+                recipients: std::iter::once(AmendedRecipient::Known(original.recipient))
+                    .chain(
+                        recipient_records
+                            .iter()
+                            .filter(|r| r.original.operation == original.operation)
+                            .map(|r| r.after.clone()),
+                    )
+                    .collect(),
                 issued_versions: original.issued_versions,
             });
         }

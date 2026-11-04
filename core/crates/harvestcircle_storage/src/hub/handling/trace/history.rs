@@ -8,7 +8,8 @@ macro_rules! linked_predicate { () => { concat!(
     "EXISTS(SELECT 1 FROM hub_actual_reviews r WHERE r.operation_id=o.operation_id AND r.trace_id=?) OR ",
     "EXISTS(SELECT 1 FROM hub_correction_observations observation JOIN hub_corrections correction ON correction.observation_operation_id=observation.operation_id JOIN hub_stock_events effect ON effect.operation_id=correction.operation_id WHERE observation.operation_id=o.operation_id AND effect.trace_id=?) OR ",
     "EXISTS(SELECT 1 FROM hub_actual_reports report JOIN hub_corrections correction ON correction.report_id=report.report_id JOIN hub_stock_events effect ON effect.operation_id=correction.operation_id WHERE report.operation_id=o.operation_id AND effect.trace_id=?) OR ",
-    "EXISTS(SELECT 1 FROM hub_corrections correction WHERE correction.operation_id=o.operation_id AND correction.family='source' AND correction.subject_id=?)"
+    "EXISTS(SELECT 1 FROM hub_corrections correction WHERE correction.operation_id=o.operation_id AND correction.family='source' AND correction.subject_id=?) OR ",
+    "EXISTS(SELECT 1 FROM hub_corrections correction JOIN hub_correction_scope_links scope ON scope.correction_operation_id=correction.operation_id AND scope.introduced_operation_id=correction.operation_id WHERE correction.operation_id=o.operation_id AND correction.family='recipient' AND scope.target_kind='population' AND scope.target_id=?)"
 ) }; }
 impl Database {
     pub async fn hub_trace_history(
@@ -41,6 +42,7 @@ impl Database {
                     .bind(query.trace.as_bytes().as_slice())
                     .bind(query.trace.as_bytes().as_slice())
                     .bind(query.trace.as_bytes().as_slice())
+                    .bind(query.trace.as_bytes().as_slice())
                     .fetch_one(&mut *tx)
                     .await
                     .map_err(|_| storage_unavailable())?;
@@ -55,6 +57,7 @@ impl Database {
                         " ",
                         "ORDER BY o.stock_revision LIMIT ? OFFSET ?"
                     ))
+                    .bind(query.trace.as_bytes().as_slice())
                     .bind(query.trace.as_bytes().as_slice())
                     .bind(query.trace.as_bytes().as_slice())
                     .bind(query.trace.as_bytes().as_slice())
@@ -105,6 +108,24 @@ async fn entry_on(
     let recorded_at = operation.recorded_at;
     let result = operation.result;
     let (kind, occurred, observation) = match operation.kind.as_str() {
+        "correction_recipient" => {
+            let own = crate::hub::actuals::common::operation_id(&operation.id)?;
+            let records = Box::pin(crate::hub::corrections::recipient_records_on(
+                tx,
+                hub,
+                operation.revision,
+            ))
+            .await?;
+            let record = records
+                .into_iter()
+                .find(|c| c.stamp.operation == own)
+                .ok_or_else(corrupt_storage)?;
+            (
+                HubTraceHistoryKind::RecipientAttributed,
+                None,
+                record.stamp.basis,
+            )
+        }
         "correction_source" => {
             let own = crate::hub::actuals::common::operation_id(&operation.id)?;
             let records = Box::pin(crate::hub::corrections::source_records_on(

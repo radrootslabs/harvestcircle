@@ -64,7 +64,7 @@ pub(in crate::hub) async fn source_original_on(
         .ok_or_else(corrupt_storage)?;
     let born_revision = born.revision;
     let (_, identification, _, _) =
-        lineage::creation_on(tx, hub, trace, group, parent, born).await?;
+        Box::pin(lineage::creation_on(tx, hub, trace, group, parent, born)).await?;
     let label: Option<Vec<u8>> = row.try_get("label").map_err(|_| corrupt_storage())?;
     let observation: Option<Vec<u8>> = row.try_get("observation").map_err(|_| corrupt_storage())?;
     let stored = match (label, observation) {
@@ -96,7 +96,7 @@ pub(in crate::hub) async fn source_original_on(
         "receipt" | "opening" | "count_post" | "return"
             if parent.is_none() && born_revision == revision =>
         {
-            let population = stock::read::population_on(tx, hub, op, trace.id).await?;
+            let population = Box::pin(stock::read::population_on(tx, hub, op, trace.id)).await?;
             if population != *trace || birth_operation.as_str() != operation.as_str() {
                 return Err(invalid_input());
             }

@@ -90,7 +90,7 @@ pub(in crate::hub) async fn historical_births_on(
             occurred,
         });
     }
-    births_for_rows_on(tx, hub, graph, &trace, &rows).await
+    Box::pin(births_for_rows_on(tx, hub, graph, &trace, &rows)).await
 }
 
 async fn births_for_rows_on(
@@ -213,7 +213,7 @@ async fn births_for_rows_on(
         births.push(birth);
     }
     births.sort_by_key(|b| (b.stock_revision.value(), b.group));
-    let outflows = super::actuals::physical_outflows_on(tx, hub, graph).await?;
+    let outflows = Box::pin(super::actuals::physical_outflows_on(tx, hub, graph)).await?;
     let mut totals = std::collections::BTreeMap::new();
     for node in graph.nodes() {
         let outflow = outflows
@@ -540,7 +540,7 @@ pub(super) async fn creation_on(
             )
         }
         "receipt" if parent.is_none() => {
-            let original = stock::read::receipt_on(transaction, hub, operation).await?;
+            let original = Box::pin(stock::read::receipt_on(transaction, hub, operation)).await?;
             if original.original.position.group != id || original.original.trace != *trace {
                 return Err(corrupt_storage());
             }

@@ -181,5 +181,6 @@ fn known_kind(kind: &str) -> bool {
             | "correction_found"
             | "correction_additional"
             | "correction_source"
+            | "correction_recipient"
     )
 }

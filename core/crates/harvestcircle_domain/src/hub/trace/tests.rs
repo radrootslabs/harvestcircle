@@ -73,6 +73,7 @@ fn fixture() -> TraceSnapshot {
     };
     TraceSnapshot {
         source_corrections: Vec::new(),
+        recipient_corrections: Vec::new(),
         quantity_corrections: vec![],
         actual_departures: vec![],
         count_losses: vec![],
@@ -375,4 +376,32 @@ fn impact_includes_return_with_different_established_source_without_reclassifyin
     assert!(TraceScope::SourceImpact(id(99)).includes_evidence(s.trace.id, evidence));
     assert!(!TraceScope::Receipt(id(99)).includes(&s.trace));
     assert_eq!(source_certainty_label(&s.trace.source), "Established");
+}
+
+#[test]
+fn scoped_out_fields_still_validate_the_complete_bounded_text_contract() {
+    let evidence = TraceSourceEvidence::Referenced {
+        source: id(70),
+        certainty: SourceCertainty::Established,
+        issuer: Some(id(71)),
+    };
+    let selection = TraceSelection {
+        scope: TraceScope::Unresolved,
+        text: "Recipient".into(),
+    };
+    assert_eq!(
+        selection.includes_fields(id(1), evidence, &["a"; 9]),
+        Err(TraceError::InvalidQuery)
+    );
+    let long = "a".repeat(129);
+    assert_eq!(
+        selection.includes_fields(id(1), evidence, &[&long]),
+        Err(TraceError::InvalidQuery)
+    );
+    assert!(
+        !selection
+            .includes_fields(id(1), evidence, &["Recipient A"])
+            .unwrap()
+    );
+    assert!(selection.matches_fields(&["Recipient A"]).unwrap());
 }

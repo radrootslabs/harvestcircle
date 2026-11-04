@@ -25,6 +25,7 @@ pub enum HubMutationResult {
     FoundCorrected(Box<crate::hub::corrections::HubFoundCorrectionReceipt>),
     AdditionalCorrected(Box<crate::hub::corrections::HubAdditionalQuantityReceipt>),
     SourceAttributed(Box<crate::hub::corrections::HubSourceAttributionReceipt>),
+    RecipientAttributed(Box<crate::hub::corrections::HubRecipientAttributionReceipt>),
 }
 
 impl std::fmt::Debug for HubMutationResult {
@@ -47,6 +48,7 @@ impl std::fmt::Debug for HubMutationResult {
             Self::FoundCorrected(_) => "FoundCorrected",
             Self::AdditionalCorrected(_) => "AdditionalCorrected",
             Self::SourceAttributed(_) => "SourceAttributed",
+            Self::RecipientAttributed(_) => "RecipientAttributed",
         };
         f.debug_tuple("HubMutationResult").field(&kind).finish()
     }
@@ -130,6 +132,21 @@ async fn execute(
 ) -> Result<HubMutationResult, SafeError> {
     use harvestcircle_domain::hub::movement::HandlingCommand;
     Ok(match mutation {
+        HubMutation::RecipientAttribution(command) => {
+            HubMutationResult::RecipientAttributed(Box::new(
+                db.host()
+                    .transaction(|tx| {
+                        Box::pin(async move {
+                            crate::hub::corrections::recipient_write::apply_on(
+                                tx, actor, operation, *command, now,
+                            )
+                            .await
+                        })
+                    })
+                    .await
+                    .map_err(map_transaction_error)?,
+            ))
+        }
         HubMutation::SourceAttribution(command) => HubMutationResult::SourceAttributed(Box::new(
             db.host()
                 .transaction(|tx| {

@@ -3,6 +3,7 @@ use crate::commands::HarvestCircleError;
 use crate::hub_handling::HubPhysicalIdentificationDto;
 use crate::hub_reference::{HubReferenceRecordDto, invalid_input};
 use crate::hub_stock::{HubOccurrenceDto, HubStockPopulationDto};
+use crate::hub_trace_recipient::HubTraceRecipientCorrectionDto;
 use crate::hub_trace_source::HubTraceSourceCorrectionDto;
 use crate::hub_treatment::HubAcceptanceStatusDto;
 use crate::hub_treatment_input::{id, revision};
@@ -92,6 +93,7 @@ impl HubTraceQueryDto {
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct HubTraceRowDto {
     pub source_corrections: Vec<HubTraceSourceCorrectionDto>,
+    pub recipient_corrections: Vec<HubTraceRecipientCorrectionDto>,
     pub trace: HubStockPopulationDto,
     pub on_hand_whole_packs: u32,
     pub departed_whole_packs: u32,
@@ -124,6 +126,11 @@ impl From<HubTracePage> for HubTracePageDto {
                 .into_iter()
                 .map(|row| HubTraceRowDto {
                     source_corrections: row.source_corrections.iter().map(Into::into).collect(),
+                    recipient_corrections: row
+                        .recipient_corrections
+                        .iter()
+                        .map(Into::into)
+                        .collect(),
                     trace: (&row.trace).into(),
                     on_hand_whole_packs: row.balance.on_hand.value(),
                     departed_whole_packs: row.balance.departed.value(),
@@ -200,6 +207,7 @@ pub struct HubTraceCountLossDto {
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct HubTraceSnapshotDto {
     pub source_corrections: Vec<HubTraceSourceCorrectionDto>,
+    pub recipient_corrections: Vec<HubTraceRecipientCorrectionDto>,
     pub hub_id: String,
     pub stock_revision: u64,
     pub catalog_revision: u64,
@@ -371,6 +379,7 @@ impl TryFrom<TraceSnapshot> for HubTraceSnapshotDto {
         let balance = value.balance().map_err(|_| invalid_input())?;
         Ok(Self {
             source_corrections: value.source_corrections.iter().map(Into::into).collect(),
+            recipient_corrections: value.recipient_corrections.iter().map(Into::into).collect(),
             hub_id: value
                 .hub
                 .as_bytes()
@@ -512,6 +521,7 @@ pub enum HubTraceHistoryKindDto {
     FoundCorrected,
     AdditionalCorrected,
     SourceAttributed,
+    RecipientAttributed,
 }
 impl From<HubTraceHistoryKind> for HubTraceHistoryKindDto {
     fn from(value: HubTraceHistoryKind) -> Self {
@@ -530,6 +540,7 @@ impl From<HubTraceHistoryKind> for HubTraceHistoryKindDto {
             HubTraceHistoryKind::FoundCorrected => Self::FoundCorrected,
             HubTraceHistoryKind::AdditionalCorrected => Self::AdditionalCorrected,
             HubTraceHistoryKind::SourceAttributed => Self::SourceAttributed,
+            HubTraceHistoryKind::RecipientAttributed => Self::RecipientAttributed,
             HubTraceHistoryKind::Handling(kind) => match kind {
                 HubHandlingKind::Move => Self::Move,
                 HubHandlingKind::Split => Self::Split,

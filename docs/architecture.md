@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 19, FFI is 5.27 and snapshot schema is 1. Rust and
+The current storage schema is 19, FFI is 5.28 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -603,3 +603,13 @@ and rejects stale generations or other identities. Setup uses an original stable
 operation ID and atomically writes its context/history; retry returns the same
 result. Hub metadata remains after identity removal. UI and stock operations are
 still being implemented; the native policy is not a complete food-hub workflow.
+
+Native recipient amendments retain the complete original event, every population
+and issued version, before/after parties, explicit unknown, actor, basis and manual
+follow-up scope. They change current meaning without changing physical quantities,
+work, holds, return funding or issued bytes. Original and current recipients remain
+visible in typed paged trace reads, search and local output. Fresh submission
+admission is required; persisted pending input cannot reconstruct an execution
+grant. Public recipient-entry forms remain unfinished. Fresh actual-review/link
+planning is temporarily blocked after recipient history until the current
+association adapter is qualified; original recovery and raw reporting remain.

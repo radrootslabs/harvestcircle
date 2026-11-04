@@ -34,6 +34,7 @@ impl Targets {
             HubSubmittedRequest::FoundCorrection(_) => {}
             HubSubmittedRequest::AdditionalQuantity(_) => {}
             HubSubmittedRequest::SourceAttribution(_) => {}
+            HubSubmittedRequest::RecipientAttribution(_) => {}
             HubSubmittedRequest::Reference(c) => match &c.mutation {
                 ReferenceMutation::Create { value, .. } => t.reference_value(value),
                 ReferenceMutation::Revise { id, value, .. } => {
@@ -163,6 +164,9 @@ pub(super) fn expected_versions(
             Some(c.facts.expected_stock_revision),
             c.facts.expected_catalog_revision,
         ),
+        HubSubmittedRequest::RecipientAttribution(c) => {
+            (Some(c.expected_stock_revision), c.expected_catalog_revision)
+        }
         HubSubmittedRequest::SourceAttribution(c) => {
             (Some(c.expected_stock_revision), c.expected_catalog_revision)
         }

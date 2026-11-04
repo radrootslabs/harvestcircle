@@ -92,6 +92,9 @@ class TracePresenter(
                 actualDeparturesOffset = 0,
                 quantityCorrectionsOffset = 0,
                 sourceCorrectionsOffset = 0,
+                recipientCorrectionsOffset = 0,
+                recipientImpactOperationId = null,
+                recipientImpactOffset = 0,
                 sourceImpactOperationId = null,
                 sourceImpactOffset = 0,
             )
@@ -99,6 +102,15 @@ class TracePresenter(
             val snapshot = requireNotNull(runtime).traceSnapshot(HubTraceSnapshotQuery(id))
             check(snapshot.trace.id == id)
             check(snapshot.sourceCorrections.size <= 4096 && snapshot.sourceCorrections.all { it.impact.size <= 4096 })
+            check(
+                snapshot.recipientCorrections.size <= 4096 &&
+                    snapshot.recipientCorrections.all {
+                        it.impact.size <= 4096 &&
+                            it.originalPopulationIds.size <= 4096 &&
+                            it.originalIssuedVersionIds.size <= 4096
+                    },
+            )
+
             check(snapshot.quantityCorrections.size <= 4096 && snapshot.quantityCorrections.sumOf { it.amendments.size.toLong() } <= 4096L)
             val history = requireNotNull(runtime).traceHistory(HubTraceHistoryQuery(id, snapshot.stockRevision, snapshot.catalogRevision))
             checkHistory(snapshot, history)
@@ -175,6 +187,32 @@ class TracePresenter(
                 ?.size ?: return
         val offset = current.sourceImpactOffset + delta * 64
         if (delta in -1..1 && offset >= 0 && offset < count) mutableState.value = current.copy(sourceImpactOffset = offset)
+    }
+
+    fun recipientCorrectionsPage(delta: Int) {
+        val current = mutableState.value
+        val count = current.snapshot?.recipientCorrections?.size ?: return
+        val offset = current.recipientCorrectionsOffset + delta * 64
+        if (delta in -1..1 && offset >= 0 && offset < count) mutableState.value = current.copy(recipientCorrectionsOffset = offset)
+    }
+
+    fun recipientImpact(operation: OperationId?) {
+        val current = mutableState.value
+        if (operation == null || current.snapshot?.recipientCorrections?.any { it.operationId == operation } == true) {
+            mutableState.value = current.copy(recipientImpactOperationId = operation, recipientImpactOffset = 0)
+        }
+    }
+
+    fun recipientImpactPage(delta: Int) {
+        val current = mutableState.value
+        val count =
+            current.snapshot
+                ?.recipientCorrections
+                ?.find { it.operationId == current.recipientImpactOperationId }
+                ?.impact
+                ?.size ?: return
+        val offset = current.recipientImpactOffset + delta * 64
+        if (delta in -1..1 && offset >= 0 && offset < count) mutableState.value = current.copy(recipientImpactOffset = offset)
     }
 
     fun quantityCorrectionsPage(delta: Int) {

@@ -29,6 +29,15 @@ pub(in crate::hub) async fn apply_on(
         }
         return reviews::original_on(tx, hub.id(), prior).await;
     }
+    let current = stock::read::state_on(tx, hub.id()).await?;
+    Box::pin(
+        crate::hub::corrections::require_recipient_actual_adapter_on(
+            tx,
+            hub.id(),
+            current.revision,
+        ),
+    )
+    .await?;
     require_admission_on(tx, hub.id(), actor, &operation, "actual_review", &hash, now).await?;
     let report = reports::by_id_on(tx, hub.id(), command.report)
         .await?

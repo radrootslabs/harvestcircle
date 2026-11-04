@@ -28,15 +28,7 @@ pub(super) async fn for_line_on(
 ) -> Result<CorrectionImpactSet, SafeError> {
     let operation =
         crate::hub::actuals::common::operation(target.operation).map_err(|_| corrupt_storage())?;
-    // These attribution families are still fenced globally. Never silently
-    // omit one if a future writer becomes available before its current reader.
-    let unsupported:i64=sqlx::query_scalar(concat!(
-        "SELECT count(*) FROM hub_corrections correction JOIN hub_stock_operations original ON original.operation_id=correction.operation_id ",
-        "WHERE original.hub_id=? AND original.stock_revision<=? AND correction.family='recipient' AND correction.target_operation_id=?"
-    )).bind(hub.as_bytes().as_slice()).bind(i64::try_from(cut.value()).map_err(|_|corrupt_storage())?).bind(operation.as_str()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
-    if unsupported != 0 {
-        return Err(corrupt_storage());
-    }
+    let recipient_records = Box::pin(super::recipient_records_on(tx, hub, cut)).await?;
     let mut impact = BTreeSet::from([
         CorrectionImpact::Population(target.trace),
         CorrectionImpact::Departure(target.operation),
@@ -91,6 +83,19 @@ pub(super) async fn for_line_on(
             ));
         }
         _ => return Err(corrupt_storage()),
+    }
+    for row in recipient_records
+        .iter()
+        .filter(|r| r.original.operation == target.operation)
+    {
+        match &row.after {
+            harvestcircle_domain::hub::corrections::AmendedRecipient::Unknown => {
+                impact.insert(CorrectionImpact::UnresolvedRecipient(target.operation));
+            }
+            harvestcircle_domain::hub::corrections::AmendedRecipient::Known(party) => {
+                impact.insert(CorrectionImpact::Recipient(party.id));
+            }
+        }
     }
     CorrectionImpactSet::new(impact.into_iter().collect()).map_err(|_| corrupt_storage())
 }

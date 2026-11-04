@@ -81,13 +81,15 @@ pub(in crate::hub) async fn known_on(
             .map_err(|_| corrupt_storage())?,
     )
     .map_err(|_| corrupt_storage())?;
-    let source = handling::actuals::source_original_on(
+    // Bound composed original-reader future storage without changing its proof
+    // or inflating the caller's default stack.
+    let source = Box::pin(handling::actuals::source_original_on(
         tx,
         hub,
         &population,
         &source_operation,
         record_id(&row, "source_group")?,
-    )
+    ))
     .await?;
     if source.location.id != record_id(&row, "historical_location")?
         || source.location.revision != revision_field(&row, "historical_location_revision")?

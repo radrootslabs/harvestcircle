@@ -2,10 +2,9 @@
 use super::*;
 use harvestcircle_domain::hub::{
     corrections::{
-        AttributionAffectedDeparture, AttributionCut, AttributionError,
-        OriginalRecipientAttribution, OriginalSourceAttribution, RecipientAttributionCommand,
-        RecipientAttributionContext, RecipientAttributionCorrection, SourceAttributionCommand,
-        SourceAttributionCorrection,
+        AttributionAffectedDeparture, AttributionError, OriginalRecipientAttribution,
+        OriginalSourceAttribution, RecipientAttributionCommand, RecipientAttributionCorrection,
+        SourceAttributionCommand, SourceAttributionCorrection,
     },
     reference::{ReferenceCatalog, SourceAttribution},
 };
@@ -54,21 +53,8 @@ struct Cut {
     hub: HubId,
     revision: HubRevision,
     catalog: ReferenceCatalog,
-    latest: UnixTimestamp,
     uncertainty: crate::hub::submission::HubUncertainty,
 }
-impl Cut {
-    fn domain(&self) -> AttributionCut<'_> {
-        AttributionCut {
-            hub: self.hub,
-            stock_revision: self.revision,
-            catalog: &self.catalog,
-            latest_recorded_at: self.latest,
-            uncertain_submissions: self.uncertainty.uncertain_intent,
-        }
-    }
-}
-
 async fn cut_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     actor: PublicKey,
@@ -84,22 +70,16 @@ async fn cut_on(
     }
     // These histories require qualified original/current consumers before a
     // writer can activate them. No absent adapter becomes an empty history.
-    let unsupported:i64=sqlx::query_scalar("SELECT count(*) FROM hub_corrections WHERE family IN ('recipient','document','count_explain','count_classify')")
+    let unsupported:i64=sqlx::query_scalar("SELECT count(*) FROM hub_corrections WHERE family IN ('document','count_explain','count_classify')")
         .fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
     if unsupported != 0 {
         return Err(corrupt_storage());
     }
-    let latest:i64=sqlx::query_scalar(concat!(
-        "SELECT max(latest) FROM (SELECT COALESCE(max(recorded_at_unix_s),0) AS latest FROM hub_stock_operations WHERE hub_id=? ",
-        "UNION ALL SELECT COALESCE(max(recorded_at_unix_s),0) AS latest FROM hub_reference_versions WHERE hub_id=?)"
-    )).bind(hub.id().as_bytes().as_slice()).bind(hub.id().as_bytes().as_slice())
-        .fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
     let uncertainty = crate::hub::submission::uncertainty_all_on(tx).await?;
     Ok(Cut {
         hub: hub.id(),
         revision: state.revision,
         catalog: references,
-        latest: UnixTimestamp::from_seconds(latest).ok_or_else(corrupt_storage)?,
         uncertainty,
     })
 }
@@ -198,32 +178,32 @@ impl Database {
                         }
                         _ => return Err(stock::invalid_input()),
                     }
-                    let original =
-                        Box::pin(super::known::recipient_on(tx, cut.hub, &target)).await?;
+                    let ledger = Box::pin(super::recipient_ledger::load_on(tx, cut.hub)).await?;
+                    let mut context = Box::pin(super::recipient_context::at_on(
+                        tx,
+                        cut.hub,
+                        &ledger.records,
+                        command.departure_operation,
+                        cut.revision,
+                        cut.catalog.revision(),
+                    ))
+                    .await?;
+                    context.uncertain = cut.uncertainty.uncertain_intent;
+                    let original = context.original.clone();
                     let mut review = HubRecipientAttributionReview {
                         revision: cut.revision,
                         catalog_revision: cut.catalog.revision(),
                         proposed_operation: operation.clone(),
-                        linked_issued_versions: original.issued_versions.clone(),
+                        linked_issued_versions: context.linked_issued_versions.clone(),
                         original,
-                        history: Vec::new(),
+                        history: context.history.clone(),
                         uncertain_intent: cut.uncertainty.uncertain_intent,
                         unresolved_actual: cut.uncertainty.unresolved_actual,
                         outcome: HubAttributionReviewOutcome::OperationAlreadyUsed,
                     };
                     if !crate::hub::submission::operation_exists_on(tx, &operation).await? {
                         let own = crate::hub::actuals::common::operation_id(&operation)?;
-                        review.outcome = match command.plan(
-                            &RecipientAttributionContext {
-                                cut: cut.domain(),
-                                original: &review.original,
-                                history: &review.history,
-                                linked_issued_versions: &review.linked_issued_versions,
-                            },
-                            own,
-                            actor,
-                            now,
-                        ) {
+                        review.outcome = match command.plan(&context.domain(), own, actor, now) {
                             Ok(plan) => HubAttributionReviewOutcome::Candidate(Box::new(plan)),
                             Err(error) => HubAttributionReviewOutcome::Blocked(error),
                         };

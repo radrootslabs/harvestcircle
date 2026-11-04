@@ -152,7 +152,7 @@ private fun TraceBrowser(
         )
         if (page.selection.text.isNotEmpty()) {
             HarvestCircleShellText(
-                "Results for recorded original and amended source fields: ${page.selection.text}",
+                "Results for recorded original and amended source or recipient fields: ${page.selection.text}",
             )
         }
         if (page.rows.isEmpty()) {
@@ -174,6 +174,13 @@ private fun TraceBrowser(
                 }
                 HarvestCircleShellText("Original source: ${traceSourceMeaning(row.trace.source)}")
                 if (row.trace.sourceNeedsReview) HarvestCircleShellText("Original source review needed")
+                if (row.recipientCorrections.isNotEmpty()) {
+                    HarvestCircleShellText(
+                        "${row.recipientCorrections.size} linked recipient amendments; original event and paper retained",
+                    )
+                    HarvestCircleShellText("Open the recorded trace to inspect each event's original and current recipient interpretation.")
+                }
+
                 row.sourceCorrections.lastOrNull()?.let { correction ->
                     HarvestCircleShellText(
                         "Current source interpretation: ${traceSourceMeaning(correction.after)}",
@@ -244,7 +251,7 @@ private fun TraceOverview(
         snapshot.actualDepartures.drop(state.actualDeparturesOffset).take(64).forEach { actual ->
             HarvestCircleShellPanel {
                 HarvestCircleShellText(
-                    "${actual.wholePacks} packs · Recipient ${actual.recipient.value.label}",
+                    "${actual.wholePacks} packs · Recipient as recorded ${actual.recipient.value.label}",
                     role = HarvestCircleShellTextRole.BodyStrong,
                 )
                 HarvestCircleShellText("Report ${actual.reportId} · Review ${actual.operationId.value}")
@@ -293,13 +300,14 @@ private fun TraceOverview(
         }
     }
     TraceSourceCorrections(state, presenter)
+    TraceRecipientCorrections(state, presenter)
     TraceQuantityCorrections(state, presenter)
     HarvestCircleShellText("Retained documented departure lines", role = HarvestCircleShellTextRole.SectionTitle)
     if (snapshot.exits.isEmpty()) HarvestCircleShellText("No documented departure in this population.")
     snapshot.exits.drop(state.exitsOffset).take(64).forEach { exit ->
         HarvestCircleShellPanel {
             HarvestCircleShellText(
-                "${exit.wholePacks} original packs · Recipient ${exit.recipient.value.label}",
+                "${exit.wholePacks} original packs · Recipient as issued ${exit.recipient.value.label}",
                 role = HarvestCircleShellTextRole.BodyStrong,
             )
             HarvestCircleShellText(exit.observation)
@@ -463,4 +471,5 @@ private fun traceActionLabel(kind: HubTraceHistoryKind): String =
         HubTraceHistoryKind.FoundCorrected -> "Found stock correction posted"
         HubTraceHistoryKind.AdditionalCorrected -> "Additional departure quantity corrected"
         HubTraceHistoryKind.SourceAttributed -> "Source attribution amended; original retained"
+        HubTraceHistoryKind.RecipientAttributed -> "Recipient attribution amended; original retained"
     }

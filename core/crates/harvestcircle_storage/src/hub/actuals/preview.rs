@@ -87,6 +87,7 @@ impl Database {
                 .bind(report.id.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_| storage_unavailable())?;
             if reviewed.is_some() { return Err(stock::conflict()); }
             let state = stock::read::state_on(tx, hub.id()).await?;
+            Box::pin(crate::hub::corrections::require_recipient_actual_adapter_on(tx,hub.id(),state.revision)).await?;
             let catalog = reference::load_catalog_on(tx, hub.id()).await?;
             let known = handling::actuals::known_departures_on(tx, hub.id(), command.known_trace, state.revision).await?.into_iter().find(|known| known.operation == command.known_operation && known.variant.id == command.known_variant).ok_or_else(stock::invalid_input)?;
             let plan = command.plan(&report, &known, None, operation_id(&operation)?, actor, now).map_err(error)?;

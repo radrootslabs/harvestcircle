@@ -45,6 +45,8 @@ impl HubTraceQuery {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HubTraceRow {
+    pub recipient_corrections:
+        Vec<harvestcircle_domain::hub::corrections::RecipientAttributionCorrection>,
     pub source_corrections:
         Vec<harvestcircle_domain::hub::corrections::SourceAttributionCorrection>,
     pub trace: StockPopulation,
@@ -114,6 +116,7 @@ pub enum HubTraceHistoryKind {
     FoundCorrected,
     AdditionalCorrected,
     SourceAttributed,
+    RecipientAttributed,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HubTraceHistoryEntry {
