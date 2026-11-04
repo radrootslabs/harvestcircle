@@ -174,13 +174,26 @@ pub(in crate::hub) async fn uncertainty_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     except: &DurableRequestId,
 ) -> Result<HubUncertainty, SafeError> {
+    uncertainty_with_exception_on(tx, Some(except)).await
+}
+
+pub(in crate::hub) async fn uncertainty_all_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+) -> Result<HubUncertainty, SafeError> {
+    uncertainty_with_exception_on(tx, None).await
+}
+
+async fn uncertainty_with_exception_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    except: Option<&DurableRequestId>,
+) -> Result<HubUncertainty, SafeError> {
     let pending:i64=sqlx::query_scalar(concat!(
-        "SELECT count(*) FROM hub_submissions s WHERE s.operation_id<>? ",
+        "SELECT count(*) FROM hub_submissions s WHERE (? IS NULL OR s.operation_id<>?) ",
         "AND NOT EXISTS (SELECT 1 FROM hub_submission_rejections r WHERE r.operation_id=s.operation_id) ",
         "AND NOT EXISTS (SELECT 1 FROM hub_history h WHERE h.operation_id=s.operation_id AND s.kind='initialize' AND h.event_kind='initialized' AND h.hub_id=s.hub_id AND h.actor_public_key=s.actor_public_key AND h.recorded_at_unix_s>=s.submitted_at_unix_s) ",
         "AND NOT EXISTS (SELECT 1 FROM hub_reference_versions v WHERE v.operation_id=s.operation_id AND s.kind='reference' AND v.hub_id=s.hub_id AND v.actor_public_key=s.actor_public_key AND v.intent_hash=s.domain_intent_hash AND v.recorded_at_unix_s>=s.submitted_at_unix_s) ",
         "AND NOT EXISTS (SELECT 1 FROM hub_stock_operations o WHERE o.operation_id=s.operation_id AND o.hub_id=s.hub_id AND o.actor_public_key=s.actor_public_key AND o.kind=s.kind AND o.intent_hash=s.domain_intent_hash AND o.recorded_at_unix_s>=s.submitted_at_unix_s)"
-    )).bind(except.as_str()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    )).bind(except.map(DurableRequestId::as_str)).bind(except.map(DurableRequestId::as_str)).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
     let actual: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM hub_actual_report_reviews WHERE review_operation_id IS NULL",
     )

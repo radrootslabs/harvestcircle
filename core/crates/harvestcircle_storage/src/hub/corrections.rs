@@ -146,6 +146,13 @@ pub(in crate::hub) mod quantity;
 pub(in crate::hub) mod return_allowances;
 pub(in crate::hub) mod return_capture;
 pub(in crate::hub) mod return_projection;
+pub(in crate::hub) mod target_funding;
+pub use target_funding::{HubCorrectionFundingEvidence, HubCorrectionFundingQuery};
+mod found_review;
+pub use found_review::{
+    HubFoundCorrectionReview, HubFoundCorrectionReviewBlocker, HubFoundCorrectionReviewOutcome,
+    HubFoundCorrectionReviewQuery,
+};
 pub(crate) mod schema;
 #[cfg(test)]
 mod tests;

@@ -1,4 +1,5 @@
 use super::*;
+mod balancing;
 use crate::hub::actuals::{
     ActualKnownDepartureLine, ActualReportCommand, ActualReportSources, HistoricalActualSource,
     ReportedActualSource,
@@ -228,6 +229,7 @@ impl Fixture {
             },
             source_operation: self.source.operation,
             source_group: self.source.group.id,
+            balancing_group: self.group.id,
             expected_balancing_revision: self.group.revision,
             duplicate_review_basis: note(),
         }

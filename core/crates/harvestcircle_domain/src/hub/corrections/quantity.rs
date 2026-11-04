@@ -53,6 +53,9 @@ pub struct AdditionalQuantityCommand {
     pub facts: CorrectedLineFacts,
     pub source_operation: HubRecordId,
     pub source_group: HubRecordId,
+    /// Exact present physical group selected for balancing. The historical
+    /// source may be its ancestor and does not select a descendant implicitly.
+    pub balancing_group: HubRecordId,
     pub expected_balancing_revision: HubRevision,
     pub duplicate_review_basis: SourceProvenance,
 }
@@ -212,6 +215,7 @@ impl AdditionalQuantityCommand {
         let source = &context.historical_source;
         if source.source.operation != self.source_operation
             || source.source.group.id != self.source_group
+            || source.balancing_group.id != self.balancing_group
             || source.lineage.hub() != context.hub
             || source.lineage.trace() != target.trace
             || source.lineage.variant() != target.variant

@@ -101,7 +101,7 @@ impl AdditionalQuantityCommand {
     pub fn fingerprint(&self, hub: HubId, actor: PublicKey, operation: HubRecordId) -> [u8; 32] {
         let facts = &self.facts;
         let mut hash = header(
-            b"harvestcircle.hub.correction.additional.command.v1\0",
+            b"harvestcircle.hub.correction.additional.command.v2\0",
             hub,
             actor,
             operation,
@@ -125,6 +125,7 @@ impl AdditionalQuantityCommand {
         }
         hash.update(self.source_operation.as_bytes());
         hash.update(self.source_group.as_bytes());
+        hash.update(self.balancing_group.as_bytes());
         hash.update(self.expected_balancing_revision.value().to_be_bytes());
         hash_text(&mut hash, self.duplicate_review_basis.as_str());
         hash.finalize().into()

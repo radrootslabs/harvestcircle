@@ -1,6 +1,6 @@
 //! Native submitted semantics, durable admission, current-session fencing and recovery reads.
 mod admission;
-pub(in crate::hub) use admission::uncertainty_on;
+pub(in crate::hub) use admission::{uncertainty_all_on, uncertainty_on};
 mod capture;
 mod execute;
 mod intent;

@@ -22,9 +22,11 @@ use harvestcircle_domain::hub::{
     treatment::{InitialGroupReview, TreatmentStamp, treatment_record_id},
 };
 use sqlx::Connection;
+mod found_review_tests;
 mod quantity_tests;
 mod return_current_tests;
 mod return_funding_tests;
+mod target_funding_tests;
 
 fn at(n: i64) -> UnixTimestamp {
     UnixTimestamp::from_seconds(n).unwrap()

@@ -18,18 +18,18 @@ pub(in crate::hub) struct CapturedReturnContext {
     pub allowances: Option<ReturnAllowanceCapture>,
 }
 #[derive(Serialize)]
-struct Credit {
-    operation: HubRecordId,
-    stock_revision: HubRevision,
-    allocation: u8,
-    child: HubRecordId,
-    debit: PhysicalDebitKey,
-    packs: WholePacks,
-    projection_hash: [u8; 32],
-    initial_review_hash: [u8; 32],
+pub(super) struct Credit {
+    pub(super) operation: HubRecordId,
+    pub(super) stock_revision: HubRevision,
+    pub(super) allocation: u8,
+    pub(super) child: HubRecordId,
+    pub(super) debit: PhysicalDebitKey,
+    pub(super) packs: WholePacks,
+    pub(super) projection_hash: [u8; 32],
+    pub(super) initial_review_hash: [u8; 32],
 }
 
-async fn credits_on(
+pub(super) async fn credits_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     line: &quantity::CanonicalLine,

@@ -4,7 +4,7 @@ use crate::hub::corrections::quantity::{self, QuantityProjection};
 use harvestcircle_domain::hub::corrections::{DepartureQuantityAmendment, DepartureQuantityDelta};
 mod allowance_tests;
 
-async fn insert_projection(world: &World, broken: bool) {
+pub(super) async fn insert_projection(world: &World, broken: bool) {
     insert_projection_packs(world, broken, world.projection.group.packs).await;
 }
 
@@ -221,6 +221,28 @@ async fn mixed_found_and_additional_heads_keep_the_original_and_each_cut() {
     assert_eq!(
         line.quantity_head.unwrap().operation,
         value.amendment.operation
+    );
+    let material = crate::hub::custody::tests::material(&world.fixture).await;
+    let target = crate::hub::actuals::common::operation(world.projection.target_operation).unwrap();
+    let full = world
+        .db
+        .host()
+        .transaction(|tx| {
+            Box::pin(async move {
+                crate::hub::corrections::target_funding::load_on(tx, hub, &target, group, revision)
+                    .await
+            })
+        })
+        .await
+        .map_err(map_transaction_error);
+    assert_eq!(
+        full.err().unwrap().code(),
+        harvestcircle_domain::SafeErrorCode::StorageCorrupt,
+        "scalar additional metadata is not a complete physical debit proof"
+    );
+    assert_eq!(
+        crate::hub::custody::tests::material(&world.fixture).await,
+        material
     );
     assert_eq!(
         world

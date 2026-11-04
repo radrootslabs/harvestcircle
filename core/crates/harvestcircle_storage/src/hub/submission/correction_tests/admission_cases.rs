@@ -129,6 +129,21 @@ async fn dropped_observation_grant_remains_exact_pending_after_reopen_and_never_
         .unwrap();
     assert!(matches!(decision, admission::Decision::Fresh(_)));
     drop(decision);
+    let flags = db
+        .host()
+        .transaction(|tx| {
+            Box::pin(async move {
+                let all = admission::uncertainty_all_on(tx).await?;
+                let except = admission::uncertainty_on(tx, &operation(2)).await?;
+                Ok::<_, SafeError>((
+                    (all.uncertain_intent, all.unresolved_actual),
+                    (except.uncertain_intent, except.unresolved_actual),
+                ))
+            })
+        })
+        .await
+        .unwrap();
+    assert_eq!(flags, ((true, false), (false, false)));
     let pending = db
         .hub_submission(owner(), operation(2))
         .await

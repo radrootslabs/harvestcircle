@@ -100,11 +100,12 @@ fn additional_intent_hashes_the_factual_total_and_exact_independent_balancing_so
         },
         source_operation: id(4),
         source_group: id(5),
+        balancing_group: id(8),
         expected_balancing_revision: rev(2),
         duplicate_review_basis: note(),
     };
     let original = command.fingerprint(hub(), actor(), id(20));
-    for field in 0..8 {
+    for field in 0..9 {
         let mut changed = command.clone();
         match field {
             0 => changed.facts.corrected_line_packs = WholePacks::from_value(2).unwrap(),
@@ -118,6 +119,7 @@ fn additional_intent_hashes_the_factual_total_and_exact_independent_balancing_so
                 changed.duplicate_review_basis =
                     SourceProvenance::new("Other duplicate review evidence").unwrap()
             }
+            8 => changed.balancing_group = id(9),
             _ => unreachable!(),
         }
         assert_ne!(original, changed.fingerprint(hub(), actor(), id(20)));
