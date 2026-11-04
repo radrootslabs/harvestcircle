@@ -172,6 +172,22 @@ pub struct HubSubmittedActualLink {
     pub known: harvestcircle_domain::hub::actuals::ActualKnownDeparture,
 }
 
+/// Native facts at the proposed found correction's admission cut. This is
+/// descriptive material only; it has no decoder or execution-grant constructor.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct HubSubmittedFoundCorrection {
+    pub id: HubRecordId,
+    pub observation: harvestcircle_domain::hub::corrections::CorrectionObservationRecord,
+    pub quantity: harvestcircle_domain::hub::corrections::DepartureQuantityAccount,
+    pub debits: Vec<harvestcircle_domain::hub::corrections::PhysicalDebitFunding>,
+    pub lineage: harvestcircle_domain::hub::portions::PhysicalLineage,
+    pub treatment: harvestcircle_domain::hub::treatment::TreatmentState,
+    pub active_identifications: Vec<harvestcircle_domain::hub::movement::PhysicalIdentification>,
+    pub group_count: usize,
+    pub latest_recorded_at: harvestcircle_domain::UnixTimestamp,
+    pub uncertain_submissions: bool,
+}
+
 /// Native adapters capture only referenced/affected records at the admission cut.
 /// A record's presence does not establish current authority or safe reconciliation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -189,6 +205,7 @@ pub enum HubSubmittedMaterial {
     Disposition(Box<HubSubmittedDisposition>),
     ActualReview(Box<HubSubmittedActualReview>),
     ActualLink(Box<HubSubmittedActualLink>),
+    FoundCorrection(Box<HubSubmittedFoundCorrection>),
 }
 impl HubSubmittedMaterial {
     fn identity(&self) -> (u8, HubRecordId, u64) {
@@ -205,6 +222,7 @@ impl HubSubmittedMaterial {
             Self::Disposition(v) => (9, v.id, 0),
             Self::ActualReview(v) => (10, v.id, 0),
             Self::ActualLink(v) => (11, v.id, 0),
+            Self::FoundCorrection(v) => (12, v.id, 0),
         }
     }
 }

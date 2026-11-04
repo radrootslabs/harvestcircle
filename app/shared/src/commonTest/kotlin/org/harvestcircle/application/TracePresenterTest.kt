@@ -16,6 +16,52 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class TracePresenterTest {
     @Test
+    fun correctionPagingKeepsNativeOriginalCurrentAndReturnFactsAcrossRefresh() =
+        runTest {
+            val original = TraceFake().snapshot.copy(quantityCorrections = traceCorrectionRows(65))
+            val runtime =
+                object : TraceFake() {
+                    override suspend fun traceSnapshot(query: HubTraceSnapshotQuery) = original
+                }
+            val presenter = TracePresenter(runtime, this)
+            presenter.attach("hub")
+            presenter.openReceipt(StockFixtures.trace.id)
+            runCurrent()
+            assertEquals(original, presenter.state.value.snapshot)
+            presenter.quantityCorrectionsPage(-1)
+            assertEquals(0, presenter.state.value.quantityCorrectionsOffset)
+            presenter.quantityCorrectionsPage(1)
+            assertEquals(64, presenter.state.value.quantityCorrectionsOffset)
+            presenter.quantityCorrectionsPage(1)
+            presenter.quantityCorrectionsPage(2)
+            assertEquals(64, presenter.state.value.quantityCorrectionsOffset)
+            assertEquals(original, presenter.state.value.snapshot)
+            presenter.refresh()
+            runCurrent()
+            assertEquals(0, presenter.state.value.quantityCorrectionsOffset)
+            assertEquals(original, presenter.state.value.snapshot)
+            presenter.close()
+        }
+
+    @Test
+    fun excessiveCorrectionHistoryNeverPublishesAnUnboundedSnapshot() =
+        runTest {
+            val runtime =
+                object : TraceFake() {
+                    override suspend fun traceSnapshot(query: HubTraceSnapshotQuery) =
+                        snapshot.copy(quantityCorrections = traceCorrectionRows(4097))
+                }
+            val presenter = TracePresenter(runtime, this)
+            presenter.attach("hub")
+            presenter.openReceipt(StockFixtures.trace.id)
+            runCurrent()
+            assertNull(presenter.state.value.snapshot)
+            assertNotNull(presenter.state.value.message)
+            assertTrue(runtime.historyQueries.isEmpty())
+            presenter.close()
+        }
+
+    @Test
     fun dismissalUsesShellBackAndEscapeWhileModalPriorityAndPrimaryNavigationRemainIntact() =
         runTest {
             val presenter = TracePresenter(TraceFake(), this)

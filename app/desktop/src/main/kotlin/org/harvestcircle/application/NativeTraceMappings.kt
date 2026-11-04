@@ -7,6 +7,7 @@ import org.harvestcircle.ffi.HubTraceHistoryKindDto
 import org.harvestcircle.ffi.HubTraceHistoryPageDto
 import org.harvestcircle.ffi.HubTraceHistoryQueryDto
 import org.harvestcircle.ffi.HubTracePageDto
+import org.harvestcircle.ffi.HubTraceQuantityAmendmentKindDto
 import org.harvestcircle.ffi.HubTraceQueryDto
 import org.harvestcircle.ffi.HubTraceScopeDto
 import org.harvestcircle.ffi.HubTraceSelectionDto
@@ -138,6 +139,29 @@ internal fun HubTraceSnapshotDto.toModel() =
         },
         actualDepartedWholePacks,
         actualDepartures.map { it.toModel() },
+        quantityCorrections.map { correction ->
+            HubTraceQuantityCorrection(
+                OperationId.from(correction.originalOperationId),
+                correction.originalGroupId,
+                correction.originalWholePacks,
+                correction.effectiveWholePacks,
+                correction.establishedReturnWholePacks,
+                correction.amendments.map { amendment ->
+                    HubTraceQuantityAmendment(
+                        OperationId.from(amendment.operationId),
+                        amendment.stockRevision,
+                        amendment.beforeWholePacks,
+                        amendment.afterWholePacks,
+                        when (amendment.kind) {
+                            HubTraceQuantityAmendmentKindDto.ADDITIONAL_DEPARTURE -> HubTraceQuantityAmendmentKind.AdditionalDeparture
+                            HubTraceQuantityAmendmentKindDto.IDENTIFIED_FOUND_REMAINDER ->
+                                HubTraceQuantityAmendmentKind.IdentifiedFoundRemainder
+                        },
+                        amendment.deltaWholePacks,
+                    )
+                },
+            )
+        },
     )
 
 private fun HubTraceHistoryKindDto.toModel() =
@@ -166,6 +190,8 @@ private fun HubTraceHistoryKindDto.toModel() =
         HubTraceHistoryKindDto.ACTUAL_REPORTED -> HubTraceHistoryKind.ActualReported
         HubTraceHistoryKindDto.ACTUAL_RECONCILED -> HubTraceHistoryKind.ActualReconciled
         HubTraceHistoryKindDto.ACTUAL_LINKED -> HubTraceHistoryKind.ActualLinked
+        HubTraceHistoryKindDto.CORRECTION_OBSERVED -> HubTraceHistoryKind.CorrectionObserved
+        HubTraceHistoryKindDto.FOUND_CORRECTED -> HubTraceHistoryKind.FoundCorrected
     }
 
 internal fun HubTraceHistoryPageDto.toModel() =

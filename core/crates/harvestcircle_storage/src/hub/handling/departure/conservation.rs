@@ -27,6 +27,7 @@ pub(in crate::hub) async fn trace_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     trace: HubRecordId,
+    cut: HubRevision,
 ) -> Result<WholePacks, SafeError> {
     let row=sqlx::query(concat!(
         "SELECT count(*) AS n,COALESCE(sum(l.packs),0) AS packs,count(CASE WHEN d.operation_id IS NULL OR o.operation_id IS NULL OR i.identification_id IS NULL OR m.operation_id IS NULL OR g.group_id IS NULL OR ",
@@ -36,8 +37,8 @@ pub(in crate::hub) async fn trace_on(
         "e.from_location_id=l.location_id AND e.from_location_revision=l.location_revision AND e.to_location_id IS NULL AND e.to_location_revision IS NULL AND e.occurrence_kind=d.occurrence_kind AND e.occurrence_start_unix_s IS d.occurrence_start_unix_s AND e.occurrence_end_unix_s IS d.occurrence_end_unix_s)<>1 ",
         "THEN 1 END) AS invalid FROM hub_departure_lines l LEFT JOIN hub_departures d ON d.operation_id=l.operation_id ",
         "LEFT JOIN hub_stock_operations o ON o.operation_id=d.operation_id LEFT JOIN hub_dispatch_identifications i ON i.identification_id=d.identification_id ",
-        "LEFT JOIN hub_dispatch_material_lines m ON m.operation_id=i.material_operation_id AND m.ordinal=l.ordinal LEFT JOIN hub_stock_groups g ON g.group_id=l.group_id WHERE l.trace_id=?"
-    )).bind(hub.as_bytes().as_slice()).bind(trace.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+        "LEFT JOIN hub_dispatch_material_lines m ON m.operation_id=i.material_operation_id AND m.ordinal=l.ordinal LEFT JOIN hub_stock_groups g ON g.group_id=l.group_id WHERE l.trace_id=? AND (o.stock_revision<=? OR o.operation_id IS NULL)"
+    )).bind(hub.as_bytes().as_slice()).bind(trace.as_bytes().as_slice()).bind(i64::try_from(cut.value()).map_err(|_|corrupt_storage())?).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
     let n: i64 = row.try_get("n").map_err(|_| corrupt_storage())?;
     if !(0..=harvestcircle_domain::hub::portions::HUB_LINEAGE_GROUPS as i64).contains(&n)
         || row
@@ -47,5 +48,37 @@ pub(in crate::hub) async fn trace_on(
     {
         return Err(corrupt_storage());
     }
-    stock::read::whole_packs(row.try_get("packs").map_err(|_| corrupt_storage())?)
+    let gross = stock::read::whole_packs(row.try_get("packs").map_err(|_| corrupt_storage())?)?;
+    let lines=sqlx::query("SELECT substr(line.operation_id,1,37) AS operation,substr(line.group_id,1,17) AS group_id,line.packs FROM hub_departure_lines line JOIN hub_stock_operations original ON original.operation_id=line.operation_id WHERE line.trace_id=? AND original.hub_id=? AND original.stock_revision<=? ORDER BY original.stock_revision,line.ordinal LIMIT 257")
+        .bind(trace.as_bytes().as_slice()).bind(hub.as_bytes().as_slice()).bind(i64::try_from(cut.value()).map_err(|_|corrupt_storage())?).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    if i64::try_from(lines.len()).map_err(|_| corrupt_storage())? != n {
+        return Err(corrupt_storage());
+    }
+    let mut verified_gross = WholePacks::from_value(0).expect("zero");
+    let mut net = verified_gross;
+    for line in lines {
+        let operation = harvestcircle_application::DurableRequestId::parse(
+            line.try_get::<String, _>("operation")
+                .map_err(|_| corrupt_storage())?,
+        )
+        .map_err(|_| corrupt_storage())?;
+        let group = stock::read::record_id(&line, "group_id")?;
+        let packs =
+            stock::read::whole_packs(line.try_get("packs").map_err(|_| corrupt_storage())?)?;
+        verified_gross = verified_gross
+            .checked_add(packs)
+            .map_err(|_| corrupt_storage())?;
+        net = net
+            .checked_add(
+                Box::pin(crate::hub::corrections::physical_balance::original_net_on(
+                    tx, hub, &operation, group, packs, cut,
+                ))
+                .await?,
+            )
+            .map_err(|_| corrupt_storage())?;
+    }
+    if verified_gross != gross {
+        return Err(corrupt_storage());
+    }
+    Ok(net)
 }

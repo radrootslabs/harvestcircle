@@ -90,10 +90,12 @@ class TracePresenter(
                 countLossesOffset = 0,
                 dispositionsOffset = 0,
                 actualDeparturesOffset = 0,
+                quantityCorrectionsOffset = 0,
             )
         read {
             val snapshot = requireNotNull(runtime).traceSnapshot(HubTraceSnapshotQuery(id))
             check(snapshot.trace.id == id)
+            check(snapshot.quantityCorrections.size <= 4096 && snapshot.quantityCorrections.sumOf { it.amendments.size.toLong() } <= 4096L)
             val history = requireNotNull(runtime).traceHistory(HubTraceHistoryQuery(id, snapshot.stockRevision, snapshot.catalogRevision))
             checkHistory(snapshot, history)
             check(history.offset == 0U)
@@ -143,6 +145,13 @@ class TracePresenter(
         val count = current.snapshot?.onHand?.size ?: return
         val offset = current.positionsOffset + delta * 64
         if (delta in -1..1 && offset >= 0 && offset < count) mutableState.value = current.copy(positionsOffset = offset)
+    }
+
+    fun quantityCorrectionsPage(delta: Int) {
+        val current = mutableState.value
+        val count = current.snapshot?.quantityCorrections?.sumOf { it.amendments.size } ?: return
+        val offset = current.quantityCorrectionsOffset + delta * 64
+        if (delta in -1..1 && offset >= 0 && offset < count) mutableState.value = current.copy(quantityCorrectionsOffset = offset)
     }
 
     fun exitsPage(delta: Int) {

@@ -234,6 +234,17 @@ pub(in crate::hub) async fn activity_on(
         let group = record_id(&row, "group_id")?;
         let node = graph.node(group).ok_or_else(corrupt_storage)?;
         let kind = match op.kind.as_str() {
+            "correction_found" => {
+                let birth = crate::hub::corrections::birth::birth_on(tx, hub, &op, group).await?;
+                if node.created_revision != revision
+                    || birth.group.trace != graph.trace()
+                    || birth.group.parent != node.parent
+                    || node.recovery != Some(birth.recovery)
+                {
+                    return Err(corrupt_storage());
+                }
+                Activity::GroupBorn
+            }
             "move" => {
                 history::movement_on(tx, hub, op).await?;
                 if node.created_revision == revision {
@@ -405,6 +416,7 @@ pub(in crate::hub) async fn physical_outflows_on(
             .await?
             .ok_or_else(corrupt_storage)?;
         let revision = op.revision;
+        let corrected = matches!(op.kind.as_str(), "departure" | "actual_review");
         let outflows: Vec<(HubRecordId, WholePacks)> = match op.kind.as_str() {
             "actual_review" => {
                 let known = crate::hub::actuals::projection::known_on(tx, hub, &op).await?;
@@ -454,6 +466,19 @@ pub(in crate::hub) async fn physical_outflows_on(
             if node.created_revision.value() >= revision.value() || packs.value() == 0 {
                 return Err(corrupt_storage());
             }
+            let packs = if corrected {
+                Box::pin(crate::hub::corrections::physical_balance::original_net_on(
+                    tx,
+                    hub,
+                    &operation,
+                    group,
+                    packs,
+                    graph.revision(),
+                ))
+                .await?
+            } else {
+                packs
+            };
             let prior = totals
                 .entry(group)
                 .or_insert(WholePacks::from_value(0).expect("zero"));

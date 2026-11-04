@@ -254,6 +254,9 @@ pub struct TraceBalance {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TraceSnapshot {
+    /// Complete native accounts for every amended original line. Originals in
+    /// exits/actual_departures remain gross, independently readable evidence.
+    pub quantity_corrections: Vec<super::corrections::DepartureQuantityAccount>,
     pub hub: HubId,
     pub stock_revision: HubRevision,
     pub catalog_revision: HubRevision,
@@ -411,6 +414,9 @@ impl TraceSnapshot {
                 .checked_add(physical.packs().map_err(|_| TraceError::InvalidSnapshot)?)
                 .map_err(|_| TraceError::Accounting)?;
         }
+        if !self.quantity_corrections.is_empty() {
+            return self.corrected_balance(on_hand, disposed);
+        }
         if on_hand
             .checked_add(departed)
             .and_then(|total| total.checked_add(counted_loss))
@@ -429,6 +435,117 @@ impl TraceSnapshot {
             counted_loss,
             disposed,
             actual_departed,
+        })
+    }
+
+    fn corrected_balance(
+        &self,
+        on_hand: WholePacks,
+        disposed: WholePacks,
+    ) -> Result<TraceBalance, TraceError> {
+        use super::corrections::{
+            CorrectedTraceQuantityContext, CorrectionError, CountLossQuantityAccount,
+            DepartureQuantityAccount, HUB_CORRECTION_ROWS, OriginalCountLossQuantity,
+            OriginalDepartureQuantity,
+        };
+        if self.quantity_corrections.len() > HUB_CORRECTION_ROWS {
+            return Err(TraceError::Capacity);
+        }
+        let mut amended = BTreeMap::new();
+        let mut rows = 0_usize;
+        for account in &self.quantity_corrections {
+            let original = account.original();
+            if account.amendments().is_empty()
+                || amended
+                    .insert((original.operation, original.group), account)
+                    .is_some()
+                || account
+                    .amendments()
+                    .iter()
+                    .any(|a| a.stock_revision.value() > self.stock_revision.value())
+            {
+                return Err(TraceError::InvalidSnapshot);
+            }
+            rows = rows
+                .checked_add(account.amendments().len())
+                .ok_or(TraceError::Capacity)?;
+            if rows > HUB_CORRECTION_ROWS {
+                return Err(TraceError::Capacity);
+            }
+        }
+        let zero = WholePacks::from_value(0).expect("zero");
+        let mut account =
+            |original: OriginalDepartureQuantity| -> Result<DepartureQuantityAccount, TraceError> {
+                match amended.remove(&(original.operation, original.group)) {
+                    Some(account) if account.original() == original => Ok(account.clone()),
+                    Some(_) => Err(TraceError::InvalidSnapshot),
+                    None => DepartureQuantityAccount::restore(original, Vec::new(), zero)
+                        .map_err(|_| TraceError::InvalidSnapshot),
+                }
+            };
+        let mut departures = Vec::with_capacity(self.exits.len());
+        for exit in &self.exits {
+            departures.push(account(OriginalDepartureQuantity {
+                operation: exit.departure.operation,
+                group: exit.group,
+                trace: self.trace.id,
+                variant: self.trace.variant.id,
+                stock_revision: exit.departure.stock_revision,
+                packs: exit.packs,
+            })?);
+        }
+        let mut actual_departures = Vec::with_capacity(self.actual_departures.len());
+        for actual in &self.actual_departures {
+            let physical = actual
+                .physical_projection()
+                .map_err(|_| TraceError::InvalidSnapshot)?;
+            for line in physical.lines {
+                actual_departures.push(account(OriginalDepartureQuantity {
+                    operation: physical.operation,
+                    group: line.group,
+                    trace: self.trace.id,
+                    variant: self.trace.variant.id,
+                    stock_revision: physical.stock_revision,
+                    packs: line.packs,
+                })?);
+            }
+        }
+        if !amended.is_empty() {
+            return Err(TraceError::InvalidSnapshot);
+        }
+        let count_losses = self
+            .count_losses
+            .iter()
+            .map(|loss| {
+                CountLossQuantityAccount::restore(
+                    OriginalCountLossQuantity {
+                        reconciliation: loss.reconciliation,
+                        operation: loss.operation,
+                        stock_revision: loss.stock_revision,
+                        trace: self.trace.id,
+                        variant: self.trace.variant.id,
+                        packs: loss.packs,
+                    },
+                    Vec::new(),
+                )
+                .map_err(|_| TraceError::InvalidSnapshot)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        CorrectedTraceQuantityContext {
+            trace: self.trace.id,
+            variant: self.trace.variant.id,
+            original: self.trace.original_packs,
+            on_hand,
+            disposed,
+            departures: &departures,
+            actual_departures: &actual_departures,
+            count_losses: &count_losses,
+        }
+        .balance()
+        .map_err(|error| match error {
+            CorrectionError::Capacity => TraceError::Capacity,
+            CorrectionError::Accounting => TraceError::Accounting,
+            _ => TraceError::InvalidSnapshot,
         })
     }
 }

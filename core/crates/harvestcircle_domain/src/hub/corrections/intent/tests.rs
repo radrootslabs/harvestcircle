@@ -18,6 +18,35 @@ fn note() -> SourceProvenance {
 }
 
 #[test]
+fn recorded_found_intent_binds_one_observation_and_the_complete_reviewed_native_cut() {
+    let command = FoundCorrectionCommand {
+        observation_operation: id(7),
+        expected_stock_revision: rev(12),
+        expected_catalog_revision: rev(3),
+    };
+    let original = command.fingerprint(hub(), actor(), id(20));
+    assert_eq!(command.fingerprint(hub(), actor(), id(20)), original);
+    for change in 0..3 {
+        let mut changed = command.clone();
+        match change {
+            0 => changed.observation_operation = id(8),
+            1 => changed.expected_stock_revision = rev(13),
+            _ => changed.expected_catalog_revision = rev(4),
+        }
+        assert_ne!(changed.fingerprint(hub(), actor(), id(20)), original);
+    }
+    assert_ne!(command.fingerprint(hub(), actor(), id(21)), original);
+    assert_ne!(
+        command.fingerprint(HubId::from_bytes([2; 16]).unwrap(), actor(), id(20)),
+        original
+    );
+    let other =
+        PublicKey::from_hex("c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5")
+            .unwrap();
+    assert_ne!(command.fingerprint(hub(), other, id(20)), original);
+}
+
+#[test]
 fn attribution_intents_bind_context_unknowns_heads_and_manual_work_separately() {
     let source = SourceAttributionCommand {
         trace: id(2),

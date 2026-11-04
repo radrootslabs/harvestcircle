@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 19, FFI is 5.24 and snapshot schema is 1. Rust and
+The current storage schema is 19, FFI is 5.25 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -167,8 +167,22 @@ Schema19 prepares append-only correction records and retains raw correction
 observations without changing physical stock or work. These observations preserve
 unverified or zero facts for later review. They reserve bounded closure space;
 supersession transfers that reservation while keeping the earlier original.
-Correction posting and its desktop editors remain unfinished. Found and additional
-stock effects stay unavailable until complete native consumers are qualified.
+Native found-stock posting consumes one exact recorded observation through fresh
+owned admission. It creates up to 64 independently identified, review-required
+children, keeps the original physical debit and paperwork, and records a separate
+current quantity amendment. It restores neither the old group nor its handling
+work. Full original recovery binds immutable native admission, captured historical
+facts, every child birth, the initial negative review and downstream manual scope.
+Additional-stock, source, recipient and classification posting remain unavailable;
+correction posting has no desktop command or editor yet.
+
+Current trace reads retain gross original departures separately from native
+effective quantities, established returns and ordered amendments. The read-only
+desktop panel pages these records without calculating stock. As-issued output
+stays original; current trace output describes the amended interpretation. A
+linked recipient or document is outstanding manual follow-up, never an external
+acknowledgement. Bulk group reads share conservation proof only within their
+bounded native transaction and cut; every child retains its individual checks.
 
 Linked return intake now captures native effective departure quantities, original
 physical-debit bounds, quantity heads and potentially related unresolved returns.

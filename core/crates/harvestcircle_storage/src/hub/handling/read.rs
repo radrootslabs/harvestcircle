@@ -193,6 +193,42 @@ pub(in crate::hub) async fn group_on(
     id: HubRecordId,
     catalog: &ReferenceCatalog,
 ) -> Result<PhysicalStockGroup, SafeError> {
+    group_with_mass_on(
+        transaction,
+        hub,
+        id,
+        catalog,
+        &mut std::collections::BTreeMap::new(),
+    )
+    .await
+}
+
+/// One bounded read owns its private conservation results. Nothing escapes as a
+/// future permission or a cache usable in another transaction or after a write.
+pub(in crate::hub) async fn groups_on(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    ids: &[HubRecordId],
+    catalog: &ReferenceCatalog,
+) -> Result<Vec<PhysicalStockGroup>, SafeError> {
+    if ids.len() > 64 || ids.iter().collect::<std::collections::BTreeSet<_>>().len() != ids.len() {
+        return Err(invalid_input());
+    }
+    let mut masses = std::collections::BTreeMap::new();
+    let mut groups = Vec::with_capacity(ids.len());
+    for id in ids {
+        groups.push(group_with_mass_on(transaction, hub, *id, catalog, &mut masses).await?);
+    }
+    Ok(groups)
+}
+
+async fn group_with_mass_on(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    id: HubRecordId,
+    catalog: &ReferenceCatalog,
+    masses: &mut std::collections::BTreeMap<HubRecordId, (HubRevision, WholePacks, WholePacks)>,
+) -> Result<PhysicalStockGroup, SafeError> {
     super::departure::read::require_on_hand_on(transaction, hub, id, catalog).await?;
     let row = sqlx::query(concat!(
         "SELECT substr(g.group_id,1,17) AS group_id,substr(g.trace_id,1,17) AS trace_id,substr(r.variant_id,1,17) AS variant_id,g.revision,",
@@ -207,24 +243,39 @@ pub(in crate::hub) async fn group_on(
         "LEFT JOIN hub_stock_operations po ON po.operation_id=pi.created_operation_id WHERE g.group_id=? LIMIT 1"
     )).bind(id.as_bytes().as_slice()).fetch_optional(&mut *transaction).await.map_err(|_| storage_unavailable())?.ok_or_else(invalid_input)?;
     let trace = record_id(&row, "trace_id")?;
-    let mass = sqlx::query("SELECT r.original_packs,COALESCE((SELECT sum(p.packs) FROM hub_stock_groups g JOIN hub_stock_positions p ON p.group_id=g.group_id WHERE g.trace_id=r.trace_id),0) AS on_hand FROM hub_receipts r WHERE r.trace_id=? LIMIT 1")
+    let mass = sqlx::query("SELECT r.original_packs,(SELECT revision FROM hub_stock_state WHERE singleton=1) AS stock_revision,COALESCE((SELECT sum(p.packs) FROM hub_stock_groups g JOIN hub_stock_positions p ON p.group_id=g.group_id WHERE g.trace_id=r.trace_id),0) AS on_hand FROM hub_receipts r WHERE r.trace_id=? LIMIT 1")
         .bind(trace.as_bytes().as_slice()).fetch_one(&mut *transaction).await.map_err(|_| storage_unavailable())?;
-    let disposed =
-        crate::hub::custody::disposition::validation::trace_on(transaction, hub, trace).await?;
-    let counted_loss =
-        crate::hub::counts::posting::loss_quantity_on(transaction, hub, trace).await?;
-    let actual_loss = crate::hub::actuals::validation::trace_on(transaction, hub, trace).await?;
-    if whole_packs(
+    let cut = revision_field(&mass, "stock_revision")?;
+    let original = whole_packs(
         mass.try_get("original_packs")
             .map_err(|_| corrupt_storage())?,
-    )? != whole_packs(mass.try_get("on_hand").map_err(|_| corrupt_storage())?)?
-        .checked_add(super::departure::conservation::trace_on(transaction, hub, trace).await?)
-        .and_then(|packs| packs.checked_add(disposed))
-        .and_then(|packs| packs.checked_add(counted_loss))
-        .and_then(|packs| packs.checked_add(actual_loss))
-        .map_err(|_| corrupt_storage())?
-    {
-        return Err(corrupt_storage());
+    )?;
+    let on_hand = whole_packs(mass.try_get("on_hand").map_err(|_| corrupt_storage())?)?;
+    let fingerprint = (cut, original, on_hand);
+    if let Some(verified) = masses.get(&trace) {
+        if *verified != fingerprint {
+            return Err(corrupt_storage());
+        }
+    } else {
+        let disposed =
+            crate::hub::custody::disposition::validation::trace_on(transaction, hub, trace).await?;
+        let counted_loss =
+            crate::hub::counts::posting::loss_quantity_on(transaction, hub, trace).await?;
+        let actual_loss =
+            crate::hub::actuals::validation::trace_on(transaction, hub, trace, cut).await?;
+        if original
+            != on_hand
+                .checked_add(
+                    super::departure::conservation::trace_on(transaction, hub, trace, cut).await?,
+                )
+                .and_then(|packs| packs.checked_add(disposed))
+                .and_then(|packs| packs.checked_add(counted_loss))
+                .and_then(|packs| packs.checked_add(actual_loss))
+                .map_err(|_| corrupt_storage())?
+        {
+            return Err(corrupt_storage());
+        }
+        masses.insert(trace, fingerprint);
     }
     let parent = optional_id(&row, "parent_group_id")?;
     let label: Option<Vec<u8>> = row
@@ -248,6 +299,31 @@ pub(in crate::hub) async fn group_on(
         .map_err(|_| corrupt_storage())?;
     let created_kind: String = row.try_get("created_kind").map_err(|_| corrupt_storage())?;
     match parent {
+        Some(parent) if created_kind == "correction_found" => {
+            let operation = DurableRequestId::parse(
+                row.try_get::<String, _>("created_operation_id")
+                    .map_err(|_| corrupt_storage())?,
+            )
+            .map_err(|_| corrupt_storage())?;
+            let operation = stock::read::operation_on(transaction, hub, &operation)
+                .await?
+                .ok_or_else(corrupt_storage)?;
+            let birth =
+                crate::hub::corrections::birth::birth_on(transaction, hub, &operation, id).await?;
+            if optional_id(&row, "parent_trace")? != Some(trace)
+                || !row
+                    .try_get::<Option<i64>, _>("parent_created_revision")
+                    .map_err(|_| corrupt_storage())?
+                    .is_some_and(|before| before < created)
+                || birth.group.parent != Some(parent)
+                || birth.group.trace != trace
+                || birth.group.identification != identification
+                || birth.birth.stock_revision.value()
+                    != u64::try_from(created).map_err(|_| corrupt_storage())?
+            {
+                return Err(corrupt_storage());
+            }
+        }
         None if created_kind == "count_post" => {
             let op = DurableRequestId::parse(
                 row.try_get::<String, _>("created_operation_id")
@@ -383,7 +459,7 @@ async fn causal_floor_bound_on(
         "JOIN hub_stock_operations o ON o.operation_id=i.created_operation_id WHERE i.parent_group_id IS NOT NULL AND l.depth<256) ",
         "SELECT max(CASE WHEN e.occurrence_kind IN ('known','interval') THEN e.occurrence_start_unix_s END) AS floor,",
         "(SELECT count(*) FROM lineage l JOIN hub_group_identification i ON i.group_id=l.group_id WHERE l.depth=256 AND i.parent_group_id IS NOT NULL) AS truncated ",
-        "FROM lineage l LEFT JOIN hub_stock_events e ON e.group_id=l.group_id AND e.kind IN ('receipt','opening','return','move','split','count_post','actual_review') ",
+        "FROM lineage l LEFT JOIN hub_stock_events e ON e.group_id=l.group_id AND e.kind IN ('receipt','opening','return','move','split','count_post','actual_review','correction_found','correction_additional') ",
         "LEFT JOIN hub_stock_operations o ON o.operation_id=e.operation_id WHERE o.stock_revision<=l.ceiling OR o.stock_revision IS NULL"
     )).bind(group.as_bytes().as_slice()).bind(cut).fetch_one(&mut *transaction).await.map_err(|_|storage_unavailable())?;
     if row

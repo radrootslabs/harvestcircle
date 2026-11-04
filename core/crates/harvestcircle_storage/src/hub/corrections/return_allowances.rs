@@ -135,7 +135,9 @@ pub(in crate::hub) async fn load_on(
         {
             return Err(corrupt_storage());
         }
-        let history = quantity::history_on(tx, hub, &target, original.group, cut).await?;
+        let history =
+            quantity::history_from_original_on(tx, hub, &target, original.group, cut, &line)
+                .await?;
         let changes = history.amendments.clone();
         let returned = funding::returns_on(tx, hub, &line, cut).await?;
         let account = history.with_verified_returns(returned.total)?;

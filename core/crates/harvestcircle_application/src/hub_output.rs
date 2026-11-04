@@ -244,6 +244,49 @@ pub fn trace_output(snapshot: &TraceSnapshot) -> Result<LocalOutput, LocalOutput
             out.field("Observation", removal.observation.as_str())?;
         }
     }
+    if !snapshot.quantity_corrections.is_empty() {
+        out.heading("Linked quantity corrections")?;
+        out.paragraph("Original departure and issued records are retained. Recipient and document follow-up needs an explicit record of manual work.")?;
+        for account in &snapshot.quantity_corrections {
+            out.field(
+                "Original operation",
+                &operation_text(account.original().operation),
+            )?;
+            out.field("Original group", &account.original().group.to_hex())?;
+            out.field(
+                "Original whole packs",
+                &account.original().packs.value().to_string(),
+            )?;
+            out.field(
+                "Current effective whole packs",
+                &account.effective().value().to_string(),
+            )?;
+            out.field(
+                "Established returned whole packs",
+                &account.established_returns().value().to_string(),
+            )?;
+            for amendment in account.amendments() {
+                use harvestcircle_domain::hub::corrections::DepartureQuantityDelta;
+                let (kind, packs) = match amendment.delta {
+                    DepartureQuantityDelta::AdditionalDeparture(packs) => {
+                        ("Additional departure", packs)
+                    }
+                    DepartureQuantityDelta::IdentifiedFoundRemainder(packs) => {
+                        ("Independently identified found remainder", packs)
+                    }
+                };
+                out.field("Correction operation", &operation_text(amendment.operation))?;
+                out.field(
+                    "Recorded stock revision",
+                    &amendment.stock_revision.value().to_string(),
+                )?;
+                out.field("Correction kind", kind)?;
+                out.field("Before whole packs", &amendment.before.value().to_string())?;
+                out.field("After whole packs", &amendment.after.value().to_string())?;
+                out.field("Changed whole packs", &packs.value().to_string())?;
+            }
+        }
+    }
     if !snapshot.actual_departures.is_empty() {
         out.heading("Reconciled already-taken departures")?;
         for actual in &snapshot.actual_departures {

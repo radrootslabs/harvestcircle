@@ -107,6 +107,44 @@ pub(super) fn seal(
 }
 
 /// Resolve the immutable native line independently of any correction head.
+pub(in crate::hub) async fn trace_accounts_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    trace: HubRecordId,
+    cut: HubRevision,
+) -> Result<Vec<DepartureQuantityAccount>, SafeError> {
+    let rows=sqlx::query(concat!(
+        "SELECT DISTINCT substr(correction.target_operation_id,1,37) AS target,substr(correction.subject_id,1,17) AS group_id ",
+        "FROM hub_corrections correction JOIN hub_stock_operations original ON original.operation_id=correction.operation_id ",
+        "JOIN hub_stock_groups subject ON subject.group_id=correction.subject_id WHERE original.hub_id=? AND original.stock_revision<=? ",
+        "AND correction.family IN ('found','additional') AND correction.subject_kind='line' AND subject.trace_id=? ORDER BY target,group_id LIMIT 4097"
+    )).bind(hub.as_bytes().as_slice()).bind(i64::try_from(cut.value()).map_err(|_|corrupt_storage())?).bind(trace.as_bytes().as_slice()).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    if rows.len() > HUB_CORRECTION_ROWS {
+        return Err(corrupt_storage());
+    }
+    let mut result = Vec::with_capacity(rows.len());
+    for row in rows {
+        let target = DurableRequestId::parse(
+            row.try_get::<String, _>("target")
+                .map_err(|_| corrupt_storage())?,
+        )
+        .map_err(|_| corrupt_storage())?;
+        let group = stock::read::record_id(&row, "group_id")?;
+        let original = original_on(tx, hub, &target, group, cut).await?;
+        if original.original.trace != trace {
+            return Err(corrupt_storage());
+        }
+        let history = history_on(tx, hub, &target, group, cut).await?;
+        if history.amendments.is_empty() {
+            return Err(corrupt_storage());
+        }
+        let returned = super::funding::returns_on(tx, hub, &original, cut).await?;
+        result.push(history.with_verified_returns(returned.total)?);
+    }
+    Ok(result)
+}
+
+/// Resolve the immutable native line independently of any correction head.
 pub(super) async fn original_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
@@ -209,6 +247,36 @@ pub(in crate::hub) async fn history_on(
     cut: HubRevision,
 ) -> Result<QuantityHistory, SafeError> {
     let original = original_on(tx, hub, target, group, cut).await?;
+    history_from_original_on(tx, hub, target, group, cut, &original).await
+}
+
+/// Reuse an original just fully verified in the same transaction and cut.
+/// Private callers cannot supply client or decoded archived canonical lines.
+pub(super) async fn history_from_original_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    target: &DurableRequestId,
+    group: HubRecordId,
+    cut: HubRevision,
+    original: &CanonicalLine,
+) -> Result<QuantityHistory, SafeError> {
+    let op = stock::read::operation_on(tx, hub, target)
+        .await?
+        .ok_or_else(corrupt_storage)?;
+    if crate::hub::actuals::common::operation_id(target).map_err(|_| corrupt_storage())?
+        != original.original.operation
+        || original.original.group != group
+        || original.original.stock_revision.value() > cut.value()
+        || op.revision != original.original.stock_revision
+        || op.kind != original.kind
+        || op.result != original.result
+        || op.actor != original.actor
+        || op.hash != original.intent_hash
+        || op.catalog_revision != original.catalog_revision
+        || op.recorded_at != original.recorded_at
+    {
+        return Err(corrupt_storage());
+    }
     let count:i64=sqlx::query_scalar(concat!(
         "SELECT count(*) FROM hub_corrections correction JOIN hub_stock_operations current ON current.operation_id=correction.operation_id ",
         "WHERE correction.target_operation_id=? AND correction.subject_kind='line' AND correction.subject_id=? ",

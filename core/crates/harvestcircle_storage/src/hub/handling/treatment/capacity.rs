@@ -17,6 +17,11 @@ pub(in crate::hub) enum Reservation {
         events: u32,
         prior_events: Option<u32>,
     },
+    /// Consume one exact validated found observation's operation/event/review
+    /// reservation. Its negative review replaces the already-reserved slot.
+    FoundClosure {
+        events: u32,
+    },
     /// Close this report reservation; a duplicate link has no physical event.
     ActualReview {
         physical: bool,
@@ -59,6 +64,17 @@ pub(in crate::hub) async fn ensure_departure_on(
 
 fn check_budget(counters: &Counters, reservation: Reservation) -> Result<(), SafeError> {
     let (correction_events, correction_operations, correction_reviews) = match &reservation {
+        Reservation::FoundClosure { events } => {
+            if *events == 0
+                || *events > 64
+                || counters.correction.operations == 0
+                || counters.correction.events < *events
+                || counters.correction.reviews == 0
+            {
+                return Err(corrupt_storage());
+            }
+            (-i64::from(*events), -1, 0)
+        }
         Reservation::CorrectionObserve {
             events,
             prior_events,
@@ -85,6 +101,7 @@ fn check_budget(counters: &Counters, reservation: Reservation) -> Result<(), Saf
     }
     let (events, new_reservations, issued_reservations, actual_reservations, safety_headroom) =
         match reservation {
+            Reservation::FoundClosure { events } => (events, 0, 0, 0, 0),
             Reservation::CorrectionObserve { .. } => (0, 0, 0, 0, 2),
             Reservation::ActualReport => (0, 0, 0, 1, 2),
             Reservation::ActualReview { physical } => {
@@ -314,6 +331,40 @@ async fn issued_on(tx: &mut ServiceSqliteTransaction<'_>, hub: HubId) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn found_closure_consumes_exact_reserved_capacity_at_all_three_limits() {
+        let maximum = HUB_STOCK_EVENT_CAPACITY as u32;
+        let mut c = Counters {
+            correction: crate::hub::corrections::ObservationReservations {
+                operations: 1,
+                events: 64,
+                reviews: 1,
+            },
+            operations: maximum - 1,
+            actual: 0,
+            primary: HUB_TREATMENT_CAPACITY as u32 - 1,
+            open: 0,
+            issued: 0,
+            events: maximum - 64,
+        };
+        check_budget(&c, Reservation::FoundClosure { events: 64 }).unwrap();
+        assert!(check_budget(&c, Reservation::Ordinary(1)).is_err());
+        for events in [0, 65] {
+            assert!(check_budget(&c, Reservation::FoundClosure { events }).is_err());
+        }
+        c.correction.operations = 0;
+        assert!(check_budget(&c, Reservation::FoundClosure { events: 64 }).is_err());
+        c.correction.operations = 1;
+        c.correction.events = 63;
+        assert!(check_budget(&c, Reservation::FoundClosure { events: 64 }).is_err());
+        c.correction.events = 64;
+        c.correction.reviews = 0;
+        assert!(check_budget(&c, Reservation::FoundClosure { events: 64 }).is_err());
+        c.correction.reviews = 1;
+        c.events += 1;
+        assert!(check_budget(&c, Reservation::FoundClosure { events: 64 }).is_err());
+    }
 
     #[test]
     fn found_fact_reserves_initial_review_slot_and_supersession_transfers_it() {

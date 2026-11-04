@@ -8,7 +8,7 @@ use harvestcircle_application::DurableRequestId;
 use harvestcircle_domain::{
     SafeError,
     hub::{
-        HubId,
+        HubId, HubRevision,
         movement::WorkProgress,
         reference::{HubRecordId, WholePacks},
     },
@@ -57,11 +57,12 @@ pub(in crate::hub) async fn trace_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     trace: HubRecordId,
+    cut: HubRevision,
 ) -> Result<WholePacks, SafeError> {
     let ids:Vec<String>=sqlx::query_scalar(concat!(
         "SELECT substr(o.operation_id,1,37) FROM hub_stock_operations o WHERE o.hub_id=? AND o.kind='actual_review' ",
-        "AND EXISTS(SELECT 1 FROM hub_stock_events e WHERE e.operation_id=o.operation_id AND e.trace_id=?) ORDER BY o.stock_revision LIMIT 4097"
-    )).bind(hub.as_bytes().as_slice()).bind(trace.as_bytes().as_slice()).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+        "AND o.stock_revision<=? AND EXISTS(SELECT 1 FROM hub_stock_events e WHERE e.operation_id=o.operation_id AND e.trace_id=?) ORDER BY o.stock_revision LIMIT 4097"
+    )).bind(hub.as_bytes().as_slice()).bind(i64::try_from(cut.value()).map_err(|_|corrupt_storage())?).bind(trace.as_bytes().as_slice()).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
     if ids.len() > 4096 {
         return Err(corrupt_storage());
     }
@@ -75,9 +76,16 @@ pub(in crate::hub) async fn trace_on(
         if known.trace != trace {
             return Err(corrupt_storage());
         }
-        total = total
-            .checked_add(known.packs().map_err(|_| corrupt_storage())?)
-            .map_err(|_| corrupt_storage())?;
+        for line in known.lines {
+            total = total
+                .checked_add(
+                    Box::pin(crate::hub::corrections::physical_balance::original_net_on(
+                        tx, hub, &operation, line.group, line.packs, cut,
+                    ))
+                    .await?,
+                )
+                .map_err(|_| corrupt_storage())?;
+        }
     }
     Ok(total)
 }

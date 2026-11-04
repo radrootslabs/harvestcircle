@@ -284,6 +284,7 @@ private fun TraceOverview(
             }
         }
     }
+    TraceQuantityCorrections(state, presenter)
     HarvestCircleShellText("Retained documented departure lines", role = HarvestCircleShellTextRole.SectionTitle)
     if (snapshot.exits.isEmpty()) HarvestCircleShellText("No documented departure in this population.")
     snapshot.exits.drop(state.exitsOffset).take(64).forEach { exit ->
@@ -449,4 +450,6 @@ private fun traceActionLabel(kind: HubTraceHistoryKind): String =
         HubTraceHistoryKind.ActualReported -> "Unverified already-taken report preserved"
         HubTraceHistoryKind.ActualReconciled -> "Already-taken departure reconciled"
         HubTraceHistoryKind.ActualLinked -> "Duplicate report linked to original departure"
+        HubTraceHistoryKind.CorrectionObserved -> "Unverified correction facts preserved"
+        HubTraceHistoryKind.FoundCorrected -> "Found stock correction posted"
     }

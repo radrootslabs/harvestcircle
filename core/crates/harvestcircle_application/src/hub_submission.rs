@@ -6,7 +6,7 @@
 use harvestcircle_domain::hub::{
     HubOwnership,
     actuals::{ActualDuplicateLink, ActualNewDepartureCommand, ActualReportCommand},
-    corrections::CorrectionObservationCommand,
+    corrections::{CorrectionObservationCommand, FoundCorrectionCommand},
     counts::{CountObserveCommand, CountPostCommand},
     departure::DepartureCommand,
     dispatch::DispatchCommand,
@@ -56,6 +56,7 @@ pub enum HubSubmittedRequest<'a> {
     ActualReview(&'a ActualNewDepartureCommand),
     ActualLink(&'a ActualDuplicateLink),
     CorrectionObservation(&'a CorrectionObservationCommand),
+    FoundCorrection(&'a FoundCorrectionCommand),
 }
 
 /// An owned native request can move through admission without decoding an archive.
@@ -76,6 +77,7 @@ pub enum HubMutation {
     ActualReview(Box<ActualNewDepartureCommand>),
     ActualLink(Box<ActualDuplicateLink>),
     CorrectionObservation(Box<CorrectionObservationCommand>),
+    FoundCorrection(Box<FoundCorrectionCommand>),
 }
 
 impl HubMutation {
@@ -97,6 +99,7 @@ impl HubMutation {
             Self::ActualReview(value) => HubSubmittedRequest::ActualReview(value),
             Self::ActualLink(value) => HubSubmittedRequest::ActualLink(value),
             Self::CorrectionObservation(value) => HubSubmittedRequest::CorrectionObservation(value),
+            Self::FoundCorrection(value) => HubSubmittedRequest::FoundCorrection(value),
         }
     }
 }
@@ -119,6 +122,7 @@ impl HubSubmittedRequest<'_> {
             Self::ActualReport(_) => "actual_report",
             Self::ActualReview(_) | Self::ActualLink(_) => "actual_review",
             Self::CorrectionObservation(_) => "correction_observe",
+            Self::FoundCorrection(_) => "correction_found",
         }
     }
 
@@ -167,6 +171,7 @@ impl Serialize for HubSubmittedRequest<'_> {
             Self::Disposition(command) => command.serialize(serializer),
             Self::ActualReport(command) => command.serialize(serializer),
             Self::CorrectionObservation(command) => command.serialize(serializer),
+            Self::FoundCorrection(command) => command.serialize(serializer),
             Self::ActualReview(command) => {
                 #[derive(Serialize)]
                 struct Input<'a> {

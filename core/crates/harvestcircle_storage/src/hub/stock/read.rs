@@ -96,9 +96,9 @@ pub(in crate::hub) async fn state_on(
             .map_err(|_| corrupt_storage())?,
     )
     .map_err(|_| corrupt_storage())?;
-    let operations = sqlx::query("SELECT count(*) AS n, COALESCE(max(stock_revision),1) AS latest, count(CASE WHEN kind NOT IN ('receipt','opening','return','disposition','actual_report','correction_observe','actual_review','count_observe','count_post','move','split','departure','dispatch_prepare','dispatch_revise','dispatch_issue','dispatch_replace','dispatch_unused','acceptance','hold_place','hold_release','work_replan','work_new','discrepancy_open','discrepancy_resolve') THEN 1 END) AS unknown FROM hub_stock_operations WHERE hub_id=?")
+    let operations = sqlx::query("SELECT count(*) AS n, COALESCE(max(stock_revision),1) AS latest, count(CASE WHEN kind NOT IN ('receipt','opening','return','disposition','actual_report','correction_observe','correction_found','actual_review','count_observe','count_post','move','split','departure','dispatch_prepare','dispatch_revise','dispatch_issue','dispatch_replace','dispatch_unused','acceptance','hold_place','hold_release','work_replan','work_new','discrepancy_open','discrepancy_resolve') THEN 1 END) AS unknown FROM hub_stock_operations WHERE hub_id=?")
         .bind(hub.as_bytes().as_slice()).fetch_one(&mut *transaction).await.map_err(|_| storage_unavailable())?;
-    let events = sqlx::query("SELECT count(*) AS n, COALESCE(max(sequence),0) AS latest, count(CASE WHEN kind NOT IN ('receipt','opening','return','disposition','actual_review','count_observe','count_post','move','split','departure','dispatch_prepare','dispatch_revise','dispatch_issue','dispatch_replace','dispatch_unused','acceptance','hold_place','hold_release','work_replan','work_new','discrepancy_open','discrepancy_resolve') THEN 1 END) AS unknown FROM hub_stock_events")
+    let events = sqlx::query("SELECT count(*) AS n, COALESCE(max(sequence),0) AS latest, count(CASE WHEN kind NOT IN ('receipt','opening','return','disposition','correction_found','actual_review','count_observe','count_post','move','split','departure','dispatch_prepare','dispatch_revise','dispatch_issue','dispatch_replace','dispatch_unused','acceptance','hold_place','hold_release','work_replan','work_new','discrepancy_open','discrepancy_resolve') THEN 1 END) AS unknown FROM hub_stock_events")
         .fetch_one(&mut *transaction).await.map_err(|_| storage_unavailable())?;
     let op_count: i64 = operations.try_get("n").map_err(|_| corrupt_storage())?;
     let op_latest: i64 = operations
@@ -128,7 +128,7 @@ pub(in crate::hub) async fn state_on(
     if mismatch != 0 {
         return Err(corrupt_storage());
     }
-    let cardinality: i64 = sqlx::query_scalar("SELECT count(*) FROM hub_stock_operations o WHERE o.kind NOT IN ('actual_report','actual_review','correction_observe') AND (SELECT count(*) FROM hub_stock_events e WHERE e.operation_id=o.operation_id)<>CASE WHEN o.kind='departure' THEN COALESCE((SELECT d.line_count FROM hub_departures d WHERE d.operation_id=o.operation_id),0) WHEN o.kind='count_post' THEN 1+COALESCE((SELECT CASE WHEN r.effect_kind='surplus' THEN 1 ELSE 0 END FROM hub_count_reconciliations r WHERE r.operation_id=o.operation_id),0) ELSE 1 END")
+    let cardinality: i64 = sqlx::query_scalar("SELECT count(*) FROM hub_stock_operations o WHERE o.kind NOT IN ('actual_report','actual_review','correction_observe') AND (SELECT count(*) FROM hub_stock_events e WHERE e.operation_id=o.operation_id)<>CASE WHEN o.kind='departure' THEN COALESCE((SELECT d.line_count FROM hub_departures d WHERE d.operation_id=o.operation_id),0) WHEN o.kind='correction_found' THEN (SELECT count(*) FROM hub_correction_found_allocations allocation WHERE allocation.operation_id=o.operation_id) WHEN o.kind='count_post' THEN 1+COALESCE((SELECT CASE WHEN r.effect_kind='surplus' THEN 1 ELSE 0 END FROM hub_count_reconciliations r WHERE r.operation_id=o.operation_id),0) ELSE 1 END")
         .fetch_one(&mut *transaction).await.map_err(|_|storage_unavailable())?;
     if cardinality != 0 {
         return Err(corrupt_storage());
@@ -621,7 +621,12 @@ async fn page_on(
         .bind(i64::from(query.limit)).bind(i64::from(query.offset))
         .fetch_all(&mut *transaction).await.map_err(|_| storage_unavailable())?;
     let mut rows = Vec::with_capacity(selected.len());
-    for row in selected {
+    let ids = selected
+        .iter()
+        .map(|row| record_id(row, "group_id"))
+        .collect::<Result<Vec<_>, SafeError>>()?;
+    let groups = crate::hub::handling::read::groups_on(transaction, hub, &ids, &catalog).await?;
+    for (row, current_group) in selected.into_iter().zip(groups) {
         let operation = DurableRequestId::parse(
             row.try_get::<String, _>("operation_id")
                 .map_err(|_| corrupt_storage())?,
@@ -632,13 +637,6 @@ async fn page_on(
             .ok_or_else(corrupt_storage)?;
         let population =
             population_on(transaction, hub, operation, record_id(&row, "trace_id")?).await?;
-        let current_group = crate::hub::handling::read::group_on(
-            transaction,
-            hub,
-            record_id(&row, "group_id")?,
-            &catalog,
-        )
-        .await?;
         if current_group.location != record_id(&row, "location_id")?
             || current_group.packs
                 != whole_packs(row.try_get("packs").map_err(|_| corrupt_storage())?)?

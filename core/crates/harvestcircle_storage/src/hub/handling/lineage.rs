@@ -442,9 +442,12 @@ pub(in crate::hub) async fn load_on(
         crate::hub::custody::disposition::validation::trace_on(transaction, hub, trace_id).await?;
     let counted_loss =
         crate::hub::counts::posting::loss_quantity_on(transaction, hub, trace_id).await?;
-    let actual_loss = crate::hub::actuals::validation::trace_on(transaction, hub, trace_id).await?;
+    let actual_loss =
+        crate::hub::actuals::validation::trace_on(transaction, hub, trace_id, revision).await?;
     if total
-        .checked_add(super::departure::conservation::trace_on(transaction, hub, trace_id).await?)
+        .checked_add(
+            super::departure::conservation::trace_on(transaction, hub, trace_id, revision).await?,
+        )
         .and_then(|packs| packs.checked_add(disposed))
         .and_then(|packs| packs.checked_add(counted_loss))
         .and_then(|packs| packs.checked_add(actual_loss))

@@ -2,6 +2,7 @@
 //! fixture transaction rolls back. No schema mutation or product fault hook.
 use super::*;
 mod admission_cases;
+mod found_cases;
 use crate::hub::stock::tests::{Fixture, command, now, operation, owner, query, setup};
 use harvestcircle_application::SessionGeneration;
 use harvestcircle_domain::{

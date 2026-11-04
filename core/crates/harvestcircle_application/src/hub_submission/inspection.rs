@@ -178,5 +178,6 @@ fn known_kind(kind: &str) -> bool {
             | "actual_report"
             | "actual_review"
             | "correction_observe"
+            | "correction_found"
     )
 }

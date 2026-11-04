@@ -108,6 +108,8 @@ pub enum HubTraceHistoryKind {
     ActualReported,
     ActualReconciled,
     ActualLinked,
+    CorrectionObserved,
+    FoundCorrected,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HubTraceHistoryEntry {

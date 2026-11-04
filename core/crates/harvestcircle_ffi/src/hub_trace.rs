@@ -210,6 +210,73 @@ pub struct HubTraceSnapshotDto {
     pub count_losses: Vec<HubTraceCountLossDto>,
     pub dispositions: Vec<HubTraceDispositionDto>,
     pub actual_departures: Vec<HubTraceActualDepartureDto>,
+    pub quantity_corrections: Vec<HubTraceQuantityCorrectionDto>,
+}
+
+/// Original and current quantities are separate; these rows grant no action or
+/// external acknowledgement. Original issued material is retained independently.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct HubTraceQuantityCorrectionDto {
+    pub original_operation_id: String,
+    pub original_group_id: String,
+    pub original_whole_packs: u32,
+    pub effective_whole_packs: u32,
+    pub established_return_whole_packs: u32,
+    pub amendments: Vec<HubTraceQuantityAmendmentDto>,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
+pub enum HubTraceQuantityAmendmentKindDto {
+    AdditionalDeparture,
+    IdentifiedFoundRemainder,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct HubTraceQuantityAmendmentDto {
+    pub operation_id: String,
+    pub stock_revision: u64,
+    pub before_whole_packs: u32,
+    pub after_whole_packs: u32,
+    pub kind: HubTraceQuantityAmendmentKindDto,
+    pub delta_whole_packs: u32,
+}
+impl From<&harvestcircle_domain::hub::corrections::DepartureQuantityAccount>
+    for HubTraceQuantityCorrectionDto
+{
+    fn from(value: &harvestcircle_domain::hub::corrections::DepartureQuantityAccount) -> Self {
+        use harvestcircle_domain::hub::corrections::DepartureQuantityDelta;
+        Self {
+            original_operation_id: operation_text(value.original().operation),
+            original_group_id: value.original().group.to_hex(),
+            original_whole_packs: value.original().packs.value(),
+            effective_whole_packs: value.effective().value(),
+            established_return_whole_packs: value.established_returns().value(),
+            amendments: value
+                .amendments()
+                .iter()
+                .map(|amendment| {
+                    let (kind, packs) = match amendment.delta {
+                        DepartureQuantityDelta::AdditionalDeparture(packs) => {
+                            (HubTraceQuantityAmendmentKindDto::AdditionalDeparture, packs)
+                        }
+                        DepartureQuantityDelta::IdentifiedFoundRemainder(packs) => (
+                            HubTraceQuantityAmendmentKindDto::IdentifiedFoundRemainder,
+                            packs,
+                        ),
+                    };
+                    HubTraceQuantityAmendmentDto {
+                        operation_id: operation_text(amendment.operation),
+                        stock_revision: amendment.stock_revision.value(),
+                        before_whole_packs: amendment.before.value(),
+                        after_whole_packs: amendment.after.value(),
+                        kind,
+                        delta_whole_packs: packs.value(),
+                    }
+                })
+                .collect(),
+        }
+    }
 }
 
 /// An immutable native reconciliation; current location and historical source
@@ -314,6 +381,7 @@ impl TryFrom<TraceSnapshot> for HubTraceSnapshotDto {
             disposed_whole_packs: balance.disposed.value(),
             actual_departed_whole_packs: balance.actual_departed.value(),
             actual_departures: value.actual_departures.iter().map(Into::into).collect(),
+            quantity_corrections: value.quantity_corrections.iter().map(Into::into).collect(),
             dispositions: value.dispositions.into_iter().map(Into::into).collect(),
             on_hand: value
                 .on_hand
@@ -435,6 +503,8 @@ pub enum HubTraceHistoryKindDto {
     ActualReported,
     ActualReconciled,
     ActualLinked,
+    CorrectionObserved,
+    FoundCorrected,
 }
 impl From<HubTraceHistoryKind> for HubTraceHistoryKindDto {
     fn from(value: HubTraceHistoryKind) -> Self {
@@ -449,6 +519,8 @@ impl From<HubTraceHistoryKind> for HubTraceHistoryKindDto {
             HubTraceHistoryKind::ActualReported => Self::ActualReported,
             HubTraceHistoryKind::ActualReconciled => Self::ActualReconciled,
             HubTraceHistoryKind::ActualLinked => Self::ActualLinked,
+            HubTraceHistoryKind::CorrectionObserved => Self::CorrectionObserved,
+            HubTraceHistoryKind::FoundCorrected => Self::FoundCorrected,
             HubTraceHistoryKind::Handling(kind) => match kind {
                 HubHandlingKind::Move => Self::Move,
                 HubHandlingKind::Split => Self::Split,

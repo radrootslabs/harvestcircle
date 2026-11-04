@@ -43,6 +43,13 @@ async fn open_with_source(
     db: &Database,
     source: Option<harvestcircle_domain::hub::reference::SourceAttribution>,
 ) -> HubStockReceipt {
+    open_with_source_packs(db, source, 20).await
+}
+async fn open_with_source_packs(
+    db: &Database,
+    source: Option<harvestcircle_domain::hub::reference::SourceAttribution>,
+    total: u32,
+) -> HubStockReceipt {
     setup(db).await;
     for (n, label) in [(8, "Recipient A"), (9, "Recipient B")] {
         let catalog = db.hub_references(owner()).await.unwrap();
@@ -65,6 +72,7 @@ async fn open_with_source(
     }
     let catalog = db.hub_references(owner()).await.unwrap();
     let mut command = intake_command(&catalog);
+    command.packs = packs(total);
     if let Some(source) = source {
         command.source = source;
     }
@@ -1113,13 +1121,25 @@ pub(in crate::hub) async fn custody_departure_fixture_with_source(
     db: &Database,
     source: Option<harvestcircle_domain::hub::reference::SourceAttribution>,
 ) -> (HubStockReceipt, HubDepartureReceipt) {
-    let intake = open_with_source(db, source).await;
+    custody_departure_fixture_quantities(db, source, 20, 6).await
+}
+pub(in crate::hub) async fn custody_departure_fixture_quantities(
+    db: &Database,
+    source: Option<harvestcircle_domain::hub::reference::SourceAttribution>,
+    total: u32,
+    outbound: u32,
+) -> (HubStockReceipt, HubDepartureReceipt) {
+    let intake = open_with_source_packs(db, source, total).await;
     let six = split(
         db,
         intake.original.position.group,
-        6,
+        outbound,
         2,
-        "Observed outbound six",
+        if outbound == 6 {
+            "Observed outbound six"
+        } else {
+            "Observed bounded outbound portion"
+        },
     )
     .await;
     accept(db, &[intake.original.position.group, six], 3).await;

@@ -40,8 +40,8 @@ pub use hub::corrections::{
     HubCorrectionFundingEvidence, HubCorrectionFundingQuery, HubCorrectionObservationReceipt,
 };
 pub use hub::corrections::{
-    HubFoundCorrectionReview, HubFoundCorrectionReviewBlocker, HubFoundCorrectionReviewOutcome,
-    HubFoundCorrectionReviewQuery,
+    HubFoundCorrectionReceipt, HubFoundCorrectionReview, HubFoundCorrectionReviewBlocker,
+    HubFoundCorrectionReviewOutcome, HubFoundCorrectionReviewQuery,
 };
 pub use hub::counts::{HubCountObservationReceipt, HubCountPostReceipt, HubCountReview};
 pub use hub::handling::departure::{

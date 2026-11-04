@@ -2,9 +2,11 @@ package org.harvestcircle.integration
 
 import org.harvestcircle.application.HubOccurrenceKind
 import org.harvestcircle.application.HubTraceHistoryKind
+import org.harvestcircle.application.HubTraceQuantityAmendmentKind
 import org.harvestcircle.application.toModel
 import org.harvestcircle.testbridge.ffi.actualTraceEncodingProbe
 import org.harvestcircle.testbridge.ffi.actualTraceHistoryEncodingProbe
+import org.harvestcircle.testbridge.ffi.correctedTraceEncodingProbe
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -13,6 +15,28 @@ import kotlin.test.assertTrue
 // This is an encoding/read-consumer fixture, not native admission or persisted
 // effect acceptance. Real storage worlds qualify those independently.
 class ActualTraceReadAcceptanceTest {
+    @Test
+    fun generatedCorrectedTracePreservesGrossActualAndNativeEffectiveQuantities() {
+        val original = actualTraceEncodingProbe().toModel()
+        val native = correctedTraceEncodingProbe()
+        val model = native.toModel()
+        assertEquals(19U, model.onHandWholePacks)
+        assertEquals(1U, model.actualDepartedWholePacks)
+        assertEquals(original.actualDepartures, model.actualDepartures)
+        val correction = model.quantityCorrections.single()
+        assertEquals(model.actualDepartures.single().operationId, correction.originalOperationId)
+        assertEquals(2U, correction.originalWholePacks)
+        assertEquals(1U, correction.effectiveWholePacks)
+        assertEquals(0U, correction.establishedReturnWholePacks)
+        val amendment = correction.amendments.single()
+        assertEquals(HubTraceQuantityAmendmentKind.IdentifiedFoundRemainder, amendment.kind)
+        assertEquals(2U, amendment.beforeWholePacks)
+        assertEquals(1U, amendment.afterWholePacks)
+        assertEquals(1U, amendment.deltaWholePacks)
+        assertEquals(native.stockRevision, amendment.stockRevision)
+        assertNotEquals(correction.originalOperationId, amendment.operationId)
+    }
+
     @Test
     fun generatedNativeActualPreservesOriginalAndReviewedRolesWithoutClientStockMath() {
         val native = actualTraceEncodingProbe()

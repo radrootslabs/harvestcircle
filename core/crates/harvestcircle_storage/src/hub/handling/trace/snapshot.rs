@@ -190,7 +190,11 @@ pub(super) async fn load_on(
         };
         actual_departures.push(*plan);
     }
+    let quantity_corrections =
+        crate::hub::corrections::quantity::trace_accounts_on(tx, hub, trace, state.revision)
+            .await?;
     let snapshot = TraceSnapshot {
+        quantity_corrections,
         actual_departures,
         count_losses: crate::hub::counts::posting::losses_on(tx, hub, trace).await?,
         dispositions,

@@ -63,7 +63,7 @@ pub struct DepartureQuantityAmendment {
     pub delta: DepartureQuantityDelta,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct DepartureQuantityAccount {
     original: OriginalDepartureQuantity,
     amendments: Vec<DepartureQuantityAmendment>,

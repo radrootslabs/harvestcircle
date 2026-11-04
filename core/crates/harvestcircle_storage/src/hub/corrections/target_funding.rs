@@ -91,8 +91,8 @@ pub(super) async fn load_on(
     group: HubRecordId,
     cut: HubRevision,
 ) -> Result<LoadedFunding, SafeError> {
-    let line = quantity::original_on(tx, hub, target, group, cut).await?;
-    let history = quantity::history_on(tx, hub, target, group, cut).await?;
+    let line = Box::pin(quantity::original_on(tx, hub, target, group, cut)).await?;
+    let history = quantity::history_from_original_on(tx, hub, target, group, cut, &line).await?;
     // Additional scalar metadata is deliberately insufficient physical proof.
     // Its full command/debit reader must qualify before any additional effect
     // is activated; never omit such a debit from an otherwise complete result.
@@ -103,7 +103,7 @@ pub(super) async fn load_on(
     {
         return Err(corrupt_storage());
     }
-    let returns = funding::returns_on(tx, hub, &line, cut).await?;
+    let returns = Box::pin(funding::returns_on(tx, hub, &line, cut)).await?;
     let changes = history.amendments.clone();
     let quantity = history.with_verified_returns(returns.total)?;
     let op = stock::read::operation_on(tx, hub, target)

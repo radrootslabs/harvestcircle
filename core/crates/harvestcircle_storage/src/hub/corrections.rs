@@ -131,6 +131,30 @@ pub(in crate::hub) async fn headers_on(
         return Err(corrupt_storage());
     }
     reservations_on(tx).await?;
+    found_headers_on(tx, hub).await?;
+    Ok(())
+}
+
+async fn found_headers_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+) -> Result<(), SafeError> {
+    let invalid:i64=sqlx::query_scalar(concat!(
+        "SELECT count(*) FROM hub_corrections correction LEFT JOIN hub_stock_operations original ON original.operation_id=correction.operation_id ",
+        "WHERE correction.family='found' AND (original.operation_id IS NULL OR original.kind<>'correction_found' OR original.hub_id<>? OR original.result_id<>correction.correction_id)"
+    )).bind(hub.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    let ids:Vec<String>=sqlx::query_scalar("SELECT substr(operation_id,1,37) FROM hub_stock_operations WHERE kind='correction_found' AND hub_id=? ORDER BY stock_revision LIMIT 4097")
+        .bind(hub.as_bytes().as_slice()).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    if invalid != 0 || ids.len() > harvestcircle_domain::hub::corrections::HUB_CORRECTION_ROWS {
+        return Err(corrupt_storage());
+    }
+    for id in ids {
+        let id = DurableRequestId::parse(id).map_err(|_| corrupt_storage())?;
+        let original = stock::read::operation_on(tx, hub, &id)
+            .await?
+            .ok_or_else(corrupt_storage)?;
+        Box::pin(found_record::original_on(tx, hub, original)).await?;
+    }
     Ok(())
 }
 
@@ -139,7 +163,7 @@ pub(in crate::hub) mod funding;
 pub(in crate::hub) mod initial_review;
 mod observation_payload;
 #[cfg(test)]
-mod projection_native_tests;
+pub(super) mod projection_native_tests;
 #[cfg(test)]
 mod projection_tests;
 pub(in crate::hub) mod quantity;
@@ -148,7 +172,31 @@ pub(in crate::hub) mod return_capture;
 pub(in crate::hub) mod return_projection;
 pub(in crate::hub) mod target_funding;
 pub use target_funding::{HubCorrectionFundingEvidence, HubCorrectionFundingQuery};
+mod found_context;
+mod found_frozen;
+mod found_impact;
+mod found_record;
 mod found_review;
+pub use found_record::HubFoundCorrectionReceipt;
+pub(in crate::hub) async fn found_original_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    op: OperationRecord,
+) -> Result<HubFoundCorrectionReceipt, SafeError> {
+    found_record::original_on(tx, hub, op).await
+}
+pub(in crate::hub) mod found_write;
+pub(in crate::hub) mod physical_balance;
+pub(in crate::hub) async fn capture_found_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    actor: PublicKey,
+    operation: &DurableRequestId,
+    command: &harvestcircle_domain::hub::corrections::FoundCorrectionCommand,
+) -> Result<harvestcircle_application::hub_submission::HubSubmittedFoundCorrection, SafeError> {
+    let context = found_context::prepare_on(tx, hub, actor, operation, command, None).await?;
+    Ok(context.material(crate::hub::actuals::common::operation_id(operation)?))
+}
 pub use found_review::{
     HubFoundCorrectionReview, HubFoundCorrectionReviewBlocker, HubFoundCorrectionReviewOutcome,
     HubFoundCorrectionReviewQuery,

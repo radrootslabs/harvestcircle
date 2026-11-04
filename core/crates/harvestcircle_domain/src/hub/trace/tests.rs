@@ -1,4 +1,5 @@
 use super::*;
+mod corrections;
 use crate::hub::reference::{
     HubLabel, LocationPurpose, ReferenceValue, SourceCode, SourceReference, SourceReferenceKind,
 };
@@ -71,6 +72,7 @@ fn fixture() -> TraceSnapshot {
         observation: text("Counted twenty original crates"),
     };
     TraceSnapshot {
+        quantity_corrections: vec![],
         actual_departures: vec![],
         count_losses: vec![],
         dispositions: vec![],

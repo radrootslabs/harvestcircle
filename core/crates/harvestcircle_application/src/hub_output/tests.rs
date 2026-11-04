@@ -126,6 +126,7 @@ fn snapshot() -> TraceSnapshot {
     let record = fixture();
     let line = &record.versions[0].material.lines[0];
     TraceSnapshot {
+        quantity_corrections: vec![],
         actual_departures: vec![],
         count_losses: vec![],
         dispositions: vec![],

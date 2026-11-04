@@ -22,7 +22,7 @@ use harvestcircle_domain::hub::{
     treatment::{InitialGroupReview, TreatmentStamp, treatment_record_id},
 };
 use sqlx::Connection;
-mod found_review_tests;
+pub(in crate::hub) mod found_review_tests;
 mod quantity_tests;
 mod return_current_tests;
 mod return_funding_tests;
@@ -55,6 +55,14 @@ async fn actual_debit_with_early_return(
     db: &Database,
     early_return: bool,
 ) -> (PhysicalStockGroup, DurableRequestId, u32) {
+    actual_debit_configuration(db, early_return, None).await
+}
+
+async fn actual_debit_configuration(
+    db: &Database,
+    early_return: bool,
+    hold_before_debit: Option<bool>,
+) -> (PhysicalStockGroup, DurableRequestId, u32) {
     use harvestcircle_domain::hub::actuals::{
         ActualNewDepartureCommand, ActualReportCommand, ActualReportSources, ActualReviewFacts,
     };
@@ -84,6 +92,9 @@ async fn actual_debit_with_early_return(
         generation,
         actor: owner(),
     };
+    if hold_before_debit == Some(true) {
+        hold_actual_group(db, scope, group, 105, 145).await;
+    }
     let crate::HubMutationResult::ActualReported(report) = db
         .submit_hub_mutation(
             scope,
@@ -141,7 +152,40 @@ async fn actual_debit_with_early_return(
     let crate::HubActualReviewOriginal::Departure(plan) = review.original else {
         panic!("physical original")
     };
+    if hold_before_debit == Some(false) {
+        hold_actual_group(db, scope, group, 165, 165).await;
+    }
     (plan.reduction.before, review.operation, 2)
+}
+
+async fn hold_actual_group(
+    db: &Database,
+    scope: HubSubmissionScope,
+    group: HubRecordId,
+    occurred: i64,
+    recorded: i64,
+) {
+    use harvestcircle_domain::hub::{
+        movement::HandlingCommand,
+        treatment::{TreatmentAction, TreatmentCommand, TreatmentSelection},
+    };
+    let current = db.hub_group(owner(), group).await.unwrap();
+    db.submit_hub_mutation(
+        scope,
+        operation(90),
+        HubMutation::Handling(Box::new(HandlingCommand::Treatment(TreatmentCommand {
+            expected_stock_revision: current.revision,
+            expected_catalog_revision: current.catalog_revision,
+            action: TreatmentAction::PlaceHold {
+                selection: TreatmentSelection::new(vec![group]).unwrap(),
+            },
+            occurred: Occurrence::Known(at(occurred)),
+            observation: note("Explicit native cohort hold at its original capture cut"),
+        }))),
+        at(recorded),
+    )
+    .await
+    .unwrap();
 }
 
 async fn seed(omit_allocation: bool, omit_review: bool) -> World {

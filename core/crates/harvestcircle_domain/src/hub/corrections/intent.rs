@@ -28,6 +28,21 @@ fn header(
     hash.update(catalog.value().to_be_bytes());
     hash
 }
+impl FoundCorrectionCommand {
+    #[must_use]
+    pub fn fingerprint(&self, hub: HubId, actor: PublicKey, operation: HubRecordId) -> [u8; 32] {
+        let mut hash = header(
+            b"harvestcircle.hub.correction.found.recorded.command.v1\0",
+            hub,
+            actor,
+            operation,
+            self.expected_stock_revision,
+            self.expected_catalog_revision,
+        );
+        hash.update(self.observation_operation.as_bytes());
+        hash.finalize().into()
+    }
+}
 impl SourceAttributionCommand {
     #[must_use]
     pub fn fingerprint(&self, hub: HubId, actor: PublicKey, operation: HubRecordId) -> [u8; 32] {

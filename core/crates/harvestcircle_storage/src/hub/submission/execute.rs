@@ -22,6 +22,7 @@ pub enum HubMutationResult {
     ActualReported(Box<crate::HubActualReportReceipt>),
     ActualReviewed(Box<crate::HubActualReviewReceipt>),
     CorrectionObserved(Box<crate::hub::corrections::HubCorrectionObservationReceipt>),
+    FoundCorrected(Box<crate::hub::corrections::HubFoundCorrectionReceipt>),
 }
 
 impl std::fmt::Debug for HubMutationResult {
@@ -41,6 +42,7 @@ impl std::fmt::Debug for HubMutationResult {
             Self::ActualReported(_) => "ActualReported",
             Self::ActualReviewed(_) => "ActualReviewed",
             Self::CorrectionObserved(_) => "CorrectionObserved",
+            Self::FoundCorrected(_) => "FoundCorrected",
         };
         f.debug_tuple("HubMutationResult").field(&kind).finish()
     }
@@ -124,6 +126,19 @@ async fn execute(
 ) -> Result<HubMutationResult, SafeError> {
     use harvestcircle_domain::hub::movement::HandlingCommand;
     Ok(match mutation {
+        HubMutation::FoundCorrection(command) => HubMutationResult::FoundCorrected(Box::new(
+            db.host()
+                .transaction(|tx| {
+                    Box::pin(async move {
+                        crate::hub::corrections::found_write::apply_on(
+                            tx, actor, operation, *command, now,
+                        )
+                        .await
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)?,
+        )),
         HubMutation::CorrectionObservation(command) => {
             HubMutationResult::CorrectionObserved(Box::new(
                 db.host()

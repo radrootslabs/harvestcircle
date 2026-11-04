@@ -108,6 +108,89 @@ pub(in crate::hub) async fn verify_recorded_input_on(
     Ok(())
 }
 
+/// Compare reconstructed immutable native material with the exact admission
+/// capture. Historical ownership here is serializer data, never current authority.
+/// This encoder comparison cannot decode a saved request or renew a fresh grant.
+pub(in crate::hub) async fn verify_recorded_capture_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: harvestcircle_domain::hub::HubId,
+    op: &crate::hub::stock::read::OperationRecord,
+    request: HubSubmittedRequest<'_>,
+    stock_revision: HubRevision,
+    catalog_revision: HubRevision,
+    material: &[HubSubmittedMaterial],
+) -> Result<[u8; 32], SafeError> {
+    let original = read::record_on(tx, &op.id)
+        .await?
+        .ok_or_else(corrupt_storage)?;
+    let input = request.archive().map_err(|_| corrupt_storage())?;
+    if original.status != HubSubmissionStatus::Recorded
+        || original.hub != hub
+        || original.actor != op.actor
+        || original.kind != op.kind
+        || original.kind != request.kind()
+        || original.domain_hash != Some(op.hash)
+        || original.input_hash != *input.digest()
+    {
+        return Err(corrupt_storage());
+    }
+    let metadata = harvestcircle_application::hub_submission::inspect_hub_submission(
+        original.captured_semantics(),
+    )
+    .map_err(|_| corrupt_storage())?;
+    if metadata.hub.id() != hub
+        || metadata.scope.actor != op.actor
+        || metadata.stock_revision != Some(stock_revision)
+        || metadata.catalog_revision != Some(catalog_revision)
+    {
+        return Err(corrupt_storage());
+    }
+    let expected = request
+        .capture(
+            &op.id,
+            metadata.scope,
+            &HubSubmissionContext {
+                hub: metadata.hub,
+                catalog_revision: Some(catalog_revision),
+                stock_revision: Some(stock_revision),
+                material,
+            },
+        )
+        .map_err(|_| corrupt_storage())?;
+    if expected.as_bytes() != original.captured_semantics()
+        || expected.digest() != original.capture_hash()
+    {
+        return Err(corrupt_storage());
+    }
+    Ok(*expected.digest())
+}
+
+/// Immutable capture identity only. A pending digest is never a fresh grant;
+/// the executor separately requires its owned admission and current session.
+pub(in crate::hub) async fn admission_capture_digest_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: harvestcircle_domain::hub::HubId,
+    op: &crate::hub::stock::read::OperationRecord,
+    request: HubSubmittedRequest<'_>,
+) -> Result<[u8; 32], SafeError> {
+    let original = read::record_on(tx, &op.id)
+        .await?
+        .ok_or_else(corrupt_storage)?;
+    let input = request.archive().map_err(|_| corrupt_storage())?;
+    if matches!(original.status, HubSubmissionStatus::Rejected(_))
+        || original.hub != hub
+        || original.actor != op.actor
+        || original.kind != op.kind
+        || original.kind != request.kind()
+        || original.domain_hash != Some(op.hash)
+        || original.input_hash != *input.digest()
+        || original.submitted_at > op.recorded_at
+    {
+        return Err(corrupt_storage());
+    }
+    Ok(*original.capture_hash())
+}
+
 fn archive_error(error: HubRequestArchiveError) -> SafeError {
     match error {
         HubRequestArchiveError::Capacity => stock::capacity(),

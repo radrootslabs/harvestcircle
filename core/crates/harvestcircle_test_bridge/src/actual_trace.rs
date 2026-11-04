@@ -44,6 +44,61 @@ fn reviewer() -> PublicKey {
 
 #[uniffi::export]
 pub fn actual_trace_encoding_probe() -> HubTraceSnapshotDto {
+    HubTraceSnapshotDto::try_from(actual_trace_snapshot()).unwrap()
+}
+
+/// Domain-checked encoding only, never a persisted correction or admission.
+#[uniffi::export]
+pub fn corrected_trace_encoding_probe() -> HubTraceSnapshotDto {
+    use harvestcircle_domain::hub::corrections::{
+        DepartureQuantityAccount, DepartureQuantityAmendment, DepartureQuantityDelta,
+        OriginalDepartureQuantity,
+    };
+    let mut snapshot = actual_trace_snapshot();
+    let actual = &snapshot.actual_departures[0];
+    let physical = actual.physical_projection().unwrap();
+    let line = &physical.lines[0];
+    let quantity = DepartureQuantityAccount::restore(
+        OriginalDepartureQuantity {
+            operation: actual.operation,
+            group: line.group,
+            trace: snapshot.trace.id,
+            variant: snapshot.trace.variant.id,
+            stock_revision: actual.stock_revision,
+            packs: line.packs,
+        },
+        vec![DepartureQuantityAmendment {
+            operation: op(82),
+            stock_revision: revision(snapshot.stock_revision.value() + 1),
+            before: packs(2),
+            after: packs(1),
+            delta: DepartureQuantityDelta::IdentifiedFoundRemainder(packs(1)),
+        }],
+        packs(0),
+    )
+    .unwrap();
+    snapshot.stock_revision = revision(snapshot.stock_revision.value() + 1);
+    let mut child = snapshot.on_hand[0].clone();
+    child.group = id(90);
+    child.revision = revision(1);
+    child.packs = packs(1);
+    child.treatment.group = child.group;
+    child.treatment.packs = child.packs;
+    child.treatment.acceptance =
+        harvestcircle_domain::hub::treatment::AcceptanceStatus::ReviewRequired;
+    child.treatment.acceptance_decision = None;
+    child.identification = Some(
+        harvestcircle_domain::hub::movement::PhysicalIdentification {
+            label: HubLabel::new("Independent encoding-only found child").unwrap(),
+            observation: note("Present identity without restored work"),
+        },
+    );
+    snapshot.on_hand.push(child);
+    snapshot.quantity_corrections = vec![quantity];
+    HubTraceSnapshotDto::try_from(snapshot).unwrap()
+}
+
+fn actual_trace_snapshot() -> TraceSnapshot {
     let label = |s| HubLabel::new(s).unwrap();
     let reference = |n, value| ReferenceRecord {
         id: id(n),
@@ -244,7 +299,8 @@ pub fn actual_trace_encoding_probe() -> HubTraceSnapshotDto {
     let after =
         PhysicalLineage::new(hub, group.trace, group.variant, plan.stock_revision, after).unwrap();
     let projection = treatment.project(&after, catalog.handling_basis()).unwrap();
-    let snapshot = TraceSnapshot {
+    TraceSnapshot {
+        quantity_corrections: vec![],
         hub,
         stock_revision: plan.stock_revision,
         catalog_revision: catalog.revision(),
@@ -281,8 +337,7 @@ pub fn actual_trace_encoding_probe() -> HubTraceSnapshotDto {
         count_losses: vec![],
         dispositions: vec![],
         actual_departures: vec![plan],
-    };
-    HubTraceSnapshotDto::try_from(snapshot).unwrap()
+    }
 }
 
 /// Native enum/record encoding only; these are not a persisted history or grant.

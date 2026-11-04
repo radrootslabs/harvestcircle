@@ -95,9 +95,11 @@ pub(super) async fn returns_on(
                 // Only an absent capture AND output projection may take this path;
                 // the exact None full result seal must still verify. Old originals
                 // never recurse through current allowance or funding reconstruction.
-                let original = crate::hub::custody::returns::read::legacy_original_on(tx, hub, op)
-                    .await?
-                    .original;
+                let original = Box::pin(crate::hub::custody::returns::read::legacy_original_on(
+                    tx, hub, op,
+                ))
+                .await?
+                .original;
                 if original.stock_revision != revision {
                     return Err(corrupt_storage());
                 }

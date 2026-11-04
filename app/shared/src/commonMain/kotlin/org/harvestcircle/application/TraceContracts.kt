@@ -98,6 +98,27 @@ data class HubTraceSnapshot(
     val dispositions: List<HubTraceDisposition> = emptyList(),
     val actualDepartedWholePacks: UInt = 0U,
     val actualDepartures: List<HubTraceActualDeparture> = emptyList(),
+    val quantityCorrections: List<HubTraceQuantityCorrection> = emptyList(),
+)
+
+data class HubTraceQuantityCorrection(
+    val originalOperationId: OperationId,
+    val originalGroupId: String,
+    val originalWholePacks: UInt,
+    val effectiveWholePacks: UInt,
+    val establishedReturnWholePacks: UInt,
+    val amendments: List<HubTraceQuantityAmendment>,
+)
+
+enum class HubTraceQuantityAmendmentKind { AdditionalDeparture, IdentifiedFoundRemainder }
+
+data class HubTraceQuantityAmendment(
+    val operationId: OperationId,
+    val stockRevision: ULong,
+    val beforeWholePacks: UInt,
+    val afterWholePacks: UInt,
+    val kind: HubTraceQuantityAmendmentKind,
+    val deltaWholePacks: UInt,
 )
 
 data class HubTraceActualDeparture(
@@ -166,6 +187,8 @@ enum class HubTraceHistoryKind {
     ActualReported,
     ActualReconciled,
     ActualLinked,
+    CorrectionObserved,
+    FoundCorrected,
 }
 
 data class HubTraceHistoryEntry(

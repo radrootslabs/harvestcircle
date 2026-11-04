@@ -1,4 +1,6 @@
-//! Full native current-cut comparison; no correction posting or synthetic roots.
+//! Full native current-cut comparison and separate legal posting tests. No
+//! synthetic correction root is accepted as a legal effect.
+pub(in crate::hub) mod posting_tests;
 use super::*;
 use crate::{
     HubFoundCorrectionReviewBlocker as Blocker, HubFoundCorrectionReviewOutcome as Outcome,
@@ -12,9 +14,11 @@ use harvestcircle_domain::{
     },
 };
 
+#[derive(Clone, Copy)]
 enum PriorReturn {
     None,
     Established,
+    TwoEstablished,
     Unknown,
 }
 
@@ -81,14 +85,25 @@ struct ReviewWorld {
     returned: Option<crate::HubReturnReceipt>,
 }
 async fn world(packs: u32, prior: PriorReturn) -> ReviewWorld {
+    world_with_quantities(packs, prior, 20, 6).await
+}
+async fn world_with_quantities(
+    packs: u32,
+    prior: PriorReturn,
+    total: u32,
+    outbound: u32,
+) -> ReviewWorld {
     let fixture = Fixture::new();
     let db = fixture.open().await;
     let (_, departure) =
-        crate::hub::handling::departure::tests::custody_departure_fixture(&db).await;
+        crate::hub::handling::departure::tests::custody_departure_fixture_quantities(
+            &db, None, total, outbound,
+        )
+        .await;
     let before = &departure.record.consumed[0].before;
     let returned = match prior {
         PriorReturn::None => None,
-        PriorReturn::Established => Some(
+        PriorReturn::Established | PriorReturn::TwoEstablished => Some(
             super::return_funding_tests::record_return(
                 &db,
                 Some(harvestcircle_domain::hub::returns::ReturnDepartureClaim {
@@ -103,6 +118,21 @@ async fn world(packs: u32, prior: PriorReturn) -> ReviewWorld {
             Some(super::return_funding_tests::record_return(&db, None, 120).await)
         }
     };
+    if matches!(prior, PriorReturn::TwoEstablished) {
+        let mut command = super::return_funding_tests::return_command(
+            &db,
+            Some(harvestcircle_domain::hub::returns::ReturnDepartureClaim {
+                departure: departure.record.id,
+                group: Some(before.id),
+            }),
+            id(2),
+        )
+        .await;
+        command.identification.label = HubLabel::new("Second separate active return").unwrap();
+        db.apply_hub_return(owner(), operation(1650), command, at(130))
+            .await
+            .unwrap();
+    }
     let runtime = db.begin_hub_runtime(at(140)).await.unwrap();
     let generation = db
         .advance_hub_session(

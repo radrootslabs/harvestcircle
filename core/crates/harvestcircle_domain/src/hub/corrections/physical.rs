@@ -118,7 +118,7 @@ pub struct EstablishedReturnReservation {
     pub stock_revision: HubRevision,
     pub recorded_at: UnixTimestamp,
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct PhysicalDebitFunding {
     original: OriginalPhysicalDebit,
     credits: Vec<FoundFundingCredit>,
@@ -259,6 +259,15 @@ pub struct FoundStockCommand {
     pub allocations: Vec<FoundStockInput>,
     pub basis: SourceProvenance,
 }
+/// A request to post one exact recorded observation at its reviewed native cut.
+/// Allocations and evidence come from that immutable observation, never from a
+/// second client-supplied copy. This input grants no admission or effect authority.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct FoundCorrectionCommand {
+    pub observation_operation: HubRecordId,
+    pub expected_stock_revision: HubRevision,
+    pub expected_catalog_revision: HubRevision,
+}
 pub struct FoundStockContext<'a> {
     pub family: CorrectedDepartureFamily,
     pub hub: HubId,
@@ -283,7 +292,7 @@ pub struct FoundStockAllocation {
     pub location: ReferenceRecord,
     pub cohort_evidence: SourceProvenance,
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct FoundStockPlan {
     pub family: CorrectedDepartureFamily,
     pub operation: HubRecordId,
@@ -309,6 +318,13 @@ pub fn found_stock_group_id(
     hash.update(b"harvestcircle.hub.correction.found.group.v1\0");
     hash.update(operation.as_bytes());
     hash.update([allocation]);
+    HubRecordId::from_bytes(hash.finalize()[..16].try_into().expect("SHA256 prefix"))
+        .map_err(|_| PhysicalCorrectionError::IdentityConflict)
+}
+pub fn found_correction_id(operation: HubRecordId) -> Result<HubRecordId, PhysicalCorrectionError> {
+    let mut hash = Sha256::new();
+    hash.update(b"harvestcircle.hub.correction.found.record.v1\0");
+    hash.update(operation.as_bytes());
     HubRecordId::from_bytes(hash.finalize()[..16].try_into().expect("SHA256 prefix"))
         .map_err(|_| PhysicalCorrectionError::IdentityConflict)
 }
