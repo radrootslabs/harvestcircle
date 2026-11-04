@@ -79,9 +79,11 @@ pub(in crate::hub) async fn trace_on(
         for line in known.lines {
             total = total
                 .checked_add(
-                    Box::pin(crate::hub::corrections::physical_balance::original_net_on(
-                        tx, hub, &operation, line.group, line.packs, cut,
-                    ))
+                    Box::pin(
+                        crate::hub::corrections::physical_balance::logical_line_net_on(
+                            tx, hub, &operation, line.group, line.packs, cut,
+                        ),
+                    )
                     .await?,
                 )
                 .map_err(|_| corrupt_storage())?;
@@ -103,7 +105,7 @@ pub(in crate::hub) async fn removed_work_on(
     // No actual-review header exists before forward18. This predecessor-compatible
     // fast path consults only the existing operation journal.
     let count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM hub_stock_operations WHERE hub_id=? AND kind='actual_review'",
+        "SELECT count(*) FROM hub_stock_operations WHERE hub_id=? AND kind IN ('actual_review','correction_additional')",
     )
     .bind(hub.as_bytes().as_slice())
     .fetch_one(&mut *tx)
@@ -118,7 +120,9 @@ pub(in crate::hub) async fn removed_work_on(
     if count == 0 {
         return Ok(removed);
     }
-    if !(0..=4096).contains(&count) {
+    let combined_limit = harvestcircle_domain::hub::actuals::HUB_ACTUAL_REPORT_CAPACITY
+        + harvestcircle_domain::hub::corrections::HUB_CORRECTION_ROWS;
+    if count < 0 || usize::try_from(count).map_err(|_| corrupt_storage())? > combined_limit {
         return Err(corrupt_storage());
     }
     let ids:Vec<String>=sqlx::query_scalar(concat!(
@@ -165,5 +169,20 @@ pub(in crate::hub) async fn removed_work_on(
             WorkProgress::Pending => return Err(corrupt_storage()),
         }
     }
+    let additional =
+        Box::pin(crate::hub::corrections::additional_projection::removed_work_on(tx, hub, work))
+            .await?;
+    removed.total = removed
+        .total
+        .checked_add(additional.total)
+        .map_err(|_| corrupt_storage())?;
+    removed.completed = removed
+        .completed
+        .checked_add(additional.completed)
+        .map_err(|_| corrupt_storage())?;
+    removed.retired = removed
+        .retired
+        .checked_add(additional.retired)
+        .map_err(|_| corrupt_storage())?;
     Ok(removed)
 }

@@ -281,6 +281,20 @@ pub(in crate::hub) async fn activity_on(
                 crate::hub::actuals::projection::known_on(tx, hub, &op).await?;
                 Activity::OtherPhysicalEffect
             }
+            "correction_additional" => {
+                let debit = Box::pin(
+                    crate::hub::corrections::additional_projection::physical_debit_on(tx, hub, &op),
+                )
+                .await?;
+                if debit.before.id != group
+                    || debit.before.trace != graph.trace()
+                    || debit.before.variant != graph.variant()
+                    || node.created_revision.value() >= revision.value()
+                {
+                    return Err(corrupt_storage());
+                }
+                Activity::OtherPhysicalEffect
+            }
             "receipt" | "opening" | "return" => {
                 stock::read::population_on(tx, hub, op, graph.trace()).await?;
                 Activity::GroupBorn
@@ -467,14 +481,16 @@ pub(in crate::hub) async fn physical_outflows_on(
                 return Err(corrupt_storage());
             }
             let packs = if corrected {
-                Box::pin(crate::hub::corrections::physical_balance::original_net_on(
-                    tx,
-                    hub,
-                    &operation,
-                    group,
-                    packs,
-                    graph.revision(),
-                ))
+                Box::pin(
+                    crate::hub::corrections::physical_balance::original_physical_net_on(
+                        tx,
+                        hub,
+                        &operation,
+                        group,
+                        packs,
+                        graph.revision(),
+                    ),
+                )
                 .await?
             } else {
                 packs
@@ -484,6 +500,15 @@ pub(in crate::hub) async fn physical_outflows_on(
                 .or_insert(WholePacks::from_value(0).expect("zero"));
             *prior = prior.checked_add(packs).map_err(|_| corrupt_storage())?;
         }
+    }
+    for (group, packs) in
+        Box::pin(crate::hub::corrections::physical_balance::additional_outflows_on(tx, hub, graph))
+            .await?
+    {
+        let total = totals
+            .entry(group)
+            .or_insert(WholePacks::from_value(0).expect("zero"));
+        *total = total.checked_add(packs).map_err(|_| corrupt_storage())?;
     }
     Ok(totals)
 }

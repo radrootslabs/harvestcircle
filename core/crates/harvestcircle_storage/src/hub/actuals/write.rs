@@ -167,7 +167,7 @@ pub(in crate::hub) async fn departure_on(
     Ok(restored)
 }
 
-pub(super) async fn close_report_on(
+pub(in crate::hub) async fn close_report_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     operation: &DurableRequestId,
     report: harvestcircle_domain::hub::reference::HubRecordId,

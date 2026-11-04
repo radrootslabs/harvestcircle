@@ -233,6 +233,10 @@ fun ActualWorkspace(
                             HarvestCircleShellButton("Compare with known departure", {
                                 presenter.beginLink(row.report)
                             }, Modifier.testTag("actual-link-${row.report.id}"), enabled = !state.loading)
+                        } else if (row.resolutionKind == org.harvestcircle.application.HubActualReportResolutionKind.AdditionalQuantity) {
+                            HarvestCircleShellText(
+                                "Additional quantity correction ${review.value}; raw facts and original departure remain retained. See trace history for the linked correction.",
+                            )
                         } else {
                             HarvestCircleShellText("Reviewed original ${review.value}; findings remain retained.")
                             HarvestCircleShellButton("Read retained review", {

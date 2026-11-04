@@ -547,7 +547,7 @@ async fn same_revision_siblings_keep_exact_selected_debit_and_narrow_hold_scope(
     db.host()
         .transaction(|tx| {
             Box::pin(async move {
-                let context = Box::pin(load_on(tx, hub, &second)).await?;
+                let context = Box::pin(load_on(tx, hub, &second, None)).await?;
                 assert_eq!(
                     first
                         .plan(&context.domain(), own, owner(), at(200))

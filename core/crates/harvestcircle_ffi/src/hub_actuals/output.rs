@@ -15,7 +15,7 @@ use harvestcircle_domain::hub::actuals::{
 };
 use harvestcircle_storage::{
     HubActualDeparturePreview, HubActualLinkPreview, HubActualReportPage, HubActualReportReceipt,
-    HubActualReviewOriginal, HubActualReviewReceipt,
+    HubActualReportResolutionKind, HubActualReviewOriginal, HubActualReviewReceipt,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -76,6 +76,13 @@ impl From<HubActualReportReceipt> for HubActualReportDto {
 pub struct HubActualReportRowDto {
     pub report: HubActualReportDto,
     pub review_operation_id: Option<String>,
+    pub resolution_kind: Option<HubActualReportResolutionKindDto>,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Enum))]
+pub enum HubActualReportResolutionKindDto {
+    ActualReview,
+    AdditionalQuantity,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
@@ -101,6 +108,14 @@ impl From<HubActualReportPage> for HubActualReportPageDto {
                 .map(|row| HubActualReportRowDto {
                     report: row.report.into(),
                     review_operation_id: row.review_operation.map(|v| v.as_str().to_owned()),
+                    resolution_kind: row.resolution_kind.map(|kind| match kind {
+                        HubActualReportResolutionKind::ActualReview => {
+                            HubActualReportResolutionKindDto::ActualReview
+                        }
+                        HubActualReportResolutionKind::AdditionalQuantity => {
+                            HubActualReportResolutionKindDto::AdditionalQuantity
+                        }
+                    }),
                 })
                 .collect(),
         }

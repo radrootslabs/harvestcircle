@@ -32,26 +32,26 @@ pub struct HubAdditionalQuantityReview {
     pub historical_holds: Vec<HistoricalHoldScopeAssessment>,
 }
 
-struct Context {
-    hub: HubId,
-    revision: HubRevision,
-    catalog: ReferenceCatalog,
-    report: ActualReportRecord,
-    prior_report_review: Option<HubRecordId>,
-    known: Vec<super::known::HubCorrectionKnownDeparture>,
-    target_event: usize,
-    target_line: usize,
-    group: PhysicalStockGroup,
-    lineage: PhysicalLineage,
-    births: Vec<ActualPhysicalBirth>,
-    treatment: TreatmentState,
-    source: HistoricalActualSource,
-    activity: Vec<ActualPhysicalActivity>,
-    latest_recorded_at: UnixTimestamp,
-    uncertain_submissions: bool,
+pub(super) struct Context {
+    pub hub: HubId,
+    pub revision: HubRevision,
+    pub catalog: ReferenceCatalog,
+    pub report: ActualReportRecord,
+    pub prior_report_review: Option<HubRecordId>,
+    pub known: Vec<super::known::HubCorrectionKnownDeparture>,
+    pub target_event: usize,
+    pub target_line: usize,
+    pub group: PhysicalStockGroup,
+    pub lineage: PhysicalLineage,
+    pub births: Vec<ActualPhysicalBirth>,
+    pub treatment: TreatmentState,
+    pub source: HistoricalActualSource,
+    pub activity: Vec<ActualPhysicalActivity>,
+    pub latest_recorded_at: UnixTimestamp,
+    pub uncertain_submissions: bool,
 }
 impl Context {
-    fn domain(&self) -> AdditionalQuantityContext<'_> {
+    pub fn domain(&self) -> AdditionalQuantityContext<'_> {
         let target = &self.known[self.target_event];
         AdditionalQuantityContext {
             hub: self.hub,
@@ -76,12 +76,45 @@ impl Context {
             uncertain_submissions: self.uncertain_submissions,
         }
     }
+
+    pub fn material(
+        &self,
+        id: HubRecordId,
+    ) -> harvestcircle_application::hub_submission::HubSubmittedAdditionalQuantity {
+        use harvestcircle_application::hub_submission::{
+            HubSubmittedAdditionalQuantity, HubSubmittedCorrectionKnown,
+        };
+        HubSubmittedAdditionalQuantity {
+            id,
+            report: self.report.clone(),
+            group: self.group.clone(),
+            lineage: self.lineage.clone(),
+            births: self.births.clone(),
+            treatment: self.treatment.clone(),
+            source: self.source.clone(),
+            activity: self.activity.clone(),
+            known_departures: self
+                .known
+                .iter()
+                .map(|known| HubSubmittedCorrectionKnown {
+                    original: known.original.clone(),
+                    recipient_original: known.recipient_original.clone(),
+                    recipient_history: known.recipient_history.clone(),
+                    quantities: known.quantities.clone(),
+                    funding: known.funding.clone(),
+                })
+                .collect(),
+            latest_recorded_at: self.latest_recorded_at,
+            uncertain_submissions: self.uncertain_submissions,
+        }
+    }
 }
 
-async fn load_on(
+pub(super) async fn load_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     command: &AdditionalQuantityCommand,
+    except_pending: Option<&DurableRequestId>,
 ) -> Result<Context, SafeError> {
     let state = stock::read::state_on(tx, hub).await?;
     let catalog = reference::load_catalog_on(tx, hub).await?;
@@ -138,9 +171,13 @@ async fn load_on(
     .await
     .map_err(|_| storage_unavailable())?;
     // The selected report is factual input, never a pending-admission exception.
-    let uncertain_submissions = crate::hub::submission::uncertainty_all_on(tx)
-        .await?
-        .uncertain_intent;
+    // Read/capture callers supply None. Only the owned fresh executor may
+    // exclude its exact already-admitted operation while consuming that grant.
+    let uncertain_submissions = match except_pending {
+        None => crate::hub::submission::uncertainty_all_on(tx).await?,
+        Some(own) => crate::hub::submission::uncertainty_on(tx, own).await?,
+    }
+    .uncertain_intent;
     Ok(Context {
         hub,
         revision: state.revision,
@@ -161,6 +198,26 @@ async fn load_on(
     })
 }
 
+pub(super) fn error(error: QuantityEffectError) -> SafeError {
+    use harvestcircle_domain::hub::corrections::CorrectionError;
+    match error {
+        QuantityEffectError::InvalidHistory => corrupt_storage(),
+        QuantityEffectError::InvalidFacts | QuantityEffectError::InvalidScope => {
+            stock::invalid_input()
+        }
+        QuantityEffectError::StaleRevision
+        | QuantityEffectError::UncertainSubmission
+        | QuantityEffectError::AlreadyReviewed
+        | QuantityEffectError::UnsupportedFamily => stock::conflict(),
+        QuantityEffectError::Actual(error) => crate::hub::actuals::common::error(error),
+        QuantityEffectError::Accounting(CorrectionError::Capacity) => stock::capacity(),
+        QuantityEffectError::Accounting(
+            CorrectionError::InvalidHistory | CorrectionError::Accounting,
+        ) => corrupt_storage(),
+        QuantityEffectError::Accounting(_) => stock::conflict(),
+    }
+}
+
 impl Database {
     /// A candidate describes current evidence; posting must independently acquire
     /// fresh native admission and recheck all current facts in its own transaction.
@@ -176,7 +233,7 @@ impl Database {
                 Box::pin(async move {
                     let hub = reference::authorize_on(tx, actor).await?;
                     reference::validate_basis_on(tx, hub.id()).await?;
-                    let context = Box::pin(load_on(tx, hub.id(), &command)).await?;
+                    let context = Box::pin(load_on(tx, hub.id(), &command, None)).await?;
                     let mut review = HubAdditionalQuantityReview {
                         revision: context.revision,
                         catalog_revision: context.catalog.revision(),
@@ -191,6 +248,12 @@ impl Database {
                     let own = crate::hub::actuals::common::operation_id(&operation)?;
                     review.outcome = match command.plan(&context.domain(), own, actor, now) {
                         Ok(plan) => {
+                            super::quantity::ensure_capacity_on(
+                                tx,
+                                hub.id(),
+                                plan.original_line.trace,
+                            )
+                            .await?;
                             review.historical_holds = context
                                 .treatment
                                 .holds()

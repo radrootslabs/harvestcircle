@@ -192,6 +192,7 @@ private fun HubTraceHistoryKindDto.toModel() =
         HubTraceHistoryKindDto.ACTUAL_LINKED -> HubTraceHistoryKind.ActualLinked
         HubTraceHistoryKindDto.CORRECTION_OBSERVED -> HubTraceHistoryKind.CorrectionObserved
         HubTraceHistoryKindDto.FOUND_CORRECTED -> HubTraceHistoryKind.FoundCorrected
+        HubTraceHistoryKindDto.ADDITIONAL_CORRECTED -> HubTraceHistoryKind.AdditionalCorrected
     }
 
 internal fun HubTraceHistoryPageDto.toModel() =

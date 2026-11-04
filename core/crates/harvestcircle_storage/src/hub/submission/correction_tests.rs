@@ -1,6 +1,7 @@
 //! The actual new observation writer completes and reads back, then the owned
 //! fixture transaction rolls back. No schema mutation or product fault hook.
 use super::*;
+mod additional_cases;
 mod admission_cases;
 mod found_cases;
 use crate::hub::stock::tests::{Fixture, command, now, operation, owner, query, setup};

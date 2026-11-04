@@ -132,6 +132,35 @@ pub(in crate::hub) async fn headers_on(
     }
     reservations_on(tx).await?;
     found_headers_on(tx, hub).await?;
+    additional_headers_on(tx, hub).await?;
+    Ok(())
+}
+
+async fn additional_headers_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+) -> Result<(), SafeError> {
+    let invalid: i64 = sqlx::query_scalar(concat!(
+        "SELECT (SELECT count(*) FROM hub_corrections c LEFT JOIN hub_stock_operations o ON o.operation_id=c.operation_id ",
+        "WHERE c.family='additional' AND (o.operation_id IS NULL OR o.kind<>'correction_additional' OR o.hub_id<>? OR o.result_id<>c.correction_id)) + ",
+        "(SELECT count(*) FROM hub_correction_physical_debits d LEFT JOIN hub_stock_operations o ON o.operation_id=d.operation_id ",
+        "LEFT JOIN hub_corrections c ON c.operation_id=d.operation_id WHERE o.operation_id IS NULL OR o.kind<>'correction_additional' OR c.family IS NULL OR c.family<>'additional') + ",
+        "(SELECT count(*) FROM hub_correction_captures c LEFT JOIN hub_stock_operations o ON o.operation_id=c.operation_id ",
+        "WHERE c.kind='correction_additional' AND (o.operation_id IS NULL OR o.kind<>c.kind OR o.hub_id<>?))"
+    )).bind(hub.as_bytes().as_slice()).bind(hub.as_bytes().as_slice())
+        .fetch_one(&mut *tx).await.map_err(|_| storage_unavailable())?;
+    let ids: Vec<String> = sqlx::query_scalar("SELECT substr(operation_id,1,37) FROM hub_stock_operations WHERE kind='correction_additional' ORDER BY stock_revision LIMIT 4097")
+        .fetch_all(&mut *tx).await.map_err(|_| storage_unavailable())?;
+    if invalid != 0 || ids.len() > harvestcircle_domain::hub::corrections::HUB_CORRECTION_ROWS {
+        return Err(corrupt_storage());
+    }
+    for id in ids {
+        let id = DurableRequestId::parse(id).map_err(|_| corrupt_storage())?;
+        let op = stock::read::operation_on(tx, hub, &id)
+            .await?
+            .ok_or_else(corrupt_storage)?;
+        Box::pin(additional_record::original_on(tx, hub, op)).await?;
+    }
     Ok(())
 }
 
@@ -173,6 +202,36 @@ mod additional_review;
 #[cfg(test)]
 pub(in crate::hub) use additional_review::tests::actual_world as additional_review_fixture;
 pub use additional_review::{HubAdditionalQuantityReview, HubAdditionalQuantityReviewOutcome};
+mod additional_frozen;
+mod additional_payload;
+mod additional_record;
+pub use additional_record::HubAdditionalQuantityReceipt;
+pub(in crate::hub) async fn additional_original_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    op: OperationRecord,
+) -> Result<HubAdditionalQuantityReceipt, SafeError> {
+    Box::pin(additional_record::original_on(tx, hub, op)).await
+}
+pub(in crate::hub) mod additional_projection;
+pub(in crate::hub) mod additional_write;
+#[cfg(test)]
+mod additional_write_tests;
+pub(in crate::hub) async fn capture_additional_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    actor: PublicKey,
+    operation: &DurableRequestId,
+    command: &harvestcircle_domain::hub::corrections::AdditionalQuantityCommand,
+) -> Result<harvestcircle_application::hub_submission::HubSubmittedAdditionalQuantity, SafeError> {
+    let context = additional_review::load_on(tx, hub, command, None).await?;
+    quantity::ensure_capacity_on(tx, hub, context.group.trace).await?;
+    let own = crate::hub::actuals::common::operation_id(operation)?;
+    command
+        .plan(&context.domain(), own, actor, context.latest_recorded_at)
+        .map_err(additional_review::error)?;
+    Ok(context.material(own))
+}
 pub(in crate::hub) mod return_allowances;
 pub(in crate::hub) mod return_capture;
 pub(in crate::hub) mod return_projection;
@@ -201,6 +260,7 @@ pub(in crate::hub) async fn capture_found_on(
     command: &harvestcircle_domain::hub::corrections::FoundCorrectionCommand,
 ) -> Result<harvestcircle_application::hub_submission::HubSubmittedFoundCorrection, SafeError> {
     let context = found_context::prepare_on(tx, hub, actor, operation, command, None).await?;
+    quantity::ensure_capacity_on(tx, hub, context.funding.quantity.original().trace).await?;
     Ok(context.material(crate::hub::actuals::common::operation_id(operation)?))
 }
 pub use found_review::{

@@ -85,7 +85,10 @@ impl Database {
             };
             let operation=crate::hub::actuals::common::operation_id(&query.proposed_operation).map_err(|_|stock::invalid_input())?;
             review.outcome=match context.plan(operation,actor,now) {
-                Ok(plan)=>HubFoundCorrectionReviewOutcome::Candidate(Box::new(plan)),
+                Ok(plan)=>{
+                    super::quantity::ensure_capacity_on(tx,hub.id(),plan.original_target.trace).await?;
+                    HubFoundCorrectionReviewOutcome::Candidate(Box::new(plan))
+                },
                 Err(error)=>HubFoundCorrectionReviewOutcome::Blocked(HubFoundCorrectionReviewBlocker::Policy(error)),
             };
             Ok(review)

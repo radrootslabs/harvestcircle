@@ -155,12 +155,12 @@ pub(in crate::hub) async fn original_on(
     operation: OperationRecord,
 ) -> Result<HubDepartureReceipt, SafeError> {
     let header = header_on(tx, &operation).await?;
-    let paper = super::super::dispatch::read::record_revision_on(
+    let paper = Box::pin(super::super::dispatch::read::record_revision_on(
         tx,
         hub,
         header.preparation,
         header.preparation_revision,
-    )
+    ))
     .await?;
     let issued = paper.versions.last().ok_or_else(corrupt_storage)?;
     if issued.id != header.identification || issued.material.lines.len() != header.lines {

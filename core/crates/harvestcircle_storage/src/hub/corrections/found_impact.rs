@@ -11,7 +11,21 @@ pub(super) async fn load_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     context: &super::found_context::Context,
 ) -> Result<CorrectionImpactSet, SafeError> {
-    let target = context.funding.quantity.original();
+    for_line_on(
+        tx,
+        context.hub,
+        context.stock_revision,
+        &context.funding.quantity.original(),
+    )
+    .await
+}
+
+pub(super) async fn for_line_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    cut: HubRevision,
+    target: &harvestcircle_domain::hub::corrections::OriginalDepartureQuantity,
+) -> Result<CorrectionImpactSet, SafeError> {
     let operation =
         crate::hub::actuals::common::operation(target.operation).map_err(|_| corrupt_storage())?;
     // These attribution families are still fenced globally. Never silently
@@ -19,7 +33,7 @@ pub(super) async fn load_on(
     let unsupported:i64=sqlx::query_scalar(concat!(
         "SELECT count(*) FROM hub_corrections correction JOIN hub_stock_operations original ON original.operation_id=correction.operation_id ",
         "WHERE original.hub_id=? AND original.stock_revision<=? AND ((correction.family='source' AND correction.subject_id=?) OR (correction.family='recipient' AND correction.target_operation_id=?))"
-    )).bind(context.hub.as_bytes().as_slice()).bind(i64::try_from(context.stock_revision.value()).map_err(|_|corrupt_storage())?).bind(target.trace.as_bytes().as_slice()).bind(operation.as_str()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    )).bind(hub.as_bytes().as_slice()).bind(i64::try_from(cut.value()).map_err(|_|corrupt_storage())?).bind(target.trace.as_bytes().as_slice()).bind(operation.as_str()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
     if unsupported != 0 {
         return Err(corrupt_storage());
     }
@@ -27,7 +41,7 @@ pub(super) async fn load_on(
         CorrectionImpact::Population(target.trace),
         CorrectionImpact::Departure(target.operation),
     ]);
-    let population = handling::read::trace_on(tx, context.hub, target.trace).await?;
+    let population = handling::read::trace_on(tx, hub, target.trace).await?;
     match &population.source {
         SourceAttribution::Unknown => {
             impact.insert(CorrectionImpact::UnresolvedSource(target.trace));
@@ -39,12 +53,12 @@ pub(super) async fn load_on(
             }
         }
     }
-    let op = stock::read::operation_on(tx, context.hub, &operation)
+    let op = stock::read::operation_on(tx, hub, &operation)
         .await?
         .ok_or_else(corrupt_storage)?;
     match op.kind.as_str() {
         "departure" => {
-            let original = handling::departure::read::original_on(tx, context.hub, op)
+            let original = handling::departure::read::original_on(tx, hub, op)
                 .await?
                 .record;
             let issued = original.paper.versions.last().ok_or_else(corrupt_storage)?;
@@ -54,7 +68,7 @@ pub(super) async fn load_on(
             }
         }
         "actual_review" => {
-            let original = crate::hub::actuals::reviews::original_on(tx, context.hub, op).await?;
+            let original = crate::hub::actuals::reviews::original_on(tx, hub, op).await?;
             let crate::HubActualReviewOriginal::Departure(plan) = original.original else {
                 return Err(corrupt_storage());
             };

@@ -70,9 +70,11 @@ pub(in crate::hub) async fn trace_on(
             .map_err(|_| corrupt_storage())?;
         net = net
             .checked_add(
-                Box::pin(crate::hub::corrections::physical_balance::original_net_on(
-                    tx, hub, &operation, group, packs, cut,
-                ))
+                Box::pin(
+                    crate::hub::corrections::physical_balance::logical_line_net_on(
+                        tx, hub, &operation, group, packs, cut,
+                    ),
+                )
                 .await?,
             )
             .map_err(|_| corrupt_storage())?;

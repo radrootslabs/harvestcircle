@@ -33,13 +33,13 @@ pub use db::{CURRENT_SCHEMA_VERSION, Database};
 pub use hub::actuals::{
     HubActualDeparturePreview, HubActualLineageEvidence, HubActualLineageQuery,
     HubActualLinkPreview, HubActualReportFilter, HubActualReportPage, HubActualReportQuery,
-    HubActualReportReceipt, HubActualReportRow, HubActualReviewOriginal, HubActualReviewReceipt,
-    HubActualSourceEvidence, HubActualSourceQuery,
+    HubActualReportReceipt, HubActualReportResolutionKind, HubActualReportRow,
+    HubActualReviewOriginal, HubActualReviewReceipt, HubActualSourceEvidence, HubActualSourceQuery,
 };
 pub use hub::corrections::{
-    HubAdditionalQuantityReview, HubAdditionalQuantityReviewOutcome, HubCorrectionFundingEvidence,
-    HubCorrectionFundingQuery, HubCorrectionKnownDeparture, HubCorrectionKnownEvidence,
-    HubCorrectionKnownQuery, HubCorrectionObservationReceipt,
+    HubAdditionalQuantityReceipt, HubAdditionalQuantityReview, HubAdditionalQuantityReviewOutcome,
+    HubCorrectionFundingEvidence, HubCorrectionFundingQuery, HubCorrectionKnownDeparture,
+    HubCorrectionKnownEvidence, HubCorrectionKnownQuery, HubCorrectionObservationReceipt,
 };
 pub use hub::corrections::{
     HubFoundCorrectionReceipt, HubFoundCorrectionReview, HubFoundCorrectionReviewBlocker,

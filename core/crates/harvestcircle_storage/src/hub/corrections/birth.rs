@@ -277,7 +277,7 @@ pub(in crate::hub) async fn birth_on(
         return Err(corrupt_storage());
     }
     let variant = stock::read::record_id(&native, "variant")?;
-    verify_debit_on(
+    Box::pin(verify_debit_on(
         tx,
         DebitBinding {
             hub,
@@ -291,7 +291,7 @@ pub(in crate::hub) async fn birth_on(
             born_at: op.recorded_at,
         },
         &data,
-    )
+    ))
     .await?;
     let location =
         reference::record_at_catalog_on(tx, hub, input.location, op.catalog_revision).await?;
@@ -415,10 +415,32 @@ async fn verify_debit_on(
     {
         return Err(corrupt_storage());
     }
+    if op.kind == "correction_additional" {
+        let projection = Box::pin(super::additional_projection::read_on(tx, hub, &op)).await?;
+        let original = &projection.original;
+        if original.key.operation
+            != crate::hub::actuals::common::operation_id(debit).map_err(|_| corrupt_storage())?
+            || original.key.group != group
+            || original.target.operation
+                != crate::hub::actuals::common::operation_id(target)
+                    .map_err(|_| corrupt_storage())?
+            || original.target.group != target_group
+            || original.before.trace != trace
+            || original.before.variant != variant
+            || original.stock_revision != revision
+            || original.packs.value() != data.debit_packs
+            || original.before.packs.value() != data.debit_before_packs
+            || original.before.revision.value() != data.debit_before_group_revision
+            || projection.reduction.after_revision.value() != data.debit_after_group_revision
+            || projection.result_hash != data.debit_result_hash
+        {
+            return Err(corrupt_storage());
+        }
+        return Ok(());
+    }
     let row=match op.kind.as_str() {
         "departure" if debit==target && group==target_group=>sqlx::query("SELECT line.packs,line.packs AS before_packs,line.before_group_revision,line.after_group_revision,substr(original.result_hash,1,33) AS result_hash,substr(original.departure_id,1,17) AS native_result,substr(population.variant_id,1,17) AS native_variant FROM hub_departure_lines line JOIN hub_departures original ON original.operation_id=line.operation_id JOIN hub_receipts population ON population.trace_id=line.trace_id WHERE line.operation_id=? AND line.group_id=? AND line.trace_id=? LIMIT 1").bind(debit.as_str()).bind(group.as_bytes().as_slice()).bind(trace.as_bytes().as_slice()).fetch_optional(&mut *tx).await,
         "actual_review" if debit==target && group==target_group=>sqlx::query("SELECT packs,before_packs,before_group_revision,after_group_revision,substr(result_hash,1,33) AS result_hash,substr(report_id,1,17) AS native_result,substr(variant_id,1,17) AS native_variant FROM hub_actual_reviews WHERE operation_id=? AND group_id=? AND trace_id=? AND review_kind='departure' LIMIT 1").bind(debit.as_str()).bind(group.as_bytes().as_slice()).bind(trace.as_bytes().as_slice()).fetch_optional(&mut *tx).await,
-        "correction_additional"=>sqlx::query("SELECT debit.packs,debit.before_packs,debit.before_group_revision,debit.after_group_revision,substr(debit.projection_hash,1,33) AS result_hash,substr(correction.correction_id,1,17) AS native_result,substr(debit.variant_id,1,17) AS native_variant FROM hub_correction_physical_debits debit JOIN hub_corrections correction ON correction.operation_id=debit.operation_id WHERE debit.operation_id=? AND debit.group_id=? AND debit.trace_id=? AND debit.target_operation_id=? AND debit.target_group_id=? AND correction.family='additional' AND correction.target_operation_id=debit.target_operation_id AND correction.subject_id=debit.target_group_id LIMIT 1").bind(debit.as_str()).bind(group.as_bytes().as_slice()).bind(trace.as_bytes().as_slice()).bind(target.as_str()).bind(target_group.as_bytes().as_slice()).fetch_optional(&mut *tx).await,
         _=>return Err(corrupt_storage()),
     }.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?;
     let packs = stock::read::whole_packs(row.try_get("packs").map_err(|_| corrupt_storage())?)?;

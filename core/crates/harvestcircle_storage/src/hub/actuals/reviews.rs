@@ -277,7 +277,7 @@ pub(in crate::hub) async fn original_on(
 
 /// The result seal commits to the expected work deltas. Independently require
 /// their exact journal rows, including absence on a zero-effect duplicate link.
-async fn verify_work_changes_on(
+pub(in crate::hub) async fn verify_work_changes_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     op: &OperationRecord,
     expected: &[harvestcircle_domain::hub::departure::DepartureWorkChange],

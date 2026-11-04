@@ -188,6 +188,34 @@ pub struct HubSubmittedFoundCorrection {
     pub uncertain_submissions: bool,
 }
 
+/// Complete native event interpretation at the captured cut. Data cannot grant
+/// authority or recreate a submitted command from a saved archive.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct HubSubmittedCorrectionKnown {
+    pub original: harvestcircle_domain::hub::actuals::ActualKnownDeparture,
+    pub recipient_original: harvestcircle_domain::hub::corrections::OriginalRecipientAttribution,
+    pub recipient_history:
+        Vec<harvestcircle_domain::hub::corrections::RecipientAttributionCorrection>,
+    pub quantities: Vec<harvestcircle_domain::hub::corrections::DepartureQuantityAccount>,
+    pub funding: Vec<harvestcircle_domain::hub::corrections::PhysicalDebitFunding>,
+}
+
+/// A descriptive native additional-quantity capture, never a future effect grant.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct HubSubmittedAdditionalQuantity {
+    pub id: HubRecordId,
+    pub report: harvestcircle_domain::hub::actuals::ActualReportRecord,
+    pub group: PhysicalStockGroup,
+    pub lineage: harvestcircle_domain::hub::portions::PhysicalLineage,
+    pub births: Vec<harvestcircle_domain::hub::actuals::ActualPhysicalBirth>,
+    pub treatment: harvestcircle_domain::hub::treatment::TreatmentState,
+    pub source: harvestcircle_domain::hub::actuals::HistoricalActualSource,
+    pub activity: Vec<harvestcircle_domain::hub::actuals::ActualPhysicalActivity>,
+    pub known_departures: Vec<HubSubmittedCorrectionKnown>,
+    pub latest_recorded_at: UnixTimestamp,
+    pub uncertain_submissions: bool,
+}
+
 /// Native adapters capture only referenced/affected records at the admission cut.
 /// A record's presence does not establish current authority or safe reconciliation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -206,6 +234,7 @@ pub enum HubSubmittedMaterial {
     ActualReview(Box<HubSubmittedActualReview>),
     ActualLink(Box<HubSubmittedActualLink>),
     FoundCorrection(Box<HubSubmittedFoundCorrection>),
+    AdditionalQuantity(Box<HubSubmittedAdditionalQuantity>),
 }
 impl HubSubmittedMaterial {
     fn identity(&self) -> (u8, HubRecordId, u64) {
@@ -223,6 +252,7 @@ impl HubSubmittedMaterial {
             Self::ActualReview(v) => (10, v.id, 0),
             Self::ActualLink(v) => (11, v.id, 0),
             Self::FoundCorrection(v) => (12, v.id, 0),
+            Self::AdditionalQuantity(v) => (13, v.id, 0),
         }
     }
 }

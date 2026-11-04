@@ -67,6 +67,17 @@ pub(super) async fn capture_on(
     }
     let mut material = Vec::new();
     match &request {
+        HubSubmittedRequest::AdditionalQuantity(command) => {
+            let captured = crate::hub::corrections::capture_additional_on(
+                tx,
+                hub.id(),
+                actor,
+                operation,
+                command,
+            )
+            .await?;
+            material.push(HubSubmittedMaterial::AdditionalQuantity(Box::new(captured)));
+        }
         HubSubmittedRequest::FoundCorrection(command) => {
             let captured =
                 crate::hub::corrections::capture_found_on(tx, hub.id(), actor, operation, command)

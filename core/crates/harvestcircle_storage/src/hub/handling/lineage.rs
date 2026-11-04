@@ -479,8 +479,13 @@ pub(super) async fn creation_on(
 > {
     Ok(match operation.kind.as_str() {
         "correction_found" if parent.is_some() => {
-            let found =
-                crate::hub::corrections::birth::birth_on(transaction, hub, &operation, id).await?;
+            let found = Box::pin(crate::hub::corrections::birth::birth_on(
+                transaction,
+                hub,
+                &operation,
+                id,
+            ))
+            .await?;
             if found.group.parent != parent
                 || found.group.trace != trace.id
                 || found.group.variant != trace.variant.id

@@ -204,7 +204,7 @@ internal class ActualFake : HarvestCircleActualRuntime {
                 1U
             },
             false,
-            listOfNotNull(saved?.let { HubActualReportRow(it, null) }),
+            listOfNotNull(saved?.let { HubActualReportRow(it, null, null) }),
         )
 
     override suspend fun actualReportOperation(operation: OperationId) = saved?.takeUnless { hideOriginal }

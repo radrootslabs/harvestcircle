@@ -175,7 +175,7 @@ pub(super) async fn latest_physical_on(
         "WHERE i.parent_group_id IS NOT NULL AND l.depth<256) ",
         "SELECT max(o.recorded_at_unix_s) AS latest,",
         "(SELECT count(*) FROM lineage l JOIN hub_group_identification i ON i.group_id=l.group_id WHERE l.depth=256 AND i.parent_group_id IS NOT NULL) AS truncated ",
-        "FROM lineage l JOIN hub_stock_events e ON e.group_id=l.group_id AND e.kind IN ('receipt','opening','move','split','count_post') ",
+        "FROM lineage l JOIN hub_stock_events e ON e.group_id=l.group_id AND e.kind IN ('receipt','opening','return','move','split','departure','disposition','count_post','actual_review','correction_found','correction_additional') ",
         "JOIN hub_stock_operations o ON o.operation_id=e.operation_id WHERE o.stock_revision<=l.ceiling"
     )).bind(group.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_| storage_unavailable())?;
     if row

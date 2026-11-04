@@ -48,8 +48,13 @@ pub(super) async fn credits_on(
         if op.kind != "correction_found" || op.revision != change.stock_revision {
             return Err(corrupt_storage());
         }
-        let graph =
-            handling::lineage::historical_on(tx, hub, line.original.trace, op.revision).await?;
+        let graph = Box::pin(handling::lineage::historical_on(
+            tx,
+            hub,
+            line.original.trace,
+            op.revision,
+        ))
+        .await?;
         super::initial_review::original_on(tx, hub, &graph, &op).await?;
         let review_hash:Vec<u8>=sqlx::query_scalar("SELECT substr(result_hash,1,33) FROM hub_correction_initial_reviews WHERE operation_id=?").bind(id.as_str()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
         let review_hash: [u8; 32] = review_hash.try_into().map_err(|_| corrupt_storage())?;
@@ -67,7 +72,7 @@ pub(super) async fn credits_on(
         let mut total = WholePacks::from_value(0).expect("zero");
         for (n, row) in rows.into_iter().enumerate() {
             let child = stock::read::record_id(&row, "child")?;
-            let birth = super::birth::birth_on(tx, hub, &op, child).await?;
+            let birth = Box::pin(super::birth::birth_on(tx, hub, &op, child)).await?;
             if row
                 .try_get::<i64, _>("allocation")
                 .map_err(|_| corrupt_storage())?

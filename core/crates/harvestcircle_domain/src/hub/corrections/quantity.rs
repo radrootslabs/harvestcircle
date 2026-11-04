@@ -80,7 +80,7 @@ pub struct AdditionalQuantityContext<'a> {
     pub known_departures: Vec<CorrectionKnownDeparture<'a>>,
     pub uncertain_submissions: bool,
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct AdditionalQuantityPlan {
     pub operation: HubRecordId,
     pub actor: PublicKey,
@@ -96,6 +96,15 @@ pub struct AdditionalQuantityPlan {
     pub after_causal_floor: Option<UnixTimestamp>,
     pub potential_historical_holds: Vec<HistoricalHoldFinding>,
     pub duplicate_review_basis: SourceProvenance,
+}
+
+pub fn additional_correction_id(operation: HubRecordId) -> Result<HubRecordId, CorrectionError> {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(b"harvestcircle.hub.correction.additional.record.v1\0");
+    hash.update(operation.as_bytes());
+    HubRecordId::from_bytes(hash.finalize()[..16].try_into().expect("SHA256 prefix"))
+        .map_err(|_| CorrectionError::InvalidHistory)
 }
 
 impl AdditionalQuantityCommand {

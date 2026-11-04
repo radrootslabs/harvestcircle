@@ -287,7 +287,16 @@ impl Database {
             for (operation,review) in rows {
                 let operation=DurableRequestId::parse(operation).map_err(|_|corrupt_storage())?;
                 let op=stock::read::operation_on(tx,hub.id(),&operation).await?.ok_or_else(corrupt_storage)?;
-                reports.push(HubActualReportRow {report:original_on(tx,hub.id(),op).await?,review_operation:review.map(DurableRequestId::parse).transpose().map_err(|_|corrupt_storage())?});
+                let review_operation=review.map(DurableRequestId::parse).transpose().map_err(|_|corrupt_storage())?;
+                let resolution_kind=match &review_operation {
+                    None=>None,
+                    Some(id)=>Some(match stock::read::operation_on(tx,hub.id(),id).await?.ok_or_else(corrupt_storage)?.kind.as_str() {
+                        "actual_review"=>HubActualReportResolutionKind::ActualReview,
+                        "correction_additional"=>HubActualReportResolutionKind::AdditionalQuantity,
+                        _=>return Err(corrupt_storage()),
+                    }),
+                };
+                reports.push(HubActualReportRow {report:original_on(tx,hub.id(),op).await?,review_operation,resolution_kind});
             }
             Ok(HubActualReportPage {revision:state.revision,catalog_revision:catalog.revision(),offset:query.offset,total:u32::try_from(total).map_err(|_|corrupt_storage())?,more:u64::from(query.offset)+(reports.len() as u64)<total as u64,rows:reports})
         })).await.map_err(map_transaction_error)

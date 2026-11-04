@@ -51,6 +51,7 @@ pub(in crate::hub) async fn apply_on(
         .plan(own, actor, now)
         .map_err(super::found_context::error)?;
     let count = u32::try_from(plan.allocations.len()).map_err(|_| corrupt_storage())?;
+    super::quantity::ensure_capacity_on(tx, hub.id(), plan.original_target.trace).await?;
     handling::treatment::capacity::ensure_on(
         tx,
         actor,
@@ -203,25 +204,44 @@ async fn persist_allocation_on(
     let group = &allocation.group;
     let identity = group.identification.as_ref().ok_or_else(corrupt_storage)?;
     let debit = crate::hub::actuals::common::operation(allocation.credit.debit.operation)?;
-    let canonical = super::quantity::original_on(
-        tx,
-        hub,
-        &debit,
-        allocation.credit.debit.group,
-        context.stock_revision,
-    )
-    .await?;
+    let canonical = stock::read::operation_on(tx, hub, &debit)
+        .await?
+        .ok_or_else(corrupt_storage)?;
+    if canonical.revision != allocation.funding.stock_revision
+        || canonical.recorded_at != allocation.funding.recorded_at
+        || allocation.funding.target != context.funding.quantity.original()
+    {
+        return Err(corrupt_storage());
+    }
     // Quantity projections deliberately bind the bounded known-event seal for
     // actual departures. A physical birth instead retains the full immutable
     // result seal, independently checked by birth::verify_debit_on. The full
     // original has already been verified by the context's native funding read.
     let debit_result_hash = match canonical.kind.as_str() {
-        "departure" => canonical.evidence_digest,
+        "departure" => {
+            super::quantity::original_on(
+                tx,
+                hub,
+                &debit,
+                allocation.credit.debit.group,
+                context.stock_revision,
+            )
+            .await?
+            .evidence_digest
+        }
         "actual_review" => {
             let bytes: Vec<u8> = sqlx::query_scalar("SELECT substr(result_hash,1,33) FROM hub_actual_reviews WHERE operation_id=? AND group_id=? AND review_kind='departure'")
                 .bind(debit.as_str()).bind(allocation.credit.debit.group.as_bytes().as_slice())
                 .fetch_one(&mut *tx).await.map_err(|_| storage_unavailable())?;
             bytes.try_into().map_err(|_| corrupt_storage())?
+        }
+        "correction_additional" => {
+            let projection =
+                Box::pin(super::additional_projection::read_on(tx, hub, &canonical)).await?;
+            if projection.original != allocation.funding {
+                return Err(corrupt_storage());
+            }
+            projection.result_hash
         }
         _ => return Err(corrupt_storage()),
     };
@@ -241,7 +261,7 @@ async fn persist_allocation_on(
         debit_result_hash,
         debit_kind: canonical.kind,
         debit_actor: canonical.actor.to_hex(),
-        debit_input_hash: canonical.intent_hash,
+        debit_input_hash: canonical.hash,
         debit_catalog_revision: canonical.catalog_revision.value(),
         debit_result: canonical.result.to_hex(),
         debit_recorded_at: canonical.recorded_at.as_seconds(),

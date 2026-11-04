@@ -15,6 +15,7 @@ import org.harvestcircle.ffi.HubActualReportFilterDto
 import org.harvestcircle.ffi.HubActualReportInputDto
 import org.harvestcircle.ffi.HubActualReportPageDto
 import org.harvestcircle.ffi.HubActualReportQueryDto
+import org.harvestcircle.ffi.HubActualReportResolutionKindDto
 import org.harvestcircle.ffi.HubActualReviewOriginalDto
 import org.harvestcircle.ffi.HubActualReviewReceiptDto
 import org.harvestcircle.ffi.HubActualSourceClaimDto
@@ -102,7 +103,17 @@ internal fun HubActualReportPageDto.toModel() =
         offset,
         total,
         more,
-        rows.map { HubActualReportRow(it.report.toModel(), it.reviewOperationId?.let(OperationId::from)) },
+        rows.map {
+            HubActualReportRow(
+                it.report.toModel(),
+                it.reviewOperationId?.let(OperationId::from),
+                when (it.resolutionKind) {
+                    null -> null
+                    HubActualReportResolutionKindDto.ACTUAL_REVIEW -> HubActualReportResolutionKind.ActualReview
+                    HubActualReportResolutionKindDto.ADDITIONAL_QUANTITY -> HubActualReportResolutionKind.AdditionalQuantity
+                },
+            )
+        },
     )
 
 internal fun HubActualDepartureInput.toNative() =

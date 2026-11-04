@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 19, FFI is 5.25 and snapshot schema is 1. Rust and
+The current storage schema is 19, FFI is 5.26 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -173,8 +173,8 @@ children, keeps the original physical debit and paperwork, and records a separat
 current quantity amendment. It restores neither the old group nor its handling
 work. Full original recovery binds immutable native admission, captured historical
 facts, every child birth, the initial negative review and downstream manual scope.
-Additional-stock, source, recipient and classification posting remain unavailable;
-correction posting has no desktop command or editor yet.
+Source, recipient and classification posting remain unavailable; correction
+posting has no desktop command or editor yet.
 
 The native correction-known query reads one population at paired stock/catalog
 revisions under current-owner authorization. It retains immutable positive events,
@@ -183,15 +183,28 @@ recipient populations and issued versions, complete found amendments and verifie
 physical return reservations. Unresolved return scope and global pending/raw-fact
 uncertainty remain explicit. Full originals are checked before trace filtering.
 Original issued versions do not include later linked documents. Unqualified
-recipient/count/additional histories fail closed; this read supplies no admission.
+recipient/count histories fail closed; this read supplies no admission.
 
 Native additional-quantity comparison reconstructs a preserved report's corrected
 line total separately from the physical delta. It uses explicit historical source
 and current balancing identities, complete known-event interpretations and every
 pending submission. Native historical hold assessments preserve unknown timing and
 unestablished scope separately from conditional findings. A candidate changes no
-report, stock, work or paperwork and supplies no admission; additional posting is
-still unavailable.
+report, stock, work or paperwork and supplies no admission.
+
+Native additional-quantity posting requires fresh owned admission for that exact
+comparison. It closes its preserved report, debits only the selected group's delta
+and retires only pending work. Completed work, gross originals and issued documents
+survive. Logical quantities retain the original line identity; physical funding
+uses separate debit-operation/group keys, even when group IDs coincide. Returns
+against a normal original cannot borrow an additional debit's allowance. Found
+credits consume only their named debit. Immutable original recovery reconstructs
+the full old source, lineage, work, treatment and known-event set against native
+admission; sealed physical metadata supports bounded conservation without recursively
+replanning predecessors. Saved Pending data never becomes a new execution grant.
+Read history identifies additional corrections and retains their linked raw report.
+Report pages distinguish this resolution from an ordinary actual review. These
+read consumers do not expose a public correction mutation command.
 
 Current trace reads retain gross original departures separately from native
 effective quantities, established returns and ordered amendments. The read-only

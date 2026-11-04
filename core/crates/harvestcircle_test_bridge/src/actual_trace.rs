@@ -347,6 +347,8 @@ pub fn actual_trace_history_encoding_probe() -> HubTraceHistoryPageDto {
         HubTraceHistoryKindDto::ActualReported,
         HubTraceHistoryKindDto::ActualReconciled,
         HubTraceHistoryKindDto::ActualLinked,
+        HubTraceHistoryKindDto::FoundCorrected,
+        HubTraceHistoryKindDto::AdditionalCorrected,
     ];
     let rows = kinds
         .into_iter()
@@ -364,7 +366,38 @@ pub fn actual_trace_history_encoding_probe() -> HubTraceHistoryPageDto {
         .collect();
     HubTraceHistoryPageDto {
         trace_id: id(21).to_hex(),
-        stock_revision: 6,
+        stock_revision: 8,
+        catalog_revision: 8,
+        offset: 0,
+        total: 5,
+        more: false,
+        rows,
+    }
+}
+
+/// Encoding-only page roles; no database, admission or persisted closure claim.
+#[uniffi::export]
+pub fn actual_report_resolution_encoding_probe() -> harvestcircle_ffi::HubActualReportPageDto {
+    use harvestcircle_ffi::{
+        HubActualReportPageDto, HubActualReportResolutionKindDto, HubActualReportRowDto,
+    };
+    let report = actual_trace_snapshot().actual_departures.remove(0).report;
+    let rows = [
+        None,
+        Some(HubActualReportResolutionKindDto::ActualReview),
+        Some(HubActualReportResolutionKindDto::AdditionalQuantity),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(n, kind)| HubActualReportRowDto {
+        report: (&report).into(),
+        review_operation_id: kind
+            .map(|_| format!("01900000-0000-7000-8000-0000000000{:02x}", 90 + n)),
+        resolution_kind: kind,
+    })
+    .collect();
+    HubActualReportPageDto {
+        stock_revision: 8,
         catalog_revision: 8,
         offset: 0,
         total: 3,

@@ -1,9 +1,11 @@
 package org.harvestcircle.integration
 
+import org.harvestcircle.application.HubActualReportResolutionKind
 import org.harvestcircle.application.HubOccurrenceKind
 import org.harvestcircle.application.HubTraceHistoryKind
 import org.harvestcircle.application.HubTraceQuantityAmendmentKind
 import org.harvestcircle.application.toModel
+import org.harvestcircle.testbridge.ffi.actualReportResolutionEncodingProbe
 import org.harvestcircle.testbridge.ffi.actualTraceEncodingProbe
 import org.harvestcircle.testbridge.ffi.actualTraceHistoryEncodingProbe
 import org.harvestcircle.testbridge.ffi.correctedTraceEncodingProbe
@@ -15,6 +17,28 @@ import kotlin.test.assertTrue
 // This is an encoding/read-consumer fixture, not native admission or persisted
 // effect acceptance. Real storage worlds qualify those independently.
 class ActualTraceReadAcceptanceTest {
+    @Test
+    fun generatedReportResolutionKeepsUnresolvedActualReviewAndAdditionalCorrectionDistinct() {
+        val native = actualReportResolutionEncodingProbe()
+        val page = native.toModel()
+        assertEquals(3U, page.total)
+        assertEquals(
+            listOf(
+                null,
+                HubActualReportResolutionKind.ActualReview,
+                HubActualReportResolutionKind.AdditionalQuantity,
+            ),
+            page.rows.map {
+                it.resolutionKind
+            },
+        )
+        assertEquals(null, page.rows[0].reviewOperationId)
+        assertEquals(native.rows[1].reviewOperationId, page.rows[1].reviewOperationId?.value)
+        assertEquals(native.rows[2].reviewOperationId, page.rows[2].reviewOperationId?.value)
+        assertNotEquals(page.rows[1].reviewOperationId, page.rows[2].reviewOperationId)
+        assertEquals(page.rows[0].report, page.rows[2].report)
+    }
+
     @Test
     fun generatedCorrectedTracePreservesGrossActualAndNativeEffectiveQuantities() {
         val original = actualTraceEncodingProbe().toModel()
@@ -77,12 +101,14 @@ class ActualTraceReadAcceptanceTest {
     @Test
     fun generatedNativeHistoryKeepsReportReconciliationAndZeroEffectLinkDistinct() {
         val history = actualTraceHistoryEncodingProbe().toModel()
-        assertEquals(3U, history.total)
+        assertEquals(5U, history.total)
         assertEquals(
             listOf(
                 HubTraceHistoryKind.ActualReported,
                 HubTraceHistoryKind.ActualReconciled,
                 HubTraceHistoryKind.ActualLinked,
+                HubTraceHistoryKind.FoundCorrected,
+                HubTraceHistoryKind.AdditionalCorrected,
             ),
             history.rows.map {
                 it.kind

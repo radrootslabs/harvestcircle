@@ -127,7 +127,10 @@ pub(super) async fn prepare_on(
         if count >= ACTUAL_REPORT_ADMISSION_CAPACITY {
             return Err(stock::capacity());
         }
-    } else if matches!(archive.kind(), "actual_review" | "correction_found") {
+    } else if matches!(
+        archive.kind(),
+        "actual_review" | "correction_found" | "correction_additional"
+    ) {
         // This closes an existing unresolved report, validated by capture.
         // Complete native review cuts retain the regular bounded 16MiB archive
         // allowance; ordinary traffic must never consume their closure capacity.
@@ -138,7 +141,7 @@ pub(super) async fn prepare_on(
             return Err(stock::capacity());
         }
     } else {
-        let count:i64=sqlx::query_scalar("SELECT count(*) FROM hub_submissions WHERE kind NOT IN ('hold_release','dispatch_unused','actual_report','actual_review','correction_observe','correction_found')")
+        let count:i64=sqlx::query_scalar("SELECT count(*) FROM hub_submissions WHERE kind NOT IN ('hold_release','dispatch_unused','actual_report','actual_review','correction_observe','correction_found','correction_additional')")
             .fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
         if count < 0 {
             return Err(corrupt_storage());

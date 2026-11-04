@@ -67,6 +67,12 @@ impl HubActualReportQuery {
 pub struct HubActualReportRow {
     pub report: HubActualReportReceipt,
     pub review_operation: Option<DurableRequestId>,
+    pub resolution_kind: Option<HubActualReportResolutionKind>,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HubActualReportResolutionKind {
+    ActualReview,
+    AdditionalQuantity,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HubActualReportPage {

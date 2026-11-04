@@ -2,8 +2,8 @@
 //! Read-only evidence is never a current effect or saved-admission grant.
 use super::*;
 use harvestcircle_domain::hub::corrections::{
-    CorrectedDepartureFamily, DepartureQuantityAccount, DepartureQuantityDelta, FoundFundingCredit,
-    OriginalPhysicalDebit, PhysicalDebitFunding, PhysicalDebitKey, PhysicalDebitKind,
+    CorrectedDepartureFamily, DepartureQuantityAccount, FoundFundingCredit, OriginalPhysicalDebit,
+    PhysicalDebitFunding, PhysicalDebitKey, PhysicalDebitKind,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -93,16 +93,13 @@ pub(super) async fn load_on(
 ) -> Result<LoadedFunding, SafeError> {
     let line = Box::pin(quantity::original_on(tx, hub, target, group, cut)).await?;
     let history = quantity::history_from_original_on(tx, hub, target, group, cut, &line).await?;
-    // Additional scalar metadata is deliberately insufficient physical proof.
-    // Its full command/debit reader must qualify before any additional effect
-    // is activated; never omit such a debit from an otherwise complete result.
-    if history
-        .amendments
-        .iter()
-        .any(|a| matches!(a.delta, DepartureQuantityDelta::AdditionalDeparture(_)))
-    {
-        return Err(corrupt_storage());
-    }
+    // Scalar metadata alone remains insufficient. Complete purpose-sealed
+    // physical outputs are required for every additional amendment. Current
+    // authority audits full roots first; immutable recovery anchors all of
+    // these reconstructed facts to its exact historical admission material.
+    let additional =
+        super::physical_balance::additional_debits_on(tx, hub, &line, &history.amendments, cut)
+            .await?;
     let returns = Box::pin(funding::returns_on(tx, hub, &line, cut)).await?;
     let changes = history.amendments.clone();
     let quantity = history.with_verified_returns(returns.total)?;
@@ -155,9 +152,25 @@ pub(super) async fn load_on(
         operation: line.original.operation,
         group,
     };
+    let mut originals = vec![OriginalPhysicalDebit {
+        key,
+        kind,
+        target: line.original,
+        before,
+        packs,
+        stock_revision: revision,
+        recorded_at,
+    }];
+    originals.extend(additional);
+    let mut keys = std::collections::BTreeSet::new();
+    for original in &originals {
+        if original.target != line.original || !keys.insert(original.key) {
+            return Err(corrupt_storage());
+        }
+    }
     let mut credits = Vec::new();
     for credit in super::return_allowances::credits_on(tx, hub, &line, &changes).await? {
-        if credit.debit != key {
+        if !keys.contains(&credit.debit) {
             return Err(corrupt_storage());
         }
         let id = crate::hub::actuals::common::operation(credit.operation)
@@ -174,35 +187,61 @@ pub(super) async fn load_on(
         credits.push(FoundFundingCredit {
             operation: credit.operation,
             allocation: credit.allocation,
-            debit: key,
+            debit: credit.debit,
             packs: credit.packs,
             stock_revision: credit.stock_revision,
             recorded_at: root.recorded_at,
         });
     }
-    let funding = PhysicalDebitFunding::restore(
-        OriginalPhysicalDebit {
-            key,
-            kind,
-            target: line.original,
-            before,
-            packs,
-            stock_revision: revision,
-            recorded_at,
-        },
-        credits,
-        returns.established,
-        returns.unresolved,
-    )
-    .map_err(|_| corrupt_storage())?;
-    if funding.recovered() != quantity.found_remainder()
-        || funding.returned() != quantity.established_returns()
+    let zero = harvestcircle_domain::hub::reference::WholePacks::from_value(0).expect("zero");
+    let mut recovered = zero;
+    let mut returned = zero;
+    let mut effective = zero;
+    let mut debits = Vec::with_capacity(originals.len());
+    for original in originals {
+        let key = original.key;
+        let funding = PhysicalDebitFunding::restore(
+            original,
+            credits
+                .iter()
+                .filter(|credit| credit.debit == key)
+                .copied()
+                .collect(),
+            returns
+                .established
+                .iter()
+                .filter(|reservation| reservation.debit == key)
+                .copied()
+                .collect(),
+            returns.unresolved,
+        )
+        .map_err(|_| corrupt_storage())?;
+        recovered = recovered
+            .checked_add(funding.recovered())
+            .map_err(|_| corrupt_storage())?;
+        returned = returned
+            .checked_add(funding.returned())
+            .map_err(|_| corrupt_storage())?;
+        effective = effective
+            .checked_add(
+                funding
+                    .original()
+                    .packs
+                    .checked_sub(funding.recovered())
+                    .map_err(|_| corrupt_storage())?,
+            )
+            .map_err(|_| corrupt_storage())?;
+        debits.push(funding);
+    }
+    if recovered != quantity.found_remainder()
+        || returned != quantity.established_returns()
+        || effective != quantity.effective()
     {
         return Err(corrupt_storage());
     }
     Ok(LoadedFunding {
         family,
         quantity,
-        debits: vec![funding],
+        debits,
     })
 }

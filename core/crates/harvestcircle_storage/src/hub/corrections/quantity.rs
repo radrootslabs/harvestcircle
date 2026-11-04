@@ -9,6 +9,26 @@ use harvestcircle_domain::hub::reference::WholePacks;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+/// One new quantity amendment must fit the complete population's existing
+/// accounting bound, independently of journal/report closure reservations.
+pub(super) async fn ensure_capacity_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    trace: HubRecordId,
+) -> Result<(), SafeError> {
+    let count:i64=sqlx::query_scalar(concat!(
+        "SELECT count(*) FROM hub_correction_quantity_changes q JOIN hub_stock_operations o ON o.operation_id=q.operation_id ",
+        "JOIN hub_stock_groups g ON g.group_id=q.group_id WHERE o.hub_id=? AND g.trace_id=?"
+    )).bind(hub.as_bytes().as_slice()).bind(trace.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    if count < 0 {
+        return Err(corrupt_storage());
+    }
+    if usize::try_from(count).map_err(|_| corrupt_storage())? >= HUB_CORRECTION_ROWS {
+        return Err(stock::capacity());
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub(super) struct CanonicalLine {
     pub original: OriginalDepartureQuantity,
@@ -169,7 +189,9 @@ pub(super) async fn original_on(
         crate::hub::actuals::common::operation_id(target).map_err(|_| corrupt_storage())?;
     let (trace, variant, packs, digest_query) = match op.kind.as_str() {
         "departure" => {
-            let original = handling::departure::read::original_on(tx, hub, op).await?;
+            // This full legacy proof composes below found/additional birth
+            // readers. Keep its large future off the default native stack.
+            let original = Box::pin(handling::departure::read::original_on(tx, hub, op)).await?;
             let line = original
                 .record
                 .consumed

@@ -47,7 +47,10 @@ data class HubActualReportQuery(
 data class HubActualReportRow(
     val report: HubActualReport,
     val reviewOperationId: OperationId?,
+    val resolutionKind: HubActualReportResolutionKind?,
 )
+
+enum class HubActualReportResolutionKind { ActualReview, AdditionalQuantity }
 
 data class HubActualReportPage(
     val stockRevision: ULong,

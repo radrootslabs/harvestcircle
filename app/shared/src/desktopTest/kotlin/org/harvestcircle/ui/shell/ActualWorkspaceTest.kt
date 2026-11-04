@@ -70,6 +70,50 @@ import org.harvestcircle.designsystem.theme.HarvestCircleTheme as Tokens
 @OptIn(ExperimentalTestApi::class)
 class ActualWorkspaceTest {
     @Test
+    fun additionalResolutionShowsLinkedCorrectionWithoutIncompatibleReviewLookup() =
+        runDesktopComposeUiTest(width = 1100, height = 720) {
+            val report =
+                org.harvestcircle.application.HubActualReport(
+                    "09".repeat(16),
+                    StockFixtures.operation,
+                    "hub",
+                    2UL,
+                    5UL,
+                    StockFixtures.actor,
+                    org.harvestcircle.application.UnixSeconds(100L),
+                    org.harvestcircle.application.HubActualClockAssessment.Unknown,
+                    HubActualReportInput(observation = "Retained raw total; additional correction is separate"),
+                )
+            val row =
+                org.harvestcircle.application.HubActualReportRow(
+                    report,
+                    StockFixtures.operation,
+                    org.harvestcircle.application.HubActualReportResolutionKind.AdditionalQuantity,
+                )
+            val shown =
+                ActualViewState(
+                    available = true,
+                    open = true,
+                    page = org.harvestcircle.application.HubActualReportPage(3UL, 5UL, 0U, 1U, false, listOf(row)),
+                )
+            setContent {
+                val scope = rememberCoroutineScope()
+                val presenter = remember { ActualPresenter(null, null, null, null, null, scope, OperationIdSource { error("Read only") }) }
+                HarvestCircleTheme(AppearanceState(ThemePreference.Dark, TextSizePreference.VeryLarge)) {
+                    ActualWorkspace(shown, presenter) { error("No mutation") }
+                }
+            }
+            onNodeWithText(
+                "Additional quantity correction ${StockFixtures.operation.value}; raw facts and original departure remain retained. See trace history for the linked correction.",
+            ).performScrollTo()
+                .assertIsDisplayed()
+            onNodeWithText("Read retained review").assertDoesNotExist()
+            onNodeWithTag("actual-original-${report.id}").assertDoesNotExist()
+            onNodeWithTag("actual-review-${report.id}").assertDoesNotExist()
+            onNodeWithTag("actual-link-${report.id}").assertDoesNotExist()
+        }
+
+    @Test
     fun minimumWindowKeepsUnknownFactsKeyboardAndDraftAcrossWorkStock() = renderWorkspace(1100, 720)
 
     @Test

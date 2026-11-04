@@ -452,4 +452,5 @@ private fun traceActionLabel(kind: HubTraceHistoryKind): String =
         HubTraceHistoryKind.ActualLinked -> "Duplicate report linked to original departure"
         HubTraceHistoryKind.CorrectionObserved -> "Unverified correction facts preserved"
         HubTraceHistoryKind.FoundCorrected -> "Found stock correction posted"
+        HubTraceHistoryKind.AdditionalCorrected -> "Additional departure quantity corrected"
     }

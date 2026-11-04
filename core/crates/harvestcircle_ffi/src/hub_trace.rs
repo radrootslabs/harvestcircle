@@ -505,6 +505,7 @@ pub enum HubTraceHistoryKindDto {
     ActualLinked,
     CorrectionObserved,
     FoundCorrected,
+    AdditionalCorrected,
 }
 impl From<HubTraceHistoryKind> for HubTraceHistoryKindDto {
     fn from(value: HubTraceHistoryKind) -> Self {
@@ -521,6 +522,7 @@ impl From<HubTraceHistoryKind> for HubTraceHistoryKindDto {
             HubTraceHistoryKind::ActualLinked => Self::ActualLinked,
             HubTraceHistoryKind::CorrectionObserved => Self::CorrectionObserved,
             HubTraceHistoryKind::FoundCorrected => Self::FoundCorrected,
+            HubTraceHistoryKind::AdditionalCorrected => Self::AdditionalCorrected,
             HubTraceHistoryKind::Handling(kind) => match kind {
                 HubHandlingKind::Move => Self::Move,
                 HubHandlingKind::Split => Self::Split,

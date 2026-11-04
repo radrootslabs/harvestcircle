@@ -189,6 +189,7 @@ enum class HubTraceHistoryKind {
     ActualLinked,
     CorrectionObserved,
     FoundCorrected,
+    AdditionalCorrected,
 }
 
 data class HubTraceHistoryEntry(
