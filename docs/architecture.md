@@ -206,6 +206,16 @@ Read history identifies additional corrections and retains their linked raw repo
 Report pages distinguish this resolution from an ordinary actual review. These
 read consumers do not expose a public correction mutation command.
 
+Native source/recipient attribution comparisons load canonical original populations
+and complete affected departure/document scope under paired current revisions.
+The source registry verifies every original association and each identity's first
+creator before trace selection; matching codes never merge IDs or issuers. Current
+stock and reference clocks both bound the comparison. Raw actual uncertainty stays
+visible separately from pending intent, which blocks a candidate. These reads
+change no original, source, recipient, stock, work or follow-up state and create no
+admission. Source/recipient and later linked-document histories remain explicitly
+fenced until their effect adapters and all current consumers qualify.
+
 Current trace reads retain gross original departures separately from native
 effective quantities, established returns and ordered amendments. The read-only
 desktop panel pages these records without calculating stock. As-issued output

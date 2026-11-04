@@ -199,9 +199,13 @@ mod projection_tests;
 pub(in crate::hub) mod quantity;
 pub use known::{HubCorrectionKnownDeparture, HubCorrectionKnownEvidence, HubCorrectionKnownQuery};
 mod additional_review;
+mod attribution_review;
 #[cfg(test)]
 pub(in crate::hub) use additional_review::tests::actual_world as additional_review_fixture;
 pub use additional_review::{HubAdditionalQuantityReview, HubAdditionalQuantityReviewOutcome};
+pub use attribution_review::{
+    HubAttributionReviewOutcome, HubRecipientAttributionReview, HubSourceAttributionReview,
+};
 mod additional_frozen;
 mod additional_payload;
 mod additional_record;

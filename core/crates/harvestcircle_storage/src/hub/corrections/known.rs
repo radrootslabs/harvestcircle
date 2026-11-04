@@ -94,7 +94,7 @@ impl Database {
     }
 }
 
-async fn recipient_on(
+pub(super) async fn recipient_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     operation: &DurableRequestId,

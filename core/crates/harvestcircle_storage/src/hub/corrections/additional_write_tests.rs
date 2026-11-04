@@ -306,7 +306,7 @@ async fn funding(
     .unwrap()
 }
 
-async fn found(
+pub(in crate::hub::corrections) async fn found(
     db: &Database,
     scope: HubSubmissionScope,
     target: &DurableRequestId,
