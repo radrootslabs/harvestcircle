@@ -78,7 +78,10 @@ impl Database {
     }
 }
 
-pub(in crate::hub) async fn state_on(
+/// Global journal shape and capacity only, without replaying current originals.
+/// Historical readers separately verify complete roots through their sealed cut.
+/// Fresh/current callers must use `state_on`, which also audits every family.
+pub(in crate::hub) async fn journal_state_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
 ) -> Result<StockState, SafeError> {
@@ -134,14 +137,6 @@ pub(in crate::hub) async fn state_on(
         return Err(corrupt_storage());
     }
 
-    crate::hub::actuals::validation::headers_on(transaction, hub).await?;
-    crate::hub::corrections::headers_on(transaction, hub).await?;
-
-    crate::hub::handling::departure::conservation::validate_headers_on(transaction, hub).await?;
-    crate::hub::counts::posting::validate_headers_on(transaction, hub).await?;
-    crate::hub::custody::returns::validation::headers_on(transaction, hub).await?;
-    crate::hub::custody::disposition::validation::headers_on(transaction, hub).await?;
-
     let counts = sqlx::query("SELECT (SELECT count(*) FROM hub_receipts) AS traces,(SELECT count(*) FROM hub_stock_groups) AS groups,(SELECT count(*) FROM hub_work_requirements) AS work,(SELECT count(*) FROM hub_discrepancies) AS discrepancies")
         .fetch_one(&mut *transaction).await.map_err(|_| storage_unavailable())?;
     for (field, maximum) in [
@@ -168,6 +163,20 @@ pub(in crate::hub) async fn state_on(
         revision,
         event_count,
     })
+}
+
+pub(in crate::hub) async fn state_on(
+    transaction: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+) -> Result<StockState, SafeError> {
+    let state = journal_state_on(transaction, hub).await?;
+    crate::hub::actuals::validation::headers_on(transaction, hub).await?;
+    crate::hub::corrections::headers_on(transaction, hub).await?;
+    crate::hub::handling::departure::conservation::validate_headers_on(transaction, hub).await?;
+    crate::hub::counts::posting::validate_headers_on(transaction, hub).await?;
+    crate::hub::custody::returns::validation::headers_on(transaction, hub).await?;
+    crate::hub::custody::disposition::validation::headers_on(transaction, hub).await?;
+    Ok(state)
 }
 
 pub(in crate::hub) async fn operation_on(

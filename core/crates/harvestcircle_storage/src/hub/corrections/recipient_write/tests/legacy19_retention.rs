@@ -12,6 +12,7 @@ use harvestcircle_domain::hub::{
 };
 use radroots_service_sqlite::MigrationBuildIdentity;
 mod current_interpretations;
+mod historical_interpretations;
 mod retain;
 
 const SOURCE: &str = "8549a01302c14c8f7c1bff9437f349d9adaf8454";
@@ -180,6 +181,18 @@ async fn native_baseline(db: &Database) -> serde_json::Value {
 }
 
 async fn drive_native19(db: &Database) -> serde_json::Value {
+    Box::pin(drive_native19_observed(db, false)).await.0
+}
+
+async fn drive_native19_observed(
+    db: &Database,
+    observe: bool,
+) -> (
+    serde_json::Value,
+    Vec<harvestcircle_domain::hub::actuals::ActualKnownInterpretations>,
+    HubSubmissionScope,
+) {
+    let mut cuts = Vec::new();
     assert_eq!(crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION, 19);
     let (before, target, _) =
         crate::hub::corrections::projection_native_tests::actual_debit(db).await;
@@ -192,6 +205,7 @@ async fn drive_native19(db: &Database) -> serde_json::Value {
     let crate::HubActualReviewOriginal::Departure(plan) = &original.original else {
         panic!("actual")
     };
+    historical_interpretations::observe(db, before.trace, observe, &mut cuts).await;
     let runtime = db.begin_hub_runtime(at(190)).await.unwrap();
     let generation = db
         .advance_hub_session(
@@ -249,6 +263,7 @@ async fn drive_native19(db: &Database) -> serde_json::Value {
     else {
         panic!("link")
     };
+    historical_interpretations::observe(db, before.trace, observe, &mut cuts).await;
     let crate::HubMutationResult::ActualReported(corrected) = db
         .submit_hub_mutation(
             scope,
@@ -300,6 +315,7 @@ async fn drive_native19(db: &Database) -> serde_json::Value {
         panic!("additional")
     };
     assert_eq!(additional.original.amendment.after.value(), 4);
+    historical_interpretations::observe(db, before.trace, observe, &mut cuts).await;
     crate::hub::corrections::additional_write_tests::found(
         db,
         scope,
@@ -313,6 +329,7 @@ async fn drive_native19(db: &Database) -> serde_json::Value {
         250,
     )
     .await;
+    historical_interpretations::observe(db, before.trace, observe, &mut cuts).await;
     crate::hub::corrections::additional_write_tests::found(
         db,
         scope,
@@ -326,6 +343,7 @@ async fn drive_native19(db: &Database) -> serde_json::Value {
         260,
     )
     .await;
+    historical_interpretations::observe(db, before.trace, observe, &mut cuts).await;
     let first = source_command(db, before.trace, 90, None).await;
     let crate::HubMutationResult::SourceAttributed(first) = db
         .submit_hub_mutation(
@@ -339,6 +357,7 @@ async fn drive_native19(db: &Database) -> serde_json::Value {
     else {
         panic!("source")
     };
+    historical_interpretations::observe(db, before.trace, observe, &mut cuts).await;
     let unknown = command(db, target_id, None, None).await;
     let crate::HubMutationResult::RecipientAttributed(unknown) = db
         .submit_hub_mutation(
@@ -352,6 +371,7 @@ async fn drive_native19(db: &Database) -> serde_json::Value {
     else {
         panic!("unknown")
     };
+    historical_interpretations::observe(db, before.trace, observe, &mut cuts).await;
     let current = command(
         db,
         target_id,
@@ -371,6 +391,7 @@ async fn drive_native19(db: &Database) -> serde_json::Value {
     else {
         panic!("current")
     };
+    historical_interpretations::observe(db, before.trace, observe, &mut cuts).await;
     let second = source_command(db, before.trace, 91, Some(first.original.stamp.operation)).await;
     let crate::HubMutationResult::SourceAttributed(_) = db
         .submit_hub_mutation(
@@ -422,7 +443,8 @@ async fn drive_native19(db: &Database) -> serde_json::Value {
         panic!("same link")
     };
     assert_eq!(replayed, link);
-    native_baseline(db).await
+    historical_interpretations::observe(db, before.trace, observe, &mut cuts).await;
+    (native_baseline(db).await, cuts, scope)
 }
 
 #[tokio::test]

@@ -273,13 +273,63 @@ pub(in crate::hub) async fn current_actual_interpretations_on(
     hub: HubId,
     trace: HubRecordId,
 ) -> Result<harvestcircle_domain::hub::actuals::ActualKnownInterpretations, SafeError> {
-    use harvestcircle_domain::hub::actuals::{
-        ActualKnownInterpretation, ActualKnownInterpretations,
-    };
     // No caller can select an older revision through this current-only adapter.
     let stock = stock::read::state_on(tx, hub).await?.revision;
     let catalog = reference::load_catalog_on(tx, hub).await?.revision();
     handling::read::trace_on(tx, hub, trace).await?;
+    Box::pin(actual_interpretations_at_on(tx, hub, trace, stock, catalog)).await
+}
+
+/// Descriptive historical evidence only. Callers must supply their native sealed
+/// cuts; this does not select an execution policy or restore saved admission.
+/// Full actual-original recursion still needs its separately qualified proof
+/// context before this reader may participate in forward review reconstruction.
+pub(in crate::hub) async fn actual_interpretations_at_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    trace: HubRecordId,
+    stock: HubRevision,
+    catalog: HubRevision,
+) -> Result<harvestcircle_domain::hub::actuals::ActualKnownInterpretations, SafeError> {
+    use harvestcircle_domain::hub::actuals::{
+        ActualKnownInterpretation, ActualKnownInterpretations,
+    };
+    let current = stock::read::journal_state_on(tx, hub).await?.revision;
+    let references = reference::load_catalog_on(tx, hub).await?;
+    if stock.value() > current.value() || catalog.value() > references.revision().value() {
+        return Err(corrupt_storage());
+    }
+    reference::load_catalog_through_on(tx, hub, catalog).await?;
+    // Even an empty candidate list must not conceal a stock operation whose
+    // required catalogue did not yet exist at the requested paired cut.
+    let dependency: Option<i64> = sqlx::query_scalar(
+        "SELECT max(catalog_revision) FROM hub_stock_operations WHERE hub_id=? AND stock_revision<=?",
+    )
+    .bind(hub.as_bytes().as_slice())
+    .bind(i64::try_from(stock.value()).map_err(|_| corrupt_storage())?)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|_| storage_unavailable())?;
+    if dependency.is_none_or(|v| u64::try_from(v).map_or(true, |v| v > catalog.value())) {
+        return Err(corrupt_storage());
+    }
+    let origin: Option<String> = sqlx::query_scalar(
+        "SELECT substr(operation_id,1,37) FROM hub_receipts WHERE trace_id=? LIMIT 1",
+    )
+    .bind(trace.as_bytes().as_slice())
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|_| storage_unavailable())?;
+    let origin = DurableRequestId::parse(origin.ok_or_else(corrupt_storage)?)
+        .map_err(|_| corrupt_storage())?;
+    let origin = stock::read::operation_on(tx, hub, &origin)
+        .await?
+        .ok_or_else(corrupt_storage)?;
+    if origin.revision.value() > stock.value() || origin.catalog_revision.value() > catalog.value()
+    {
+        return Err(corrupt_storage());
+    }
+    stock::read::population_on(tx, hub, origin, trace).await?;
     // Catalogue-only changes advance their own cut, not the stock-operation clock.
     let latest: Option<i64> = sqlx::query_scalar(
         "SELECT max(recorded_at_unix_s) FROM hub_stock_operations WHERE hub_id=? AND stock_revision<=?",

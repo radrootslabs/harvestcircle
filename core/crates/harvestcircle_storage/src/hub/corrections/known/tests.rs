@@ -1,6 +1,7 @@
 use super::*;
 use crate::hub::stock::tests::{Fixture, id, other, owner};
 use harvestcircle_domain::{SafeErrorCode, hub::corrections::PhysicalCorrectionError};
+mod historical_cut;
 
 fn query(trace: HubRecordId) -> HubCorrectionKnownQuery {
     HubCorrectionKnownQuery {
