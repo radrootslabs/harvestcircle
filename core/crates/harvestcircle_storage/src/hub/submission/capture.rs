@@ -7,6 +7,9 @@ pub(super) async fn capture_on(
     operation: &DurableRequestId,
     request: HubSubmittedRequest<'_>,
 ) -> Result<ArchivedHubSubmission, SafeError> {
+    if let HubSubmittedRequest::CorrectionObservation(command) = &request {
+        command.validate().map_err(crate::hub::corrections::error)?;
+    }
     if let HubSubmittedRequest::ActualReport(command) = &request {
         command
             .validate()
@@ -52,7 +55,9 @@ pub(super) async fn capture_on(
         }
     } else if !matches!(
         &request,
-        HubSubmittedRequest::ActualReport(_) | HubSubmittedRequest::ActualLink(_)
+        HubSubmittedRequest::ActualReport(_)
+            | HubSubmittedRequest::ActualLink(_)
+            | HubSubmittedRequest::CorrectionObservation(_)
     ) {
         return Err(corrupt_storage());
     }
@@ -121,6 +126,7 @@ pub(super) async fn capture_on(
                 id,
                 departure: context.departure,
                 established_return_totals: context.totals,
+                current_allowances: context.current_allowances,
             })));
         }
         HubSubmittedRequest::Disposition(command) => {

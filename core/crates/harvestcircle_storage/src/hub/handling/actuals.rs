@@ -107,6 +107,22 @@ pub(in crate::hub) async fn source_original_on(
                 population.occurred,
             )
         }
+        "correction_found" if birth_operation.as_str() == operation.as_str() => {
+            let original = crate::hub::corrections::birth::birth_on(tx, hub, &op, group).await?;
+            if original.group.trace != trace.id
+                || original.group.variant != trace.variant.id
+                || original.group.parent != parent
+                || original.birth.stock_revision != born_revision
+            {
+                return Err(corrupt_storage());
+            }
+            (
+                original.location,
+                original.group.packs,
+                original.group.revision,
+                original.birth.occurred,
+            )
+        }
         "move" => {
             let original = history::movement_on(tx, hub, op).await?;
             let HubHandlingResult::Moved(moved) = original.result else {

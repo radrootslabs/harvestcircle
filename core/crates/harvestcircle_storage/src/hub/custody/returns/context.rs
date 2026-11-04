@@ -7,6 +7,7 @@ pub(in crate::hub) struct Context {
     pub catalog: ReferenceCatalog,
     pub departure: Option<DepartureRecord>,
     pub totals: Vec<EstablishedReturnTotal>,
+    pub current_allowances: Option<harvestcircle_domain::hub::returns::ReturnAllowanceCapture>,
 }
 impl Context {
     pub(in crate::hub) fn domain(&self, hub: HubId) -> ReturnContext<'_> {
@@ -16,6 +17,7 @@ impl Context {
             catalog: &self.catalog,
             departure: self.departure.as_ref(),
             established_return_totals: &self.totals,
+            current_allowances: self.current_allowances.as_ref(),
         }
     }
 }
@@ -62,15 +64,41 @@ pub(in crate::hub) async fn load_on(
         None => None,
         Some(claim) => departure_on(tx, hub, claim.departure, state.revision).await?,
     };
-    let totals = match &departure {
-        None => Vec::new(),
-        Some(departure) => validated_totals_on(tx, hub, departure, state.revision).await?,
+    // This is the existing schema16 pre-runtime compatibility mode, never a
+    // fallback for missing admission once a runtime row exists.
+    let runtime: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM hub_runtime_session)")
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| storage_unavailable())?;
+    if runtime == 0 {
+        let corrections:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM hub_corrections)+(SELECT count(*) FROM hub_correction_observations)+(SELECT count(*) FROM hub_correction_captures)+(SELECT count(*) FROM hub_correction_return_projections)").fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+        if corrections != 0 {
+            return Err(corrupt_storage());
+        }
+    }
+    let (totals, current_allowances) = match &departure {
+        None => (Vec::new(), None),
+        Some(departure) if runtime == 0 => (
+            validated_totals_on(tx, hub, departure, state.revision).await?,
+            None,
+        ),
+        Some(departure) => {
+            let captured = crate::hub::corrections::return_allowances::load_on(
+                tx,
+                hub,
+                departure,
+                state.revision,
+            )
+            .await?;
+            (captured.totals, captured.allowances)
+        }
     };
     Ok(Context {
         state,
         catalog,
         departure,
         totals,
+        current_allowances,
     })
 }
 

@@ -155,7 +155,7 @@ pub(in crate::hub) async fn original_on(
         let review = DurableRequestId::parse(review).map_err(|_| corrupt_storage())?;
         let valid:i64=sqlx::query_scalar("SELECT count(*) FROM hub_actual_reviews review JOIN hub_stock_operations o ON o.operation_id=review.operation_id WHERE review.operation_id=? AND review.report_id=? AND o.hub_id=? AND o.kind='actual_review' AND o.result_id=review.report_id")
             .bind(review.as_str()).bind(id.as_bytes().as_slice()).bind(hub.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
-        if valid != 1 {
+        if valid != 1 && !crate::hub::corrections::closes_report_on(tx, hub, id, &review).await? {
             return Err(corrupt_storage());
         }
     }

@@ -101,6 +101,7 @@ pub struct ReturnPlan {
     pub intake_work: Option<WorkRequirement>,
     pub acceptance: AcceptanceStatus,
     pub linkage: ReturnLinkSnapshot,
+    pub current_allowances: Option<ReturnAllowanceCapture>,
 }
 
 impl ReturnPlan {

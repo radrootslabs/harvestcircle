@@ -37,6 +37,7 @@ internal fun PortionLineage(
             )
             val creation =
                 when (row.createdKind) {
+                    HubGroupCreationKind.FoundRemainder -> "Separately identified found remainder"
                     HubGroupCreationKind.Returned -> "Returned custody; separate population"
                     HubGroupCreationKind.Receipt -> "Received"
                     HubGroupCreationKind.CountedOpening -> "Counted opening"

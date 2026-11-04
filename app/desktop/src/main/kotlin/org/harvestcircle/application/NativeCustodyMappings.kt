@@ -3,6 +3,7 @@ package org.harvestcircle.application
 import org.harvestcircle.ffi.HubDispositionInputDto
 import org.harvestcircle.ffi.HubDispositionKindDto
 import org.harvestcircle.ffi.HubDispositionReceiptDto
+import org.harvestcircle.ffi.HubReturnAllowanceCaptureDto
 import org.harvestcircle.ffi.HubReturnClaimDto
 import org.harvestcircle.ffi.HubReturnDepartureDto
 import org.harvestcircle.ffi.HubReturnInputDto
@@ -122,6 +123,24 @@ internal fun HubReturnReceiptDto.toModel() =
         plausibleSources.map { it.toModel() },
         timing.toModel(),
         resolution.toModel(),
+        currentAllowances?.toModel(),
+    )
+
+internal fun HubReturnAllowanceCaptureDto.toModel() =
+    HubReturnAllowanceCapture(
+        hubId,
+        departureId,
+        OperationId.from(operationId),
+        stockRevision,
+        lines.map { line ->
+            HubReturnLineAllowance(
+                line.originalGroupId,
+                line.effectiveDepartureWholePacks,
+                line.originalDebitReturnBoundWholePacks,
+                line.quantityHead?.let { HubReturnQuantityHead(OperationId.from(it.operationId), it.stockRevision) },
+                line.unresolvedReturns,
+            )
+        },
     )
 
 internal fun HubDispositionInput.toNative() =

@@ -170,6 +170,7 @@ pub struct HubGroupView {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HubGroupCreationKind {
+    FoundRemainder,
     Receipt,
     CountedOpening,
     CountedSurplus,

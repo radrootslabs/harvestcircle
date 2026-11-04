@@ -31,6 +31,7 @@ pub struct ReturnContext<'a> {
     pub departure: Option<&'a DepartureRecord>,
     /// Exactly one total for every original departure line, including explicit zeros.
     pub established_return_totals: &'a [EstablishedReturnTotal],
+    pub current_allowances: Option<&'a ReturnAllowanceCapture>,
 }
 impl ReturnCommand {
     pub fn plan(
@@ -143,6 +144,7 @@ impl ReturnCommand {
             intake_work,
             acceptance: AcceptanceStatus::ReviewRequired,
             linkage: self.resolve_link(context)?,
+            current_allowances: context.current_allowances.cloned(),
         })
     }
     fn resolve_link(&self, context: &ReturnContext<'_>) -> Result<ReturnLinkSnapshot, ReturnError> {
@@ -155,13 +157,17 @@ impl ReturnCommand {
             resolution: ReturnLinkResolution::Unknown,
         };
         let Some(claim) = self.departure else {
-            if context.departure.is_some() || !context.established_return_totals.is_empty() {
+            if context.departure.is_some()
+                || !context.established_return_totals.is_empty()
+                || context.current_allowances.is_some()
+            {
                 return Err(ReturnError::InvalidNativeContext);
             }
             return Ok(snapshot);
         };
         let Some(departure) = context.departure else {
-            if !context.established_return_totals.is_empty() {
+            if !context.established_return_totals.is_empty() || context.current_allowances.is_some()
+            {
                 return Err(ReturnError::InvalidNativeContext);
             }
             snapshot.resolution = ReturnLinkResolution::Unrecorded;
@@ -180,6 +186,9 @@ impl ReturnCommand {
             .versions
             .last()
             .ok_or(ReturnError::InvalidNativeContext)?;
+        if let Some(allowances) = context.current_allowances {
+            allowances.validate(context, departure)?;
+        }
         if context.established_return_totals.len() != issued.material.lines.len() {
             return Err(ReturnError::InvalidNativeContext);
         }
@@ -197,6 +206,15 @@ impl ReturnCommand {
                 .get(&line.group)
                 .ok_or(ReturnError::InvalidNativeContext)?;
             if prior.value() > line.packs.value() {
+                return Err(ReturnError::InvalidNativeContext);
+            }
+            if let Some(allowance) = context.current_allowances.and_then(|capture| {
+                capture
+                    .lines
+                    .iter()
+                    .find(|allowance| allowance.original_group == line.group)
+            }) && prior.value() > allowance.linkable_quantity().value()
+            {
                 return Err(ReturnError::InvalidNativeContext);
             }
             let candidate = ReturnSourceSnapshot {
@@ -237,6 +255,27 @@ impl ReturnCommand {
                     .previously_established_returns
                     .checked_add(self.packs)
                     .is_ok_and(|total| total.value() <= source.original.packs.value()) =>
+            {
+                Some(UnresolvedReturnLink::QuantityConflict)
+            }
+            (Some(source), _)
+                if context
+                    .current_allowances
+                    .and_then(|capture| {
+                        capture
+                            .lines
+                            .iter()
+                            .find(|allowance| allowance.original_group == source.original.group)
+                    })
+                    .is_some_and(|allowance| {
+                        allowance.unresolved_returns
+                            || !source
+                                .previously_established_returns
+                                .checked_add(self.packs)
+                                .is_ok_and(|total| {
+                                    total.value() <= allowance.linkable_quantity().value()
+                                })
+                    }) =>
             {
                 Some(UnresolvedReturnLink::QuantityConflict)
             }

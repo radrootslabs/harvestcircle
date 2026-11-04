@@ -44,7 +44,9 @@ fn error(error: ReturnError) -> SafeError {
     }
 }
 
-fn resolution(value: &ReturnLinkResolution) -> (&'static str, Option<&'static str>) {
+pub(in crate::hub) fn resolution(
+    value: &ReturnLinkResolution,
+) -> (&'static str, Option<&'static str>) {
     use harvestcircle_domain::hub::returns::UnresolvedReturnLink as Why;
     match value {
         ReturnLinkResolution::Unknown => ("unknown", None),
@@ -63,7 +65,9 @@ fn resolution(value: &ReturnLinkResolution) -> (&'static str, Option<&'static st
         ),
     }
 }
-fn timing(value: harvestcircle_domain::hub::returns::ReturnTiming) -> &'static str {
+pub(in crate::hub) fn timing(
+    value: harvestcircle_domain::hub::returns::ReturnTiming,
+) -> &'static str {
     use harvestcircle_domain::hub::returns::ReturnTiming;
     match value {
         ReturnTiming::AfterOrSame => "after_or_same",

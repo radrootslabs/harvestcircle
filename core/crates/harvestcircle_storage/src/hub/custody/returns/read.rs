@@ -8,7 +8,7 @@ use harvestcircle_domain::hub::returns::{
 use harvestcircle_domain::hub::stock::{PopulationOrigin, StockPopulation};
 use std::collections::BTreeMap;
 
-pub(super) struct Own {
+pub(in crate::hub) struct Own {
     pub ids: ReturnIdentities,
     pub command: ReturnCommand,
     pub catalog: ReferenceCatalog,
@@ -23,7 +23,7 @@ pub(super) struct Own {
     pub timing: String,
     pub result_hash: [u8; 32],
 }
-pub(super) async fn own_on(
+pub(in crate::hub) async fn own_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     op: &OperationRecord,
@@ -193,6 +193,7 @@ pub(super) async fn own_on(
                 catalog: &catalog,
                 departure: None,
                 established_return_totals: &[],
+                current_allowances: None,
             },
             ids,
             op.actor,
@@ -270,12 +271,63 @@ pub(in crate::hub) async fn intake_work_on(
     Ok(own_on(tx, hub, op).await?.work)
 }
 
+struct OriginalContext {
+    own: Own,
+    departure: Option<DepartureRecord>,
+    totals: Vec<EstablishedReturnTotal>,
+    current_allowances: Option<harvestcircle_domain::hub::returns::ReturnAllowanceCapture>,
+}
+
 pub(in crate::hub) async fn original_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     op: OperationRecord,
 ) -> Result<HubReturnReceipt, SafeError> {
     let own = own_on(tx, hub, &op).await?;
+    let capture =
+        crate::hub::corrections::return_capture::read_on(tx, hub, &op, own.result_hash).await?;
+    let mut original = context_on(tx, hub, &op, own).await?;
+    if let Some(capture) = &capture {
+        let departure = original.departure.as_ref().ok_or_else(corrupt_storage)?;
+        let expected = crate::hub::corrections::return_allowances::load_on(
+            tx,
+            hub,
+            departure,
+            original.own.command.expected_stock_revision,
+        )
+        .await?;
+        if expected.allowances.as_ref() != Some(capture) || expected.totals != original.totals {
+            return Err(corrupt_storage());
+        }
+    }
+    original.current_allowances = capture;
+    finish_on(tx, hub, op, original).await
+}
+
+/// This path cannot reconstruct current allowances. Both new records must be
+/// absent, and finish_on verifies the exact old None result seal.
+pub(in crate::hub) async fn legacy_original_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    op: OperationRecord,
+) -> Result<HubReturnReceipt, SafeError> {
+    let own = own_on(tx, hub, &op).await?;
+    if crate::hub::corrections::return_capture::read_on(tx, hub, &op, own.result_hash)
+        .await?
+        .is_some()
+    {
+        return Err(corrupt_storage());
+    }
+    let original = context_on(tx, hub, &op, own).await?;
+    finish_on(tx, hub, op, original).await
+}
+
+async fn context_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    op: &OperationRecord,
+    own: Own,
+) -> Result<OriginalContext, SafeError> {
     let departure = match own.known {
         None => None,
         Some(id) => Some(
@@ -331,12 +383,33 @@ pub(in crate::hub) async fn original_on(
             packs: prior,
         });
     }
+    Ok(OriginalContext {
+        own,
+        departure,
+        totals,
+        current_allowances: None,
+    })
+}
+
+async fn finish_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    op: OperationRecord,
+    original: OriginalContext,
+) -> Result<HubReturnReceipt, SafeError> {
+    let OriginalContext {
+        own,
+        departure,
+        totals,
+        current_allowances,
+    } = original;
     let context = ReturnContext {
         hub,
         stock_revision: own.command.expected_stock_revision,
         catalog: &own.catalog,
         departure: departure.as_ref(),
         established_return_totals: &totals,
+        current_allowances: current_allowances.as_ref(),
     };
     let plan = own
         .command
@@ -353,6 +426,18 @@ pub(in crate::hub) async fn original_on(
             != own.result_hash
     {
         return Err(corrupt_storage());
+    }
+    if current_allowances.is_some() {
+        let projected = crate::hub::corrections::return_projection::read_on(tx, hub, &op)
+            .await?
+            .ok_or_else(corrupt_storage)?;
+        if projected.operation != plan.identities.operation
+            || projected.variant != plan.intake.variant.id
+            || projected.packs != plan.intake.packs
+            || projected.established_group != plan.linkage.established_group()
+        {
+            return Err(corrupt_storage());
+        }
     }
     Ok(HubReturnReceipt {
         operation: op.id,

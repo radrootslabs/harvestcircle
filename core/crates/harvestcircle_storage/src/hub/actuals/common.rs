@@ -17,7 +17,7 @@ pub(super) fn integer(value: HubRevision) -> Result<i64, SafeError> {
 pub(in crate::hub) fn operation_id(value: &DurableRequestId) -> Result<HubRecordId, SafeError> {
     HubRecordId::from_hex(&value.as_str().replace('-', "")).map_err(|_| stock::invalid_input())
 }
-pub(super) fn operation(value: HubRecordId) -> Result<DurableRequestId, SafeError> {
+pub(in crate::hub) fn operation(value: HubRecordId) -> Result<DurableRequestId, SafeError> {
     let hex = value.to_hex();
     DurableRequestId::parse(format!(
         "{}-{}-{}-{}-{}",
@@ -60,7 +60,7 @@ pub(super) fn occurrence_fields(value: Occurrence) -> (&'static str, Option<i64>
 }
 /// The caller still needs its one-use in-memory FreshAdmission. A matching saved
 /// row is never a reconstructed execution grant or permission to replay input.
-pub(super) async fn require_admission_on(
+pub(in crate::hub) async fn require_admission_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     actor: PublicKey,

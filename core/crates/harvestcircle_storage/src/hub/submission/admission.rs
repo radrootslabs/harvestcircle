@@ -32,6 +32,9 @@ pub(super) async fn prepare_on(
 ) -> Result<Decision, SafeError> {
     session::require_on(tx, scope).await?;
     let request = mutation.submitted_request();
+    if let HubSubmittedRequest::CorrectionObservation(command) = &request {
+        command.validate().map_err(crate::hub::corrections::error)?;
+    }
     if let HubSubmittedRequest::ActualReport(command) = &request {
         command
             .validate()
@@ -97,7 +100,22 @@ pub(super) async fn prepare_on(
     }
     let archive = capture::capture_on(tx, scope.actor, scope, &operation, request).await?;
     let closing = matches!(archive.kind(), "hold_release" | "dispatch_unused");
-    if archive.kind() == "actual_report" {
+    if archive.kind() == "correction_observe" {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM hub_submissions WHERE kind='correction_observe'",
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_| storage_unavailable())?;
+        if count < 0 {
+            return Err(corrupt_storage());
+        }
+        if count
+            > harvestcircle_domain::hub::corrections::HUB_CORRECTION_OBSERVATION_CAPACITY as i64
+        {
+            return Err(stock::capacity());
+        }
+    } else if archive.kind() == "actual_report" {
         let count: i64 =
             sqlx::query_scalar("SELECT count(*) FROM hub_submissions WHERE kind='actual_report'")
                 .fetch_one(&mut *tx)
@@ -120,7 +138,7 @@ pub(super) async fn prepare_on(
             return Err(stock::capacity());
         }
     } else {
-        let count:i64=sqlx::query_scalar("SELECT count(*) FROM hub_submissions WHERE kind NOT IN ('hold_release','dispatch_unused','actual_report','actual_review')")
+        let count:i64=sqlx::query_scalar("SELECT count(*) FROM hub_submissions WHERE kind NOT IN ('hold_release','dispatch_unused','actual_report','actual_review','correction_observe')")
             .fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
         if count < 0 {
             return Err(corrupt_storage());
@@ -169,12 +187,13 @@ pub(in crate::hub) async fn uncertainty_on(
     .fetch_one(&mut *tx)
     .await
     .map_err(|_| storage_unavailable())?;
+    let observations = crate::hub::corrections::reservations_on(tx).await?;
     if pending < 0 || actual < 0 {
         return Err(corrupt_storage());
     }
     Ok(HubUncertainty {
         uncertain_intent: pending != 0,
-        unresolved_actual: actual != 0,
+        unresolved_actual: actual != 0 || observations.operations != 0,
     })
 }
 

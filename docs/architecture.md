@@ -28,7 +28,7 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 18, FFI is 5.23 and snapshot schema is 1. Rust and
+The current storage schema is 19, FFI is 5.24 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
@@ -60,7 +60,7 @@ recording grants no reconciliation permission. Native read-only review uses one
 protected current cut for the group, latest physical activity/count/reconciliation
 and live pending-submission/actual-review sources. The returned comparison neither
 admits a command nor changes stock/work. Posting must repeat those checks inside
-its effect transaction. Actual-report command handling remains unfinished.
+its effect transaction.
 Opening/count mutations use the serialized native actor with current session and
 credential checks before durable admission. Observation review and original-result
 lookup remain read-only under current hub ownership, including when a credential
@@ -163,6 +163,23 @@ native physical lineage, treatment and uncertainty. Neither archive has a decode
 into an executable command. Both kinds use the existing current-session and
 credential checks; an unresolved earlier submission blocks another planned effect.
 
+Schema19 prepares append-only correction records and retains raw correction
+observations without changing physical stock or work. These observations preserve
+unverified or zero facts for later review. They reserve bounded closure space;
+supersession transfers that reservation while keeping the earlier original.
+Correction posting and its desktop editors remain unfinished. Found and additional
+stock effects stay unavailable until complete native consumers are qualified.
+
+Linked return intake now captures native effective departure quantities, original
+physical-debit bounds, quantity heads and potentially related unresolved returns.
+Additional stock debited elsewhere cannot expand the original group's return bound.
+Uncertain associations retain the actual new intake with review-required acceptance.
+The receipt displays the recorded bounds and uncertainty. New committed allowance
+inputs and shallow linkage outputs have separate consistency seals; full original
+lookup reconstructs their canonical basis at the original cut. Missing or damaged
+evidence fails closed. Legacy originals without allowances keep their exact prior
+encoding and result seal. No captured context or consistency hash grants an effect.
+
 Schema16 persists hub submissions before their effects. Admission recaptures the
 complete bounded input and selected native material inside a protected transaction.
 Only that newly committed admission returns an in-memory execution grant. A saved
@@ -181,10 +198,14 @@ advance makes the runtime fatal and clears its exposed session; shutdown remains
 available. Ordinary admission is bounded to 65,536 records, while hold release and
 unused-document closure have a separate per-capture 1 MiB bound and do not spend
 that ordinary allocation. Other captures are bounded to 16 MiB, with an independent
-64 KiB raw input bound. Pending submissions and unresolved actual-report reviews
-block unsafe planned stock changes at admission and effect insertion. Actual-report
-handling, durable pending-operation discovery and restore carry-forward remain
-unfinished; counted-stock manual-ID lookup is separate read-only presentation.
+64 KiB raw input bound. Raw correction observations alone allow up to 256 KiB,
+with 4,096 completed observations and 16 MiB aggregate retained fact data. Their
+separate admission allocation preserves one additional pending original at capacity;
+a lost execution grant cannot be recreated by reopening or reading that record.
+Pending submissions and unresolved actual-report reviews block unsafe planned stock
+changes at admission and effect insertion. Actual-report handling is implemented;
+durable pending-operation discovery and restore carry-forward remain unfinished.
+Counted-stock manual-ID lookup is separate read-only presentation.
 
 Native snapshots capture core data, runtime incarnation and session generation
 together after durable session advancement. Synchronous reads, observer delivery

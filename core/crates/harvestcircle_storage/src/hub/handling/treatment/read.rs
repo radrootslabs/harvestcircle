@@ -16,7 +16,8 @@ pub(in crate::hub) async fn state_on(
     graph: &PhysicalLineage,
 ) -> Result<TreatmentState, SafeError> {
     let records = records_on(tx, hub, graph).await?;
-    restore(graph, &records)
+    let initial = crate::hub::corrections::initial_review::through_on(tx, hub, graph).await?;
+    restore(graph, &records, initial)
 }
 
 /// Immutable treatment originals through a sealed physical review cut. Later
@@ -46,12 +47,14 @@ pub(in crate::hub) async fn historical_state_on(
             .ok_or_else(corrupt_storage)?;
         records.push(history::decode_on(tx, graph, op).await?);
     }
-    restore(graph, &records)
+    let initial = crate::hub::corrections::initial_review::through_on(tx, hub, graph).await?;
+    restore(graph, &records, initial)
 }
 
 fn restore(
     graph: &PhysicalLineage,
     records: &[HubHandlingReceipt],
+    initial: Vec<harvestcircle_domain::hub::treatment::InitialGroupReview>,
 ) -> Result<TreatmentState, SafeError> {
     let mut decisions = Vec::new();
     let mut holds = BTreeMap::new();
@@ -81,8 +84,13 @@ fn restore(
             return Err(corrupt_storage());
         }
     }
-    TreatmentState::restore(graph, decisions, holds.into_values().collect())
-        .map_err(|_| corrupt_storage())
+    TreatmentState::restore_with_initial_reviews(
+        graph,
+        decisions,
+        holds.into_values().collect(),
+        initial,
+    )
+    .map_err(|_| corrupt_storage())
 }
 
 async fn records_on(
@@ -159,7 +167,13 @@ impl Database {
                     )
                     .await?;
                     let records = records_on(tx, hub.id(), &loaded.graph).await?;
-                    let treatment = restore(&loaded.graph, &records)?;
+                    let initial = crate::hub::corrections::initial_review::through_on(
+                        tx,
+                        hub.id(),
+                        &loaded.graph,
+                    )
+                    .await?;
+                    let treatment = restore(&loaded.graph, &records, initial)?;
                     let projection = treatment
                         .project(&loaded.graph, catalog.handling_basis())
                         .map_err(|_| corrupt_storage())?;
@@ -246,7 +260,13 @@ impl Database {
                     )
                     .await?;
                     let records = records_on(tx, hub.id(), &loaded.graph).await?;
-                    restore(&loaded.graph, &records)?;
+                    let initial = crate::hub::corrections::initial_review::through_on(
+                        tx,
+                        hub.id(),
+                        &loaded.graph,
+                    )
+                    .await?;
+                    restore(&loaded.graph, &records, initial)?;
                     let total = u32::try_from(records.len()).map_err(|_| corrupt_storage())?;
                     if query.offset > total {
                         return Err(invalid_input());

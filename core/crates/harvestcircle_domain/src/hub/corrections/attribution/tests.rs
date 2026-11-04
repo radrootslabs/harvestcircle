@@ -340,6 +340,7 @@ fn recipient_amendment_changes_whole_event_and_preserves_every_as_issued_version
     let original = original_recipient(&c);
     let copy = original.clone();
     let context = RecipientAttributionContext {
+        linked_issued_versions: &original.issued_versions,
         cut: cut(&c),
         original: &original,
         history: &[],
@@ -373,11 +374,208 @@ fn recipient_amendment_changes_whole_event_and_preserves_every_as_issued_version
     incomplete.original.populations.pop();
     assert!(current_recipient_attribution(&original, &[incomplete]).is_err());
 }
+
+#[test]
+fn later_linked_version_enters_next_correction_without_rewriting_original_papers() {
+    let c = catalog();
+    let original = original_recipient(&c);
+    let frozen = original.clone();
+    let mut context = RecipientAttributionContext {
+        cut: cut(&c),
+        original: &original,
+        history: &[],
+        linked_issued_versions: &original.issued_versions,
+    };
+    let first = recipient_command(&c)
+        .plan(&context, id(40), actor(), at(120))
+        .unwrap();
+    let history = [first];
+    let links = [id(31), id(32), id(33)];
+    context.history = &history;
+    context.cut.stock_revision = rev(22);
+    context.cut.latest_recorded_at = at(121);
+    context.linked_issued_versions = &links;
+    let command = RecipientAttributionCommand {
+        expected_stock_revision: rev(22),
+        expected_prior: Some(id(40)),
+        recipient: None,
+        ..recipient_command(&c)
+    };
+    let second = command.plan(&context, id(41), actor(), at(122)).unwrap();
+    assert_eq!(original, frozen);
+    assert_eq!(second.original.issued_versions, vec![id(31), id(32)]);
+    assert!(
+        second
+            .impact
+            .contains(CorrectionImpact::IssuedVersion(id(33)))
+    );
+    let history = [history[0].clone(), second.clone()];
+    assert_eq!(
+        current_recipient_attribution(&original, &history).unwrap(),
+        AmendedRecipient::Unknown
+    );
+    let mut damaged = history.clone();
+    damaged[1].impact = CorrectionImpactSet::new(
+        second
+            .impact
+            .rows()
+            .iter()
+            .copied()
+            .filter(|t| *t != CorrectionImpact::IssuedVersion(id(33)))
+            .collect(),
+    )
+    .unwrap();
+    // A later record cannot erase a linked version once it entered the history.
+    let mut later = second;
+    later.stamp.operation = id(42);
+    later.stamp.stock_revision = rev(24);
+    later.stamp.recorded_at = at(123);
+    later.prior = Some(id(41));
+    later.before = AmendedRecipient::Unknown;
+    later.after = AmendedRecipient::Known(c.get(id(3)).unwrap().clone());
+    later.impact = damaged[1].impact.clone();
+    assert!(
+        current_recipient_attribution(&original, &[history[0].clone(), history[1].clone(), later])
+            .is_err()
+    );
+}
+#[test]
+fn current_link_scope_must_include_original_and_every_previously_recorded_document() {
+    let c = catalog();
+    let original = original_recipient(&c);
+    let links = [id(31), id(32), id(33)];
+    let context = RecipientAttributionContext {
+        cut: cut(&c),
+        original: &original,
+        history: &[],
+        linked_issued_versions: &links,
+    };
+    let first = recipient_command(&c)
+        .plan(&context, id(40), actor(), at(120))
+        .unwrap();
+    assert_eq!(
+        recipient_impact_with_linked_versions(
+            &original,
+            std::slice::from_ref(&first),
+            &original.issued_versions
+        ),
+        Err(AttributionError::InvalidScope)
+    );
+    assert_eq!(
+        recipient_impact_with_linked_versions(&original, &[], &[id(31)]),
+        Err(AttributionError::InvalidScope)
+    );
+    assert_eq!(
+        recipient_impact_with_linked_versions(&original, &[], &[id(31), id(32), id(32)]),
+        Err(AttributionError::InvalidScope)
+    );
+    assert_eq!(
+        recipient_impact_with_linked_versions(
+            &original,
+            &[],
+            &vec![id(31); HUB_CORRECTION_IMPACTS + 1]
+        ),
+        Err(AttributionError::Capacity)
+    );
+}
+#[test]
+fn later_document_work_starts_outstanding_without_a_fabricated_recipient_change() {
+    let c = catalog();
+    let original = original_recipient(&c);
+    let context = RecipientAttributionContext {
+        cut: cut(&c),
+        original: &original,
+        history: &[],
+        linked_issued_versions: &original.issued_versions,
+    };
+    let first = recipient_command(&c)
+        .plan(&context, id(40), actor(), at(120))
+        .unwrap();
+    let mut follow = CorrectionFollowUpContext {
+        cut: cut(&c),
+        correction: &first.stamp,
+        impact: &first.impact,
+        history: &[],
+    };
+    follow.cut.stock_revision = rev(21);
+    follow.cut.latest_recorded_at = at(120);
+    let recorded = CorrectionFollowUpCommand {
+        correction: id(40),
+        target: CorrectionImpact::IssuedVersion(id(31)),
+        expected_stock_revision: rev(21),
+        expected_catalog_revision: c.revision(),
+        expected_prior: None,
+        state: CorrectionManualWork::WorkRecorded,
+        basis: note(),
+    }
+    .plan(&follow, id(50), actor(), at(121))
+    .unwrap();
+    let expanded = recipient_impact_with_linked_versions(
+        &original,
+        std::slice::from_ref(&first),
+        &[id(31), id(32), id(33)],
+    )
+    .unwrap();
+    let history = [recorded];
+    follow.impact = &expanded;
+    follow.history = &history;
+    follow.cut.stock_revision = rev(23);
+    assert_eq!(
+        follow
+            .current(CorrectionImpact::IssuedVersion(id(31)))
+            .unwrap(),
+        CorrectionManualWork::WorkRecorded
+    );
+    assert_eq!(
+        follow
+            .current(CorrectionImpact::IssuedVersion(id(33)))
+            .unwrap(),
+        CorrectionManualWork::Outstanding
+    );
+    assert!(
+        !first
+            .impact
+            .contains(CorrectionImpact::IssuedVersion(id(33)))
+    );
+    assert_eq!(first.original.issued_versions, original.issued_versions);
+}
+#[test]
+fn document_growth_never_admits_unrelated_targets_or_nonnormal_documents() {
+    let c = catalog();
+    let original = original_recipient(&c);
+    let context = RecipientAttributionContext {
+        cut: cut(&c),
+        original: &original,
+        history: &[],
+        linked_issued_versions: &original.issued_versions,
+    };
+    let record = recipient_command(&c)
+        .plan(&context, id(40), actor(), at(120))
+        .unwrap();
+    let mut bad = record.clone();
+    let mut targets = bad.impact.rows().to_vec();
+    targets.push(CorrectionImpact::Population(id(999)));
+    bad.impact = CorrectionImpactSet::new(targets).unwrap();
+    assert_eq!(
+        current_recipient_attribution(&original, &[bad]),
+        Err(AttributionError::InvalidHistory)
+    );
+    let actual = OriginalRecipientAttribution {
+        family: CorrectedDepartureFamily::ReviewedActual,
+        issued_versions: vec![],
+        ..original
+    };
+    assert_eq!(
+        recipient_impact_with_linked_versions(&actual, &[], &[id(33)]),
+        Err(AttributionError::InvalidScope)
+    );
+}
 #[test]
 fn unknown_recipient_does_not_reuse_old_party_and_keeps_all_prior_follow_up() {
     let c = catalog();
     let original = original_recipient(&c);
     let mut context = RecipientAttributionContext {
+        linked_issued_versions: &original.issued_versions,
         cut: cut(&c),
         original: &original,
         history: &[],
@@ -417,6 +615,7 @@ fn malformed_recipient_history_missing_documents_or_wrong_current_reference_fail
     let c = catalog();
     let original = original_recipient(&c);
     let context = RecipientAttributionContext {
+        linked_issued_versions: &original.issued_versions,
         cut: cut(&c),
         original: &original,
         history: &[],
@@ -505,6 +704,7 @@ fn manual_work_is_explicit_per_target_and_never_carries_to_a_new_correction() {
     let record = recipient_command(&c)
         .plan(
             &RecipientAttributionContext {
+                linked_issued_versions: &original.issued_versions,
                 cut: cut(&c),
                 original: &original,
                 history: &[],
@@ -588,6 +788,7 @@ fn manual_work_rejects_foreign_target_reused_operation_and_bad_original_clock() 
     let record = recipient_command(&c)
         .plan(
             &RecipientAttributionContext {
+                linked_issued_versions: &original.issued_versions,
                 cut: cut(&c),
                 original: &original,
                 history: &[],
@@ -837,6 +1038,7 @@ fn recipient_competing_head_and_uncertain_cut_cannot_change_the_whole_event() {
     let c = catalog();
     let original = original_recipient(&c);
     let mut context = RecipientAttributionContext {
+        linked_issued_versions: &original.issued_versions,
         cut: cut(&c),
         original: &original,
         history: &[],
@@ -876,6 +1078,7 @@ fn damaged_manual_prior_and_source_issuer_snapshots_fail_closed() {
     let correction = recipient_command(&c)
         .plan(
             &RecipientAttributionContext {
+                linked_issued_versions: &original.issued_versions,
                 cut: cut(&c),
                 original: &original,
                 history: &[],

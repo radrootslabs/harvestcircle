@@ -105,7 +105,7 @@ pub fn inspect_hub_submission(
     }
     let mut writer = BoundedWriter {
         bytes: Vec::new(),
-        limit: HUB_SUBMITTED_REQUEST_MAX_BYTES,
+        limit: request_limit(&value.kind),
     };
     serde_json::to_writer(
         &mut writer,
@@ -177,5 +177,6 @@ fn known_kind(kind: &str) -> bool {
             | "disposition"
             | "actual_report"
             | "actual_review"
+            | "correction_observe"
     )
 }

@@ -32,6 +32,84 @@ fn lineage_query(trace: HubRecordId) -> HubLineageQuery {
 }
 
 #[tokio::test]
+async fn retained_topology_rejects_a_structurally_valid_but_unproved_recovery_origin() {
+    use harvestcircle_domain::hub::portions::{PhysicalLineage, PhysicalRecoveryOrigin};
+    let fixture = Fixture::new();
+    let db = fixture.open().await;
+    let catalog = setup(&db).await;
+    let intake = db
+        .apply_hub_receipt(owner(), operation(1), command(&catalog), now())
+        .await
+        .unwrap();
+    let root = intake.original.position.group;
+    let trace = intake.original.trace.id;
+    let view = db.hub_group(owner(), root).await.unwrap();
+    db.apply_hub_split(
+        owner(),
+        operation(2),
+        split(&view, 2, "First distinct crates"),
+        now(),
+    )
+    .await
+    .unwrap();
+    let view = db.hub_group(owner(), root).await.unwrap();
+    let split_receipt = db
+        .apply_hub_split(
+            owner(),
+            operation(3),
+            split(&view, 2, "Second distinct crates"),
+            now(),
+        )
+        .await
+        .unwrap();
+    let HubHandlingResult::Separated(result) = split_receipt.result else {
+        panic!("portion")
+    };
+    let before = crate::hub::custody::tests::material(&fixture).await;
+    let native_result = db
+        .host()
+        .transaction(|tx| {
+            Box::pin(async move {
+                let hub = super::super::reference::authorize_on(tx, owner()).await?;
+                let catalog = super::super::reference::load_catalog_on(tx, hub.id()).await?;
+                let state = super::super::stock::read::state_on(tx, hub.id()).await?;
+                let loaded =
+                    lineage::load_on(tx, hub.id(), trace, &catalog, state.revision).await?;
+                let mut nodes = loaded.graph.nodes().to_vec();
+                let child = nodes
+                    .iter_mut()
+                    .find(|n| n.id == result.portion_group)
+                    .unwrap();
+                child.recovery = Some(PhysicalRecoveryOrigin {
+                    debit_operation: HubRecordId::from_hex(&operation(2).as_str().replace('-', ""))
+                        .unwrap(),
+                    debit_revision: HubRevision::from_value(3).unwrap(),
+                });
+                // Birth2 < claimed debit3 < child4 is structurally valid. Only native
+                // corroboration proves that split3 was no funded remainder recovery.
+                let graph = PhysicalLineage::new(
+                    hub.id(),
+                    trace,
+                    loaded.graph.variant(),
+                    state.revision,
+                    nodes,
+                )
+                .unwrap();
+                lineage::historical_births_on(tx, hub.id(), &graph).await
+            })
+        })
+        .await;
+    assert_eq!(
+        native_result
+            .map_err(crate::db::map_transaction_error)
+            .unwrap_err()
+            .code(),
+        SafeErrorCode::StorageCorrupt
+    );
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+}
+
+#[tokio::test]
 async fn birth_guard_rejects_fabricated_ancestry_without_growing_history() {
     let fixture = Fixture::new();
     let db = fixture.open().await;

@@ -60,6 +60,7 @@ pub(in crate::hub) async fn historical_births_on(
                     || native.created_revision != node.created_revision
                     || native.trace != node.trace
                     || native.variant != node.variant
+                    || native.recovery != node.recovery
             })
         })
     {
@@ -131,6 +132,17 @@ async fn births_for_rows_on(
         let operation_id = HubRecordId::from_hex(&operation.id.as_str().replace('-', ""))
             .map_err(|_| corrupt_storage())?;
         let (kind, packs) = match row.created_kind {
+            HubGroupCreationKind::FoundRemainder => {
+                let found =
+                    crate::hub::corrections::birth::birth_on(tx, hub, &operation, row.id).await?;
+                if found.birth.parent != row.parent
+                    || found.birth.trace != trace.id
+                    || found.birth.occurred != row.occurred
+                {
+                    return Err(corrupt_storage());
+                }
+                (found.birth.kind, found.birth.packs)
+            }
             HubGroupCreationKind::Receipt
             | HubGroupCreationKind::CountedOpening
             | HubGroupCreationKind::CountedSurplus
@@ -396,7 +408,13 @@ pub(in crate::hub) async fn load_on(
             return Err(corrupt_storage());
         }
         nodes.push(PhysicalLineageNode {
-            recovery: None,
+            recovery: crate::hub::corrections::birth::recovery_at_on(
+                transaction,
+                hub,
+                id,
+                revision,
+            )
+            .await?,
             id,
             parent,
             trace: trace_id,
@@ -457,6 +475,22 @@ pub(super) async fn creation_on(
     SafeError,
 > {
     Ok(match operation.kind.as_str() {
+        "correction_found" if parent.is_some() => {
+            let found =
+                crate::hub::corrections::birth::birth_on(transaction, hub, &operation, id).await?;
+            if found.group.parent != parent
+                || found.group.trace != trace.id
+                || found.group.variant != trace.variant.id
+            {
+                return Err(corrupt_storage());
+            }
+            (
+                HubGroupCreationKind::FoundRemainder,
+                found.group.identification,
+                found.birth.occurred,
+                found.basis,
+            )
+        }
         "return" if parent.is_none() => {
             let (population, group) =
                 crate::hub::custody::returns::read::birth_on(transaction, hub, &operation).await?;
@@ -552,7 +586,7 @@ pub(super) async fn creation_on(
 
 /// Original recovery uses only creation history through its captured cut.
 /// Current stock positions, group revisions and inventory counters are irrelevant.
-pub(super) async fn historical_on(
+pub(in crate::hub) async fn historical_on(
     transaction: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
     trace_id: HubRecordId,
@@ -605,7 +639,8 @@ pub(super) async fn historical_on(
             return Err(corrupt_storage());
         }
         nodes.push(PhysicalLineageNode {
-            recovery: None,
+            recovery: crate::hub::corrections::birth::recovery_at_on(transaction, hub, id, cut)
+                .await?,
             id,
             parent,
             trace: trace_id,

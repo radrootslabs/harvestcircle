@@ -381,6 +381,7 @@ fn zero_effective_count_explanation_with_unknown_recipient_cannot_escape_duplica
     }
     .plan(
         &RecipientAttributionContext {
+            linked_issued_versions: &[],
             cut: AttributionCut {
                 hub: event.hub,
                 stock_revision: rev(7),

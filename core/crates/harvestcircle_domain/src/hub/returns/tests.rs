@@ -3,6 +3,25 @@ use crate::hub::reference::{
     HubLabel, SourceCertainty, SourceCode, SourceReference, SourceReferenceKind,
 };
 use crate::hub::stock::{OpeningIdentities, ReceiptIdentities};
+mod current_allowances;
+
+#[test]
+fn legacy_return_capture_without_allowances_keeps_its_result_seal() {
+    let fixture = Fixture::new(&[6]);
+    let context = fixture.context();
+    let plan = fixture.plan();
+    let input = fixture
+        .command
+        .fingerprint(context.hub, owner(), fixture.ids);
+    let digest = return_result_digest(&input, &fixture.command, &context, &plan).unwrap();
+    assert_eq!(
+        digest,
+        [
+            42, 94, 35, 105, 25, 5, 162, 164, 86, 251, 8, 238, 244, 70, 17, 85, 180, 215, 113, 154,
+            154, 205, 90, 122, 144, 175, 148, 130, 182, 108, 181, 50
+        ]
+    );
+}
 
 fn id(n: u8) -> HubRecordId {
     HubRecordId::from_bytes([n; 16]).unwrap()
@@ -77,6 +96,7 @@ impl Fixture {
             catalog: &self.catalog,
             departure: Some(&self.departure),
             established_return_totals: &self.totals,
+            current_allowances: None,
         }
     }
     fn plan(&self) -> ReturnPlan {

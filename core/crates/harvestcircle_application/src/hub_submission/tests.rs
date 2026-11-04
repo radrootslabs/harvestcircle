@@ -50,6 +50,76 @@ fn parsed(request: &HubSubmittedRequest<'_>) -> (ArchivedHubRequest, Value) {
 }
 
 #[test]
+fn correction_observations_archive_maximum_escaped_claims_without_raising_old_limits() {
+    use harvestcircle_domain::hub::corrections::{
+        CorrectionObservedFacts, FoundStockInput, PhysicalDebitKey,
+    };
+    let command = CorrectionObservationCommand {
+        previous: Some(id(9)),
+        facts: CorrectionObservedFacts::Found {
+            target_operation: id(2),
+            target_group: id(3),
+            allocations: vec![
+                FoundStockInput {
+                    debit: PhysicalDebitKey {
+                        operation: id(4),
+                        group: id(5)
+                    },
+                    packs: packs(0),
+                    location: id(6),
+                    identification: PhysicalIdentification {
+                        label: HubLabel::new("\"".repeat(120)).unwrap(),
+                        observation: SourceProvenance::new("\\".repeat(512)).unwrap(),
+                    },
+                    cohort_evidence: SourceProvenance::new("\"".repeat(512)).unwrap(),
+                };
+                64
+            ],
+            basis: SourceProvenance::new("\\".repeat(512)).unwrap(),
+        },
+    };
+    command.validate().unwrap();
+    let request = HubSubmittedRequest::CorrectionObservation(&command);
+    let (archive, value) = parsed(&request);
+    assert_eq!(archive.kind(), "correction_observe");
+    assert!(archive.as_bytes().len() > HUB_SUBMITTED_REQUEST_MAX_BYTES);
+    assert!(archive.as_bytes().len() < HUB_CORRECTION_OBSERVATION_REQUEST_MAX_BYTES);
+    assert_eq!(
+        value["input"]["facts"]["facts"]["allocations"]
+            .as_array()
+            .unwrap()
+            .len(),
+        64
+    );
+    let actor =
+        PublicKey::from_hex("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798")
+            .unwrap();
+    let operation = crate::DurableRequestId::parse("01900000-0000-7000-8000-000000000020").unwrap();
+    let capture = request
+        .capture(
+            &operation,
+            HubSubmissionScope {
+                runtime: HubRuntimeIncarnation::from_bytes([7; 16]).unwrap(),
+                generation: crate::SessionGeneration::from_value(1),
+                actor,
+            },
+            &HubSubmissionContext {
+                hub: HubOwnership::new(HubId::from_bytes([1; 16]).unwrap(), actor),
+                catalog_revision: Some(rev(2)),
+                stock_revision: Some(rev(3)),
+                material: &[],
+            },
+        )
+        .unwrap();
+    let metadata = inspect_hub_submission(capture.as_bytes()).unwrap();
+    assert_eq!(metadata.input_digest, *archive.digest());
+    assert_eq!(metadata.capture_digest, *capture.digest());
+    assert_eq!(request_limit("actual_report"), 64 * 1024);
+    assert_eq!(request_limit("actual_review"), 64 * 1024);
+    assert_eq!(request_limit("departure"), 64 * 1024);
+}
+
+#[test]
 fn archived_reference_retains_every_input_and_canonical_identifier_without_debug_content() {
     let command = ReferenceCommand {
         expected_catalog_revision: rev(9),

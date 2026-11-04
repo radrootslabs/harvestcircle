@@ -17,6 +17,7 @@ private fun HubLineageRowDto.toModel() =
         location?.toModel(),
         createdStockRevision,
         when (createdKind) {
+            HubGroupCreationKindDto.FOUND_REMAINDER -> HubGroupCreationKind.FoundRemainder
             HubGroupCreationKindDto.RETURNED -> HubGroupCreationKind.Returned
             HubGroupCreationKindDto.RECEIPT -> HubGroupCreationKind.Receipt
             HubGroupCreationKindDto.COUNTED_OPENING -> HubGroupCreationKind.CountedOpening

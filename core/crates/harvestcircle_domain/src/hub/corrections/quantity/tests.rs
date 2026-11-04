@@ -480,6 +480,7 @@ fn prior_whole_event_recipient_amendment_does_not_replace_the_immutable_target()
         }
         .plan(
             &RecipientAttributionContext {
+                linked_issued_versions: &[],
                 cut: AttributionCut {
                     hub: f.graph.hub(),
                     stock_revision: f.graph.revision(),
@@ -607,6 +608,7 @@ fn another_zero_effective_event_with_unknown_recipient_remains_a_duplicate_candi
     }
     .plan(
         &RecipientAttributionContext {
+            linked_issued_versions: &[],
             cut: AttributionCut {
                 hub: f.graph.hub(),
                 stock_revision: rev(8),

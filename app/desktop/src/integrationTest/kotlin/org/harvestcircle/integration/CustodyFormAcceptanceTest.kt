@@ -31,11 +31,14 @@ import org.harvestcircle.application.HubHandlingInput
 import org.harvestcircle.application.HubHandlingQuery
 import org.harvestcircle.application.HubOccurrence
 import org.harvestcircle.application.HubOccurrenceKind
+import org.harvestcircle.application.HubPhysicalIdentification
 import org.harvestcircle.application.HubReturnInput
 import org.harvestcircle.application.HubReturnReceipt
 import org.harvestcircle.application.HubReturnResolution
+import org.harvestcircle.application.HubSourceInput
 import org.harvestcircle.application.HubStockQuery
 import org.harvestcircle.application.HubTreatmentScope
+import org.harvestcircle.application.HubUnresolvedReturnLink
 import org.harvestcircle.application.OperationId
 import org.harvestcircle.application.OperationIdSource
 import org.harvestcircle.application.RequestContext
@@ -53,7 +56,12 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class CustodyFormAcceptanceTest {
     @Test
-    fun returnedTwoFormRequiresConfirmationAndRecoversLostReplyWithoutAddingStockAgain() =
+    fun returnedTwoFormRequiresConfirmationAndRecoversLostReplyWithoutAddingStockAgain() = returnedForm(false)
+
+    @Test
+    fun uncertainPriorReturnKeepsNewIntakeUnresolvedAndDisplaysNativeBoundsAfterLostReply() = returnedForm(true)
+
+    private fun returnedForm(uncertainPriorReturn: Boolean) =
         runDesktopComposeUiTest(width = 1100, height = 720) {
             val root = Files.createTempDirectory("harvestcircle-return-form-")
             val runtime = TestBridgeHarvestCircleRuntime.openDemo(root.toString())
@@ -78,6 +86,36 @@ class CustodyFormAcceptanceTest {
                         val paper = custodyIssue(hub, listOf(six), "Original recipient")
                         runtime.applyDeparture(hub.context(), custodyDepartureInput(runtime, paper))
                     }
+                if (uncertainPriorReturn) {
+                    runBlocking {
+                        val stock = runtime.stock(HubStockQuery())
+                        val prior =
+                            runtime.applyReturn(
+                                hub.context(),
+                                HubReturnInput(
+                                    stock.stockRevision,
+                                    stock.catalogRevision,
+                                    hub.receipt.trace.variant.id,
+                                    hub.receiving,
+                                    null,
+                                    HubSourceInput(),
+                                    2U,
+                                    HubPhysicalIdentification(
+                                        "Earlier unknown returned crates",
+                                        "Independent actual intake without an original claim",
+                                    ),
+                                    null,
+                                    null,
+                                    HubOccurrence(HubOccurrenceKind.Unknown),
+                                    "Original departure remains unknown",
+                                ),
+                            )
+                        assertNull(prior.currentAllowances)
+                        assertEquals(HubReturnResolution.Unknown, prior.resolution)
+                    }
+                }
+                val expectedBefore = if (uncertainPriorReturn) 16UL else 14UL
+                val expectedAfter = if (uncertainPriorReturn) 18UL else 16UL
                 val lostReply =
                     object : HarvestCircleCustodyRuntime by runtime {
                         override suspend fun applyReturn(
@@ -114,12 +152,12 @@ class CustodyFormAcceptanceTest {
                     "custody-observation",
                 ).performScrollTo().performTextInput("Observed return; source and actual time remain unknown")
                 onNodeWithTag("custody-submit").assertIsNotEnabled()
-                assertEquals(14UL, runBlocking { runtime.stock(HubStockQuery()).rows.sumOf { it.position.wholePacks.toULong() } })
+                assertEquals(expectedBefore, runBlocking { runtime.stock(HubStockQuery()).rows.sumOf { it.position.wholePacks.toULong() } })
                 onNodeWithTag("custody-confirm").performScrollTo().performClick()
                 onNodeWithTag("custody-submit").performScrollTo().performClick()
                 waitUntil(timeoutMillis = 10_000) { presenter.state.value.submission is CustodySubmission.Uncertain }
                 val attempt = assertIs<CustodySubmission.Uncertain>(presenter.state.value.submission).attempt
-                assertEquals(16UL, runBlocking { runtime.stock(HubStockQuery()).rows.sumOf { it.position.wholePacks.toULong() } })
+                assertEquals(expectedAfter, runBlocking { runtime.stock(HubStockQuery()).rows.sumOf { it.position.wholePacks.toULong() } })
                 onNodeWithTag("custody-discard").assertDoesNotExist()
                 onNodeWithTag("custody-submit").assertDoesNotExist()
                 onNodeWithTag("custody-check-original").performScrollTo().performClick()
@@ -129,7 +167,26 @@ class CustodyFormAcceptanceTest {
                         assertIs<CustodySubmission.Recorded>(presenter.state.value.submission).result,
                     ).receipt
                 assertEquals(attempt.operation, result.operationId)
-                assertEquals(HubReturnResolution.EstablishedScope, result.resolution)
+                if (uncertainPriorReturn) {
+                    assertEquals(HubReturnResolution.Unresolved(HubUnresolvedReturnLink.QuantityConflict), result.resolution)
+                    val capture = assertNotNull(result.currentAllowances)
+                    assertEquals(departed.id, capture.departureId)
+                    assertEquals(departed.operationId, capture.operationId)
+                    val line = capture.lines.single()
+                    assertEquals(departed.lines.single().groupId, line.originalGroupId)
+                    assertEquals(6U, line.effectiveDepartureWholePacks)
+                    assertEquals(6U, line.originalDebitReturnBoundWholePacks)
+                    assertNull(line.quantityHead)
+                    assertTrue(line.unresolvedReturns)
+                    onNodeWithText("Return context recorded at stock version ${capture.stockRevision}").performScrollTo().assertExists()
+                    onNodeWithText(
+                        "Group ${line.originalGroupId}: effective departure 6 packs · Original physical debit bound 6 packs",
+                    ).performScrollTo().assertExists()
+                    onNodeWithText("Potentially related earlier returns remain unresolved.").performScrollTo().assertExists()
+                } else {
+                    assertEquals(HubReturnResolution.EstablishedScope, result.resolution)
+                    assertNull(result.currentAllowances)
+                }
                 assertEquals(HubAcceptanceStatus.ReviewRequired, result.acceptance)
                 onNodeWithText("Occurrence: Unknown").assertExists()
                 onNodeWithText("Count time: Unknown").assertDoesNotExist()
@@ -146,7 +203,7 @@ class CustodyFormAcceptanceTest {
                         )
                     }
                 assertEquals(result, replay)
-                assertEquals(16UL, runBlocking { runtime.stock(HubStockQuery()).rows.sumOf { it.position.wholePacks.toULong() } })
+                assertEquals(expectedAfter, runBlocking { runtime.stock(HubStockQuery()).rows.sumOf { it.position.wholePacks.toULong() } })
                 assertEquals(departed, runBlocking { runtime.departureOperation(departed.operationId) })
             } finally {
                 runtime.close()

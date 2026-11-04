@@ -168,6 +168,61 @@ impl From<&ReturnSourceSnapshot> for HubReturnSourceDto {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct HubReturnQuantityHeadDto {
+    pub operation_id: String,
+    pub stock_revision: u64,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct HubReturnLineAllowanceDto {
+    pub original_group_id: String,
+    pub effective_departure_whole_packs: u32,
+    pub original_debit_return_bound_whole_packs: u32,
+    pub quantity_head: Option<HubReturnQuantityHeadDto>,
+    pub unresolved_returns: bool,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct HubReturnAllowanceCaptureDto {
+    pub hub_id: String,
+    pub departure_id: String,
+    pub operation_id: String,
+    pub stock_revision: u64,
+    pub lines: Vec<HubReturnLineAllowanceDto>,
+}
+impl From<&ReturnAllowanceCapture> for HubReturnAllowanceCaptureDto {
+    fn from(value: &ReturnAllowanceCapture) -> Self {
+        Self {
+            hub_id: value
+                .hub
+                .as_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect(),
+            departure_id: value.departure.to_hex(),
+            operation_id: crate::hub_counts::operation_text(value.operation),
+            stock_revision: value.stock_revision.value(),
+            lines: value
+                .lines
+                .iter()
+                .map(|line| HubReturnLineAllowanceDto {
+                    original_group_id: line.original_group.to_hex(),
+                    effective_departure_whole_packs: line.effective_departure.value(),
+                    original_debit_return_bound_whole_packs: line
+                        .original_debit_return_bound
+                        .value(),
+                    quantity_head: line.quantity_head.map(|head| HubReturnQuantityHeadDto {
+                        operation_id: crate::hub_counts::operation_text(head.operation),
+                        stock_revision: head.stock_revision.value(),
+                    }),
+                    unresolved_returns: line.unresolved_returns,
+                })
+                .collect(),
+        }
+    }
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
 pub struct HubReturnReceiptDto {
     pub id: String,
     pub operation_id: String,
@@ -184,6 +239,7 @@ pub struct HubReturnReceiptDto {
     pub plausible_sources: Vec<HubReturnSourceDto>,
     pub timing: HubReturnTimingDto,
     pub resolution: HubReturnResolutionDto,
+    pub current_allowances: Option<HubReturnAllowanceCaptureDto>,
 }
 impl From<HubReturnReceipt> for HubReturnReceiptDto {
     fn from(value: HubReturnReceipt) -> Self {
@@ -222,6 +278,7 @@ impl From<HubReturnReceipt> for HubReturnReceiptDto {
                 .collect(),
             timing: plan.linkage.timing.into(),
             resolution: plan.linkage.resolution.into(),
+            current_allowances: plan.current_allowances.as_ref().map(Into::into),
         }
     }
 }

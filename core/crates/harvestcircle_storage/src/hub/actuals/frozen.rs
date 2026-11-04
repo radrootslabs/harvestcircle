@@ -175,20 +175,19 @@ pub(in crate::hub) async fn original_on(
     if rows.len() != expected {
         return Err(corrupt_storage());
     }
-    let nodes = rows
-        .iter()
-        .map(|node| {
-            Ok(PhysicalLineageNode {
-                recovery: None,
-                id: record_id(node, "group_id")?,
-                parent: optional_id(node, "parent_group_id")?,
-                trace,
-                variant: population.variant.id,
-                created_revision: revision_field(node, "created_revision")?,
-                packs: whole_packs(node.try_get("packs").map_err(|_| corrupt_storage())?)?,
-            })
-        })
-        .collect::<Result<Vec<_>, SafeError>>()?;
+    let mut nodes = Vec::with_capacity(rows.len());
+    for node in &rows {
+        let id = record_id(node, "group_id")?;
+        nodes.push(PhysicalLineageNode {
+            recovery: crate::hub::corrections::birth::recovery_at_on(tx, hub, id, cut).await?,
+            id,
+            parent: optional_id(node, "parent_group_id")?,
+            trace,
+            variant: population.variant.id,
+            created_revision: revision_field(node, "created_revision")?,
+            packs: whole_packs(node.try_get("packs").map_err(|_| corrupt_storage())?)?,
+        });
+    }
     let lineage = PhysicalLineage::new(hub, trace, population.variant.id, cut, nodes)
         .map_err(|_| corrupt_storage())?;
     let births = handling::lineage::historical_births_on(tx, hub, &lineage).await?;

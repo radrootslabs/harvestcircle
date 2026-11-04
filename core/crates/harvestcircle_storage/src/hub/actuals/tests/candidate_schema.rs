@@ -4,7 +4,19 @@ use super::*;
 use sqlx::Row;
 
 #[tokio::test]
-async fn registered18_matches_native_inventory_and_retains_future_claim_without_clock_truth() {
+async fn registered_schema_retains18_and_exact_forward_replacements_without_clock_truth() {
+    use radroots_service_sqlite::{MigrationChecksum, SchemaVersionCatalog};
+    assert_eq!(
+        MigrationChecksum::for_sql(crate::hub::actuals::schema::MIGRATION_SQL),
+        crate::hub::actuals::schema::MIGRATION_CHECKSUM
+    );
+    assert_eq!(
+        SchemaVersionCatalog::computed_digest(18, crate::contract::retained_schema18_objects())
+            .unwrap()
+            .as_bytes(),
+        &crate::hub::actuals::schema::SCHEMA_DIGEST
+    );
+    let replacements = crate::hub::corrections::schema::schema_objects().unwrap();
     let fixture = Fixture::new();
     let db = fixture.open().await;
     let original = received(&db).await;
@@ -23,9 +35,24 @@ async fn registered18_matches_native_inventory_and_retains_future_claim_without_
             &row.get::<String, _>("sql"),
         )
         .unwrap();
+        let expected = if crate::hub::corrections::schema::REPLACED_OBJECTS.contains(&object.name())
+        {
+            let replacement = replacements
+                .iter()
+                .find(|candidate| candidate.name() == object.name())
+                .unwrap();
+            assert_ne!(
+                replacement.digest(),
+                object.digest(),
+                "forward definition remains distinct from18"
+            );
+            replacement.digest()
+        } else {
+            object.digest()
+        };
         assert_eq!(
             digest,
-            object.digest(),
+            expected,
             "registered actual schema object {}",
             object.name()
         );

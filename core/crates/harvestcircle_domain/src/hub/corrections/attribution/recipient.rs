@@ -31,7 +31,7 @@ pub struct OriginalRecipientAttribution {
     pub recipient: ReferenceRecord,
     /// Every population of this immutable event, not a selected line.
     pub populations: Vec<HubRecordId>,
-    /// All frozen issued versions; amendment never regenerates any of them.
+    /// Immutable versions at the original event cut, never rewritten later.
     pub issued_versions: Vec<HubRecordId>,
 }
 impl OriginalRecipientAttribution {
@@ -78,6 +78,9 @@ pub struct RecipientAttributionContext<'a> {
     pub cut: AttributionCut<'a>,
     pub original: &'a OriginalRecipientAttribution,
     pub history: &'a [RecipientAttributionCorrection],
+    /// Complete native-linked issued versions at this cut, including later
+    /// replacements. Native readers must prove event membership and issue order.
+    pub linked_issued_versions: &'a [HubRecordId],
 }
 pub fn current_recipient_attribution(
     original: &OriginalRecipientAttribution,
@@ -124,6 +127,13 @@ pub fn current_recipient_attribution(
             return Err(AttributionError::InvalidHistory);
         }
         required.recipient(original.operation, &record.after)?;
+        for target in record.impact.rows() {
+            if matches!(target, CorrectionImpact::IssuedVersion(_))
+                && original.family == CorrectedDepartureFamily::Normal
+            {
+                required.add(*target)?;
+            }
+        }
         if record.impact != required.clone().finish()? {
             return Err(AttributionError::InvalidHistory);
         }
@@ -134,6 +144,49 @@ pub fn current_recipient_attribution(
         at = record.stamp.recorded_at;
     }
     Ok(current)
+}
+
+/// Current downstream data for a validated history prefix and separately proved
+/// document links. Adding a document never fabricates a recipient change or work
+/// completion; the recorded correction's original impact remains immutable.
+pub fn recipient_impact_with_linked_versions(
+    original: &OriginalRecipientAttribution,
+    history: &[RecipientAttributionCorrection],
+    linked_issued_versions: &[HubRecordId],
+) -> Result<CorrectionImpactSet, AttributionError> {
+    current_recipient_attribution(original, history)?;
+    if linked_issued_versions.len() > HUB_CORRECTION_IMPACTS {
+        return Err(AttributionError::Capacity);
+    }
+    let links = linked_issued_versions
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    if links.len() != linked_issued_versions.len()
+        || (original.family != CorrectedDepartureFamily::Normal && !links.is_empty())
+        || original
+            .issued_versions
+            .iter()
+            .any(|id| !links.contains(id))
+        || history.iter().flat_map(|r| r.impact.rows()).any(
+            |target| matches!(target,CorrectionImpact::IssuedVersion(id) if !links.contains(id)),
+        )
+    {
+        return Err(AttributionError::InvalidScope);
+    }
+    let mut recipients = vec![AmendedRecipient::Known(original.recipient.clone())];
+    recipients.extend(history.iter().map(|r| r.after.clone()));
+    let mut impact = ImpactBuilder::new();
+    original.affected(recipients).impact(
+        &mut impact,
+        history
+            .last()
+            .map_or(original.catalog_revision, |r| r.stamp.catalog_revision),
+    )?;
+    for id in links {
+        impact.add(CorrectionImpact::IssuedVersion(id))?;
+    }
+    impact.finish()
 }
 impl RecipientAttributionCommand {
     pub fn plan(
@@ -200,14 +253,13 @@ impl RecipientAttributionCommand {
         {
             return Err(AttributionError::NoChange);
         }
-        let mut recipients = vec![AmendedRecipient::Known(context.original.recipient.clone())];
-        recipients.extend(context.history.iter().map(|r| r.after.clone()));
-        recipients.push(after.clone());
-        let mut impact = ImpactBuilder::new();
-        context
-            .original
-            .affected(recipients)
-            .impact(&mut impact, context.cut.catalog.revision())?;
+        let current = recipient_impact_with_linked_versions(
+            context.original,
+            context.history,
+            context.linked_issued_versions,
+        )?;
+        let mut impact = ImpactBuilder(current.rows().iter().copied().collect());
+        impact.recipient(context.original.operation, &after)?;
         Ok(RecipientAttributionCorrection {
             stamp: AttributionStamp {
                 operation,

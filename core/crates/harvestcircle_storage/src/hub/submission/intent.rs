@@ -51,6 +51,9 @@ pub(super) fn hash(
         HubSubmittedRequest::ActualReport(c) => c.fingerprint(hub, actor, id),
         HubSubmittedRequest::ActualReview(c) => c.fingerprint(hub, actor, id),
         HubSubmittedRequest::ActualLink(c) => c.fingerprint(hub, actor, id),
+        HubSubmittedRequest::CorrectionObservation(c) => c
+            .fingerprint(hub, actor, id)
+            .map_err(crate::hub::corrections::error)?,
         HubSubmittedRequest::Return(c) => c.fingerprint(
             hub,
             actor,

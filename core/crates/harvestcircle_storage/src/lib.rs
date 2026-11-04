@@ -36,6 +36,7 @@ pub use hub::actuals::{
     HubActualReportReceipt, HubActualReportRow, HubActualReviewOriginal, HubActualReviewReceipt,
     HubActualSourceEvidence, HubActualSourceQuery,
 };
+pub use hub::corrections::HubCorrectionObservationReceipt;
 pub use hub::counts::{HubCountObservationReceipt, HubCountPostReceipt, HubCountReview};
 pub use hub::handling::departure::{
     HubDepartureReceipt, HubDepartureReview, HubDepartureReviewInput, HubDepartureUse,

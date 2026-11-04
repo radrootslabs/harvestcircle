@@ -41,7 +41,7 @@ pub(in crate::hub) async fn material(fixture: &Fixture) -> Vec<(String, Vec<Stri
     result
 }
 
-pub(super) async fn corrupt(fixture: &Fixture, trigger: &str, sql: &'static str) {
+pub(in crate::hub) async fn corrupt(fixture: &Fixture, trigger: &str, sql: &'static str) {
     assert!(
         trigger
             .bytes()

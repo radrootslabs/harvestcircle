@@ -134,6 +134,8 @@ pub struct HubSubmittedReturn {
     pub id: HubRecordId,
     pub departure: Option<harvestcircle_domain::hub::departure::DepartureRecord>,
     pub established_return_totals: Vec<harvestcircle_domain::hub::returns::EstablishedReturnTotal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_allowances: Option<harvestcircle_domain::hub::returns::ReturnAllowanceCapture>,
 }
 
 /// Current native physical and treatment context, not caller-supplied safety flags.

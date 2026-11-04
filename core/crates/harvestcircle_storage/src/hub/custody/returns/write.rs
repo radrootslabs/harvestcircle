@@ -152,6 +152,21 @@ pub(super) async fn apply_on(
         },
     )
     .await?;
+    if plan.current_allowances.is_some() {
+        crate::hub::corrections::return_projection::persist_on(
+            tx,
+            hub.id(),
+            crate::hub::corrections::return_projection::WriteProjection {
+                op: &op,
+                record: &plan,
+                departure: context.departure.as_ref().ok_or_else(corrupt_storage)?,
+                totals: &context.totals,
+                population_hash,
+                result_hash,
+            },
+        )
+        .await?;
+    }
     handling::write::advance_many_on(tx, hub.id(), &context.state, plan.stock_revision, 1).await?;
     let restored = read::original_on(tx, hub.id(), op).await?;
     if restored.original != plan

@@ -9,6 +9,8 @@ pub use execute::HubMutationResult;
 mod actual_tests;
 #[cfg(test)]
 mod admission_tests;
+#[cfg(test)]
+mod correction_tests;
 mod read;
 mod session;
 mod targets;
@@ -79,6 +81,31 @@ pub(in crate::hub) async fn operation_exists_on(
 ) -> Result<bool, SafeError> {
     Ok(read::record_on(tx, operation).await?.is_some()
         || read::original_on(tx, operation).await?.is_some())
+}
+
+/// Correlate a committed typed original with its preserved admission by encoding
+/// the original again. This never decodes saved input into a command or grant.
+pub(in crate::hub) async fn verify_recorded_input_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: harvestcircle_domain::hub::HubId,
+    op: &crate::hub::stock::read::OperationRecord,
+    request: HubSubmittedRequest<'_>,
+) -> Result<(), SafeError> {
+    let original = read::record_on(tx, &op.id)
+        .await?
+        .ok_or_else(corrupt_storage)?;
+    let encoded = request.archive().map_err(|_| corrupt_storage())?;
+    if original.status != HubSubmissionStatus::Recorded
+        || original.hub != hub
+        || original.actor != op.actor
+        || original.kind != op.kind
+        || original.kind != request.kind()
+        || original.domain_hash != Some(op.hash)
+        || original.input_hash != *encoded.digest()
+    {
+        return Err(corrupt_storage());
+    }
+    Ok(())
 }
 
 fn archive_error(error: HubRequestArchiveError) -> SafeError {

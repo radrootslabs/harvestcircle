@@ -236,6 +236,18 @@ private fun CustodyResultSummary(result: CustodyResult) {
                         "Original group ${it.original.groupId}: ${it.original.wholePacks} departed packs · ${it.previouslyEstablishedReturnWholePacks} previously associated returns",
                     )
                 }
+                receipt.currentAllowances?.let { capture ->
+                    HarvestCircleShellText("Return context recorded at stock version ${capture.stockRevision}")
+                    capture.lines.forEach { line ->
+                        HarvestCircleShellText(
+                            "Group ${line.originalGroupId}: effective departure ${line.effectiveDepartureWholePacks} packs · Original physical debit bound ${line.originalDebitReturnBoundWholePacks} packs",
+                        )
+                        line.quantityHead?.let {
+                            HarvestCircleShellText("Quantity amendment ${it.operationId.value} · Stock version ${it.stockRevision}")
+                        }
+                        if (line.unresolvedReturns) HarvestCircleShellText("Potentially related earlier returns remain unresolved.")
+                    }
+                }
             }
             is CustodyResult.Disposed -> {
                 val receipt = result.receipt

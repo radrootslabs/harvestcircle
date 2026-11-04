@@ -19,7 +19,9 @@ use super::{HubId, HubRevision};
 use crate::{PublicKey, UnixTimestamp};
 use sha2::{Digest, Sha256};
 
+mod allowances;
 mod command;
+pub use allowances::{ReturnAllowanceCapture, ReturnLineAllowance, ReturnQuantityHead};
 mod model;
 pub use command::{EstablishedReturnTotal, ReturnCommand, ReturnContext};
 pub use model::{

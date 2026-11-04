@@ -14,9 +14,12 @@ pub use physical::*;
 
 mod quantity;
 pub use quantity::*;
+mod observation;
+pub use observation::*;
 
 mod attribution;
 pub use attribution::*;
+mod intent;
 
 pub const HUB_CORRECTION_ROWS: usize = 4_096;
 

@@ -79,6 +79,28 @@ data class HubReturnReceipt(
     val plausibleSources: List<HubReturnSource>,
     val timing: HubReturnTiming,
     val resolution: HubReturnResolution,
+    val currentAllowances: HubReturnAllowanceCapture? = null,
+)
+
+data class HubReturnQuantityHead(
+    val operationId: OperationId,
+    val stockRevision: ULong,
+)
+
+data class HubReturnLineAllowance(
+    val originalGroupId: String,
+    val effectiveDepartureWholePacks: UInt,
+    val originalDebitReturnBoundWholePacks: UInt,
+    val quantityHead: HubReturnQuantityHead?,
+    val unresolvedReturns: Boolean,
+)
+
+data class HubReturnAllowanceCapture(
+    val hubId: String,
+    val departureId: String,
+    val operationId: OperationId,
+    val stockRevision: ULong,
+    val lines: List<HubReturnLineAllowance>,
 )
 
 data class HubDispositionInput(

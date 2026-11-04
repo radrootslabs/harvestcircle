@@ -23,7 +23,9 @@ impl Targets {
             HubSubmittedRequest::Initialize(_) => {}
             // Raw actual claims must not resolve possibly unknown identifiers.
             // Linking a depleted original requires no current positive group.
-            HubSubmittedRequest::ActualReport(_) | HubSubmittedRequest::ActualLink(_) => {}
+            HubSubmittedRequest::ActualReport(_)
+            | HubSubmittedRequest::ActualLink(_)
+            | HubSubmittedRequest::CorrectionObservation(_) => {}
             HubSubmittedRequest::ActualReview(c) => {
                 t.references.insert(c.facts.recipient);
             }
@@ -149,7 +151,9 @@ pub(super) fn expected_versions(
 ) -> Option<(Option<HubRevision>, HubRevision)> {
     Some(match request {
         HubSubmittedRequest::Initialize(_) => return None,
-        HubSubmittedRequest::ActualReport(_) | HubSubmittedRequest::ActualLink(_) => return None,
+        HubSubmittedRequest::ActualReport(_)
+        | HubSubmittedRequest::ActualLink(_)
+        | HubSubmittedRequest::CorrectionObservation(_) => return None,
         HubSubmittedRequest::ActualReview(c) => (
             Some(c.facts.expected_stock_revision),
             c.facts.expected_catalog_revision,

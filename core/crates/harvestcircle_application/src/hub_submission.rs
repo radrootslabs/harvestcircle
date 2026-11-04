@@ -6,6 +6,7 @@
 use harvestcircle_domain::hub::{
     HubOwnership,
     actuals::{ActualDuplicateLink, ActualNewDepartureCommand, ActualReportCommand},
+    corrections::CorrectionObservationCommand,
     counts::{CountObserveCommand, CountPostCommand},
     departure::DepartureCommand,
     dispatch::DispatchCommand,
@@ -26,6 +27,17 @@ pub use inspection::*;
 
 pub const HUB_SUBMITTED_REQUEST_SCHEMA: u8 = 1;
 pub const HUB_SUBMITTED_REQUEST_MAX_BYTES: usize = 64 * 1024;
+/// Separately bounded ingress for up to 64 independently identified observations.
+/// Existing command archives keep their original limit.
+pub const HUB_CORRECTION_OBSERVATION_REQUEST_MAX_BYTES: usize = 256 * 1024;
+
+fn request_limit(kind: &str) -> usize {
+    if kind == "correction_observe" {
+        HUB_CORRECTION_OBSERVATION_REQUEST_MAX_BYTES
+    } else {
+        HUB_SUBMITTED_REQUEST_MAX_BYTES
+    }
+}
 
 /// Only product hub inputs can be archived here; identity/secret commands are absent.
 pub enum HubSubmittedRequest<'a> {
@@ -43,6 +55,7 @@ pub enum HubSubmittedRequest<'a> {
     ActualReport(&'a ActualReportCommand),
     ActualReview(&'a ActualNewDepartureCommand),
     ActualLink(&'a ActualDuplicateLink),
+    CorrectionObservation(&'a CorrectionObservationCommand),
 }
 
 /// An owned native request can move through admission without decoding an archive.
@@ -62,6 +75,7 @@ pub enum HubMutation {
     ActualReport(Box<ActualReportCommand>),
     ActualReview(Box<ActualNewDepartureCommand>),
     ActualLink(Box<ActualDuplicateLink>),
+    CorrectionObservation(Box<CorrectionObservationCommand>),
 }
 
 impl HubMutation {
@@ -82,6 +96,7 @@ impl HubMutation {
             Self::ActualReport(value) => HubSubmittedRequest::ActualReport(value),
             Self::ActualReview(value) => HubSubmittedRequest::ActualReview(value),
             Self::ActualLink(value) => HubSubmittedRequest::ActualLink(value),
+            Self::CorrectionObservation(value) => HubSubmittedRequest::CorrectionObservation(value),
         }
     }
 }
@@ -103,6 +118,7 @@ impl HubSubmittedRequest<'_> {
             Self::Disposition(_) => "disposition",
             Self::ActualReport(_) => "actual_report",
             Self::ActualReview(_) | Self::ActualLink(_) => "actual_review",
+            Self::CorrectionObservation(_) => "correction_observe",
         }
     }
 
@@ -115,7 +131,7 @@ impl HubSubmittedRequest<'_> {
         }
         let mut writer = BoundedWriter {
             bytes: Vec::new(),
-            limit: HUB_SUBMITTED_REQUEST_MAX_BYTES,
+            limit: request_limit(self.kind()),
         };
         serde_json::to_writer(
             &mut writer,
@@ -150,6 +166,7 @@ impl Serialize for HubSubmittedRequest<'_> {
             Self::Return(command) => command.serialize(serializer),
             Self::Disposition(command) => command.serialize(serializer),
             Self::ActualReport(command) => command.serialize(serializer),
+            Self::CorrectionObservation(command) => command.serialize(serializer),
             Self::ActualReview(command) => {
                 #[derive(Serialize)]
                 struct Input<'a> {

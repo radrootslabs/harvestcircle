@@ -155,5 +155,9 @@ pub fn return_result_digest(
         hash.update(total.original_group.as_bytes());
         hash.update(total.packs.value().to_be_bytes());
     }
+    // No presence byte for None: every legacy capture retains its exact seal.
+    if let Some(allowances) = context.current_allowances {
+        allowances.hash_into(&mut hash)?;
+    }
     Ok(hash.finalize().into())
 }
