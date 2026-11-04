@@ -24,13 +24,20 @@ pub(super) struct KnownCut<'a> {
     pub catalog: &'a ReferenceCatalog,
     pub latest: UnixTimestamp,
 }
-pub(super) struct KnownRecipients {
-    pub parties: BTreeSet<HubRecordId>,
-    pub unresolved: bool,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KnownRecipients {
+    parties: BTreeSet<HubRecordId>,
+    unresolved: bool,
 }
 impl KnownRecipients {
     pub fn could_match(&self, recipient: Option<HubRecordId>) -> bool {
         self.unresolved || recipient.is_none_or(|id| self.parties.contains(&id))
+    }
+    pub fn parties(&self) -> impl Iterator<Item = HubRecordId> + '_ {
+        self.parties.iter().copied()
+    }
+    pub const fn has_unknown(&self) -> bool {
+        self.unresolved
     }
 }
 impl CorrectionKnownDeparture<'_> {
@@ -38,13 +45,25 @@ impl CorrectionKnownDeparture<'_> {
         &self,
         cut: &KnownCut<'_>,
     ) -> Result<KnownRecipients, QuantityEffectError> {
+        self.associations_through(cut.hub, cut.stock, cut.catalog.revision(), cut.latest)
+    }
+
+    /// Checked original/current associations at a native supplied cut. These
+    /// facts neither establish native completeness nor authorize an effect.
+    pub fn associations_through(
+        &self,
+        hub: HubId,
+        stock: HubRevision,
+        catalog: HubRevision,
+        latest: UnixTimestamp,
+    ) -> Result<KnownRecipients, QuantityEffectError> {
         let original = self.original;
         original.validate().map_err(QuantityEffectError::Actual)?;
         let recipient = self.recipient_original;
-        if original.hub != cut.hub
-            || original.stock_revision.value() > cut.stock.value()
-            || original.catalog_revision.value() > cut.catalog.revision().value()
-            || original.recorded_at > cut.latest
+        if original.hub != hub
+            || original.stock_revision.value() > stock.value()
+            || original.catalog_revision.value() > catalog.value()
+            || original.recorded_at > latest
             || recipient.hub != original.hub
             || recipient.operation != original.operation
             || recipient.stock_revision != original.stock_revision
@@ -54,9 +73,9 @@ impl CorrectionKnownDeparture<'_> {
             || recipient.recipient != original.recipient
             || !recipient.populations.contains(&original.trace)
             || self.recipient_history.iter().any(|r| {
-                r.stamp.stock_revision.value() > cut.stock.value()
-                    || r.stamp.catalog_revision.value() > cut.catalog.revision().value()
-                    || r.stamp.recorded_at > cut.latest
+                r.stamp.stock_revision.value() > stock.value()
+                    || r.stamp.catalog_revision.value() > catalog.value()
+                    || r.stamp.recorded_at > latest
             })
         {
             return Err(QuantityEffectError::InvalidHistory);
@@ -85,7 +104,7 @@ impl CorrectionKnownDeparture<'_> {
                         || account
                             .amendments()
                             .iter()
-                            .any(|a| a.stock_revision.value() > cut.stock.value())
+                            .any(|a| a.stock_revision.value() > stock.value())
                     {
                         return Err(QuantityEffectError::InvalidHistory);
                     }
@@ -105,7 +124,7 @@ impl CorrectionKnownDeparture<'_> {
                     .find(|e| e.original.operation == original.operation)
                     .ok_or(QuantityEffectError::InvalidHistory)?;
                 if recipient.family != CorrectedDepartureFamily::ExplainedCountLoss
-                    || count.count.scope.hub != cut.hub
+                    || count.count.scope.hub != hub
                     || loss.reconciliation != count.id
                     || loss.operation != count.operation
                     || loss.stock_revision != count.stock_revision
@@ -118,16 +137,16 @@ impl CorrectionKnownDeparture<'_> {
                     || original.lines.len() != 1
                     || original.lines[0].group != count.before.id
                     || original.lines[0].packs != explained.original.packs
-                    || count.recorded_at > cut.latest
-                    || count.catalog_revision.value() > cut.catalog.revision().value()
+                    || count.recorded_at > latest
+                    || count.catalog_revision.value() > catalog.value()
                     || account
                         .explanations()
                         .iter()
-                        .any(|e| e.stock_revision.value() > cut.stock.value())
+                        .any(|e| e.stock_revision.value() > stock.value())
                     || account
                         .amendments()
                         .iter()
-                        .any(|a| a.stock_revision.value() > cut.stock.value())
+                        .any(|a| a.stock_revision.value() > stock.value())
                 {
                     return Err(QuantityEffectError::InvalidHistory);
                 }

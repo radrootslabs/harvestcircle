@@ -5,6 +5,7 @@ use crate::hub::reference::{ReferenceCatalog, ReferenceKind};
 use crate::hub::treatment::{Hold, TreatmentStamp, TreatmentState};
 
 mod hold_scope;
+mod interpretation;
 mod reconcile;
 mod result;
 mod source;

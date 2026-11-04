@@ -309,6 +309,30 @@ impl ActualNewDepartureCommand {
         actor: PublicKey,
         now: UnixTimestamp,
     ) -> Result<ActualNewDeparturePlan, ActualReportError> {
+        self.plan_inner(context, None, operation, actor, now)
+    }
+
+    /// Requires a complete one-to-one interpretation of the supplied native
+    /// originals. An empty array cannot hide a nonempty known-event baseline.
+    pub fn plan_with_interpretations(
+        &self,
+        context: &ActualNewDepartureContext<'_>,
+        interpretations: &ActualKnownInterpretations,
+        operation: HubRecordId,
+        actor: PublicKey,
+        now: UnixTimestamp,
+    ) -> Result<ActualNewDeparturePlan, ActualReportError> {
+        self.plan_inner(context, Some(interpretations), operation, actor, now)
+    }
+
+    fn plan_inner(
+        &self,
+        context: &ActualNewDepartureContext<'_>,
+        interpretations: Option<&ActualKnownInterpretations>,
+        operation: HubRecordId,
+        actor: PublicKey,
+        now: UnixTimestamp,
+    ) -> Result<ActualNewDeparturePlan, ActualReportError> {
         if context.prior_review.is_some() {
             return Err(ActualReportError::AlreadyReviewed);
         }
@@ -328,11 +352,14 @@ impl ActualNewDepartureCommand {
                 .historical_source
                 .resolve(context.review.original, self.facts.occurred, now)?;
         let duplicates = context.known_departures;
+        let views = interpretations
+            .map(|set| super::interpretation::validate_set(context, set, operation, now))
+            .transpose()?;
         if duplicates.len() > HUB_STOCK_EVENT_CAPACITY {
             return Err(ActualReportError::Capacity);
         }
         let mut originals = BTreeSet::new();
-        for known in duplicates {
+        for (index, known) in duplicates.iter().enumerate() {
             known.validate()?;
             if known.operation == operation {
                 return Err(ActualReportError::InvalidIdentity);
@@ -347,7 +374,13 @@ impl ActualNewDepartureCommand {
             }
             if known.trace == source.historical().group.trace
                 && known.variant.id == context.review.group.variant
-                && known.recipient.id == self.facts.recipient
+                && views
+                    .as_ref()
+                    .map_or(known.recipient.id == self.facts.recipient, |views| {
+                        views[index]
+                            .recipients
+                            .could_match(Some(self.facts.recipient))
+                    })
                 && overlaps(known.occurred, self.facts.occurred)
             {
                 // Explicit typed linking is required; a reason/checkbox or new
@@ -402,6 +435,8 @@ pub struct ActualDuplicateLinkPlan {
     pub operation: HubRecordId,
     pub original: ActualReportRecord,
     pub known: ActualKnownDeparture,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interpretation: Option<Box<ActualKnownInterpretation>>,
     pub actor: PublicKey,
     pub recorded_at: UnixTimestamp,
     pub verification: SourceProvenance,
@@ -432,6 +467,56 @@ impl ActualDuplicateLink {
         actor: PublicKey,
         now: UnixTimestamp,
     ) -> Result<ActualDuplicateLinkPlan, ActualReportError> {
+        self.plan_inner(
+            DuplicateContext {
+                original,
+                known,
+                interpretation: None,
+            },
+            prior_review,
+            operation,
+            actor,
+            now,
+        )
+    }
+
+    /// An explicit link retains the immutable event and its independently
+    /// captured interpretation; neither a matching total nor Unknown is a grant.
+    pub fn plan_with_interpretation(
+        &self,
+        original: &ActualReportRecord,
+        interpretation: &ActualKnownInterpretation,
+        prior_review: Option<HubRecordId>,
+        operation: HubRecordId,
+        actor: PublicKey,
+        now: UnixTimestamp,
+    ) -> Result<ActualDuplicateLinkPlan, ActualReportError> {
+        self.plan_inner(
+            DuplicateContext {
+                original,
+                known: &interpretation.original,
+                interpretation: Some(interpretation),
+            },
+            prior_review,
+            operation,
+            actor,
+            now,
+        )
+    }
+
+    fn plan_inner(
+        &self,
+        context: DuplicateContext<'_>,
+        prior_review: Option<HubRecordId>,
+        operation: HubRecordId,
+        actor: PublicKey,
+        now: UnixTimestamp,
+    ) -> Result<ActualDuplicateLinkPlan, ActualReportError> {
+        let DuplicateContext {
+            original,
+            known,
+            interpretation,
+        } = context;
         original.validate()?;
         known.validate()?;
         if prior_review.is_some() {
@@ -450,10 +535,37 @@ impl ActualDuplicateLink {
         {
             return Err(ActualReportError::InvalidNativeContext);
         }
+        let view = interpretation
+            .map(|record| {
+                if record.stock_revision.value() < original.stock_revision.value()
+                    || record.catalog_revision.value() < original.catalog_revision.value()
+                    || record.latest_recorded_at < original.recorded_at
+                    || record.latest_recorded_at > now
+                {
+                    return Err(ActualReportError::InvalidNativeContext);
+                }
+                let view = record.view()?;
+                for (id, revision) in record.operations() {
+                    if id == operation || id == original.operation {
+                        return Err(ActualReportError::InvalidIdentity);
+                    }
+                    if revision == original.stock_revision {
+                        return Err(ActualReportError::InvalidHistory);
+                    }
+                }
+                Ok(view)
+            })
+            .transpose()?;
         let claim = &original.report;
         if claim.variant.is_some_and(|v| v != known.variant.id)
-            || claim.recipient.is_some_and(|v| v != known.recipient.id)
-            || claim.packs.is_some_and(|v| Some(v) != known.packs().ok())
+            || !view.as_ref().map_or(
+                claim.recipient.is_none_or(|v| v == known.recipient.id),
+                |view| view.recipients.could_match(claim.recipient),
+            )
+            || !view.as_ref().map_or(
+                claim.packs.is_none_or(|v| Some(v) == known.packs().ok()),
+                |view| view.could_match_packs(claim.packs),
+            )
             || !overlaps(claim.occurred, known.occurred)
         {
             return Err(ActualReportError::ConflictingEvidence);
@@ -474,9 +586,16 @@ impl ActualDuplicateLink {
             operation,
             original: original.clone(),
             known: known.clone(),
+            interpretation: interpretation.cloned().map(Box::new),
             actor,
             recorded_at: now,
             verification: self.verification.clone(),
         })
     }
+}
+
+struct DuplicateContext<'a> {
+    original: &'a ActualReportRecord,
+    known: &'a ActualKnownDeparture,
+    interpretation: Option<&'a ActualKnownInterpretation>,
 }

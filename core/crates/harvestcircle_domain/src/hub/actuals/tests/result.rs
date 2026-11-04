@@ -501,3 +501,235 @@ fn scoped_physical_projection_keeps_historical_exit_separate_from_later_balancin
         digest
     );
 }
+
+// Constants measured from a fresh pure-domain build of published604cf4d0.
+// No retained schema world or old retained executable was opened/run.
+#[test]
+fn legacy_actual_result_seals_match_published_604cf4d0_goldens() {
+    let (f, source, births) = native_like_fixture();
+    let command = command(&f, &source);
+    let context = context(&f, &source);
+    let plan = command.plan(&context, id(230), owner(), at(170)).unwrap();
+    let input = command.fingerprint(f.graph.hub(), owner(), plan.operation);
+    let digest = actual_departure_result_digest(
+        &input,
+        &command,
+        &context,
+        &births,
+        &findings(&f, &births),
+        &plan,
+    )
+    .unwrap();
+    assert_eq!(
+        digest
+            .iter()
+            .map(|n| format!("{n:02x}"))
+            .collect::<String>(),
+        "f2aade84463f6d871cb8f22d28d718e09bc256defb4aa30271759a05d399406f"
+    );
+    let known = ActualKnownDeparture {
+        actor: owner(),
+        operation: id(240),
+        hub: f.graph.hub(),
+        stock_revision: HubRevision::from_value(3).unwrap(),
+        catalog_revision: f.catalog.revision(),
+        trace: f.graph.trace(),
+        variant: f.catalog.get(f.group.variant).unwrap().clone(),
+        recipient: f.catalog.get(f.facts.recipient).unwrap().clone(),
+        occurred: known(120),
+        recorded_at: at(130),
+        lines: vec![ActualKnownDepartureLine {
+            group: id(245),
+            location: f.catalog.get(f.group.location).unwrap().clone(),
+            packs: packs(2),
+        }],
+    };
+    let command = ActualDuplicateLink {
+        report: f.original.id,
+        known_operation: known.operation,
+        known_trace: known.trace,
+        known_variant: known.variant.id,
+        verification: note(
+            "This preserved witness describes the same immutable existing departure",
+        ),
+    };
+    let plan = command
+        .plan(&f.original, &known, None, id(231), owner(), at(170))
+        .unwrap();
+    let input = command.fingerprint(f.graph.hub(), owner(), plan.operation);
+    let digest = actual_duplicate_result_digest(
+        &input,
+        &command,
+        &plan,
+        HubRevision::from_value(7).unwrap(),
+        f.catalog.revision(),
+    )
+    .unwrap();
+    assert_eq!(
+        digest
+            .iter()
+            .map(|n| format!("{n:02x}"))
+            .collect::<String>(),
+        "54ead350607ce9155645ffd761286b668a0d79b664d514d0ec425dc671d39009"
+    );
+}
+
+#[test]
+fn qualified_empty_known_history_has_a_distinct_seal_from_legacy_absence() {
+    let (f, source, births) = native_like_fixture();
+    let command = command(&f, &source);
+    let context = context(&f, &source);
+    let set = ActualKnownInterpretations {
+        hub: f.graph.hub(),
+        stock_revision: f.graph.revision(),
+        catalog_revision: f.catalog.revision(),
+        latest_recorded_at: at(160),
+        records: vec![],
+    };
+    let legacy = command.plan(&context, id(230), owner(), at(170)).unwrap();
+    let qualified = command
+        .plan_with_interpretations(&context, &set, id(230), owner(), at(170))
+        .unwrap();
+    assert_eq!(qualified, legacy);
+    let input = command.fingerprint(f.graph.hub(), owner(), legacy.operation);
+    let findings = findings(&f, &births);
+    let old =
+        actual_departure_result_digest(&input, &command, &context, &births, &findings, &legacy)
+            .unwrap();
+    let new = actual_departure_result_digest_with_interpretations(
+        &input, &command, &context, &set, &births, &findings, &qualified,
+    )
+    .unwrap();
+    assert_ne!(old, new);
+    let mut different = set.clone();
+    different.latest_recorded_at = at(161);
+    assert_ne!(
+        actual_departure_result_digest_with_interpretations(
+            &input, &command, &context, &different, &births, &findings, &qualified
+        )
+        .unwrap(),
+        new
+    );
+    different.latest_recorded_at = at(149);
+    assert!(
+        actual_departure_result_digest_with_interpretations(
+            &input, &command, &context, &different, &births, &findings, &qualified
+        )
+        .is_err()
+    );
+    let mut changed = qualified;
+    changed.duplicate_review_basis = note("Changed review evidence is not the original command");
+    assert!(
+        actual_departure_result_digest_with_interpretations(
+            &input, &command, &context, &set, &births, &findings, &changed
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn qualified_departure_seal_binds_nonmatching_current_known_facts_without_rewriting_the_plan() {
+    use crate::hub::corrections::{
+        CorrectedDepartureFamily, DepartureQuantityAccount, DepartureQuantityAmendment,
+        DepartureQuantityDelta, OriginalDepartureQuantity, OriginalRecipientAttribution,
+    };
+    let (f, source, births) = native_like_fixture();
+    let original = ActualKnownDeparture {
+        actor: owner(),
+        operation: id(240),
+        hub: f.graph.hub(),
+        stock_revision: HubRevision::from_value(3).unwrap(),
+        catalog_revision: f.catalog.revision(),
+        trace: f.graph.trace(),
+        variant: f.catalog.get(f.group.variant).unwrap().clone(),
+        recipient: f.catalog.get(f.facts.recipient).unwrap().clone(),
+        occurred: known(100),
+        recorded_at: at(130),
+        lines: vec![ActualKnownDepartureLine {
+            group: id(245),
+            location: f.catalog.get(f.group.location).unwrap().clone(),
+            packs: packs(2),
+        }],
+    };
+    let quantity = OriginalDepartureQuantity {
+        operation: original.operation,
+        group: id(245),
+        trace: original.trace,
+        variant: original.variant.id,
+        stock_revision: original.stock_revision,
+        packs: packs(2),
+    };
+    let interpretation = ActualKnownInterpretation {
+        stock_revision: f.graph.revision(),
+        catalog_revision: f.catalog.revision(),
+        latest_recorded_at: at(160),
+        recipient_original: OriginalRecipientAttribution {
+            hub: original.hub,
+            family: CorrectedDepartureFamily::ReviewedActual,
+            operation: original.operation,
+            stock_revision: original.stock_revision,
+            catalog_revision: original.catalog_revision,
+            recorded_at: original.recorded_at,
+            actor: original.actor,
+            recipient: original.recipient.clone(),
+            populations: vec![original.trace],
+            issued_versions: vec![],
+        },
+        recipient_history: vec![],
+        quantities: vec![DepartureQuantityAccount::restore(quantity, vec![], packs(0)).unwrap()],
+        original: original.clone(),
+    };
+    let originals = [original];
+    let mut context = context(&f, &source);
+    context.known_departures = &originals;
+    let set = ActualKnownInterpretations {
+        hub: f.graph.hub(),
+        stock_revision: f.graph.revision(),
+        catalog_revision: f.catalog.revision(),
+        latest_recorded_at: at(160),
+        records: vec![interpretation],
+    };
+    let command = command(&f, &source);
+    let plan = command
+        .plan_with_interpretations(&context, &set, id(230), owner(), at(170))
+        .unwrap();
+    let input = command.fingerprint(f.graph.hub(), owner(), plan.operation);
+    let findings = findings(&f, &births);
+    let digest = actual_departure_result_digest_with_interpretations(
+        &input, &command, &context, &set, &births, &findings, &plan,
+    )
+    .unwrap();
+    let mut changed = set.clone();
+    changed.records[0].quantities[0] = DepartureQuantityAccount::restore(
+        quantity,
+        vec![DepartureQuantityAmendment {
+            operation: id(79),
+            stock_revision: f.graph.revision(),
+            before: packs(2),
+            after: packs(1),
+            delta: DepartureQuantityDelta::IdentifiedFoundRemainder(packs(1)),
+        }],
+        packs(0),
+    )
+    .unwrap();
+    assert_eq!(
+        command
+            .plan_with_interpretations(&context, &changed, id(230), owner(), at(170))
+            .unwrap(),
+        plan
+    );
+    assert_ne!(
+        actual_departure_result_digest_with_interpretations(
+            &input, &command, &context, &changed, &births, &findings, &plan
+        )
+        .unwrap(),
+        digest
+    );
+    changed.records.clear();
+    assert!(
+        actual_departure_result_digest_with_interpretations(
+            &input, &command, &context, &changed, &births, &findings, &plan
+        )
+        .is_err()
+    );
+}

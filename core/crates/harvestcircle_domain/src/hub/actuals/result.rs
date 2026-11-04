@@ -85,8 +85,52 @@ pub fn actual_departure_result_digest(
     findings: &[HistoricalHoldScopeAssessment],
     record: &ActualNewDeparturePlan,
 ) -> Result<[u8; 32], ActualReportError> {
+    departure_digest(input, command, context, None, births, findings, record)
+}
+
+/// Qualified association data is bound separately; Some(empty) remains distinct
+/// from the legacy absent extension and cannot replace a nonempty baseline.
+pub fn actual_departure_result_digest_with_interpretations(
+    input: &[u8; 32],
+    command: &ActualNewDepartureCommand,
+    context: &ActualNewDepartureContext<'_>,
+    interpretations: &ActualKnownInterpretations,
+    births: &[ActualPhysicalBirth],
+    findings: &[HistoricalHoldScopeAssessment],
+    record: &ActualNewDeparturePlan,
+) -> Result<[u8; 32], ActualReportError> {
+    departure_digest(
+        input,
+        command,
+        context,
+        Some(interpretations),
+        births,
+        findings,
+        record,
+    )
+}
+
+fn departure_digest(
+    input: &[u8; 32],
+    command: &ActualNewDepartureCommand,
+    context: &ActualNewDepartureContext<'_>,
+    interpretations: Option<&ActualKnownInterpretations>,
+    births: &[ActualPhysicalBirth],
+    findings: &[HistoricalHoldScopeAssessment],
+    record: &ActualNewDeparturePlan,
+) -> Result<[u8; 32], ActualReportError> {
+    let replanned = match interpretations {
+        Some(records) => command.plan_with_interpretations(
+            context,
+            records,
+            record.operation,
+            record.actor,
+            record.recorded_at,
+        ),
+        None => command.plan(context, record.operation, record.actor, record.recorded_at),
+    }?;
     if command.fingerprint(context.review.hub, record.actor, record.operation) != *input
-        || command.plan(context, record.operation, record.actor, record.recorded_at)? != *record
+        || replanned != *record
     {
         return Err(ActualReportError::InvalidNativeContext);
     }
@@ -307,6 +351,17 @@ pub fn actual_departure_result_digest(
         }]);
     }
     hash_text(&mut hash, record.duplicate_review_basis.as_str());
+    if let Some(set) = interpretations {
+        hash.update(b"harvestcircle.hub.actual.known.interpretations.v1\0");
+        hash.update(set.hub.as_bytes());
+        hash.update(set.stock_revision.value().to_be_bytes());
+        hash.update(set.catalog_revision.value().to_be_bytes());
+        hash.update(set.latest_recorded_at.as_seconds().to_be_bytes());
+        length(&mut hash, set.records.len())?;
+        for record in &set.records {
+            hash.update(record.digest()?);
+        }
+    }
     Ok(hash.finalize().into())
 }
 
@@ -317,15 +372,33 @@ pub fn actual_duplicate_result_digest(
     revision: HubRevision,
     catalog: HubRevision,
 ) -> Result<[u8; 32], ActualReportError> {
-    if command.fingerprint(record.original.hub, record.actor, record.operation) != *input
-        || command.plan(
+    let replanned = match record.interpretation.as_deref() {
+        Some(value) => {
+            if value.stock_revision.value().checked_add(1) != Some(revision.value())
+                || value.catalog_revision != catalog
+            {
+                return Err(ActualReportError::InvalidNativeContext);
+            }
+            command.plan_with_interpretation(
+                &record.original,
+                value,
+                None,
+                record.operation,
+                record.actor,
+                record.recorded_at,
+            )?
+        }
+        None => command.plan(
             &record.original,
             &record.known,
             None,
             record.operation,
             record.actor,
             record.recorded_at,
-        )? != *record
+        )?,
+    };
+    if command.fingerprint(record.original.hub, record.actor, record.operation) != *input
+        || replanned != *record
         || revision.value() <= record.original.stock_revision.value()
         || revision.value() <= record.known.stock_revision.value()
         || catalog.value() < record.original.catalog_revision.value()
@@ -352,6 +425,10 @@ pub fn actual_duplicate_result_digest(
     )?);
     known(&mut hash, &record.known)?;
     hash_text(&mut hash, record.verification.as_str());
+    if let Some(value) = &record.interpretation {
+        hash.update(b"harvestcircle.hub.actual.duplicate.interpretation.v1\0");
+        hash.update(value.digest()?);
+    }
     Ok(hash.finalize().into())
 }
 
@@ -575,6 +652,126 @@ fn hash_source(
     hash_occurrence(hash, source.occurred);
     hash.update(source.recorded_at.as_seconds().to_be_bytes());
     Ok(())
+}
+
+// Manual bounded field hashing introduces no JSON codec or request decoder into
+// domain rules. All original/current facts are covered, not only derived totals.
+pub(super) fn interpretation_digest(
+    value: &ActualKnownInterpretation,
+) -> Result<[u8; 32], ActualReportError> {
+    use crate::hub::corrections::{
+        AmendedRecipient, CorrectedDepartureFamily, CorrectionImpact, DepartureQuantityDelta,
+    };
+    let mut hash = Sha256::new();
+    hash.update(b"harvestcircle.hub.actual.known.interpretation.v1\0");
+    hash.update(value.stock_revision.value().to_be_bytes());
+    hash.update(value.catalog_revision.value().to_be_bytes());
+    hash.update(value.latest_recorded_at.as_seconds().to_be_bytes());
+    known(&mut hash, &value.original)?;
+    let original = &value.recipient_original;
+    hash.update(original.hub.as_bytes());
+    hash.update([match original.family {
+        CorrectedDepartureFamily::Normal => 0,
+        CorrectedDepartureFamily::ReviewedActual => 1,
+        CorrectedDepartureFamily::ExplainedCountLoss => 2,
+    }]);
+    hash.update(original.operation.as_bytes());
+    hash.update(original.stock_revision.value().to_be_bytes());
+    hash.update(original.catalog_revision.value().to_be_bytes());
+    hash.update(original.recorded_at.as_seconds().to_be_bytes());
+    hash.update(original.actor.as_bytes());
+    custody_result::reference(
+        &mut hash,
+        &original.recipient,
+        original.hub,
+        original.actor,
+        original.catalog_revision,
+    );
+    length(&mut hash, original.populations.len())?;
+    for id in &original.populations {
+        hash.update(id.as_bytes());
+    }
+    length(&mut hash, original.issued_versions.len())?;
+    for id in &original.issued_versions {
+        hash.update(id.as_bytes());
+    }
+    length(&mut hash, value.recipient_history.len())?;
+    for record in &value.recipient_history {
+        let stamp = &record.stamp;
+        hash.update(stamp.hub.as_bytes());
+        hash.update(stamp.operation.as_bytes());
+        hash.update(stamp.actor.as_bytes());
+        hash.update(stamp.stock_revision.value().to_be_bytes());
+        hash.update(stamp.catalog_revision.value().to_be_bytes());
+        hash.update(stamp.recorded_at.as_seconds().to_be_bytes());
+        crate::hub::stock::hash_optional_id(&mut hash, record.prior);
+        for recipient in [&record.before, &record.after] {
+            match recipient {
+                AmendedRecipient::Unknown => hash.update([0]),
+                AmendedRecipient::Known(reference) => {
+                    hash.update([1]);
+                    custody_result::reference(
+                        &mut hash,
+                        reference,
+                        stamp.hub,
+                        stamp.actor,
+                        stamp.catalog_revision,
+                    );
+                }
+            }
+        }
+        hash_text(&mut hash, record.stamp.basis.as_str());
+        length(&mut hash, record.impact.rows().len())?;
+        for target in record.impact.rows() {
+            let (kind, id) = match *target {
+                CorrectionImpact::Population(id) => (0, id),
+                CorrectionImpact::Source(id) => (1, id),
+                CorrectionImpact::Departure(id) => (2, id),
+                CorrectionImpact::IssuedVersion(id) => (3, id),
+                CorrectionImpact::Recipient(id) => (4, id),
+                CorrectionImpact::UnresolvedSource(id) => (5, id),
+                CorrectionImpact::UnresolvedRecipient(id) => (6, id),
+            };
+            hash.update([kind]);
+            hash.update(id.as_bytes());
+        }
+    }
+    length(&mut hash, value.quantities.len())?;
+    for account in &value.quantities {
+        let original = account.original();
+        for id in [
+            original.operation,
+            original.group,
+            original.trace,
+            original.variant,
+        ] {
+            hash.update(id.as_bytes());
+        }
+        hash.update(original.stock_revision.value().to_be_bytes());
+        hash.update(original.packs.value().to_be_bytes());
+        length(&mut hash, account.amendments().len())?;
+        for change in account.amendments() {
+            hash.update(change.operation.as_bytes());
+            hash.update(change.stock_revision.value().to_be_bytes());
+            hash.update(change.before.value().to_be_bytes());
+            hash.update(change.after.value().to_be_bytes());
+            let (kind, packs) = match change.delta {
+                DepartureQuantityDelta::AdditionalDeparture(n) => (0, n),
+                DepartureQuantityDelta::IdentifiedFoundRemainder(n) => (1, n),
+            };
+            hash.update([kind]);
+            hash.update(packs.value().to_be_bytes());
+        }
+        for packs in [
+            account.effective(),
+            account.additional_departure(),
+            account.found_remainder(),
+            account.established_returns(),
+        ] {
+            hash.update(packs.value().to_be_bytes());
+        }
+    }
+    Ok(hash.finalize().into())
 }
 
 #[cfg(test)]

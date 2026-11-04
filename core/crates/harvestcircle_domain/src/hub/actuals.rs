@@ -14,11 +14,16 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 mod hold_scope;
+mod interpretation;
+pub use interpretation::{
+    ActualKnownInterpretation, ActualKnownInterpretationView, ActualKnownInterpretations,
+};
 mod reconcile;
 mod result;
 pub use result::{
     actual_departure_projection_digest, actual_departure_result_digest,
-    actual_duplicate_result_digest, actual_report_result_digest,
+    actual_departure_result_digest_with_interpretations, actual_duplicate_result_digest,
+    actual_report_result_digest,
 };
 mod review;
 pub use hold_scope::{
