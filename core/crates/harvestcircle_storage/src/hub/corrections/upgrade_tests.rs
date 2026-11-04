@@ -27,10 +27,10 @@ const SOURCE: &str = "8c59793dbbd83cb58f420682a865bc2197c515de";
 const LIB: &str = "189c49b74b4bafc142b00b76b296477931139e72";
 const FEATURE: &str = "retained-linked-corrections-native-upgrade-test";
 
-fn digest(path: &Path) -> String {
+pub(in crate::hub::corrections) fn digest(path: &Path) -> String {
     format!("{:x}", Sha256::digest(fs::read(path).unwrap()))
 }
-fn write_new(path: &Path, bytes: &[u8]) {
+pub(in crate::hub::corrections) fn write_new(path: &Path, bytes: &[u8]) {
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -39,7 +39,7 @@ fn write_new(path: &Path, bytes: &[u8]) {
     file.write_all(bytes).unwrap();
     file.sync_all().unwrap();
 }
-async fn reader(path: &Path) -> SqliteConnection {
+pub(in crate::hub::corrections) async fn reader(path: &Path) -> SqliteConnection {
     SqliteConnection::connect_with(
         &SqliteConnectOptions::new()
             .filename(path)
@@ -52,7 +52,9 @@ async fn reader(path: &Path) -> SqliteConnection {
 }
 // Full native storage types, column names, row ordering and empty tables. This
 // inspector never deserializes capture_body or treats a missing result as proof.
-async fn inventory(raw: &mut SqliteConnection) -> serde_json::Value {
+pub(in crate::hub::corrections) async fn inventory(
+    raw: &mut SqliteConnection,
+) -> serde_json::Value {
     let names = sqlx::query_scalar::<_, String>(
         "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
     ).fetch_all(&mut *raw).await.unwrap();
@@ -96,7 +98,10 @@ async fn inventory(raw: &mut SqliteConnection) -> serde_json::Value {
     }
     serde_json::Value::Array(tables)
 }
-async fn verify_objects(raw: &mut SqliteConnection, objects: &[SchemaObject]) {
+pub(in crate::hub::corrections) async fn verify_objects(
+    raw: &mut SqliteConnection,
+    objects: &[SchemaObject],
+) {
     for object in objects {
         let row = sqlx::query("SELECT tbl_name,sql FROM sqlite_schema WHERE name=?")
             .bind(object.name())
@@ -117,11 +122,13 @@ async fn verify_objects(raw: &mut SqliteConnection, objects: &[SchemaObject]) {
         );
     }
 }
-async fn all_objects(raw: &mut SqliteConnection) -> Vec<(String, String)> {
+pub(in crate::hub::corrections) async fn all_objects(
+    raw: &mut SqliteConnection,
+) -> Vec<(String, String)> {
     sqlx::query_as("SELECT name,sql FROM sqlite_schema WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY name")
         .fetch_all(&mut *raw).await.unwrap()
 }
-async fn health(raw: &mut SqliteConnection) {
+pub(in crate::hub::corrections) async fn health(raw: &mut SqliteConnection) {
     assert_eq!(
         sqlx::query_scalar::<_, String>("PRAGMA integrity_check")
             .fetch_one(&mut *raw)
@@ -138,7 +145,7 @@ async fn health(raw: &mut SqliteConnection) {
     );
 }
 
-fn published19_objects() -> Vec<SchemaObject> {
+pub(in crate::hub::corrections) fn published19_objects() -> Vec<SchemaObject> {
     let mut objects = crate::contract::retained_schema18_objects();
     assert_eq!(objects.len(), 195);
     assert_eq!(super::schema::REPLACED_OBJECTS.len(), 2);

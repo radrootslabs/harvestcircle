@@ -1,5 +1,6 @@
 mod composition;
 mod faults;
+mod legacy19_retention;
 mod stability;
 use super::*;
 use crate::hub::stock::tests::{Fixture, id, operation, owner, query};

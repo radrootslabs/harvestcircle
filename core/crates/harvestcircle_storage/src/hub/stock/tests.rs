@@ -28,7 +28,7 @@ impl Fixture {
         let directory = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
         Self::from_directory(directory)
     }
-    fn from_directory(directory: TempDir) -> Self {
+    pub(in crate::hub) fn from_directory(directory: TempDir) -> Self {
         let context = RuntimeContext::resolve(
             &RadrootsPathResolver::new(
                 RadrootsPlatform::current(),
@@ -70,6 +70,13 @@ impl Fixture {
         Database::open(&self.context, 99, 100, &self.build)
             .await
             .unwrap()
+    }
+    /// Preserve a newly owned fixture's original coordinates before native work.
+    pub(in crate::hub) fn retain(
+        self,
+    ) -> (RuntimeContext, MigrationBuildIdentity, std::path::PathBuf) {
+        let profile = self._directory.keep();
+        (self.context, self.build, profile)
     }
     pub(in crate::hub) async fn raw(&self) -> SqliteConnection {
         SqliteConnection::connect_with(
