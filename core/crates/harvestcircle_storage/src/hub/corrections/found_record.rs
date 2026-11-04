@@ -98,6 +98,15 @@ pub(super) async fn original_on(
     hub: HubId,
     op: OperationRecord,
 ) -> Result<HubFoundCorrectionReceipt, SafeError> {
+    let mut reader = OriginalReader::new(tx);
+    Box::pin(original_with_proofs_on(&mut reader, hub, op)).await
+}
+
+pub(super) async fn original_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    op: OperationRecord,
+) -> Result<HubFoundCorrectionReceipt, SafeError> {
     if op.kind != "correction_found" {
         return Err(stock::conflict());
     }
@@ -106,7 +115,7 @@ pub(super) async fn original_on(
         "substr(target_operation_id,1,37) AS target,substr(previous_operation_id,1,37) AS previous,substr(observation_operation_id,1,37) AS observation,",
         "account_operation_id,account_previous_operation_id,report_id,payload_schema,substr(payload,1,1025) AS payload,substr(result_hash,1,33) AS result_hash ",
         "FROM hub_corrections WHERE operation_id=? LIMIT 1"
-    )).bind(op.id.as_str()).fetch_optional(&mut *tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?;
+    )).bind(op.id.as_str()).fetch_optional(&mut **tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?;
     let observed = DurableRequestId::parse(
         row.try_get::<String, _>("observation")
             .map_err(|_| corrupt_storage())?,
@@ -116,8 +125,13 @@ pub(super) async fn original_on(
         .await?
         .ok_or_else(corrupt_storage)?;
     let observation = super::original_on(tx, hub, observed).await?;
-    let (context, frozen, admission) =
-        Box::pin(super::found_frozen::restore_on(tx, hub, &op, observation)).await?;
+    let (context, frozen, admission) = Box::pin(super::found_frozen::restore_with_proofs_on(
+        tx,
+        hub,
+        &op,
+        observation,
+    ))
+    .await?;
     let command = FoundCorrectionCommand {
         observation_operation: context.observation.original.operation,
         expected_stock_revision: context.stock_revision,
@@ -186,7 +200,7 @@ pub(super) async fn original_on(
     let plan = context
         .plan(id, op.actor, op.recorded_at)
         .map_err(|_| corrupt_storage())?;
-    let impact = super::found_impact::load_on(tx, &context).await?;
+    let impact = super::found_impact::load_with_proofs_on(tx, &context).await?;
     let stored: Vec<u8> = row.try_get("result_hash").map_err(|_| corrupt_storage())?;
     if result_digest(
         &op,

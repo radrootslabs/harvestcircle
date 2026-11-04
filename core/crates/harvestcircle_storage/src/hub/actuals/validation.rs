@@ -1,5 +1,6 @@
 //! Independent physical and work conservation for committed actual reviews.
-use super::{model::*, projection, reviews};
+use super::{model::*, projection};
+use crate::hub::actuals::proofs::OriginalReader;
 use crate::{
     db::{corrupt_storage, storage_unavailable},
     hub::stock,
@@ -102,13 +103,22 @@ pub(in crate::hub) async fn removed_work_on(
     hub: HubId,
     work: HubRecordId,
 ) -> Result<RemovedWork, SafeError> {
+    let mut reader = OriginalReader::new(tx);
+    Box::pin(removed_work_with_proofs_on(&mut reader, hub, work)).await
+}
+
+pub(in crate::hub) async fn removed_work_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    work: HubRecordId,
+) -> Result<RemovedWork, SafeError> {
     // No actual-review header exists before forward18. This predecessor-compatible
     // fast path consults only the existing operation journal.
     let count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM hub_stock_operations WHERE hub_id=? AND kind IN ('actual_review','correction_additional')",
     )
     .bind(hub.as_bytes().as_slice())
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await
     .map_err(|_| storage_unavailable())?;
     let zero = WholePacks::from_value(0).expect("zero");
@@ -130,7 +140,7 @@ pub(in crate::hub) async fn removed_work_on(
         "JOIN hub_stock_operations o ON o.operation_id=review.operation_id ",
         "JOIN hub_actual_review_work_scope scope ON scope.operation_id=review.operation_id ",
         "WHERE o.hub_id=? AND review.review_kind='departure' AND scope.work_id=? ORDER BY o.stock_revision LIMIT 4097"
-    )).bind(hub.as_bytes().as_slice()).bind(work.as_bytes().as_slice()).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    )).bind(hub.as_bytes().as_slice()).bind(work.as_bytes().as_slice()).fetch_all(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if ids.len() > 4096 {
         return Err(corrupt_storage());
     }
@@ -139,8 +149,8 @@ pub(in crate::hub) async fn removed_work_on(
         let op = stock::read::operation_on(tx, hub, &id)
             .await?
             .ok_or_else(corrupt_storage)?;
-        let original = reviews::original_on(tx, hub, op).await?;
-        let HubActualReviewOriginal::Departure(plan) = original.original else {
+        let original = tx.actual_review(hub, op).await?;
+        let HubActualReviewOriginal::Departure(plan) = &original.original else {
             return Err(corrupt_storage());
         };
         let scope = plan

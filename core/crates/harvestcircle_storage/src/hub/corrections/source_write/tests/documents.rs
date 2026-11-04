@@ -9,6 +9,7 @@ use harvestcircle_domain::{
     },
 };
 use sqlx::{AssertSqlSafe, Connection};
+mod historical_prefix;
 
 async fn issued_world() -> (
     Fixture,

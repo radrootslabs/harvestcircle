@@ -95,7 +95,7 @@ impl Database {
 }
 
 pub(super) async fn recipient_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
+    tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
     operation: &DurableRequestId,
 ) -> Result<OriginalRecipientAttribution, SafeError> {
@@ -129,13 +129,13 @@ pub(super) async fn recipient_on(
             )
         }
         "actual_review" => {
-            let receipt = Box::pin(crate::hub::actuals::reviews::original_on(tx, hub, op)).await?;
-            let crate::HubActualReviewOriginal::Departure(plan) = receipt.original else {
+            let receipt = Box::pin(tx.actual_review(hub, op)).await?;
+            let crate::HubActualReviewOriginal::Departure(plan) = &receipt.original else {
                 return Err(corrupt_storage());
             };
             (
                 CorrectedDepartureFamily::ReviewedActual,
-                plan.comparison.scope.recipient,
+                plan.comparison.scope.recipient.clone(),
                 vec![plan.reduction.before.trace],
                 Vec::new(),
             )
@@ -165,6 +165,16 @@ pub(super) async fn load_on(
     trace: HubRecordId,
     cut: HubRevision,
 ) -> Result<Vec<HubCorrectionKnownDeparture>, SafeError> {
+    let mut reader = OriginalReader::new(tx);
+    Box::pin(load_with_proofs_on(&mut reader, hub, trace, cut)).await
+}
+
+pub(super) async fn load_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    trace: HubRecordId,
+    cut: HubRevision,
+) -> Result<Vec<HubCorrectionKnownDeparture>, SafeError> {
     // No native reader for these families is qualified yet. Reject them rather
     // than using a gross-only list that silently loses a known interpretation.
     let unsupported: i64 = sqlx::query_scalar(concat!(
@@ -172,7 +182,7 @@ pub(super) async fn load_on(
         "WHERE o.hub_id=? AND o.stock_revision<=? AND c.family IN ('count_explain','count_classify')"
     )).bind(hub.as_bytes().as_slice())
         .bind(i64::try_from(cut.value()).map_err(|_| corrupt_storage())?)
-        .fetch_one(&mut *tx).await.map_err(|_| storage_unavailable())?;
+        .fetch_one(&mut **tx).await.map_err(|_| storage_unavailable())?;
     if unsupported != 0 {
         return Err(corrupt_storage());
     }
@@ -186,7 +196,7 @@ pub(super) async fn load_on(
     )).bind(hub.as_bytes().as_slice())
         .bind(i64::try_from(cut.value()).map_err(|_| corrupt_storage())?)
         .bind(i64::try_from(limit + 1).map_err(|_| corrupt_storage())?)
-        .fetch_all(&mut *tx).await.map_err(|_| storage_unavailable())?;
+        .fetch_all(&mut **tx).await.map_err(|_| storage_unavailable())?;
     if operations.len() > limit {
         return Err(stock::capacity());
     }
@@ -200,13 +210,13 @@ pub(super) async fn load_on(
                 Box::pin(handling::departure::read::original_on(tx, hub, op)).await?;
             }
             "actual_review" => {
-                Box::pin(crate::hub::actuals::reviews::original_on(tx, hub, op)).await?;
+                Box::pin(tx.actual_review(hub, op)).await?;
             }
             _ => return Err(corrupt_storage()),
         }
     }
     let originals = Box::pin(handling::actuals::known_departures_on(tx, hub, trace, cut)).await?;
-    let recipient_records = Box::pin(super::recipient_records_on(tx, hub, cut)).await?;
+    let recipient_records = Box::pin(super::recipient_records_with_proofs_on(tx, hub, cut)).await?;
     let mut result = Vec::with_capacity(originals.len());
     let mut ids = BTreeSet::new();
     for original in originals {
@@ -229,7 +239,7 @@ pub(super) async fn load_on(
         let mut quantities = Vec::with_capacity(original.lines.len());
         let mut funding = Vec::new();
         for line in &original.lines {
-            let loaded = Box::pin(super::target_funding::load_on(
+            let loaded = Box::pin(super::target_funding::load_with_proofs_on(
                 tx, hub, &operation, line.group, cut,
             ))
             .await?;
@@ -291,6 +301,24 @@ pub(in crate::hub) async fn actual_interpretations_at_on(
     stock: HubRevision,
     catalog: HubRevision,
 ) -> Result<harvestcircle_domain::hub::actuals::ActualKnownInterpretations, SafeError> {
+    let mut reader = OriginalReader::new(tx);
+    Box::pin(actual_interpretations_at_with_proofs_on(
+        &mut reader,
+        hub,
+        trace,
+        stock,
+        catalog,
+    ))
+    .await
+}
+
+pub(in crate::hub) async fn actual_interpretations_at_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    trace: HubRecordId,
+    stock: HubRevision,
+    catalog: HubRevision,
+) -> Result<harvestcircle_domain::hub::actuals::ActualKnownInterpretations, SafeError> {
     use harvestcircle_domain::hub::actuals::{
         ActualKnownInterpretation, ActualKnownInterpretations,
     };
@@ -307,7 +335,7 @@ pub(in crate::hub) async fn actual_interpretations_at_on(
     )
     .bind(hub.as_bytes().as_slice())
     .bind(i64::try_from(stock.value()).map_err(|_| corrupt_storage())?)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await
     .map_err(|_| storage_unavailable())?;
     if dependency.is_none_or(|v| u64::try_from(v).map_or(true, |v| v > catalog.value())) {
@@ -317,7 +345,7 @@ pub(in crate::hub) async fn actual_interpretations_at_on(
         "SELECT substr(operation_id,1,37) FROM hub_receipts WHERE trace_id=? LIMIT 1",
     )
     .bind(trace.as_bytes().as_slice())
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await
     .map_err(|_| storage_unavailable())?;
     let origin = DurableRequestId::parse(origin.ok_or_else(corrupt_storage)?)
@@ -336,11 +364,11 @@ pub(in crate::hub) async fn actual_interpretations_at_on(
     )
     .bind(hub.as_bytes().as_slice())
     .bind(i64::try_from(stock.value()).map_err(|_| corrupt_storage())?)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await
     .map_err(|_| storage_unavailable())?;
     let latest = stock::read::timestamp(latest.ok_or_else(corrupt_storage)?)?;
-    let known = Box::pin(load_on(tx, hub, trace, stock)).await?;
+    let known = Box::pin(load_with_proofs_on(tx, hub, trace, stock)).await?;
     let mut records = Vec::with_capacity(known.len());
     for entry in known {
         let record = ActualKnownInterpretation {
@@ -367,7 +395,7 @@ pub(in crate::hub) async fn actual_interpretations_at_on(
 /// Whole immutable events without invoking quantity/funding projections. Source
 /// originals need this acyclic scope even when later quantity corrections exist.
 pub(super) async fn attribution_affected_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
+    tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
     trace: HubRecordId,
     cut: HubRevision,
@@ -376,11 +404,11 @@ pub(super) async fn attribution_affected_on(
     let limit = harvestcircle_domain::hub::stock::HUB_STOCK_EVENT_CAPACITY
         + harvestcircle_domain::hub::actuals::HUB_ACTUAL_REPORT_CAPACITY;
     let ids:Vec<String>=sqlx::query_scalar("SELECT substr(operation_id,1,37) FROM hub_stock_operations WHERE kind IN ('departure','actual_review') AND stock_revision<=? ORDER BY stock_revision LIMIT ?")
-        .bind(i64::try_from(cut.value()).map_err(|_|corrupt_storage())?).bind(i64::try_from(limit+1).map_err(|_|corrupt_storage())?).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+        .bind(i64::try_from(cut.value()).map_err(|_|corrupt_storage())?).bind(i64::try_from(limit+1).map_err(|_|corrupt_storage())?).fetch_all(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if ids.len() > limit {
         return Err(stock::capacity());
     }
-    let recipient_records = Box::pin(super::recipient_records_on(tx, hub, cut)).await?;
+    let recipient_records = Box::pin(super::recipient_records_with_proofs_on(tx, hub, cut)).await?;
     let mut result = Vec::new();
     for id in ids {
         let id = DurableRequestId::parse(id).map_err(|_| corrupt_storage())?;
@@ -388,9 +416,9 @@ pub(super) async fn attribution_affected_on(
             .await?
             .ok_or_else(corrupt_storage)?;
         if op.kind == "actual_review" {
-            let original = Box::pin(crate::hub::actuals::reviews::original_on(tx, hub, op)).await?;
+            let original = Box::pin(tx.actual_review(hub, op)).await?;
             if !matches!(
-                original.original,
+                &original.original,
                 crate::HubActualReviewOriginal::Departure(_)
             ) {
                 continue;

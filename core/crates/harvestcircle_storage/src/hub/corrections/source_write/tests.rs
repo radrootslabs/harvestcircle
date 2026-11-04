@@ -9,6 +9,7 @@ use harvestcircle_domain::hub::reference::{
 };
 mod documents;
 mod faults;
+mod historical_prefix;
 mod stability;
 
 async fn world() -> (

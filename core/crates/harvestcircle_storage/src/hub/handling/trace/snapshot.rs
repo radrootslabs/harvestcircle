@@ -1,4 +1,5 @@
 use super::*;
+use crate::hub::actuals::proofs::OriginalReader;
 use harvestcircle_domain::hub::portions::HUB_LINEAGE_GROUPS;
 use harvestcircle_domain::hub::trace::{TraceDeparture, TraceExit, TracePosition};
 use std::collections::BTreeMap;
@@ -34,6 +35,17 @@ pub(super) async fn load_on(
     catalog: &ReferenceCatalog,
     trace: HubRecordId,
 ) -> Result<TraceSnapshot, SafeError> {
+    let mut reader = OriginalReader::new(tx);
+    Box::pin(load_with_proofs_on(&mut reader, hub, state, catalog, trace)).await
+}
+
+pub(super) async fn load_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    state: &stock::read::StockState,
+    catalog: &ReferenceCatalog,
+    trace: HubRecordId,
+) -> Result<TraceSnapshot, SafeError> {
     let loaded = super::super::lineage::load_on(tx, hub, trace, catalog, state.revision).await?;
     if matches!(
         loaded.trace.origin,
@@ -43,7 +55,7 @@ pub(super) async fn load_on(
             "SELECT substr(operation_id,1,37) FROM hub_returns WHERE population_id=? LIMIT 1",
         )
         .bind(trace.as_bytes().as_slice())
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await
         .map_err(|_| storage_unavailable())?
         .ok_or_else(corrupt_storage)?;
@@ -87,14 +99,14 @@ pub(super) async fn load_on(
         "SELECT count(DISTINCT operation_id) FROM hub_departure_lines WHERE trace_id=?",
     )
     .bind(trace.as_bytes().as_slice())
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await
     .map_err(|_| storage_unavailable())?;
     if !(0..=HUB_LINEAGE_GROUPS as i64).contains(&count) {
         return Err(corrupt_storage());
     }
     let operations:Vec<String>=sqlx::query_scalar("SELECT DISTINCT substr(operation_id,1,37) FROM hub_departure_lines WHERE trace_id=? ORDER BY operation_id LIMIT 257")
-        .bind(trace.as_bytes().as_slice()).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+        .bind(trace.as_bytes().as_slice()).fetch_all(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if operations.len() != count as usize {
         return Err(corrupt_storage());
     }
@@ -141,7 +153,7 @@ pub(super) async fn load_on(
         }
     }
     exits.sort_by_key(|exit| (exit.departure.stock_revision.value(), exit.group));
-    let ids:Vec<String>=sqlx::query_scalar("SELECT substr(operation_id,1,37) FROM hub_dispositions WHERE trace_id=? ORDER BY operation_id LIMIT 257").bind(trace.as_bytes().as_slice()).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    let ids:Vec<String>=sqlx::query_scalar("SELECT substr(operation_id,1,37) FROM hub_dispositions WHERE trace_id=? ORDER BY operation_id LIMIT 257").bind(trace.as_bytes().as_slice()).fetch_all(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if ids.len() > HUB_LINEAGE_GROUPS {
         return Err(corrupt_storage());
     }
@@ -174,7 +186,7 @@ pub(super) async fn load_on(
     }
     dispositions.sort_by_key(|r| (r.stock_revision.value(), r.id));
     let ids:Vec<String>=sqlx::query_scalar("SELECT substr(r.operation_id,1,37) FROM hub_actual_reviews r JOIN hub_stock_operations o ON o.operation_id=r.operation_id WHERE r.trace_id=? AND r.review_kind='departure' ORDER BY o.stock_revision LIMIT 4097")
-        .bind(trace.as_bytes().as_slice()).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+        .bind(trace.as_bytes().as_slice()).fetch_all(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if ids.len() > harvestcircle_domain::hub::actuals::HUB_ACTUAL_REPORT_CAPACITY {
         return Err(corrupt_storage());
     }
@@ -184,44 +196,44 @@ pub(super) async fn load_on(
         let op = stock::read::operation_on(tx, hub, &id)
             .await?
             .ok_or_else(corrupt_storage)?;
-        let receipt = crate::hub::actuals::reviews::original_on(tx, hub, op).await?;
-        let crate::hub::actuals::HubActualReviewOriginal::Departure(plan) = receipt.original else {
+        let receipt = tx.actual_review(hub, op).await?;
+        let crate::hub::actuals::HubActualReviewOriginal::Departure(plan) = &receipt.original
+        else {
             return Err(corrupt_storage());
         };
-        actual_departures.push(*plan);
+        actual_departures.push((**plan).clone());
     }
     let quantity_corrections =
         crate::hub::corrections::quantity::trace_accounts_on(tx, hub, trace, state.revision)
             .await?;
-    let snapshot = TraceSnapshot {
-        recipient_corrections: Box::pin(crate::hub::corrections::recipient_records_on(
-            tx,
-            hub,
-            state.revision,
-        ))
-        .await?
-        .into_iter()
-        .filter(|r| r.original.populations.contains(&trace))
-        .collect(),
+    let snapshot =
+        TraceSnapshot {
+            recipient_corrections: Box::pin(
+                crate::hub::corrections::recipient_records_with_proofs_on(tx, hub, state.revision),
+            )
+            .await?
+            .into_iter()
+            .filter(|r| r.original.populations.contains(&trace))
+            .collect(),
 
-        source_corrections: Box::pin(crate::hub::corrections::source_history_on(
-            tx,
+            source_corrections: Box::pin(crate::hub::corrections::source_history_with_proofs_on(
+                tx,
+                hub,
+                trace,
+                state.revision,
+            ))
+            .await?,
+            quantity_corrections,
+            actual_departures,
+            count_losses: crate::hub::counts::posting::losses_on(tx, hub, trace).await?,
+            dispositions,
             hub,
-            trace,
-            state.revision,
-        ))
-        .await?,
-        quantity_corrections,
-        actual_departures,
-        count_losses: crate::hub::counts::posting::losses_on(tx, hub, trace).await?,
-        dispositions,
-        hub,
-        stock_revision: state.revision,
-        catalog_revision: catalog.revision(),
-        trace: loaded.trace,
-        on_hand,
-        exits,
-    };
+            stock_revision: state.revision,
+            catalog_revision: catalog.revision(),
+            trace: loaded.trace,
+            on_hand,
+            exits,
+        };
     snapshot.balance().map_err(|_| corrupt_storage())?;
     Ok(snapshot)
 }

@@ -1,5 +1,6 @@
 //! Append-only correction facts and canonical original reads. Saved submission
 //! data never becomes a fresh native admission or an effect authorization.
+use crate::hub::actuals::proofs::OriginalReader;
 use crate::{
     Database,
     db::{corrupt_storage, map_transaction_error, storage_unavailable},
@@ -108,19 +109,27 @@ pub(in crate::hub) async fn headers_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
 ) -> Result<(), SafeError> {
+    let mut reader = OriginalReader::new(tx);
+    Box::pin(headers_with_proofs_on(&mut reader, hub)).await
+}
+
+pub(in crate::hub) async fn headers_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+) -> Result<(), SafeError> {
     let invalid: i64=sqlx::query_scalar(concat!(
         "SELECT count(*) FROM hub_stock_operations o LEFT JOIN hub_correction_observations c ON c.operation_id=o.operation_id ",
         "WHERE o.kind='correction_observe' AND (c.operation_id IS NULL OR o.hub_id<>? OR o.result_id<>c.observation_id ",
         "OR EXISTS(SELECT 1 FROM hub_stock_events event WHERE event.operation_id=o.operation_id) ",
         "OR NOT EXISTS(SELECT 1 FROM hub_submissions s WHERE s.operation_id=o.operation_id AND s.hub_id=o.hub_id ",
         "AND s.actor_public_key=o.actor_public_key AND s.kind=o.kind AND s.domain_intent_hash=o.intent_hash AND s.submitted_at_unix_s<=o.recorded_at_unix_s))"
-    )).bind(hub.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    )).bind(hub.as_bytes().as_slice()).fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
     let (bodies, operations, bytes): (i64, i64, i64) = sqlx::query_as(concat!(
         "SELECT (SELECT count(*) FROM hub_correction_observations),",
         "(SELECT count(*) FROM hub_stock_operations WHERE kind='correction_observe'),",
         "(SELECT COALESCE(sum(length(payload)),0) FROM hub_correction_observations)"
     ))
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await
     .map_err(|_| storage_unavailable())?;
     if invalid != 0
@@ -132,21 +141,21 @@ pub(in crate::hub) async fn headers_on(
     }
     reservations_on(tx).await?;
     found_headers_on(tx, hub).await?;
-    let recipient_roots:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM hub_stock_operations WHERE kind='correction_recipient')+(SELECT count(*) FROM hub_corrections WHERE family='recipient')").fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    let recipient_roots:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM hub_stock_operations WHERE kind='correction_recipient')+(SELECT count(*) FROM hub_corrections WHERE family='recipient')").fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if recipient_roots != 0 {
         Box::pin(recipient_ledger::load_on(tx, hub)).await?;
     }
 
     additional_headers_on(tx, hub).await?;
-    let sources:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM hub_stock_operations WHERE kind='correction_source')+(SELECT count(*) FROM hub_corrections WHERE family='source')").fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    let sources:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM hub_stock_operations WHERE kind='correction_source')+(SELECT count(*) FROM hub_corrections WHERE family='source')").fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if sources != 0 {
-        Box::pin(source_ledger::load_on(tx, hub)).await?;
+        Box::pin(source_ledger::load_with_proofs_on(tx, hub)).await?;
     }
     Ok(())
 }
 
 async fn additional_headers_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
+    tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
 ) -> Result<(), SafeError> {
     let invalid: i64 = sqlx::query_scalar(concat!(
@@ -157,9 +166,9 @@ async fn additional_headers_on(
         "(SELECT count(*) FROM hub_correction_captures c LEFT JOIN hub_stock_operations o ON o.operation_id=c.operation_id ",
         "WHERE c.kind='correction_additional' AND (o.operation_id IS NULL OR o.kind<>c.kind OR o.hub_id<>?))"
     )).bind(hub.as_bytes().as_slice()).bind(hub.as_bytes().as_slice())
-        .fetch_one(&mut *tx).await.map_err(|_| storage_unavailable())?;
+        .fetch_one(&mut **tx).await.map_err(|_| storage_unavailable())?;
     let ids: Vec<String> = sqlx::query_scalar("SELECT substr(operation_id,1,37) FROM hub_stock_operations WHERE kind='correction_additional' ORDER BY stock_revision LIMIT 4097")
-        .fetch_all(&mut *tx).await.map_err(|_| storage_unavailable())?;
+        .fetch_all(&mut **tx).await.map_err(|_| storage_unavailable())?;
     if invalid != 0 || ids.len() > harvestcircle_domain::hub::corrections::HUB_CORRECTION_ROWS {
         return Err(corrupt_storage());
     }
@@ -168,21 +177,18 @@ async fn additional_headers_on(
         let op = stock::read::operation_on(tx, hub, &id)
             .await?
             .ok_or_else(corrupt_storage)?;
-        Box::pin(additional_record::original_on(tx, hub, op)).await?;
+        Box::pin(additional_record::original_with_proofs_on(tx, hub, op)).await?;
     }
     Ok(())
 }
 
-async fn found_headers_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
-    hub: HubId,
-) -> Result<(), SafeError> {
+async fn found_headers_on(tx: &mut OriginalReader<'_, '_>, hub: HubId) -> Result<(), SafeError> {
     let invalid:i64=sqlx::query_scalar(concat!(
         "SELECT count(*) FROM hub_corrections correction LEFT JOIN hub_stock_operations original ON original.operation_id=correction.operation_id ",
         "WHERE correction.family='found' AND (original.operation_id IS NULL OR original.kind<>'correction_found' OR original.hub_id<>? OR original.result_id<>correction.correction_id)"
-    )).bind(hub.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    )).bind(hub.as_bytes().as_slice()).fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
     let ids:Vec<String>=sqlx::query_scalar("SELECT substr(operation_id,1,37) FROM hub_stock_operations WHERE kind='correction_found' AND hub_id=? ORDER BY stock_revision LIMIT 4097")
-        .bind(hub.as_bytes().as_slice()).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+        .bind(hub.as_bytes().as_slice()).fetch_all(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if invalid != 0 || ids.len() > harvestcircle_domain::hub::corrections::HUB_CORRECTION_ROWS {
         return Err(corrupt_storage());
     }
@@ -191,7 +197,7 @@ async fn found_headers_on(
         let original = stock::read::operation_on(tx, hub, &id)
             .await?
             .ok_or_else(corrupt_storage)?;
-        Box::pin(found_record::original_on(tx, hub, original)).await?;
+        Box::pin(found_record::original_with_proofs_on(tx, hub, original)).await?;
     }
     Ok(())
 }
@@ -200,6 +206,8 @@ pub(in crate::hub) mod birth;
 pub(in crate::hub) mod funding;
 pub(in crate::hub) mod initial_review;
 mod known;
+#[cfg(test)]
+pub(in crate::hub) use known::actual_interpretations_at_with_proofs_on;
 pub(in crate::hub) use known::current_actual_interpretations_on;
 mod observation_payload;
 #[cfg(test)]
@@ -245,24 +253,30 @@ pub(in crate::hub) async fn source_records_on(
     hub: HubId,
     cut: HubRevision,
 ) -> Result<Vec<harvestcircle_domain::hub::corrections::SourceAttributionCorrection>, SafeError> {
-    let count:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM hub_corrections WHERE family='source')+(SELECT count(*) FROM hub_stock_operations WHERE kind='correction_source')").fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    let mut reader = OriginalReader::new(tx);
+    Box::pin(source_records_with_proofs_on(&mut reader, hub, cut)).await
+}
+
+pub(in crate::hub) async fn source_records_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    cut: HubRevision,
+) -> Result<Vec<harvestcircle_domain::hub::corrections::SourceAttributionCorrection>, SafeError> {
+    let count:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM hub_corrections WHERE family='source')+(SELECT count(*) FROM hub_stock_operations WHERE kind='correction_source')").fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if count == 0 {
         return Ok(Vec::new());
     }
-    let ledger = Box::pin(source_ledger::load_on(tx, hub)).await?;
-    Ok(ledger
-        .records
-        .into_iter()
-        .filter(|c| c.stamp.stock_revision.value() <= cut.value())
-        .collect())
+    Ok(Box::pin(source_ledger::load_through_on(tx, hub, Some(cut)))
+        .await?
+        .records)
 }
-pub(in crate::hub) async fn source_history_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
+pub(in crate::hub) async fn source_history_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
     trace: HubRecordId,
     cut: HubRevision,
 ) -> Result<Vec<harvestcircle_domain::hub::corrections::SourceAttributionCorrection>, SafeError> {
-    Ok(Box::pin(source_records_on(tx, hub, cut))
+    Ok(Box::pin(source_records_with_proofs_on(tx, hub, cut))
         .await?
         .into_iter()
         .filter(|c| c.original.trace == trace)
@@ -296,15 +310,27 @@ pub(in crate::hub) async fn recipient_records_on(
     cut: HubRevision,
 ) -> Result<Vec<harvestcircle_domain::hub::corrections::RecipientAttributionCorrection>, SafeError>
 {
-    let count:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM hub_corrections WHERE family='recipient')+(SELECT count(*) FROM hub_stock_operations WHERE kind='correction_recipient')").fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    let mut reader = OriginalReader::new(tx);
+    Box::pin(recipient_records_with_proofs_on(&mut reader, hub, cut)).await
+}
+
+pub(in crate::hub) async fn recipient_records_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    cut: HubRevision,
+) -> Result<Vec<harvestcircle_domain::hub::corrections::RecipientAttributionCorrection>, SafeError>
+{
+    let count:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM hub_corrections WHERE family='recipient')+(SELECT count(*) FROM hub_stock_operations WHERE kind='correction_recipient')").fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if count == 0 {
         return Ok(Vec::new());
     }
-    Ok(
-        Box::pin(recipient_ledger::load_through_on(tx, hub, Some(cut)))
-            .await?
-            .records,
-    )
+    Ok(Box::pin(recipient_ledger::load_through_with_proofs_on(
+        tx,
+        hub,
+        Some(cut),
+    ))
+    .await?
+    .records)
 }
 pub(in crate::hub) async fn capture_recipient_on(
     tx: &mut ServiceSqliteTransaction<'_>,
@@ -346,12 +372,12 @@ mod additional_frozen;
 mod additional_payload;
 mod additional_record;
 pub use additional_record::HubAdditionalQuantityReceipt;
-pub(in crate::hub) async fn additional_original_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
+pub(in crate::hub) async fn additional_original_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
     op: OperationRecord,
 ) -> Result<HubAdditionalQuantityReceipt, SafeError> {
-    Box::pin(additional_record::original_on(tx, hub, op)).await
+    Box::pin(additional_record::original_with_proofs_on(tx, hub, op)).await
 }
 pub(in crate::hub) mod additional_projection;
 pub(in crate::hub) mod additional_write;
@@ -383,12 +409,12 @@ mod found_impact;
 mod found_record;
 mod found_review;
 pub use found_record::HubFoundCorrectionReceipt;
-pub(in crate::hub) async fn found_original_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
+pub(in crate::hub) async fn found_original_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
     op: OperationRecord,
 ) -> Result<HubFoundCorrectionReceipt, SafeError> {
-    found_record::original_on(tx, hub, op).await
+    found_record::original_with_proofs_on(tx, hub, op).await
 }
 pub(in crate::hub) mod found_write;
 pub(in crate::hub) mod physical_balance;

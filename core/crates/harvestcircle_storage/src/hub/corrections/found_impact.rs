@@ -11,7 +11,15 @@ pub(super) async fn load_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     context: &super::found_context::Context,
 ) -> Result<CorrectionImpactSet, SafeError> {
-    for_line_on(
+    let mut reader = OriginalReader::new(tx);
+    Box::pin(load_with_proofs_on(&mut reader, context)).await
+}
+
+pub(super) async fn load_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
+    context: &super::found_context::Context,
+) -> Result<CorrectionImpactSet, SafeError> {
+    for_line_with_proofs_on(
         tx,
         context.hub,
         context.stock_revision,
@@ -26,9 +34,19 @@ pub(super) async fn for_line_on(
     cut: HubRevision,
     target: &harvestcircle_domain::hub::corrections::OriginalDepartureQuantity,
 ) -> Result<CorrectionImpactSet, SafeError> {
+    let mut reader = OriginalReader::new(tx);
+    Box::pin(for_line_with_proofs_on(&mut reader, hub, cut, target)).await
+}
+
+pub(super) async fn for_line_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    cut: HubRevision,
+    target: &harvestcircle_domain::hub::corrections::OriginalDepartureQuantity,
+) -> Result<CorrectionImpactSet, SafeError> {
     let operation =
         crate::hub::actuals::common::operation(target.operation).map_err(|_| corrupt_storage())?;
-    let recipient_records = Box::pin(super::recipient_records_on(tx, hub, cut)).await?;
+    let recipient_records = Box::pin(super::recipient_records_with_proofs_on(tx, hub, cut)).await?;
     let mut impact = BTreeSet::from([
         CorrectionImpact::Population(target.trace),
         CorrectionImpact::Departure(target.operation),
@@ -45,7 +63,13 @@ pub(super) async fn for_line_on(
             }
         }
     }
-    let source_history = Box::pin(super::source_history_on(tx, hub, target.trace, cut)).await?;
+    let source_history = Box::pin(super::source_history_with_proofs_on(
+        tx,
+        hub,
+        target.trace,
+        cut,
+    ))
+    .await?;
     for correction in source_history {
         match &correction.after.source {
             SourceAttribution::Unknown => {
@@ -74,8 +98,8 @@ pub(super) async fn for_line_on(
             }
         }
         "actual_review" => {
-            let original = crate::hub::actuals::reviews::original_on(tx, hub, op).await?;
-            let crate::HubActualReviewOriginal::Departure(plan) = original.original else {
+            let original = tx.actual_review(hub, op).await?;
+            let crate::HubActualReviewOriginal::Departure(plan) = &original.original else {
                 return Err(corrupt_storage());
             };
             impact.insert(CorrectionImpact::Recipient(

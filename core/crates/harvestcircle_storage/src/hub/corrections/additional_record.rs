@@ -236,10 +236,21 @@ pub(super) async fn original_on(
     hub: HubId,
     op: OperationRecord,
 ) -> Result<HubAdditionalQuantityReceipt, SafeError> {
+    let mut reader = OriginalReader::new(tx);
+    Box::pin(original_with_proofs_on(&mut reader, hub, op)).await
+}
+
+pub(super) async fn original_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    op: OperationRecord,
+) -> Result<HubAdditionalQuantityReceipt, SafeError> {
     let native = input_on(tx, hub, &op).await?;
     let command = &native.command;
-    let (context, frozen, admission) =
-        Box::pin(super::additional_frozen::restore_on(tx, hub, &op, command)).await?;
+    let (context, frozen, admission) = Box::pin(super::additional_frozen::restore_with_proofs_on(
+        tx, hub, &op, command,
+    ))
+    .await?;
     let own = crate::hub::actuals::common::operation_id(&op.id).map_err(|_| corrupt_storage())?;
     let plan = command
         .plan(&context.domain(), own, op.actor, op.recorded_at)
@@ -260,8 +271,13 @@ pub(super) async fn original_on(
         })
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| corrupt_storage())?;
-    let impact =
-        super::found_impact::for_line_on(tx, hub, context.revision, &plan.original_line).await?;
+    let impact = super::found_impact::for_line_with_proofs_on(
+        tx,
+        hub,
+        context.revision,
+        &plan.original_line,
+    )
+    .await?;
     let projected = Box::pin(super::additional_projection::read_on(tx, hub, &op)).await?;
     if projected.reduction != plan.reduction
         || projected.source != context.source
@@ -305,7 +321,7 @@ pub(super) async fn original_on(
     .bind(op.id.as_str())
     .bind(op.id.as_str())
     .bind(op.id.as_str())
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await
     .map_err(|_| storage_unavailable())?;
     if extras != 0 {

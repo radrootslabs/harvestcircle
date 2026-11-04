@@ -21,19 +21,30 @@ pub(in crate::hub::corrections) async fn populations_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
 ) -> Result<Vec<Population>, SafeError> {
+    populations_through_on(tx, hub, None).await
+}
+
+pub(in crate::hub::corrections) async fn populations_through_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    cut: Option<HubRevision>,
+) -> Result<Vec<Population>, SafeError> {
+    let through = cut
+        .map(|v| i64::try_from(v.value()).map_err(|_| corrupt_storage()))
+        .transpose()?;
     // Start from original operations as well as present bodies: a later reuse
     // may disappear without altering the source registry's first creator.
     let missing:i64=sqlx::query_scalar(concat!(
         "SELECT count(*) FROM hub_stock_operations o LEFT JOIN hub_receipts r ON r.operation_id=o.operation_id ",
-        "WHERE o.kind IN ('receipt','opening','return') AND r.operation_id IS NULL"
-    )).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+        "WHERE o.kind IN ('receipt','opening','return') AND (? IS NULL OR o.stock_revision<=?) AND r.operation_id IS NULL"
+    )).bind(through).bind(through).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
     if missing != 0 {
         return Err(corrupt_storage());
     }
     // Only a validated count original determines whether posting created a
     // population. A missing surplus body must not look like a non-surplus post.
-    let counts:Vec<String>=sqlx::query_scalar("SELECT substr(operation_id,1,37) FROM hub_stock_operations WHERE kind='count_post' ORDER BY stock_revision LIMIT ?")
-        .bind(i64::try_from(HUB_STOCK_EVENT_CAPACITY+1).map_err(|_|corrupt_storage())?)
+    let counts:Vec<String>=sqlx::query_scalar("SELECT substr(operation_id,1,37) FROM hub_stock_operations WHERE kind='count_post' AND (? IS NULL OR stock_revision<=?) ORDER BY stock_revision LIMIT ?")
+        .bind(through).bind(through).bind(i64::try_from(HUB_STOCK_EVENT_CAPACITY+1).map_err(|_|corrupt_storage())?)
         .fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
     if counts.len() > HUB_STOCK_EVENT_CAPACITY {
         return Err(corrupt_storage());
@@ -47,8 +58,10 @@ pub(in crate::hub::corrections) async fn populations_on(
     }
     // Unfiltered scans prevent altered denormalized hub/trace fields from hiding
     // an unrelated original or identity from this complete native context.
-    let rows=sqlx::query("SELECT substr(trace_id,1,17) AS trace_id,substr(operation_id,1,37) AS operation FROM hub_receipts ORDER BY trace_id LIMIT ?")
-        .bind(i64::try_from(HUB_TRACE_CAPACITY+1).map_err(|_|corrupt_storage())?).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    // Missing creators cannot be classified as harmless future rows. Include
+    // them so canonical original lookup still rejects structural corruption.
+    let rows=sqlx::query("SELECT substr(r.trace_id,1,17) AS trace_id,substr(r.operation_id,1,37) AS operation FROM hub_receipts r LEFT JOIN hub_stock_operations o ON o.operation_id=r.operation_id WHERE o.operation_id IS NULL OR (? IS NULL OR o.stock_revision<=?) ORDER BY r.trace_id LIMIT ?")
+        .bind(through).bind(through).bind(i64::try_from(HUB_TRACE_CAPACITY+1).map_err(|_|corrupt_storage())?).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
     if rows.len() > HUB_TRACE_CAPACITY {
         return Err(corrupt_storage());
     }
@@ -87,6 +100,19 @@ pub(in crate::hub::corrections) async fn verify_on(
     populations: Vec<Population>,
     corrections: &[harvestcircle_domain::hub::corrections::SourceAttributionCorrection],
 ) -> Result<Vec<SourceAttribution>, SafeError> {
+    verify_through_on(tx, hub, populations, corrections, None).await
+}
+
+pub(in crate::hub::corrections) async fn verify_through_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    populations: Vec<Population>,
+    corrections: &[harvestcircle_domain::hub::corrections::SourceAttributionCorrection],
+    cut: Option<HubRevision>,
+) -> Result<Vec<SourceAttribution>, SafeError> {
+    let through = cut
+        .map(|v| i64::try_from(v.value()).map_err(|_| corrupt_storage()))
+        .transpose()?;
     let mut origins = populations
         .iter()
         .map(|p| {
@@ -113,11 +139,12 @@ pub(in crate::hub::corrections) async fn verify_on(
         }
     }
     let rows=sqlx::query(concat!(
-        "SELECT substr(source_id,1,17) AS source_id,substr(hub_id,1,17) AS hub_id,substr(created_operation_id,1,37) AS created,",
-        "substr(issuer_id,1,17) AS issuer_id,issuer_revision,substr(kind,1,21) AS source_kind,",
-        "substr(CAST(source_code AS BLOB),1,129) AS source_code,substr(CAST(provenance AS BLOB),1,513) AS provenance,",
-        "'established' AS source_certainty FROM hub_source_references ORDER BY source_id LIMIT ?"
-    )).bind(i64::try_from(HUB_REFERENCE_HISTORY_CAPACITY+1).map_err(|_|corrupt_storage())?).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+        "SELECT substr(r.source_id,1,17) AS source_id,substr(r.hub_id,1,17) AS hub_id,substr(r.created_operation_id,1,37) AS created,",
+        "substr(r.issuer_id,1,17) AS issuer_id,r.issuer_revision,substr(r.kind,1,21) AS source_kind,",
+        "substr(CAST(r.source_code AS BLOB),1,129) AS source_code,substr(CAST(r.provenance AS BLOB),1,513) AS provenance,",
+        "'established' AS source_certainty FROM hub_source_references r LEFT JOIN hub_stock_operations o ON o.operation_id=r.created_operation_id ",
+        "WHERE o.operation_id IS NULL OR r.hub_id<>?1 OR o.hub_id<>?1 OR o.kind NOT IN ('receipt','opening','return','count_post','correction_source') OR (?2 IS NULL OR o.stock_revision<=?2) ORDER BY r.source_id LIMIT ?3"
+    )).bind(hub.as_bytes().as_slice()).bind(through).bind(i64::try_from(HUB_REFERENCE_HISTORY_CAPACITY+1).map_err(|_|corrupt_storage())?).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
     if rows.len() > HUB_REFERENCE_HISTORY_CAPACITY || rows.len() != associations.len() {
         return Err(corrupt_storage());
     }

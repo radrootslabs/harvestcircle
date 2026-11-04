@@ -8,6 +8,7 @@ mod preview;
 pub use model::*;
 pub(in crate::hub) mod frozen;
 pub(in crate::hub) mod projection;
+pub(in crate::hub) mod proofs;
 pub(in crate::hub) mod reports;
 pub(in crate::hub) mod reviews;
 pub(crate) mod schema;

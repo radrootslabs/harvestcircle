@@ -1,6 +1,7 @@
 //! Captured native review cuts; restoration validates immutable origins and seals,
 //! never current balances or a saved execution grant.
 use super::{common::*, reports};
+use crate::hub::actuals::proofs::OriginalReader;
 use crate::{
     db::{corrupt_storage, storage_unavailable},
     hub::{handling, reference, stock, submission},
@@ -145,7 +146,7 @@ pub(in crate::hub) async fn persist_on(
 }
 
 pub(in crate::hub) async fn original_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
+    tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
     op: &stock::read::OperationRecord,
     row: &SqliteRow,
@@ -173,7 +174,7 @@ pub(in crate::hub) async fn original_on(
         return Err(corrupt_storage());
     }
     let rows=sqlx::query("SELECT substr(group_id,1,17) AS group_id,substr(parent_group_id,1,17) AS parent_group_id,created_revision,packs FROM hub_actual_review_lineage WHERE operation_id=? ORDER BY group_id LIMIT 257")
-        .bind(op.id.as_str()).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+        .bind(op.id.as_str()).fetch_all(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if rows.len() != expected {
         return Err(corrupt_storage());
     }
@@ -207,7 +208,7 @@ pub(in crate::hub) async fn original_on(
     let known = handling::actuals::known_departures_on(tx, hub, trace, cut).await?;
     let treatment = handling::treatment::read::historical_state_on(tx, hub, &lineage).await?;
     let event_count:i64=sqlx::query_scalar("SELECT count(*) FROM hub_stock_events e JOIN hub_stock_operations o ON o.operation_id=e.operation_id WHERE o.hub_id=? AND o.stock_revision<=?")
-        .bind(hub.as_bytes().as_slice()).bind(integer(cut)?).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+        .bind(hub.as_bytes().as_slice()).bind(integer(cut)?).fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
     let event_count = u32::try_from(event_count).map_err(|_| corrupt_storage())?;
     if event_count as usize > harvestcircle_domain::hub::stock::HUB_STOCK_EVENT_CAPACITY {
         return Err(corrupt_storage());

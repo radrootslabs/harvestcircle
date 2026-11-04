@@ -52,6 +52,26 @@ pub(super) async fn at_on(
     revision: HubRevision,
     catalog: HubRevision,
 ) -> Result<Context, SafeError> {
+    let mut reader = OriginalReader::new(tx);
+    Box::pin(at_with_proofs_on(
+        &mut reader,
+        hub,
+        records,
+        target,
+        revision,
+        catalog,
+    ))
+    .await
+}
+
+pub(super) async fn at_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    records: &[RecipientAttributionCorrection],
+    target: HubRecordId,
+    revision: HubRevision,
+    catalog: HubRevision,
+) -> Result<Context, SafeError> {
     let operation = crate::hub::actuals::common::operation(target)?;
     let op = stock::read::operation_on(tx, hub, &operation)
         .await?
@@ -62,9 +82,9 @@ pub(super) async fn at_on(
         return Err(stock::invalid_input());
     }
     if op.kind == "actual_review" {
-        let original = Box::pin(crate::hub::actuals::reviews::original_on(tx, hub, op)).await?;
+        let original = Box::pin(tx.actual_review(hub, op)).await?;
         if !matches!(
-            original.original,
+            &original.original,
             crate::HubActualReviewOriginal::Departure(_)
         ) {
             return Err(stock::invalid_input());
@@ -83,14 +103,14 @@ pub(super) async fn at_on(
     // version list is canonical; future links need their own qualified adapter.
     let documents: i64 =
         sqlx::query_scalar("SELECT count(*) FROM hub_corrections WHERE family='document'")
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await
             .map_err(|_| storage_unavailable())?;
     if documents != 0 {
         return Err(corrupt_storage());
     }
     let linked_issued_versions = original.issued_versions.clone();
-    let latest:i64=sqlx::query_scalar(concat!("SELECT max(latest) FROM (SELECT COALESCE(max(recorded_at_unix_s),0) AS latest FROM hub_stock_operations WHERE hub_id=? AND stock_revision<=? ","UNION ALL SELECT COALESCE(max(recorded_at_unix_s),0) AS latest FROM hub_reference_versions WHERE hub_id=? AND catalog_revision<=?)")).bind(hub.as_bytes().as_slice()).bind(i64::try_from(revision.value()).map_err(|_|corrupt_storage())?).bind(hub.as_bytes().as_slice()).bind(i64::try_from(catalog.value()).map_err(|_|corrupt_storage())?).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    let latest:i64=sqlx::query_scalar(concat!("SELECT max(latest) FROM (SELECT COALESCE(max(recorded_at_unix_s),0) AS latest FROM hub_stock_operations WHERE hub_id=? AND stock_revision<=? ","UNION ALL SELECT COALESCE(max(recorded_at_unix_s),0) AS latest FROM hub_reference_versions WHERE hub_id=? AND catalog_revision<=?)")).bind(hub.as_bytes().as_slice()).bind(i64::try_from(revision.value()).map_err(|_|corrupt_storage())?).bind(hub.as_bytes().as_slice()).bind(i64::try_from(catalog.value()).map_err(|_|corrupt_storage())?).fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
     Ok(Context {
         hub,
         revision,

@@ -57,6 +57,21 @@ pub(in crate::hub) async fn original_on(
     if op.kind != "actual_review" {
         return Err(stock::conflict());
     }
+    // A genuine outer read phase. Recursive readers use the existing owner.
+    Ok((*super::proofs::OriginalReader::new(tx)
+        .actual_review(hub, op)
+        .await?)
+        .clone())
+}
+
+pub(in crate::hub) async fn rebuild_on(
+    tx: &mut super::proofs::OriginalReader<'_, '_>,
+    hub: HubId,
+    op: OperationRecord,
+) -> Result<HubActualReviewReceipt, SafeError> {
+    if op.kind != "actual_review" {
+        return Err(stock::conflict());
+    }
     let row=sqlx::query(concat!(
         "SELECT policy_version,substr(review_kind,1,33) AS review_kind,substr(report_id,1,17) AS report_id,",
         "substr(trace_id,1,17) AS trace_id,substr(group_id,1,17) AS group_id,substr(variant_id,1,17) AS variant_id,variant_revision,",
@@ -69,7 +84,7 @@ pub(in crate::hub) async fn original_on(
         "substr(CAST(recipient_evidence AS BLOB),1,513) AS recipient_evidence,substr(CAST(timing_evidence AS BLOB),1,513) AS timing_evidence,",
         "substr(CAST(verification AS BLOB),1,513) AS verification,lineage_count,scope_count,substr(result_hash,1,33) AS result_hash ",
         "FROM hub_actual_reviews WHERE operation_id=? LIMIT 1"
-    )).bind(op.id.as_str()).fetch_optional(&mut *tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?;
+    )).bind(op.id.as_str()).fetch_optional(&mut **tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?;
     if row
         .try_get::<i64, _>("policy_version")
         .map_err(|_| corrupt_storage())?
@@ -220,11 +235,11 @@ pub(in crate::hub) async fn original_on(
             let events: i64 =
                 sqlx::query_scalar("SELECT count(*) FROM hub_stock_events WHERE operation_id=?")
                     .bind(op.id.as_str())
-                    .fetch_one(&mut *tx)
+                    .fetch_one(&mut **tx)
                     .await
                     .map_err(|_| storage_unavailable())?;
             let scopes:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM hub_actual_review_lineage WHERE operation_id=?)+(SELECT count(*) FROM hub_actual_review_work_scope WHERE operation_id=?)")
-                .bind(op.id.as_str()).bind(op.id.as_str()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+                .bind(op.id.as_str()).bind(op.id.as_str()).fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
             if events != 0
                 || scopes != 0
                 || row
@@ -261,7 +276,7 @@ pub(in crate::hub) async fn original_on(
     }
     let closed:i64=sqlx::query_scalar("SELECT count(*) FROM hub_actual_report_reviews WHERE report_id=? AND operation_id=? AND review_operation_id=?")
         .bind(report.id.as_bytes().as_slice()).bind(operation(report.operation).map_err(|_|corrupt_storage())?.as_str()).bind(op.id.as_str())
-        .fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+        .fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if closed != 1 {
         return Err(corrupt_storage());
     }

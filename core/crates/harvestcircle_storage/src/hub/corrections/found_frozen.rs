@@ -166,14 +166,14 @@ pub(super) async fn persist_on(
     Ok(hash)
 }
 
-pub(super) async fn restore_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
+pub(super) async fn restore_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
     op: &OperationRecord,
     observation: HubCorrectionObservationReceipt,
 ) -> Result<(Context, [u8; 32], [u8; 32]), SafeError> {
     let row=sqlx::query("SELECT kind,payload_schema,substr(payload,1,16777217) AS payload,substr(scope_hash,1,33) AS scope_hash FROM hub_correction_captures WHERE operation_id=? LIMIT 1")
-        .bind(op.id.as_str()).fetch_optional(&mut *tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?;
+        .bind(op.id.as_str()).fetch_optional(&mut **tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?;
     if row
         .try_get::<String, _>("kind")
         .map_err(|_| corrupt_storage())?
@@ -201,7 +201,7 @@ pub(super) async fn restore_on(
     }
     let revision = HubRevision::from_value(data.stock_revision).map_err(|_| corrupt_storage())?;
     let latest:i64=sqlx::query_scalar("SELECT COALESCE(max(recorded_at_unix_s),0) FROM hub_stock_operations WHERE hub_id=? AND stock_revision<=?")
-        .bind(hub.as_bytes().as_slice()).bind(i64::try_from(revision.value()).map_err(|_|corrupt_storage())?).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+        .bind(hub.as_bytes().as_slice()).bind(i64::try_from(revision.value()).map_err(|_|corrupt_storage())?).fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if latest != data.latest_recorded_at
         || latest > op.recorded_at.as_seconds()
         || observation.original.stock_revision.value() > revision.value()
@@ -220,7 +220,7 @@ pub(super) async fn restore_on(
     };
     let target =
         crate::hub::actuals::common::operation(*target_operation).map_err(|_| corrupt_storage())?;
-    let funding = Box::pin(super::target_funding::load_on(
+    let funding = Box::pin(super::target_funding::load_with_proofs_on(
         tx,
         hub,
         &target,
@@ -266,14 +266,14 @@ pub(super) async fn restore_on(
     handling::lineage::historical_births_on(tx, hub, &lineage).await?;
     let treatment = handling::treatment::read::historical_state_on(tx, hub, &lineage).await?;
     let groups:i64=sqlx::query_scalar("SELECT count(*) FROM hub_stock_groups g JOIN hub_group_identification birth ON birth.group_id=g.group_id JOIN hub_stock_operations original ON original.operation_id=birth.created_operation_id WHERE original.hub_id=? AND original.stock_revision<=?")
-        .bind(hub.as_bytes().as_slice()).bind(i64::try_from(revision.value()).map_err(|_|corrupt_storage())?).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+        .bind(hub.as_bytes().as_slice()).bind(i64::try_from(revision.value()).map_err(|_|corrupt_storage())?).fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if usize::try_from(groups).map_err(|_| corrupt_storage())? != data.group_count {
         return Err(corrupt_storage());
     }
     let mut active_identifications = Vec::with_capacity(data.identities.len());
     for identity in data.identities {
         let native:i64=sqlx::query_scalar("SELECT count(*) FROM hub_group_identification birth JOIN hub_stock_operations original ON original.operation_id=birth.created_operation_id WHERE original.hub_id=? AND original.stock_revision<=? AND birth.physical_label=? AND birth.observation=?")
-            .bind(hub.as_bytes().as_slice()).bind(i64::try_from(revision.value()).map_err(|_|corrupt_storage())?).bind(&identity.label).bind(&identity.observation).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
+            .bind(hub.as_bytes().as_slice()).bind(i64::try_from(revision.value()).map_err(|_|corrupt_storage())?).bind(&identity.label).bind(&identity.observation).fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
         if native == 0 {
             return Err(corrupt_storage());
         }

@@ -91,6 +91,17 @@ pub(super) async fn load_on(
     group: HubRecordId,
     cut: HubRevision,
 ) -> Result<LoadedFunding, SafeError> {
+    let mut reader = OriginalReader::new(tx);
+    Box::pin(load_with_proofs_on(&mut reader, hub, target, group, cut)).await
+}
+
+pub(super) async fn load_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    target: &DurableRequestId,
+    group: HubRecordId,
+    cut: HubRevision,
+) -> Result<LoadedFunding, SafeError> {
     let line = Box::pin(quantity::original_on(tx, hub, target, group, cut)).await?;
     let history = quantity::history_from_original_on(tx, hub, target, group, cut, &line).await?;
     // Scalar metadata alone remains insufficient. Complete purpose-sealed
@@ -127,14 +138,14 @@ pub(super) async fn load_on(
             )
         }
         "actual_review" => {
-            let original = crate::hub::actuals::reviews::original_on(tx, hub, op).await?;
-            let crate::HubActualReviewOriginal::Departure(plan) = original.original else {
+            let original = tx.actual_review(hub, op).await?;
+            let crate::HubActualReviewOriginal::Departure(plan) = &original.original else {
                 return Err(corrupt_storage());
             };
             (
                 CorrectedDepartureFamily::ReviewedActual,
                 PhysicalDebitKind::ReviewedActual,
-                plan.reduction.before,
+                plan.reduction.before.clone(),
                 plan.reduction.actual_departed,
             )
         }

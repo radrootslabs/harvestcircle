@@ -47,20 +47,51 @@ pub(super) async fn load_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
 ) -> Result<Ledger, SafeError> {
+    let mut reader = OriginalReader::new(tx);
+    Box::pin(load_with_proofs_on(&mut reader, hub)).await
+}
+
+pub(super) async fn load_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+) -> Result<Ledger, SafeError> {
+    Box::pin(load_through_on(tx, hub, None)).await
+}
+
+/// Select the ordered native prefix before reconstructing any context, target,
+/// population or document. Future complete originals are not old dependencies.
+pub(super) async fn load_through_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    cut: Option<HubRevision>,
+) -> Result<Ledger, SafeError> {
+    let through = cut
+        .map(|v| i64::try_from(v.value()).map_err(|_| corrupt_storage()))
+        .transpose()?;
     let invalid:i64=sqlx::query_scalar(concat!(
-        "SELECT (SELECT count(*) FROM hub_corrections c LEFT JOIN hub_stock_operations o ON o.operation_id=c.operation_id WHERE c.family='source' AND (o.operation_id IS NULL OR o.kind<>'correction_source' OR o.hub_id<>? OR o.result_id<>c.correction_id)) + ",
-        "(SELECT count(*) FROM hub_stock_operations o LEFT JOIN hub_corrections c ON c.operation_id=o.operation_id WHERE o.kind='correction_source' AND (o.hub_id<>? OR c.family IS NULL OR c.family<>'source'))"
-    )).bind(hub.as_bytes().as_slice()).bind(hub.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
-    let ids:Vec<String>=sqlx::query_scalar("SELECT substr(operation_id,1,37) FROM hub_stock_operations WHERE kind='correction_source' ORDER BY stock_revision LIMIT 4097").fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+        "SELECT (SELECT count(*) FROM hub_corrections c LEFT JOIN hub_stock_operations o ON o.operation_id=c.operation_id WHERE c.family='source' AND (o.operation_id IS NULL OR o.hub_id<>?1 OR (?2 IS NULL OR o.stock_revision<=?2)) AND (o.operation_id IS NULL OR o.kind<>'correction_source' OR o.hub_id<>?1 OR o.result_id<>c.correction_id)) + ",
+        "(SELECT count(*) FROM hub_stock_operations o LEFT JOIN hub_corrections c ON c.operation_id=o.operation_id WHERE o.kind='correction_source' AND (o.hub_id<>?1 OR (?2 IS NULL OR o.stock_revision<=?2)) AND (o.hub_id<>?1 OR c.family IS NULL OR c.family<>'source'))"
+    )).bind(hub.as_bytes().as_slice()).bind(through).fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
+    let ids:Vec<String>=sqlx::query_scalar("SELECT substr(operation_id,1,37) FROM hub_stock_operations WHERE kind='correction_source' AND (? IS NULL OR stock_revision<=?) ORDER BY stock_revision LIMIT 4097").bind(through).bind(through).fetch_all(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if invalid != 0 || ids.len() > harvestcircle_domain::hub::corrections::HUB_CORRECTION_ROWS {
         return Err(corrupt_storage());
     }
-    let populations =
-        Box::pin(super::attribution_review::registry::populations_on(tx, hub)).await?;
+    let populations = match cut {
+        Some(_) => {
+            Box::pin(super::attribution_review::registry::populations_through_on(
+                tx, hub, cut,
+            ))
+            .await?
+        }
+        None => Box::pin(super::attribution_review::registry::populations_on(tx, hub)).await?,
+    };
     let mut ledger = Ledger {
         populations,
         records: Vec::with_capacity(ids.len()),
-        issued_versions: Box::pin(super::source_documents::load_on(tx, hub)).await?,
+        issued_versions: match cut {
+            Some(_) => Box::pin(super::source_documents::load_through_on(tx, hub, cut)).await?,
+            None => Box::pin(super::source_documents::load_on(tx, hub)).await?,
+        },
     };
     for id in ids {
         let id = DurableRequestId::parse(id).map_err(|_| corrupt_storage())?;
@@ -71,7 +102,7 @@ pub(super) async fn load_on(
             "SELECT substr(correction_id,1,17) AS correction_id,family,subject_kind,substr(subject_id,1,17) AS subject_id,",
             "substr(target_operation_id,1,37) AS target,substr(previous_operation_id,1,37) AS previous,account_operation_id,account_previous_operation_id,report_id,observation_operation_id,",
             "payload_schema,substr(payload,1,4097) AS payload,substr(result_hash,1,33) AS result_hash FROM hub_corrections WHERE operation_id=?"
-        )).bind(id.as_str()).fetch_optional(&mut *tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?;
+        )).bind(id.as_str()).fetch_optional(&mut **tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?;
         let payload: Vec<u8> = row.try_get("payload").map_err(|_| corrupt_storage())?;
         let command = super::source_payload::decode(&payload)?;
         let own = crate::hub::actuals::common::operation_id(&id).map_err(|_| corrupt_storage())?;
@@ -117,7 +148,7 @@ pub(super) async fn load_on(
         {
             return Err(corrupt_storage());
         }
-        let context = Box::pin(super::source_context::at_on(
+        let context = Box::pin(super::source_context::at_with_proofs_on(
             tx,
             hub,
             &ledger,
@@ -161,13 +192,27 @@ pub(super) async fn load_on(
     }
     // Raw registry rows are compared against every verified association and its
     // first population or source-correction creator; no orphan identity is valid.
-    super::attribution_review::registry::verify_on(
-        tx,
-        hub,
-        ledger.populations.clone(),
-        &ledger.records,
-    )
-    .await?;
+    match cut {
+        Some(_) => {
+            super::attribution_review::registry::verify_through_on(
+                tx,
+                hub,
+                ledger.populations.clone(),
+                &ledger.records,
+                cut,
+            )
+            .await?
+        }
+        None => {
+            super::attribution_review::registry::verify_on(
+                tx,
+                hub,
+                ledger.populations.clone(),
+                &ledger.records,
+            )
+            .await?
+        }
+    };
     Ok(ledger)
 }
 

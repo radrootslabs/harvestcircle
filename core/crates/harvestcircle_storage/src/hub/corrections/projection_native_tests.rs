@@ -47,7 +47,7 @@ struct World {
     extra_report: Option<HubRecordId>,
 }
 
-pub(in crate::hub::corrections) async fn actual_debit(
+pub(in crate::hub) async fn actual_debit(
     db: &Database,
 ) -> (PhysicalStockGroup, DurableRequestId, u32) {
     actual_debit_with_early_return(db, false).await

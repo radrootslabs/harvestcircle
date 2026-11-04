@@ -38,7 +38,8 @@ async fn resealed_frozen_active_identity_omission_reorder_and_replacement_fail_i
                     let checked = stock::read::operation_on(tx, hub, &operation(1700))
                         .await?
                         .ok_or_else(corrupt_storage)?;
-                    Box::pin(restore_on(tx, hub, &checked, old))
+                    let mut reader = OriginalReader::new(tx);
+                    Box::pin(restore_with_proofs_on(&mut reader, hub, &checked, old))
                         .await
                         .map(|_| ())
                 })
@@ -114,9 +115,15 @@ async fn resealed_frozen_active_identity_omission_reorder_and_replacement_fail_i
                     let checked = stock::read::operation_on(tx, hub, &operation(1700))
                         .await?
                         .ok_or_else(corrupt_storage)?;
-                    Box::pin(restore_on(tx, hub, &checked, observation))
-                        .await
-                        .map(|_| ())
+                    let mut reader = OriginalReader::new(tx);
+                    Box::pin(restore_with_proofs_on(
+                        &mut reader,
+                        hub,
+                        &checked,
+                        observation,
+                    ))
+                    .await
+                    .map(|_| ())
                 }))
                 .await
                 .map_err(map_transaction_error)

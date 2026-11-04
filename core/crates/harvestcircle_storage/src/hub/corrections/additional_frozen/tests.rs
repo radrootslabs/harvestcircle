@@ -88,7 +88,12 @@ async fn resealed_frozen_nodes_and_work_cannot_change_immutable_admitted_materia
         let result = db
             .host()
             .transaction(|tx| {
-                Box::pin(async move { restore_on(tx, hub, &op, &command).await.map(|_| ()) })
+                Box::pin(async move {
+                    let mut reader = OriginalReader::new(tx);
+                    restore_with_proofs_on(&mut reader, hub, &op, &command)
+                        .await
+                        .map(|_| ())
+                })
             })
             .await
             .map_err(map_transaction_error);

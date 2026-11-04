@@ -171,8 +171,8 @@ pub(super) async fn persist_on(
     Ok(hash)
 }
 
-pub(super) async fn restore_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
+pub(super) async fn restore_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
     op: &OperationRecord,
     command: &AdditionalQuantityCommand,
@@ -225,7 +225,7 @@ async fn read_data_on(
 }
 
 async fn restore_data_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
+    tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
     op: &OperationRecord,
     command: &AdditionalQuantityCommand,
@@ -236,7 +236,7 @@ async fn restore_data_on(
     let cut = HubRevision::from_value(data.stock_revision).map_err(|_| corrupt_storage())?;
     let latest: i64 = sqlx::query_scalar("SELECT COALESCE(max(recorded_at_unix_s),0) FROM hub_stock_operations WHERE hub_id=? AND stock_revision<=?")
         .bind(hub.as_bytes().as_slice()).bind(i64::try_from(cut.value()).map_err(|_| corrupt_storage())?)
-        .fetch_one(&mut *tx).await.map_err(|_| storage_unavailable())?;
+        .fetch_one(&mut **tx).await.map_err(|_| storage_unavailable())?;
     if latest != data.latest_recorded_at || latest > op.recorded_at.as_seconds() {
         return Err(corrupt_storage());
     }
@@ -291,7 +291,7 @@ async fn restore_data_on(
         .original;
     let closed: i64 = sqlx::query_scalar("SELECT count(*) FROM hub_actual_report_reviews WHERE report_id=? AND operation_id=? AND review_operation_id=?")
         .bind(report.id.as_bytes().as_slice()).bind(crate::hub::actuals::common::operation(report.operation).map_err(|_| corrupt_storage())?.as_str())
-        .bind(op.id.as_str()).fetch_one(&mut *tx).await.map_err(|_| storage_unavailable())?;
+        .bind(op.id.as_str()).fetch_one(&mut **tx).await.map_err(|_| storage_unavailable())?;
     if closed != 1 || report.stock_revision.value() > cut.value() {
         return Err(corrupt_storage());
     }
@@ -307,7 +307,7 @@ async fn restore_data_on(
     )
     .await?;
     let activity = Box::pin(handling::actuals::activity_on(tx, hub, &lineage, &source)).await?;
-    let known = Box::pin(super::known::load_on(tx, hub, trace, cut)).await?;
+    let known = Box::pin(super::known::load_with_proofs_on(tx, hub, trace, cut)).await?;
     let target_event = known
         .iter()
         .position(|k| k.original.operation == command.facts.target_operation)

@@ -54,6 +54,15 @@ pub(super) async fn load_through_on(
     hub: HubId,
     cut: Option<HubRevision>,
 ) -> Result<Ledger, SafeError> {
+    let mut reader = OriginalReader::new(tx);
+    Box::pin(load_through_with_proofs_on(&mut reader, hub, cut)).await
+}
+
+pub(super) async fn load_through_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    cut: Option<HubRevision>,
+) -> Result<Ledger, SafeError> {
     let through = cut
         .map(|v| i64::try_from(v.value()).map_err(|_| corrupt_storage()))
         .transpose()?;
@@ -61,8 +70,8 @@ pub(super) async fn load_through_on(
     let invalid:i64=sqlx::query_scalar(concat!(
         "SELECT (SELECT count(*) FROM hub_corrections c LEFT JOIN hub_stock_operations o ON o.operation_id=c.operation_id WHERE c.family='recipient' AND (o.operation_id IS NULL OR o.kind<>'correction_recipient' OR o.hub_id<>? OR o.result_id<>c.correction_id)) + ",
         "(SELECT count(*) FROM hub_stock_operations o LEFT JOIN hub_corrections c ON c.operation_id=o.operation_id WHERE o.kind='correction_recipient' AND (o.hub_id<>? OR c.family IS NULL OR c.family<>'recipient'))"
-    )).bind(hub.as_bytes().as_slice()).bind(hub.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
-    let ids:Vec<String>=sqlx::query_scalar("SELECT substr(operation_id,1,37) FROM hub_stock_operations WHERE kind='correction_recipient' AND (? IS NULL OR stock_revision<=?) ORDER BY stock_revision LIMIT 4097").bind(through).bind(through).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
+    )).bind(hub.as_bytes().as_slice()).bind(hub.as_bytes().as_slice()).fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
+    let ids:Vec<String>=sqlx::query_scalar("SELECT substr(operation_id,1,37) FROM hub_stock_operations WHERE kind='correction_recipient' AND (? IS NULL OR stock_revision<=?) ORDER BY stock_revision LIMIT 4097").bind(through).bind(through).fetch_all(&mut **tx).await.map_err(|_|storage_unavailable())?;
     if invalid != 0 || ids.len() > harvestcircle_domain::hub::corrections::HUB_CORRECTION_ROWS {
         return Err(corrupt_storage());
     }
@@ -78,7 +87,7 @@ pub(super) async fn load_through_on(
             "SELECT substr(correction_id,1,17) AS correction_id,family,subject_kind,substr(subject_id,1,17) AS subject_id,",
             "substr(target_operation_id,1,37) AS target,substr(previous_operation_id,1,37) AS previous,account_operation_id,account_previous_operation_id,report_id,observation_operation_id,",
             "payload_schema,substr(payload,1,4097) AS payload,substr(result_hash,1,33) AS result_hash FROM hub_corrections WHERE operation_id=?"
-        )).bind(id.as_str()).fetch_optional(&mut *tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?;
+        )).bind(id.as_str()).fetch_optional(&mut **tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?;
         let payload: Vec<u8> = row.try_get("payload").map_err(|_| corrupt_storage())?;
         let command = super::recipient_payload::decode(&payload)?;
         let own = crate::hub::actuals::common::operation_id(&id).map_err(|_| corrupt_storage())?;
@@ -124,7 +133,7 @@ pub(super) async fn load_through_on(
         {
             return Err(corrupt_storage());
         }
-        let context = Box::pin(super::recipient_context::at_on(
+        let context = Box::pin(super::recipient_context::at_with_proofs_on(
             tx,
             hub,
             &ledger.records,

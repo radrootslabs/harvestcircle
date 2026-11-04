@@ -1,4 +1,5 @@
 use super::*;
+use crate::hub::actuals::proofs::OriginalReader;
 
 macro_rules! linked_predicate { () => { concat!(
     "EXISTS(SELECT 1 FROM hub_stock_events e WHERE e.operation_id=o.operation_id AND e.trace_id=?) OR ",
@@ -72,13 +73,14 @@ impl Database {
                     .await
                     .map_err(|_| storage_unavailable())?;
                     let mut rows = Vec::with_capacity(operations.len());
+                    let mut reader = OriginalReader::new(tx);
                     for operation in operations {
                         let operation =
                             DurableRequestId::parse(operation).map_err(|_| corrupt_storage())?;
-                        let operation = stock::read::operation_on(tx, hub, &operation)
+                        let operation = stock::read::operation_on(&mut reader, hub, &operation)
                             .await?
                             .ok_or_else(corrupt_storage)?;
-                        rows.push(entry_on(tx, hub, operation).await?);
+                        rows.push(entry_on(&mut reader, hub, operation).await?);
                     }
                     Ok(HubTraceHistoryPage {
                         trace: query.trace,
@@ -98,7 +100,7 @@ impl Database {
     }
 }
 async fn entry_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
+    tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
     operation: stock::read::OperationRecord,
 ) -> Result<HubTraceHistoryEntry, SafeError> {
@@ -110,7 +112,7 @@ async fn entry_on(
     let (kind, occurred, observation) = match operation.kind.as_str() {
         "correction_recipient" => {
             let own = crate::hub::actuals::common::operation_id(&operation.id)?;
-            let records = Box::pin(crate::hub::corrections::recipient_records_on(
+            let records = Box::pin(crate::hub::corrections::recipient_records_with_proofs_on(
                 tx,
                 hub,
                 operation.revision,
@@ -128,7 +130,7 @@ async fn entry_on(
         }
         "correction_source" => {
             let own = crate::hub::actuals::common::operation_id(&operation.id)?;
-            let records = Box::pin(crate::hub::corrections::source_records_on(
+            let records = Box::pin(crate::hub::corrections::source_records_with_proofs_on(
                 tx,
                 hub,
                 operation.revision,
@@ -154,7 +156,8 @@ async fn entry_on(
             (HubTraceHistoryKind::CorrectionObserved, None, basis)
         }
         "correction_found" => {
-            let original = crate::hub::corrections::found_original_on(tx, hub, operation).await?;
+            let original =
+                crate::hub::corrections::found_original_with_proofs_on(tx, hub, operation).await?;
             (
                 HubTraceHistoryKind::FoundCorrected,
                 Some(Occurrence::Known(original.original.recorded_at)),
@@ -163,7 +166,8 @@ async fn entry_on(
         }
         "correction_additional" => {
             let original =
-                crate::hub::corrections::additional_original_on(tx, hub, operation).await?;
+                crate::hub::corrections::additional_original_with_proofs_on(tx, hub, operation)
+                    .await?;
             (
                 HubTraceHistoryKind::AdditionalCorrected,
                 Some(original.original.facts.occurred),
@@ -181,17 +185,17 @@ async fn entry_on(
             )
         }
         "actual_review" => {
-            let original = crate::hub::actuals::reviews::original_on(tx, hub, operation).await?;
-            match original.original {
+            let original = tx.actual_review(hub, operation).await?;
+            match &original.original {
                 crate::hub::actuals::HubActualReviewOriginal::Departure(plan) => (
                     HubTraceHistoryKind::ActualReconciled,
                     Some(plan.comparison.facts.occurred),
-                    plan.duplicate_review_basis,
+                    plan.duplicate_review_basis.clone(),
                 ),
                 crate::hub::actuals::HubActualReviewOriginal::Duplicate(plan) => (
                     HubTraceHistoryKind::ActualLinked,
                     Some(plan.known.occurred),
-                    plan.verification,
+                    plan.verification.clone(),
                 ),
             }
         }
