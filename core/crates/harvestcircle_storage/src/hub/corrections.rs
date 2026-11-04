@@ -409,6 +409,8 @@ pub use found_review::{
 pub(crate) mod schema;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod upgrade_tests;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HubCorrectionObservationReceipt {
