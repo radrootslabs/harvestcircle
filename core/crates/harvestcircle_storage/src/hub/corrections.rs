@@ -200,6 +200,7 @@ pub(in crate::hub) mod birth;
 pub(in crate::hub) mod funding;
 pub(in crate::hub) mod initial_review;
 mod known;
+pub(in crate::hub) use known::current_actual_interpretations_on;
 mod observation_payload;
 #[cfg(test)]
 pub(super) mod projection_native_tests;

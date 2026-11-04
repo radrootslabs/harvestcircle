@@ -31,10 +31,11 @@ pub use contract::{
 };
 pub use db::{CURRENT_SCHEMA_VERSION, Database};
 pub use hub::actuals::{
-    HubActualDeparturePreview, HubActualLineageEvidence, HubActualLineageQuery,
-    HubActualLinkPreview, HubActualReportFilter, HubActualReportPage, HubActualReportQuery,
-    HubActualReportReceipt, HubActualReportResolutionKind, HubActualReportRow,
-    HubActualReviewOriginal, HubActualReviewReceipt, HubActualSourceEvidence, HubActualSourceQuery,
+    HubActualDeparturePreview, HubActualInterpretationEvidence, HubActualLineageEvidence,
+    HubActualLineageQuery, HubActualLinkPreview, HubActualReportFilter, HubActualReportPage,
+    HubActualReportQuery, HubActualReportReceipt, HubActualReportResolutionKind,
+    HubActualReportRow, HubActualReviewOriginal, HubActualReviewReceipt, HubActualSourceEvidence,
+    HubActualSourceQuery,
 };
 pub use hub::corrections::{
     HubAdditionalQuantityReceipt, HubAdditionalQuantityReview, HubAdditionalQuantityReviewOutcome,

@@ -28,6 +28,65 @@ fn report() -> ActualReportCommand {
         .unwrap(),
     }
 }
+
+#[tokio::test]
+async fn current_interpretation_distinguishes_dropped_intent_from_unresolved_raw_report_without_replay()
+ {
+    let fixture = Fixture::new();
+    let db = fixture.open().await;
+    let catalog = setup(&db).await;
+    let receipt = db
+        .apply_hub_receipt(owner(), operation(1), command(&catalog), at(100))
+        .await
+        .unwrap();
+    let scope = active_scope(&db).await;
+    let mutation = planned(&db, receipt.original.position.group).await;
+    let decision = db
+        .host()
+        .transaction(|tx| {
+            Box::pin(async move {
+                admission::prepare_on(tx, scope, operation(90), mutation, at(180)).await
+            })
+        })
+        .await
+        .unwrap();
+    assert!(matches!(decision, admission::Decision::Fresh(_)));
+    drop(decision);
+    let pending = db
+        .hub_submission(owner(), operation(90))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(pending.status, HubSubmissionStatus::Pending);
+    let query = crate::HubCorrectionKnownQuery {
+        trace: receipt.original.trace.id,
+        expected_stock_revision: None,
+        expected_catalog_revision: None,
+    };
+    let before = crate::hub::custody::tests::material(&fixture).await;
+    let evidence = db
+        .hub_actual_known_interpretations(owner(), query.clone())
+        .await
+        .unwrap();
+    assert!(evidence.uncertain_intent && !evidence.unresolved_actual);
+    assert!(evidence.interpretations.records.is_empty());
+    assert_eq!(evidence.interpretations.latest_recorded_at, at(100));
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    db.close().await.unwrap();
+    let db = fixture.open().await;
+    assert_eq!(
+        db.hub_actual_known_interpretations(owner(), query)
+            .await
+            .unwrap(),
+        evidence
+    );
+    assert_eq!(
+        db.hub_submission(owner(), operation(90)).await.unwrap(),
+        Some(pending)
+    );
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    db.close().await.unwrap();
+}
 async fn active_scope(db: &Database) -> HubSubmissionScope {
     let runtime = db.begin_hub_runtime(at(140)).await.unwrap();
     let generation = db

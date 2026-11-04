@@ -11,6 +11,7 @@ use harvestcircle_domain::hub::{
     },
 };
 use radroots_service_sqlite::MigrationBuildIdentity;
+mod current_interpretations;
 mod retain;
 
 const SOURCE: &str = "8549a01302c14c8f7c1bff9437f349d9adaf8454";

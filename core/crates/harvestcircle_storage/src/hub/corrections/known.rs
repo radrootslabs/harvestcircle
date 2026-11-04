@@ -265,6 +265,55 @@ pub(super) async fn load_on(
 #[cfg(test)]
 mod tests;
 
+/// Current-only facts reuse the complete canonical native reader. Historical
+/// reconstruction must use its separately qualified at-cut adapter, never this
+/// current catalogue/paper inventory as an old snapshot or execution grant.
+pub(in crate::hub) async fn current_actual_interpretations_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    trace: HubRecordId,
+) -> Result<harvestcircle_domain::hub::actuals::ActualKnownInterpretations, SafeError> {
+    use harvestcircle_domain::hub::actuals::{
+        ActualKnownInterpretation, ActualKnownInterpretations,
+    };
+    // No caller can select an older revision through this current-only adapter.
+    let stock = stock::read::state_on(tx, hub).await?.revision;
+    let catalog = reference::load_catalog_on(tx, hub).await?.revision();
+    handling::read::trace_on(tx, hub, trace).await?;
+    // Catalogue-only changes advance their own cut, not the stock-operation clock.
+    let latest: Option<i64> = sqlx::query_scalar(
+        "SELECT max(recorded_at_unix_s) FROM hub_stock_operations WHERE hub_id=? AND stock_revision<=?",
+    )
+    .bind(hub.as_bytes().as_slice())
+    .bind(i64::try_from(stock.value()).map_err(|_| corrupt_storage())?)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|_| storage_unavailable())?;
+    let latest = stock::read::timestamp(latest.ok_or_else(corrupt_storage)?)?;
+    let known = Box::pin(load_on(tx, hub, trace, stock)).await?;
+    let mut records = Vec::with_capacity(known.len());
+    for entry in known {
+        let record = ActualKnownInterpretation {
+            stock_revision: stock,
+            catalog_revision: catalog,
+            latest_recorded_at: latest,
+            original: entry.original,
+            recipient_original: entry.recipient_original,
+            recipient_history: entry.recipient_history,
+            quantities: entry.quantities,
+        };
+        record.view().map_err(|_| corrupt_storage())?;
+        records.push(record);
+    }
+    Ok(ActualKnownInterpretations {
+        hub,
+        stock_revision: stock,
+        catalog_revision: catalog,
+        latest_recorded_at: latest,
+        records,
+    })
+}
+
 /// Whole immutable events without invoking quantity/funding projections. Source
 /// originals need this acyclic scope even when later quantity corrections exist.
 pub(super) async fn attribution_affected_on(
