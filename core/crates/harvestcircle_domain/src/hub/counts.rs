@@ -360,3 +360,5 @@ fn next(value: HubRevision) -> Result<HubRevision, CountError> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(in crate::hub) use tests::shortage_policy_fixture;

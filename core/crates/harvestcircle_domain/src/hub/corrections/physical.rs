@@ -2,8 +2,8 @@
 //! Native adapters must qualify complete original/return/funding readers and
 //! persist every new child, review decision, credit and original atomically.
 use super::{
-    CorrectionError, DepartureQuantityAccount, DepartureQuantityAmendment, DepartureQuantityDelta,
-    OriginalDepartureQuantity,
+    CorrectedDepartureFamily, CorrectionError, DepartureQuantityAccount,
+    DepartureQuantityAmendment, DepartureQuantityDelta, OriginalDepartureQuantity,
 };
 use crate::hub::movement::{PhysicalIdentification, PhysicalStockGroup};
 use crate::hub::portions::{HUB_LINEAGE_GROUPS, PhysicalLineage, PhysicalLineageNode};
@@ -22,6 +22,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const HUB_FOUND_ALLOCATIONS: usize = 64;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PhysicalCorrectionError {
+    UnsupportedFamily,
     Capacity,
     InvalidHistory,
     InvalidScope,
@@ -259,6 +260,7 @@ pub struct FoundStockCommand {
     pub basis: SourceProvenance,
 }
 pub struct FoundStockContext<'a> {
+    pub family: CorrectedDepartureFamily,
     pub hub: HubId,
     pub stock_revision: HubRevision,
     pub catalog: &'a ReferenceCatalog,
@@ -283,6 +285,7 @@ pub struct FoundStockAllocation {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FoundStockPlan {
+    pub family: CorrectedDepartureFamily,
     pub operation: HubRecordId,
     pub hub: HubId,
     pub actor: PublicKey,

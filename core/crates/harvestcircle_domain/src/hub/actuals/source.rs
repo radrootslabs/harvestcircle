@@ -79,6 +79,52 @@ pub struct ActualSourceContext<'a> {
     pub subsequent_activity: &'a [ActualPhysicalActivity],
 }
 
+/// Source proof at the exact immutable pre-count cut. The named shortage closes
+/// this cut; it is not a flag permitting arbitrary count activity to be ignored.
+pub struct CountedShortageSourceContext<'a> {
+    pub source: ActualSourceContext<'a>,
+    pub count: &'a crate::hub::counts::CountPostPlan,
+}
+impl CountedShortageSourceContext<'_> {
+    pub fn resolve(
+        &self,
+        report: &ActualReportRecord,
+        occurred: Occurrence,
+        now: UnixTimestamp,
+    ) -> Result<ResolvedActualSource, ActualReportError> {
+        self.count
+            .validate()
+            .map_err(|_| ActualReportError::InvalidNativeContext)?;
+        let scope = &self.count.count.scope;
+        if !matches!(
+            self.count.effect,
+            crate::hub::counts::CountEffect::Shortage { .. }
+        ) || scope.hub != report.hub
+            || scope.hub != self.source.lineage.hub()
+            || scope.trace != self.source.lineage.trace()
+            || scope.variant.id != self.source.lineage.variant()
+            || scope.stock_revision != self.source.lineage.revision()
+            || self.source.balancing_group != &self.count.before
+            || self.count.recorded_at > now
+            || self.source.source.recorded_at > self.count.recorded_at
+            || self.source.source.catalog_revision.value() > self.count.catalog_revision.value()
+            || self.source.source.operation == self.count.operation
+            || self.source.source.operation == report.operation
+            || self
+                .source
+                .subsequent_activity
+                .iter()
+                .any(|a| a.recorded_at > self.count.recorded_at)
+            || !bounds(occurred)
+                .is_some_and(|(_, latest)| latest <= self.count.confirmed_on_hand_at)
+        {
+            return Err(ActualReportError::HistoricalSourceUnresolved);
+        }
+        self.source
+            .resolve_at_boundary(report, occurred, now, Some(self.count))
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct ResolvedActualSource {
     historical: HistoricalActualSource,
@@ -131,6 +177,16 @@ impl ActualSourceContext<'_> {
         occurred: Occurrence,
         now: UnixTimestamp,
     ) -> Result<ResolvedActualSource, ActualReportError> {
+        self.resolve_at_boundary(original, occurred, now, None)
+    }
+
+    fn resolve_at_boundary(
+        &self,
+        original: &ActualReportRecord,
+        occurred: Occurrence,
+        now: UnixTimestamp,
+        counted_shortage: Option<&crate::hub::counts::CountPostPlan>,
+    ) -> Result<ResolvedActualSource, ActualReportError> {
         original.validate()?;
         let source = self.source;
         source.validate()?;
@@ -146,7 +202,8 @@ impl ActualSourceContext<'_> {
             || current.trace != graph.trace()
             || current.variant != graph.variant()
             || source.stock_revision.value() > graph.revision().value()
-            || original.stock_revision.value() > graph.revision().value()
+            || (counted_shortage.is_none()
+                && original.stock_revision.value() > graph.revision().value())
             || source.recorded_at > now
             || original.recorded_at > now
             || current.revision.value() > graph.revision().value()

@@ -53,6 +53,181 @@ fn explanation() -> CountLossExplanation {
         packs: packs(2),
     }
 }
+fn classification_change(after: u32) -> CountExplanationAmendment {
+    CountExplanationAmendment {
+        operation: id(23),
+        stock_revision: rev(32),
+        explanation: id(21),
+        before: packs(2),
+        after: packs(after),
+    }
+}
+#[test]
+fn corrected_classification_returns_overstatement_to_unexplained_loss_without_stock() {
+    let account = CountLossQuantityAccount::restore_corrected(
+        loss_original(),
+        vec![explanation()],
+        vec![classification_change(1)],
+        vec![],
+    )
+    .unwrap();
+    assert_eq!(account.explanations(), &[explanation()]);
+    assert_eq!(account.effective_explanations()[0].packs, packs(1));
+    assert_eq!(account.explained(), packs(1));
+    assert_eq!(account.unexplained(), packs(3));
+    let trace = context(&[], &[], std::slice::from_ref(&account), 16)
+        .balance()
+        .unwrap();
+    assert_eq!(trace.on_hand, packs(16));
+    assert_eq!(trace.actual_departed, packs(1));
+    assert_eq!(trace.counted_loss, packs(3));
+}
+#[test]
+fn zero_effective_classification_keeps_the_original_known_event_visible() {
+    let account = CountLossQuantityAccount::restore_corrected(
+        loss_original(),
+        vec![explanation()],
+        vec![classification_change(0)],
+        vec![],
+    )
+    .unwrap();
+    assert_eq!(account.explanations()[0].packs, packs(2));
+    assert_eq!(account.effective_explanations()[0].original, explanation());
+    assert_eq!(account.effective_explanations()[0].packs, packs(0));
+    assert_eq!(account.unexplained(), packs(4));
+    assert_eq!(
+        context(&[], &[], &[account], 16)
+            .balance()
+            .unwrap()
+            .actual_departed,
+        packs(0)
+    );
+}
+#[test]
+fn classification_and_new_explanations_interleave_in_recorded_order_and_share_allowance() {
+    let next = CountLossExplanation {
+        operation: id(24),
+        stock_revision: rev(33),
+        packs: packs(3),
+    };
+    let good = CountLossQuantityAccount::restore_corrected(
+        loss_original(),
+        vec![explanation(), next],
+        vec![classification_change(1)],
+        vec![],
+    )
+    .unwrap();
+    assert_eq!(good.explained(), packs(4));
+    assert_eq!(good.unexplained(), packs(0));
+    let later = CountExplanationAmendment {
+        operation: id(25),
+        stock_revision: rev(34),
+        before: packs(1),
+        after: packs(2),
+        ..classification_change(1)
+    };
+    assert_eq!(
+        CountLossQuantityAccount::restore_corrected(
+            loss_original(),
+            vec![explanation(), next],
+            vec![classification_change(1), later],
+            vec![]
+        ),
+        Err(CorrectionError::InvalidQuantity)
+    );
+    assert_eq!(
+        CountLossQuantityAccount::restore_corrected(
+            loss_original(),
+            vec![explanation(), next],
+            vec![CountExplanationAmendment {
+                stock_revision: rev(34),
+                ..classification_change(1)
+            }],
+            vec![]
+        ),
+        Err(CorrectionError::InvalidQuantity)
+    );
+}
+#[test]
+fn classification_current_returns_bind_the_effective_event_not_just_its_original() {
+    let returns = CountExplanationReturns {
+        explanation: id(21),
+        packs: packs(3),
+    };
+    let good = CountLossQuantityAccount::restore_corrected(
+        loss_original(),
+        vec![explanation()],
+        vec![classification_change(3)],
+        vec![returns],
+    )
+    .unwrap();
+    assert_eq!(
+        good.effective_explanations()[0].established_returns,
+        packs(3)
+    );
+    assert_eq!(
+        CountLossQuantityAccount::restore_corrected(
+            loss_original(),
+            vec![explanation()],
+            vec![classification_change(1)],
+            vec![returns]
+        ),
+        Err(CorrectionError::ReturnConflict)
+    );
+    assert_eq!(
+        CountLossQuantityAccount::restore_corrected(
+            loss_original(),
+            vec![explanation()],
+            vec![classification_change(3)],
+            vec![returns, returns]
+        ),
+        Err(CorrectionError::Duplicate)
+    );
+}
+#[test]
+fn damaged_classification_heads_and_event_roles_fail_closed() {
+    for bad in [
+        CountExplanationAmendment {
+            before: packs(1),
+            ..classification_change(1)
+        },
+        CountExplanationAmendment {
+            explanation: id(99),
+            ..classification_change(1)
+        },
+        CountExplanationAmendment {
+            operation: id(21),
+            ..classification_change(1)
+        },
+        CountExplanationAmendment {
+            stock_revision: rev(31),
+            ..classification_change(1)
+        },
+        classification_change(2),
+    ] {
+        assert!(
+            CountLossQuantityAccount::restore_corrected(
+                loss_original(),
+                vec![explanation()],
+                vec![bad],
+                vec![]
+            )
+            .is_err()
+        );
+    }
+    let loss = CountLossQuantityAccount::restore_corrected(
+        loss_original(),
+        vec![explanation()],
+        vec![CountExplanationAmendment {
+            operation: original().operation,
+            ..classification_change(1)
+        }],
+        vec![],
+    )
+    .unwrap();
+    let departed = DepartureQuantityAccount::restore(original(), vec![], packs(0)).unwrap();
+    assert!(context(&[departed], &[], &[loss], 10).balance().is_err());
+}
 fn context<'a>(
     normal: &'a [DepartureQuantityAccount],
     actual: &'a [DepartureQuantityAccount],

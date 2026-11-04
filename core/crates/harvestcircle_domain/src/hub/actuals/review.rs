@@ -293,7 +293,7 @@ impl ActualReviewFacts {
 
 /// A review may resolve an unknown or narrow a reported interval. Changing an
 /// already asserted fact requires a separate linked correction, not review.
-pub(super) fn refines(original: Occurrence, verified: Occurrence) -> bool {
+pub(crate) fn refines(original: Occurrence, verified: Occurrence) -> bool {
     match (bounds(original), bounds(verified)) {
         (None, _) => true,
         (Some((a, b)), Some((c, d))) => a <= c && d <= b,

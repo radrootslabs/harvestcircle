@@ -330,6 +330,26 @@ boundary while physical ancestry remains intact. Canonical found-birth evidence
 uses the new allocation identity and current observation time. Native current and
 frozen readers must restore all origins and initial reviews before exposure.
 
+Unexposed additional-quantity plans preserve the reported corrected line total
+separately from the new debit. A corrected eight after an original six debits only
+the independently verified additional two. Historical source proof, current
+balancing stock, pending work, later causal floors and unresolved historical hold
+findings remain distinct. No second independent departure is emitted for a delta.
+Counted-shortage explanation instead verifies the exact original count and its
+observation-scope revision; it classifies only the remaining missing allowance,
+with no second stock reduction, work retirement or causal-floor change.
+
+Count explanations retain their original quantities and ordered classification
+amendments. An evidenced overstatement returns its corrected difference to visibly
+unexplained loss, without adding stock. Current established returns bound the
+effective explained amount; zero keeps the original event visible. Ordinary
+additional/found debit routes reject count-explained events. Actual observed stock
+recovery needs its own physical funding, not a classification change. Duplicate
+evidence retains immutable events, effective quantity heads and every original/
+current recipient association, including unknown and zero interpretations; a new
+operation ID cannot hide a possible duplicate. Native persistence, complete current
+and historical readers, durable recovery and application exposure remain unfinished.
+
 Pure count policy lives in `harvestcircle_domain::hub::counts`. Observation plans
 capture the original population, pack/location versions, recorded count, cutoff
 and observer without changing stock or work. A fresh comparison rejects changed

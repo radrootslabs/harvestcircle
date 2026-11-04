@@ -8,6 +8,9 @@ impl FoundStockCommand {
         actor: PublicKey,
         now: UnixTimestamp,
     ) -> Result<FoundStockPlan, PhysicalCorrectionError> {
+        if context.family == CorrectedDepartureFamily::ExplainedCountLoss {
+            return Err(PhysicalCorrectionError::UnsupportedFamily);
+        }
         if context.uncertain_submissions {
             return Err(PhysicalCorrectionError::UncertainSubmission);
         }
@@ -234,6 +237,7 @@ impl FoundStockCommand {
             .project(&after_lineage, context.catalog.handling_basis())
             .map_err(|_| PhysicalCorrectionError::Treatment)?;
         Ok(FoundStockPlan {
+            family: context.family,
             operation,
             hub: context.hub,
             actor,
@@ -337,6 +341,16 @@ fn validate_funding<'a>(
             let amount = additional.entry(original.key.operation).or_insert(zero());
             *amount = add(*amount, original.packs)?;
         } else {
+            let expected = match context.family {
+                CorrectedDepartureFamily::Normal => PhysicalDebitKind::NormalDeparture,
+                CorrectedDepartureFamily::ReviewedActual => PhysicalDebitKind::ReviewedActual,
+                CorrectedDepartureFamily::ExplainedCountLoss => {
+                    return Err(PhysicalCorrectionError::UnsupportedFamily);
+                }
+            };
+            if original.kind != expected {
+                return Err(PhysicalCorrectionError::InvalidHistory);
+            }
             base += 1;
         }
         physical = add(

@@ -223,6 +223,7 @@ impl Fixture {
     }
     fn context(&self) -> FoundStockContext<'_> {
         FoundStockContext {
+            family: CorrectedDepartureFamily::Normal,
             hub: self.graph.hub(),
             stock_revision: rev(20),
             catalog: &self.catalog,
@@ -271,6 +272,23 @@ fn return_reservation_stays_on_a_even_when_b_keeps_event_total_above_returns() {
     );
     assert_eq!(fixture.target.effective(), packs(8));
     assert_eq!(fixture.funding[0].returned(), packs(2));
+}
+
+#[test]
+fn classification_originals_cannot_be_claimed_as_an_ordinary_physical_debit() {
+    let f = Fixture::new();
+    let command = f.command(vec![found(base(), 1, "independent-found")]);
+    let mut c = f.context();
+    c.family = CorrectedDepartureFamily::ExplainedCountLoss;
+    assert_eq!(
+        command.plan(&c, id(400), actor(), at(200)),
+        Err(PhysicalCorrectionError::UnsupportedFamily)
+    );
+    c.family = CorrectedDepartureFamily::ReviewedActual;
+    assert_eq!(
+        command.plan(&c, id(400), actor(), at(200)),
+        Err(PhysicalCorrectionError::InvalidHistory)
+    );
 }
 #[test]
 fn multi_parent_recovery_keeps_zero_parent_separate_children_holds_and_review_required() {
@@ -868,6 +886,7 @@ fn prior_recovery_requires_its_retained_child_and_birth_review_before_another_pl
     ];
     let active = vec![identity("original-B"), identity("found-first")];
     let mut context = FoundStockContext {
+        family: CorrectedDepartureFamily::Normal,
         hub: first.hub,
         stock_revision: rev(21),
         catalog: &fixture.catalog,
@@ -958,6 +977,7 @@ fn all_sixty_four_allocations_have_distinct_stable_ids_and_one_fixed_review() {
     .unwrap();
     let state = TreatmentState::default();
     let context = FoundStockContext {
+        family: CorrectedDepartureFamily::Normal,
         hub: graph.hub(),
         stock_revision: rev(20),
         catalog: &c,
@@ -1084,6 +1104,7 @@ fn sibling_depletion_cannot_hide_growth_under_another_recovered_birth() {
             .unwrap(),
     ];
     let context = FoundStockContext {
+        family: CorrectedDepartureFamily::Normal,
         hub: plan.hub,
         stock_revision: rev(22),
         catalog: &fixture.catalog,

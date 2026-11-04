@@ -25,6 +25,7 @@ pub use hold_scope::{
     ActualPhysicalBirth, ActualPhysicalBirthKind, HistoricalHoldScopeAssessment,
     HistoricalHoldScopeContext, HistoricalHoldScopeUncertainty, VerifiedHistoricalHoldScope,
 };
+pub(crate) use review::refines as reported_occurrence_refines;
 mod source;
 pub use reconcile::{
     ActualDuplicateLink, ActualDuplicateLinkPlan, ActualKnownDeparture, ActualKnownDepartureLine,
@@ -36,6 +37,7 @@ pub use review::{
     ActualSourceComparison, HistoricalHoldApplicability, HistoricalHoldFinding,
     HistoricalHoldTiming, classify_hold_timing,
 };
+pub use source::CountedShortageSourceContext;
 pub use source::{
     ActualPhysicalActivity, ActualPhysicalActivityKind, ActualSourceContext,
     HistoricalActualPosition, HistoricalActualSource, ResolvedActualSource,

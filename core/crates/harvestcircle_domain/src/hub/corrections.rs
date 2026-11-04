@@ -12,6 +12,9 @@ use std::collections::{BTreeMap, BTreeSet};
 mod physical;
 pub use physical::*;
 
+mod quantity;
+pub use quantity::*;
+
 mod attribution;
 pub use attribution::*;
 
@@ -167,10 +170,33 @@ pub struct CountLossExplanation {
     pub stock_revision: HubRevision,
     pub packs: WholePacks,
 }
+/// Correct an earlier classification only. No stock/work/floor effect follows.
+/// Native review must preserve the original and the explicit corrected facts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct CountExplanationAmendment {
+    pub operation: HubRecordId,
+    pub stock_revision: HubRevision,
+    pub explanation: HubRecordId,
+    pub before: WholePacks,
+    pub after: WholePacks,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CountExplanationReturns {
+    pub explanation: HubRecordId,
+    pub packs: WholePacks,
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EffectiveCountExplanation {
+    pub original: CountLossExplanation,
+    pub packs: WholePacks,
+    pub established_returns: WholePacks,
+}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CountLossQuantityAccount {
     original: OriginalCountLossQuantity,
     explanations: Vec<CountLossExplanation>,
+    amendments: Vec<CountExplanationAmendment>,
+    effective: Vec<EffectiveCountExplanation>,
     unexplained: WholePacks,
     explained: WholePacks,
 }
@@ -179,7 +205,22 @@ impl CountLossQuantityAccount {
         original: OriginalCountLossQuantity,
         explanations: Vec<CountLossExplanation>,
     ) -> Result<Self, CorrectionError> {
-        if explanations.len() > HUB_CORRECTION_ROWS {
+        Self::restore_corrected(original, explanations, Vec::new(), Vec::new())
+    }
+    /// Complete native classification history and current linked-return totals.
+    /// Legacy restoration has no amended classification or return records.
+    pub fn restore_corrected(
+        original: OriginalCountLossQuantity,
+        explanations: Vec<CountLossExplanation>,
+        amendments: Vec<CountExplanationAmendment>,
+        returns: Vec<CountExplanationReturns>,
+    ) -> Result<Self, CorrectionError> {
+        if explanations
+            .len()
+            .checked_add(amendments.len())
+            .is_none_or(|n| n > HUB_CORRECTION_ROWS)
+            || returns.len() > HUB_CORRECTION_ROWS
+        {
             return Err(CorrectionError::Capacity);
         }
         positive(original.packs)?;
@@ -187,23 +228,89 @@ impl CountLossQuantityAccount {
             return Err(CorrectionError::InvalidHistory);
         }
         let mut operations = BTreeSet::from([original.operation]);
+        let mut events = Vec::new();
         let mut revision = original.stock_revision;
-        let mut explained = zero();
-        for item in &explanations {
-            positive(item.packs)?;
-            if !operations.insert(item.operation) {
-                return Err(CorrectionError::Duplicate);
-            }
+        for (index, item) in explanations.iter().enumerate() {
             if item.stock_revision.value() <= revision.value() {
                 return Err(CorrectionError::InvalidHistory);
             }
             revision = item.stock_revision;
-            explained = add(explained, item.packs)?;
+            events.push((revision.value(), false, index));
         }
+        revision = original.stock_revision;
+        for (index, item) in amendments.iter().enumerate() {
+            if item.stock_revision.value() <= revision.value() {
+                return Err(CorrectionError::InvalidHistory);
+            }
+            revision = item.stock_revision;
+            events.push((revision.value(), true, index));
+        }
+        events.sort_unstable();
+        let mut quantities = BTreeMap::new();
+        revision = original.stock_revision;
+        let mut explained = zero();
+        for (at, amendment, index) in events {
+            if at <= revision.value() {
+                return Err(CorrectionError::InvalidHistory);
+            }
+            revision = HubRevision::from_value(at).map_err(|_| CorrectionError::InvalidHistory)?;
+            let operation = if amendment {
+                let item = amendments[index];
+                let current = quantities
+                    .get_mut(&item.explanation)
+                    .ok_or(CorrectionError::InvalidHistory)?;
+                if *current != item.before || item.before == item.after {
+                    return Err(CorrectionError::InvalidHistory);
+                }
+                explained = add(sub(explained, *current)?, item.after)?;
+                *current = item.after;
+                item.operation
+            } else {
+                let item = explanations[index];
+                positive(item.packs)?;
+                quantities.insert(item.operation, item.packs);
+                explained = add(explained, item.packs)?;
+                item.operation
+            };
+            if !operations.insert(operation) {
+                return Err(CorrectionError::Duplicate);
+            }
+            if explained.value() > original.packs.value() {
+                return Err(CorrectionError::InvalidQuantity);
+            }
+        }
+        let mut reservations = BTreeMap::new();
+        for reservation in returns {
+            let current = quantities
+                .get(&reservation.explanation)
+                .ok_or(CorrectionError::InvalidHistory)?;
+            if reservations
+                .insert(reservation.explanation, reservation.packs)
+                .is_some()
+            {
+                return Err(CorrectionError::Duplicate);
+            }
+            if reservation.packs.value() > current.value() {
+                return Err(CorrectionError::ReturnConflict);
+            }
+        }
+        let effective = explanations
+            .iter()
+            .map(|item| EffectiveCountExplanation {
+                original: *item,
+                packs: quantities[&item.operation],
+                established_returns: reservations
+                    .get(&item.operation)
+                    .copied()
+                    .unwrap_or_else(zero),
+            })
+            .collect();
         let unexplained = sub(original.packs, explained)?;
         Ok(Self {
             original,
             explanations,
+            amendments,
+            effective,
             unexplained,
             explained,
         })
@@ -215,6 +322,14 @@ impl CountLossQuantityAccount {
     #[must_use]
     pub fn explanations(&self) -> &[CountLossExplanation] {
         &self.explanations
+    }
+    #[must_use]
+    pub fn amendments(&self) -> &[CountExplanationAmendment] {
+        &self.amendments
+    }
+    #[must_use]
+    pub fn effective_explanations(&self) -> &[EffectiveCountExplanation] {
+        &self.effective
     }
     #[must_use]
     pub const fn unexplained(&self) -> WholePacks {
@@ -254,7 +369,11 @@ impl CorrectedTraceQuantityContext<'_> {
             .iter()
             .chain(self.actual_departures)
             .map(|a| a.amendments.len())
-            .chain(self.count_losses.iter().map(|a| a.explanations.len()))
+            .chain(
+                self.count_losses
+                    .iter()
+                    .flat_map(|a| [a.explanations.len(), a.amendments.len()]),
+            )
         {
             correction_rows = correction_rows
                 .checked_add(rows)
@@ -329,6 +448,16 @@ impl CorrectedTraceQuantityContext<'_> {
                 record_revision(&mut revisions, item.stock_revision, item.operation)?;
                 if !explanations.insert(item.operation)
                     || amendment_operations.contains(&item.operation)
+                    || departure_operations.contains_key(&item.operation)
+                {
+                    return Err(CorrectionError::Duplicate);
+                }
+            }
+            for item in &account.amendments {
+                record_revision(&mut revisions, item.stock_revision, item.operation)?;
+                if !amendment_operations.insert(item.operation)
+                    || explanations.contains(&item.operation)
+                    || count_operations.contains(&item.operation)
                     || departure_operations.contains_key(&item.operation)
                 {
                     return Err(CorrectionError::Duplicate);

@@ -145,6 +145,28 @@ fn post(count: &CountObservation, current: &CountContext<'_>) -> CountPostComman
     }
 }
 
+pub(in crate::hub) fn shortage_policy_fixture() -> (ReferenceCatalog, CountPostPlan) {
+    let (mut catalog, group, mut command) = fixture();
+    catalog
+        .create(
+            catalog.revision(),
+            id(5),
+            ReferenceValue::Party {
+                label: HubLabel::new("Verified fictional recipient").unwrap(),
+            },
+        )
+        .unwrap();
+    command.expected_catalog_revision = catalog.revision();
+    let count = observation(&catalog, &group, &command);
+    let mut current = context(&catalog, &group);
+    current.stock_revision = count.recorded_revision;
+    current.latest_observation = Some(count.id);
+    let plan = post(&count, &current)
+        .plan(&count, &current, id(21), actor(), at(110))
+        .unwrap();
+    (catalog, plan)
+}
+
 #[test]
 fn observing_eighteen_leaves_recorded_twenty_and_work_unchanged() {
     let (catalog, group, command) = fixture();
