@@ -7,6 +7,99 @@ fn at(n: i64) -> UnixTimestamp {
     UnixTimestamp::from_seconds(n).unwrap()
 }
 
+#[tokio::test]
+async fn additional_comparison_cannot_exclude_a_different_pending_fact_after_reopen() {
+    use crate::{HubAdditionalQuantityReviewOutcome as Outcome, HubSubmissionStatus};
+    use harvestcircle_domain::hub::corrections::QuantityEffectError;
+    let (fixture, db, command) = crate::hub::corrections::additional_review_fixture().await;
+    let runtime = db.begin_hub_runtime(at(190)).await.unwrap();
+    let generation = db
+        .advance_hub_session(
+            runtime,
+            SessionGeneration::initial(),
+            Some(owner()),
+            at(190),
+        )
+        .await
+        .unwrap();
+    let scope = HubSubmissionScope {
+        runtime,
+        generation,
+        actor: owner(),
+    };
+    let decision = db
+        .host()
+        .transaction(|tx| {
+            Box::pin(async move {
+                admission::prepare_on(
+                    tx,
+                    scope,
+                    operation(1950),
+                    HubMutation::CorrectionObservation(Box::new(CorrectionObservationCommand {
+                        previous: None,
+                        facts: CorrectionObservedFacts::CountClassification {
+                            explanation_operation: crate::hub::stock::tests::id(99),
+                            corrected_packs: WholePacks::from_value(0).unwrap(),
+                            report: None,
+                            basis: SourceProvenance::new(
+                                "Independent unverified fact remains pending",
+                            )
+                            .unwrap(),
+                        },
+                    })),
+                    at(190),
+                )
+                .await
+            })
+        })
+        .await
+        .unwrap();
+    let admission::Decision::Fresh(grant) = decision else {
+        panic!("fresh owned admission")
+    };
+    let pending = db
+        .hub_submission(owner(), operation(1950))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(pending.status, HubSubmissionStatus::Pending);
+    let before = crate::hub::custody::tests::material(&fixture).await;
+    assert_eq!(
+        db.hub_additional_quantity_review(owner(), operation(1900), command.clone(), at(200))
+            .await
+            .unwrap()
+            .outcome,
+        Outcome::Blocked(QuantityEffectError::UncertainSubmission)
+    );
+    assert_eq!(
+        db.hub_additional_quantity_review(owner(), operation(1950), command.clone(), at(200))
+            .await
+            .unwrap()
+            .outcome,
+        Outcome::OperationAlreadyUsed
+    );
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    drop(grant);
+    db.close().await.unwrap();
+    let db = fixture.open().await;
+    assert_eq!(
+        db.hub_submission(owner(), operation(1950))
+            .await
+            .unwrap()
+            .unwrap(),
+        pending
+    );
+    assert_eq!(
+        db.hub_additional_quantity_review(owner(), operation(1900), command, at(200))
+            .await
+            .unwrap()
+            .outcome,
+        Outcome::Blocked(QuantityEffectError::UncertainSubmission)
+    );
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    db.close().await.unwrap();
+}
+
 async fn admit(
     db: &Database,
     scope: HubSubmissionScope,

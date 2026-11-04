@@ -37,8 +37,9 @@ pub use hub::actuals::{
     HubActualSourceEvidence, HubActualSourceQuery,
 };
 pub use hub::corrections::{
-    HubCorrectionFundingEvidence, HubCorrectionFundingQuery, HubCorrectionKnownDeparture,
-    HubCorrectionKnownEvidence, HubCorrectionKnownQuery, HubCorrectionObservationReceipt,
+    HubAdditionalQuantityReview, HubAdditionalQuantityReviewOutcome, HubCorrectionFundingEvidence,
+    HubCorrectionFundingQuery, HubCorrectionKnownDeparture, HubCorrectionKnownEvidence,
+    HubCorrectionKnownQuery, HubCorrectionObservationReceipt,
 };
 pub use hub::corrections::{
     HubFoundCorrectionReceipt, HubFoundCorrectionReview, HubFoundCorrectionReviewBlocker,

@@ -185,6 +185,14 @@ uncertainty remain explicit. Full originals are checked before trace filtering.
 Original issued versions do not include later linked documents. Unqualified
 recipient/count/additional histories fail closed; this read supplies no admission.
 
+Native additional-quantity comparison reconstructs a preserved report's corrected
+line total separately from the physical delta. It uses explicit historical source
+and current balancing identities, complete known-event interpretations and every
+pending submission. Native historical hold assessments preserve unknown timing and
+unestablished scope separately from conditional findings. A candidate changes no
+report, stock, work or paperwork and supplies no admission; additional posting is
+still unavailable.
+
 Current trace reads retain gross original departures separately from native
 effective quantities, established returns and ordered amendments. The read-only
 desktop panel pages these records without calculating stock. As-issued output

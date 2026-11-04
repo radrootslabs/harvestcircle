@@ -169,6 +169,10 @@ pub(super) mod projection_native_tests;
 mod projection_tests;
 pub(in crate::hub) mod quantity;
 pub use known::{HubCorrectionKnownDeparture, HubCorrectionKnownEvidence, HubCorrectionKnownQuery};
+mod additional_review;
+#[cfg(test)]
+pub(in crate::hub) use additional_review::tests::actual_world as additional_review_fixture;
+pub use additional_review::{HubAdditionalQuantityReview, HubAdditionalQuantityReviewOutcome};
 pub(in crate::hub) mod return_allowances;
 pub(in crate::hub) mod return_capture;
 pub(in crate::hub) mod return_projection;

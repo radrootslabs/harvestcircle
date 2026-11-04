@@ -47,7 +47,9 @@ struct World {
     extra_report: Option<HubRecordId>,
 }
 
-async fn actual_debit(db: &Database) -> (PhysicalStockGroup, DurableRequestId, u32) {
+pub(in crate::hub::corrections) async fn actual_debit(
+    db: &Database,
+) -> (PhysicalStockGroup, DurableRequestId, u32) {
     actual_debit_with_early_return(db, false).await
 }
 
@@ -62,6 +64,21 @@ async fn actual_debit_configuration(
     db: &Database,
     early_return: bool,
     hold_before_debit: Option<bool>,
+) -> (PhysicalStockGroup, DurableRequestId, u32) {
+    actual_debit_hold_configuration(db, early_return, hold_before_debit, false).await
+}
+
+pub(in crate::hub::corrections) async fn actual_debit_unknown_hold(
+    db: &Database,
+) -> (PhysicalStockGroup, DurableRequestId, u32) {
+    actual_debit_hold_configuration(db, false, Some(true), true).await
+}
+
+async fn actual_debit_hold_configuration(
+    db: &Database,
+    early_return: bool,
+    hold_before_debit: Option<bool>,
+    unknown_hold: bool,
 ) -> (PhysicalStockGroup, DurableRequestId, u32) {
     use harvestcircle_domain::hub::actuals::{
         ActualNewDepartureCommand, ActualReportCommand, ActualReportSources, ActualReviewFacts,
@@ -93,7 +110,11 @@ async fn actual_debit_configuration(
         actor: owner(),
     };
     if hold_before_debit == Some(true) {
-        hold_actual_group(db, scope, group, 105, 145).await;
+        if unknown_hold {
+            hold_actual_group_occurrence(db, scope, group, Occurrence::Unknown, 145).await;
+        } else {
+            hold_actual_group(db, scope, group, 105, 145).await;
+        }
     }
     let crate::HubMutationResult::ActualReported(report) = db
         .submit_hub_mutation(
@@ -165,6 +186,16 @@ async fn hold_actual_group(
     occurred: i64,
     recorded: i64,
 ) {
+    hold_actual_group_occurrence(db, scope, group, Occurrence::Known(at(occurred)), recorded).await;
+}
+
+async fn hold_actual_group_occurrence(
+    db: &Database,
+    scope: HubSubmissionScope,
+    group: HubRecordId,
+    occurred: Occurrence,
+    recorded: i64,
+) {
     use harvestcircle_domain::hub::{
         movement::HandlingCommand,
         treatment::{TreatmentAction, TreatmentCommand, TreatmentSelection},
@@ -179,7 +210,7 @@ async fn hold_actual_group(
             action: TreatmentAction::PlaceHold {
                 selection: TreatmentSelection::new(vec![group]).unwrap(),
             },
-            occurred: Occurrence::Known(at(occurred)),
+            occurred,
             observation: note("Explicit native cohort hold at its original capture cut"),
         }))),
         at(recorded),

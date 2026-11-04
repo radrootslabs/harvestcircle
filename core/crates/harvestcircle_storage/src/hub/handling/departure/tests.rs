@@ -50,6 +50,14 @@ async fn open_with_source_packs(
     source: Option<harvestcircle_domain::hub::reference::SourceAttribution>,
     total: u32,
 ) -> HubStockReceipt {
+    open_with_source_packs_occurred(db, source, total, Occurrence::Unknown).await
+}
+async fn open_with_source_packs_occurred(
+    db: &Database,
+    source: Option<harvestcircle_domain::hub::reference::SourceAttribution>,
+    total: u32,
+    occurred: Occurrence,
+) -> HubStockReceipt {
     setup(db).await;
     for (n, label) in [(8, "Recipient A"), (9, "Recipient B")] {
         let catalog = db.hub_references(owner()).await.unwrap();
@@ -73,6 +81,7 @@ async fn open_with_source_packs(
     let catalog = db.hub_references(owner()).await.unwrap();
     let mut command = intake_command(&catalog);
     command.packs = packs(total);
+    command.occurred = occurred;
     if let Some(source) = source {
         command.source = source;
     }
@@ -1161,7 +1170,23 @@ pub(in crate::hub) async fn custody_departure_fixture_quantities(
     total: u32,
     outbound: u32,
 ) -> (HubStockReceipt, HubDepartureReceipt) {
-    let intake = open_with_source_packs(db, source, total).await;
+    custody_departure_configuration(db, source, total, outbound, Occurrence::Unknown).await
+}
+
+pub(in crate::hub) async fn correction_departure_known_birth(
+    db: &Database,
+) -> (HubStockReceipt, HubDepartureReceipt) {
+    custody_departure_configuration(db, None, 20, 6, Occurrence::Known(now())).await
+}
+
+async fn custody_departure_configuration(
+    db: &Database,
+    source: Option<harvestcircle_domain::hub::reference::SourceAttribution>,
+    total: u32,
+    outbound: u32,
+    occurred: Occurrence,
+) -> (HubStockReceipt, HubDepartureReceipt) {
+    let intake = open_with_source_packs_occurred(db, source, total, occurred).await;
     let six = split(
         db,
         intake.original.position.group,
