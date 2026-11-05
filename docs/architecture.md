@@ -249,6 +249,16 @@ replacement and departure reject source-amended populations until linked current
 document behavior is qualified. Exact original output and marking paper unused
 remain available; this restriction does not complete linked-document behavior.
 
+Count explanation commands bind the historical source operation and group
+separately from the posted shortage. Checked single-event interpretations retain
+the complete count and shared classification account, selecting that explanation's
+effective quantity, including zero, and every prior/current/unknown recipient.
+Account history binds each explanation to its owning count. Classification never
+creates a physical debit or Found credit. Existing physical-only captures keep
+their exact encoding and digest; the legacy complete-inventory codec refuses count
+records until a versioned shared-account capture is qualified. The native count
+comparison remains read-only and supplies no admission or posting permission.
+
 Current trace reads retain gross original departures separately from native
 effective quantities, established returns and ordered amendments. The read-only
 desktop panel pages these records without calculating stock. As-issued output

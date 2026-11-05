@@ -677,6 +677,7 @@ fn qualified_departure_seal_binds_nonmatching_current_known_facts_without_rewrit
         },
         recipient_history: vec![],
         quantities: vec![DepartureQuantityAccount::restore(quantity, vec![], packs(0)).unwrap()],
+        count_explanation: None,
         original: original.clone(),
     };
     let originals = [original];

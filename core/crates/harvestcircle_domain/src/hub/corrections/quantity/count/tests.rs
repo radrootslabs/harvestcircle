@@ -422,3 +422,73 @@ fn zero_effective_count_explanation_with_unknown_recipient_cannot_escape_duplica
     assert_eq!(f.account.explanations()[0].packs, packs(1));
     assert_eq!(f.account.effective_explanations()[0].packs, packs(0));
 }
+
+#[test]
+fn explicit_count_source_command_rejects_substitution_and_binds_every_input() {
+    let f = Fixture::new();
+    let command = CountExplanationCommand {
+        facts: f.facts(),
+        source_operation: f.source.operation,
+        source_group: f.source.group.id,
+    };
+    assert_eq!(
+        command
+            .plan(&f.context(), id(202), owner(), at(150))
+            .unwrap(),
+        f.plan().unwrap()
+    );
+    let original = command.fingerprint(f.graph.hub(), owner(), id(202));
+    assert_ne!(
+        original,
+        command.facts.fingerprint(f.graph.hub(), owner(), id(202))
+    );
+    for field in 0..15 {
+        let mut changed = command.clone();
+        match field {
+            0 => changed.source_operation = id(210),
+            1 => changed.source_group = id(210),
+            2 => changed.facts.report = id(210),
+            3 => changed.facts.count_reconciliation = id(210),
+            4 => changed.facts.expected_stock_revision = rev(100),
+            5 => changed.facts.expected_catalog_revision = rev(100),
+            6 => changed.facts.expected_prior = Some(id(210)),
+            7 => changed.facts.packs = packs(2),
+            8 => changed.facts.recipient = id(210),
+            9 => changed.facts.occurred = Occurrence::Unknown,
+            10 => {
+                changed.facts.source_evidence =
+                    SourceProvenance::new("Different source evidence").unwrap()
+            }
+            11 => {
+                changed.facts.quantity_evidence =
+                    SourceProvenance::new("Different quantity evidence").unwrap()
+            }
+            12 => {
+                changed.facts.recipient_evidence =
+                    SourceProvenance::new("Different recipient evidence").unwrap()
+            }
+            13 => {
+                changed.facts.timing_evidence =
+                    SourceProvenance::new("Different timing evidence").unwrap()
+            }
+            _ => {
+                assert_ne!(
+                    original,
+                    command.fingerprint(f.graph.hub(), owner(), id(211))
+                );
+                continue;
+            }
+        }
+        assert_ne!(
+            original,
+            changed.fingerprint(f.graph.hub(), owner(), id(202)),
+            "field {field}"
+        );
+        if field < 2 {
+            assert_eq!(
+                changed.plan(&f.context(), id(202), owner(), at(150)),
+                Err(QuantityEffectError::InvalidScope)
+            );
+        }
+    }
+}

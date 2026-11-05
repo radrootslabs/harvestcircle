@@ -342,6 +342,7 @@ pub(in crate::hub) async fn actual_interpretations_at_with_proofs_on(
             recipient_original: entry.recipient_original,
             recipient_history: entry.recipient_history,
             quantities: entry.quantities,
+            count_explanation: None,
         };
         record.view().map_err(|_| corrupt_storage())?;
         records.push(record);
@@ -456,6 +457,7 @@ pub(in crate::hub) async fn selected_actual_interpretation_at_with_proofs_on(
         recipient_original: entry.recipient_original,
         recipient_history: entry.recipient_history,
         quantities: entry.quantities,
+        count_explanation: None,
     };
     record.view().map_err(|_| corrupt_storage())?;
     Ok(record)

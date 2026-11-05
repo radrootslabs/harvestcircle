@@ -4,6 +4,7 @@ use harvestcircle_application::{
     SessionGeneration,
     hub_submission::{HubMutation, HubSubmissionScope},
 };
+use harvestcircle_domain::hub::corrections::CountExplanationFacts;
 use harvestcircle_domain::{
     SafeErrorCode,
     hub::{
@@ -699,6 +700,83 @@ async fn later_native_split_does_not_change_pre_count_topology_quantities_or_exp
             .await
             .unwrap(),
         reviewed
+    );
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    db.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn count_command_comparison_produces_checked_single_meaning_but_cannot_use_physical20_inventory_codec()
+ {
+    use harvestcircle_domain::hub::{
+        actuals::{
+            ActualKnownCountExplanation, ActualKnownInterpretation, ActualKnownInterpretations,
+        },
+        corrections::{
+            CorrectedDepartureFamily, CountLossQuantityAccount, OriginalCountLossQuantity,
+            OriginalRecipientAttribution,
+        },
+    };
+    let (fixture, db, query) = world().await;
+    let before = crate::hub::custody::tests::material(&fixture).await;
+    let review = db
+        .hub_count_explanation_review(owner(), operation(5), query.clone(), at(150))
+        .await
+        .unwrap();
+    let HubCountExplanationReviewOutcome::Candidate(plan) = review.outcome else {
+        panic!("checked comparison");
+    };
+    let original = plan.known_event;
+    let account = CountLossQuantityAccount::restore(
+        OriginalCountLossQuantity {
+            reconciliation: plan.count.id,
+            operation: plan.count.operation,
+            stock_revision: plan.count.stock_revision,
+            trace: original.trace,
+            variant: original.variant.id,
+            packs: packs(2),
+        },
+        vec![plan.explanation],
+    )
+    .unwrap();
+    let record = ActualKnownInterpretation {
+        stock_revision: original.stock_revision,
+        catalog_revision: original.catalog_revision,
+        latest_recorded_at: original.recorded_at,
+        recipient_original: OriginalRecipientAttribution {
+            hub: original.hub,
+            family: CorrectedDepartureFamily::ExplainedCountLoss,
+            operation: original.operation,
+            stock_revision: original.stock_revision,
+            catalog_revision: original.catalog_revision,
+            recorded_at: original.recorded_at,
+            actor: original.actor,
+            recipient: original.recipient.clone(),
+            populations: vec![original.trace],
+            issued_versions: vec![],
+        },
+        original,
+        recipient_history: vec![],
+        quantities: vec![],
+        count_explanation: Some(Box::new(ActualKnownCountExplanation {
+            count: plan.count,
+            account,
+        })),
+    };
+    assert_eq!(record.view().unwrap().effective_packs, packs(1));
+    assert!(serde_json::to_vec(&record).is_ok());
+    let set = ActualKnownInterpretations {
+        hub: record.original.hub,
+        stock_revision: record.stock_revision,
+        catalog_revision: record.catalog_revision,
+        latest_recorded_at: record.latest_recorded_at,
+        records: vec![record],
+    };
+    assert!(
+        serde_json::to_vec(&set)
+            .unwrap_err()
+            .to_string()
+            .contains("shared account capture")
     );
     assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
     db.close().await.unwrap();

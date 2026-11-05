@@ -771,6 +771,48 @@ pub(super) fn interpretation_digest(
             hash.update(packs.value().to_be_bytes());
         }
     }
+    // No absent marker: every physical20 digest remains byte-for-byte frozen.
+    if let Some(value) = value.count_explanation.as_deref() {
+        hash.update(b"harvestcircle.hub.actual.known.count_interpretation.v1\0");
+        hash.update(
+            crate::hub::counts::count_post_result_digest(&[0; 32], &value.count)
+                .map_err(|_| ActualReportError::InvalidHistory)?,
+        );
+        let account = &value.account;
+        let original = account.original();
+        for id in [
+            original.reconciliation,
+            original.operation,
+            original.trace,
+            original.variant,
+        ] {
+            hash.update(id.as_bytes());
+        }
+        hash.update(original.stock_revision.value().to_be_bytes());
+        hash.update(original.packs.value().to_be_bytes());
+        length(&mut hash, account.explanations().len())?;
+        for row in account.explanations() {
+            hash.update(row.operation.as_bytes());
+            hash.update(row.stock_revision.value().to_be_bytes());
+            hash.update(row.packs.value().to_be_bytes());
+        }
+        length(&mut hash, account.amendments().len())?;
+        for row in account.amendments() {
+            hash.update(row.operation.as_bytes());
+            hash.update(row.stock_revision.value().to_be_bytes());
+            hash.update(row.explanation.as_bytes());
+            hash.update(row.before.value().to_be_bytes());
+            hash.update(row.after.value().to_be_bytes());
+        }
+        length(&mut hash, account.effective_explanations().len())?;
+        for row in account.effective_explanations() {
+            hash.update(row.original.operation.as_bytes());
+            hash.update(row.packs.value().to_be_bytes());
+            hash.update(row.established_returns.value().to_be_bytes());
+        }
+        hash.update(account.explained().value().to_be_bytes());
+        hash.update(account.unexplained().value().to_be_bytes());
+    }
     Ok(hash.finalize().into())
 }
 

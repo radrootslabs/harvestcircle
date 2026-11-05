@@ -188,13 +188,13 @@ pub struct CountExplanationReturns {
     pub explanation: HubRecordId,
     pub packs: WholePacks,
 }
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct EffectiveCountExplanation {
     pub original: CountLossExplanation,
     pub packs: WholePacks,
     pub established_returns: WholePacks,
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct CountLossQuantityAccount {
     original: OriginalCountLossQuantity,
     explanations: Vec<CountLossExplanation>,

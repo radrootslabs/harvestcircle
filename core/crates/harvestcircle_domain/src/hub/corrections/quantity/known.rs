@@ -137,6 +137,8 @@ impl CorrectionKnownDeparture<'_> {
                     || original.lines.len() != 1
                     || original.lines[0].group != count.before.id
                     || original.lines[0].packs != explained.original.packs
+                    || count.recorded_at > original.recorded_at
+                    || count.catalog_revision.value() > original.catalog_revision.value()
                     || count.recorded_at > latest
                     || count.catalog_revision.value() > catalog.value()
                     || account

@@ -16,7 +16,8 @@ use std::collections::BTreeSet;
 mod hold_scope;
 mod interpretation;
 pub use interpretation::{
-    ActualKnownInterpretation, ActualKnownInterpretationView, ActualKnownInterpretations,
+    ActualKnownCountExplanation, ActualKnownInterpretation, ActualKnownInterpretationView,
+    ActualKnownInterpretations,
 };
 mod reconcile;
 mod result;

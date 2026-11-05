@@ -18,6 +18,29 @@ pub struct CountExplanationFacts {
     pub recipient_evidence: SourceProvenance,
     pub timing_evidence: SourceProvenance,
 }
+/// Explicit historical source selection. The count's balancing group is fixed
+/// by its original; selecting a source never authorizes another physical debit.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct CountExplanationCommand {
+    pub facts: CountExplanationFacts,
+    pub source_operation: HubRecordId,
+    pub source_group: HubRecordId,
+}
+impl CountExplanationCommand {
+    pub fn plan(
+        &self,
+        context: &CountExplanationContext<'_>,
+        operation: HubRecordId,
+        actor: PublicKey,
+        now: UnixTimestamp,
+    ) -> Result<CountExplanationPlan, QuantityEffectError> {
+        let source = context.source.source.source;
+        if source.operation != self.source_operation || source.group.id != self.source_group {
+            return Err(QuantityEffectError::InvalidScope);
+        }
+        self.facts.plan(context, operation, actor, now)
+    }
+}
 pub struct CountExplanationContext<'a> {
     pub hub: HubId,
     pub stock_revision: HubRevision,

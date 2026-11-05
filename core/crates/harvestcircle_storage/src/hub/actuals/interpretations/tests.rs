@@ -174,6 +174,16 @@ async fn current_interpretation_keeps_whole_normal_event_populations_paper_and_e
             .unwrap();
         assert_eq!(evidence.interpretations.records.len(), 1);
         let entry = &evidence.interpretations.records[0];
+        assert!(entry.count_explanation.is_none());
+        assert_eq!(
+            serde_json::to_vec(entry).unwrap(),
+            serde_json::to_vec(&Physical20Capture(entry)).unwrap()
+        );
+        assert!(
+            !String::from_utf8(serde_json::to_vec(&evidence.interpretations).unwrap())
+                .unwrap()
+                .contains("count_explanation")
+        );
         assert_eq!(
             entry
                 .recipient_original
@@ -209,4 +219,23 @@ async fn current_interpretation_keeps_whole_normal_event_populations_paper_and_e
     }
     assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
     db.close().await.unwrap();
+}
+
+// Exact pre-extension field sequence. This compatibility oracle deliberately
+// retains the native20 codec, independently of the current struct derive.
+struct Physical20Capture<'a>(&'a harvestcircle_domain::hub::actuals::ActualKnownInterpretation);
+impl serde::Serialize for Physical20Capture<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let value = self.0;
+        let mut record = serializer.serialize_struct("ActualKnownInterpretation", 7)?;
+        record.serialize_field("stock_revision", &value.stock_revision)?;
+        record.serialize_field("catalog_revision", &value.catalog_revision)?;
+        record.serialize_field("latest_recorded_at", &value.latest_recorded_at)?;
+        record.serialize_field("original", &value.original)?;
+        record.serialize_field("recipient_original", &value.recipient_original)?;
+        record.serialize_field("recipient_history", &value.recipient_history)?;
+        record.serialize_field("quantities", &value.quantities)?;
+        record.end()
+    }
 }

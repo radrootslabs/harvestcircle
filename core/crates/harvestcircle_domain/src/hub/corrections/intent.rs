@@ -174,6 +174,19 @@ impl CountExplanationFacts {
         hash.finalize().into()
     }
 }
+impl CountExplanationCommand {
+    /// Version two binds the explicit historical source. The old facts-only
+    /// fingerprint remains immutable and is never a complete native command.
+    #[must_use]
+    pub fn fingerprint(&self, hub: HubId, actor: PublicKey, operation: HubRecordId) -> [u8; 32] {
+        let mut hash = Sha256::new();
+        hash.update(b"harvestcircle.hub.correction.count_explain.command.v2\0");
+        hash.update(self.facts.fingerprint(hub, actor, operation));
+        hash.update(self.source_operation.as_bytes());
+        hash.update(self.source_group.as_bytes());
+        hash.finalize().into()
+    }
+}
 impl FoundStockCommand {
     pub fn fingerprint(
         &self,

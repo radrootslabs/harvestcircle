@@ -3,18 +3,13 @@ use super::*;
 use harvestcircle_domain::hub::{
     actuals::{ActualSourceContext, CountedShortageSourceContext},
     corrections::{
-        CountExplanationContext, CountExplanationFacts, CountExplanationPlan,
+        CountExplanationCommand, CountExplanationContext, CountExplanationPlan,
         CountLossQuantityAccount, OriginalCountLossQuantity, QuantityEffectError,
     },
     counts::CountEffect,
 };
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct HubCountExplanationQuery {
-    pub facts: CountExplanationFacts,
-    pub source_operation: HubRecordId,
-    pub source_group: HubRecordId,
-}
+pub type HubCountExplanationQuery = CountExplanationCommand;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HubCountExplanationReviewOutcome {
@@ -124,7 +119,7 @@ impl Database {
                     known_departures: known.iter().map(|event| event.as_domain()).collect(),
                     uncertain_submissions: uncertain,
                 };
-                review.outcome = match query.facts.plan(&context,
+                review.outcome = match query.plan(&context,
                     crate::hub::actuals::common::operation_id(&operation)?, actor, now) {
                     Ok(plan) => HubCountExplanationReviewOutcome::Candidate(Box::new(plan)),
                     Err(error) => HubCountExplanationReviewOutcome::Blocked(error),

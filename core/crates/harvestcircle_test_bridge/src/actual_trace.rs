@@ -150,6 +150,7 @@ pub fn actual_link_interpretation_encoding_probe() -> harvestcircle_ffi::HubActu
         recipient_original: snapshot.recipient_corrections[0].original.clone(),
         recipient_history: snapshot.recipient_corrections,
         quantities: vec![quantity],
+        count_explanation: None,
     };
     interpretation.view().unwrap();
     let command = ActualDuplicateLink {

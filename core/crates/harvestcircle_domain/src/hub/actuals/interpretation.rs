@@ -2,15 +2,22 @@
 //! a complete native inventory by itself nor a grant to repeat a physical effect.
 use super::*;
 use crate::hub::corrections::{
-    CorrectionKnownDeparture, DepartureQuantityAccount, HUB_CORRECTION_ROWS,
-    KnownCorrectionQuantity, KnownRecipients, OriginalRecipientAttribution,
+    CorrectionKnownDeparture, CountLossQuantityAccount, DepartureQuantityAccount,
+    HUB_CORRECTION_ROWS, KnownCorrectionQuantity, KnownRecipients, OriginalRecipientAttribution,
     RecipientAttributionCorrection,
 };
 use std::collections::BTreeMap;
 
-/// All immutable lines of one population/variant of a normal or reviewed-actual
-/// event, plus its whole-event recipient history. Count explanations require
-/// their separately qualified native adapter and are deliberately not physical.
+/// Complete original shortage and shared classification history. This never
+/// represents a physical outflow, birth or Found credit.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+pub struct ActualKnownCountExplanation {
+    pub count: crate::hub::counts::CountPostPlan,
+    pub account: CountLossQuantityAccount,
+}
+
+/// One population/variant of an immutable event and its current interpretation.
+/// Native adapters must independently establish original/history completeness.
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct ActualKnownInterpretation {
     pub stock_revision: HubRevision,
@@ -20,6 +27,9 @@ pub struct ActualKnownInterpretation {
     pub recipient_original: OriginalRecipientAttribution,
     pub recipient_history: Vec<RecipientAttributionCorrection>,
     pub quantities: Vec<DepartureQuantityAccount>,
+    /// Absent on every physical20 record, preserving its exact capture encoding.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count_explanation: Option<Box<ActualKnownCountExplanation>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -54,6 +64,28 @@ impl ActualKnownInterpretation {
                     .iter()
                     .map(|r| (r.operation, r.stock_revision))
             }))
+            .chain(self.count_explanation.iter().flat_map(|value| {
+                std::iter::once((value.count.operation, value.count.stock_revision))
+                    .chain(std::iter::once((
+                        value.count.count.operation,
+                        value.count.count.recorded_revision,
+                    )))
+                    .chain(
+                        value
+                            .account
+                            .explanations()
+                            .iter()
+                            .filter(|row| row.operation != self.original.operation)
+                            .map(|row| (row.operation, row.stock_revision)),
+                    )
+                    .chain(
+                        value
+                            .account
+                            .amendments()
+                            .iter()
+                            .map(|row| (row.operation, row.stock_revision)),
+                    )
+            }))
     }
 
     pub fn view(&self) -> Result<ActualKnownInterpretationView, ActualReportError> {
@@ -70,14 +102,32 @@ impl ActualKnownInterpretation {
                 n.checked_add(line.amendments().len())
                     .ok_or(ActualReportError::Capacity)
             })?;
+        let rows = self
+            .count_explanation
+            .as_ref()
+            .map_or(Some(rows), |value| {
+                rows.checked_add(value.account.explanations().len())?
+                    .checked_add(value.account.amendments().len())
+            })
+            .ok_or(ActualReportError::Capacity)?;
         if rows > HUB_CORRECTION_ROWS {
             return Err(ActualReportError::Capacity);
         }
+        let quantity = match self.count_explanation.as_deref() {
+            Some(value) if self.quantities.is_empty() => {
+                KnownCorrectionQuantity::CountExplanation {
+                    count: &value.count,
+                    account: &value.account,
+                }
+            }
+            Some(_) => return Err(ActualReportError::InvalidHistory),
+            None => KnownCorrectionQuantity::Physical(&self.quantities),
+        };
         let recipients = CorrectionKnownDeparture {
             original: &self.original,
             recipient_original: &self.recipient_original,
             recipient_history: &self.recipient_history,
-            quantity: KnownCorrectionQuantity::Physical(&self.quantities),
+            quantity,
         }
         .associations_through(
             self.original.hub,
@@ -95,13 +145,23 @@ impl ActualKnownInterpretation {
             }
             observe_revision(&mut revisions, &mut operations, id, revision)?;
         }
-        let effective_packs = self.quantities.iter().try_fold(
-            WholePacks::from_value(0).expect("zero"),
-            |sum, line| {
-                sum.checked_add(line.effective())
-                    .map_err(|_| ActualReportError::InvalidHistory)
-            },
-        )?;
+        let effective_packs = if let Some(value) = self.count_explanation.as_deref() {
+            value
+                .account
+                .effective_explanations()
+                .iter()
+                .find(|row| row.original.operation == self.original.operation)
+                .ok_or(ActualReportError::InvalidHistory)?
+                .packs
+        } else {
+            self.quantities.iter().try_fold(
+                WholePacks::from_value(0).expect("zero"),
+                |sum, line| {
+                    sum.checked_add(line.effective())
+                        .map_err(|_| ActualReportError::InvalidHistory)
+                },
+            )?
+        };
         Ok(ActualKnownInterpretationView {
             recipients,
             original_packs: self.original.packs()?,
@@ -118,7 +178,26 @@ pub struct ActualKnownInterpretations {
     pub stock_revision: HubRevision,
     pub catalog_revision: HubRevision,
     pub latest_recorded_at: UnixTimestamp,
+    #[serde(serialize_with = "physical20_records")]
     pub records: Vec<ActualKnownInterpretation>,
+}
+
+// The complete native20 inventory codec remains physical-only. A future native
+// count producer must first supply a versioned, deduplicated account table; it
+// cannot persist quadratic copies through this legacy capture codec.
+fn physical20_records<S: serde::Serializer>(
+    records: &[ActualKnownInterpretation],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    if records
+        .iter()
+        .any(|record| record.count_explanation.is_some())
+    {
+        return Err(serde::ser::Error::custom(
+            "count inventory requires shared account capture",
+        ));
+    }
+    serde::Serialize::serialize(records, serializer)
 }
 
 /// The qualified path never treats an empty interpretation array as permission
@@ -151,6 +230,7 @@ pub(super) fn validate_set(
     let mut keys = BTreeSet::new();
     let mut events: BTreeMap<HubRecordId, &ActualKnownInterpretation> = BTreeMap::new();
     let mut groups = BTreeMap::new();
+    let mut counts: BTreeMap<HubRecordId, &ActualKnownCountExplanation> = BTreeMap::new();
     let mut roles = BTreeMap::new();
     let mut revisions = BTreeMap::new();
     let mut operation_revisions = BTreeMap::new();
@@ -161,7 +241,7 @@ pub(super) fn validate_set(
         context.review.original.stock_revision,
     )?;
     let mut changes = BTreeSet::new();
-    for original in known {
+    for (index, original) in known.iter().enumerate() {
         if original.operation == context.review.original.operation
             || original.operation == operation
         {
@@ -173,7 +253,13 @@ pub(super) fn validate_set(
             original.operation,
             original.stock_revision,
         )?;
-        roles.insert(original.operation, (0_u8, original.operation, None));
+        let role = records[index]
+            .count_explanation
+            .as_deref()
+            .map_or((0_u8, original.operation, None), |value| {
+                (5, value.count.operation, None)
+            });
+        roles.insert(original.operation, role);
     }
     let mut views = Vec::with_capacity(records.len());
     for (original, record) in known.iter().zip(records) {
@@ -202,6 +288,13 @@ pub(super) fn validate_set(
             return Err(ActualReportError::InvalidHistory);
         }
         let view = record.view()?;
+        if let Some(value) = record.count_explanation.as_deref()
+            && counts
+                .insert(value.count.operation, value)
+                .is_some_and(|prior| prior != value)
+        {
+            return Err(ActualReportError::InvalidHistory);
+        }
         for (id, revision, role) in record
             .recipient_history
             .iter()
@@ -221,6 +314,32 @@ pub(super) fn validate_set(
                     )
                 })
             }))
+            .chain(record.count_explanation.iter().flat_map(|value| {
+                std::iter::once((
+                    value.count.operation,
+                    value.count.stock_revision,
+                    (3, value.count.operation, None),
+                ))
+                .chain(std::iter::once((
+                    value.count.count.operation,
+                    value.count.count.recorded_revision,
+                    (6, value.count.operation, None),
+                )))
+                .chain(value.account.explanations().iter().map(|row| {
+                    (
+                        row.operation,
+                        row.stock_revision,
+                        (5, value.count.operation, None),
+                    )
+                }))
+                .chain(value.account.amendments().iter().map(|row| {
+                    (
+                        row.operation,
+                        row.stock_revision,
+                        (4, value.count.operation, Some(row.explanation)),
+                    )
+                }))
+            }))
         {
             if id == operation || id == context.review.original.operation {
                 return Err(ActualReportError::InvalidIdentity);
@@ -229,7 +348,9 @@ pub(super) fn validate_set(
             if roles.insert(id, role).is_some_and(|prior| prior != role) {
                 return Err(ActualReportError::InvalidHistory);
             }
-            changes.insert(id);
+            if !matches!(role.0, 3 | 6) {
+                changes.insert(id);
+            }
             if changes.len() > HUB_CORRECTION_ROWS {
                 return Err(ActualReportError::Capacity);
             }

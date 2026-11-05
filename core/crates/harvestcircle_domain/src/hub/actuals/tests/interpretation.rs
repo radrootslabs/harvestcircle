@@ -75,6 +75,7 @@ fn fixture() -> (Fixture, ActualKnownInterpretation) {
             issued_versions: vec![],
         },
         quantities: accounts(&original),
+        count_explanation: None,
         original,
         recipient_history: vec![],
     };
@@ -648,6 +649,434 @@ fn one_selected_interpretation_cannot_reuse_a_revision_for_different_amendments(
             owner(),
             at(200)
         ),
+        Err(ActualReportError::InvalidHistory)
+    );
+}
+
+#[test]
+fn measured_native20_physical_interpretation_digest_vectors() {
+    let (mut f, mut record) = fixture();
+    assert_eq!(
+        record.digest().unwrap(),
+        [
+            48, 90, 162, 49, 91, 106, 217, 101, 74, 157, 26, 127, 92, 86, 153, 230, 41, 54, 237,
+            237, 169, 83, 17, 185, 106, 192, 198, 108, 156, 216, 197, 102
+        ]
+    );
+    recipient(&mut f, &mut record, Some(id(151)), 70);
+    assert_eq!(
+        record.digest().unwrap(),
+        [
+            54, 199, 12, 61, 222, 12, 18, 138, 132, 57, 171, 29, 75, 246, 207, 103, 209, 186, 68,
+            124, 138, 212, 171, 225, 125, 92, 152, 106, 159, 137, 113, 231
+        ]
+    );
+    quantity(&mut f, &mut record, 0, 80);
+    assert_eq!(
+        record.digest().unwrap(),
+        [
+            63, 228, 231, 145, 248, 49, 171, 159, 199, 104, 18, 31, 220, 151, 117, 68, 100, 207,
+            222, 113, 50, 231, 205, 164, 160, 205, 145, 150, 41, 126, 204, 195
+        ]
+    );
+    recipient(&mut f, &mut record, None, 71);
+    assert_eq!(
+        record.digest().unwrap(),
+        [
+            253, 90, 93, 186, 232, 207, 137, 46, 59, 168, 125, 69, 135, 128, 100, 119, 90, 208,
+            235, 26, 142, 96, 50, 106, 232, 2, 78, 44, 35, 90, 253, 232
+        ]
+    );
+}
+
+fn count_records(f: &mut Fixture) -> Vec<ActualKnownInterpretation> {
+    use crate::hub::corrections::{
+        CountExplanationAmendment, CountLossExplanation, CountLossQuantityAccount,
+        OriginalCountLossQuantity,
+    };
+    let (catalog, count) = crate::hub::counts::shortage_policy_fixture();
+    let account = CountLossQuantityAccount::restore_corrected(
+        OriginalCountLossQuantity {
+            reconciliation: count.id,
+            operation: count.operation,
+            stock_revision: count.stock_revision,
+            trace: count.before.trace,
+            variant: count.before.variant,
+            packs: packs(2),
+        },
+        vec![
+            CountLossExplanation {
+                operation: id(90),
+                stock_revision: rev(6),
+                packs: packs(1),
+            },
+            CountLossExplanation {
+                operation: id(91),
+                stock_revision: rev(7),
+                packs: packs(1),
+            },
+        ],
+        vec![CountExplanationAmendment {
+            operation: id(92),
+            stock_revision: rev(8),
+            explanation: id(90),
+            before: packs(1),
+            after: packs(0),
+        }],
+        vec![],
+    )
+    .unwrap();
+    advance(f, rev(20));
+    account
+        .explanations()
+        .iter()
+        .map(|row| {
+            let original = ActualKnownDeparture {
+                operation: row.operation,
+                actor: owner(),
+                hub: count.count.scope.hub,
+                stock_revision: row.stock_revision,
+                catalog_revision: catalog.revision(),
+                trace: count.before.trace,
+                variant: count.references.variant.clone(),
+                recipient: catalog.get(id(5)).unwrap().clone(),
+                occurred: known(70),
+                recorded_at: at(120 + (row.stock_revision.value() as i64)),
+                lines: vec![ActualKnownDepartureLine {
+                    group: count.before.id,
+                    location: count.references.location.clone(),
+                    packs: row.packs,
+                }],
+            };
+            ActualKnownInterpretation {
+                stock_revision: rev(20),
+                catalog_revision: f.catalog.revision(),
+                latest_recorded_at: at(160),
+                recipient_original: OriginalRecipientAttribution {
+                    hub: original.hub,
+                    family: CorrectedDepartureFamily::ExplainedCountLoss,
+                    operation: original.operation,
+                    stock_revision: original.stock_revision,
+                    catalog_revision: original.catalog_revision,
+                    recorded_at: original.recorded_at,
+                    actor: original.actor,
+                    recipient: original.recipient.clone(),
+                    populations: vec![original.trace],
+                    issued_versions: vec![],
+                },
+                original,
+                recipient_history: vec![],
+                quantities: vec![],
+                count_explanation: Some(Box::new(ActualKnownCountExplanation {
+                    count: count.clone(),
+                    account: account.clone(),
+                })),
+            }
+        })
+        .collect()
+}
+fn validate_records(
+    f: &Fixture,
+    records: &[ActualKnownInterpretation],
+) -> Result<Vec<ActualKnownInterpretationView>, ActualReportError> {
+    let source = super::source::witness(f);
+    let known: Vec<_> = records.iter().map(|r| r.original.clone()).collect();
+    let context = ActualNewDepartureContext {
+        review: f.context(),
+        historical_source: ActualSourceContext {
+            source: &source,
+            lineage: &f.graph,
+            balancing_group: &f.group,
+            subsequent_activity: &[],
+        },
+        known_departures: &known,
+        prior_review: None,
+    };
+    super::super::interpretation::validate_set(
+        &context,
+        &ActualKnownInterpretations {
+            hub: f.graph.hub(),
+            stock_revision: f.graph.revision(),
+            catalog_revision: f.catalog.revision(),
+            latest_recorded_at: at(160),
+            records: records.to_vec(),
+        },
+        id(230),
+        at(200),
+    )
+}
+#[test]
+fn count_interpretations_select_each_explanation_and_preserve_zero_and_recipient_history() {
+    let (mut f, _) = fixture();
+    let mut records = count_records(&mut f);
+    let views = validate_records(&f, &records).unwrap();
+    assert_eq!(views[0].original_packs, packs(1));
+    assert_eq!(views[0].effective_packs, packs(0));
+    assert_eq!(views[1].effective_packs, packs(1));
+    assert_eq!(
+        records[0]
+            .count_explanation
+            .as_ref()
+            .unwrap()
+            .account
+            .explained(),
+        packs(1)
+    );
+    let before = records[0].digest().unwrap();
+    recipient(&mut f, &mut records[0], None, 93);
+    records[1].stock_revision = records[0].stock_revision;
+    records[1].latest_recorded_at = records[0].latest_recorded_at;
+    // Per-event validation retains Unknown and both original/current quantities.
+    let view = records[0].view().unwrap();
+    assert!(view.recipients.has_unknown());
+    assert!(view.recipients.could_match(Some(id(152))));
+    assert!(view.could_match_packs(Some(packs(1))));
+    assert!(view.could_match_packs(Some(packs(0))));
+    assert_ne!(before, records[0].digest().unwrap());
+    assert_eq!(records[0].quantities.len(), 0);
+}
+#[test]
+fn mixed_count_and_physical_interpretations_validate_without_merging_effects() {
+    let (mut f, mut physical) = fixture();
+    let mut records = count_records(&mut f);
+    physical.original.stock_revision = rev(13);
+    physical.recipient_original.stock_revision = rev(13);
+    physical.quantities = accounts(&physical.original);
+    physical.stock_revision = f.graph.revision();
+    physical.latest_recorded_at = at(160);
+    records.push(physical);
+    let views = validate_records(&f, &records).unwrap();
+    assert_eq!(
+        views
+            .iter()
+            .map(|v| v.effective_packs.value())
+            .collect::<Vec<_>>(),
+        vec![0, 1, 2]
+    );
+    let mut bad = records.clone();
+    bad[0].quantities = records[2].quantities.clone();
+    assert_eq!(
+        validate_records(&f, &bad),
+        Err(ActualReportError::InvalidHistory)
+    );
+    bad = records.clone();
+    bad[0].count_explanation = None;
+    assert_eq!(
+        validate_records(&f, &bad),
+        Err(ActualReportError::InvalidHistory)
+    );
+    bad = records;
+    bad[2].count_explanation = bad[0].count_explanation.clone();
+    bad[2].quantities.clear();
+    assert_eq!(
+        validate_records(&f, &bad),
+        Err(ActualReportError::InvalidHistory)
+    );
+}
+#[test]
+fn count_shared_accounts_cannot_disagree_or_reuse_global_operation_roles_or_revisions() {
+    use crate::hub::corrections::CountLossQuantityAccount;
+    let (mut f, _) = fixture();
+    let records = count_records(&mut f);
+    assert!(validate_records(&f, &records).is_ok());
+    for fault in 0..7 {
+        let mut bad = records.clone();
+        let value = bad[1].count_explanation.as_mut().unwrap();
+        match fault {
+            0 => value.count.reason = note("Different retained count reason"),
+            1 => {
+                value.account = CountLossQuantityAccount::restore(
+                    value.account.original(),
+                    value.account.explanations().to_vec(),
+                )
+                .unwrap()
+            }
+            2 => {
+                bad[0].recipient_original.operation = id(92);
+            }
+            3 => {
+                let mut amendments = value.account.amendments().to_vec();
+                amendments[0].operation = id(230);
+                value.account = CountLossQuantityAccount::restore_corrected(
+                    value.account.original(),
+                    value.account.explanations().to_vec(),
+                    amendments,
+                    vec![],
+                )
+                .unwrap();
+                bad[0].count_explanation = bad[1].count_explanation.clone();
+            }
+            4 => {
+                bad[0].original.stock_revision = rev(7);
+                bad[0].recipient_original.stock_revision = rev(7);
+            }
+            5 => {
+                value.count.catalog_revision = rev(100);
+            }
+            _ => {
+                value.count.recorded_at = at(201);
+            }
+        }
+        assert!(validate_records(&f, &bad).is_err(), "fault {fault}");
+    }
+}
+#[test]
+fn count_interpretation_digest_covers_original_history_current_totals_and_count_witness() {
+    use crate::hub::corrections::{CountExplanationReturns, CountLossQuantityAccount};
+    let (mut f, _) = fixture();
+    let record = count_records(&mut f).remove(1);
+    let digest = record.digest().unwrap();
+    for fault in 0..4 {
+        let mut changed = record.clone();
+        let value = changed.count_explanation.as_mut().unwrap();
+        match fault {
+            0 => value.count.reason = note("Different independently retained count basis"),
+            1 => {
+                value.account = CountLossQuantityAccount::restore_corrected(
+                    value.account.original(),
+                    value.account.explanations().to_vec(),
+                    value.account.amendments().to_vec(),
+                    vec![CountExplanationReturns {
+                        explanation: record.original.operation,
+                        packs: packs(1),
+                    }],
+                )
+                .unwrap()
+            }
+            2 => {
+                let mut amendments = value.account.amendments().to_vec();
+                amendments[0].operation = id(94);
+                value.account = CountLossQuantityAccount::restore_corrected(
+                    value.account.original(),
+                    value.account.explanations().to_vec(),
+                    amendments,
+                    vec![],
+                )
+                .unwrap();
+            }
+            _ => changed.latest_recorded_at = at(170),
+        }
+        assert_ne!(changed.digest().unwrap(), digest, "fault {fault}");
+    }
+}
+
+#[test]
+fn a_shared_count_explanation_cannot_be_impersonated_by_a_physical_original() {
+    let (mut f, mut physical) = fixture();
+    let mut records = count_records(&mut f);
+    let second = records.pop().unwrap();
+    physical.original.operation = second.original.operation;
+    physical.original.stock_revision = second.original.stock_revision;
+    physical.recipient_original.operation = second.original.operation;
+    physical.recipient_original.stock_revision = second.original.stock_revision;
+    physical.quantities = accounts(&physical.original);
+    physical.stock_revision = f.graph.revision();
+    records.push(physical);
+    assert_eq!(
+        validate_records(&f, &records),
+        Err(ActualReportError::InvalidHistory)
+    );
+}
+
+#[test]
+fn one_explanation_cannot_belong_to_two_distinct_count_accounts() {
+    use crate::hub::{
+        corrections::CountLossQuantityAccount,
+        counts::{count_reconciliation_id, count_record_id},
+    };
+    let (mut f, _) = fixture();
+    let mut records = count_records(&mut f);
+    // Move classification history beyond both independent count-post revisions;
+    // avoid the raw report's separate revision while retaining identical shared IDs.
+    for record in &mut records {
+        let value = record.count_explanation.as_mut().unwrap();
+        let mut explanations = value.account.explanations().to_vec();
+        for row in &mut explanations {
+            row.stock_revision = rev(row.stock_revision.value() + 8);
+        }
+        // No amendments: their already count-bound roles must not mask the
+        // independently missing explanation ownership check.
+        let amendments = vec![];
+        value.account = CountLossQuantityAccount::restore_corrected(
+            value.account.original(),
+            explanations,
+            amendments,
+            vec![],
+        )
+        .unwrap();
+        record.original.stock_revision = rev(record.original.stock_revision.value() + 8);
+        record.recipient_original.stock_revision = record.original.stock_revision;
+    }
+    let value = records[1].count_explanation.as_mut().unwrap();
+    value.count.operation = id(22);
+    value.count.id = count_reconciliation_id(id(22)).unwrap();
+    value.count.stock_revision = rev(9);
+    value.count.count.operation = id(23);
+    value.count.count.id = count_record_id(id(23)).unwrap();
+    value.count.count.recorded_revision = rev(8);
+    value.count.count.scope.stock_revision = rev(7);
+    value.count.before.id = id(110);
+    value.count.count.scope.group = id(110);
+    value.count.validate().unwrap();
+    let mut original = value.account.original();
+    original.operation = value.count.operation;
+    original.reconciliation = value.count.id;
+    original.stock_revision = value.count.stock_revision;
+    value.account = CountLossQuantityAccount::restore_corrected(
+        original,
+        value.account.explanations().to_vec(),
+        value.account.amendments().to_vec(),
+        vec![],
+    )
+    .unwrap();
+    records[1].original.lines[0].group = id(110);
+    assert!(records[0].view().is_ok());
+    assert!(records[1].view().is_ok());
+    assert_eq!(
+        validate_records(&f, &records),
+        Err(ActualReportError::InvalidHistory)
+    );
+}
+
+#[test]
+fn count_observation_is_an_original_bound_dependency_for_ids_and_revisions() {
+    use crate::hub::counts::count_record_id;
+    for collision in [id(230), id(180), id(90)] {
+        let (mut f, _) = fixture();
+        let mut records = count_records(&mut f);
+        for record in &mut records {
+            let value = record.count_explanation.as_mut().unwrap();
+            value.count.count.operation = collision;
+            value.count.count.id = count_record_id(collision).unwrap();
+            value.count.validate().unwrap();
+        }
+        if collision == id(90) {
+            assert_eq!(records[0].view(), Err(ActualReportError::InvalidHistory));
+        } else {
+            assert!(records.iter().all(|record| record.view().is_ok()));
+            assert_eq!(
+                validate_records(&f, &records),
+                Err(ActualReportError::InvalidIdentity)
+            );
+        }
+    }
+    let (mut f, mut physical) = fixture();
+    let mut records = count_records(&mut f);
+    let observation_revision = records[0]
+        .count_explanation
+        .as_ref()
+        .unwrap()
+        .count
+        .count
+        .recorded_revision;
+    physical.original.stock_revision = observation_revision;
+    physical.recipient_original.stock_revision = observation_revision;
+    physical.quantities = accounts(&physical.original);
+    physical.stock_revision = f.graph.revision();
+    assert!(physical.view().is_ok());
+    records.push(physical);
+    assert_eq!(
+        validate_records(&f, &records),
         Err(ActualReportError::InvalidHistory)
     );
 }

@@ -16,7 +16,7 @@ pub struct CountPostCommand {
     pub reason: SourceProvenance,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct CountWorkChange {
     pub before: WorkRequirement,
     pub after: WorkRequirement,
@@ -33,7 +33,7 @@ pub struct CountWorkScopeChange {
     pub removed: WholePacks,
     pub removed_progress: WorkProgress,
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub enum CountEffect {
     NoVariance,
     Shortage {
@@ -50,14 +50,14 @@ pub enum CountEffect {
         acceptance: AcceptanceStatus,
     },
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct CountPostReferences {
     pub product: ReferenceRecord,
     pub variant: ReferenceRecord,
     pub location: ReferenceRecord,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct CountPostPlan {
     pub id: HubRecordId,
     pub operation: HubRecordId,
