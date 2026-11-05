@@ -293,6 +293,16 @@ mutations before durable admission; classification capture also remains closed.
 Positive native posting, complete current consumers and count-associated return
 floors require qualification before activating the prospective native mode.
 
+Pure count-return association plans retain the whole existing restricted intake
+and its original Unknown or Unrecorded claim, alongside the complete explanation,
+current account, recipient history and evidence. They add only an established
+return floor, with no new physical or work effect. A bounded provenance graph
+includes established normal-return and count-return links, retains those edges
+after depletion or later correction, and rejects circular chains. Unknown claims
+are not graph edges. Native original authentication, complete prefix capture,
+atomic association persistence and current authority remain prerequisites; these
+descriptive plans provide no native mutation route or reusable permission.
+
 Current trace reads retain gross original departures separately from native
 effective quantities, established returns and ordered amendments. The read-only
 desktop panel pages these records without calculating stock. As-issued output

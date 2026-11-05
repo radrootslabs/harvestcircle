@@ -19,7 +19,9 @@ pub use observation::*;
 
 mod attribution;
 pub use attribution::*;
+mod count_returns;
 mod intent;
+pub use count_returns::*;
 
 pub const HUB_CORRECTION_ROWS: usize = 4_096;
 

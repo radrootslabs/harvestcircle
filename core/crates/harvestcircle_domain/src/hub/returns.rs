@@ -57,7 +57,7 @@ impl From<DepartureError> for ReturnError {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct ReturnIdentities {
     pub operation: HubRecordId,
     pub returned: HubRecordId,
@@ -107,6 +107,9 @@ impl ReturnIdentities {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(in crate::hub) use tests::normal_return_policy_fixture;
 
 mod result;
+pub(in crate::hub) use command::return_timing;
 pub use result::{return_population_digest, return_result_digest};

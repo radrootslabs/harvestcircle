@@ -326,7 +326,7 @@ impl ReturnCommand {
         hash.finalize().into()
     }
 }
-fn return_timing(departure: Occurrence, returned: Occurrence) -> ReturnTiming {
+pub(in crate::hub) fn return_timing(departure: Occurrence, returned: Occurrence) -> ReturnTiming {
     let bounds = |value| match value {
         Occurrence::Known(at) => Some((at, at)),
         Occurrence::Interval { earliest, latest } => Some((earliest, latest)),

@@ -510,3 +510,39 @@ fn explicit_count_source_command_rejects_substitution_and_binds_every_input() {
 
 mod classification;
 mod source_witness;
+
+pub(in crate::hub) fn count_return_policy_fixture(
+    quantity: u32,
+) -> (
+    ReferenceCatalog,
+    CountExplanationPlan,
+    CountLossQuantityAccount,
+) {
+    let mut fixture = Fixture::new();
+    // Leave distinct native stock revisions for Return5, factual report6 and
+    // later explanation7. The Return may precede the reconciliation review.
+    let report = fixture.report.clone();
+    let mut observed = report.report;
+    observed.packs = Some(packs(quantity));
+    fixture.report = observed
+        .preserve(
+            report.hub,
+            fixture.count.stock_revision.next().unwrap().next().unwrap(),
+            fixture.catalog.revision(),
+            report.operation,
+            report.actor,
+            report.recorded_at,
+        )
+        .unwrap();
+    let mut facts = fixture.facts();
+    facts.packs = packs(quantity);
+    let explanation = facts
+        .plan(&fixture.context(), id(202), owner(), at(150))
+        .unwrap();
+    let account = CountLossQuantityAccount::restore(
+        fixture.account.original(),
+        vec![explanation.explanation],
+    )
+    .unwrap();
+    (fixture.catalog, explanation, account)
+}

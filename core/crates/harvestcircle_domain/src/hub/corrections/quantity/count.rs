@@ -342,3 +342,5 @@ impl CountExplanationFacts {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(in crate::hub) use tests::count_return_policy_fixture;

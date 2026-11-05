@@ -5,6 +5,17 @@ use crate::hub::reference::{
 use crate::hub::stock::{OpeningIdentities, ReceiptIdentities};
 mod current_allowances;
 
+pub(in crate::hub) fn normal_return_policy_fixture() -> (HubId, ReturnPlan, [u8; 32]) {
+    let fixture = Fixture::new(&[6]);
+    let context = fixture.context();
+    let plan = fixture.plan();
+    let input = fixture
+        .command
+        .fingerprint(context.hub, owner(), fixture.ids);
+    let digest = return_result_digest(&input, &fixture.command, &context, &plan).unwrap();
+    (context.hub, plan, digest)
+}
+
 #[test]
 fn legacy_return_capture_without_allowances_keeps_its_result_seal() {
     let fixture = Fixture::new(&[6]);

@@ -28,6 +28,37 @@ fn header(
     hash.update(catalog.value().to_be_bytes());
     hash
 }
+impl CountReturnAssociationCommand {
+    #[must_use]
+    pub fn fingerprint(&self, hub: HubId, actor: PublicKey, operation: HubRecordId) -> [u8; 32] {
+        let mut hash = header(
+            b"harvestcircle.hub.count-return.association.command.v1\0",
+            hub,
+            actor,
+            operation,
+            self.expected_stock_revision,
+            self.expected_catalog_revision,
+        );
+        for id in [
+            self.return_operation,
+            self.explanation_operation,
+            self.source_operation,
+            self.source_group,
+        ] {
+            hash.update(id.as_bytes());
+        }
+        hash_optional_id(&mut hash, self.expected_account_prior);
+        hash_optional_id(&mut hash, self.expected_returns_prior);
+        for note in [
+            &self.source_evidence,
+            &self.quantity_evidence,
+            &self.timing_evidence,
+        ] {
+            hash_text(&mut hash, note.as_str());
+        }
+        hash.finalize().into()
+    }
+}
 impl FoundCorrectionCommand {
     #[must_use]
     pub fn fingerprint(&self, hub: HubId, actor: PublicKey, operation: HubRecordId) -> [u8; 32] {

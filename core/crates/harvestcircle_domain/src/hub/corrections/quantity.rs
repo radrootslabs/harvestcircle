@@ -15,6 +15,8 @@ use crate::{PublicKey, UnixTimestamp};
 mod classification;
 pub use classification::*;
 mod count;
+#[cfg(test)]
+pub(in crate::hub) use count::count_return_policy_fixture;
 pub use count::*;
 mod known;
 use known::KnownCut;

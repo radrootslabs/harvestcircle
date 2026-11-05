@@ -75,7 +75,7 @@ impl ReturnLinkSnapshot {
 
 /// Returned custody facts are intentionally distinct from receipt/opening population
 /// constructors. Forward persistence will adopt its own explicit population origin.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct ReturnIntake {
     pub population: HubRecordId,
     pub product: ReferenceRecord,
@@ -91,7 +91,7 @@ pub struct ReturnIntake {
     pub recorded_at: UnixTimestamp,
     pub observation: SourceProvenance,
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct ReturnPlan {
     pub identities: ReturnIdentities,
     pub stock_revision: HubRevision,
