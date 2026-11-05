@@ -1,5 +1,6 @@
 //! Current-mode composition uses a new disposable profile, never the retained19 worlds.
 use super::*;
+mod retain20;
 
 #[tokio::test]
 async fn historical_physical_quantities_keep_exact_original_and_additional_found_debits_at_every_cut()
