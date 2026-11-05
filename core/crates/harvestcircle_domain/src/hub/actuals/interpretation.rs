@@ -64,6 +64,15 @@ impl ActualKnownInterpretation {
     }
 
     pub(crate) fn operations(&self) -> impl Iterator<Item = (HubRecordId, HubRevision)> + '_ {
+        self.operations_with_count(true)
+    }
+
+    /// A caller with a complete checked immutable inventory can visit a shared
+    /// count once. Every event and recipient/physical history is always visited.
+    pub(crate) fn operations_with_count(
+        &self,
+        include_count: bool,
+    ) -> impl Iterator<Item = (HubRecordId, HubRevision)> + '_ {
         std::iter::once((self.original.operation, self.original.stock_revision))
             .chain(
                 self.recipient_history
@@ -75,28 +84,33 @@ impl ActualKnownInterpretation {
                     .iter()
                     .map(|r| (r.operation, r.stock_revision))
             }))
-            .chain(self.count_explanation.iter().flat_map(|value| {
-                std::iter::once((value.count.operation, value.count.stock_revision))
-                    .chain(std::iter::once((
-                        value.count.count.operation,
-                        value.count.count.recorded_revision,
-                    )))
-                    .chain(
-                        value
-                            .account
-                            .explanations()
-                            .iter()
-                            .filter(|row| row.operation != self.original.operation)
-                            .map(|row| (row.operation, row.stock_revision)),
-                    )
-                    .chain(
-                        value
-                            .account
-                            .amendments()
-                            .iter()
-                            .map(|row| (row.operation, row.stock_revision)),
-                    )
-            }))
+            .chain(
+                self.count_explanation
+                    .iter()
+                    .filter(move |_| include_count)
+                    .flat_map(|value| {
+                        std::iter::once((value.count.operation, value.count.stock_revision))
+                            .chain(std::iter::once((
+                                value.count.count.operation,
+                                value.count.count.recorded_revision,
+                            )))
+                            .chain(
+                                value
+                                    .account
+                                    .explanations()
+                                    .iter()
+                                    .filter(|row| row.operation != self.original.operation)
+                                    .map(|row| (row.operation, row.stock_revision)),
+                            )
+                            .chain(
+                                value
+                                    .account
+                                    .amendments()
+                                    .iter()
+                                    .map(|row| (row.operation, row.stock_revision)),
+                            )
+                    }),
+            )
     }
 
     pub fn view(&self) -> Result<ActualKnownInterpretationView, ActualReportError> {

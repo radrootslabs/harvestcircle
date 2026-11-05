@@ -1,5 +1,7 @@
 use super::*;
 
+mod maximum;
+
 struct ClassificationFixture {
     fixture: Fixture,
     original: CountExplanationPlan,

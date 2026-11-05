@@ -275,19 +275,26 @@ impl CountClassificationCommand {
             }
         }
         let mut target_seen = false;
+        let mut audited_counts = BTreeSet::new();
         for (other, checked) in context
             .known_departures
             .iter()
             .zip(&inventory.facts().records)
         {
-            let associations = other.associations_through(
+            // checked_inventory has already validated every immutable quantity
+            // snapshot at this exact cut; retain each event's recipient proof.
+            let associations = other.recipient_associations_through(
                 context.hub,
                 context.stock_revision,
                 context.catalog.revision(),
                 context.latest_recorded_at,
             )?;
             let event = other.original;
-            for (id, revision) in checked.operations() {
+            let include_count = checked
+                .count_explanation
+                .as_ref()
+                .is_none_or(|value| audited_counts.insert(value.count.operation));
+            for (id, revision) in checked.operations_with_count(include_count) {
                 if id == operation
                     || protected.contains(&id)
                     || context.report.is_some_and(|raw| raw.operation == id)
@@ -385,8 +392,16 @@ fn checked_inventory(
         ActualKnownCountExplanation, ActualKnownCountInventory, ActualKnownInterpretation,
         ActualKnownInterpretations,
     };
-    use std::{collections::BTreeMap, sync::Arc};
-    let mut counts: BTreeMap<HubRecordId, Arc<ActualKnownCountExplanation>> = BTreeMap::new();
+    use std::{
+        collections::{BTreeMap, btree_map::Entry},
+        sync::Arc,
+    };
+    struct Shared<'a> {
+        count: &'a crate::hub::counts::CountPostPlan,
+        account: &'a CountLossQuantityAccount,
+        snapshot: Arc<ActualKnownCountExplanation>,
+    }
+    let mut counts: BTreeMap<HubRecordId, Shared<'_>> = BTreeMap::new();
     let mut changes = BTreeSet::new();
     let mut records = Vec::with_capacity(context.known_departures.len());
     for known in &context.known_departures {
@@ -401,18 +416,29 @@ fn checked_inventory(
                 (accounts.to_vec(), None)
             }
             KnownCorrectionQuantity::CountExplanation { count, account } => {
-                let shared = counts.entry(count.operation).or_insert_with(|| {
-                    Arc::new(ActualKnownCountExplanation {
-                        count: count.clone(),
-                        account: account.clone(),
-                    })
-                });
-                if shared.count != *count || shared.account != *account {
+                let shared = match counts.entry(count.operation) {
+                    Entry::Vacant(entry) => {
+                        changes.extend(account.explanations().iter().map(|r| r.operation));
+                        changes.extend(account.amendments().iter().map(|r| r.operation));
+                        entry.insert(Shared {
+                            count,
+                            account,
+                            snapshot: Arc::new(ActualKnownCountExplanation {
+                                count: count.clone(),
+                                account: account.clone(),
+                            }),
+                        })
+                    }
+                    Entry::Occupied(entry) => entry.into_mut(),
+                };
+                // References are immutable and local to this one construction.
+                // A distinct object must still pass full value equality.
+                if (!std::ptr::eq(shared.count, count) && shared.count != count)
+                    || (!std::ptr::eq(shared.account, account) && shared.account != account)
+                {
                     return Err(QuantityEffectError::InvalidHistory);
                 }
-                changes.extend(account.explanations().iter().map(|r| r.operation));
-                changes.extend(account.amendments().iter().map(|r| r.operation));
-                (vec![], Some(Arc::clone(shared)))
+                (vec![], Some(Arc::clone(&shared.snapshot)))
             }
         };
         // Reserve the new classification row in the same global history bound.
