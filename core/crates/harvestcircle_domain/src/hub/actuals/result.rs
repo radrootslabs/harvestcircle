@@ -659,6 +659,12 @@ fn hash_source(
 pub(super) fn interpretation_digest(
     value: &ActualKnownInterpretation,
 ) -> Result<[u8; 32], ActualReportError> {
+    interpretation_digest_inner(value, true)
+}
+fn interpretation_digest_inner(
+    value: &ActualKnownInterpretation,
+    include_count_snapshot: bool,
+) -> Result<[u8; 32], ActualReportError> {
     use crate::hub::corrections::{
         AmendedRecipient, CorrectedDepartureFamily, CorrectionImpact, DepartureQuantityDelta,
     };
@@ -772,46 +778,92 @@ pub(super) fn interpretation_digest(
         }
     }
     // No absent marker: every physical20 digest remains byte-for-byte frozen.
-    if let Some(value) = value.count_explanation.as_deref() {
-        hash.update(b"harvestcircle.hub.actual.known.count_interpretation.v1\0");
-        hash.update(
-            crate::hub::counts::count_post_result_digest(&[0; 32], &value.count)
-                .map_err(|_| ActualReportError::InvalidHistory)?,
+    if include_count_snapshot && let Some(value) = value.count_explanation.as_deref() {
+        hash_count_interpretation(&mut hash, value)?;
+    }
+    Ok(hash.finalize().into())
+}
+
+fn hash_count_interpretation(
+    hash: &mut Sha256,
+    value: &ActualKnownCountExplanation,
+) -> Result<(), ActualReportError> {
+    hash.update(b"harvestcircle.hub.actual.known.count_interpretation.v1\0");
+    hash.update(
+        crate::hub::counts::count_post_result_digest(&[0; 32], &value.count)
+            .map_err(|_| ActualReportError::InvalidHistory)?,
+    );
+    let account = &value.account;
+    let original = account.original();
+    for id in [
+        original.reconciliation,
+        original.operation,
+        original.trace,
+        original.variant,
+    ] {
+        hash.update(id.as_bytes());
+    }
+    hash.update(original.stock_revision.value().to_be_bytes());
+    hash.update(original.packs.value().to_be_bytes());
+    length(hash, account.explanations().len())?;
+    for row in account.explanations() {
+        hash.update(row.operation.as_bytes());
+        hash.update(row.stock_revision.value().to_be_bytes());
+        hash.update(row.packs.value().to_be_bytes());
+    }
+    length(hash, account.amendments().len())?;
+    for row in account.amendments() {
+        hash.update(row.operation.as_bytes());
+        hash.update(row.stock_revision.value().to_be_bytes());
+        hash.update(row.explanation.as_bytes());
+        hash.update(row.before.value().to_be_bytes());
+        hash.update(row.after.value().to_be_bytes());
+    }
+    length(hash, account.effective_explanations().len())?;
+    for row in account.effective_explanations() {
+        hash.update(row.original.operation.as_bytes());
+        hash.update(row.packs.value().to_be_bytes());
+        hash.update(row.established_returns.value().to_be_bytes());
+    }
+    hash.update(account.explained().value().to_be_bytes());
+    hash.update(account.unexplained().value().to_be_bytes());
+    Ok(())
+}
+
+pub(super) fn count_inventory_digest(
+    value: &ActualKnownInterpretations,
+) -> Result<[u8; 32], ActualReportError> {
+    use std::collections::BTreeMap;
+    let mut hash = Sha256::new();
+    hash.update(b"harvestcircle.hub.actual.known.count_inventory.v1\0");
+    hash.update([ACTUAL_KNOWN_COUNT_INVENTORY_SCHEMA]);
+    hash.update(value.hub.as_bytes());
+    hash.update(value.stock_revision.value().to_be_bytes());
+    hash.update(value.catalog_revision.value().to_be_bytes());
+    hash.update(value.latest_recorded_at.as_seconds().to_be_bytes());
+    let mut accounts = BTreeMap::new();
+    for record in &value.records {
+        if let Some(account) = record.count_explanation.as_deref() {
+            accounts.entry(account.count.operation).or_insert(account);
+        }
+    }
+    length(&mut hash, accounts.len())?;
+    for (operation, account) in accounts {
+        hash.update(operation.as_bytes());
+        let mut account_hash = Sha256::new();
+        hash_count_interpretation(&mut account_hash, account)?;
+        hash.update(account_hash.finalize());
+    }
+    length(&mut hash, value.records.len())?;
+    for record in &value.records {
+        hash.update(interpretation_digest_inner(record, false)?);
+        optional_id(
+            &mut hash,
+            record
+                .count_explanation
+                .as_ref()
+                .map(|account| account.count.operation),
         );
-        let account = &value.account;
-        let original = account.original();
-        for id in [
-            original.reconciliation,
-            original.operation,
-            original.trace,
-            original.variant,
-        ] {
-            hash.update(id.as_bytes());
-        }
-        hash.update(original.stock_revision.value().to_be_bytes());
-        hash.update(original.packs.value().to_be_bytes());
-        length(&mut hash, account.explanations().len())?;
-        for row in account.explanations() {
-            hash.update(row.operation.as_bytes());
-            hash.update(row.stock_revision.value().to_be_bytes());
-            hash.update(row.packs.value().to_be_bytes());
-        }
-        length(&mut hash, account.amendments().len())?;
-        for row in account.amendments() {
-            hash.update(row.operation.as_bytes());
-            hash.update(row.stock_revision.value().to_be_bytes());
-            hash.update(row.explanation.as_bytes());
-            hash.update(row.before.value().to_be_bytes());
-            hash.update(row.after.value().to_be_bytes());
-        }
-        length(&mut hash, account.effective_explanations().len())?;
-        for row in account.effective_explanations() {
-            hash.update(row.original.operation.as_bytes());
-            hash.update(row.packs.value().to_be_bytes());
-            hash.update(row.established_returns.value().to_be_bytes());
-        }
-        hash.update(account.explained().value().to_be_bytes());
-        hash.update(account.unexplained().value().to_be_bytes());
     }
     Ok(hash.finalize().into())
 }

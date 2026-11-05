@@ -767,7 +767,7 @@ fn count_records(f: &mut Fixture) -> Vec<ActualKnownInterpretation> {
                 original,
                 recipient_history: vec![],
                 quantities: vec![],
-                count_explanation: Some(Box::new(ActualKnownCountExplanation {
+                count_explanation: Some(std::sync::Arc::new(ActualKnownCountExplanation {
                     count: count.clone(),
                     account: account.clone(),
                 })),
@@ -881,7 +881,7 @@ fn count_shared_accounts_cannot_disagree_or_reuse_global_operation_roles_or_revi
     assert!(validate_records(&f, &records).is_ok());
     for fault in 0..7 {
         let mut bad = records.clone();
-        let value = bad[1].count_explanation.as_mut().unwrap();
+        let value = std::sync::Arc::make_mut(bad[1].count_explanation.as_mut().unwrap());
         match fault {
             0 => value.count.reason = note("Different retained count reason"),
             1 => {
@@ -928,7 +928,7 @@ fn count_interpretation_digest_covers_original_history_current_totals_and_count_
     let digest = record.digest().unwrap();
     for fault in 0..4 {
         let mut changed = record.clone();
-        let value = changed.count_explanation.as_mut().unwrap();
+        let value = std::sync::Arc::make_mut(changed.count_explanation.as_mut().unwrap());
         match fault {
             0 => value.count.reason = note("Different independently retained count basis"),
             1 => {
@@ -989,7 +989,7 @@ fn one_explanation_cannot_belong_to_two_distinct_count_accounts() {
     // Move classification history beyond both independent count-post revisions;
     // avoid the raw report's separate revision while retaining identical shared IDs.
     for record in &mut records {
-        let value = record.count_explanation.as_mut().unwrap();
+        let value = std::sync::Arc::make_mut(record.count_explanation.as_mut().unwrap());
         let mut explanations = value.account.explanations().to_vec();
         for row in &mut explanations {
             row.stock_revision = rev(row.stock_revision.value() + 8);
@@ -1007,7 +1007,7 @@ fn one_explanation_cannot_belong_to_two_distinct_count_accounts() {
         record.original.stock_revision = rev(record.original.stock_revision.value() + 8);
         record.recipient_original.stock_revision = record.original.stock_revision;
     }
-    let value = records[1].count_explanation.as_mut().unwrap();
+    let value = std::sync::Arc::make_mut(records[1].count_explanation.as_mut().unwrap());
     value.count.operation = id(22);
     value.count.id = count_reconciliation_id(id(22)).unwrap();
     value.count.stock_revision = rev(9);
@@ -1045,7 +1045,7 @@ fn count_observation_is_an_original_bound_dependency_for_ids_and_revisions() {
         let (mut f, _) = fixture();
         let mut records = count_records(&mut f);
         for record in &mut records {
-            let value = record.count_explanation.as_mut().unwrap();
+            let value = std::sync::Arc::make_mut(record.count_explanation.as_mut().unwrap());
             value.count.count.operation = collision;
             value.count.count.id = count_record_id(collision).unwrap();
             value.count.validate().unwrap();
@@ -1080,3 +1080,5 @@ fn count_observation_is_an_original_bound_dependency_for_ids_and_revisions() {
         Err(ActualReportError::InvalidHistory)
     );
 }
+
+mod count_capture;

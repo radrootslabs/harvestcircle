@@ -2,11 +2,12 @@
 //! a complete native inventory by itself nor a grant to repeat a physical effect.
 use super::*;
 use crate::hub::corrections::{
-    CorrectionKnownDeparture, CountLossQuantityAccount, DepartureQuantityAccount,
-    HUB_CORRECTION_ROWS, KnownCorrectionQuantity, KnownRecipients, OriginalRecipientAttribution,
+    CorrectedDepartureFamily, CorrectionKnownDeparture, CountLossQuantityAccount,
+    DepartureQuantityAccount, EffectiveCountExplanation, HUB_CORRECTION_ROWS,
+    KnownCorrectionQuantity, KnownRecipients, OriginalRecipientAttribution,
     RecipientAttributionCorrection,
 };
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 /// Complete original shortage and shared classification history. This never
 /// represents a physical outflow, birth or Found credit.
@@ -28,8 +29,18 @@ pub struct ActualKnownInterpretation {
     pub recipient_history: Vec<RecipientAttributionCorrection>,
     pub quantities: Vec<DepartureQuantityAccount>,
     /// Absent on every physical20 record, preserving its exact capture encoding.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub count_explanation: Option<Box<ActualKnownCountExplanation>>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_count"
+    )]
+    pub count_explanation: Option<Arc<ActualKnownCountExplanation>>,
+}
+
+fn serialize_count<S: serde::Serializer>(
+    value: &Option<Arc<ActualKnownCountExplanation>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serde::Serialize::serialize(&value.as_deref(), serializer)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -208,43 +219,64 @@ pub(super) fn validate_set(
     operation: HubRecordId,
     now: UnixTimestamp,
 ) -> Result<Vec<ActualKnownInterpretationView>, ActualReportError> {
-    let known = context.known_departures;
-    let records = &set.records;
-    let hub = context.review.hub;
-    let stock = context.review.stock_revision;
-    let catalog = context.review.catalog.revision();
-    if set.hub != hub
-        || set.stock_revision != stock
-        || set.catalog_revision != catalog
+    if set.hub != context.review.hub
+        || set.stock_revision != context.review.stock_revision
+        || set.catalog_revision != context.review.catalog.revision()
         || set.latest_recorded_at < context.review.original.recorded_at
         || set.latest_recorded_at > now
     {
         return Err(ActualReportError::InvalidNativeContext);
     }
-    if records.len() > crate::hub::stock::HUB_STOCK_EVENT_CAPACITY {
+    if set.records.len() > crate::hub::stock::HUB_STOCK_EVENT_CAPACITY {
         return Err(ActualReportError::Capacity);
     }
-    if records.len() != known.len() {
+    if set.records.len() != context.known_departures.len()
+        || set
+            .records
+            .iter()
+            .zip(context.known_departures)
+            .any(|(record, original)| record.original != *original)
+    {
         return Err(ActualReportError::InvalidNativeContext);
+    }
+    validate_inventory(
+        set,
+        Some((
+            context.review.original.operation,
+            context.review.original.stock_revision,
+            operation,
+        )),
+    )
+}
+
+/// Internal consistency only; native producers still establish completeness,
+/// current authority and the raw/proposed operation fences independently.
+pub(super) fn validate_inventory(
+    set: &ActualKnownInterpretations,
+    protected: Option<(HubRecordId, HubRevision, HubRecordId)>,
+) -> Result<Vec<ActualKnownInterpretationView>, ActualReportError> {
+    let records = &set.records;
+    let hub = set.hub;
+    let stock = set.stock_revision;
+    let catalog = set.catalog_revision;
+    if records.len() > crate::hub::stock::HUB_STOCK_EVENT_CAPACITY {
+        return Err(ActualReportError::Capacity);
     }
     let mut keys = BTreeSet::new();
     let mut events: BTreeMap<HubRecordId, &ActualKnownInterpretation> = BTreeMap::new();
     let mut groups = BTreeMap::new();
-    let mut counts: BTreeMap<HubRecordId, &ActualKnownCountExplanation> = BTreeMap::new();
+    let mut counts: BTreeMap<HubRecordId, CountInventoryProof<'_>> = BTreeMap::new();
     let mut roles = BTreeMap::new();
     let mut revisions = BTreeMap::new();
     let mut operation_revisions = BTreeMap::new();
-    observe_revision(
-        &mut revisions,
-        &mut operation_revisions,
-        context.review.original.operation,
-        context.review.original.stock_revision,
-    )?;
+    if let Some((raw, revision, _)) = protected {
+        observe_revision(&mut revisions, &mut operation_revisions, raw, revision)?;
+    }
     let mut changes = BTreeSet::new();
-    for (index, original) in known.iter().enumerate() {
-        if original.operation == context.review.original.operation
-            || original.operation == operation
-        {
+    for (index, original) in records.iter().map(|record| &record.original).enumerate() {
+        if protected.is_some_and(|(raw, _, operation)| {
+            original.operation == raw || original.operation == operation
+        }) {
             return Err(ActualReportError::InvalidIdentity);
         }
         observe_revision(
@@ -262,9 +294,9 @@ pub(super) fn validate_set(
         roles.insert(original.operation, role);
     }
     let mut views = Vec::with_capacity(records.len());
-    for (original, record) in known.iter().zip(records) {
-        if record.original != *original
-            || original.hub != hub
+    for record in records {
+        let original = &record.original;
+        if original.hub != hub
             || record.stock_revision != stock
             || record.catalog_revision != catalog
             || record.latest_recorded_at != set.latest_recorded_at
@@ -287,14 +319,26 @@ pub(super) fn validate_set(
         {
             return Err(ActualReportError::InvalidHistory);
         }
-        let view = record.view()?;
-        if let Some(value) = record.count_explanation.as_deref()
-            && counts
-                .insert(value.count.operation, value)
-                .is_some_and(|prior| prior != value)
-        {
-            return Err(ActualReportError::InvalidHistory);
-        }
+        let (view, new_count) = if let Some(value) = record.count_explanation.as_ref() {
+            match counts.entry(value.count.operation) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    let view = record.view()?;
+                    entry.insert(CountInventoryProof::new(value));
+                    (view, true)
+                }
+                std::collections::btree_map::Entry::Occupied(entry) => {
+                    let proof = entry.get();
+                    if !Arc::ptr_eq(proof.snapshot, value)
+                        && proof.snapshot.as_ref() != value.as_ref()
+                    {
+                        return Err(ActualReportError::InvalidHistory);
+                    }
+                    (proof.view(record)?, false)
+                }
+            }
+        } else {
+            (record.view()?, false)
+        };
         for (id, revision, role) in record
             .recipient_history
             .iter()
@@ -314,34 +358,40 @@ pub(super) fn validate_set(
                     )
                 })
             }))
-            .chain(record.count_explanation.iter().flat_map(|value| {
-                std::iter::once((
-                    value.count.operation,
-                    value.count.stock_revision,
-                    (3, value.count.operation, None),
-                ))
-                .chain(std::iter::once((
-                    value.count.count.operation,
-                    value.count.count.recorded_revision,
-                    (6, value.count.operation, None),
-                )))
-                .chain(value.account.explanations().iter().map(|row| {
-                    (
-                        row.operation,
-                        row.stock_revision,
-                        (5, value.count.operation, None),
-                    )
-                }))
-                .chain(value.account.amendments().iter().map(|row| {
-                    (
-                        row.operation,
-                        row.stock_revision,
-                        (4, value.count.operation, Some(row.explanation)),
-                    )
-                }))
-            }))
+            .chain(
+                record
+                    .count_explanation
+                    .iter()
+                    .filter(|_| new_count)
+                    .flat_map(|value| {
+                        std::iter::once((
+                            value.count.operation,
+                            value.count.stock_revision,
+                            (3, value.count.operation, None),
+                        ))
+                        .chain(std::iter::once((
+                            value.count.count.operation,
+                            value.count.count.recorded_revision,
+                            (6, value.count.operation, None),
+                        )))
+                        .chain(value.account.explanations().iter().map(|row| {
+                            (
+                                row.operation,
+                                row.stock_revision,
+                                (5, value.count.operation, None),
+                            )
+                        }))
+                        .chain(value.account.amendments().iter().map(|row| {
+                            (
+                                row.operation,
+                                row.stock_revision,
+                                (4, value.count.operation, Some(row.explanation)),
+                            )
+                        }))
+                    }),
+            )
         {
-            if id == operation || id == context.review.original.operation {
+            if protected.is_some_and(|(raw, _, operation)| id == operation || id == raw) {
                 return Err(ActualReportError::InvalidIdentity);
             }
             observe_revision(&mut revisions, &mut operation_revisions, id, revision)?;
@@ -368,6 +418,83 @@ pub(super) fn validate_set(
         views.push(view);
     }
     Ok(views)
+}
+
+/// This proof exists only inside one complete inventory validation/cut. The
+/// first event checked the full account and local dependency graph; later events
+/// still check their own original, selected row, recipients and global roles.
+struct CountInventoryProof<'a> {
+    snapshot: &'a Arc<ActualKnownCountExplanation>,
+    effective: BTreeMap<HubRecordId, EffectiveCountExplanation>,
+    rows: usize,
+}
+impl<'a> CountInventoryProof<'a> {
+    fn new(snapshot: &'a Arc<ActualKnownCountExplanation>) -> Self {
+        Self {
+            snapshot,
+            rows: snapshot.account.explanations().len() + snapshot.account.amendments().len(),
+            effective: snapshot
+                .account
+                .effective_explanations()
+                .iter()
+                .map(|row| (row.original.operation, *row))
+                .collect(),
+        }
+    }
+    fn view(
+        &self,
+        record: &ActualKnownInterpretation,
+    ) -> Result<ActualKnownInterpretationView, ActualReportError> {
+        let original = &record.original;
+        if original.lines.len() > crate::hub::dispatch::HUB_DISPATCH_LINES
+            || record.quantities.len() > crate::hub::dispatch::HUB_DISPATCH_LINES
+            || record
+                .recipient_history
+                .len()
+                .checked_add(self.rows)
+                .is_none_or(|n| n > HUB_CORRECTION_ROWS)
+        {
+            return Err(ActualReportError::Capacity);
+        }
+        let count = &self.snapshot.count;
+        let account = &self.snapshot.account;
+        let loss = account.original();
+        let row = self
+            .effective
+            .get(&original.operation)
+            .ok_or(ActualReportError::InvalidHistory)?;
+        if !record.quantities.is_empty()
+            || record.recipient_original.family != CorrectedDepartureFamily::ExplainedCountLoss
+            || original.trace != loss.trace
+            || original.variant.id != loss.variant
+            || original.stock_revision != row.original.stock_revision
+            || original.lines.len() != 1
+            || original.lines[0].group != count.before.id
+            || original.lines[0].packs != row.original.packs
+            || original.recorded_at < count.recorded_at
+            || original.catalog_revision.value() < count.catalog_revision.value()
+        {
+            return Err(ActualReportError::InvalidHistory);
+        }
+        let recipients = CorrectionKnownDeparture {
+            original,
+            recipient_original: &record.recipient_original,
+            recipient_history: &record.recipient_history,
+            quantity: KnownCorrectionQuantity::CountExplanation { count, account },
+        }
+        .recipient_associations_through(
+            original.hub,
+            record.stock_revision,
+            record.catalog_revision,
+            record.latest_recorded_at,
+        )
+        .map_err(|_| ActualReportError::InvalidHistory)?;
+        Ok(ActualKnownInterpretationView {
+            recipients,
+            original_packs: original.packs()?,
+            effective_packs: row.packs,
+        })
+    }
 }
 
 fn observe_revision(

@@ -256,8 +256,12 @@ effective quantity, including zero, and every prior/current/unknown recipient.
 Account history binds each explanation to its owning count. Classification never
 creates a physical debit or Found credit. Existing physical-only captures keep
 their exact encoding and digest; the legacy complete-inventory codec refuses count
-records until a versioned shared-account capture is qualified. The native count
-comparison remains read-only and supplies no admission or posting permission.
+records. An explicit version2 capture stores each canonical count/account once,
+references it from every explanation (including zero), and checks all account
+members, selected originals, recipient histories and operation/revision roles.
+Shared immutable account proofs stay within one validation cut. The application
+writer retains its16MiB archive bound. Native mode selection, reconstruction and
+count posting remain unqualified; the native count comparison stays read-only.
 
 Current trace reads retain gross original departures separately from native
 effective quantities, established returns and ordered amendments. The read-only

@@ -247,6 +247,14 @@ pub struct HubSubmittedRecipientAttribution {
     pub uncertain_submissions: bool,
 }
 
+/// Explicit count-aware descriptive inventory. Native mode and the selected
+/// context identity must be corroborated by the native producer, not this data.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct HubSubmittedKnownCountInventory {
+    pub id: HubRecordId,
+    pub inventory: harvestcircle_domain::hub::actuals::ActualKnownCountInventory,
+}
+
 /// Native adapters capture only referenced/affected records at the admission cut.
 /// A record's presence does not establish current authority or safe reconciliation.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -268,6 +276,7 @@ pub enum HubSubmittedMaterial {
     AdditionalQuantity(Box<HubSubmittedAdditionalQuantity>),
     SourceAttribution(Box<HubSubmittedSourceAttribution>),
     RecipientAttribution(Box<HubSubmittedRecipientAttribution>),
+    KnownCountInventory(Box<HubSubmittedKnownCountInventory>),
 }
 impl HubSubmittedMaterial {
     fn identity(&self) -> (u8, HubRecordId, u64) {
@@ -288,6 +297,7 @@ impl HubSubmittedMaterial {
             Self::AdditionalQuantity(v) => (13, v.id, 0),
             Self::SourceAttribution(v) => (14, v.id, 0),
             Self::RecipientAttribution(v) => (15, v.id, 0),
+            Self::KnownCountInventory(v) => (16, v.id, 0),
         }
     }
 }

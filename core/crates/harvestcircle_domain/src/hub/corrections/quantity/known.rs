@@ -57,31 +57,9 @@ impl CorrectionKnownDeparture<'_> {
         catalog: HubRevision,
         latest: UnixTimestamp,
     ) -> Result<KnownRecipients, QuantityEffectError> {
+        let result = self.recipient_associations_through(hub, stock, catalog, latest)?;
         let original = self.original;
-        original.validate().map_err(QuantityEffectError::Actual)?;
         let recipient = self.recipient_original;
-        if original.hub != hub
-            || original.stock_revision.value() > stock.value()
-            || original.catalog_revision.value() > catalog.value()
-            || original.recorded_at > latest
-            || recipient.hub != original.hub
-            || recipient.operation != original.operation
-            || recipient.stock_revision != original.stock_revision
-            || recipient.catalog_revision != original.catalog_revision
-            || recipient.actor != original.actor
-            || recipient.recorded_at != original.recorded_at
-            || recipient.recipient != original.recipient
-            || !recipient.populations.contains(&original.trace)
-            || self.recipient_history.iter().any(|r| {
-                r.stamp.stock_revision.value() > stock.value()
-                    || r.stamp.catalog_revision.value() > catalog.value()
-                    || r.stamp.recorded_at > latest
-            })
-        {
-            return Err(QuantityEffectError::InvalidHistory);
-        }
-        current_recipient_attribution(recipient, self.recipient_history)
-            .map_err(|_| QuantityEffectError::InvalidHistory)?;
         match self.quantity {
             KnownCorrectionQuantity::Physical(accounts) => {
                 if recipient.family == CorrectedDepartureFamily::ExplainedCountLoss
@@ -154,6 +132,43 @@ impl CorrectionKnownDeparture<'_> {
                 }
             }
         }
+        Ok(result)
+    }
+
+    /// Internal recipient fragment for an inventory's already-checked shared
+    /// quantity proof. Public callers always use the complete method above.
+    pub(crate) fn recipient_associations_through(
+        &self,
+        hub: HubId,
+        stock: HubRevision,
+        catalog: HubRevision,
+        latest: UnixTimestamp,
+    ) -> Result<KnownRecipients, QuantityEffectError> {
+        let original = self.original;
+        original.validate().map_err(QuantityEffectError::Actual)?;
+        let recipient = self.recipient_original;
+        if original.hub != hub
+            || original.stock_revision.value() > stock.value()
+            || original.catalog_revision.value() > catalog.value()
+            || original.recorded_at > latest
+            || recipient.hub != original.hub
+            || recipient.operation != original.operation
+            || recipient.stock_revision != original.stock_revision
+            || recipient.catalog_revision != original.catalog_revision
+            || recipient.actor != original.actor
+            || recipient.recorded_at != original.recorded_at
+            || recipient.recipient != original.recipient
+            || !recipient.populations.contains(&original.trace)
+            || self.recipient_history.iter().any(|r| {
+                r.stamp.stock_revision.value() > stock.value()
+                    || r.stamp.catalog_revision.value() > catalog.value()
+                    || r.stamp.recorded_at > latest
+            })
+        {
+            return Err(QuantityEffectError::InvalidHistory);
+        }
+        current_recipient_attribution(recipient, self.recipient_history)
+            .map_err(|_| QuantityEffectError::InvalidHistory)?;
         let mut result = KnownRecipients {
             parties: BTreeSet::from([original.recipient.id]),
             unresolved: false,

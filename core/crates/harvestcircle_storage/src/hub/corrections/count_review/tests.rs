@@ -758,7 +758,7 @@ async fn count_command_comparison_produces_checked_single_meaning_but_cannot_use
         original,
         recipient_history: vec![],
         quantities: vec![],
-        count_explanation: Some(Box::new(ActualKnownCountExplanation {
+        count_explanation: Some(std::sync::Arc::new(ActualKnownCountExplanation {
             count: plan.count,
             account,
         })),
@@ -778,6 +778,210 @@ async fn count_command_comparison_produces_checked_single_meaning_but_cannot_use
             .to_string()
             .contains("shared account capture")
     );
+    // Explicit write-only schema2 is distinct even for an empty inventory.
+    let mut empty = set.clone();
+    empty.records.clear();
+    let empty = harvestcircle_domain::hub::actuals::ActualKnownCountInventory::new(empty).unwrap();
+    let empty_json = serde_json::to_value(&empty).unwrap();
+    assert_eq!(empty_json["schema"], 2);
+    assert_eq!(empty_json["count_accounts"].as_array().unwrap().len(), 0);
+    assert_eq!(empty_json["records"].as_array().unwrap().len(), 0);
+    let inventory =
+        harvestcircle_domain::hub::actuals::ActualKnownCountInventory::new(set).unwrap();
+    let value = serde_json::to_value(&inventory).unwrap();
+    assert_eq!(value["schema"], 2);
+    assert_eq!(value["count_accounts"].as_array().unwrap().len(), 1);
+    assert_eq!(value["records"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        value["records"][0]["count_account"],
+        value["count_accounts"][0]["operation"]
+    );
+    assert!(value["records"][0].get("count_explanation").is_none());
+    assert_ne!(empty.digest().unwrap(), inventory.digest().unwrap());
+    assert_count_inventory_archive_bound(&inventory);
     assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
     db.close().await.unwrap();
+}
+
+fn assert_count_inventory_archive_bound(
+    inventory: &harvestcircle_domain::hub::actuals::ActualKnownCountInventory,
+) {
+    use harvestcircle_application::hub_submission::{
+        HUB_SUBMISSION_ARCHIVE_MAX_BYTES, HubRuntimeIncarnation, HubSubmissionContext,
+        HubSubmittedKnownCountInventory, HubSubmittedMaterial, HubSubmittedRequest,
+    };
+    use harvestcircle_domain::hub::{
+        HubOwnership,
+        actuals::ActualKnownCountInventory,
+        corrections::{
+            CorrectedDepartureFamily, DepartureQuantityAccount, OriginalDepartureQuantity,
+        },
+        reference::{ReferenceCommand, ReferenceMutation, ReferenceValue},
+    };
+    fn archived(
+        inventory: ActualKnownCountInventory,
+    ) -> Result<
+        harvestcircle_application::hub_submission::ArchivedHubSubmission,
+        harvestcircle_application::hub_submission::HubRequestArchiveError,
+    > {
+        let facts = inventory.facts();
+        let hub = HubOwnership::new(facts.hub, owner());
+        let catalog_revision = facts.catalog_revision;
+        let stock_revision = facts.stock_revision;
+        let request = ReferenceCommand {
+            expected_catalog_revision: catalog_revision,
+            mutation: ReferenceMutation::Create {
+                id: id(250),
+                value: ReferenceValue::Product {
+                    label: HubLabel::new("Encoding only; no native execution grant").unwrap(),
+                },
+            },
+        };
+        let material = [HubSubmittedMaterial::KnownCountInventory(Box::new(
+            HubSubmittedKnownCountInventory {
+                id: id(251),
+                inventory,
+            },
+        ))];
+        HubSubmittedRequest::Reference(&request).capture(
+            &operation(902),
+            HubSubmissionScope {
+                runtime: HubRuntimeIncarnation::from_bytes([0x73; 16]).unwrap(),
+                generation: SessionGeneration::initial(),
+                actor: owner(),
+            },
+            &HubSubmissionContext {
+                hub,
+                catalog_revision: Some(catalog_revision),
+                stock_revision: Some(stock_revision),
+                material: &material,
+            },
+        )
+    }
+    let capture = archived(inventory.clone()).unwrap();
+    assert!(capture.as_bytes().len() < HUB_SUBMISSION_ARCHIVE_MAX_BYTES);
+    let encoded: serde_json::Value = serde_json::from_slice(capture.as_bytes()).unwrap();
+    let counted = &encoded["material"][0]["known_count_inventory"]["inventory"];
+    assert_eq!(counted["schema"], 2);
+    assert_eq!(counted["count_accounts"].as_array().unwrap().len(), 1);
+    // Typed maximum-history input, not native posting acceptance. Every event
+    // refers to one shared account; the actual application writer emits it once.
+    use harvestcircle_domain::hub::corrections::{CountExplanationAmendment, CountLossExplanation};
+    let mut maximum = inventory.facts().clone();
+    let sample = maximum.records[0].clone();
+    let snapshot = sample.count_explanation.as_ref().unwrap();
+    let number = harvestcircle_domain::hub::corrections::HUB_CORRECTION_ROWS / 2;
+    fn history_id(n: u64) -> HubRecordId {
+        let mut bytes = [0xC7; 16];
+        bytes[8..].copy_from_slice(&n.to_be_bytes());
+        HubRecordId::from_bytes(bytes).unwrap()
+    }
+    let explanations: Vec<_> = (0..number)
+        .map(|i| CountLossExplanation {
+            operation: history_id((2 * i + 1) as u64),
+            stock_revision: HubRevision::from_value((2 * i + 6) as u64).unwrap(),
+            packs: packs(1),
+        })
+        .collect();
+    let amendments = explanations
+        .iter()
+        .enumerate()
+        .map(|(i, row)| CountExplanationAmendment {
+            operation: history_id((2 * i + 2) as u64),
+            stock_revision: HubRevision::from_value(row.stock_revision.value() + 1).unwrap(),
+            explanation: row.operation,
+            before: packs(1),
+            after: packs(0),
+        })
+        .collect();
+    let shared = std::sync::Arc::new(
+        harvestcircle_domain::hub::actuals::ActualKnownCountExplanation {
+            count: snapshot.count.clone(),
+            account: CountLossQuantityAccount::restore_corrected(
+                snapshot.account.original(),
+                explanations.clone(),
+                amendments,
+                vec![],
+            )
+            .unwrap(),
+        },
+    );
+    maximum.stock_revision = HubRevision::from_value(10_000).unwrap();
+    maximum.records = explanations
+        .iter()
+        .map(|row| {
+            let mut record = sample.clone();
+            record.stock_revision = maximum.stock_revision;
+            record.original.operation = row.operation;
+            record.original.stock_revision = row.stock_revision;
+            record.recipient_original.operation = row.operation;
+            record.recipient_original.stock_revision = row.stock_revision;
+            record.count_explanation = Some(std::sync::Arc::clone(&shared));
+            record
+        })
+        .collect();
+    let maximum = ActualKnownCountInventory::new(maximum).unwrap();
+    let maximum = archived(maximum).unwrap();
+    assert!(maximum.as_bytes().len() < HUB_SUBMISSION_ARCHIVE_MAX_BYTES);
+    let maximum: serde_json::Value = serde_json::from_slice(maximum.as_bytes()).unwrap();
+    let maximum = &maximum["material"][0]["known_count_inventory"]["inventory"];
+    assert_eq!(maximum["count_accounts"].as_array().unwrap().len(), 1);
+    assert_eq!(maximum["records"].as_array().unwrap().len(), number);
+    assert_eq!(
+        maximum["count_accounts"][0]["account"]["explanations"]
+            .as_array()
+            .unwrap()
+            .len(),
+        number
+    );
+    assert_eq!(
+        maximum["count_accounts"][0]["account"]["amendments"]
+            .as_array()
+            .unwrap()
+            .len(),
+        number
+    );
+
+    // Pure descriptive capacity data, never a legally posted native world. The
+    // real application writer must reject its oversized body without SQL effects.
+    let mut oversized = inventory.facts().clone();
+    let template = &oversized.records[0];
+    let mut records = Vec::new();
+    for index in 0..20_000_u64 {
+        let mut row = template.clone();
+        let mut bytes = [0xB7; 16];
+        bytes[8..].copy_from_slice(&(index + 1).to_be_bytes());
+        let own = HubRecordId::from_bytes(bytes).unwrap();
+        let revision = HubRevision::from_value(index + 2).unwrap();
+        row.original.operation = own;
+        row.original.stock_revision = revision;
+        row.recipient_original.operation = own;
+        row.recipient_original.stock_revision = revision;
+        row.recipient_original.family = CorrectedDepartureFamily::ReviewedActual;
+        row.count_explanation = None;
+        row.quantities = vec![
+            DepartureQuantityAccount::restore(
+                OriginalDepartureQuantity {
+                    operation: own,
+                    group: row.original.lines[0].group,
+                    trace: row.original.trace,
+                    variant: row.original.variant.id,
+                    stock_revision: revision,
+                    packs: row.original.lines[0].packs,
+                },
+                vec![],
+                packs(0),
+            )
+            .unwrap(),
+        ];
+        row.stock_revision = HubRevision::from_value(25_000).unwrap();
+        records.push(row);
+    }
+    oversized.stock_revision = HubRevision::from_value(25_000).unwrap();
+    oversized.records = records;
+    let oversized = ActualKnownCountInventory::new(oversized).unwrap();
+    assert_eq!(
+        archived(oversized).unwrap_err(),
+        harvestcircle_application::hub_submission::HubRequestArchiveError::Capacity
+    );
 }
