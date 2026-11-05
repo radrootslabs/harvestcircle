@@ -218,7 +218,7 @@ pub(in crate::hub) mod quantity;
 pub use known::{HubCorrectionKnownDeparture, HubCorrectionKnownEvidence, HubCorrectionKnownQuery};
 mod additional_review;
 mod attribution_review;
-mod count_context;
+pub(in crate::hub) mod count_context;
 pub(in crate::hub) use count_context::capture_on as capture_count_explanation_on;
 pub(in crate::hub) mod count_review;
 mod recipient_context;

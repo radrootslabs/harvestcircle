@@ -41,8 +41,8 @@ impl Database {
                         Box::pin(super::count_context::current_on(&mut reader, hub, &query))
                             .await?;
                     let mut review = HubCountExplanationReview {
-                        revision: context.stock_revision,
-                        catalog_revision: context.catalog.revision(),
+                        revision: context.facts.stock_revision,
+                        catalog_revision: context.facts.catalog.revision(),
                         proposed_operation: operation.clone(),
                         outcome: HubCountExplanationReviewOutcome::OperationAlreadyUsed,
                     };

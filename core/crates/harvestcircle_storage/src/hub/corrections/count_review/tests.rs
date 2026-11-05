@@ -33,7 +33,9 @@ pub(in crate::hub) async fn world() -> (Fixture, Database, HubCountExplanationQu
     world_with_later_split(false).await
 }
 
-async fn world_with_later_split(split: bool) -> (Fixture, Database, HubCountExplanationQuery) {
+pub(in crate::hub) async fn world_with_later_split(
+    split: bool,
+) -> (Fixture, Database, HubCountExplanationQuery) {
     world_with_history(split, false).await
 }
 
