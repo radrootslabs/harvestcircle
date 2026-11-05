@@ -16,7 +16,8 @@ async fn registered_schema_retains18_and_exact_forward_replacements_without_cloc
             .as_bytes(),
         &crate::hub::actuals::schema::SCHEMA_DIGEST
     );
-    let replacements = crate::hub::corrections::schema::schema_objects().unwrap();
+    let mut replacements = crate::hub::corrections::schema::schema_objects().unwrap();
+    replacements.extend(crate::hub::actuals::interpretation_schema::schema_objects().unwrap());
     let fixture = Fixture::new();
     let db = fixture.open().await;
     let original = received(&db).await;
@@ -36,6 +37,7 @@ async fn registered_schema_retains18_and_exact_forward_replacements_without_cloc
         )
         .unwrap();
         let expected = if crate::hub::corrections::schema::REPLACED_OBJECTS.contains(&object.name())
+            || crate::hub::actuals::interpretation_schema::REPLACED_OBJECTS.contains(&object.name())
         {
             let replacement = replacements
                 .iter()

@@ -12,9 +12,9 @@ use harvestcircle_domain::{
     hub::{
         HubId, HubRevision,
         actuals::{
-            ActualKnownDeparture, ActualNewDepartureCommand, ActualNewDepartureContext,
-            ActualPhysicalActivity, ActualPhysicalBirth, ActualReportRecord, ActualReviewContext,
-            HistoricalActualSource,
+            ActualKnownDeparture, ActualKnownInterpretations, ActualNewDepartureCommand,
+            ActualNewDepartureContext, ActualPhysicalActivity, ActualPhysicalBirth,
+            ActualReportRecord, ActualReviewContext, HistoricalActualSource,
         },
         movement::{PhysicalIdentification, PhysicalStockGroup, WorkAllocation, WorkProgress},
         portions::{PhysicalLineage, PhysicalLineageNode},
@@ -39,8 +39,55 @@ pub(in crate::hub) struct Context {
     pub activity: Vec<ActualPhysicalActivity>,
     pub known: Vec<ActualKnownDeparture>,
     pub uncertain_submissions: bool,
+    pub interpretations: Option<ActualKnownInterpretations>,
 }
 impl Context {
+    pub fn material(
+        &self,
+        id: harvestcircle_domain::hub::reference::HubRecordId,
+    ) -> harvestcircle_application::hub_submission::HubSubmittedActualReview {
+        harvestcircle_application::hub_submission::HubSubmittedActualReview {
+            id,
+            report: self.report.clone(),
+            group: self.group.clone(),
+            lineage: self.lineage.clone(),
+            births: self.births.clone(),
+            treatment: self.treatment.clone(),
+            source: self.source.clone(),
+            activity: self.activity.clone(),
+            known_departures: self.known.clone(),
+            uncertain_submissions: self.uncertain_submissions,
+            interpretations: self.interpretations.clone(),
+        }
+    }
+
+    pub fn plan(
+        &self,
+        command: &ActualNewDepartureCommand,
+        id: harvestcircle_domain::hub::reference::HubRecordId,
+        actor: harvestcircle_domain::PublicKey,
+        now: harvestcircle_domain::UnixTimestamp,
+    ) -> Result<harvestcircle_domain::hub::actuals::ActualNewDeparturePlan, SafeError> {
+        match &self.interpretations {
+            Some(set) => command.plan_with_interpretations(&self.domain(), set, id, actor, now),
+            None => command.plan(&self.domain(), id, actor, now),
+        }
+        .map_err(error)
+    }
+
+    pub fn digest(
+        &self,
+        input: &[u8; 32],
+        command: &ActualNewDepartureCommand,
+        findings: &[harvestcircle_domain::hub::actuals::HistoricalHoldScopeAssessment],
+        plan: &harvestcircle_domain::hub::actuals::ActualNewDeparturePlan,
+    ) -> Result<[u8; 32], SafeError> {
+        match &self.interpretations {
+            Some(set) => harvestcircle_domain::hub::actuals::actual_departure_result_digest_with_interpretations(input, command, &self.domain(), set, &self.births, findings, plan),
+            None => harvestcircle_domain::hub::actuals::actual_departure_result_digest(input, command, &self.domain(), &self.births, findings, plan),
+        }.map_err(error)
+    }
+
     pub fn domain(&self) -> ActualNewDepartureContext<'_> {
         ActualNewDepartureContext {
             review: ActualReviewContext {
@@ -72,8 +119,7 @@ pub(in crate::hub) async fn current_on(
     except: Option<&DurableRequestId>,
 ) -> Result<Context, SafeError> {
     let state = stock::read::state_on(tx, hub).await?;
-    Box::pin(crate::hub::corrections::require_recipient_actual_adapter_on(tx, hub, state.revision))
-        .await?;
+    super::mode::epoch_on(tx, hub).await?;
     let catalog = reference::load_catalog_on(tx, hub).await?;
     if state.revision != command.facts.expected_stock_revision
         || catalog.revision() != command.facts.expected_catalog_revision
@@ -104,6 +150,19 @@ pub(in crate::hub) async fn current_on(
     let known =
         handling::actuals::known_departures_on(tx, hub, group.trace, state.revision).await?;
     let treatment = handling::treatment::read::state_on(tx, hub, &loaded.graph).await?;
+    let interpretations = {
+        let mut reader = OriginalReader::new(tx);
+        Box::pin(
+            crate::hub::corrections::actual_interpretations_at_with_proofs_on(
+                &mut reader,
+                hub,
+                group.trace,
+                state.revision,
+                catalog.revision(),
+            ),
+        )
+        .await?
+    };
     // Only the fresh executor may exclude its own already-admitted pending row.
     // Read/capture paths include every pending outcome; recorded report is no exception.
     let recorded_operation = operation(report.operation)?;
@@ -122,6 +181,7 @@ pub(in crate::hub) async fn current_on(
         activity,
         known,
         uncertain_submissions: uncertain,
+        interpretations: Some(interpretations),
     })
 }
 
@@ -194,7 +254,23 @@ pub(in crate::hub) async fn original_on(
     let lineage = PhysicalLineage::new(hub, trace, population.variant.id, cut, nodes)
         .map_err(|_| corrupt_storage())?;
     let births = handling::lineage::historical_births_on(tx, hub, &lineage).await?;
-    let group = group_on(tx, hub, op, row, &lineage).await?;
+    let node = lineage
+        .node(record_id(row, "group_id")?)
+        .ok_or_else(corrupt_storage)?;
+    let group = group_on(
+        tx,
+        hub,
+        op,
+        row,
+        &GroupCut {
+            trace: lineage.trace(),
+            variant: lineage.variant(),
+            stock: lineage.revision(),
+            parent: node.parent,
+            packs: node.packs,
+        },
+    )
+    .await?;
     let source = handling::actuals::source_on(
         tx,
         hub,
@@ -213,6 +289,22 @@ pub(in crate::hub) async fn original_on(
     if event_count as usize > harvestcircle_domain::hub::stock::HUB_STOCK_EVENT_CAPACITY {
         return Err(corrupt_storage());
     }
+    let interpretations = if super::mode::original_on(tx, hub, op).await?.qualified() {
+        Some(
+            Box::pin(
+                crate::hub::corrections::actual_interpretations_at_with_proofs_on(
+                    tx,
+                    hub,
+                    trace,
+                    cut,
+                    op.catalog_revision,
+                ),
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
     Ok(Context {
         state: stock::read::StockState {
             revision: cut,
@@ -228,7 +320,46 @@ pub(in crate::hub) async fn original_on(
         activity,
         known,
         uncertain_submissions: false,
+        interpretations,
     })
+}
+
+struct GroupCut {
+    trace: harvestcircle_domain::hub::reference::HubRecordId,
+    variant: harvestcircle_domain::hub::reference::HubRecordId,
+    stock: HubRevision,
+    parent: Option<harvestcircle_domain::hub::reference::HubRecordId>,
+    packs: harvestcircle_domain::hub::reference::WholePacks,
+}
+
+/// Called only by OriginalReader after its complete original certificate check.
+/// Reconstructs every original work allocation without replanning its dependencies.
+pub(super) async fn verified_before_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    op: &stock::read::OperationRecord,
+) -> Result<PhysicalStockGroup, SafeError> {
+    let row = sqlx::query(concat!(
+        "SELECT substr(r.group_id,1,17) AS group_id,substr(r.trace_id,1,17) AS trace_id,substr(r.variant_id,1,17) AS variant_id,",
+        "substr(r.current_location_id,1,17) AS current_location_id,r.before_packs,r.before_group_revision,r.before_causal_floor_unix_s,r.scope_count,",
+        "substr(l.parent_group_id,1,17) AS frozen_parent,l.packs AS frozen_packs ",
+        "FROM hub_actual_reviews r JOIN hub_actual_review_lineage l ON l.operation_id=r.operation_id AND l.group_id=r.group_id ",
+        "WHERE r.operation_id=? AND r.review_kind='departure' LIMIT 1"
+    )).bind(op.id.as_str()).fetch_optional(&mut *tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?;
+    let cut = GroupCut {
+        trace: record_id(&row, "trace_id")?,
+        variant: record_id(&row, "variant_id")?,
+        stock: HubRevision::from_value(
+            op.revision
+                .value()
+                .checked_sub(1)
+                .ok_or_else(corrupt_storage)?,
+        )
+        .map_err(|_| corrupt_storage())?,
+        parent: optional_id(&row, "frozen_parent")?,
+        packs: whole_packs(row.try_get("frozen_packs").map_err(|_| corrupt_storage())?)?,
+    };
+    group_on(tx, hub, op, &row, &cut).await
 }
 
 async fn group_on(
@@ -236,14 +367,13 @@ async fn group_on(
     hub: HubId,
     op: &stock::read::OperationRecord,
     row: &SqliteRow,
-    graph: &PhysicalLineage,
+    cut: &GroupCut,
 ) -> Result<PhysicalStockGroup, SafeError> {
     let id = record_id(row, "group_id")?;
-    let node = graph.node(id).ok_or_else(corrupt_storage)?;
     let identity=sqlx::query("SELECT substr(parent_group_id,1,17) AS parent_id,substr(CAST(physical_label AS BLOB),1,121) AS label,substr(CAST(observation AS BLOB),1,513) AS observation FROM hub_group_identification WHERE group_id=? LIMIT 1")
         .bind(id.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_|corrupt_storage())?;
     let parent = optional_id(&identity, "parent_id")?;
-    if parent != node.parent {
+    if parent != cut.parent {
         return Err(corrupt_storage());
     }
     let label: Option<Vec<u8>> = identity.try_get("label").map_err(|_| corrupt_storage())?;
@@ -279,7 +409,7 @@ async fn group_on(
     for scope in scopes {
         let definition =
             handling::read::definition_on(tx, hub, record_id(&scope, "work_id")?).await?;
-        if definition.trace != graph.trace() || definition.variant != graph.variant() {
+        if definition.trace != cut.trace || definition.variant != cut.variant {
             return Err(corrupt_storage());
         }
         let quantity = QuantityWork::restore(
@@ -323,13 +453,13 @@ async fn group_on(
         .map_err(|_| corrupt_storage())?
         .map(stock::read::timestamp)
         .transpose()?;
-    if handling::read::causal_floor_through_on(tx, id, graph.revision()).await? != floor {
+    if handling::read::causal_floor_through_on(tx, id, cut.stock).await? != floor {
         return Err(corrupt_storage());
     }
     let group = PhysicalStockGroup {
         id,
-        trace: graph.trace(),
-        variant: graph.variant(),
+        trace: cut.trace,
+        variant: cut.variant,
         parent,
         identification,
         location: record_id(row, "current_location_id")?,
@@ -338,7 +468,7 @@ async fn group_on(
         causal_floor: floor,
         work,
     };
-    if group.packs != node.packs {
+    if group.packs != cut.packs {
         return Err(corrupt_storage());
     }
     group.validate().map_err(|_| corrupt_storage())?;

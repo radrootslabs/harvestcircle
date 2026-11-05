@@ -115,56 +115,13 @@ pub(super) async fn capture_on(
                 .references
                 .extend([context.group.variant, context.group.location]);
             material.push(HubSubmittedMaterial::ActualReview(Box::new(
-                harvestcircle_application::hub_submission::HubSubmittedActualReview {
-                    id: crate::hub::actuals::common::operation_id(operation)?,
-                    report: context.report,
-                    group: context.group,
-                    lineage: context.lineage,
-                    births: context.births,
-                    treatment: context.treatment,
-                    source: context.source,
-                    activity: context.activity,
-                    known_departures: context.known,
-                    uncertain_submissions: context.uncertain_submissions,
-                },
+                context.material(crate::hub::actuals::common::operation_id(operation)?),
             )));
         }
         HubSubmittedRequest::ActualLink(command) => {
-            Box::pin(
-                crate::hub::corrections::require_recipient_actual_adapter_on(
-                    tx,
-                    hub.id(),
-                    state.revision,
-                ),
-            )
-            .await?;
-            let report = crate::hub::actuals::reports::by_id_on(tx, hub.id(), command.report)
-                .await?
-                .original;
-            let reviewed:Option<String>=sqlx::query_scalar("SELECT review_operation_id FROM hub_actual_report_reviews WHERE report_id=? LIMIT 1")
-                .bind(report.id.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
-            if reviewed.is_some() {
-                return Err(stock::conflict());
-            }
-            let known = handling::actuals::known_departures_on(
-                tx,
-                hub.id(),
-                command.known_trace,
-                state.revision,
-            )
-            .await?
-            .into_iter()
-            .find(|known| {
-                known.operation == command.known_operation
-                    && known.variant.id == command.known_variant
-            })
-            .ok_or_else(stock::invalid_input)?;
+            let context = crate::hub::actuals::links::current_on(tx, hub.id(), command).await?;
             material.push(HubSubmittedMaterial::ActualLink(Box::new(
-                harvestcircle_application::hub_submission::HubSubmittedActualLink {
-                    id: crate::hub::actuals::common::operation_id(operation)?,
-                    report,
-                    known,
-                },
+                context.material(crate::hub::actuals::common::operation_id(operation)?),
             )));
         }
         HubSubmittedRequest::Return(command) => {
@@ -342,7 +299,7 @@ pub(super) async fn capture_on(
         .map_err(archive_error)
 }
 
-fn capture_references(
+pub(in crate::hub) fn capture_references(
     catalog: &ReferenceCatalog,
     mut ids: BTreeSet<HubRecordId>,
     material: &mut Vec<HubSubmittedMaterial>,

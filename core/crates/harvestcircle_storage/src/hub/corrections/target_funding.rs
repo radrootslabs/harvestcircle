@@ -138,15 +138,16 @@ pub(super) async fn load_with_proofs_on(
             )
         }
         "actual_review" => {
-            let original = tx.actual_review(hub, op).await?;
-            let crate::HubActualReviewOriginal::Departure(plan) = &original.original else {
+            let known = tx.actual_known(hub, &op).await?;
+            let before = tx.actual_before(hub, &op).await?;
+            if known.lines.len() != 1 || known.lines[0].group != group {
                 return Err(corrupt_storage());
-            };
+            }
             (
                 CorrectedDepartureFamily::ReviewedActual,
                 PhysicalDebitKind::ReviewedActual,
-                plan.reduction.before.clone(),
-                plan.reduction.actual_departed,
+                before,
+                known.lines[0].packs,
             )
         }
         _ => return Err(corrupt_storage()),

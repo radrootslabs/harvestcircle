@@ -81,14 +81,8 @@ pub(super) async fn at_with_proofs_on(
     {
         return Err(stock::invalid_input());
     }
-    if op.kind == "actual_review" {
-        let original = Box::pin(tx.actual_review(hub, op)).await?;
-        if !matches!(
-            &original.original,
-            crate::HubActualReviewOriginal::Departure(_)
-        ) {
-            return Err(stock::invalid_input());
-        }
+    if op.kind == "actual_review" && !Box::pin(tx.actual_is_departure(hub, &op)).await? {
+        return Err(stock::invalid_input());
     }
     let original = Box::pin(super::known::recipient_on(tx, hub, &operation)).await?;
     let references = reference::load_catalog_through_on(tx, hub, catalog).await?;

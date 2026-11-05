@@ -14,7 +14,7 @@ pub const HARVESTCIRCLE_SERVICE_ID: &str = "harvestcircle";
 pub const HARVESTCIRCLE_INSTANCE_ID: &str = "desktop";
 pub const HARVESTCIRCLE_APPLICATION_ID: u32 = 0x4843_5231;
 pub(crate) const HARVESTCIRCLE_INITIAL_STATE_SCHEMA_VERSION: u32 = 1;
-pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 19;
+pub const HARVESTCIRCLE_STATE_SCHEMA_VERSION: u32 = 20;
 pub const HARVESTCIRCLE_IDENTITY_CAPACITY: usize = 256;
 pub const HARVESTCIRCLE_UNFINISHED_DURABLE_OPERATION_CAPACITY: usize = 1_024;
 pub const HARVESTCIRCLE_DURABLE_OPERATION_CAPACITY: usize = 4_096;
@@ -666,6 +666,13 @@ pub fn harvestcircle_migration_catalog()
         crate::hub::corrections::schema::MIGRATION_CHECKSUM,
     )
     .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)?;
+    let interpretations = MigrationDescriptor::sql(
+        20,
+        "bind_actual_interpretation_epochs",
+        crate::hub::actuals::interpretation_schema::MIGRATION_SQL,
+        crate::hub::actuals::interpretation_schema::MIGRATION_CHECKSUM,
+    )
+    .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)?;
     MigrationCatalog::new([
         migration,
         evidence,
@@ -685,6 +692,7 @@ pub fn harvestcircle_migration_catalog()
         custody,
         actuals,
         corrections,
+        interpretations,
     ])
     .map_err(|_| HarvestCircleStorageContractError::MigrationCatalog)
 }
@@ -809,6 +817,12 @@ fn schema_catalog_for(
         SchemaDigest::from_bytes(crate::hub::corrections::schema::SCHEMA_DIGEST),
     )
     .map_err(schema_error)?;
+    let version_twenty = SchemaVersionCatalog::new(
+        20,
+        schema_objects_v20()?,
+        SchemaDigest::from_bytes(crate::hub::actuals::interpretation_schema::SCHEMA_DIGEST),
+    )
+    .map_err(schema_error)?;
     SchemaCatalog::new(
         migrations,
         [
@@ -831,6 +845,7 @@ fn schema_catalog_for(
             version_seventeen,
             version_eighteen,
             version_nineteen,
+            version_twenty,
         ],
     )
     .map_err(schema_error)
@@ -849,6 +864,22 @@ fn schema_objects_v6() -> Result<Vec<SchemaObject>, HarvestCircleStorageContract
     let mut objects = schema_objects_v5()?;
     objects.extend(crate::hub::stock::schema::schema_objects().map_err(schema_error)?);
     Ok(objects)
+}
+
+fn schema_objects_v20() -> Result<Vec<SchemaObject>, HarvestCircleStorageContractError> {
+    let mut objects = schema_objects_v19()?;
+    objects.retain(|object| {
+        !crate::hub::actuals::interpretation_schema::REPLACED_OBJECTS.contains(&object.name())
+    });
+    objects.extend(
+        crate::hub::actuals::interpretation_schema::schema_objects().map_err(schema_error)?,
+    );
+    Ok(objects)
+}
+
+#[cfg(test)]
+pub(crate) fn retained_schema19_objects() -> Vec<SchemaObject> {
+    schema_objects_v19().expect("published schema19 catalog")
 }
 
 fn schema_objects_v19() -> Result<Vec<SchemaObject>, HarvestCircleStorageContractError> {
@@ -1411,10 +1442,10 @@ mod tests {
             contract.application_id().get(),
             HARVESTCIRCLE_APPLICATION_ID
         );
-        assert_eq!(contract.state_schema_version().get(), 19);
-        assert_eq!(contract.migrations().current_version(), 19);
-        assert_eq!(contract.migrations().descriptors().len(), 18);
-        assert_eq!(contract.schema().versions().len(), 19);
+        assert_eq!(contract.state_schema_version().get(), 20);
+        assert_eq!(contract.migrations().current_version(), 20);
+        assert_eq!(contract.migrations().descriptors().len(), 19);
+        assert_eq!(contract.schema().versions().len(), 20);
         assert_eq!(harvestcircle_initial_schema_sql().len(), 9);
     }
 

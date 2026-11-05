@@ -275,6 +275,54 @@ pub struct HubActualDuplicateDto {
     pub actor_public_key: String,
     pub recorded_at_unix_s: i64,
     pub verification: String,
+    pub interpretation: Option<HubActualKnownInterpretationDto>,
+}
+
+/// Meaning at the immutable review cut, kept separate from the original event.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(coverage_nightly), derive(uniffi::Record))]
+pub struct HubActualKnownInterpretationDto {
+    pub stock_revision: u64,
+    pub catalog_revision: u64,
+    pub latest_recorded_at_unix_s: i64,
+    pub original_whole_packs: u32,
+    pub effective_whole_packs: u32,
+    /// None is explicitly unknown, never a fallback to the original party.
+    pub recipient: Option<HubReferenceRecordDto>,
+    pub recipient_history: Vec<crate::hub_trace_recipient::HubTraceRecipientCorrectionDto>,
+    pub quantities: Vec<crate::hub_trace::HubTraceQuantityCorrectionDto>,
+}
+impl TryFrom<&harvestcircle_domain::hub::actuals::ActualKnownInterpretation>
+    for HubActualKnownInterpretationDto
+{
+    type Error = HarvestCircleError;
+    fn try_from(
+        value: &harvestcircle_domain::hub::actuals::ActualKnownInterpretation,
+    ) -> Result<Self, Self::Error> {
+        use harvestcircle_domain::hub::corrections::{
+            AmendedRecipient, current_recipient_attribution,
+        };
+        let view = value.view().map_err(|_| invalid_input())?;
+        let recipient = match current_recipient_attribution(
+            &value.recipient_original,
+            &value.recipient_history,
+        )
+        .map_err(|_| invalid_input())?
+        {
+            AmendedRecipient::Unknown => None,
+            AmendedRecipient::Known(party) => Some((&party).into()),
+        };
+        Ok(Self {
+            stock_revision: value.stock_revision.value(),
+            catalog_revision: value.catalog_revision.value(),
+            latest_recorded_at_unix_s: value.latest_recorded_at.as_seconds(),
+            original_whole_packs: view.original_packs.value(),
+            effective_whole_packs: view.effective_packs.value(),
+            recipient,
+            recipient_history: value.recipient_history.iter().map(Into::into).collect(),
+            quantities: value.quantities.iter().map(Into::into).collect(),
+        })
+    }
 }
 impl TryFrom<&ActualDuplicateLinkPlan> for HubActualDuplicateDto {
     type Error = HarvestCircleError;
@@ -286,6 +334,11 @@ impl TryFrom<&ActualDuplicateLinkPlan> for HubActualDuplicateDto {
             actor_public_key: value.actor.to_hex(),
             recorded_at_unix_s: value.recorded_at.as_seconds(),
             verification: value.verification.as_str().to_owned(),
+            interpretation: value
+                .interpretation
+                .as_deref()
+                .map(TryInto::try_into)
+                .transpose()?,
         })
     }
 }

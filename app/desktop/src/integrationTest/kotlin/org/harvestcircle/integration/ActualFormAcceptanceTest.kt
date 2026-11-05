@@ -23,10 +23,12 @@ import androidx.compose.ui.test.v2.runDesktopComposeUiTest
 import kotlinx.coroutines.runBlocking
 import org.harvestcircle.appearance.AppearanceState
 import org.harvestcircle.application.ActualLookupKind
+import org.harvestcircle.application.ActualOriginalLookup
 import org.harvestcircle.application.ActualPresenter
 import org.harvestcircle.application.ActualPreview
 import org.harvestcircle.application.ActualResult
 import org.harvestcircle.application.ActualSubmission
+import org.harvestcircle.application.ActualViewState
 import org.harvestcircle.application.ApplicationCommand
 import org.harvestcircle.application.HarvestCircleActualRuntime
 import org.harvestcircle.application.HubActualDepartureInput
@@ -53,6 +55,8 @@ import org.harvestcircle.application.HubTreatmentScope
 import org.harvestcircle.application.OperationId
 import org.harvestcircle.application.OperationIdSource
 import org.harvestcircle.application.RequestContext
+import org.harvestcircle.application.toModel
+import org.harvestcircle.testbridge.ffi.actualLinkInterpretationEncodingProbe
 import org.harvestcircle.ui.shell.ActualWorkspace
 import org.harvestcircle.ui.shell.HarvestCircleTheme
 import java.nio.file.Files
@@ -66,6 +70,49 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class ActualFormAcceptanceTest {
+    @Test
+    fun encodingOnlyLinkPanelSeparatesOriginalQuantityFromZeroMeaningAndUnknownRecipient() =
+        runDesktopComposeUiTest(width = 1100, height = 720) {
+            val original = actualLinkInterpretationEncodingProbe().toModel()
+            val meaning = assertNotNull(original.interpretation)
+            val result =
+                ActualResult.Reviewed(
+                    HubActualReviewReceipt(
+                        original.operationId,
+                        meaning.stockRevision,
+                        meaning.catalogRevision,
+                        HubActualReviewOriginal.Duplicate(original),
+                    ),
+                )
+            setContent {
+                val scope = rememberCoroutineScope()
+                val presenter =
+                    remember(scope) {
+                        ActualPresenter(
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            scope,
+                            OperationIdSource { error("Encoding-only display creates no operation") },
+                        )
+                    }
+                DisposableEffect(presenter) { onDispose { presenter.close() } }
+                HarvestCircleTheme(AppearanceState()) {
+                    ActualWorkspace(
+                        ActualViewState(originalLookup = ActualOriginalLookup(ActualLookupKind.Review, original.operationId.value, result)),
+                        presenter,
+                    ) { error("Encoding-only display submits no mutation") }
+                }
+            }
+            onNodeWithText("Meaning at link review · 0 whole packs").performScrollTo().assertExists()
+            onNodeWithText("Recipient at link review: Unknown").performScrollTo().assertExists()
+            onNodeWithText("${original.known.variant.value.label} · Original recipient ${original.known.recipient.value.label}")
+                .performScrollTo()
+                .assertExists()
+        }
+
     @Test
     fun unknownReportFormRetainsNativeCommitAfterLostReplyWithoutAnotherOperation() =
         runDesktopComposeUiTest(width = 1100, height = 720) {

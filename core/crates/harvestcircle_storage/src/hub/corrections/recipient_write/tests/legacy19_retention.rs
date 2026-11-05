@@ -14,7 +14,9 @@ use radroots_service_sqlite::MigrationBuildIdentity;
 mod current_interpretations;
 mod historical_interpretations;
 mod proof_counts;
+mod qualified_mode;
 mod retain;
+mod upgrade20;
 
 const SOURCE: &str = "8549a01302c14c8f7c1bff9437f349d9adaf8454";
 const LIB: &str = "189c49b74b4bafc142b00b76b296477931139e72";
@@ -50,10 +52,6 @@ fn actual_value(receipt: &crate::HubActualReviewReceipt) -> serde_json::Value {
             serde_json::json!({"kind":"departure","plan":plan})
         }
         crate::HubActualReviewOriginal::Duplicate(plan) => {
-            assert!(
-                plan.interpretation.is_none(),
-                "published19 legacy plan has no native20 extension"
-            );
             serde_json::json!({"kind":"link","plan":plan})
         }
     }
@@ -193,8 +191,20 @@ async fn drive_native19_observed(
     Vec<harvestcircle_domain::hub::actuals::ActualKnownInterpretations>,
     HubSubmissionScope,
 ) {
-    let mut cuts = Vec::new();
     assert_eq!(crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION, 19);
+    drive_native_observed(db, observe).await
+}
+
+async fn drive_native_observed(
+    db: &Database,
+    observe: bool,
+) -> (
+    serde_json::Value,
+    Vec<harvestcircle_domain::hub::actuals::ActualKnownInterpretations>,
+    HubSubmissionScope,
+) {
+    let mut cuts = Vec::new();
+    assert!(matches!(crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION, 19 | 20));
     let (before, target, _) =
         crate::hub::corrections::projection_native_tests::actual_debit(db).await;
     let target_id = crate::hub::actuals::common::operation_id(&target).unwrap();

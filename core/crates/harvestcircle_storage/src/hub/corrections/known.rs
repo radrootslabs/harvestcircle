@@ -129,14 +129,11 @@ pub(super) async fn recipient_on(
             )
         }
         "actual_review" => {
-            let receipt = Box::pin(tx.actual_review(hub, op)).await?;
-            let crate::HubActualReviewOriginal::Departure(plan) = &receipt.original else {
-                return Err(corrupt_storage());
-            };
+            let known = Box::pin(tx.actual_known(hub, &op)).await?;
             (
                 CorrectedDepartureFamily::ReviewedActual,
-                plan.comparison.scope.recipient.clone(),
-                vec![plan.reduction.before.trace],
+                known.recipient,
+                vec![known.trace],
                 Vec::new(),
             )
         }
@@ -210,13 +207,24 @@ pub(super) async fn load_with_proofs_on(
                 Box::pin(handling::departure::read::original_on(tx, hub, op)).await?;
             }
             "actual_review" => {
-                Box::pin(tx.actual_review(hub, op)).await?;
+                Box::pin(tx.actual_is_departure(hub, &op)).await?;
             }
             _ => return Err(corrupt_storage()),
         }
     }
     let originals = Box::pin(handling::actuals::known_departures_on(tx, hub, trace, cut)).await?;
     let recipient_records = Box::pin(super::recipient_records_with_proofs_on(tx, hub, cut)).await?;
+    components_on(tx, hub, trace, cut, originals, &recipient_records).await
+}
+
+async fn components_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    trace: HubRecordId,
+    cut: HubRevision,
+    originals: Vec<ActualKnownDeparture>,
+    recipient_records: &[RecipientAttributionCorrection],
+) -> Result<Vec<HubCorrectionKnownDeparture>, SafeError> {
     let mut result = Vec::with_capacity(originals.len());
     let mut ids = BTreeSet::new();
     for original in originals {
@@ -322,6 +330,38 @@ pub(in crate::hub) async fn actual_interpretations_at_with_proofs_on(
     use harvestcircle_domain::hub::actuals::{
         ActualKnownInterpretation, ActualKnownInterpretations,
     };
+    let latest = interpretation_clock_on(tx, hub, trace, stock, catalog).await?;
+    let known = Box::pin(load_with_proofs_on(tx, hub, trace, stock)).await?;
+    let mut records = Vec::with_capacity(known.len());
+    for entry in known {
+        let record = ActualKnownInterpretation {
+            stock_revision: stock,
+            catalog_revision: catalog,
+            latest_recorded_at: latest,
+            original: entry.original,
+            recipient_original: entry.recipient_original,
+            recipient_history: entry.recipient_history,
+            quantities: entry.quantities,
+        };
+        record.view().map_err(|_| corrupt_storage())?;
+        records.push(record);
+    }
+    Ok(ActualKnownInterpretations {
+        hub,
+        stock_revision: stock,
+        catalog_revision: catalog,
+        latest_recorded_at: latest,
+        records,
+    })
+}
+
+async fn interpretation_clock_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    trace: HubRecordId,
+    stock: HubRevision,
+    catalog: HubRevision,
+) -> Result<UnixTimestamp, SafeError> {
     let current = stock::read::journal_state_on(tx, hub).await?.revision;
     let references = reference::load_catalog_on(tx, hub).await?;
     if stock.value() > current.value() || catalog.value() > references.revision().value() {
@@ -368,28 +408,57 @@ pub(in crate::hub) async fn actual_interpretations_at_with_proofs_on(
     .await
     .map_err(|_| storage_unavailable())?;
     let latest = stock::read::timestamp(latest.ok_or_else(corrupt_storage)?)?;
-    let known = Box::pin(load_with_proofs_on(tx, hub, trace, stock)).await?;
-    let mut records = Vec::with_capacity(known.len());
-    for entry in known {
-        let record = ActualKnownInterpretation {
-            stock_revision: stock,
-            catalog_revision: catalog,
-            latest_recorded_at: latest,
-            original: entry.original,
-            recipient_original: entry.recipient_original,
-            recipient_history: entry.recipient_history,
-            quantities: entry.quantities,
-        };
-        record.view().map_err(|_| corrupt_storage())?;
-        records.push(record);
+    Ok(latest)
+}
+
+/// Exact selected event and its full R/Q history, not a complete candidate inventory.
+/// Explicit links never need to recursively restore every earlier zero-effect link.
+pub(in crate::hub) async fn selected_actual_interpretation_at_with_proofs_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    trace: HubRecordId,
+    operation: &DurableRequestId,
+    variant: HubRecordId,
+    stock: HubRevision,
+    catalog: HubRevision,
+) -> Result<harvestcircle_domain::hub::actuals::ActualKnownInterpretation, SafeError> {
+    let latest = interpretation_clock_on(tx, hub, trace, stock, catalog).await?;
+    let op = stock::read::operation_on(tx, hub, operation)
+        .await?
+        .ok_or_else(corrupt_storage)?;
+    if op.revision.value() > stock.value() || op.catalog_revision.value() > catalog.value() {
+        return Err(corrupt_storage());
     }
-    Ok(ActualKnownInterpretations {
+    let original = match op.kind.as_str() {
+        "actual_review" => Box::pin(tx.actual_known(hub, &op)).await?,
+        "departure" => Box::pin(handling::actuals::known_departure_on(tx, hub, trace, op)).await?,
+        _ => return Err(corrupt_storage()),
+    };
+    if original.trace != trace || original.variant.id != variant {
+        return Err(corrupt_storage());
+    }
+    let records = Box::pin(super::recipient_records_with_proofs_on(tx, hub, stock)).await?;
+    let mut components = Box::pin(components_on(
+        tx,
         hub,
+        trace,
+        stock,
+        vec![original],
+        &records,
+    ))
+    .await?;
+    let entry = components.pop().ok_or_else(corrupt_storage)?;
+    let record = harvestcircle_domain::hub::actuals::ActualKnownInterpretation {
         stock_revision: stock,
         catalog_revision: catalog,
         latest_recorded_at: latest,
-        records,
-    })
+        original: entry.original,
+        recipient_original: entry.recipient_original,
+        recipient_history: entry.recipient_history,
+        quantities: entry.quantities,
+    };
+    record.view().map_err(|_| corrupt_storage())?;
+    Ok(record)
 }
 
 /// Whole immutable events without invoking quantity/funding projections. Source
@@ -415,14 +484,8 @@ pub(super) async fn attribution_affected_on(
         let op = stock::read::operation_on(tx, hub, &id)
             .await?
             .ok_or_else(corrupt_storage)?;
-        if op.kind == "actual_review" {
-            let original = Box::pin(tx.actual_review(hub, op)).await?;
-            if !matches!(
-                &original.original,
-                crate::HubActualReviewOriginal::Departure(_)
-            ) {
-                continue;
-            }
+        if op.kind == "actual_review" && !Box::pin(tx.actual_is_departure(hub, &op)).await? {
+            continue;
         }
         let original = Box::pin(recipient_on(tx, hub, &id)).await?;
         if original.populations.contains(&trace) {

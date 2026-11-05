@@ -7,6 +7,7 @@ import org.harvestcircle.application.HubSourceCertainty
 import org.harvestcircle.application.HubTraceHistoryKind
 import org.harvestcircle.application.HubTraceQuantityAmendmentKind
 import org.harvestcircle.application.toModel
+import org.harvestcircle.testbridge.ffi.actualLinkInterpretationEncodingProbe
 import org.harvestcircle.testbridge.ffi.actualReportResolutionEncodingProbe
 import org.harvestcircle.testbridge.ffi.actualTraceEncodingProbe
 import org.harvestcircle.testbridge.ffi.actualTraceHistoryEncodingProbe
@@ -16,11 +17,28 @@ import org.harvestcircle.testbridge.ffi.sourceTraceEncodingProbe
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 // This is an encoding/read-consumer fixture, not native admission or persisted
 // effect acceptance. Real storage worlds qualify those independently.
 class ActualTraceReadAcceptanceTest {
+    @Test
+    fun generatedLinkMeaningRetainsOriginalTwoEffectiveZeroAndUnknownWithoutRecipientFallback() {
+        val native = actualLinkInterpretationEncodingProbe()
+        val model = native.toModel()
+        val meaning = assertNotNull(model.interpretation)
+        assertEquals(2U, model.known.wholePacks)
+        assertEquals(2U, meaning.originalWholePacks)
+        assertEquals(0U, meaning.effectiveWholePacks)
+        assertEquals(null, meaning.recipient)
+        assertEquals(model.known.recipient, meaning.recipientHistory.single().originalRecipient)
+        assertEquals(null, meaning.recipientHistory.single().after)
+        assertEquals(0U, meaning.quantities.single().effectiveWholePacks)
+        assertEquals(2U, meaning.quantities.single().originalWholePacks)
+        assertEquals(native.interpretation?.stockRevision, meaning.stockRevision)
+    }
+
     @Test
     fun generatedRecipientHistoryKeepsOriginalPartyUnknownMeaningAndManualScopeDistinct() {
         val original = actualTraceEncodingProbe().toModel()

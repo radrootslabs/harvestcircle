@@ -1,9 +1,13 @@
 //! Immutable original proofs belong to one read phase of one native transaction.
 //! No owner, custody, current permission, pending intent or admission is cached.
-use super::{model::*, reviews};
-use crate::{db::corrupt_storage, hub::stock};
+use super::{frozen, mode, model::*, projection, reviews};
+use crate::{
+    db::{corrupt_storage, storage_unavailable},
+    hub::stock,
+};
 use harvestcircle_domain::{SafeError, hub::HubId};
 use radroots_service_sqlite::ServiceSqliteTransaction;
+use sqlx::Row;
 use std::{
     collections::{BTreeMap, VecDeque},
     io::{self, Write},
@@ -18,7 +22,7 @@ const PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 mod tests;
 
 /// Includes the complete canonical operation identity, not caller-selected cuts.
-/// New native interpretation modes must additionally bind their canonical epoch.
+/// Epoch/mode and native capture/result seals are resolved before either cache.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct Key {
     hub: [u8; 16],
@@ -30,9 +34,22 @@ struct Key {
     result: [u8; 16],
     recorded: i64,
     schema: u32,
+    mode: mode::Mode,
+    seals: Seals,
+}
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct Seals {
+    result: [u8; 32],
+    capture: [u8; 32],
+    projection: Option<[u8; 32]>,
 }
 impl Key {
-    fn canonical(hub: HubId, op: &stock::read::OperationRecord) -> Self {
+    fn canonical(
+        hub: HubId,
+        op: &stock::read::OperationRecord,
+        mode: mode::Mode,
+        seals: Seals,
+    ) -> Self {
         Self {
             hub: *hub.as_bytes(),
             operation: op.id.as_str().to_owned(),
@@ -43,6 +60,8 @@ impl Key {
             result: *op.result.as_bytes(),
             recorded: op.recorded_at.as_seconds(),
             schema: crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION,
+            mode,
+            seals,
         }
     }
 }
@@ -56,6 +75,10 @@ struct Proofs {
     completed: BTreeMap<Key, Entry>,
     order: VecDeque<Key>,
     active: Vec<Key>,
+    // One small fixed-shape identity and review kind per bounded original.
+    // These certificates retain neither receipt bodies nor interpretation sets.
+    // They expire with this transaction read phase and convey no authority.
+    verified: BTreeMap<Key, bool>,
     bytes: usize,
     entry_limit: usize,
     payload_limit: usize,
@@ -63,6 +86,8 @@ struct Proofs {
     rebuilt: usize,
     #[cfg(test)]
     hits: usize,
+    #[cfg(test)]
+    certificate_hits: usize,
 }
 impl Default for Proofs {
     fn default() -> Self {
@@ -70,6 +95,7 @@ impl Default for Proofs {
             completed: BTreeMap::new(),
             order: VecDeque::new(),
             active: Vec::new(),
+            verified: BTreeMap::new(),
             bytes: 0,
             entry_limit: ENTRIES,
             payload_limit: PAYLOAD_BYTES,
@@ -77,6 +103,8 @@ impl Default for Proofs {
             rebuilt: 0,
             #[cfg(test)]
             hits: 0,
+            #[cfg(test)]
+            certificate_hits: 0,
         }
     }
 }
@@ -118,19 +146,45 @@ impl<'borrow, 'connection> OriginalReader<'borrow, 'connection> {
         )
     }
 
-    pub(in crate::hub) async fn actual_review(
+    #[cfg(test)]
+    pub(in crate::hub) fn certificate_counts(&self) -> (usize, usize) {
+        (self.proofs.certificate_hits, self.proofs.verified.len())
+    }
+
+    async fn canonical_key(
         &mut self,
         hub: HubId,
-        supplied: stock::read::OperationRecord,
-    ) -> Result<Arc<HubActualReviewReceipt>, SafeError> {
+        supplied: &stock::read::OperationRecord,
+    ) -> Result<(stock::read::OperationRecord, Key), SafeError> {
         // Re-read the canonical native header before selecting a cached proof.
         let op = stock::read::operation_on(self.tx, hub, &supplied.id)
             .await?
             .ok_or_else(corrupt_storage)?;
-        let key = Key::canonical(hub, &op);
+        let mode = mode::original_on(self.tx, hub, &op).await?;
+        let row = sqlx::query("SELECT substr(r.result_hash,1,33) AS result_hash,substr(r.projection_hash,1,33) AS projection_hash,substr(s.capture_hash,1,33) AS capture_hash FROM hub_actual_reviews r JOIN hub_submissions s ON s.operation_id=r.operation_id WHERE r.operation_id=? LIMIT 1")
+            .bind(op.id.as_str()).fetch_optional(&mut *self.tx).await.map_err(|_| storage_unavailable())?.ok_or_else(corrupt_storage)?;
+        let bytes = |name| -> Result<[u8; 32], SafeError> {
+            row.try_get::<Vec<u8>, _>(name)
+                .map_err(|_| corrupt_storage())?
+                .try_into()
+                .map_err(|_| corrupt_storage())
+        };
+        let seals = Seals {
+            result: bytes("result_hash")?,
+            capture: bytes("capture_hash")?,
+            projection: row
+                .try_get::<Option<Vec<u8>>, _>("projection_hash")
+                .map_err(|_| corrupt_storage())?
+                .map(|v| v.try_into().map_err(|_| corrupt_storage()))
+                .transpose()?,
+        };
+        if matches!(mode, mode::Mode::Qualified { capture, .. } if capture != seals.capture) {
+            return Err(corrupt_storage());
+        }
+        let key = Key::canonical(hub, &op, mode, seals);
         if op.kind != "actual_review"
             || supplied.kind != op.kind
-            || Key::canonical(hub, &supplied) != key
+            || Key::canonical(hub, supplied, mode, seals) != key
         {
             return Err(corrupt_storage());
         }
@@ -145,6 +199,61 @@ impl<'borrow, 'connection> OriginalReader<'borrow, 'connection> {
         {
             return Err(corrupt_storage());
         }
+        Ok((op, key))
+    }
+
+    /// Verify the complete original once even when its full receipt is evicted.
+    /// The boolean is only its immutable review kind, never effect permission.
+    pub(in crate::hub) async fn actual_is_departure(
+        &mut self,
+        hub: HubId,
+        supplied: &stock::read::OperationRecord,
+    ) -> Result<bool, SafeError> {
+        let (op, key) = self.canonical_key(hub, supplied).await?;
+        if let Some(physical) = self.proofs.verified.get(&key) {
+            #[cfg(test)]
+            {
+                self.proofs.certificate_hits += 1;
+            }
+            return Ok(*physical);
+        }
+        let receipt = Box::pin(self.actual_review(hub, op)).await?;
+        Ok(matches!(
+            receipt.original,
+            HubActualReviewOriginal::Departure(_)
+        ))
+    }
+
+    pub(in crate::hub) async fn actual_known(
+        &mut self,
+        hub: HubId,
+        op: &stock::read::OperationRecord,
+    ) -> Result<harvestcircle_domain::hub::actuals::ActualKnownDeparture, SafeError> {
+        if !Box::pin(self.actual_is_departure(hub, op)).await? {
+            return Err(corrupt_storage());
+        }
+        projection::known_on(self.tx, hub, op).await
+    }
+
+    pub(in crate::hub) async fn actual_before(
+        &mut self,
+        hub: HubId,
+        op: &stock::read::OperationRecord,
+    ) -> Result<harvestcircle_domain::hub::movement::PhysicalStockGroup, SafeError> {
+        if !Box::pin(self.actual_is_departure(hub, op)).await? {
+            return Err(corrupt_storage());
+        }
+        // Only this owner invokes the shallow frozen-group decoder, after the
+        // complete original certificate was checked in this same read phase.
+        frozen::verified_before_on(self.tx, hub, op).await
+    }
+
+    pub(in crate::hub) async fn actual_review(
+        &mut self,
+        hub: HubId,
+        supplied: stock::read::OperationRecord,
+    ) -> Result<Arc<HubActualReviewReceipt>, SafeError> {
+        let (op, key) = self.canonical_key(hub, &supplied).await?;
         if let Some(entry) = self.proofs.completed.get(&key) {
             #[cfg(test)]
             {
@@ -162,6 +271,13 @@ impl<'borrow, 'connection> OriginalReader<'borrow, 'connection> {
             return Err(corrupt_storage());
         }
         let receipt = Arc::new(result?);
+        if self.proofs.verified.len() >= ENTRIES && !self.proofs.verified.contains_key(&key) {
+            return Err(corrupt_storage());
+        }
+        self.proofs.verified.insert(
+            key.clone(),
+            matches!(receipt.original, HubActualReviewOriginal::Departure(_)),
+        );
         self.proofs.retain(key, Arc::clone(&receipt));
         Ok(receipt)
     }

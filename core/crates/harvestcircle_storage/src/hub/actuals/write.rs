@@ -10,7 +10,7 @@ use harvestcircle_domain::{
     PublicKey, SafeError, UnixTimestamp,
     hub::actuals::{
         ActualNewDepartureCommand, ActualNewDeparturePlan, HistoricalHoldScopeContext,
-        actual_departure_projection_digest, actual_departure_result_digest,
+        actual_departure_projection_digest,
     },
 };
 use radroots_service_sqlite::ServiceSqliteTransaction;
@@ -42,9 +42,7 @@ pub(in crate::hub) async fn departure_on(
     )
     .await?;
     let context = frozen::current_on(tx, hub.id(), &command, Some(&operation)).await?;
-    let plan = command
-        .plan(&context.domain(), id, actor, now)
-        .map_err(error)?;
+    let plan = context.plan(&command, id, actor, now)?;
     let findings = context
         .treatment
         .holds()
@@ -61,15 +59,7 @@ pub(in crate::hub) async fn departure_on(
         })
         .collect::<Result<Vec<_>, _>>()
         .map_err(error)?;
-    let digest = actual_departure_result_digest(
-        &hash,
-        &command,
-        &context.domain(),
-        &context.births,
-        &findings,
-        &plan,
-    )
-    .map_err(error)?;
+    let digest = context.digest(&hash, &command, &findings, &plan)?;
     let physical = plan.physical_projection().map_err(error)?;
     let projection =
         actual_departure_projection_digest(&hash, plan.report.id, &context.source, &physical)
@@ -85,6 +75,7 @@ pub(in crate::hub) async fn departure_on(
         recorded_at: now,
     };
     handling::write::insert_operation_on(tx, hub.id(), &op).await?;
+    super::mode::persist_on(tx, hub.id(), &op).await?;
     capture_departure_on(tx, &operation, &plan, &context, &digest, &projection).await?;
     frozen::persist_on(tx, &operation, &context).await?;
     let before = &plan.reduction.before;

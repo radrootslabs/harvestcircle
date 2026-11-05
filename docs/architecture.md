@@ -28,10 +28,18 @@ Production graphs must exclude test bridges and fixture controls.
 
 ## Compatibility and data
 
-The current storage schema is 19, FFI is 5.28 and snapshot schema is 1. Rust and
+The current storage schema is 20, FFI is 5.29 and snapshot schema is 1. Rust and
 Kotlin compatibility inputs are checked before opening application state.
 Generated bindings and native libraries must come from the same producer.
 There is no ambient-library fallback.
+
+Schema20 records the native activation cut for actual-review interpretations.
+Earlier reviews retain their original format; new reviews bind their interpretation
+to the exact admission and stock/catalog revisions. Duplicate links retain original
+quantity and recipient separately from their meaning at review, including effective
+zero and Unknown. Linking changes no physical stock or current hold. An independently
+identified Found cohort can support an actual review only after its original debit,
+allocation, birth and historical location have been verified natively.
 
 Schema12 prepares storage for typed stock populations. Existing receipts retain
 their original data and default `receipt` origin. The physical `hub_receipts`
@@ -219,9 +227,9 @@ cut and compares the exact admitted material; saved pending input grants no new
 execution. Source identities introduced by a correction retain their first creator
 and remain valid for later independent receipts. Stock, work, holds and as-issued
 records stay unchanged. Trace reads/search and local output retain original and
-amended source interpretations, with paged manual follow-up scope. Recipient,
-linked-document and count histories remain fenced pending their qualified
-adapters. Source-entry forms and a public correction mutation route are unfinished.
+amended source interpretations, with paged manual follow-up scope. Linked-document
+and count histories remain fenced pending their qualified adapters. Source-entry
+forms and a public correction mutation route are unfinished.
 The affected scope includes every issued version at the captured cut, including
 paper with no departure, and all populations and original recipients on that paper.
 Later closure does not remove that historical scope. Current preparation, issue,
@@ -610,6 +618,7 @@ follow-up scope. They change current meaning without changing physical quantitie
 work, holds, return funding or issued bytes. Original and current recipients remain
 visible in typed paged trace reads, search and local output. Fresh submission
 admission is required; persisted pending input cannot reconstruct an execution
-grant. Public recipient-entry forms remain unfinished. Fresh actual-review/link
-planning is temporarily blocked after recipient history until the current
-association adapter is qualified; original recovery and raw reporting remain.
+grant. Public recipient-entry forms remain unfinished. Actual-review and duplicate
+link planning use native recipient and quantity interpretations at their exact
+stock/catalog revisions. Original recovery preserves the review's recorded meaning
+through later amendments; raw reporting remains separate from reconciliation.

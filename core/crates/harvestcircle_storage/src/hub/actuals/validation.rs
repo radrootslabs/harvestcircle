@@ -20,6 +20,7 @@ pub(in crate::hub) async fn headers_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
 ) -> Result<(), SafeError> {
+    super::mode::audit_on(tx, hub).await?;
     let invalid:i64=sqlx::query_scalar(concat!(
         "SELECT ",
         "(SELECT count(*) FROM hub_stock_operations o WHERE o.hub_id=? AND (",

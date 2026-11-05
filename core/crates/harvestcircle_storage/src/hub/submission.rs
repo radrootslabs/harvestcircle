@@ -2,6 +2,7 @@
 mod admission;
 pub(in crate::hub) use admission::{uncertainty_all_on, uncertainty_on};
 mod capture;
+pub(in crate::hub) use capture::capture_references;
 mod execute;
 mod intent;
 pub use execute::HubMutationResult;

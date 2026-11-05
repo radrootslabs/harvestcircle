@@ -11,8 +11,7 @@ use harvestcircle_domain::{
         HubId, HubRevision,
         actuals::{
             ActualDuplicateLink, ActualNewDepartureCommand, ActualReviewFacts,
-            HistoricalHoldScopeContext, actual_departure_result_digest,
-            actual_duplicate_result_digest,
+            HistoricalHoldScopeContext, actual_duplicate_result_digest,
         },
         reference::SourceProvenance,
     },
@@ -49,6 +48,31 @@ fn evidence(row: &SqliteRow, name: &str) -> Result<SourceProvenance, SafeError> 
     SourceProvenance::new(stock::read::text(row, name)?).map_err(|_| corrupt_storage())
 }
 
+async fn verify_capture_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    op: &OperationRecord,
+    mode: super::mode::Mode,
+    request: harvestcircle_application::hub_submission::HubSubmittedRequest<'_>,
+    cut: HubRevision,
+    material: &[harvestcircle_application::hub_submission::HubSubmittedMaterial],
+) -> Result<(), SafeError> {
+    let hash = crate::hub::submission::verify_recorded_capture_on(
+        tx,
+        hub,
+        op,
+        request,
+        cut,
+        op.catalog_revision,
+        material,
+    )
+    .await?;
+    if matches!(mode, super::mode::Mode::Qualified { capture, .. } if capture != hash) {
+        return Err(corrupt_storage());
+    }
+    Ok(())
+}
+
 pub(in crate::hub) async fn original_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     hub: HubId,
@@ -72,6 +96,7 @@ pub(in crate::hub) async fn rebuild_on(
     if op.kind != "actual_review" {
         return Err(stock::conflict());
     }
+    let mode = super::mode::original_on(tx, hub, &op).await?;
     let row=sqlx::query(concat!(
         "SELECT policy_version,substr(review_kind,1,33) AS review_kind,substr(report_id,1,17) AS report_id,",
         "substr(trace_id,1,17) AS trace_id,substr(group_id,1,17) AS group_id,substr(variant_id,1,17) AS variant_id,variant_revision,",
@@ -136,8 +161,8 @@ pub(in crate::hub) async fn rebuild_on(
                 duplicate_review_basis: evidence(&row, "verification")?,
             };
             let context = frozen::original_on(tx, hub, &op, &row, &command).await?;
-            let plan = command
-                .plan(&context.domain(), id, op.actor, op.recorded_at)
+            let plan = context
+                .plan(&command, id, op.actor, op.recorded_at)
                 .map_err(|_| corrupt_storage())?;
             let findings = context
                 .treatment
@@ -175,15 +200,38 @@ pub(in crate::hub) async fn rebuild_on(
             {
                 return Err(corrupt_storage());
             }
-            let digest = actual_departure_result_digest(
-                &op.hash,
-                &command,
-                &context.domain(),
-                &context.births,
-                &findings,
-                &plan,
+            let digest = context
+                .digest(&op.hash, &command, &findings, &plan)
+                .map_err(|_| corrupt_storage())?;
+            let mut material = vec![
+                harvestcircle_application::hub_submission::HubSubmittedMaterial::ActualReview(
+                    Box::new(context.material(id)),
+                ),
+            ];
+            crate::hub::submission::capture_references(
+                &context.catalog,
+                [
+                    context.group.variant,
+                    context.group.location,
+                    command.facts.recipient,
+                ]
+                .into_iter()
+                .collect(),
+                &mut material,
             )
             .map_err(|_| corrupt_storage())?;
+            verify_capture_on(
+                tx,
+                hub,
+                &op,
+                mode,
+                harvestcircle_application::hub_submission::HubSubmittedRequest::ActualReview(
+                    &command,
+                ),
+                cut,
+                &material,
+            )
+            .await?;
             verify_work_changes_on(tx, &op, &plan.reduction.work_changes).await?;
             (
                 HubActualReviewOriginal::Departure(Box::new(plan)),
@@ -206,21 +254,75 @@ pub(in crate::hub) async fn rebuild_on(
                     .ok_or_else(corrupt_storage)?,
             )
             .map_err(|_| corrupt_storage())?;
-            let known = handling::actuals::known_departures_on(tx, hub, trace, cut)
-                .await?
-                .into_iter()
-                .find(|known| operation(known.operation).is_ok_and(|id| id == known_operation))
-                .ok_or_else(corrupt_storage)?;
             let command = ActualDuplicateLink {
                 report: report.id,
-                known_operation: known.operation,
+                known_operation: operation_id(&known_operation).map_err(|_| corrupt_storage())?,
                 known_trace: trace,
                 known_variant: record_id(&row, "variant_id")?,
                 verification: evidence(&row, "verification")?,
             };
-            let plan = command
-                .plan(&report, &known, None, id, op.actor, op.recorded_at)
-                .map_err(|_| corrupt_storage())?;
+            let interpretation = if mode.qualified() {
+                Some(
+                    Box::pin(
+                        crate::hub::corrections::selected_actual_interpretation_at_with_proofs_on(
+                            tx,
+                            hub,
+                            trace,
+                            &known_operation,
+                            command.known_variant,
+                            cut,
+                            op.catalog_revision,
+                        ),
+                    )
+                    .await?,
+                )
+            } else {
+                None
+            };
+            let known = if let Some(record) = &interpretation {
+                record.original.clone()
+            } else {
+                handling::actuals::known_departures_on(tx, hub, trace, cut)
+                    .await?
+                    .into_iter()
+                    .find(|known| operation(known.operation).is_ok_and(|id| id == known_operation))
+                    .ok_or_else(corrupt_storage)?
+            };
+            let plan = match &interpretation {
+                Some(record) => command.plan_with_interpretation(
+                    &report,
+                    record,
+                    None,
+                    id,
+                    op.actor,
+                    op.recorded_at,
+                ),
+                None => command.plan(&report, &known, None, id, op.actor, op.recorded_at),
+            }
+            .map_err(|_| corrupt_storage())?;
+            verify_capture_on(
+                tx,
+                hub,
+                &op,
+                mode,
+                harvestcircle_application::hub_submission::HubSubmittedRequest::ActualLink(
+                    &command,
+                ),
+                cut,
+                &[
+                    harvestcircle_application::hub_submission::HubSubmittedMaterial::ActualLink(
+                        Box::new(
+                            harvestcircle_application::hub_submission::HubSubmittedActualLink {
+                                id,
+                                report: report.clone(),
+                                known: known.clone(),
+                                interpretation,
+                            },
+                        ),
+                    ),
+                ],
+            )
+            .await?;
             let group = record_id(&row, "group_id")?;
             if known.variant.revision != revision_field(&row, "variant_revision")?
                 || known.recipient.id != record_id(&row, "recipient_id")?

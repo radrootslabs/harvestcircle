@@ -26,9 +26,16 @@ fn note() -> SourceProvenance {
     .unwrap()
 }
 
-#[tokio::test]
-async fn default_stack_branching_originals_share_proofs_and_small_cache_rebuilds_preserve_every_result_after_reopen()
- {
+async fn native_world(
+    extra: u32,
+) -> (
+    Fixture,
+    Database,
+    HubId,
+    HubRecordId,
+    HubRecordId,
+    Vec<HubActualReviewReceipt>,
+) {
     let (fixture, db, hub, trace) = world().await;
     let first = db
         .hub_actual_review_operation(owner(), operation(81))
@@ -55,7 +62,7 @@ async fn default_stack_branching_originals_share_proofs_and_small_cache_rebuilds
         actor: owner(),
     };
     let mut originals = vec![first];
-    for n in 0..16u32 {
+    for n in 0..extra {
         let occurred = Occurrence::Known(at(111 + i64::from(n)));
         let crate::HubMutationResult::ActualReported(report) = db
             .submit_hub_mutation(
@@ -112,6 +119,13 @@ async fn default_stack_branching_originals_share_proofs_and_small_cache_rebuilds
         };
         originals.push(*review);
     }
+    (fixture, db, hub, trace, group, originals)
+}
+
+#[tokio::test]
+async fn default_stack_branching_originals_share_proofs_and_small_cache_rebuilds_preserve_every_result_after_reopen()
+ {
+    let (fixture, db, hub, trace, group, originals) = native_world(16).await;
     assert_eq!(
         db.hub_group(owner(), group)
             .await
@@ -173,17 +187,20 @@ async fn default_stack_branching_originals_share_proofs_and_small_cache_rebuilds
             }
             let counts = reader.proof_counts();
             assert_eq!(counts.0, 17);
-            assert!(counts.1 >= 34 && counts.2 == 17 && counts.3 <= PAYLOAD_BYTES);
+            assert!(reader.certificate_counts().0 >= 34 && counts.2 == 17 && counts.3 <= PAYLOAD_BYTES);
             println!("Default seventeen-original phase rebuild/hit/entry/charged-byte counts: {counts:?}");
+            println!("Default seventeen-original certificate hits/entries: {:?}",reader.certificate_counts());
         }
         // Only the private test cache is constrained; native capacities and
         // every original outcome remain exactly the same.
         let mut reader = OriginalReader::for_test_budget(tx, 2, 64*1024);
         assert_eq!(Box::pin(corrections::actual_interpretations_at_with_proofs_on(&mut reader, hub, trace, stock, catalog)).await?, expected);
         let counts = reader.proof_counts();
-        assert!(counts.0 > 17 && counts.0 <= 3*17);
+        assert_eq!(counts.0, 17);
+        assert_eq!(reader.certificate_counts().1,17);
         assert!(counts.2 <= 2 && counts.3 <= 64*1024);
         println!("Constrained seventeen-original phase rebuild/hit/entry/charged-byte counts: {counts:?}");
+        println!("Constrained seventeen-original certificate hits/entries: {:?}",reader.certificate_counts());
         Ok::<_, SafeError>(())
     })).await.unwrap();
     assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
@@ -205,6 +222,40 @@ async fn default_stack_branching_originals_share_proofs_and_small_cache_rebuilds
             Some(receipt)
         );
     }
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    db.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn native20_dense_four_originals_measure_full_receipt_eviction_without_changing_outcomes() {
+    let (fixture, db, hub, trace, _, _) = native_world(3).await;
+    let expected = db
+        .hub_actual_known_interpretations(
+            owner(),
+            crate::HubCorrectionKnownQuery {
+                trace,
+                expected_stock_revision: None,
+                expected_catalog_revision: None,
+            },
+        )
+        .await
+        .unwrap()
+        .interpretations;
+    assert_eq!(expected.records.len(), 4);
+    let (stock, catalog) = (expected.stock_revision, expected.catalog_revision);
+    let before = crate::hub::custody::tests::material(&fixture).await;
+    db.host().transaction(|tx| Box::pin(async move {
+        let mut reader = OriginalReader::for_test_budget(tx, 2, 64*1024);
+        assert_eq!(Box::pin(corrections::actual_interpretations_at_with_proofs_on(&mut reader, hub, trace, stock, catalog)).await?, expected);
+        let counts = reader.proof_counts();
+        println!("Dense four-original two-entry rebuild/hit/entry/charged-byte counts: {counts:?}");
+        let certificates = reader.certificate_counts();
+        println!("Dense four-original certificate hits/entries: {certificates:?}");
+        assert_eq!(counts.0, 4);
+        assert!(counts.2 <= 2 && counts.3 <= 64*1024);
+        assert_eq!(certificates.1,4);
+        Ok::<_, SafeError>(())
+    })).await.unwrap();
     assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
     db.close().await.unwrap();
 }

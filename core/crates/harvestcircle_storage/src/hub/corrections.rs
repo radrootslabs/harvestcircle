@@ -206,9 +206,9 @@ pub(in crate::hub) mod birth;
 pub(in crate::hub) mod funding;
 pub(in crate::hub) mod initial_review;
 mod known;
-#[cfg(test)]
 pub(in crate::hub) use known::actual_interpretations_at_with_proofs_on;
 pub(in crate::hub) use known::current_actual_interpretations_on;
+pub(in crate::hub) use known::selected_actual_interpretation_at_with_proofs_on;
 mod observation_payload;
 #[cfg(test)]
 pub(super) mod projection_native_tests;
@@ -281,27 +281,6 @@ pub(in crate::hub) async fn source_history_with_proofs_on(
         .into_iter()
         .filter(|c| c.original.trace == trace)
         .collect())
-}
-
-/// Temporary fresh-review fence until exact-cut actual association integration
-/// qualifies. Raw report ingress and immutable historical reads stay available.
-pub(in crate::hub) async fn require_recipient_actual_adapter_on(
-    tx: &mut ServiceSqliteTransaction<'_>,
-    hub: HubId,
-    cut: HubRevision,
-) -> Result<(), SafeError> {
-    if !Box::pin(recipient_records_on(tx, hub, cut))
-        .await?
-        .is_empty()
-    {
-        return Err(harvestcircle_domain::SafeError::new(
-            harvestcircle_domain::SafeErrorCode::HubConflict,
-            harvestcircle_domain::SafeMessage::new(
-                "Recipient attribution changed. Actual-event review needs the linked original and amended associations before it can continue.",
-            ),
-        ));
-    }
-    Ok(())
 }
 
 pub(in crate::hub) async fn recipient_records_on(

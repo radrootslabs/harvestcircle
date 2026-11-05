@@ -45,6 +45,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -220,6 +221,12 @@ class ActualNativeTransportAcceptanceTest {
                     val linkPreview = runtime.actualLinkPreviewNative(linkContext.operationId, linkInput)
                     assertEquals(duplicate, linkPreview.proposed.report)
                     assertEquals(2U, linkPreview.proposed.known.wholePacks)
+                    val meaning = assertNotNull(linkPreview.proposed.interpretation)
+                    assertEquals(2U, meaning.originalWholePacks)
+                    assertEquals(2U, meaning.effectiveWholePacks)
+                    assertEquals(linkPreview.proposed.known.recipient, meaning.recipient)
+                    assertEquals(1, meaning.quantities.size)
+                    assertTrue(meaning.recipientHistory.isEmpty())
                     val linked = runtime.linkActualNative(linkContext, linkInput)
                     assertIs<HubActualReviewOriginalDto.Duplicate>(linked.original)
                     assertEquals(after.rows, runtime.stock(HubStockQuery()).rows)
@@ -348,6 +355,11 @@ class ActualNativeTransportAcceptanceTest {
                     )
                 val linkedPreview = runtime.actualLinkPreview(linkContext.operationId, link)
                 assertEquals(2U, linkedPreview.proposed.known.wholePacks)
+                val meaning = assertNotNull(linkedPreview.proposed.interpretation)
+                assertEquals(2U, meaning.originalWholePacks)
+                assertEquals(2U, meaning.effectiveWholePacks)
+                assertEquals(linkedPreview.proposed.known.recipient, meaning.recipient)
+                assertEquals(1, meaning.quantities.size)
                 val linked = runtime.linkActual(linkContext, link)
                 assertEquals(linkedPreview.proposed, assertIs<HubActualReviewOriginal.Duplicate>(linked.original).original)
                 assertEquals(18U, runtime.group(group.group.id).group.wholePacks)

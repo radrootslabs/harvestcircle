@@ -34,8 +34,8 @@ async fn source(
     }
 }
 #[tokio::test]
-async fn source_recipient_source_preserves_zero_actual_found_and_unresolved_raw_with_unqualified_found_actual_sql()
- {
+async fn native20_direct_found_source_then_source_recipient_source_preserves_both_actual_originals()
+{
     let fixture = Fixture::new();
     let db = fixture.open().await;
     let (before, target, _) =
@@ -139,9 +139,8 @@ async fn source_recipient_source_preserves_zero_actual_found_and_unresolved_raw_
         crate::hub::custody::tests::material(&fixture).await,
         before_unknown
     );
-    // Current19 admits native historical proof but its retained schema18 SQL
-    // whitelist excludes correction_found. This diagnostic is NOT finished flow
-    // acceptance: positive forward-qualified support is due before Found UI/full13.
+    // Forward-qualified direct found source retains the exact original birth,
+    // parent/debit and historical location; it is not a generic kind whitelist.
     let preview = db
         .hub_actual_departure_preview(owner(), operation(2301), reviewed.clone(), at(250))
         .await
@@ -150,49 +149,31 @@ async fn source_recipient_source_preserves_zero_actual_found_and_unresolved_raw_
         preview.plan.historical_source.historical().operation,
         found.original.operation
     );
-    let before_attempt = crate::hub::custody::tests::material(&fixture).await;
-    assert_eq!(
-        db.submit_hub_mutation(
+    let parent_before = db.hub_group(owner(), before.id).await.unwrap().group;
+    let crate::HubMutationResult::ActualReviewed(actual) = db
+        .submit_hub_mutation(
             scope,
             operation(2301),
             HubMutation::ActualReview(Box::new(reviewed)),
-            at(250)
+            at(250),
         )
-        .await
-        .unwrap_err()
-        .code(),
-        harvestcircle_domain::SafeErrorCode::HubConflict
-    );
-    let rejected = db
-        .hub_submission(owner(), operation(2301))
         .await
         .unwrap()
-        .unwrap();
-    assert_eq!(
-        rejected.status,
-        crate::HubSubmissionStatus::Rejected(
-            harvestcircle_domain::SafeErrorCode::StorageUnavailable
-        )
-    );
-    let unaffected = |rows: Vec<(String, Vec<String>)>| {
-        rows.into_iter()
-            .filter(|(name, _)| {
-                !matches!(
-                    name.as_str(),
-                    "hub_submissions" | "hub_submission_rejections"
-                )
-            })
-            .collect::<Vec<_>>()
+    else {
+        panic!("qualified direct found source")
     };
     assert_eq!(
-        unaffected(before_attempt),
-        unaffected(crate::hub::custody::tests::material(&fixture).await)
+        db.hub_group(owner(), before.id).await.unwrap().group,
+        parent_before
     );
-    assert!(
-        db.hub_actual_review_operation(owner(), operation(2301))
+    assert_eq!(
+        db.hub_group(owner(), child)
             .await
             .unwrap()
-            .is_none()
+            .group
+            .packs
+            .value(),
+        1
     );
     assert_eq!(
         db.hub_actual_report_operation(owner(), operation(2300))
@@ -264,7 +245,7 @@ async fn source_recipient_source_preserves_zero_actual_found_and_unresolved_raw_
         )
         .await
         .unwrap();
-    assert_eq!(known.departures.len(), 1);
+    assert_eq!(known.departures.len(), 2);
     assert!(known.departures.iter().any(
         |r| r.original.operation == original_target && r.quantities[0].effective().value() == 0
     ));
@@ -288,11 +269,12 @@ async fn source_recipient_source_preserves_zero_actual_found_and_unresolved_raw_
             .unwrap(),
         Some(old_actual.clone())
     );
-    assert!(
+    assert_eq!(
         db.hub_actual_review_operation(owner(), operation(2301))
             .await
             .unwrap()
-            .is_none()
+            .as_ref(),
+        Some(actual.as_ref())
     );
     db.close().await.unwrap();
     let db = fixture.open().await;
@@ -330,9 +312,7 @@ async fn source_recipient_source_preserves_zero_actual_found_and_unresolved_raw_
             .unwrap()
             .unwrap()
             .status,
-        crate::HubSubmissionStatus::Rejected(
-            harvestcircle_domain::SafeErrorCode::StorageUnavailable
-        )
+        crate::HubSubmissionStatus::Recorded
     );
     assert_eq!(
         db.hub_actual_report_operation(owner(), operation(2300))
@@ -347,11 +327,12 @@ async fn source_recipient_source_preserves_zero_actual_found_and_unresolved_raw_
             .unwrap(),
         Some(old_actual)
     );
-    assert!(
+    assert_eq!(
         db.hub_actual_review_operation(owner(), operation(2301))
             .await
             .unwrap()
-            .is_none()
+            .as_ref(),
+        Some(actual.as_ref())
     );
     db.close().await.unwrap();
 }

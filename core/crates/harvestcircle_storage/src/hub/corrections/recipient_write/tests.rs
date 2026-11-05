@@ -562,29 +562,51 @@ async fn recipient_of_actual_keeps_old_actual_and_link_recovery_raw_ingress_and_
             .code(),
         SafeErrorCode::HubConflict
     );
-    assert_eq!(
-        db.hub_actual_link_preview(owner(), operation(1952), new_link.clone(), at(280))
-            .await
-            .unwrap_err()
-            .code(),
-        SafeErrorCode::HubConflict
+    let preview = db
+        .hub_actual_link_preview(owner(), operation(1952), new_link.clone(), at(280))
+        .await
+        .unwrap();
+    assert_eq!(preview.plan.known.recipient.id, id(3));
+    let interpreted = preview.plan.interpretation.as_ref().unwrap();
+    assert!(
+        matches!(&interpreted.recipient_history.last().unwrap().after, AmendedRecipient::Known(recipient) if recipient.id == id(4))
     );
-    for (operation, mutation) in [
-        (
+    assert_eq!(interpreted.view().unwrap().effective_packs.value(), 2);
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    assert_eq!(
+        db.submit_hub_mutation(
+            scope,
             operation(1951),
             HubMutation::ActualReview(Box::new(new_review)),
-        ),
-        (operation(1952), HubMutation::ActualLink(Box::new(new_link))),
-    ] {
-        assert_eq!(
-            db.submit_hub_mutation(scope, operation, mutation, at(280))
-                .await
-                .unwrap_err()
-                .code(),
-            SafeErrorCode::HubConflict
-        );
+            at(280)
+        )
+        .await
+        .unwrap_err()
+        .code(),
+        SafeErrorCode::HubConflict
+    );
+    let after_rejection = crate::hub::custody::tests::material(&fixture).await;
+    for ((name, rows), (old_name, old_rows)) in after_rejection.iter().zip(&before) {
+        assert_eq!(name, old_name);
+        if matches!(
+            name.as_str(),
+            "hub_submissions" | "hub_submission_rejections"
+        ) {
+            assert_eq!(rows.len(), old_rows.len() + 1);
+            assert!(old_rows.iter().all(|row| rows.contains(row)));
+        } else {
+            assert_eq!(rows, old_rows, "unchanged physical/original table {name}");
+        }
     }
-    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    assert_eq!(after_rejection.len(), before.len());
+    assert_eq!(
+        db.hub_submission(owner(), operation(1951))
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        crate::HubSubmissionStatus::Rejected(SafeErrorCode::HubConflict)
+    );
     assert_eq!(
         db.hub_actual_report_operation(owner(), operation(1950))
             .await
@@ -592,8 +614,36 @@ async fn recipient_of_actual_keeps_old_actual_and_link_recovery_raw_ingress_and_
             .as_ref(),
         Some(report.as_ref())
     );
+    let stock_before_link = db.hub_stock_page(owner(), query()).await.unwrap();
+    let crate::HubMutationResult::ActualReviewed(current_link) = db
+        .submit_hub_mutation(
+            scope,
+            operation(1952),
+            HubMutation::ActualLink(Box::new(new_link)),
+            at(280),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("qualified current recipient link")
+    };
+    let crate::HubActualReviewOriginal::Duplicate(current_plan) = &current_link.original else {
+        panic!("zero-effect link")
+    };
+    assert_eq!(current_plan.as_ref(), &preview.plan);
+    assert_eq!(
+        db.hub_stock_page(owner(), query()).await.unwrap().rows,
+        stock_before_link.rows
+    );
     db.close().await.unwrap();
     let db = fixture.open().await;
+    assert_eq!(
+        db.hub_actual_review_operation(owner(), operation(1952))
+            .await
+            .unwrap()
+            .as_ref(),
+        Some(current_link.as_ref())
+    );
     assert_eq!(
         db.hub_actual_review_operation(owner(), target_op)
             .await

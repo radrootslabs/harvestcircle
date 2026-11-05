@@ -1,7 +1,9 @@
 //! Canonical read evidence for reported actuals. No mutation or archived grant.
 pub(in crate::hub) mod common;
+pub(crate) mod interpretation_schema;
 mod interpretations;
 pub(in crate::hub) mod links;
+mod mode;
 mod model;
 pub use interpretations::HubActualInterpretationEvidence;
 mod preview;

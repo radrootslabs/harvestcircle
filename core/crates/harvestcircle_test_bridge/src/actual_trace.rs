@@ -50,6 +50,10 @@ pub fn actual_trace_encoding_probe() -> HubTraceSnapshotDto {
 /// Encoding-only whole-event recipient history. No runtime, database or grant.
 #[uniffi::export]
 pub fn recipient_trace_encoding_probe() -> HubTraceSnapshotDto {
+    HubTraceSnapshotDto::try_from(recipient_trace_snapshot()).unwrap()
+}
+
+fn recipient_trace_snapshot() -> TraceSnapshot {
     use harvestcircle_domain::hub::corrections::*;
     let mut snapshot = actual_trace_snapshot();
     let actual = &snapshot.actual_departures[0];
@@ -104,7 +108,70 @@ pub fn recipient_trace_encoding_probe() -> HubTraceSnapshotDto {
         .unwrap();
     snapshot.stock_revision = plan.stamp.stock_revision;
     snapshot.recipient_corrections = vec![plan];
-    HubTraceSnapshotDto::try_from(snapshot).unwrap()
+    snapshot
+}
+
+/// Domain-checked encoding only: zero effective quantity and Unknown recipient.
+/// No database, native submission, physical credit or execution grant is created.
+#[uniffi::export]
+pub fn actual_link_interpretation_encoding_probe() -> harvestcircle_ffi::HubActualDuplicateDto {
+    use harvestcircle_domain::hub::corrections::{
+        DepartureQuantityAccount, DepartureQuantityAmendment, DepartureQuantityDelta,
+        OriginalDepartureQuantity,
+    };
+    let snapshot = recipient_trace_snapshot();
+    let actual = &snapshot.actual_departures[0];
+    let known = actual.physical_projection().unwrap();
+    let line = &known.lines[0];
+    let quantity = DepartureQuantityAccount::restore(
+        OriginalDepartureQuantity {
+            operation: known.operation,
+            group: line.group,
+            trace: known.trace,
+            variant: known.variant.id,
+            stock_revision: known.stock_revision,
+            packs: line.packs,
+        },
+        vec![DepartureQuantityAmendment {
+            operation: op(86),
+            stock_revision: revision(snapshot.stock_revision.value() + 1),
+            before: line.packs,
+            after: packs(0),
+            delta: DepartureQuantityDelta::IdentifiedFoundRemainder(line.packs),
+        }],
+        packs(0),
+    )
+    .unwrap();
+    let interpretation = ActualKnownInterpretation {
+        stock_revision: revision(snapshot.stock_revision.value() + 1),
+        catalog_revision: snapshot.catalog_revision,
+        latest_recorded_at: at(220),
+        original: known.clone(),
+        recipient_original: snapshot.recipient_corrections[0].original.clone(),
+        recipient_history: snapshot.recipient_corrections,
+        quantities: vec![quantity],
+    };
+    interpretation.view().unwrap();
+    let command = ActualDuplicateLink {
+        report: actual.report.id,
+        known_operation: known.operation,
+        known_trace: known.trace,
+        known_variant: known.variant.id,
+        verification: note(
+            "Encoding-only explicit original, zero quantity and Unknown association",
+        ),
+    };
+    let plan = command
+        .plan_with_interpretation(
+            &actual.report,
+            &interpretation,
+            None,
+            op(90),
+            reviewer(),
+            at(230),
+        )
+        .unwrap();
+    harvestcircle_ffi::HubActualDuplicateDto::try_from(&plan).unwrap()
 }
 
 /// Encoding-only source interpretation. No database, submission or native grant.

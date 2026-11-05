@@ -169,16 +169,20 @@ async fn canonical_found_credit_keeps_full_debit_and_fixed_review_without_effect
         let world = seed_debit(false, false, actual).await;
         super::quantity_tests::insert_projection(&world, false).await;
         let before = crate::hub::custody::tests::material(&world.fixture).await;
-        let loaded = metadata(&world).await.unwrap();
-        assert_eq!(loaded.debits[0].recovered().value(), 2);
-        assert_eq!(
-            loaded.debits[0].available().unwrap().value(),
-            if actual { 0 } else { 4 }
-        );
-        assert_eq!(
-            loaded.quantity.effective().value(),
-            if actual { 0 } else { 4 }
-        );
+        if actual {
+            // A qualified actual requires its full historical interpretation,
+            // including the global journal envelope. This deliberately synthetic
+            // future Found lacks stock-state/event accounting and cannot fund it.
+            assert_eq!(
+                metadata(&world).await.err().unwrap().code(),
+                SafeErrorCode::StorageCorrupt
+            );
+        } else {
+            let loaded = metadata(&world).await.unwrap();
+            assert_eq!(loaded.debits[0].recovered().value(), 2);
+            assert_eq!(loaded.debits[0].available().unwrap().value(), 4);
+            assert_eq!(loaded.quantity.effective().value(), 4);
+        }
         assert_eq!(
             world
                 .db

@@ -98,13 +98,8 @@ pub(super) async fn for_line_with_proofs_on(
             }
         }
         "actual_review" => {
-            let original = tx.actual_review(hub, op).await?;
-            let crate::HubActualReviewOriginal::Departure(plan) = &original.original else {
-                return Err(corrupt_storage());
-            };
-            impact.insert(CorrectionImpact::Recipient(
-                plan.comparison.scope.recipient.id,
-            ));
+            let known = tx.actual_known(hub, &op).await?;
+            impact.insert(CorrectionImpact::Recipient(known.recipient.id));
         }
         _ => return Err(corrupt_storage()),
     }

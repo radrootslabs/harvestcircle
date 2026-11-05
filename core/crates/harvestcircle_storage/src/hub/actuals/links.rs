@@ -12,6 +12,117 @@ use harvestcircle_domain::{
 use radroots_service_sqlite::ServiceSqliteTransaction;
 use stock::read::OperationRecord;
 
+pub(in crate::hub) struct Context {
+    pub state: stock::read::StockState,
+    pub catalog: harvestcircle_domain::hub::reference::ReferenceCatalog,
+    pub report: harvestcircle_domain::hub::actuals::ActualReportRecord,
+    pub interpretation: harvestcircle_domain::hub::actuals::ActualKnownInterpretation,
+}
+
+impl Context {
+    pub fn material(
+        &self,
+        id: harvestcircle_domain::hub::reference::HubRecordId,
+    ) -> harvestcircle_application::hub_submission::HubSubmittedActualLink {
+        harvestcircle_application::hub_submission::HubSubmittedActualLink {
+            id,
+            report: self.report.clone(),
+            known: self.interpretation.original.clone(),
+            interpretation: Some(self.interpretation.clone()),
+        }
+    }
+    pub fn plan(
+        &self,
+        command: &ActualDuplicateLink,
+        id: harvestcircle_domain::hub::reference::HubRecordId,
+        actor: PublicKey,
+        now: UnixTimestamp,
+    ) -> Result<harvestcircle_domain::hub::actuals::ActualDuplicateLinkPlan, SafeError> {
+        command
+            .plan_with_interpretation(&self.report, &self.interpretation, None, id, actor, now)
+            .map_err(error)
+    }
+}
+
+pub(in crate::hub) async fn current_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: harvestcircle_domain::hub::HubId,
+    command: &ActualDuplicateLink,
+) -> Result<Context, SafeError> {
+    let state = stock::read::state_on(tx, hub).await?;
+    super::mode::epoch_on(tx, hub).await?;
+    let catalog = reference::load_catalog_on(tx, hub).await?;
+    let report = reports::by_id_on(tx, hub, command.report).await?.original;
+    let reviewed: Option<String> = sqlx::query_scalar(
+        "SELECT review_operation_id FROM hub_actual_report_reviews WHERE report_id=? LIMIT 1",
+    )
+    .bind(report.id.as_bytes().as_slice())
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|_| storage_unavailable())?;
+    if reviewed.is_some() {
+        return Err(stock::conflict());
+    }
+    let target = operation(command.known_operation)?;
+    let interpretation = {
+        let mut reader = super::proofs::OriginalReader::new(tx);
+        let named = stock::read::operation_on(&mut reader, hub, &target)
+            .await?
+            .ok_or_else(stock::invalid_input)?;
+        // Verify the named original before classifying caller scope. A damaged
+        // denormalized trace or variant must not become merely invalid input.
+        let scope_matches = match named.kind.as_str() {
+            "actual_review" => {
+                if !Box::pin(reader.actual_is_departure(hub, &named)).await? {
+                    return Err(stock::invalid_input());
+                }
+                let known = Box::pin(reader.actual_known(hub, &named)).await?;
+                known.trace == command.known_trace && known.variant.id == command.known_variant
+            }
+            "departure" => {
+                let original = Box::pin(handling::departure::read::original_on(
+                    &mut reader,
+                    hub,
+                    named,
+                ))
+                .await?
+                .record;
+                let material = &original
+                    .paper
+                    .versions
+                    .last()
+                    .ok_or_else(corrupt_storage)?
+                    .material;
+                material.lines.iter().any(|line| {
+                    line.trace.id == command.known_trace && line.variant.id == command.known_variant
+                })
+            }
+            _ => return Err(stock::invalid_input()),
+        };
+        if !scope_matches {
+            return Err(stock::invalid_input());
+        }
+        Box::pin(
+            crate::hub::corrections::selected_actual_interpretation_at_with_proofs_on(
+                &mut reader,
+                hub,
+                command.known_trace,
+                &target,
+                command.known_variant,
+                state.revision,
+                catalog.revision(),
+            ),
+        )
+        .await?
+    };
+    Ok(Context {
+        state,
+        catalog,
+        report,
+        interpretation,
+    })
+}
+
 pub(in crate::hub) async fn apply_on(
     tx: &mut ServiceSqliteTransaction<'_>,
     actor: PublicKey,
@@ -29,29 +140,7 @@ pub(in crate::hub) async fn apply_on(
         }
         return reviews::original_on(tx, hub.id(), prior).await;
     }
-    let current = stock::read::state_on(tx, hub.id()).await?;
-    Box::pin(
-        crate::hub::corrections::require_recipient_actual_adapter_on(
-            tx,
-            hub.id(),
-            current.revision,
-        ),
-    )
-    .await?;
     require_admission_on(tx, hub.id(), actor, &operation, "actual_review", &hash, now).await?;
-    let report = reports::by_id_on(tx, hub.id(), command.report)
-        .await?
-        .original;
-    let reviewed: Option<String> = sqlx::query_scalar(
-        "SELECT review_operation_id FROM hub_actual_report_reviews WHERE report_id=? LIMIT 1",
-    )
-    .bind(report.id.as_bytes().as_slice())
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(|_| storage_unavailable())?;
-    if reviewed.is_some() {
-        return Err(stock::conflict());
-    }
     handling::treatment::capacity::ensure_on(
         tx,
         actor,
@@ -59,20 +148,15 @@ pub(in crate::hub) async fn apply_on(
         handling::treatment::capacity::Reservation::ActualReview { physical: false },
     )
     .await?;
-    let state = stock::read::state_on(tx, hub.id()).await?;
-    let catalog = reference::load_catalog_on(tx, hub.id()).await?;
-    let known =
-        handling::actuals::known_departures_on(tx, hub.id(), command.known_trace, state.revision)
-            .await?
-            .into_iter()
-            .find(|known| {
-                known.operation == command.known_operation
-                    && known.variant.id == command.known_variant
-            })
-            .ok_or_else(stock::invalid_input)?;
-    let plan = command
-        .plan(&report, &known, None, id, actor, now)
-        .map_err(error)?;
+    let context = current_on(tx, hub.id(), &command).await?;
+    let plan = context.plan(&command, id, actor, now)?;
+    let Context {
+        state,
+        catalog,
+        report,
+        interpretation,
+    } = context;
+    let known = interpretation.original;
     let revision = harvestcircle_domain::hub::HubRevision::from_value(
         state
             .revision
@@ -95,6 +179,7 @@ pub(in crate::hub) async fn apply_on(
         recorded_at: now,
     };
     handling::write::insert_operation_on(tx, hub.id(), &op).await?;
+    super::mode::persist_on(tx, hub.id(), &op).await?;
     let (kind, start, end) = occurrence_fields(known.occurred);
     let known_operation = super::common::operation(known.operation)?;
     let group = known.lines.first().ok_or_else(corrupt_storage)?.group;

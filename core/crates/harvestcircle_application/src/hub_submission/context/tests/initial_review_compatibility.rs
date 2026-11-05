@@ -227,6 +227,7 @@ fn legacy_disposition_and_actual_review_capture_bytes_stay_frozen() {
             activity: vec![],
             known_departures: vec![],
             uncertain_submissions: true,
+            interpretations: None,
         },
     ))];
     let context = HubSubmissionContext {

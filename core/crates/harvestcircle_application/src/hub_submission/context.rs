@@ -163,6 +163,10 @@ pub struct HubSubmittedActualReview {
     pub activity: Vec<harvestcircle_domain::hub::actuals::ActualPhysicalActivity>,
     pub known_departures: Vec<harvestcircle_domain::hub::actuals::ActualKnownDeparture>,
     pub uncertain_submissions: bool,
+    /// Legacy captures omit this field byte-for-byte. Qualified native mode
+    /// always supplies a complete set, including an explicitly empty set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interpretations: Option<harvestcircle_domain::hub::actuals::ActualKnownInterpretations>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -170,6 +174,8 @@ pub struct HubSubmittedActualLink {
     pub id: HubRecordId,
     pub report: harvestcircle_domain::hub::actuals::ActualReportRecord,
     pub known: harvestcircle_domain::hub::actuals::ActualKnownDeparture,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interpretation: Option<harvestcircle_domain::hub::actuals::ActualKnownInterpretation>,
 }
 
 /// Native facts at the proposed found correction's admission cut. This is

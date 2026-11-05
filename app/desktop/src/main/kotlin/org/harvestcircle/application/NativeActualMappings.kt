@@ -8,6 +8,7 @@ import org.harvestcircle.ffi.HubActualHoldAssessmentDto
 import org.harvestcircle.ffi.HubActualHoldTimingDto
 import org.harvestcircle.ffi.HubActualHoldUncertaintyDto
 import org.harvestcircle.ffi.HubActualKnownDepartureDto
+import org.harvestcircle.ffi.HubActualKnownInterpretationDto
 import org.harvestcircle.ffi.HubActualLinkInputDto
 import org.harvestcircle.ffi.HubActualLinkPreviewDto
 import org.harvestcircle.ffi.HubActualReportDto
@@ -200,6 +201,7 @@ internal fun HubActualDuplicateDto.toModel() =
         IdentityId.fromPublicKeyHex(actorPublicKey),
         UnixSeconds(recordedAtUnixS),
         verification,
+        interpretation?.toModel(),
     )
 
 internal fun HubActualDeparturePreviewDto.toModel() =
@@ -232,4 +234,16 @@ internal fun HubActualReviewReceiptDto.toModel() =
                     )
             is HubActualReviewOriginalDto.Duplicate -> HubActualReviewOriginal.Duplicate(result.original.toModel())
         },
+    )
+
+internal fun HubActualKnownInterpretationDto.toModel() =
+    HubActualKnownInterpretation(
+        stockRevision,
+        catalogRevision,
+        UnixSeconds(latestRecordedAtUnixS),
+        originalWholePacks,
+        effectiveWholePacks,
+        recipient?.toModel(),
+        recipientHistory.map { correction -> correction.toModel() },
+        quantities.map { quantity -> quantity.toModel() },
     )

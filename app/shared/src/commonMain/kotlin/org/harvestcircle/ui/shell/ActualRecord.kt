@@ -112,8 +112,15 @@ private fun ActualDuplicateRecord(original: HubActualDuplicate) {
     HarvestCircleShellPanel {
         HarvestCircleShellText("Linked to a known departure · Zero new stock or work effect")
         HarvestCircleShellText("Reviewer ${original.actor.value} · Recorded ${stockUtc(original.recordedAt.value)}")
-        HarvestCircleShellText("Known operation ${original.known.operationId.value} · ${original.known.wholePacks} whole packs")
-        HarvestCircleShellText("${original.known.variant.value.label} · ${original.known.recipient.value.label}")
+        HarvestCircleShellText("Original operation ${original.known.operationId.value} · ${original.known.wholePacks} whole packs")
+        HarvestCircleShellText("${original.known.variant.value.label} · Original recipient ${original.known.recipient.value.label}")
+        original.interpretation?.let { meaning ->
+            HarvestCircleShellText("Meaning at link review · ${meaning.effectiveWholePacks} whole packs")
+            HarvestCircleShellText("Recipient at link review: ${meaning.recipient?.value?.label ?: "Unknown"}")
+            HarvestCircleShellText(
+                "Linked recipient amendments: ${meaning.recipientHistory.size}. Original and amended details remain in Trace.",
+            )
+        }
         HarvestCircleShellText("Original actor ${original.known.actor.value} · Recorded ${stockUtc(original.known.recordedAt.value)}")
         HarvestCircleShellText("Original occurrence ${actualOccurrence(original.known.occurrence)}")
         original.known.lines.forEach {

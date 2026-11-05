@@ -9,6 +9,7 @@ use crate::{
 use harvestcircle_domain::SafeErrorCode;
 use sqlx::{AssertSqlSafe, Connection};
 mod branching;
+mod certificates;
 
 async fn world() -> (
     Fixture,
@@ -34,7 +35,7 @@ async fn canonical_original_is_shared_but_a_cached_self_dependency_still_fails()
                 let op = stock::read::operation_on(&mut reader, hub, &operation(81))
                     .await?
                     .unwrap();
-                let key = Key::canonical(hub, &op);
+                let (_, key) = reader.canonical_key(hub, &op).await?;
                 let first = reader.actual_review(hub, op).await?;
                 let op = stock::read::operation_on(&mut reader, hub, &operation(81))
                     .await?
@@ -104,7 +105,7 @@ async fn complete_known_reconstruction_reuses_one_original_and_new_read_phase_re
                         .await?;
                     assert_eq!(reconstructed, current);
                     assert_eq!(reader.proofs.rebuilt, 1);
-                    assert!(reader.proofs.hits >= 2);
+                    assert!(reader.proofs.certificate_hits >= 2);
                 }
                 // A fresh phase owns an empty store, even in the same transaction.
                 let mut reader = OriginalReader::new(tx);
@@ -159,7 +160,11 @@ async fn failed_original_is_not_cached_and_unwinds_its_active_dependency() {
                         reader.actual_review(hub, op).await.unwrap_err().code(),
                         SafeErrorCode::StorageCorrupt
                     );
-                    assert!(reader.proofs.completed.is_empty() && reader.proofs.active.is_empty());
+                    assert!(
+                        reader.proofs.completed.is_empty()
+                            && reader.proofs.active.is_empty()
+                            && reader.proofs.verified.is_empty()
+                    );
                     assert_eq!((reader.proofs.rebuilt, reader.proofs.hits), (expected, 0));
                 }
                 Ok::<_, SafeError>(())
@@ -181,7 +186,7 @@ async fn cache_pressure_evicts_proofs_without_reducing_native_operation_limits()
                 let op = stock::read::operation_on(&mut reader, hub, &operation(81))
                     .await?
                     .unwrap();
-                let key = Key::canonical(hub, &op);
+                let (_, key) = reader.canonical_key(hub, &op).await?;
                 let receipt = reader.actual_review(hub, op).await?;
                 let one = charge(&key, &receipt).unwrap();
                 let mut bounded = Proofs::default();

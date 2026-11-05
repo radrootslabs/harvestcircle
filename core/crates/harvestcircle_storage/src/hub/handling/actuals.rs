@@ -364,47 +364,58 @@ pub(in crate::hub) async fn known_departures_on(
             result.push(known);
             continue;
         }
-        let original = departure::read::original_on(tx, hub, op).await?.record;
-        let material = &original
-            .paper
-            .versions
-            .last()
-            .ok_or_else(corrupt_storage)?
-            .material;
-        let lines: Vec<_> = material
-            .lines
-            .iter()
-            .filter(|line| line.trace.id == trace)
-            .collect();
-        let first = lines.first().ok_or_else(corrupt_storage)?;
-        let variant = first.variant.clone();
-        if lines.iter().any(|line| line.variant != variant) {
-            return Err(corrupt_storage());
-        }
-        let known = ActualKnownDeparture {
-            operation: original.operation,
-            actor: original.actor,
-            hub,
-            stock_revision: original.stock_revision,
-            catalog_revision: original.catalog_revision,
-            trace,
-            variant,
-            recipient: material.recipient.clone(),
-            occurred: original.occurred,
-            recorded_at: original.recorded_at,
-            lines: lines
-                .into_iter()
-                .map(|line| ActualKnownDepartureLine {
-                    group: line.group,
-                    location: line.location.clone(),
-                    packs: line.packs,
-                })
-                .collect(),
-        };
-        known.validate().map_err(|_| corrupt_storage())?;
+        let known = known_departure_on(tx, hub, trace, op).await?;
         result.push(known);
     }
     Ok(result)
+}
+
+/// Exact named normal event, with every line of the selected population.
+pub(in crate::hub) async fn known_departure_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+    trace: HubRecordId,
+    op: stock::read::OperationRecord,
+) -> Result<ActualKnownDeparture, SafeError> {
+    let original = departure::read::original_on(tx, hub, op).await?.record;
+    let material = &original
+        .paper
+        .versions
+        .last()
+        .ok_or_else(corrupt_storage)?
+        .material;
+    let lines: Vec<_> = material
+        .lines
+        .iter()
+        .filter(|line| line.trace.id == trace)
+        .collect();
+    let first = lines.first().ok_or_else(corrupt_storage)?;
+    let variant = first.variant.clone();
+    if lines.iter().any(|line| line.variant != variant) {
+        return Err(corrupt_storage());
+    }
+    let known = ActualKnownDeparture {
+        operation: original.operation,
+        actor: original.actor,
+        hub,
+        stock_revision: original.stock_revision,
+        catalog_revision: original.catalog_revision,
+        trace,
+        variant,
+        recipient: material.recipient.clone(),
+        occurred: original.occurred,
+        recorded_at: original.recorded_at,
+        lines: lines
+            .into_iter()
+            .map(|line| ActualKnownDepartureLine {
+                group: line.group,
+                location: line.location.clone(),
+                packs: line.packs,
+            })
+            .collect(),
+    };
+    known.validate().map_err(|_| corrupt_storage())?;
+    Ok(known)
 }
 
 /// Canonical ledger outflow at one cut, grouped by exact physical identity.

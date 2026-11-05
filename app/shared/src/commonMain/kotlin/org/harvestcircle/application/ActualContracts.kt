@@ -146,6 +146,18 @@ data class HubActualDuplicate(
     val actor: IdentityId,
     val recordedAt: UnixSeconds,
     val verification: String,
+    val interpretation: HubActualKnownInterpretation? = null,
+)
+
+data class HubActualKnownInterpretation(
+    val stockRevision: ULong,
+    val catalogRevision: ULong,
+    val latestRecordedAt: UnixSeconds,
+    val originalWholePacks: UInt,
+    val effectiveWholePacks: UInt,
+    val recipient: HubReferenceRecord?,
+    val recipientHistory: List<HubTraceRecipientCorrection>,
+    val quantities: List<HubTraceQuantityCorrection>,
 )
 
 // A current preview remains distinct from an immutable persisted receipt.

@@ -8,6 +8,7 @@ import org.harvestcircle.ffi.HubTraceHistoryPageDto
 import org.harvestcircle.ffi.HubTraceHistoryQueryDto
 import org.harvestcircle.ffi.HubTracePageDto
 import org.harvestcircle.ffi.HubTraceQuantityAmendmentKindDto
+import org.harvestcircle.ffi.HubTraceQuantityCorrectionDto
 import org.harvestcircle.ffi.HubTraceQueryDto
 import org.harvestcircle.ffi.HubTraceScopeDto
 import org.harvestcircle.ffi.HubTraceSelectionDto
@@ -141,29 +142,7 @@ internal fun HubTraceSnapshotDto.toModel() =
         },
         actualDepartedWholePacks,
         actualDepartures.map { it.toModel() },
-        quantityCorrections.map { correction ->
-            HubTraceQuantityCorrection(
-                OperationId.from(correction.originalOperationId),
-                correction.originalGroupId,
-                correction.originalWholePacks,
-                correction.effectiveWholePacks,
-                correction.establishedReturnWholePacks,
-                correction.amendments.map { amendment ->
-                    HubTraceQuantityAmendment(
-                        OperationId.from(amendment.operationId),
-                        amendment.stockRevision,
-                        amendment.beforeWholePacks,
-                        amendment.afterWholePacks,
-                        when (amendment.kind) {
-                            HubTraceQuantityAmendmentKindDto.ADDITIONAL_DEPARTURE -> HubTraceQuantityAmendmentKind.AdditionalDeparture
-                            HubTraceQuantityAmendmentKindDto.IDENTIFIED_FOUND_REMAINDER ->
-                                HubTraceQuantityAmendmentKind.IdentifiedFoundRemainder
-                        },
-                        amendment.deltaWholePacks,
-                    )
-                },
-            )
-        },
+        quantityCorrections.map { it.toModel() },
         sourceCorrections.map { it.toModel() },
         recipientCorrections.map { it.toModel() },
     )
@@ -264,5 +243,28 @@ internal fun HubTraceActualDepartureDto.toModel() =
         duplicateReviewBasis,
         workChanges.map { change ->
             HubDepartureWorkChange(change.before.toModel(), change.after.toModel(), change.retiredWholePacks)
+        },
+    )
+
+internal fun HubTraceQuantityCorrectionDto.toModel() =
+    HubTraceQuantityCorrection(
+        OperationId.from(originalOperationId),
+        originalGroupId,
+        originalWholePacks,
+        effectiveWholePacks,
+        establishedReturnWholePacks,
+        amendments.map { amendment ->
+            HubTraceQuantityAmendment(
+                OperationId.from(amendment.operationId),
+                amendment.stockRevision,
+                amendment.beforeWholePacks,
+                amendment.afterWholePacks,
+                when (amendment.kind) {
+                    HubTraceQuantityAmendmentKindDto.ADDITIONAL_DEPARTURE -> HubTraceQuantityAmendmentKind.AdditionalDeparture
+                    HubTraceQuantityAmendmentKindDto.IDENTIFIED_FOUND_REMAINDER ->
+                        HubTraceQuantityAmendmentKind.IdentifiedFoundRemainder
+                },
+                amendment.deltaWholePacks,
+            )
         },
     )

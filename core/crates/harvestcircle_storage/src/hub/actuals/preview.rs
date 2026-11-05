@@ -1,9 +1,9 @@
 //! Current read-only review data. These plans carry no durable admission or grant.
-use super::{common::*, frozen, model::*, reports};
+use super::{common::*, frozen, model::*};
 use crate::{
     Database,
-    db::{map_transaction_error, storage_unavailable},
-    hub::{handling, reference, stock},
+    db::map_transaction_error,
+    hub::{reference, stock},
 };
 use harvestcircle_application::DurableRequestId;
 use harvestcircle_domain::{
@@ -39,9 +39,7 @@ impl Database {
                     reference::validate_basis_on(tx, hub.id()).await?;
                     unused_on(tx, &operation).await?;
                     let context = frozen::current_on(tx, hub.id(), &command, None).await?;
-                    let plan = command
-                        .plan(&context.domain(), operation_id(&operation)?, actor, now)
-                        .map_err(error)?;
+                    let plan = context.plan(&command, operation_id(&operation)?, actor, now)?;
                     let historical_holds = context
                         .treatment
                         .holds()
@@ -78,20 +76,22 @@ impl Database {
         command: ActualDuplicateLink,
         now: UnixTimestamp,
     ) -> Result<HubActualLinkPreview, SafeError> {
-        self.host().transaction(|tx| Box::pin(async move {
-            let hub = reference::authorize_on(tx, actor).await?;
-            reference::validate_basis_on(tx, hub.id()).await?;
-            unused_on(tx, &operation).await?;
-            let report = reports::by_id_on(tx, hub.id(), command.report).await?.original;
-            let reviewed: Option<String> = sqlx::query_scalar("SELECT review_operation_id FROM hub_actual_report_reviews WHERE report_id=? LIMIT 1")
-                .bind(report.id.as_bytes().as_slice()).fetch_one(&mut *tx).await.map_err(|_| storage_unavailable())?;
-            if reviewed.is_some() { return Err(stock::conflict()); }
-            let state = stock::read::state_on(tx, hub.id()).await?;
-            Box::pin(crate::hub::corrections::require_recipient_actual_adapter_on(tx,hub.id(),state.revision)).await?;
-            let catalog = reference::load_catalog_on(tx, hub.id()).await?;
-            let known = handling::actuals::known_departures_on(tx, hub.id(), command.known_trace, state.revision).await?.into_iter().find(|known| known.operation == command.known_operation && known.variant.id == command.known_variant).ok_or_else(stock::invalid_input)?;
-            let plan = command.plan(&report, &known, None, operation_id(&operation)?, actor, now).map_err(error)?;
-            Ok(HubActualLinkPreview { revision: state.revision, catalog_revision: catalog.revision(), plan })
-        })).await.map_err(map_transaction_error)
+        self.host()
+            .transaction(|tx| {
+                Box::pin(async move {
+                    let hub = reference::authorize_on(tx, actor).await?;
+                    reference::validate_basis_on(tx, hub.id()).await?;
+                    unused_on(tx, &operation).await?;
+                    let context = super::links::current_on(tx, hub.id(), &command).await?;
+                    let plan = context.plan(&command, operation_id(&operation)?, actor, now)?;
+                    Ok(HubActualLinkPreview {
+                        revision: context.state.revision,
+                        catalog_revision: context.catalog.revision(),
+                        plan,
+                    })
+                })
+            })
+            .await
+            .map_err(map_transaction_error)
     }
 }
