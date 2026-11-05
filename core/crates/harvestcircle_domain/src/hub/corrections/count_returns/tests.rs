@@ -1,6 +1,8 @@
 use super::*;
+mod budget;
 mod cycles;
 mod provenance;
+mod root_roles;
 use crate::hub::{
     movement::PhysicalIdentification,
     reference::{HubLabel, SourceAttribution},
@@ -117,6 +119,14 @@ impl Fixture {
             recipient_history: &self.recipient_history,
             associations: &self.associations,
             normal_returns: &[],
+            prior_trace_correction_rows: self.account.explanations().len()
+                + self.account.amendments().len()
+                + self.recipient_history.len()
+                + self
+                    .associations
+                    .iter()
+                    .filter(|r| r.explanation_trace == self.original.known_event.trace)
+                    .count(),
             prior_association_for_return: None,
             uncertain_submissions: false,
         }

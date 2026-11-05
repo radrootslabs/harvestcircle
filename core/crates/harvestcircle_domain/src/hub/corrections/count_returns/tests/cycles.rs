@@ -249,6 +249,7 @@ fn an_intake_cannot_be_the_return_from_its_own_counted_shortage_even_at_equal_ph
         recipient_history: &[],
         associations: &[],
         normal_returns: &[],
+        prior_trace_correction_rows: 1,
         prior_association_for_return: None,
         uncertain_submissions: false,
     };

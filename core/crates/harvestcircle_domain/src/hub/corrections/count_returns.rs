@@ -81,6 +81,9 @@ pub struct CountReturnAssociationContext<'a> {
     /// Complete established normal-return prefix from fully verified originals.
     /// Unknown and unresolved manual claims never supply graph edges.
     pub normal_returns: &'a [NormalReturnProvenance],
+    /// Complete native total for the explanation's trace at the paired cut.
+    /// This scalar is descriptive; native recovery must recompute ownership.
+    pub prior_trace_correction_rows: usize,
     /// Native global lookup includes all departure families, not just this E.
     pub prior_association_for_return: Option<HubRecordId>,
     pub uncertain_submissions: bool,
@@ -97,6 +100,7 @@ pub struct CountReturnAssociationPlan {
     pub recipient_history: Vec<RecipientAttributionCorrection>,
     pub prior_associations: Vec<CountReturnAssociation>,
     pub normal_returns: Vec<NormalReturnProvenance>,
+    pub prior_trace_correction_rows: usize,
     pub before: CountLossQuantityAccount,
     pub after: CountLossQuantityAccount,
 }
@@ -423,6 +427,28 @@ impl CountReturnAssociationCommand {
             returned.identities.population,
             known.trace,
         )?;
+        let visible = account
+            .explanations()
+            .iter()
+            .map(|r| r.operation)
+            .chain(account.amendments().iter().map(|r| r.operation))
+            .chain(context.recipient_history.iter().map(|r| r.stamp.operation))
+            .chain(
+                context
+                    .associations
+                    .iter()
+                    .filter(|r| r.explanation_trace == known.trace)
+                    .map(|r| r.operation),
+            )
+            .collect::<BTreeSet<_>>();
+        if context.prior_trace_correction_rows < visible.len()
+            || context.prior_trace_correction_rows > HUB_CORRECTION_ROWS
+        {
+            return Err(Error::InvalidHistory);
+        }
+        if context.prior_trace_correction_rows == HUB_CORRECTION_ROWS {
+            return Err(Error::Capacity);
+        }
         let roles = [
             operation,
             self.return_operation,
@@ -509,6 +535,7 @@ impl CountReturnAssociationCommand {
             recipient_history: context.recipient_history.to_vec(),
             prior_associations: context.associations.to_vec(),
             normal_returns: context.normal_returns.to_vec(),
+            prior_trace_correction_rows: context.prior_trace_correction_rows,
             before: account.clone(),
             after,
         })
@@ -625,21 +652,190 @@ fn audit_dependencies(
     ] {
         include(operation, revision)?;
     }
+    let mut roles = BTreeMap::new();
+    let mut typed = |operation, revision, role| -> Result<(), Error> {
+        include(operation, revision)?;
+        if roles
+            .insert(operation, role)
+            .is_some_and(|prior| prior != role)
+        {
+            return Err(Error::InvalidHistory);
+        }
+        Ok(())
+    };
+    for (operation, revision, role) in [
+        (
+            context.returned.identities.operation,
+            context.returned.stock_revision,
+            RootRole::Return {
+                population: context.returned.identities.population,
+                digest: context.return_original_digest,
+            },
+        ),
+        (
+            context.explanation.report.operation,
+            context.explanation.report.stock_revision,
+            RootRole::Report,
+        ),
+        (
+            context.account.original().operation,
+            context.account.original().stock_revision,
+            RootRole::CountPost {
+                trace: context.account.original().trace,
+                variant: context.account.original().variant,
+            },
+        ),
+        (
+            context.explanation.count.count.operation,
+            context.explanation.count.count.recorded_revision,
+            RootRole::CountObserve {
+                trace: context.account.original().trace,
+                variant: context.account.original().variant,
+            },
+        ),
+    ] {
+        typed(operation, revision, role)?;
+    }
+    for row in context.account.explanations() {
+        typed(
+            row.operation,
+            row.stock_revision,
+            RootRole::Explanation {
+                count: context.account.original().operation,
+                trace: context.account.original().trace,
+                variant: context.account.original().variant,
+            },
+        )?;
+    }
+    for row in context.account.amendments() {
+        typed(
+            row.operation,
+            row.stock_revision,
+            RootRole::Classification {
+                explanation: row.explanation,
+            },
+        )?;
+    }
+    for row in context.recipient_history {
+        typed(
+            row.stamp.operation,
+            row.stamp.stock_revision,
+            RootRole::Recipient {
+                target: row.original.operation,
+            },
+        )?;
+    }
     for row in context.associations {
-        for (operation, revision) in [
-            (row.operation, row.stock_revision),
-            (row.return_operation, row.return_stock_revision),
-            (row.explanation_operation, row.explanation_stock_revision),
-            (row.count_operation, row.count_stock_revision),
+        for (operation, revision, role) in [
+            (row.operation, row.stock_revision, RootRole::Association),
+            (
+                row.return_operation,
+                row.return_stock_revision,
+                RootRole::Return {
+                    population: row.returned_population,
+                    digest: row.return_original_digest,
+                },
+            ),
+            (
+                row.explanation_operation,
+                row.explanation_stock_revision,
+                RootRole::Explanation {
+                    count: row.count_operation,
+                    trace: row.explanation_trace,
+                    variant: row.variant,
+                },
+            ),
+            (
+                row.count_operation,
+                row.count_stock_revision,
+                RootRole::CountPost {
+                    trace: row.explanation_trace,
+                    variant: row.variant,
+                },
+            ),
         ] {
-            include(operation, revision)?;
+            typed(operation, revision, role)?;
         }
     }
     for row in context.normal_returns {
-        include(row.return_operation, row.stock_revision)?;
-        include(row.departure_operation, row.departure_stock_revision)?;
+        typed(
+            row.return_operation,
+            row.stock_revision,
+            RootRole::Return {
+                population: row.population,
+                digest: row.original_digest,
+            },
+        )?;
+        typed(
+            row.departure_operation,
+            row.departure_stock_revision,
+            RootRole::NormalDeparture,
+        )?;
+    }
+    // A repeated E reference also preserves its exact immutable source and
+    // occurrence metadata. Nonselected account rows carry only owner identity;
+    // their full original is still the native reader's responsibility.
+    let mut explanations = BTreeMap::new();
+    explanations.insert(
+        context.explanation.operation,
+        (
+            context.explanation.count.before.id,
+            context.explanation.known_event.occurred,
+            source.digest().map_err(|_| Error::InvalidHistory)?,
+        ),
+    );
+    let mut anchors = BTreeMap::new();
+    anchors.insert(
+        context.account.original().operation,
+        context.explanation.count.before.id,
+    );
+    for row in context.associations {
+        let metadata = (
+            row.anchor_group,
+            row.explanation_occurred,
+            row.explanation_source_digest,
+        );
+        if explanations
+            .insert(row.explanation_operation, metadata)
+            .is_some_and(|prior| prior != metadata)
+            || anchors
+                .insert(row.count_operation, row.anchor_group)
+                .is_some_and(|prior| prior != row.anchor_group)
+        {
+            return Err(Error::InvalidHistory);
+        }
     }
     Ok(())
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum RootRole {
+    Explanation {
+        count: HubRecordId,
+        trace: HubRecordId,
+        variant: HubRecordId,
+    },
+    Classification {
+        explanation: HubRecordId,
+    },
+    Recipient {
+        target: HubRecordId,
+    },
+    Report,
+    CountPost {
+        trace: HubRecordId,
+        variant: HubRecordId,
+    },
+    CountObserve {
+        trace: HubRecordId,
+        variant: HubRecordId,
+    },
+    Return {
+        population: HubRecordId,
+        digest: [u8; 32],
+    },
+    NormalDeparture,
+    Association,
 }
 
 // Every established return has one outgoing provenance edge. Keep original
