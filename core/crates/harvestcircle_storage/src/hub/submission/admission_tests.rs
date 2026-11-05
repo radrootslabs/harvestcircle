@@ -3,6 +3,86 @@ use crate::hub::stock::tests::{Fixture, command, now, operation, other, owner, q
 use harvestcircle_application::SessionGeneration;
 use harvestcircle_domain::SafeErrorCode;
 
+#[tokio::test]
+async fn native_count_explanation_comparison_blocks_dropped_fresh_admission_after_restart_without_execution()
+ {
+    use crate::HubCountExplanationReviewOutcome as Outcome;
+    use harvestcircle_domain::hub::{
+        actuals::{ActualReportCommand, ActualReportSources},
+        corrections::QuantityEffectError,
+        reference::SourceProvenance,
+        stock::Occurrence,
+    };
+    let (fixture, db, query) = crate::hub::corrections::count_review::tests::world().await;
+    let time = harvestcircle_domain::UnixTimestamp::from_seconds(150).unwrap();
+    let runtime = db.begin_hub_runtime(time).await.unwrap();
+    let generation = db
+        .advance_hub_session(runtime, SessionGeneration::initial(), Some(owner()), time)
+        .await
+        .unwrap();
+    let scope = HubSubmissionScope {
+        runtime,
+        generation,
+        actor: owner(),
+    };
+    let pending = operation(77);
+    let decision = db
+        .host()
+        .transaction(|tx| {
+            Box::pin(async move {
+                admission::prepare_on(
+                    tx,
+                    scope,
+                    pending,
+                    HubMutation::ActualReport(Box::new(ActualReportCommand {
+                        variant: None,
+                        recipient: None,
+                        packs: None,
+                        sources: ActualReportSources::Unknown,
+                        occurred: Occurrence::Unknown,
+                        observation: SourceProvenance::new(
+                            "Fictional raw observation interrupted after actual native admission",
+                        )
+                        .unwrap(),
+                    })),
+                    time,
+                )
+                .await
+            })
+        })
+        .await
+        .unwrap();
+    assert!(matches!(decision, admission::Decision::Fresh(_)));
+    drop(decision);
+    let before = crate::hub::custody::tests::material(&fixture).await;
+    assert_eq!(
+        db.hub_count_explanation_review(owner(), operation(5), query.clone(), time)
+            .await
+            .unwrap()
+            .outcome,
+        Outcome::Blocked(QuantityEffectError::UncertainSubmission)
+    );
+    db.close().await.unwrap();
+    let db = fixture.open().await;
+    assert_eq!(
+        db.hub_count_explanation_review(owner(), operation(5), query, time)
+            .await
+            .unwrap()
+            .outcome,
+        Outcome::Blocked(QuantityEffectError::UncertainSubmission)
+    );
+    assert!(matches!(
+        db.hub_submission(owner(), operation(77))
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        crate::HubSubmissionStatus::Pending
+    ));
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    db.close().await.unwrap();
+}
+
 async fn active(db: &Database) -> HubSubmissionScope {
     let runtime = db.begin_hub_runtime(now()).await.unwrap();
     let generation = db

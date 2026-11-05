@@ -112,6 +112,18 @@ cause unknown; no departure or fictional missing-stock group is created. Rust
 computes these balances for the trace browser and bounded local HTML output.
 The shared trace inspector pages retained shortage details separately from departure.
 
+The native count-explanation comparison is read-only. It binds an exact posted
+shortage to its original count-scope cut, reconstructing every physical branch
+from canonical births and net debits rather than current positions. Structural
+roots and count originals are verified before trace filtering, with the complete
+birth conservation audit retained. A separate current graph comparison detects
+fabricated transfers between siblings. Candidates retain the original shortage,
+proposed explanation and unexplained remainder without another stock/work effect.
+Current ownership, paired revisions, known departures and pending submissions
+still apply. Explanation/classification writers, their admission/original ledgers
+and public forms are unfinished; stored count-correction rows are fenced until
+those adapters are qualified.
+
 Pure returned-intake policy preserves observed new custody independently of its
 optional departure association. A known departure may retain an unresolved original
 group; bounded native candidate snapshots never establish attribution automatically.

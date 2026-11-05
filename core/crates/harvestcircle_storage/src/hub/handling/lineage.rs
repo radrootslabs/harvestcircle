@@ -11,6 +11,9 @@ use harvestcircle_domain::hub::reference::{ReferenceCatalog, ReferenceKind};
 use sqlx::Row;
 use stock::read::{optional_id, record_id, revision_field, whole_packs};
 
+mod historical_quantities;
+pub(in crate::hub) use historical_quantities::quantities_on as historical_quantities_on;
+
 pub(in crate::hub) struct LoadedLineage {
     pub graph: PhysicalLineage,
     pub rows: Vec<HubLineageRow>,

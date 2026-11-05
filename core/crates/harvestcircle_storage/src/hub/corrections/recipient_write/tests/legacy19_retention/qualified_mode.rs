@@ -1,6 +1,87 @@
 //! Current-mode composition uses a new disposable profile, never the retained19 worlds.
 use super::*;
 
+#[tokio::test]
+async fn historical_physical_quantities_keep_exact_original_and_additional_found_debits_at_every_cut()
+ {
+    let fixture = Fixture::new();
+    let db = fixture.open().await;
+    let (_, cuts, _) = Box::pin(drive_native_observed(&db, true)).await;
+    assert_eq!(cuts.len(), 9);
+    let trace = cuts[0].records[0].original.trace;
+    let mut snapshots = Vec::new();
+    for cut in &cuts {
+        let stock = cut.stock_revision;
+        let graph = db
+            .host()
+            .transaction(|tx| {
+                Box::pin(async move {
+                    let hub = reference::authorize_on(tx, owner()).await?.id();
+                    Box::pin(handling::lineage::historical_quantities_on(
+                        tx, hub, trace, stock,
+                    ))
+                    .await
+                })
+            })
+            .await
+            .unwrap();
+        snapshots.push(graph);
+    }
+    let totals: Vec<u32> = snapshots
+        .iter()
+        .map(|graph| graph.nodes().iter().map(|node| node.packs.value()).sum())
+        .collect();
+    assert_eq!(totals, vec![18, 18, 16, 18, 20, 20, 20, 20, 20]);
+    assert_eq!(
+        snapshots
+            .iter()
+            .map(|graph| graph.nodes().len())
+            .collect::<Vec<_>>(),
+        vec![1, 1, 1, 2, 3, 3, 3, 3, 3]
+    );
+    // The current ordinary reader independently observes the final materialized
+    // positions. Its graph must equal the reconstructed last historical cut.
+    let current = db
+        .host()
+        .transaction(|tx| {
+            Box::pin(async move {
+                let hub = reference::authorize_on(tx, owner()).await?.id();
+                let state = stock::read::state_on(tx, hub).await?;
+                let catalog = reference::load_catalog_on(tx, hub).await?;
+                Ok::<_, SafeError>(
+                    handling::lineage::load_on(tx, hub, trace, &catalog, state.revision)
+                        .await?
+                        .graph,
+                )
+            })
+        })
+        .await
+        .unwrap();
+    assert_eq!(current.nodes(), snapshots.last().unwrap().nodes());
+    db.close().await.unwrap();
+    let db = fixture.open().await;
+    let before = crate::hub::custody::tests::material(&fixture).await;
+    for expected in snapshots {
+        let stock = expected.revision();
+        let actual = db
+            .host()
+            .transaction(|tx| {
+                Box::pin(async move {
+                    let hub = reference::authorize_on(tx, owner()).await?.id();
+                    Box::pin(handling::lineage::historical_quantities_on(
+                        tx, hub, trace, stock,
+                    ))
+                    .await
+                })
+            })
+            .await
+            .unwrap();
+        assert_eq!(actual, expected);
+    }
+    assert_eq!(crate::hub::custody::tests::material(&fixture).await, before);
+    db.close().await.unwrap();
+}
+
 async fn link(
     db: &Database,
     scope: HubSubmissionScope,

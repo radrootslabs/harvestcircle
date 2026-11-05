@@ -426,9 +426,12 @@ pub(in crate::hub) async fn physical_outflows_on(
     hub: HubId,
     graph: &harvestcircle_domain::hub::portions::PhysicalLineage,
 ) -> Result<std::collections::BTreeMap<HubRecordId, WholePacks>, SafeError> {
+    // Counts have a canonical observation scope, independently of their event
+    // trace. Verify every included count original before filtering its physical
+    // outflow; a damaged event must not hide an earlier sibling shortage.
     let operations:Vec<String>=sqlx::query_scalar(concat!(
         "SELECT substr(o.operation_id,1,37) FROM hub_stock_operations o WHERE o.hub_id=? AND o.stock_revision<=? ",
-        "AND o.kind IN ('departure','count_post','disposition','actual_review') AND EXISTS(SELECT 1 FROM hub_stock_events e WHERE e.operation_id=o.operation_id AND e.trace_id=?) ORDER BY o.stock_revision LIMIT ?"
+        "AND o.kind IN ('departure','count_post','disposition','actual_review') AND (o.kind='count_post' OR EXISTS(SELECT 1 FROM hub_stock_events e WHERE e.operation_id=o.operation_id AND e.trace_id=?)) ORDER BY o.stock_revision LIMIT ?"
     )).bind(hub.as_bytes().as_slice()).bind(integer(graph.revision())?).bind(graph.trace().as_bytes().as_slice())
         .bind(i64::try_from(HUB_STOCK_EVENT_CAPACITY+1).map_err(|_|corrupt_storage())?).fetch_all(&mut *tx).await.map_err(|_|storage_unavailable())?;
     if operations.len() > HUB_STOCK_EVENT_CAPACITY {

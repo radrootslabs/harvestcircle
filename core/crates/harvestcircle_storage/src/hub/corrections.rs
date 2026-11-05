@@ -218,6 +218,7 @@ pub(in crate::hub) mod quantity;
 pub use known::{HubCorrectionKnownDeparture, HubCorrectionKnownEvidence, HubCorrectionKnownQuery};
 mod additional_review;
 mod attribution_review;
+pub(in crate::hub) mod count_review;
 mod recipient_context;
 mod recipient_ledger;
 mod recipient_payload;
@@ -346,6 +347,9 @@ pub(in crate::hub) use additional_review::tests::actual_world as additional_revi
 pub use additional_review::{HubAdditionalQuantityReview, HubAdditionalQuantityReviewOutcome};
 pub use attribution_review::{
     HubAttributionReviewOutcome, HubRecipientAttributionReview, HubSourceAttributionReview,
+};
+pub use count_review::{
+    HubCountExplanationQuery, HubCountExplanationReview, HubCountExplanationReviewOutcome,
 };
 mod additional_frozen;
 mod additional_payload;
