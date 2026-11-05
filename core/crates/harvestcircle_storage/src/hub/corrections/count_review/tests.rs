@@ -1,15 +1,17 @@
 use super::*;
+
+mod capture;
 use crate::hub::stock::tests::{Fixture, command, id, operation, other, owner, setup};
 use harvestcircle_application::{
     SessionGeneration,
     hub_submission::{HubMutation, HubSubmissionScope},
 };
-use harvestcircle_domain::hub::corrections::CountExplanationFacts;
+use harvestcircle_domain::hub::corrections::{CountExplanationFacts, CountLossQuantityAccount};
 use harvestcircle_domain::{
     SafeErrorCode,
     hub::{
         actuals::{ActualReportCommand, ActualReportSources, ReportedActualSource},
-        counts::{CountObserveCommand, CountPostCommand},
+        counts::{CountEffect, CountObserveCommand, CountPostCommand},
         movement::{HandlingCommand, PhysicalIdentification},
         portions::SplitCommand,
         reference::{HubLabel, SourceProvenance, WholePacks},

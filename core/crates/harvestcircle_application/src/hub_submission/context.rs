@@ -11,6 +11,9 @@ use harvestcircle_domain::hub::{
 };
 use harvestcircle_domain::{PublicKey, UnixTimestamp};
 
+mod count;
+pub use count::*;
+
 pub const HUB_SUBMISSION_ARCHIVE_SCHEMA: u8 = 1;
 pub const HUB_SUBMISSION_ARCHIVE_MAX_BYTES: usize = 16 * 1024 * 1024;
 pub const HUB_SUBMISSION_MATERIAL_CAPACITY: usize =
@@ -277,6 +280,8 @@ pub enum HubSubmittedMaterial {
     SourceAttribution(Box<HubSubmittedSourceAttribution>),
     RecipientAttribution(Box<HubSubmittedRecipientAttribution>),
     KnownCountInventory(Box<HubSubmittedKnownCountInventory>),
+    CountExplanation(Box<HubSubmittedCountExplanation>),
+    CountClassification(Box<HubSubmittedCountClassification>),
 }
 impl HubSubmittedMaterial {
     fn identity(&self) -> (u8, HubRecordId, u64) {
@@ -298,6 +303,8 @@ impl HubSubmittedMaterial {
             Self::SourceAttribution(v) => (14, v.id, 0),
             Self::RecipientAttribution(v) => (15, v.id, 0),
             Self::KnownCountInventory(v) => (16, v.id, 0),
+            Self::CountExplanation(v) => (17, v.id, 0),
+            Self::CountClassification(v) => (18, v.id, 0),
         }
     }
 }

@@ -67,6 +67,22 @@ pub(super) async fn capture_on(
     }
     let mut material = Vec::new();
     match &request {
+        HubSubmittedRequest::CountExplanation(command) => {
+            let captured = crate::hub::corrections::capture_count_explanation_on(
+                tx,
+                hub.id(),
+                actor,
+                operation,
+                command,
+            )
+            .await?;
+            material.push(HubSubmittedMaterial::CountExplanation(Box::new(captured)));
+        }
+        HubSubmittedRequest::CountClassification(_) => {
+            // Canonical classification originals/accounts and observation
+            // closure are required before native admission can select this kind.
+            return Err(stock::invalid_input());
+        }
         HubSubmittedRequest::RecipientAttribution(command) => {
             let captured = Box::pin(crate::hub::corrections::capture_recipient_on(
                 tx,

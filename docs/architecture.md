@@ -281,6 +281,15 @@ share the existing role/group/owner, history-capacity and count-member checks;
 the new row also needs capacity. Native admission, atomic persistence and current
 consumer qualification remain prerequisites to exposing these plans.
 
+Borrowed count requests and descriptive capture material retain the exact source
+selection, observation identity and account heads. Explanation capture shares the
+canonical current comparison context and retains current recipient, variant and
+product records separately from the count's immutable labels. Known inventory
+uses the explicit shared-account codec, including empty inventories. Capture
+creates no journal entry or effect. Owned count mutation routes and classification
+capture remain closed pending canonical originals, historical marker/uncertainty
+binding and qualified native persistence.
+
 Current trace reads retain gross original departures separately from native
 effective quantities, established returns and ordered amendments. The read-only
 desktop panel pages these records without calculating stock. As-issued output

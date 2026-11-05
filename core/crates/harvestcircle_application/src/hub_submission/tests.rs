@@ -20,6 +20,8 @@ use harvestcircle_domain::{PublicKey, UnixTimestamp};
 use serde_json::Value;
 use std::io::Write;
 
+mod count;
+
 fn id(n: u8) -> HubRecordId {
     HubRecordId::from_bytes([n; 16]).unwrap()
 }

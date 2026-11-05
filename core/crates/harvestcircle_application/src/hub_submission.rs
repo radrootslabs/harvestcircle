@@ -7,8 +7,9 @@ use harvestcircle_domain::hub::{
     HubOwnership,
     actuals::{ActualDuplicateLink, ActualNewDepartureCommand, ActualReportCommand},
     corrections::{
-        AdditionalQuantityCommand, CorrectionObservationCommand, FoundCorrectionCommand,
-        RecipientAttributionCommand, SourceAttributionCommand,
+        AdditionalQuantityCommand, CorrectionObservationCommand, CountClassificationCommand,
+        CountExplanationCommand, FoundCorrectionCommand, RecipientAttributionCommand,
+        SourceAttributionCommand,
     },
     counts::{CountObserveCommand, CountPostCommand},
     departure::DepartureCommand,
@@ -63,6 +64,8 @@ pub enum HubSubmittedRequest<'a> {
     AdditionalQuantity(&'a AdditionalQuantityCommand),
     SourceAttribution(&'a SourceAttributionCommand),
     RecipientAttribution(&'a RecipientAttributionCommand),
+    CountExplanation(&'a CountExplanationCommand),
+    CountClassification(&'a CountClassificationCommand),
 }
 
 /// An owned native request can move through admission without decoding an archive.
@@ -138,6 +141,8 @@ impl HubSubmittedRequest<'_> {
             Self::AdditionalQuantity(_) => "correction_additional",
             Self::SourceAttribution(_) => "correction_source",
             Self::RecipientAttribution(_) => "correction_recipient",
+            Self::CountExplanation(_) => "correction_count_explain",
+            Self::CountClassification(_) => "correction_count_classify",
         }
     }
 
@@ -190,6 +195,8 @@ impl Serialize for HubSubmittedRequest<'_> {
             Self::AdditionalQuantity(command) => command.serialize(serializer),
             Self::SourceAttribution(command) => command.serialize(serializer),
             Self::RecipientAttribution(command) => command.serialize(serializer),
+            Self::CountExplanation(command) => command.serialize(serializer),
+            Self::CountClassification(command) => command.serialize(serializer),
             Self::ActualReview(command) => {
                 #[derive(Serialize)]
                 struct Input<'a> {

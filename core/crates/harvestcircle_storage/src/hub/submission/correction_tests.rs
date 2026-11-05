@@ -4,6 +4,7 @@ use super::*;
 mod additional_cases;
 mod admission_cases;
 mod attribution_cases;
+mod count_capture;
 mod found_cases;
 mod recipient_cases;
 mod source_cases;

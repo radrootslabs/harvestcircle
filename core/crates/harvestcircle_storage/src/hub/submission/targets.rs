@@ -35,6 +35,10 @@ impl Targets {
             HubSubmittedRequest::AdditionalQuantity(_) => {}
             HubSubmittedRequest::SourceAttribution(_) => {}
             HubSubmittedRequest::RecipientAttribution(_) => {}
+            HubSubmittedRequest::CountExplanation(command) => {
+                t.references.insert(command.facts.recipient);
+            }
+            HubSubmittedRequest::CountClassification(_) => {}
             HubSubmittedRequest::Reference(c) => match &c.mutation {
                 ReferenceMutation::Create { value, .. } => t.reference_value(value),
                 ReferenceMutation::Revise { id, value, .. } => {
@@ -177,6 +181,13 @@ pub(super) fn expected_versions(
             Some(c.facts.expected_stock_revision),
             c.facts.expected_catalog_revision,
         ),
+        HubSubmittedRequest::CountExplanation(c) => (
+            Some(c.facts.expected_stock_revision),
+            c.facts.expected_catalog_revision,
+        ),
+        HubSubmittedRequest::CountClassification(c) => {
+            (Some(c.expected_stock_revision), c.expected_catalog_revision)
+        }
         HubSubmittedRequest::Reference(c) => (None, c.expected_catalog_revision),
         HubSubmittedRequest::Receive(c) => {
             (Some(c.expected_stock_revision), c.expected_catalog_revision)

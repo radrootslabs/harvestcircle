@@ -55,7 +55,7 @@ pub struct CountExplanationContext<'a> {
     pub known_departures: Vec<CorrectionKnownDeparture<'a>>,
     pub uncertain_submissions: bool,
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct CountExplanationPlan {
     pub operation: HubRecordId,
     pub actor: PublicKey,
