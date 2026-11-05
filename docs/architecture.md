@@ -286,9 +286,12 @@ selection, observation identity and account heads. Explanation capture shares th
 canonical current comparison context and retains current recipient, variant and
 product records separately from the count's immutable labels. Known inventory
 uses the explicit shared-account codec, including empty inventories. Capture
-creates no journal entry or effect. Owned count mutation routes and classification
-capture remain closed pending canonical originals, historical marker/uncertainty
-binding and qualified native persistence.
+creates no journal entry or effect. Canonical count-original readers bind captured
+facts, account projections and result seals through shared immutable proofs in one
+transaction read phase. Current schema20 rejects owned explanation/classification
+mutations before durable admission; classification capture also remains closed.
+Positive native posting, complete current consumers and count-associated return
+floors require qualification before activating the prospective native mode.
 
 Current trace reads retain gross original departures separately from native
 effective quantities, established returns and ordered amendments. The read-only

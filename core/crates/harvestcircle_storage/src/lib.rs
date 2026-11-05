@@ -44,7 +44,8 @@ pub use hub::corrections::{
     HubCorrectionObservationReceipt, HubRecipientAttributionReview, HubSourceAttributionReview,
 };
 pub use hub::corrections::{
-    HubCountExplanationQuery, HubCountExplanationReview, HubCountExplanationReviewOutcome,
+    HubCountClassificationReceipt, HubCountExplanationQuery, HubCountExplanationReceipt,
+    HubCountExplanationReview, HubCountExplanationReviewOutcome,
 };
 pub use hub::corrections::{
     HubFoundCorrectionReceipt, HubFoundCorrectionReview, HubFoundCorrectionReviewBlocker,

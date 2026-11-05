@@ -151,6 +151,7 @@ pub(in crate::hub) async fn headers_with_proofs_on(
     if sources != 0 {
         Box::pin(source_ledger::load_with_proofs_on(tx, hub)).await?;
     }
+    Box::pin(count_headers::on(tx, hub)).await?;
     Ok(())
 }
 
@@ -218,8 +219,24 @@ pub(in crate::hub) mod quantity;
 pub use known::{HubCorrectionKnownDeparture, HubCorrectionKnownEvidence, HubCorrectionKnownQuery};
 mod additional_review;
 mod attribution_review;
+mod count_account;
+mod count_classification;
+pub(in crate::hub) use count_classification::capture_on as capture_count_classification_on;
+pub(in crate::hub) mod count_class_record;
+pub use count_class_record::HubCountClassificationReceipt;
 pub(in crate::hub) mod count_context;
+mod count_headers;
+mod count_known;
+pub(in crate::hub) mod count_mode;
+mod count_payload;
+pub(in crate::hub) mod count_record;
+mod count_returns;
+pub(in crate::hub) mod count_write;
+// Metadata is qualified before registering the forward native producer.
+#[cfg(test)]
+pub(crate) mod count_schema;
 pub(in crate::hub) use count_context::capture_on as capture_count_explanation_on;
+pub use count_record::HubCountExplanationReceipt;
 pub(in crate::hub) mod count_review;
 mod recipient_context;
 mod recipient_ledger;
@@ -374,14 +391,14 @@ pub(in crate::hub) async fn capture_additional_on(
     actor: PublicKey,
     operation: &DurableRequestId,
     command: &harvestcircle_domain::hub::corrections::AdditionalQuantityCommand,
-) -> Result<harvestcircle_application::hub_submission::HubSubmittedAdditionalQuantity, SafeError> {
+) -> Result<Vec<harvestcircle_application::hub_submission::HubSubmittedMaterial>, SafeError> {
     let context = additional_review::load_on(tx, hub, command, None).await?;
     quantity::ensure_capacity_on(tx, hub, context.group.trace).await?;
     let own = crate::hub::actuals::common::operation_id(operation)?;
     command
         .plan(&context.domain(), own, actor, context.latest_recorded_at)
         .map_err(additional_review::error)?;
-    Ok(context.material(own))
+    context.submitted_material(own)
 }
 pub(in crate::hub) mod return_allowances;
 pub(in crate::hub) mod return_capture;

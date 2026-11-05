@@ -3,7 +3,14 @@
 use super::{frozen, mode, model::*, projection, reviews};
 use crate::{
     db::{corrupt_storage, storage_unavailable},
-    hub::stock,
+    hub::{
+        corrections::{
+            count_class_record::{self, HubCountClassificationReceipt},
+            count_mode,
+            count_record::{self, HubCountExplanationReceipt},
+        },
+        stock,
+    },
 };
 use harvestcircle_domain::{SafeError, hub::HubId};
 use radroots_service_sqlite::ServiceSqliteTransaction;
@@ -16,6 +23,10 @@ use std::{
 };
 
 const ENTRIES: usize = harvestcircle_domain::hub::actuals::HUB_ACTUAL_REPORT_CAPACITY;
+// Receipt bodies retain the existing shared entry/64MiB budget. Fixed-shape
+// certificates additionally cover every permitted correction root; cache limits
+// must not reject a valid maximum count history after bodies are evicted.
+const CERTIFICATES: usize = ENTRIES + harvestcircle_domain::hub::corrections::HUB_CORRECTION_ROWS;
 const PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 
 #[cfg(test)]
@@ -27,6 +38,7 @@ mod tests;
 struct Key {
     hub: [u8; 16],
     operation: String,
+    kind: String,
     actor: [u8; 32],
     intent: [u8; 32],
     stock: u64,
@@ -34,8 +46,13 @@ struct Key {
     result: [u8; 16],
     recorded: i64,
     schema: u32,
-    mode: mode::Mode,
+    mode: InterpretationMode,
     seals: Seals,
+}
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum InterpretationMode {
+    Actual(mode::Mode),
+    Count(count_mode::Mode),
 }
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct Seals {
@@ -50,9 +67,18 @@ impl Key {
         mode: mode::Mode,
         seals: Seals,
     ) -> Self {
+        Self::with_mode(hub, op, InterpretationMode::Actual(mode), seals)
+    }
+    fn with_mode(
+        hub: HubId,
+        op: &stock::read::OperationRecord,
+        mode: InterpretationMode,
+        seals: Seals,
+    ) -> Self {
         Self {
             hub: *hub.as_bytes(),
             operation: op.id.as_str().to_owned(),
+            kind: op.kind.clone(),
             actor: *op.actor.as_bytes(),
             intent: op.hash,
             stock: op.revision.value(),
@@ -67,8 +93,18 @@ impl Key {
 }
 
 struct Entry {
-    receipt: Arc<HubActualReviewReceipt>,
+    receipt: Receipt,
     charge: usize,
+}
+#[derive(Clone)]
+enum Receipt {
+    Actual(Arc<HubActualReviewReceipt>),
+    Count(Arc<HubCountExplanationReceipt>),
+    Classification(Arc<HubCountClassificationReceipt>),
+}
+enum Certificate {
+    Actual(bool),
+    Count,
 }
 
 struct Proofs {
@@ -78,7 +114,7 @@ struct Proofs {
     // One small fixed-shape identity and review kind per bounded original.
     // These certificates retain neither receipt bodies nor interpretation sets.
     // They expire with this transaction read phase and convey no authority.
-    verified: BTreeMap<Key, bool>,
+    verified: BTreeMap<Key, Certificate>,
     bytes: usize,
     entry_limit: usize,
     payload_limit: usize,
@@ -178,7 +214,10 @@ impl<'borrow, 'connection> OriginalReader<'borrow, 'connection> {
                 .map(|v| v.try_into().map_err(|_| corrupt_storage()))
                 .transpose()?,
         };
-        if matches!(mode, mode::Mode::Qualified { capture, .. } if capture != seals.capture) {
+        if mode
+            .capture_hash()
+            .is_some_and(|capture| capture != seals.capture)
+        {
             return Err(corrupt_storage());
         }
         let key = Key::canonical(hub, &op, mode, seals);
@@ -195,7 +234,7 @@ impl<'borrow, 'connection> OriginalReader<'borrow, 'connection> {
             .active
             .last()
             .is_some_and(|parent| parent.hub != key.hub || key.stock >= parent.stock)
-            || self.proofs.active.len() >= ENTRIES
+            || self.proofs.active.len() >= CERTIFICATES
         {
             return Err(corrupt_storage());
         }
@@ -210,7 +249,7 @@ impl<'borrow, 'connection> OriginalReader<'borrow, 'connection> {
         supplied: &stock::read::OperationRecord,
     ) -> Result<bool, SafeError> {
         let (op, key) = self.canonical_key(hub, supplied).await?;
-        if let Some(physical) = self.proofs.verified.get(&key) {
+        if let Some(Certificate::Actual(physical)) = self.proofs.verified.get(&key) {
             #[cfg(test)]
             {
                 self.proofs.certificate_hits += 1;
@@ -259,7 +298,10 @@ impl<'borrow, 'connection> OriginalReader<'borrow, 'connection> {
             {
                 self.proofs.hits += 1;
             }
-            return Ok(Arc::clone(&entry.receipt));
+            return match &entry.receipt {
+                Receipt::Actual(receipt) => Ok(Arc::clone(receipt)),
+                _ => Err(corrupt_storage()),
+            };
         }
         self.proofs.active.push(key.clone());
         #[cfg(test)]
@@ -271,14 +313,198 @@ impl<'borrow, 'connection> OriginalReader<'borrow, 'connection> {
             return Err(corrupt_storage());
         }
         let receipt = Arc::new(result?);
-        if self.proofs.verified.len() >= ENTRIES && !self.proofs.verified.contains_key(&key) {
+        if self.proofs.verified.len() >= CERTIFICATES && !self.proofs.verified.contains_key(&key) {
             return Err(corrupt_storage());
         }
         self.proofs.verified.insert(
             key.clone(),
-            matches!(receipt.original, HubActualReviewOriginal::Departure(_)),
+            Certificate::Actual(matches!(
+                receipt.original,
+                HubActualReviewOriginal::Departure(_)
+            )),
         );
         self.proofs.retain(key, Arc::clone(&receipt));
+        Ok(receipt)
+    }
+
+    async fn canonical_count_key(
+        &mut self,
+        hub: HubId,
+        supplied: &stock::read::OperationRecord,
+        kind: &str,
+    ) -> Result<(stock::read::OperationRecord, Key), SafeError> {
+        let op = stock::read::operation_on(self.tx, hub, &supplied.id)
+            .await?
+            .ok_or_else(corrupt_storage)?;
+        if op.kind != kind
+            || !matches!(
+                kind,
+                "correction_count_explain" | "correction_count_classify"
+            )
+            || supplied.kind != op.kind
+        {
+            return Err(corrupt_storage());
+        }
+        let mode = count_mode::original_on(self.tx, hub, &op).await?;
+        let row = if kind == "correction_count_explain" {
+            sqlx::query(concat!(
+            "SELECT substr(c.result_hash,1,33) AS result_hash,substr(s.capture_hash,1,33) AS capture_hash,",
+            "substr(p.projection_hash,1,33) AS projection_hash FROM hub_corrections c ",
+            "JOIN hub_submissions s ON s.operation_id=c.operation_id JOIN hub_correction_count_explanations p ON p.operation_id=c.operation_id ",
+            "WHERE c.operation_id=? AND c.family='count_explain' LIMIT 1"
+        )).bind(op.id.as_str()).fetch_optional(&mut *self.tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?
+        } else {
+            sqlx::query(concat!(
+                "SELECT substr(c.result_hash,1,33) AS result_hash,substr(s.capture_hash,1,33) AS capture_hash,",
+                "substr(p.projection_hash,1,33) AS projection_hash FROM hub_corrections c ",
+                "JOIN hub_submissions s ON s.operation_id=c.operation_id JOIN hub_correction_quantity_changes p ON p.operation_id=c.operation_id ",
+                "WHERE c.operation_id=? AND c.family='count_classify' AND p.delta_kind='classification' LIMIT 1"
+            )).bind(op.id.as_str()).fetch_optional(&mut *self.tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?
+        };
+        let bytes = |field| -> Result<[u8; 32], SafeError> {
+            row.try_get::<Vec<u8>, _>(field)
+                .map_err(|_| corrupt_storage())?
+                .try_into()
+                .map_err(|_| corrupt_storage())
+        };
+        let seals = Seals {
+            result: bytes("result_hash")?,
+            capture: bytes("capture_hash")?,
+            projection: Some(bytes("projection_hash")?),
+        };
+        let key = Key::with_mode(hub, &op, InterpretationMode::Count(mode), seals);
+        if seals.capture != mode.capture
+            || Key::with_mode(hub, supplied, InterpretationMode::Count(mode), seals) != key
+            || self
+                .proofs
+                .active
+                .last()
+                .is_some_and(|parent| parent.hub != key.hub || key.stock >= parent.stock)
+            || self.proofs.active.len() >= CERTIFICATES
+        {
+            return Err(corrupt_storage());
+        }
+        Ok((op, key))
+    }
+
+    /// The certificate covers only an immutable original in this read phase.
+    /// It creates no current permission, pending clearance or fresh admission.
+    pub(in crate::hub) async fn verify_count_explanation(
+        &mut self,
+        hub: HubId,
+        op: &stock::read::OperationRecord,
+    ) -> Result<(), SafeError> {
+        let (canonical, key) = self
+            .canonical_count_key(hub, op, "correction_count_explain")
+            .await?;
+        if matches!(self.proofs.verified.get(&key), Some(Certificate::Count)) {
+            #[cfg(test)]
+            {
+                self.proofs.certificate_hits += 1;
+            }
+            return Ok(());
+        }
+        Box::pin(self.count_explanation(hub, canonical)).await?;
+        Ok(())
+    }
+
+    pub(in crate::hub) async fn count_explanation(
+        &mut self,
+        hub: HubId,
+        supplied: stock::read::OperationRecord,
+    ) -> Result<Arc<HubCountExplanationReceipt>, SafeError> {
+        let (op, key) = self
+            .canonical_count_key(hub, &supplied, "correction_count_explain")
+            .await?;
+        if let Some(entry) = self.proofs.completed.get(&key) {
+            #[cfg(test)]
+            {
+                self.proofs.hits += 1;
+            }
+            return match &entry.receipt {
+                Receipt::Count(receipt) => Ok(Arc::clone(receipt)),
+                _ => Err(corrupt_storage()),
+            };
+        }
+        self.proofs.active.push(key.clone());
+        #[cfg(test)]
+        {
+            self.proofs.rebuilt += 1;
+        }
+        let result = Box::pin(count_record::rebuild_on(self, hub, op)).await;
+        if self.proofs.active.pop().as_ref() != Some(&key) {
+            return Err(corrupt_storage());
+        }
+        let receipt = Arc::new(result?);
+        if self.proofs.verified.len() >= CERTIFICATES && !self.proofs.verified.contains_key(&key) {
+            return Err(corrupt_storage());
+        }
+        self.proofs.verified.insert(key.clone(), Certificate::Count);
+        self.proofs.retain_receipt(
+            key,
+            Receipt::Count(Arc::clone(&receipt)),
+            self.proofs.entry_limit,
+            self.proofs.payload_limit,
+        );
+        Ok(receipt)
+    }
+
+    pub(in crate::hub) async fn verify_count_classification(
+        &mut self,
+        hub: HubId,
+        op: &stock::read::OperationRecord,
+    ) -> Result<(), SafeError> {
+        let (canonical, key) = self
+            .canonical_count_key(hub, op, "correction_count_classify")
+            .await?;
+        if matches!(self.proofs.verified.get(&key), Some(Certificate::Count)) {
+            #[cfg(test)]
+            {
+                self.proofs.certificate_hits += 1;
+            }
+            return Ok(());
+        }
+        Box::pin(self.count_classification(hub, canonical)).await?;
+        Ok(())
+    }
+    pub(in crate::hub) async fn count_classification(
+        &mut self,
+        hub: HubId,
+        supplied: stock::read::OperationRecord,
+    ) -> Result<Arc<HubCountClassificationReceipt>, SafeError> {
+        let (op, key) = self
+            .canonical_count_key(hub, &supplied, "correction_count_classify")
+            .await?;
+        if let Some(entry) = self.proofs.completed.get(&key) {
+            #[cfg(test)]
+            {
+                self.proofs.hits += 1;
+            }
+            return match &entry.receipt {
+                Receipt::Classification(receipt) => Ok(Arc::clone(receipt)),
+                _ => Err(corrupt_storage()),
+            };
+        }
+        self.proofs.active.push(key.clone());
+        #[cfg(test)]
+        {
+            self.proofs.rebuilt += 1;
+        }
+        let result = count_class_record::rebuild_on(self, hub, op).await;
+        if self.proofs.active.pop().as_ref() != Some(&key) {
+            return Err(corrupt_storage());
+        }
+        let receipt = Arc::new(result?);
+        if self.proofs.verified.len() >= CERTIFICATES && !self.proofs.verified.contains_key(&key) {
+            return Err(corrupt_storage());
+        }
+        self.proofs.verified.insert(key.clone(), Certificate::Count);
+        self.proofs.retain_receipt(
+            key,
+            Receipt::Classification(Arc::clone(&receipt)),
+            self.proofs.entry_limit,
+            self.proofs.payload_limit,
+        );
         Ok(receipt)
     }
 }
@@ -309,7 +535,10 @@ impl Proofs {
         entries: usize,
         bytes: usize,
     ) {
-        let Some(charge) = charge(&key, &receipt) else {
+        self.retain_receipt(key, Receipt::Actual(receipt), entries, bytes);
+    }
+    fn retain_receipt(&mut self, key: Key, receipt: Receipt, entries: usize, bytes: usize) {
+        let Some(charge) = charge_receipt(&key, &receipt) else {
             return;
         };
         if entries == 0 || charge > bytes {
@@ -332,6 +561,21 @@ impl Proofs {
 /// Bounded serialized payload accounting plus key/entry overhead. Oversized
 /// receipts are returned uncached; cache pressure never reduces product limits.
 fn charge(key: &Key, receipt: &HubActualReviewReceipt) -> Option<usize> {
+    charge_payload(key, Payload::Actual(receipt))
+}
+enum Payload<'a> {
+    Actual(&'a HubActualReviewReceipt),
+    Count(&'a HubCountExplanationReceipt),
+    Classification(&'a HubCountClassificationReceipt),
+}
+fn charge_receipt(key: &Key, receipt: &Receipt) -> Option<usize> {
+    match receipt {
+        Receipt::Actual(receipt) => charge(key, receipt),
+        Receipt::Count(receipt) => charge_payload(key, Payload::Count(receipt)),
+        Receipt::Classification(receipt) => charge_payload(key, Payload::Classification(receipt)),
+    }
+}
+fn charge_payload(key: &Key, receipt: Payload<'_>) -> Option<usize> {
     struct Count(usize);
     impl Write for Count {
         fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
@@ -347,25 +591,45 @@ fn charge(key: &Key, receipt: &HubActualReviewReceipt) -> Option<usize> {
         }
     }
     let mut count = Count(0);
-    let common = (
-        receipt.operation.as_str(),
-        receipt.revision,
-        receipt.catalog_revision,
-        &receipt.lineage,
-        &receipt.historical_holds,
-    );
-    let encoded = match &receipt.original {
-        HubActualReviewOriginal::Departure(plan) => {
-            serde_json::to_writer(&mut count, &(common, plan))
+    let encoded = match receipt {
+        Payload::Classification(receipt) => {
+            serde_json::to_writer(&mut count, &(receipt.operation.as_str(), &receipt.original))
         }
-        HubActualReviewOriginal::Duplicate(plan) => {
-            serde_json::to_writer(&mut count, &(common, plan))
+        Payload::Count(receipt) => serde_json::to_writer(
+            &mut count,
+            &(
+                receipt.operation.as_str(),
+                &receipt.original,
+                &receipt.source,
+            ),
+        ),
+        Payload::Actual(receipt) => {
+            let common = (
+                receipt.operation.as_str(),
+                receipt.revision,
+                receipt.catalog_revision,
+                &receipt.lineage,
+                &receipt.historical_holds,
+            );
+            match &receipt.original {
+                HubActualReviewOriginal::Departure(plan) => {
+                    serde_json::to_writer(&mut count, &(common, plan))
+                }
+                HubActualReviewOriginal::Duplicate(plan) => {
+                    serde_json::to_writer(&mut count, &(common, plan))
+                }
+            }
         }
     };
     encoded.ok()?;
     count
         .0
-        .checked_add(std::mem::size_of::<Entry>() + std::mem::size_of::<HubActualReviewReceipt>())?
-        .checked_add(2 * (std::mem::size_of::<Key>() + key.operation.len()))
+        .checked_add(
+            std::mem::size_of::<Entry>()
+                + std::mem::size_of::<HubActualReviewReceipt>()
+                    .max(std::mem::size_of::<HubCountExplanationReceipt>())
+                    .max(std::mem::size_of::<HubCountClassificationReceipt>()),
+        )?
+        .checked_add(2 * (std::mem::size_of::<Key>() + key.operation.len() + key.kind.len()))
         .filter(|v| *v <= PAYLOAD_BYTES)
 }

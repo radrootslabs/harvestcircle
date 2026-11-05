@@ -4,7 +4,7 @@ use super::*;
 use harvestcircle_domain::hub::{
     actuals::{
         ActualKnownCountInventory, ActualPhysicalActivity, ActualReportRecord,
-        HistoricalActualSource,
+        CountExplanationSourceWitness, HistoricalActualSource,
     },
     corrections::{
         CorrectionObservationRecord, CountExplanationPlan, CountLossQuantityAccount,
@@ -14,6 +14,23 @@ use harvestcircle_domain::hub::{
     portions::PhysicalLineage,
     treatment::TreatmentState,
 };
+
+/// Native21 selects this material even for an empty inventory. The nested
+/// physical review omits its physical20 inventory; mode comes from native
+/// epoch/marker evidence, never from which optional JSON fields are present.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct HubSubmittedCountAwareActualReview {
+    pub review: HubSubmittedActualReview,
+    pub inventory: ActualKnownCountInventory,
+}
+
+/// A selected event is not a complete inventory. Native code separately binds
+/// a count source witness only for an immutable count explanation kind.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct HubSubmittedCountAwareActualLink {
+    pub link: HubSubmittedActualLink,
+    pub count_source: Option<CountExplanationSourceWitness>,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct HubSubmittedCountExplanation {

@@ -49,8 +49,60 @@ pub(super) struct Context {
     pub activity: Vec<ActualPhysicalActivity>,
     pub latest_recorded_at: UnixTimestamp,
     pub uncertain_submissions: bool,
+    pub count_aware: bool,
 }
 impl Context {
+    pub fn submitted_material(
+        &self,
+        id: HubRecordId,
+    ) -> Result<Vec<harvestcircle_application::hub_submission::HubSubmittedMaterial>, SafeError>
+    {
+        use harvestcircle_application::hub_submission::{
+            HubSubmittedKnownCountInventory, HubSubmittedMaterial,
+        };
+        use harvestcircle_domain::hub::actuals::{
+            ActualKnownCountInventory, ActualKnownInterpretation, ActualKnownInterpretations,
+        };
+        if !self.count_aware
+            && self
+                .known
+                .iter()
+                .any(|entry| entry.count_explanation.is_some())
+        {
+            return Err(corrupt_storage());
+        }
+        let mut material = vec![HubSubmittedMaterial::AdditionalQuantity(Box::new(
+            self.material(id),
+        ))];
+        if self.count_aware {
+            let inventory = ActualKnownCountInventory::new(ActualKnownInterpretations {
+                hub: self.hub,
+                stock_revision: self.revision,
+                catalog_revision: self.catalog.revision(),
+                latest_recorded_at: self.latest_recorded_at,
+                records: self
+                    .known
+                    .iter()
+                    .map(|entry| ActualKnownInterpretation {
+                        stock_revision: self.revision,
+                        catalog_revision: self.catalog.revision(),
+                        latest_recorded_at: self.latest_recorded_at,
+                        original: entry.original.clone(),
+                        recipient_original: entry.recipient_original.clone(),
+                        recipient_history: entry.recipient_history.clone(),
+                        quantities: entry.quantities.clone(),
+                        count_explanation: entry.count_explanation.clone(),
+                    })
+                    .collect(),
+            })
+            .map_err(|_| corrupt_storage())?;
+            material.push(HubSubmittedMaterial::KnownCountInventory(Box::new(
+                HubSubmittedKnownCountInventory { id, inventory },
+            )));
+        }
+        Ok(material)
+    }
+
     pub fn domain(&self) -> AdditionalQuantityContext<'_> {
         let target = &self.known[self.target_event];
         AdditionalQuantityContext {
@@ -96,6 +148,7 @@ impl Context {
             known_departures: self
                 .known
                 .iter()
+                .filter(|entry| entry.count_explanation.is_none())
                 .map(|known| HubSubmittedCorrectionKnown {
                     original: known.original.clone(),
                     recipient_original: known.recipient_original.clone(),
@@ -116,6 +169,10 @@ pub(super) async fn load_on(
     command: &AdditionalQuantityCommand,
     except_pending: Option<&DurableRequestId>,
 ) -> Result<Context, SafeError> {
+    let count_aware = crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION >= 21;
+    if count_aware {
+        super::count_mode::epoch_on(tx, hub).await?;
+    }
     let state = stock::read::state_on(tx, hub).await?;
     let catalog = reference::load_catalog_on(tx, hub).await?;
     if state.revision != command.facts.expected_stock_revision
@@ -195,6 +252,7 @@ pub(super) async fn load_on(
         activity,
         latest_recorded_at: UnixTimestamp::from_seconds(latest).ok_or_else(corrupt_storage)?,
         uncertain_submissions,
+        count_aware,
     })
 }
 

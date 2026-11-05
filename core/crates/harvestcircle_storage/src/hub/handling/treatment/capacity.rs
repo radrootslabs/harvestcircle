@@ -24,6 +24,11 @@ pub(in crate::hub) enum Reservation {
     FoundClosure {
         events: u32,
     },
+    /// Consume one exact metadata-only count classification observation and,
+    /// when supplied, its independently recorded actual report reservation.
+    CountClassification {
+        report: bool,
+    },
     /// Close this report reservation; a duplicate link has no physical event.
     ActualReview {
         physical: bool,
@@ -66,6 +71,12 @@ pub(in crate::hub) async fn ensure_departure_on(
 
 fn check_budget(counters: &Counters, reservation: Reservation) -> Result<(), SafeError> {
     let (correction_events, correction_operations, correction_reviews) = match &reservation {
+        Reservation::CountClassification { report } => {
+            if counters.correction.operations == 0 || (*report && counters.actual == 0) {
+                return Err(corrupt_storage());
+            }
+            (0, -1, 0)
+        }
         Reservation::FoundClosure { events } => {
             if *events == 0
                 || *events > 64
@@ -103,6 +114,7 @@ fn check_budget(counters: &Counters, reservation: Reservation) -> Result<(), Saf
     }
     let (events, new_reservations, issued_reservations, actual_reservations, safety_headroom) =
         match reservation {
+            Reservation::CountClassification { report } => (0, 0, 0, -i64::from(report), 0),
             Reservation::FoundClosure { events } => (events, 0, 0, 0, 0),
             Reservation::CorrectionObserve { .. } => (0, 0, 0, 0, 2),
             Reservation::ActualReport => (0, 0, 0, 1, 2),
@@ -174,7 +186,7 @@ fn check_budget(counters: &Counters, reservation: Reservation) -> Result<(), Saf
         + i64::from(new_reservations)
         + i64::from(issued_reservations)
         + i64::from(counters.actual)
-        + i64::from(actual_reservations)
+        + actual_reservations
         + i64::from(safety_headroom)
         + i64::from(counters.correction.events)
         + correction_events;
@@ -185,7 +197,7 @@ fn check_budget(counters: &Counters, reservation: Reservation) -> Result<(), Saf
         + i64::from(new_reservations)
         + i64::from(issued_reservations)
         + i64::from(counters.actual)
-        + i64::from(actual_reservations)
+        + actual_reservations
         + i64::from(safety_headroom)
         + i64::from(counters.correction.operations)
         + correction_operations;
@@ -339,6 +351,36 @@ async fn issued_on(tx: &mut ServiceSqliteTransaction<'_>, hub: HubId) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn count_classification_closes_reserved_metadata_at_capacity_without_physical_room() {
+        let maximum = HUB_STOCK_EVENT_CAPACITY as u32;
+        let mut c = Counters {
+            correction: crate::hub::corrections::ObservationReservations {
+                operations: 1,
+                events: 0,
+                reviews: 0,
+            },
+            operations: maximum - 1,
+            actual: 0,
+            primary: HUB_TREATMENT_CAPACITY as u32,
+            open: 0,
+            issued: 0,
+            events: maximum,
+        };
+        check_budget(&c, Reservation::CountClassification { report: false }).unwrap();
+        assert!(check_budget(&c, Reservation::OrdinaryMetadata).is_err());
+        assert!(check_budget(&c, Reservation::CountClassification { report: true }).is_err());
+        c.correction.operations = 0;
+        assert!(check_budget(&c, Reservation::CountClassification { report: false }).is_err());
+        c.correction.operations = 1;
+        c.operations -= 1;
+        c.actual = 1;
+        c.events -= 1;
+        check_budget(&c, Reservation::CountClassification { report: true }).unwrap();
+        c.operations += 2;
+        assert!(check_budget(&c, Reservation::CountClassification { report: true }).is_err());
+    }
 
     #[test]
     fn found_closure_consumes_exact_reserved_capacity_at_all_three_limits() {

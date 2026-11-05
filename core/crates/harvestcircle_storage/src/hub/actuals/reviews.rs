@@ -67,7 +67,7 @@ async fn verify_capture_on(
         material,
     )
     .await?;
-    if matches!(mode, super::mode::Mode::Qualified { capture, .. } if capture != hash) {
+    if mode.capture_hash().is_some_and(|capture| capture != hash) {
         return Err(corrupt_storage());
     }
     Ok(())
@@ -203,11 +203,7 @@ pub(in crate::hub) async fn rebuild_on(
             let digest = context
                 .digest(&op.hash, &command, &findings, &plan)
                 .map_err(|_| corrupt_storage())?;
-            let mut material = vec![
-                harvestcircle_application::hub_submission::HubSubmittedMaterial::ActualReview(
-                    Box::new(context.material(id)),
-                ),
-            ];
+            let mut material = vec![context.submitted_material(id)?];
             crate::hub::submission::capture_references(
                 &context.catalog,
                 [
@@ -288,8 +284,22 @@ pub(in crate::hub) async fn rebuild_on(
                     .find(|known| operation(known.operation).is_ok_and(|id| id == known_operation))
                     .ok_or_else(corrupt_storage)?
             };
-            let plan = match &interpretation {
-                Some(record) => command.plan_with_interpretation(
+            let count_source =
+                super::links::count_source_on(tx, hub, &known_operation, mode.capture_kind())
+                    .await?;
+            let plan = match (&interpretation, &count_source) {
+                (Some(record), Some(source)) => command.plan_with_count_interpretation(
+                    &report,
+                    harvestcircle_domain::hub::actuals::ActualCountDuplicateContext {
+                        interpretation: record,
+                        source,
+                    },
+                    None,
+                    id,
+                    op.actor,
+                    op.recorded_at,
+                ),
+                (Some(record), None) => command.plan_with_interpretation(
                     &report,
                     record,
                     None,
@@ -297,7 +307,8 @@ pub(in crate::hub) async fn rebuild_on(
                     op.actor,
                     op.recorded_at,
                 ),
-                None => command.plan(&report, &known, None, id, op.actor, op.recorded_at),
+                (None, None) => command.plan(&report, &known, None, id, op.actor, op.recorded_at),
+                _ => return Err(corrupt_storage()),
             }
             .map_err(|_| corrupt_storage())?;
             verify_capture_on(
@@ -309,18 +320,16 @@ pub(in crate::hub) async fn rebuild_on(
                     &command,
                 ),
                 cut,
-                &[
-                    harvestcircle_application::hub_submission::HubSubmittedMaterial::ActualLink(
-                        Box::new(
-                            harvestcircle_application::hub_submission::HubSubmittedActualLink {
-                                id,
-                                report: report.clone(),
-                                known: known.clone(),
-                                interpretation,
-                            },
-                        ),
-                    ),
-                ],
+                &[super::links::captured_material(
+                    mode.capture_kind(),
+                    harvestcircle_application::hub_submission::HubSubmittedActualLink {
+                        id,
+                        report: report.clone(),
+                        known: known.clone(),
+                        interpretation,
+                    },
+                    count_source,
+                )?],
             )
             .await?;
             let group = record_id(&row, "group_id")?;
@@ -356,7 +365,7 @@ pub(in crate::hub) async fn rebuild_on(
                 return Err(corrupt_storage());
             }
             verify_work_changes_on(tx, &op, &[]).await?;
-            let digest = actual_duplicate_result_digest(
+            let base = actual_duplicate_result_digest(
                 &op.hash,
                 &command,
                 &plan,
@@ -364,6 +373,7 @@ pub(in crate::hub) async fn rebuild_on(
                 op.catalog_revision,
             )
             .map_err(|_| corrupt_storage())?;
+            let digest = mode.capture_kind().link_result(base);
             (
                 HubActualReviewOriginal::Duplicate(Box::new(plan)),
                 None,

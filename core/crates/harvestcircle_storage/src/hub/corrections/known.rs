@@ -28,6 +28,10 @@ pub struct HubCorrectionKnownDeparture {
     /// Exact physical bounds also retain unresolved return scope; an unresolved
     /// return is never silently converted into a zero reservation or clearance.
     pub funding: Vec<PhysicalDebitFunding>,
+    /// Shared count classification is never a physical funding account.
+    pub count_explanation:
+        Option<std::sync::Arc<harvestcircle_domain::hub::actuals::ActualKnownCountExplanation>>,
+    pub count_return_uncertainty: bool,
 }
 
 impl HubCorrectionKnownDeparture {
@@ -36,7 +40,13 @@ impl HubCorrectionKnownDeparture {
             original: &self.original,
             recipient_original: &self.recipient_original,
             recipient_history: &self.recipient_history,
-            quantity: KnownCorrectionQuantity::Physical(&self.quantities),
+            quantity: match &self.count_explanation {
+                Some(value) => KnownCorrectionQuantity::CountExplanation {
+                    count: &value.count,
+                    account: &value.account,
+                },
+                None => KnownCorrectionQuantity::Physical(&self.quantities),
+            },
         }
     }
 }
@@ -137,6 +147,15 @@ pub(super) async fn recipient_on(
                 Vec::new(),
             )
         }
+        "correction_count_explain" => {
+            let known = Box::pin(super::count_known::original_on(tx, hub, op)).await?;
+            (
+                CorrectedDepartureFamily::ExplainedCountLoss,
+                known.recipient,
+                vec![known.trace],
+                Vec::new(),
+            )
+        }
         _ => return Err(corrupt_storage()),
     };
     let original = OriginalRecipientAttribution {
@@ -214,7 +233,26 @@ pub(super) async fn load_with_proofs_on(
     }
     let originals = Box::pin(handling::actuals::known_departures_on(tx, hub, trace, cut)).await?;
     let recipient_records = Box::pin(super::recipient_records_with_proofs_on(tx, hub, cut)).await?;
-    components_on(tx, hub, trace, cut, originals, &recipient_records).await
+    let mut physical = components_on(tx, hub, trace, cut, originals, &recipient_records).await?;
+    let counts = Box::pin(super::count_known::components_on(
+        tx,
+        hub,
+        trace,
+        cut,
+        &recipient_records,
+        None,
+    ))
+    .await?;
+    if !counts.is_empty() {
+        physical.extend(counts);
+        physical.sort_by_key(|known| {
+            (
+                known.original.stock_revision.value(),
+                known.original.operation,
+            )
+        });
+    }
+    Ok(physical)
 }
 
 async fn components_on(
@@ -275,6 +313,8 @@ async fn components_on(
                 .collect(),
             quantities,
             funding,
+            count_explanation: None,
+            count_return_uncertainty: false,
         });
     }
     Ok(result)
@@ -342,7 +382,7 @@ pub(in crate::hub) async fn actual_interpretations_at_with_proofs_on(
             recipient_original: entry.recipient_original,
             recipient_history: entry.recipient_history,
             quantities: entry.quantities,
-            count_explanation: None,
+            count_explanation: entry.count_explanation,
         };
         record.view().map_err(|_| corrupt_storage())?;
         records.push(record);
@@ -356,7 +396,7 @@ pub(in crate::hub) async fn actual_interpretations_at_with_proofs_on(
     })
 }
 
-async fn interpretation_clock_on(
+pub(super) async fn interpretation_clock_on(
     tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
     trace: HubRecordId,
@@ -430,6 +470,34 @@ pub(in crate::hub) async fn selected_actual_interpretation_at_with_proofs_on(
     if op.revision.value() > stock.value() || op.catalog_revision.value() > catalog.value() {
         return Err(corrupt_storage());
     }
+    if op.kind == "correction_count_explain" {
+        let recipients = Box::pin(super::recipient_records_with_proofs_on(tx, hub, stock)).await?;
+        let mut components = Box::pin(super::count_known::components_on(
+            tx,
+            hub,
+            trace,
+            stock,
+            &recipients,
+            Some(operation),
+        ))
+        .await?;
+        let entry = components.pop().ok_or_else(corrupt_storage)?;
+        if entry.original.variant.id != variant || !components.is_empty() {
+            return Err(corrupt_storage());
+        }
+        let record = harvestcircle_domain::hub::actuals::ActualKnownInterpretation {
+            stock_revision: stock,
+            catalog_revision: catalog,
+            latest_recorded_at: latest,
+            original: entry.original,
+            recipient_original: entry.recipient_original,
+            recipient_history: entry.recipient_history,
+            quantities: entry.quantities,
+            count_explanation: entry.count_explanation,
+        };
+        record.view().map_err(|_| corrupt_storage())?;
+        return Ok(record);
+    }
     let original = match op.kind.as_str() {
         "actual_review" => Box::pin(tx.actual_known(hub, &op)).await?,
         "departure" => Box::pin(handling::actuals::known_departure_on(tx, hub, trace, op)).await?,
@@ -457,7 +525,7 @@ pub(in crate::hub) async fn selected_actual_interpretation_at_with_proofs_on(
         recipient_original: entry.recipient_original,
         recipient_history: entry.recipient_history,
         quantities: entry.quantities,
-        count_explanation: None,
+        count_explanation: entry.count_explanation,
     };
     record.view().map_err(|_| corrupt_storage())?;
     Ok(record)

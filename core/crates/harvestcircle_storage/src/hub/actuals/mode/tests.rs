@@ -1,4 +1,24 @@
 #[test]
+fn count_aware_result_purposes_cannot_be_empty_physical20_or_cross_kind_results() {
+    use super::Capture;
+    let base = [7u8; 32];
+    for old in [Capture::Legacy, Capture::Physical20] {
+        assert_eq!(old.departure_result(base), base);
+        assert_eq!(old.link_result(base), base);
+    }
+    assert_ne!(Capture::Count21.departure_result(base), base);
+    assert_ne!(Capture::Count21.link_result(base), base);
+    assert_ne!(
+        Capture::Count21.departure_result(base),
+        Capture::Count21.link_result(base)
+    );
+    assert_ne!(
+        Capture::Count21.departure_result(base),
+        Capture::Count21.departure_result([8u8; 32])
+    );
+}
+
+#[test]
 fn native20_schema_pins_bind_the_additive_epoch_and_exact_review_guard() {
     use crate::hub::actuals::interpretation_schema as schema;
     use radroots_service_sqlite::{MigrationChecksum, SchemaVersionCatalog};

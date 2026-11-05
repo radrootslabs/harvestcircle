@@ -19,12 +19,77 @@ pub(super) struct Epoch {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum Mode {
     Legacy(Epoch),
-    Qualified { epoch: Epoch, capture: [u8; 32] },
+    Qualified {
+        epoch: Epoch,
+        capture: [u8; 32],
+    },
+    CountQualified {
+        epoch: Epoch,
+        count: crate::hub::corrections::count_mode::Mode,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Capture {
+    Legacy,
+    Physical20,
+    Count21,
+}
+impl Capture {
+    pub fn departure_result(self, base: [u8; 32]) -> [u8; 32] {
+        self.count_result(
+            b"harvestcircle.hub.actual.count_aware.departure.result.v1\0",
+            base,
+        )
+    }
+    pub fn link_result(self, base: [u8; 32]) -> [u8; 32] {
+        self.count_result(
+            b"harvestcircle.hub.actual.count_aware.link.result.v1\0",
+            base,
+        )
+    }
+    fn count_result(self, purpose: &[u8], base: [u8; 32]) -> [u8; 32] {
+        if self != Self::Count21 {
+            return base;
+        }
+        use sha2::{Digest, Sha256};
+        let mut hash = Sha256::new();
+        hash.update(purpose);
+        hash.update(base);
+        hash.finalize().into()
+    }
 }
 
 impl Mode {
     pub const fn qualified(self) -> bool {
-        matches!(self, Self::Qualified { .. })
+        !matches!(self, Self::Legacy(_))
+    }
+    pub const fn capture_kind(self) -> Capture {
+        match self {
+            Self::Legacy(_) => Capture::Legacy,
+            Self::Qualified { .. } => Capture::Physical20,
+            Self::CountQualified { .. } => Capture::Count21,
+        }
+    }
+    pub const fn capture_hash(self) -> Option<[u8; 32]> {
+        match self {
+            Self::Legacy(_) => None,
+            Self::Qualified { capture, .. } => Some(capture),
+            Self::CountQualified { count, .. } => Some(count.capture),
+        }
+    }
+}
+
+pub(super) async fn current_capture_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: HubId,
+) -> Result<Capture, SafeError> {
+    epoch_on(tx, hub).await?;
+    if crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION >= 21 {
+        crate::hub::corrections::count_mode::epoch_on(tx, hub).await?;
+        Ok(Capture::Count21)
+    } else {
+        Ok(Capture::Physical20)
     }
 }
 
@@ -72,6 +137,11 @@ pub(super) async fn original_on(
     op: &stock::read::OperationRecord,
 ) -> Result<Mode, SafeError> {
     let epoch = epoch_on(tx, hub).await?;
+    let count = if crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION >= 21 {
+        crate::hub::corrections::count_mode::for_actual_on(tx, hub, op).await?
+    } else {
+        None
+    };
     let row = sqlx::query(concat!(
         "SELECT substr(hub_id,1,17) AS hub_id,epoch,legacy_stock_revision,legacy_catalog_revision,",
         "stock_revision,catalog_revision,substr(capture_hash,1,33) AS capture_hash ",
@@ -85,7 +155,7 @@ pub(super) async fn original_on(
         return Err(corrupt_storage());
     }
     if op.revision.value() <= epoch.legacy_stock {
-        return if row.is_none() {
+        return if row.is_none() && count.is_none() {
             Ok(Mode::Legacy(epoch))
         } else {
             Err(corrupt_storage())
@@ -108,10 +178,12 @@ pub(super) async fn original_on(
     {
         return Err(corrupt_storage());
     }
-    Ok(Mode::Qualified {
-        epoch,
-        capture: capture.try_into().map_err(|_| corrupt_storage())?,
-    })
+    let capture: [u8; 32] = capture.try_into().map_err(|_| corrupt_storage())?;
+    match count {
+        Some(count) if count.capture == capture => Ok(Mode::CountQualified { epoch, count }),
+        Some(_) => Err(corrupt_storage()),
+        None => Ok(Mode::Qualified { epoch, capture }),
+    }
 }
 
 pub(super) async fn persist_on(
@@ -140,6 +212,9 @@ pub(super) async fn persist_on(
     .map_err(|_| storage_unavailable())?;
     if changed.rows_affected() != 1 {
         return Err(corrupt_storage());
+    }
+    if crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION >= 21 {
+        crate::hub::corrections::count_mode::persist_on(tx, hub, op).await?;
     }
     Ok(())
 }
@@ -171,6 +246,9 @@ pub(super) async fn audit_on(
     .map_err(|_| storage_unavailable())?;
     if invalid != 0 {
         return Err(corrupt_storage());
+    }
+    if crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION >= 21 {
+        crate::hub::corrections::count_mode::audit_on(tx, hub).await?;
     }
     Ok(())
 }

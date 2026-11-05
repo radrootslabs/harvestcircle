@@ -2,7 +2,7 @@
 //! This codec has no request decoder, FreshAdmission constructor or effect path.
 use super::additional_review::Context;
 use super::*;
-use harvestcircle_application::hub_submission::{HubSubmittedMaterial, HubSubmittedRequest};
+use harvestcircle_application::hub_submission::HubSubmittedRequest;
 use harvestcircle_domain::hub::{
     corrections::AdditionalQuantityCommand,
     movement::{PhysicalIdentification, PhysicalStockGroup, WorkAllocation, WorkProgress},
@@ -318,6 +318,21 @@ async fn restore_data_on(
         .position(|q| q.original().group == command.facts.target_group)
         .ok_or_else(corrupt_storage)?;
     let treatment = handling::treatment::read::historical_state_on(tx, hub, &lineage).await?;
+    // Native immutable activation cut, never optional JSON or inventory presence,
+    // determines the exact descriptive material for this original operation.
+    let count_aware = if crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION >= 21 {
+        let epoch = super::count_mode::epoch_on(tx, hub).await?;
+        if op.revision.value() > epoch.stock {
+            if op.catalog_revision.value() < epoch.catalog {
+                return Err(corrupt_storage());
+            }
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
     let context = Context {
         hub,
         revision: cut,
@@ -335,14 +350,13 @@ async fn restore_data_on(
         activity,
         latest_recorded_at: UnixTimestamp::from_seconds(latest).ok_or_else(corrupt_storage)?,
         uncertain_submissions: false,
+        count_aware,
     };
     if encode(&context)? != canonical_bytes {
         return Err(corrupt_storage());
     }
     let own = crate::hub::actuals::common::operation_id(&op.id).map_err(|_| corrupt_storage())?;
-    let material = [HubSubmittedMaterial::AdditionalQuantity(Box::new(
-        context.material(own),
-    ))];
+    let material = context.submitted_material(own)?;
     let admission = crate::hub::submission::verify_recorded_capture_on(
         tx,
         hub,

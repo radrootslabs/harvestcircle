@@ -282,6 +282,8 @@ pub enum HubSubmittedMaterial {
     KnownCountInventory(Box<HubSubmittedKnownCountInventory>),
     CountExplanation(Box<HubSubmittedCountExplanation>),
     CountClassification(Box<HubSubmittedCountClassification>),
+    CountAwareActualReview(Box<HubSubmittedCountAwareActualReview>),
+    CountAwareActualLink(Box<HubSubmittedCountAwareActualLink>),
 }
 impl HubSubmittedMaterial {
     fn identity(&self) -> (u8, HubRecordId, u64) {
@@ -305,6 +307,8 @@ impl HubSubmittedMaterial {
             Self::KnownCountInventory(v) => (16, v.id, 0),
             Self::CountExplanation(v) => (17, v.id, 0),
             Self::CountClassification(v) => (18, v.id, 0),
+            Self::CountAwareActualReview(v) => (19, v.review.id, 0),
+            Self::CountAwareActualLink(v) => (20, v.link.id, 0),
         }
     }
 }

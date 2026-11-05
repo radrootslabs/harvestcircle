@@ -31,6 +31,14 @@ pub(super) async fn prepare_on(
     now: UnixTimestamp,
 ) -> Result<Decision, SafeError> {
     session::require_on(tx, scope).await?;
+    if crate::HARVESTCIRCLE_STATE_SCHEMA_VERSION < 21
+        && matches!(
+            &mutation,
+            HubMutation::CountExplanation(_) | HubMutation::CountClassification(_)
+        )
+    {
+        return Err(stock::invalid_input());
+    }
     let request = mutation.submitted_request();
     if let HubSubmittedRequest::CorrectionObservation(command) = &request {
         command.validate().map_err(crate::hub::corrections::error)?;
@@ -129,7 +137,11 @@ pub(super) async fn prepare_on(
         }
     } else if matches!(
         archive.kind(),
-        "actual_review" | "correction_found" | "correction_additional"
+        "actual_review"
+            | "correction_found"
+            | "correction_additional"
+            | "correction_count_explain"
+            | "correction_count_classify"
     ) {
         // This closes an existing unresolved report, validated by capture.
         // Complete native review cuts retain the regular bounded 16MiB archive
@@ -141,7 +153,7 @@ pub(super) async fn prepare_on(
             return Err(stock::capacity());
         }
     } else {
-        let count:i64=sqlx::query_scalar("SELECT count(*) FROM hub_submissions WHERE kind NOT IN ('hold_release','dispatch_unused','actual_report','actual_review','correction_observe','correction_found','correction_additional')")
+        let count:i64=sqlx::query_scalar("SELECT count(*) FROM hub_submissions WHERE kind NOT IN ('hold_release','dispatch_unused','actual_report','actual_review','correction_observe','correction_found','correction_additional','correction_count_explain','correction_count_classify')")
             .fetch_one(&mut *tx).await.map_err(|_|storage_unavailable())?;
         if count < 0 {
             return Err(corrupt_storage());

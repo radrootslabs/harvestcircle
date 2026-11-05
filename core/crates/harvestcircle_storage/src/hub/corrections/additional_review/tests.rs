@@ -1,4 +1,5 @@
 use super::*;
+mod count_material;
 mod duplicate;
 use crate::hub::stock::tests::{Fixture, id, operation, other, owner};
 use harvestcircle_application::{

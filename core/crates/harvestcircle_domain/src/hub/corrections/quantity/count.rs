@@ -3,6 +3,27 @@ use super::*;
 use crate::hub::actuals::{ActualKnownDepartureLine, CountedShortageSourceContext};
 use crate::hub::counts::{CountEffect, CountPostPlan};
 
+pub fn count_explanation_id(operation: HubRecordId) -> Result<HubRecordId, CorrectionError> {
+    count_record_id(
+        b"harvestcircle.hub.correction.count.explanation.record.v1\0",
+        operation,
+    )
+}
+pub fn count_classification_id(operation: HubRecordId) -> Result<HubRecordId, CorrectionError> {
+    count_record_id(
+        b"harvestcircle.hub.correction.count.classification.record.v1\0",
+        operation,
+    )
+}
+fn count_record_id(purpose: &[u8], operation: HubRecordId) -> Result<HubRecordId, CorrectionError> {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(purpose);
+    hash.update(operation.as_bytes());
+    HubRecordId::from_bytes(hash.finalize()[..16].try_into().expect("SHA256 prefix"))
+        .map_err(|_| CorrectionError::InvalidHistory)
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct CountExplanationFacts {
     pub report: HubRecordId,

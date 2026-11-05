@@ -26,6 +26,8 @@ pub enum HubMutationResult {
     AdditionalCorrected(Box<crate::hub::corrections::HubAdditionalQuantityReceipt>),
     SourceAttributed(Box<crate::hub::corrections::HubSourceAttributionReceipt>),
     RecipientAttributed(Box<crate::hub::corrections::HubRecipientAttributionReceipt>),
+    CountExplained(Box<crate::hub::corrections::HubCountExplanationReceipt>),
+    CountClassified(Box<crate::hub::corrections::HubCountClassificationReceipt>),
 }
 
 impl std::fmt::Debug for HubMutationResult {
@@ -49,6 +51,8 @@ impl std::fmt::Debug for HubMutationResult {
             Self::AdditionalCorrected(_) => "AdditionalCorrected",
             Self::SourceAttributed(_) => "SourceAttributed",
             Self::RecipientAttributed(_) => "RecipientAttributed",
+            Self::CountExplained(_) => "CountExplained",
+            Self::CountClassified(_) => "CountClassified",
         };
         f.debug_tuple("HubMutationResult").field(&kind).finish()
     }
@@ -132,6 +136,32 @@ async fn execute(
 ) -> Result<HubMutationResult, SafeError> {
     use harvestcircle_domain::hub::movement::HandlingCommand;
     Ok(match mutation {
+        HubMutation::CountExplanation(command) => HubMutationResult::CountExplained(Box::new(
+            db.host()
+                .transaction(|tx| {
+                    Box::pin(async move {
+                        crate::hub::corrections::count_write::explain_on(
+                            tx, actor, operation, *command, now,
+                        )
+                        .await
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)?,
+        )),
+        HubMutation::CountClassification(command) => HubMutationResult::CountClassified(Box::new(
+            db.host()
+                .transaction(|tx| {
+                    Box::pin(async move {
+                        crate::hub::corrections::count_write::classify_on(
+                            tx, actor, operation, *command, now,
+                        )
+                        .await
+                    })
+                })
+                .await
+                .map_err(map_transaction_error)?,
+        )),
         HubMutation::RecipientAttribution(command) => {
             HubMutationResult::RecipientAttributed(Box::new(
                 db.host()

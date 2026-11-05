@@ -44,6 +44,7 @@ use harvestcircle_domain::hub::{
 };
 use harvestcircle_domain::{PublicKey, SafeError};
 use radroots_service_sqlite::ServiceSqliteTransaction;
+use sqlx::Row;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -190,6 +191,62 @@ pub(in crate::hub) async fn admission_capture_digest_on(
         return Err(corrupt_storage());
     }
     Ok(*original.capture_hash())
+}
+
+/// Small immutable identity for lower count projections only. This deliberately
+/// does not inspect or authenticate capture_body and is never a full-original
+/// proof or an execution grant. Authoritative count consumers separately verify
+/// the complete recorded capture through their transaction-owned proof reader.
+pub(in crate::hub) async fn count_projection_admission_hash_on(
+    tx: &mut ServiceSqliteTransaction<'_>,
+    hub: harvestcircle_domain::hub::HubId,
+    op: &crate::hub::stock::read::OperationRecord,
+    request: HubSubmittedRequest<'_>,
+) -> Result<[u8; 32], SafeError> {
+    if !matches!(
+        op.kind.as_str(),
+        "correction_count_explain" | "correction_count_classify"
+    ) || request.kind() != op.kind
+    {
+        return Err(corrupt_storage());
+    }
+    let input = request.archive().map_err(|_| corrupt_storage())?;
+    let row=sqlx::query(concat!(
+        "SELECT substr(hub_id,1,17) AS hub,substr(actor_public_key,1,33) AS actor,substr(kind,1,33) AS kind,",
+        "substr(domain_intent_hash,1,33) AS intent,substr(input_hash,1,33) AS input,substr(capture_hash,1,33) AS capture,",
+        "capture_schema,submitted_at_unix_s,(SELECT count(*) FROM hub_submission_rejections r WHERE r.operation_id=s.operation_id) AS rejected ",
+        "FROM hub_submissions s WHERE operation_id=? LIMIT 1"
+    )).bind(op.id.as_str()).fetch_optional(&mut *tx).await.map_err(|_|storage_unavailable())?.ok_or_else(corrupt_storage)?;
+    let bytes =
+        |field| -> Result<Vec<u8>, SafeError> { row.try_get(field).map_err(|_| corrupt_storage()) };
+    if bytes("hub")?.as_slice() != hub.as_bytes()
+        || bytes("actor")?.as_slice() != op.actor.as_bytes()
+        || row
+            .try_get::<String, _>("kind")
+            .map_err(|_| corrupt_storage())?
+            != op.kind
+        || bytes("intent")?.as_slice() != op.hash.as_slice()
+        || bytes("input")?.as_slice() != input.digest().as_slice()
+        || row
+            .try_get::<i64, _>("capture_schema")
+            .map_err(|_| corrupt_storage())?
+            != 1
+        || row
+            .try_get::<i64, _>("rejected")
+            .map_err(|_| corrupt_storage())?
+            != 0
+    {
+        return Err(corrupt_storage());
+    }
+    let submitted = harvestcircle_domain::UnixTimestamp::from_seconds(
+        row.try_get("submitted_at_unix_s")
+            .map_err(|_| corrupt_storage())?,
+    )
+    .ok_or_else(corrupt_storage)?;
+    if submitted > op.recorded_at {
+        return Err(corrupt_storage());
+    }
+    bytes("capture")?.try_into().map_err(|_| corrupt_storage())
 }
 
 fn archive_error(error: HubRequestArchiveError) -> SafeError {

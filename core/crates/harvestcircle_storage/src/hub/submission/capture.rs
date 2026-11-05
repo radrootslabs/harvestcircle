@@ -78,10 +78,18 @@ pub(super) async fn capture_on(
             .await?;
             material.push(HubSubmittedMaterial::CountExplanation(Box::new(captured)));
         }
-        HubSubmittedRequest::CountClassification(_) => {
-            // Canonical classification originals/accounts and observation
-            // closure are required before native admission can select this kind.
-            return Err(stock::invalid_input());
+        HubSubmittedRequest::CountClassification(command) => {
+            let captured = Box::pin(crate::hub::corrections::capture_count_classification_on(
+                tx,
+                hub.id(),
+                actor,
+                operation,
+                command,
+            ))
+            .await?;
+            material.push(HubSubmittedMaterial::CountClassification(Box::new(
+                captured,
+            )));
         }
         HubSubmittedRequest::RecipientAttribution(command) => {
             let captured = Box::pin(crate::hub::corrections::capture_recipient_on(
@@ -116,7 +124,7 @@ pub(super) async fn capture_on(
                 command,
             )
             .await?;
-            material.push(HubSubmittedMaterial::AdditionalQuantity(Box::new(captured)));
+            material.extend(captured);
         }
         HubSubmittedRequest::FoundCorrection(command) => {
             let captured =
@@ -130,15 +138,17 @@ pub(super) async fn capture_on(
             targets
                 .references
                 .extend([context.group.variant, context.group.location]);
-            material.push(HubSubmittedMaterial::ActualReview(Box::new(
-                context.material(crate::hub::actuals::common::operation_id(operation)?),
-            )));
+            material.push(
+                context
+                    .submitted_material(crate::hub::actuals::common::operation_id(operation)?)?,
+            );
         }
         HubSubmittedRequest::ActualLink(command) => {
             let context = crate::hub::actuals::links::current_on(tx, hub.id(), command).await?;
-            material.push(HubSubmittedMaterial::ActualLink(Box::new(
-                context.material(crate::hub::actuals::common::operation_id(operation)?),
-            )));
+            material.push(
+                context
+                    .submitted_material(crate::hub::actuals::common::operation_id(operation)?)?,
+            );
         }
         HubSubmittedRequest::Return(command) => {
             let context =

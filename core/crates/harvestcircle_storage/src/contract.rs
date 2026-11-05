@@ -882,6 +882,11 @@ pub(crate) fn retained_schema19_objects() -> Vec<SchemaObject> {
     schema_objects_v19().expect("published schema19 catalog")
 }
 
+#[cfg(test)]
+pub(crate) fn retained_schema20_objects() -> Vec<SchemaObject> {
+    schema_objects_v20().expect("published schema20 catalog")
+}
+
 fn schema_objects_v19() -> Result<Vec<SchemaObject>, HarvestCircleStorageContractError> {
     let mut objects = schema_objects_v18()?;
     objects.retain(|object| {

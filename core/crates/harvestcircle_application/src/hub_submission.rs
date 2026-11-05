@@ -90,6 +90,8 @@ pub enum HubMutation {
     AdditionalQuantity(Box<AdditionalQuantityCommand>),
     SourceAttribution(Box<SourceAttributionCommand>),
     RecipientAttribution(Box<RecipientAttributionCommand>),
+    CountExplanation(Box<CountExplanationCommand>),
+    CountClassification(Box<CountClassificationCommand>),
 }
 
 impl HubMutation {
@@ -115,6 +117,8 @@ impl HubMutation {
             Self::AdditionalQuantity(value) => HubSubmittedRequest::AdditionalQuantity(value),
             Self::SourceAttribution(value) => HubSubmittedRequest::SourceAttribution(value),
             Self::RecipientAttribution(value) => HubSubmittedRequest::RecipientAttribution(value),
+            Self::CountExplanation(value) => HubSubmittedRequest::CountExplanation(value),
+            Self::CountClassification(value) => HubSubmittedRequest::CountClassification(value),
         }
     }
 }

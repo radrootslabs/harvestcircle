@@ -17,9 +17,17 @@ pub(in crate::hub) struct Context {
     pub catalog: harvestcircle_domain::hub::reference::ReferenceCatalog,
     pub report: harvestcircle_domain::hub::actuals::ActualReportRecord,
     pub interpretation: harvestcircle_domain::hub::actuals::ActualKnownInterpretation,
+    pub count_source: Option<harvestcircle_domain::hub::actuals::CountExplanationSourceWitness>,
+    pub(super) capture: super::mode::Capture,
 }
 
 impl Context {
+    pub fn submitted_material(
+        &self,
+        id: harvestcircle_domain::hub::reference::HubRecordId,
+    ) -> Result<harvestcircle_application::hub_submission::HubSubmittedMaterial, SafeError> {
+        captured_material(self.capture, self.material(id), self.count_source.clone())
+    }
     pub fn material(
         &self,
         id: harvestcircle_domain::hub::reference::HubRecordId,
@@ -38,10 +46,86 @@ impl Context {
         actor: PublicKey,
         now: UnixTimestamp,
     ) -> Result<harvestcircle_domain::hub::actuals::ActualDuplicateLinkPlan, SafeError> {
-        command
-            .plan_with_interpretation(&self.report, &self.interpretation, None, id, actor, now)
-            .map_err(error)
+        match &self.count_source {
+            Some(source) => command.plan_with_count_interpretation(
+                &self.report,
+                harvestcircle_domain::hub::actuals::ActualCountDuplicateContext {
+                    interpretation: &self.interpretation,
+                    source,
+                },
+                None,
+                id,
+                actor,
+                now,
+            ),
+            None => command.plan_with_interpretation(
+                &self.report,
+                &self.interpretation,
+                None,
+                id,
+                actor,
+                now,
+            ),
+        }
+        .map_err(error)
     }
+}
+
+pub(super) fn captured_material(
+    capture: super::mode::Capture,
+    link: harvestcircle_application::hub_submission::HubSubmittedActualLink,
+    count_source: Option<harvestcircle_domain::hub::actuals::CountExplanationSourceWitness>,
+) -> Result<harvestcircle_application::hub_submission::HubSubmittedMaterial, SafeError> {
+    use harvestcircle_application::hub_submission::{
+        HubSubmittedCountAwareActualLink, HubSubmittedMaterial,
+    };
+    match capture {
+        super::mode::Capture::Count21 => {
+            let interpretation = link.interpretation.as_ref().ok_or_else(corrupt_storage)?;
+            if interpretation.count_explanation.is_some() != count_source.is_some() {
+                return Err(corrupt_storage());
+            }
+            Ok(HubSubmittedMaterial::CountAwareActualLink(Box::new(
+                HubSubmittedCountAwareActualLink { link, count_source },
+            )))
+        }
+        _ => {
+            if count_source.is_some()
+                || link
+                    .interpretation
+                    .as_ref()
+                    .is_some_and(|v| v.count_explanation.is_some())
+            {
+                return Err(corrupt_storage());
+            }
+            Ok(HubSubmittedMaterial::ActualLink(Box::new(link)))
+        }
+    }
+}
+
+/// Immutable native kind chooses source corroboration. Capture body presence
+/// and caller-supplied interpretation data cannot select a count source path.
+pub(super) async fn count_source_on(
+    tx: &mut super::proofs::OriginalReader<'_, '_>,
+    hub: harvestcircle_domain::hub::HubId,
+    target: &DurableRequestId,
+    capture: super::mode::Capture,
+) -> Result<Option<harvestcircle_domain::hub::actuals::CountExplanationSourceWitness>, SafeError> {
+    let op = stock::read::operation_on(tx, hub, target)
+        .await?
+        .ok_or_else(corrupt_storage)?;
+    if op.kind == "correction_count_explain" {
+        if capture != super::mode::Capture::Count21 {
+            return Err(corrupt_storage());
+        }
+        return Box::pin(tx.count_explanation(hub, op))
+            .await
+            .map(|receipt| Some(receipt.source.clone()));
+    }
+    if !matches!(op.kind.as_str(), "departure" | "actual_review") {
+        return Err(corrupt_storage());
+    }
+    Ok(None)
 }
 
 pub(in crate::hub) async fn current_on(
@@ -50,7 +134,7 @@ pub(in crate::hub) async fn current_on(
     command: &ActualDuplicateLink,
 ) -> Result<Context, SafeError> {
     let state = stock::read::state_on(tx, hub).await?;
-    super::mode::epoch_on(tx, hub).await?;
+    let capture = super::mode::current_capture_on(tx, hub).await?;
     let catalog = reference::load_catalog_on(tx, hub).await?;
     let report = reports::by_id_on(tx, hub, command.report).await?.original;
     let reviewed: Option<String> = sqlx::query_scalar(
@@ -64,7 +148,7 @@ pub(in crate::hub) async fn current_on(
         return Err(stock::conflict());
     }
     let target = operation(command.known_operation)?;
-    let interpretation = {
+    let (interpretation, count_source) = {
         let mut reader = super::proofs::OriginalReader::new(tx);
         let named = stock::read::operation_on(&mut reader, hub, &target)
             .await?
@@ -97,12 +181,20 @@ pub(in crate::hub) async fn current_on(
                     line.trace.id == command.known_trace && line.variant.id == command.known_variant
                 })
             }
+            "correction_count_explain" => {
+                if capture != super::mode::Capture::Count21 {
+                    return Err(corrupt_storage());
+                }
+                let receipt = Box::pin(reader.count_explanation(hub, named)).await?;
+                receipt.original.known_event.trace == command.known_trace
+                    && receipt.original.known_event.variant.id == command.known_variant
+            }
             _ => return Err(stock::invalid_input()),
         };
         if !scope_matches {
             return Err(stock::invalid_input());
         }
-        Box::pin(
+        let interpretation = Box::pin(
             crate::hub::corrections::selected_actual_interpretation_at_with_proofs_on(
                 &mut reader,
                 hub,
@@ -113,13 +205,17 @@ pub(in crate::hub) async fn current_on(
                 catalog.revision(),
             ),
         )
-        .await?
+        .await?;
+        let source = count_source_on(&mut reader, hub, &target, capture).await?;
+        (interpretation, source)
     };
     Ok(Context {
         state,
         catalog,
         report,
         interpretation,
+        count_source,
+        capture,
     })
 }
 
@@ -155,6 +251,8 @@ pub(in crate::hub) async fn apply_on(
         catalog,
         report,
         interpretation,
+        capture,
+        ..
     } = context;
     let known = interpretation.original;
     let revision = harvestcircle_domain::hub::HubRevision::from_value(
@@ -165,9 +263,9 @@ pub(in crate::hub) async fn apply_on(
             .ok_or_else(stock::capacity)?,
     )
     .map_err(|_| stock::capacity())?;
-    let digest =
-        actual_duplicate_result_digest(&hash, &command, &plan, revision, catalog.revision())
-            .map_err(error)?;
+    let base = actual_duplicate_result_digest(&hash, &command, &plan, revision, catalog.revision())
+        .map_err(error)?;
+    let digest = capture.link_result(base);
     let op = OperationRecord {
         id: operation.clone(),
         kind: "actual_review".into(),

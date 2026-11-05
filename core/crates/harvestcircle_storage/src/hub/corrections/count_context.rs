@@ -6,10 +6,7 @@ use harvestcircle_domain::hub::{
         ActualPhysicalActivity, ActualSourceContext, CountedShortageSourceContext,
         HistoricalActualSource,
     },
-    corrections::{
-        CountExplanationCommand, CountExplanationContext, CountLossQuantityAccount,
-        OriginalCountLossQuantity,
-    },
+    corrections::{CountExplanationCommand, CountExplanationContext, CountLossQuantityAccount},
     counts::{CountEffect, CountPostPlan},
     portions::PhysicalLineage,
     reference::ReferenceCatalog,
@@ -74,6 +71,16 @@ pub(super) async fn current_on(
     hub: HubId,
     query: &CountExplanationCommand,
 ) -> Result<Context, SafeError> {
+    current_with_pending_on(tx, hub, query, None).await
+}
+
+// Only a fresh admitted writer may exclude its exact own pending operation.
+pub(super) async fn current_with_pending_on(
+    tx: &mut OriginalReader<'_, '_>,
+    hub: HubId,
+    query: &CountExplanationCommand,
+    except: Option<&DurableRequestId>,
+) -> Result<Context, SafeError> {
     let state = stock::read::state_on(tx, hub).await?;
     let catalog = reference::load_catalog_on(tx, hub).await?;
     if state.revision != query.facts.expected_stock_revision
@@ -91,9 +98,11 @@ pub(super) async fn current_on(
         return Err(corrupt_storage());
     }
     let facts = Box::pin(at_on(tx, hub, query, Positions::Current)).await?;
-    let uncertain_submissions = crate::hub::submission::uncertainty_all_on(tx)
-        .await?
-        .uncertain_intent;
+    let uncertain_submissions = match except {
+        Some(own) => crate::hub::submission::uncertainty_on(tx, own).await?,
+        None => crate::hub::submission::uncertainty_all_on(tx).await?,
+    }
+    .uncertain_intent;
     Ok(Context {
         facts,
         uncertain_submissions,
@@ -102,8 +111,7 @@ pub(super) async fn current_on(
 
 /// Canonical immutable facts at an explicit paired cut. This loader does not
 /// inspect current positions or assert that historical pending work was absent.
-/// The historical entry is qualified before a native original reader selects it.
-#[cfg(test)]
+/// The native original caller must authenticate its complete captured material.
 pub(in crate::hub) async fn facts_on(
     tx: &mut OriginalReader<'_, '_>,
     hub: HubId,
@@ -114,7 +122,6 @@ pub(in crate::hub) async fn facts_on(
 
 enum Positions {
     Current,
-    #[cfg(test)]
     Historical,
 }
 async fn at_on(
@@ -173,7 +180,7 @@ async fn at_on(
     if count.id != query.facts.count_reconciliation {
         return Err(corrupt_storage());
     }
-    let CountEffect::Shortage { packs, .. } = count.effect else {
+    let CountEffect::Shortage { .. } = count.effect else {
         return Err(stock::invalid_input());
     };
     if matches!(positions, Positions::Current) {
@@ -199,18 +206,9 @@ async fn at_on(
             return Err(corrupt_storage());
         }
     }
-    let account = CountLossQuantityAccount::restore(
-        OriginalCountLossQuantity {
-            reconciliation: count.id,
-            operation: count.operation,
-            stock_revision: count.stock_revision,
-            trace: count.before.trace,
-            variant: count.before.variant,
-            packs,
-        },
-        Vec::new(),
-    )
-    .map_err(|_| corrupt_storage())?;
+    let history = super::count_account::history_on(tx, hub, &count, cut).await?;
+    let returns = super::count_returns::for_history_on(tx, hub, &history, cut).await?;
+    let account = history.with_returns(returns.totals)?;
     let included: i64 = sqlx::query_scalar(concat!(
         "SELECT count(*) FROM hub_actual_reports r JOIN hub_stock_operations o ON o.operation_id=r.operation_id ",
         "WHERE r.report_id=? AND o.hub_id=? AND o.stock_revision<=? AND o.catalog_revision<=?"
@@ -344,11 +342,6 @@ pub(in crate::hub) async fn capture_on(
     operation: &DurableRequestId,
     command: &CountExplanationCommand,
 ) -> Result<harvestcircle_application::hub_submission::HubSubmittedCountExplanation, SafeError> {
-    use harvestcircle_application::hub_submission::HubSubmittedCountExplanation;
-    use harvestcircle_domain::hub::actuals::{
-        ActualKnownCountInventory, ActualKnownInterpretation, ActualKnownInterpretations,
-        ActualReportError,
-    };
     reference::validate_basis_on(tx, hub).await?;
     let mut reader = OriginalReader::new(tx);
     let context = Box::pin(current_on(&mut reader, hub, command)).await?;
@@ -362,6 +355,21 @@ pub(in crate::hub) async fn capture_on(
             context.facts.latest_recorded_at,
         )
         .map_err(super::additional_review::error)?;
+    material(&context, command, own)
+}
+
+/// Exact descriptive material shared by fresh capture and authenticated original
+/// reconstruction. The caller supplies its separately established uncertainty.
+pub(super) fn material(
+    context: &Context,
+    command: &CountExplanationCommand,
+    own: HubRecordId,
+) -> Result<harvestcircle_application::hub_submission::HubSubmittedCountExplanation, SafeError> {
+    use harvestcircle_application::hub_submission::HubSubmittedCountExplanation;
+    use harvestcircle_domain::hub::actuals::{
+        ActualKnownCountInventory, ActualKnownInterpretation, ActualKnownInterpretations,
+        ActualReportError,
+    };
     // Planning checks current reference kinds as well as the count's immutable
     // labels. Preserve the selected current catalog content separately.
     use harvestcircle_domain::hub::reference::ReferenceValue;
@@ -387,7 +395,7 @@ pub(in crate::hub) async fn capture_on(
     references.sort_by_key(|record| record.id);
     references.dedup_by_key(|record| record.id);
     let known = ActualKnownCountInventory::new(ActualKnownInterpretations {
-        hub,
+        hub: context.facts.hub,
         stock_revision: context.facts.stock_revision,
         catalog_revision: context.facts.catalog.revision(),
         latest_recorded_at: context.facts.latest_recorded_at,
@@ -403,9 +411,7 @@ pub(in crate::hub) async fn capture_on(
                 recipient_original: known.recipient_original.clone(),
                 recipient_history: known.recipient_history.clone(),
                 quantities: known.quantities.clone(),
-                // The explicit unsupported-count fence above still rejects count
-                // roots; never infer an empty count account from absent adapters.
-                count_explanation: None,
+                count_explanation: known.count_explanation.clone(),
             })
             .collect(),
     })
@@ -418,13 +424,13 @@ pub(in crate::hub) async fn capture_on(
     })?;
     Ok(HubSubmittedCountExplanation {
         id: own,
-        count: context.facts.count,
-        account: context.facts.account,
-        report: context.facts.report,
-        source: context.facts.source,
-        lineage: context.facts.graph,
-        activity: context.facts.activity,
-        treatment: context.facts.treatment,
+        count: context.facts.count.clone(),
+        account: context.facts.account.clone(),
+        report: context.facts.report.clone(),
+        source: context.facts.source.clone(),
+        lineage: context.facts.graph.clone(),
+        activity: context.facts.activity.clone(),
+        treatment: context.facts.treatment.clone(),
         references,
         known,
         prior_report_review: context.facts.prior_report_review,

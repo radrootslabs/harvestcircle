@@ -40,8 +40,31 @@ pub(in crate::hub) struct Context {
     pub known: Vec<ActualKnownDeparture>,
     pub uncertain_submissions: bool,
     pub interpretations: Option<ActualKnownInterpretations>,
+    pub(super) capture: super::mode::Capture,
 }
 impl Context {
+    pub fn submitted_material(
+        &self,
+        id: harvestcircle_domain::hub::reference::HubRecordId,
+    ) -> Result<harvestcircle_application::hub_submission::HubSubmittedMaterial, SafeError> {
+        use harvestcircle_application::hub_submission::{
+            HubSubmittedCountAwareActualReview, HubSubmittedMaterial,
+        };
+        let mut review = self.material(id);
+        match self.capture {
+            super::mode::Capture::Count21 => {
+                review.interpretations = None;
+                let inventory = harvestcircle_domain::hub::actuals::ActualKnownCountInventory::new(
+                    self.interpretations.clone().ok_or_else(corrupt_storage)?,
+                )
+                .map_err(error)?;
+                Ok(HubSubmittedMaterial::CountAwareActualReview(Box::new(
+                    HubSubmittedCountAwareActualReview { review, inventory },
+                )))
+            }
+            _ => Ok(HubSubmittedMaterial::ActualReview(Box::new(review))),
+        }
+    }
     pub fn material(
         &self,
         id: harvestcircle_domain::hub::reference::HubRecordId,
@@ -82,10 +105,11 @@ impl Context {
         findings: &[harvestcircle_domain::hub::actuals::HistoricalHoldScopeAssessment],
         plan: &harvestcircle_domain::hub::actuals::ActualNewDeparturePlan,
     ) -> Result<[u8; 32], SafeError> {
-        match &self.interpretations {
+        let base=match &self.interpretations {
             Some(set) => harvestcircle_domain::hub::actuals::actual_departure_result_digest_with_interpretations(input, command, &self.domain(), set, &self.births, findings, plan),
             None => harvestcircle_domain::hub::actuals::actual_departure_result_digest(input, command, &self.domain(), &self.births, findings, plan),
-        }.map_err(error)
+        }.map_err(error)?;
+        Ok(self.capture.departure_result(base))
     }
 
     pub fn domain(&self) -> ActualNewDepartureContext<'_> {
@@ -119,7 +143,7 @@ pub(in crate::hub) async fn current_on(
     except: Option<&DurableRequestId>,
 ) -> Result<Context, SafeError> {
     let state = stock::read::state_on(tx, hub).await?;
-    super::mode::epoch_on(tx, hub).await?;
+    let capture = super::mode::current_capture_on(tx, hub).await?;
     let catalog = reference::load_catalog_on(tx, hub).await?;
     if state.revision != command.facts.expected_stock_revision
         || catalog.revision() != command.facts.expected_catalog_revision
@@ -147,7 +171,7 @@ pub(in crate::hub) async fn current_on(
     )
     .await?;
     let activity = handling::actuals::activity_on(tx, hub, &loaded.graph, &source).await?;
-    let known =
+    let physical_known =
         handling::actuals::known_departures_on(tx, hub, group.trace, state.revision).await?;
     let treatment = handling::treatment::read::state_on(tx, hub, &loaded.graph).await?;
     let interpretations = {
@@ -163,6 +187,7 @@ pub(in crate::hub) async fn current_on(
         )
         .await?
     };
+    let known = known_baseline(capture, physical_known, Some(&interpretations))?;
     // Only the fresh executor may exclude its own already-admitted pending row.
     // Read/capture paths include every pending outcome; recorded report is no exception.
     let recorded_operation = operation(report.operation)?;
@@ -182,6 +207,7 @@ pub(in crate::hub) async fn current_on(
         known,
         uncertain_submissions: uncertain,
         interpretations: Some(interpretations),
+        capture,
     })
 }
 
@@ -281,7 +307,7 @@ pub(in crate::hub) async fn original_on(
     )
     .await?;
     let activity = handling::actuals::activity_on(tx, hub, &lineage, &source).await?;
-    let known = handling::actuals::known_departures_on(tx, hub, trace, cut).await?;
+    let physical_known = handling::actuals::known_departures_on(tx, hub, trace, cut).await?;
     let treatment = handling::treatment::read::historical_state_on(tx, hub, &lineage).await?;
     let event_count:i64=sqlx::query_scalar("SELECT count(*) FROM hub_stock_events e JOIN hub_stock_operations o ON o.operation_id=e.operation_id WHERE o.hub_id=? AND o.stock_revision<=?")
         .bind(hub.as_bytes().as_slice()).bind(integer(cut)?).fetch_one(&mut **tx).await.map_err(|_|storage_unavailable())?;
@@ -289,7 +315,8 @@ pub(in crate::hub) async fn original_on(
     if event_count as usize > harvestcircle_domain::hub::stock::HUB_STOCK_EVENT_CAPACITY {
         return Err(corrupt_storage());
     }
-    let interpretations = if super::mode::original_on(tx, hub, op).await?.qualified() {
+    let mode = super::mode::original_on(tx, hub, op).await?;
+    let interpretations = if mode.qualified() {
         Some(
             Box::pin(
                 crate::hub::corrections::actual_interpretations_at_with_proofs_on(
@@ -305,6 +332,11 @@ pub(in crate::hub) async fn original_on(
     } else {
         None
     };
+    let known = known_baseline(
+        mode.capture_kind(),
+        physical_known,
+        interpretations.as_ref(),
+    )?;
     Ok(Context {
         state: stock::read::StockState {
             revision: cut,
@@ -321,7 +353,37 @@ pub(in crate::hub) async fn original_on(
         known,
         uncertain_submissions: false,
         interpretations,
+        capture: mode.capture_kind(),
     })
+}
+
+// Count explanations are positive original events even when their effective
+// quantity is now zero. The native mode selects this complete baseline; the
+// preserved physical20/legacy baseline retains its original ordering and bytes.
+fn known_baseline(
+    capture: super::mode::Capture,
+    physical: Vec<ActualKnownDeparture>,
+    interpretations: Option<&ActualKnownInterpretations>,
+) -> Result<Vec<ActualKnownDeparture>, SafeError> {
+    if capture != super::mode::Capture::Count21 {
+        return Ok(physical);
+    }
+    let set = interpretations.ok_or_else(corrupt_storage)?;
+    let complete = set
+        .records
+        .iter()
+        .map(|entry| entry.original.clone())
+        .collect::<Vec<_>>();
+    let physical_in_complete = set
+        .records
+        .iter()
+        .filter(|entry| entry.count_explanation.is_none())
+        .map(|entry| entry.original.clone())
+        .collect::<Vec<_>>();
+    if physical_in_complete != physical {
+        return Err(corrupt_storage());
+    }
+    Ok(complete)
 }
 
 struct GroupCut {

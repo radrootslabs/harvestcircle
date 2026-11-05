@@ -24,6 +24,21 @@ fn note() -> SourceProvenance {
     )
     .unwrap()
 }
+#[test]
+fn count_record_ids_separate_explanation_classification_and_physical_corrections() {
+    let operation = id(200);
+    let explanation = count_explanation_id(operation).unwrap();
+    let classification = count_classification_id(operation).unwrap();
+    assert_ne!(explanation, classification);
+    for record in [explanation, classification] {
+        assert_ne!(record, operation);
+        assert_ne!(record, additional_correction_id(operation).unwrap());
+    }
+    assert_eq!(explanation, count_explanation_id(operation).unwrap());
+    assert_eq!(classification, count_classification_id(operation).unwrap());
+    assert_ne!(explanation, count_explanation_id(id(201)).unwrap());
+    assert_ne!(classification, count_classification_id(id(201)).unwrap());
+}
 struct Fixture {
     catalog: ReferenceCatalog,
     count: CountPostPlan,
