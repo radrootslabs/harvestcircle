@@ -13,6 +13,8 @@ use crate::{PublicKey, UnixTimestamp};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
+mod count_source;
+pub use count_source::{ActualCountDuplicateContext, CountExplanationSourceWitness};
 mod count_capture;
 pub use count_capture::{ACTUAL_KNOWN_COUNT_INVENTORY_SCHEMA, ActualKnownCountInventory};
 mod hold_scope;

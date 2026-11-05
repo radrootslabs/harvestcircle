@@ -263,6 +263,24 @@ Shared immutable account proofs stay within one validation cut. The application
 writer retains its16MiB archive bound. Native mode selection, reconstruction and
 count posting remain unqualified; the native count comparison stays read-only.
 
+Count duplicate-link plans carry an original-derived source witness separately
+from the immutable count anchor. Matching accepts only that exact historical
+source or the original anchor, preserving ancestor and location distinctions.
+The witness is descriptive consistency data: native storage must corroborate the
+full canonical explanation and captured scope, select the count kind explicitly,
+and reject legacy-mode downgrades before activation. Physical link encodings and
+result hashes retain their old bytes when this extension is absent.
+
+Recorded count-classification plans take the corrected total from an unused
+preserved observation, including zero, and bind both current cuts and account
+heads. They preserve original quantities and physical/work effects, enforce
+allowance and established-return floors, and block decreases with unresolved
+return associations. Optional raw reports must correlate with that total and
+original source, recipient associations and time. Complete known inventories
+share the existing role/group/owner, history-capacity and count-member checks;
+the new row also needs capacity. Native admission, atomic persistence and current
+consumer qualification remain prerequisites to exposing these plans.
+
 Current trace reads retain gross original departures separately from native
 effective quantities, established returns and ordered amendments. The read-only
 desktop panel pages these records without calculating stock. As-issued output

@@ -12,6 +12,8 @@ use crate::hub::stock::Occurrence;
 use crate::hub::treatment::TreatmentState;
 use crate::{PublicKey, UnixTimestamp};
 
+mod classification;
+pub use classification::*;
 mod count;
 pub use count::*;
 mod known;

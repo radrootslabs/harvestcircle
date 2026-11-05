@@ -63,7 +63,7 @@ impl ActualKnownInterpretation {
         super::result::interpretation_digest(self)
     }
 
-    pub(super) fn operations(&self) -> impl Iterator<Item = (HubRecordId, HubRevision)> + '_ {
+    pub(crate) fn operations(&self) -> impl Iterator<Item = (HubRecordId, HubRevision)> + '_ {
         std::iter::once((self.original.operation, self.original.stock_revision))
             .chain(
                 self.recipient_history

@@ -437,6 +437,8 @@ pub struct ActualDuplicateLinkPlan {
     pub known: ActualKnownDeparture,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interpretation: Option<Box<ActualKnownInterpretation>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count_source: Option<Box<CountExplanationSourceWitness>>,
     pub actor: PublicKey,
     pub recorded_at: UnixTimestamp,
     pub verification: SourceProvenance,
@@ -472,6 +474,7 @@ impl ActualDuplicateLink {
                 original,
                 known,
                 interpretation: None,
+                count_source: None,
             },
             prior_review,
             operation,
@@ -496,6 +499,32 @@ impl ActualDuplicateLink {
                 original,
                 known: &interpretation.original,
                 interpretation: Some(interpretation),
+                count_source: None,
+            },
+            prior_review,
+            operation,
+            actor,
+            now,
+        )
+    }
+
+    /// Count-specific original source corroboration. This descriptive plan is
+    /// still subject to complete native original/admission/mode validation.
+    pub fn plan_with_count_interpretation(
+        &self,
+        original: &ActualReportRecord,
+        context: ActualCountDuplicateContext<'_>,
+        prior_review: Option<HubRecordId>,
+        operation: HubRecordId,
+        actor: PublicKey,
+        now: UnixTimestamp,
+    ) -> Result<ActualDuplicateLinkPlan, ActualReportError> {
+        self.plan_inner(
+            DuplicateContext {
+                original,
+                known: &context.interpretation.original,
+                interpretation: Some(context.interpretation),
+                count_source: Some(context.source),
             },
             prior_review,
             operation,
@@ -516,6 +545,7 @@ impl ActualDuplicateLink {
             original,
             known,
             interpretation,
+            count_source,
         } = context;
         original.validate()?;
         known.validate()?;
@@ -556,6 +586,30 @@ impl ActualDuplicateLink {
                 Ok(view)
             })
             .transpose()?;
+        match (
+            interpretation.and_then(|record| record.count_explanation.as_deref()),
+            count_source,
+        ) {
+            (Some(count), Some(source)) => {
+                source.validate_for(known, &count.count)?;
+                let source = source.historical();
+                if source.operation == operation || source.operation == original.operation {
+                    return Err(ActualReportError::InvalidIdentity);
+                }
+                if source.stock_revision == original.stock_revision {
+                    return Err(ActualReportError::InvalidHistory);
+                }
+                if let Some(record) = interpretation {
+                    for (id, revision) in record.operations() {
+                        if id == source.operation || revision == source.stock_revision {
+                            return Err(ActualReportError::InvalidHistory);
+                        }
+                    }
+                }
+            }
+            (None, None) => {}
+            _ => return Err(ActualReportError::InvalidNativeContext),
+        }
         let claim = &original.report;
         if claim.variant.is_some_and(|v| v != known.variant.id)
             || !view.as_ref().map_or(
@@ -578,7 +632,10 @@ impl ActualDuplicateLink {
                 })
         };
         if !matches!(&claim.sources, ActualReportSources::Unknown)
-            && !claim.sources.candidates().iter().any(source_matches)
+            && !claim.sources.candidates().iter().any(|claim| {
+                source_matches(claim)
+                    || count_source.is_some_and(|source| source.matches_source(claim))
+            })
         {
             return Err(ActualReportError::HistoricalSourceUnresolved);
         }
@@ -587,6 +644,7 @@ impl ActualDuplicateLink {
             original: original.clone(),
             known: known.clone(),
             interpretation: interpretation.cloned().map(Box::new),
+            count_source: count_source.cloned().map(Box::new),
             actor,
             recorded_at: now,
             verification: self.verification.clone(),
@@ -598,4 +656,5 @@ struct DuplicateContext<'a> {
     original: &'a ActualReportRecord,
     known: &'a ActualKnownDeparture,
     interpretation: Option<&'a ActualKnownInterpretation>,
+    count_source: Option<&'a CountExplanationSourceWitness>,
 }

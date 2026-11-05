@@ -179,6 +179,7 @@ async fn current_interpretation_keeps_whole_normal_event_populations_paper_and_e
             serde_json::to_vec(entry).unwrap(),
             serde_json::to_vec(&Physical20Capture(entry)).unwrap()
         );
+        physical20_link_bytes(entry);
         assert!(
             !String::from_utf8(serde_json::to_vec(&evidence.interpretations).unwrap())
                 .unwrap()
@@ -236,6 +237,88 @@ impl serde::Serialize for Physical20Capture<'_> {
         record.serialize_field("recipient_original", &value.recipient_original)?;
         record.serialize_field("recipient_history", &value.recipient_history)?;
         record.serialize_field("quantities", &value.quantities)?;
+        record.end()
+    }
+}
+
+fn physical20_link_bytes(entry: &harvestcircle_domain::hub::actuals::ActualKnownInterpretation) {
+    use harvestcircle_domain::hub::actuals::{
+        ActualDuplicateLink, ActualReportCommand, ActualReportSources,
+    };
+    use harvestcircle_domain::hub::reference::SourceProvenance;
+    let raw = ActualReportCommand {
+        variant: Some(entry.original.variant.id),
+        recipient: Some(entry.original.recipient.id),
+        packs: None,
+        sources: ActualReportSources::Unknown,
+        occurred: entry.original.occurred,
+        observation: SourceProvenance::new("Independent physical20 byte compatibility witness")
+            .unwrap(),
+    }
+    .preserve(
+        entry.original.hub,
+        entry.stock_revision,
+        entry.catalog_revision,
+        crate::hub::stock::tests::id(240),
+        owner(),
+        entry.latest_recorded_at,
+    )
+    .unwrap();
+    let mut current = entry.clone();
+    current.stock_revision = raw.stock_revision;
+    let command = ActualDuplicateLink {
+        report: raw.id,
+        known_operation: entry.original.operation,
+        known_trace: entry.original.trace,
+        known_variant: entry.original.variant.id,
+        verification: SourceProvenance::new("Verified duplicate physical20 byte witness").unwrap(),
+    };
+    for qualified in [false, true] {
+        let plan = if qualified {
+            command.plan_with_interpretation(
+                &raw,
+                &current,
+                None,
+                crate::hub::stock::tests::id(241),
+                owner(),
+                raw.recorded_at,
+            )
+        } else {
+            command.plan(
+                &raw,
+                &entry.original,
+                None,
+                crate::hub::stock::tests::id(241),
+                owner(),
+                raw.recorded_at,
+            )
+        }
+        .unwrap();
+        assert!(plan.count_source.is_none());
+        assert_eq!(
+            serde_json::to_vec(&plan).unwrap(),
+            serde_json::to_vec(&Physical20Link(&plan)).unwrap()
+        );
+    }
+}
+struct Physical20Link<'a>(&'a harvestcircle_domain::hub::actuals::ActualDuplicateLinkPlan);
+impl serde::Serialize for Physical20Link<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let value = self.0;
+        let mut record = serializer.serialize_struct(
+            "ActualDuplicateLinkPlan",
+            if value.interpretation.is_some() { 7 } else { 6 },
+        )?;
+        record.serialize_field("operation", &value.operation)?;
+        record.serialize_field("original", &value.original)?;
+        record.serialize_field("known", &value.known)?;
+        if let Some(interpretation) = &value.interpretation {
+            record.serialize_field("interpretation", interpretation)?;
+        }
+        record.serialize_field("actor", &value.actor)?;
+        record.serialize_field("recorded_at", &value.recorded_at)?;
+        record.serialize_field("verification", &value.verification)?;
         record.end()
     }
 }

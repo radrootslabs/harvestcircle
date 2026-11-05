@@ -492,3 +492,6 @@ fn explicit_count_source_command_rejects_substitution_and_binds_every_input() {
         }
     }
 }
+
+mod classification;
+mod source_witness;

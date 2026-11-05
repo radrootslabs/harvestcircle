@@ -379,16 +379,30 @@ pub fn actual_duplicate_result_digest(
             {
                 return Err(ActualReportError::InvalidNativeContext);
             }
-            command.plan_with_interpretation(
-                &record.original,
-                value,
-                None,
-                record.operation,
-                record.actor,
-                record.recorded_at,
-            )?
+            if let Some(source) = record.count_source.as_deref() {
+                command.plan_with_count_interpretation(
+                    &record.original,
+                    ActualCountDuplicateContext {
+                        interpretation: value,
+                        source,
+                    },
+                    None,
+                    record.operation,
+                    record.actor,
+                    record.recorded_at,
+                )?
+            } else {
+                command.plan_with_interpretation(
+                    &record.original,
+                    value,
+                    None,
+                    record.operation,
+                    record.actor,
+                    record.recorded_at,
+                )?
+            }
         }
-        None => command.plan(
+        None if record.count_source.is_none() => command.plan(
             &record.original,
             &record.known,
             None,
@@ -396,6 +410,7 @@ pub fn actual_duplicate_result_digest(
             record.actor,
             record.recorded_at,
         )?,
+        None => return Err(ActualReportError::InvalidNativeContext),
     };
     if command.fingerprint(record.original.hub, record.actor, record.operation) != *input
         || replanned != *record
@@ -428,6 +443,10 @@ pub fn actual_duplicate_result_digest(
     if let Some(value) = &record.interpretation {
         hash.update(b"harvestcircle.hub.actual.duplicate.interpretation.v1\0");
         hash.update(value.digest()?);
+    }
+    if let Some(source) = record.count_source.as_deref() {
+        hash.update(b"harvestcircle.hub.actual.duplicate.count_source.v1\0");
+        hash.update(source.digest()?);
     }
     Ok(hash.finalize().into())
 }
@@ -559,6 +578,15 @@ fn birth(hash: &mut Sha256, value: &ActualPhysicalBirth) {
     hash_occurrence(hash, value.occurred);
     hash.update(value.recorded_at.as_seconds().to_be_bytes());
 }
+pub(super) fn known_original_digest(
+    value: &ActualKnownDeparture,
+) -> Result<[u8; 32], ActualReportError> {
+    let mut hash = Sha256::new();
+    hash.update(b"harvestcircle.hub.count.explanation.known_source_original.v1\0");
+    known(&mut hash, value)?;
+    Ok(hash.finalize().into())
+}
+
 fn known(hash: &mut Sha256, value: &ActualKnownDeparture) -> Result<(), ActualReportError> {
     value.validate()?;
     hash.update(value.operation.as_bytes());
@@ -621,7 +649,7 @@ fn reported_clock(hash: &mut Sha256, value: ActualReportedClockAssessment) {
     }]);
 }
 
-fn hash_source(
+pub(super) fn hash_source(
     hash: &mut Sha256,
     source: &HistoricalActualSource,
 ) -> Result<(), ActualReportError> {

@@ -223,3 +223,21 @@ impl FoundStockCommand {
 
 #[cfg(test)]
 mod tests;
+
+impl CountClassificationCommand {
+    #[must_use]
+    pub fn fingerprint(&self, hub: HubId, actor: PublicKey, operation: HubRecordId) -> [u8; 32] {
+        let mut hash = header(
+            b"harvestcircle.hub.correction.count_classify.recorded.command.v1\0",
+            hub,
+            actor,
+            operation,
+            self.expected_stock_revision,
+            self.expected_catalog_revision,
+        );
+        hash.update(self.observation_operation.as_bytes());
+        hash_optional_id(&mut hash, self.expected_account_prior);
+        hash_optional_id(&mut hash, self.expected_prior);
+        hash.finalize().into()
+    }
+}
