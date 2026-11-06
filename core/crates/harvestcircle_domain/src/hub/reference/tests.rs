@@ -44,6 +44,44 @@ fn record_ids_are_bounded_canonical_and_nonzero() {
 }
 
 #[test]
+fn record_id_hex_keeps_fixed_width_leading_zeroes_and_canonical_text() {
+    let bytes = [
+        0x00, 0x0f, 0x10, 0x7f, 0x80, 0xff, 0x01, 0xab, 0xcd, 0xef, 0x09, 0x0a, 0x55, 0xaa, 0xfe,
+        0xff,
+    ];
+    let record = HubRecordId::from_bytes(bytes).unwrap();
+    let expected = "000f107f80ff01abcdef090a55aafeff";
+    assert_eq!(record.to_hex(), expected);
+    assert_eq!(HubRecordId::from_hex(expected), Ok(record));
+    assert_eq!(
+        HubRecordId::from_bytes([0xff; 16]).unwrap().to_hex(),
+        "ffffffffffffffffffffffffffffffff"
+    );
+}
+
+#[test]
+fn record_id_hex_matches_published_encoding_for_every_byte_at_every_position() {
+    for position in 0..16 {
+        for value in u8::MIN..=u8::MAX {
+            let mut bytes = [0; 16];
+            // Keep the ID valid even when the selected byte is zero.
+            bytes[(position + 1) % 16] = 1;
+            bytes[position] = value;
+            let record = HubRecordId::from_bytes(bytes).unwrap();
+            let published: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+            let encoded = record.to_hex();
+            assert_eq!(encoded, published);
+            assert_eq!(encoded.len(), 32);
+            assert_eq!(
+                &encoded[position * 2..position * 2 + 2],
+                format!("{value:02x}")
+            );
+            assert_eq!(HubRecordId::from_hex(&encoded), Ok(record));
+        }
+    }
+}
+
+#[test]
 fn text_uses_utf8_bounds_preserves_originals_and_rejects_controls() {
     let exact = "é".repeat(HUB_LABEL_UTF8_BYTES / 2);
     assert_eq!(HubLabel::new(&exact).unwrap().as_str(), exact);
